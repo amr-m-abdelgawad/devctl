@@ -1,0 +1,80 @@
+name: Docs wiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-wiki.yml"
+      - ".github/scripts/prepare-wiki.sh"
+  pull_request:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - ".github/workflows/docs-wiki.yml"
+      - ".github/scripts/prepare-wiki.sh"
+
+concurrency:
+  group: wiki-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wiki pages
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash .github/scripts/prepare-wiki.sh docs wiki-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wiki-pages
+          path: wiki-out
+          retention-days: 3
+
+  publish:
+    name: Publish
+    needs: prepare
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wiki-pages
+          path: wiki-out
+      - name: Push pages
+        env:
+          WIKI_TOKEN: ${{ secrets.WIKI_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${WIKI_TOKEN}" ]]; then
+            echo "::error::Add a repository secret named WIKI_TOKEN."
+            echo "Fine-grained PAT: Contents Read and write + Wiki Read and write."
+            echo "If that still 403s, use a classic PAT with the repo scope."
+            exit 1
+          fi
+          # Fine-grained PATs must use the GitHub username, not x-access-token.
+          remote="https://${GITHUB_ACTOR}:${WIKI_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          work="$(mktemp -d)"
+          if ! git clone --depth 1 "${remote}" "${work}" 2>/tmp/wiki-clone.err; then
+            echo "Wiki clone failed; initializing a new wiki repo."
+            cat /tmp/wiki-clone.err
+            git -C "${work}" init
+            git -C "${work}" remote add origin "${remote}"
+          fi
+          rsync -a --delete --exclude .git/ wiki-out/ "${work}/"
+          git -C "${work}" config user.name "github-actions[bot]"
+          git -C "${work}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${work}" add -A
+          if git -C "${work}" diff --cached --quiet; then
+            echo "Wiki already up to date."
+            exit 0
+          fi
+          git -C "${work}" commit -m "Sync docs from ${GITHUB_SHA}"
+          git -C "${work}" push -u origin HEAD:master
+

@@ -3,10 +3,12 @@ import { DOUBLE_INTERRUPT_MS, isCopyChord, isCtrlC, shouldConfirmInterrupt } fro
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
-  test("copy uses the platform shortcut and not ctrl+c on mac", () => {
+  test("copy uses the platform shortcut and not ctrl+c", () => {
     const tui = defaultTuiConfig();
-    expect(isCopyChord({ name: "c", meta: true }, tui)).toBe(process.platform === "darwin");
-    expect(isCopyChord({ name: "c", ctrl: true }, tui)).toBe(process.platform !== "darwin");
+    const onMac = process.platform === "darwin";
+    expect(isCopyChord({ name: "c", meta: true }, tui)).toBe(onMac);
+    expect(isCopyChord({ name: "c", ctrl: true, shift: true }, tui)).toBe(!onMac);
+    expect(isCopyChord({ name: "c", ctrl: true }, tui)).toBe(false);
     expect(isCtrlC({ name: "c", ctrl: true }, tui)).toBe(true);
     expect(isCtrlC({ name: "c", meta: true }, tui)).toBe(false);
   });

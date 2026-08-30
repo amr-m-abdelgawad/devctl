@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { spawn } from "bun";
 import { GoogleAuth } from "google-auth-library";
 import {
@@ -22,6 +25,7 @@ export type GoogleStatus = {
 };
 
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
+const ADC_METADATA_PROBE_MS = 1_000;
 
 export async function detectGoogle(configuredProject: string): Promise<GoogleStatus> {
   const st: GoogleStatus = {
@@ -47,9 +51,14 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
       }
     }
   }
+  preferBiosMetadataDetection();
   try {
     const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
-    await auth.getClient();
+    if (hasLocalAdcMaterial()) {
+      await auth.getClient();
+    } else {
+      await withTimeout(auth.getClient(), ADC_METADATA_PROBE_MS);
+    }
     st.adcAvailable = true;
     const project = await auth.getProjectId().catch(() => "");
     if (st.projectID === "" && project) {
@@ -59,11 +68,13 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
     const email = await emailFromAuth(auth);
     if (email !== "") {
       st.userEmail = email;
-    } else if (st.gcloudInstalled) {
-      st.userEmail = await gcloudConfig("core/account");
     }
   } catch (err) {
+    st.adcAvailable = false;
     st.error = classifyGoogle(err);
+  }
+  if (st.userEmail === "" && st.gcloudInstalled) {
+    st.userEmail = await gcloudConfig("core/account");
   }
   return st;
 }
@@ -194,6 +205,40 @@ async function hasCommand(name: string): Promise<boolean> {
     stderr: "ignore",
   });
   return (await proc.exited) === 0;
+}
+
+function preferBiosMetadataDetection(): void {
+  if (process.env.METADATA_SERVER_DETECTION === undefined) {
+    process.env.METADATA_SERVER_DETECTION = "bios-only";
+  }
+}
+
+function hasLocalAdcMaterial(): boolean {
+  const fromEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (fromEnv && existsSync(fromEnv)) {
+    return true;
+  }
+  if (existsSync(join(homedir(), ".config", "gcloud", "application_default_credentials.json"))) {
+    return true;
+  }
+  const appData = process.env.APPDATA;
+  return Boolean(appData && existsSync(join(appData, "gcloud", "application_default_credentials.json")));
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
 
 async function gcloudConfig(key: string): Promise<string> {

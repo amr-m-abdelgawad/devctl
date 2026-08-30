@@ -11,6 +11,9 @@ export function isGcpMetadataWarning(message: string, type = ""): boolean {
 }
 
 export function silenceGcpMetadataWarnings(): void {
+  if (process.env.METADATA_SERVER_DETECTION === undefined) {
+    process.env.METADATA_SERVER_DETECTION = "bios-only";
+  }
   if (warningsSilenced) {
     return;
   }
