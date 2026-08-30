@@ -1,0 +1,32 @@
+import { mkdirSync } from "node:fs";
+import { describe, expect, test } from "bun:test";
+import { openCredentialStore } from "./credentials.ts";
+
+function home(): void {
+  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-creds-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  mkdirSync(dir, { recursive: true });
+  process.env.DEVCTL_HOME = dir;
+}
+
+describe("CredentialStore", () => {
+  test("file backend stores and lists without throwing", async () => {
+    home();
+    const store = openCredentialStore("file");
+    expect(store.backend).toBe("file");
+    await store.set("user|aud", {
+      identity: "user",
+      audience: "aud",
+      scopes: [],
+      accessToken: "secret-value",
+      tokenType: "Bearer",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    const got = await store.get("user|aud");
+    expect(got?.accessToken).toBe("secret-value");
+    const listed = await store.list();
+    expect(listed[0]?.identity).toBe("user");
+    expect(listed[0]?.valid).toBe(true);
+    await store.delete("user|aud");
+    expect(await store.get("user|aud")).toBeUndefined();
+  });
+});

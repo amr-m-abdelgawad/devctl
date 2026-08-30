@@ -1,0 +1,33 @@
+# Binaries
+/devctl
+/bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test / coverage
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Go
+vendor/
+
+# TypeScript / Bun
+ts/node_modules/
+examples/**/node_modules/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local runtime (never commit credentials or session state)
+.devctl-user/
+*.log
+.env.local

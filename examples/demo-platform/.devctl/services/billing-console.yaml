@@ -1,0 +1,25 @@
+description: Billing console — React admin UI for the invoices platform
+command:
+  - bun
+  - run
+  - dev
+working_dir: billing-console
+dependencies:
+  - invoices-api
+ports:
+  http: 18003
+environment:
+  AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+  API_URL: http://127.0.0.1:${services.invoices-api.ports.http}
+  required:
+    - AUTH_URL
+    - API_URL
+health:
+  type: http
+  url: http://127.0.0.1:18003/
+extends: react-vite
+startup:
+  wait_for_healthy: true
+  timeout_seconds: 45
+capabilities:
+  - local_http

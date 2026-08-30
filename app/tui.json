@@ -1,0 +1,25 @@
+{
+  "theme": "devctl",
+  "leader_timeout": 2000,
+  "keybinds": {
+    "leader": "ctrl+x",
+    "command_list": "ctrl+p"
+  },
+  "scroll_speed": 3,
+  "scroll_acceleration": {
+    "enabled": false
+  },
+  "diff_style": "auto",
+  "cursor": {
+    "style": "block",
+    "blinking": true
+  },
+  "mouse": true,
+  "attention": {
+    "enabled": false,
+    "notifications": true,
+    "sound": true,
+    "volume": 0.4,
+    "sound_pack": "default"
+  }
+}

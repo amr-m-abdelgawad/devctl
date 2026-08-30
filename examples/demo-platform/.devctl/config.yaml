@@ -1,0 +1,109 @@
+version: 1
+
+project:
+  name: demo-platform
+
+google:
+  project_id: company-dev
+  region: europe-west1
+
+templates:
+  python-http:
+    health:
+      type: http
+      interval_seconds: 2
+      timeout_seconds: 1
+    logs:
+      stdout: true
+      stderr: true
+    restart:
+      policy: on_failure
+      max_retries: 2
+      backoff_seconds: 1
+  react-vite:
+    health:
+      type: http
+      interval_seconds: 2
+      timeout_seconds: 2
+    logs:
+      stdout: true
+      stderr: true
+    restart:
+      policy: on_failure
+      max_retries: 2
+      backoff_seconds: 1
+
+profiles:
+  minimal:
+    services:
+      - identity
+      - invoices-api
+  backend:
+    services:
+      - identity
+      - invoices-api
+      - invoices-worker
+  full:
+    services:
+      - identity
+      - invoices-api
+      - invoices-worker
+      - billing-console
+
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 18080
+  routes:
+    - name: billing-console
+      match:
+        host: billing.local
+      upstream:
+        url: http://127.0.0.1:18003
+      auth:
+        type: none
+        identity: user
+    - name: invoices-api
+      match:
+        host: invoices-api.local
+      upstream:
+        url: http://127.0.0.1:18000
+      auth:
+        type: none
+        identity: user
+    - name: invoices-worker-api
+      match:
+        host: invoices-worker.local
+      upstream:
+        url: http://127.0.0.1:18002
+      auth:
+        type: none
+        identity:
+          type: service_account
+          service_account: invoices-worker-dev@company-dev.iam.gserviceaccount.com
+
+logs:
+  max_memory_events: 50000
+  persistence:
+    enabled: true
+    directory: ~/.devctl/logs
+    retention_days: 7
+    max_session_logs: 20
+
+auth:
+  refresh_threshold_seconds: 300
+
+shutdown:
+  stop_services_on_exit: true
+  grace_seconds: 5
+
+doctor:
+  tools:
+    - name: python3
+      command: python3
+    - name: bun
+      command: bun
+
+ui:
+  theme: system

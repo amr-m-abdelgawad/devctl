@@ -1,0 +1,14 @@
+# Example permission distribution for administrators.
+# This file is documentation — it is not loaded by devctl.
+#
+# Bind token creator on each development service account (not project-wide).
+
+bindings:
+  - role: roles/iam.serviceAccountTokenCreator
+    members:
+      - group:dev-developers@example.com
+    resource: serviceAccount:worker-dev@PROJECT.iam.gserviceaccount.com
+  - role: roles/iap.httpsResourceAccessor
+    members:
+      - group:dev-developers@example.com
+    resource: iapWebApp/billing

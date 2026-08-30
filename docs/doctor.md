@@ -1,0 +1,46 @@
+# Doctor
+
+```bash
+devctl doctor
+devctl doctor --json
+```
+
+Exit code **2** when any check is not ok (same code as configuration errors).
+
+The TUI **doctor** tab re-runs on every visit (`r` also refreshes). `j`/`k` move. `enter` on a busy port asks to SIGTERM that process (then SIGKILL if it stays up).
+
+## What it checks
+
+- Google CLI installed
+- Application Default Credentials
+- Project (with source)
+- Live IAM Credentials / Resource Manager / IAP API reachability via Service Usage (reported, **never** auto-enabled)
+- Impersonation for each configured service account
+- IAP audiences (including SA impersonation)
+- Configured `doctor.tools` binaries (demo: `python3`, `bun`)
+- Ports declared in config
+- Capabilities vs identity
+- Repository configuration validity
+
+Doctor probes IAP / service-account identity when any route or service declares them, even if the rest of the repo looks local-only.
+
+Failures include an actionable hint. Error classes: authentication, authorization, missing API, missing IAM role, wrong project, wrong service account, IAP, expired credential, network.
+
+Ports held by **your own** running services show as “in use”. That is expected after `start`. Use the free-port action only for leftovers that are not this supervisor’s children.
+
+Typical loop:
+
+```mermaid
+flowchart LR
+  doctor["devctl doctor"] --> hint["Fix the named hint"]
+  hint --> auth["devctl auth status"]
+  auth --> start["Start services"]
+  start --> logs["Logs if health still fails"]
+```
+
+## Related
+
+- [Authentication](authentication.md)
+- [Troubleshooting](troubleshooting.md)
+- [Admin setup](admin-setup.md)
+- [TUI](tui.md)

@@ -1,0 +1,18 @@
+description: Identity service — session login, token issuance, whoami
+command:
+  - python3
+  - main.py
+working_dir: identity
+ports:
+  http: 18001
+health:
+  type: http
+  url: http://127.0.0.1:18001/health
+identity:
+  type: user
+extends: python-http
+startup:
+  wait_for_healthy: true
+  timeout_seconds: 20
+capabilities:
+  - local_http

@@ -1,0 +1,26 @@
+description: Invoices API — job queue for invoice generation, calls identity
+command:
+  - python3
+  - main.py
+working_dir: invoices-api
+dependencies:
+  - identity
+ports:
+  http: 18000
+environment:
+  AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+  required:
+    - AUTH_URL
+  defaults:
+    LOG_LEVEL: INFO
+health:
+  type: http
+  url: http://127.0.0.1:18000/health
+identity:
+  type: user
+extends: python-http
+startup:
+  wait_for_healthy: true
+  timeout_seconds: 20
+capabilities:
+  - local_http

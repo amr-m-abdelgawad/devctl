@@ -1,0 +1,31 @@
+{
+  "name": "devctl",
+  "version": "0.1.0",
+  "description": "Local development orchestrator",
+  "module": "src/bin.ts",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "devctl": "./src/bin.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/bin.ts",
+    "start": "bun run src/bin.ts",
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.2.18",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.9",
+    "@opentui/react": "^0.5.9",
+    "commander": "^15.0.0",
+    "dotenv": "^17.4.2",
+    "google-auth-library": "^11.0.2",
+    "react": "^19.2.8",
+    "yaml": "^2.9.0"
+  }
+}
