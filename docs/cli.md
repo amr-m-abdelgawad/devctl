@@ -9,7 +9,7 @@ devctl start [svc…] [--profile] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--json]
 devctl status [--json]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--output] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--output] [--json]
 devctl logs export --output FILE
 devctl reload
 devctl doctor [--json]
@@ -26,7 +26,7 @@ devctl attach
 ## Start, stop, status
 
 - `start` with `--profile` starts that profile’s members (plus dependencies).
-- `start` with **no** profile and **no** names starts **every** configured service.
+- `start` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
 - `--detach` leaves the supervisor running after the command exits.
 - `start` exits **5** when a requested service fails to spawn, **6** when it starts but never becomes healthy.
 - `stop` with no names stops every started service.

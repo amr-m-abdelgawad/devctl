@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/schema/devctl.config.schema.json",
+  "title": "devctl configuration",
+  "description": "Schema for .devctl/config.yaml (and merged modular YAML). Unknown fields are rejected at load time.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Must be 1"
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "description": "Shown in the TUI header" }
+      }
+    },
+    "google": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_id": { "type": "string" },
+        "region": { "type": "string" }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/profile" }
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/service" }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/service" }
+    },
+    "proxy": { "$ref": "#/$defs/proxy" },
+    "logs": { "$ref": "#/$defs/logs" },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "refresh_threshold_seconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "shutdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stop_services_on_exit": { "type": "boolean" },
+        "grace_seconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "theme": { "type": "string" },
+        "keymap": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extra_markers": { "type": "array", "items": { "type": "string" } },
+        "extra_patterns": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "doctor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "command": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "JS/TS module loaded when the supervisor starts"
+          }
+        }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional sources to add to the always-on set (process, defaults, vars, runtime). Typical: profile, dotenv, generated, keychain, secret_manager"
+        },
+        "secrets": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "command": {
+      "description": "argv list preferred; a string is split on whitespace. Set service shell: true for pipes or redirects.",
+      "oneOf": [
+        { "type": "string" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "portValue": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 65535 },
+        { "type": "string", "pattern": "^(auto|[0-9]+)$" }
+      ]
+    },
+    "ports": {
+      "description": "Named map (http: 8000), list, single number, or auto",
+      "oneOf": [
+        { "$ref": "#/$defs/portValue" },
+        { "type": "array", "items": { "$ref": "#/$defs/portValue" } },
+        { "type": "object", "additionalProperties": { "$ref": "#/$defs/portValue" } }
+      ]
+    },
+    "serviceEnvironment": {
+      "type": "object",
+      "properties": {
+        "required": { "type": "array", "items": { "type": "string" } },
+        "defaults": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "services": { "type": "array", "items": { "type": "string" } },
+        "environment": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "extends": { "type": "string" },
+        "description": { "type": "string" },
+        "command": { "$ref": "#/$defs/command" },
+        "shell": { "type": "boolean" },
+        "working_dir": { "type": "string" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "ports": { "$ref": "#/$defs/ports" },
+        "environment": { "$ref": "#/$defs/serviceEnvironment" },
+        "health": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "http | tcp | process | command (plugins may add more)"
+            },
+            "url": { "type": "string" },
+            "address": { "type": "string" },
+            "command": { "$ref": "#/$defs/command" },
+            "interval_seconds": { "type": "number", "minimum": 0 },
+            "timeout_seconds": { "type": "number", "minimum": 0 }
+          }
+        },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "description": "user | service | service_account" },
+            "mode": { "type": "string", "description": "Alias of type" },
+            "service_account": { "type": "string" }
+          }
+        },
+        "logs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "stdout": { "type": "boolean" },
+            "stderr": { "type": "boolean" }
+          }
+        },
+        "restart": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "policy": { "type": "string", "description": "never | on_failure | always" },
+            "max_retries": { "type": "integer", "minimum": 0 },
+            "backoff_seconds": { "type": "number", "minimum": 0 }
+          }
+        },
+        "startup": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "wait_for_healthy": { "type": "boolean" },
+            "timeout_seconds": { "type": "number", "minimum": 0 }
+          }
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "proxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "listen": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          }
+        },
+        "token_endpoint": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          }
+        },
+        "routes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/route" }
+        }
+      }
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "match": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "path": { "type": "string" }
+          }
+        },
+        "upstream": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "url": { "type": "string" }
+          }
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "description": "iap, google, or empty" },
+            "audience": { "type": "string" },
+            "service_account": { "type": "string" },
+            "identity": {
+              "oneOf": [
+                { "type": "string" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "type": { "type": "string" },
+                    "service_account": { "type": "string" }
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "logs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_memory_events": { "type": "integer", "minimum": 1 },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "directory": { "type": "string" },
+            "retention_days": { "type": "integer", "minimum": 0 },
+            "max_session_logs": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

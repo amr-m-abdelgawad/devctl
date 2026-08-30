@@ -1,4 +1,4 @@
-import { canStartAll, countRunning, defaultProfileName, filterLogs, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, type LogWrapMode } from "../helpers.ts";
+import { canStartAll, countRunning, defaultProfileName, filterLogs, formatUptime, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, type LogWrapMode } from "../helpers.ts";
 import { useDensity } from "../density.tsx";
 import { Chip, MetaBar, Toolbar } from "../layout.tsx";
 import { EmptyState } from "../chrome.tsx";
@@ -6,6 +6,7 @@ import { type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../config/index.ts";
 import { type GoogleStatus } from "../../google.ts";
 import { type LogEvent } from "../../logs.ts";
+import { sessionStartedAt } from "../../storage.ts";
 import { type StatusSnapshot } from "../../types.ts";
 import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
 import { LogFilterBar, LogList } from "./Logs.tsx";
@@ -32,6 +33,7 @@ export function Dashboard(props: {
   onToggle: (name: string) => void;
   onFilterService: (service: string) => void;
   onToggleErrors: () => void;
+  onShowErrors?: () => void;
   wrapMode?: LogWrapMode;
   view?: LogEvent[];
   follow?: boolean;
@@ -60,6 +62,7 @@ export function Dashboard(props: {
     onToggle,
     onFilterService,
     onToggleErrors,
+    onShowErrors,
     wrapMode = "clip",
     view,
     follow = true,
@@ -79,8 +82,11 @@ export function Dashboard(props: {
   }
   const stacked = width < NARROW_WIDTH;
   const idle = canStartAll(snap);
-  const counts = countRunning(snap);
+  const counts = countRunning(snap, names);
   const failed = names.filter((name) => snap?.services[name]?.state === "FAILED").length;
+  const sessionStart = snap?.session_id ? sessionStartedAt(snap.session_id) : undefined;
+  const uptime = sessionStart ? formatUptime(Date.now() - sessionStart.getTime()) : undefined;
+  const logErrors = snap?.logs.errors ?? 0;
   const profileName = profile || defaultProfileName(cfg);
   const members = profileMembers(cfg, profileName);
   const listWidth = serviceListPaneWidth(width, names, stacked);
@@ -110,6 +116,8 @@ export function Dashboard(props: {
             { text: runningLabel(counts.running, names.length), tone: counts.running > 0 ? "success" : "idle" },
             ...(failed > 0 ? [{ text: `${failed} failed`, tone: "error" as const }] : []),
             ...(checked.length > 0 ? [{ text: `${checked.length} selected`, tone: "primary" as const }] : []),
+            ...(uptime !== undefined ? [{ text: `up ${uptime}`, tone: "idle" as const }] : []),
+            ...(logErrors > 0 ? [{ text: `${logErrors} errors`, tone: "error" as const, onMouseDown: onShowErrors }] : []),
           ]}
         />
         <SelectionHint palette={palette} checked={checked} idle={idle} profileName={profileName} members={members} />

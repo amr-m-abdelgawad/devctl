@@ -19,7 +19,7 @@ export function Header(props: {
   width: number;
 }) {
   const { palette, cfg, snap, google, profile, reveal, width } = props;
-  const counts = countRunning(snap);
+  const counts = countRunning(snap, cfg ? Object.keys(cfg.services) : undefined);
   const proxyOn = snap?.proxy.running === true;
   const adc = google?.adcAvailable === true;
   const stacked = width < HEADER_STACK_WIDTH;

@@ -1,18 +1,37 @@
 # Installation
 
-`devctl` is TypeScript. You run it with [Bun](https://bun.sh).
+`devctl` is TypeScript. You run it with [Bun](https://bun.sh) **1.4.0** or later, or you install a tagged binary from GitHub Releases.
 
-## Bun
+`devctl version` prints `devctl <semver>`. Tagged binaries bake that version in at compile time.
+
+## From a GitHub Release
+
+After a `v*` tag, the [Release](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/release.yml) workflow publishes compile artifacts:
+
+| Asset | Platform |
+|-------|----------|
+| `devctl-darwin-arm64` | macOS Apple silicon |
+| `devctl-darwin-x64` | macOS Intel |
+| `devctl-linux-x64` | Linux x64 |
+| `devctl-linux-arm64` | Linux arm64 |
+| `devctl-windows-x64.exe` | Windows x64 |
 
 ```bash
-# https://bun.sh — then make sure the binary is on PATH
-export PATH="$HOME/.bun/bin:$PATH"
+# example — pick the asset for your OS
+chmod +x devctl-darwin-arm64
+sudo mv devctl-darwin-arm64 /usr/local/bin/devctl
+devctl version
 ```
+
+There is no npm package and no Homebrew formula yet. The published artifact is the GitHub Release binary.
 
 ## From this repository
 
 ```bash
-git clone https://github.com/amrmohamed/devctl
+# https://bun.sh — then make sure the binary is on PATH
+export PATH="$HOME/.bun/bin:$PATH"
+
+git clone https://github.com/amr-m-abdelgawad/devctl.git
 cd devctl/app
 bun install
 ```
@@ -40,10 +59,11 @@ Install `gcloud` only if you use user identity, impersonation, or IAP. Local-onl
 
 ## Cross-platform
 
-macOS, Linux, and Windows. Process-group handling is OS-specific (`app/src/processes/`); the rest of the application is shared.
+macOS, Linux, and Windows. Process-group handling is OS-specific (`app/src/processes/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows.
 
 ## Related
 
 - [Quick start](quickstart.md)
 - [Building from source](typescript.md)
 - [How it fits together](overview.md)
+- [Changelog](../CHANGELOG.md)

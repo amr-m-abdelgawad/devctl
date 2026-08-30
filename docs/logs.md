@@ -32,7 +32,7 @@ Long lines fold with a `▸N` marker. `j`/`k` moves the highlight and unwraps th
 ## CLI
 
 ```bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--json]
 devctl logs --output FILE          # same filters, write a file
 devctl logs export --output FILE   # explicit export subcommand
 ```

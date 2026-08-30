@@ -56,7 +56,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_logs",
-    description: "Recent log lines, optionally filtered. Capped at 200 events. Secrets are redacted.",
+    description: "Recent log lines, optionally filtered. Capped at 200 events. Secrets are redacted. Pass since=next_since to read only newer lines.",
     inputSchema: {
       type: "object",
       properties: {
@@ -64,6 +64,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         level: { type: "string" },
         search: { type: "string" },
         source: { type: "string" },
+        since: { type: "string", description: "Follow cursor from a previous next_since; only events after this timestamp" },
       },
       additionalProperties: false,
     },
@@ -85,10 +86,13 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "start_services",
-    description: "Start named services or the current profile when names are omitted",
+    description: "Start named services, or a profile when names are omitted. Empty start uses profile, then the active session profile, then the first configured profile — never every service.",
     inputSchema: {
       type: "object",
-      properties: { services: { type: "array", items: { type: "string" } } },
+      properties: {
+        services: { type: "array", items: { type: "string" } },
+        profile: { type: "string", description: "Profile to start when services is omitted" },
+      },
       additionalProperties: false,
     },
   },
@@ -180,14 +184,18 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
 
 export async function getLogs(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
   const service = typeof args.service === "string" ? args.service : "";
+  const since = typeof args.since === "string" ? args.since : "";
   const events = await host.logs({
     services: service === "" ? [] : [service],
     level: typeof args.level === "string" ? args.level : "",
     search: typeof args.search === "string" ? args.search : "",
     source: typeof args.source === "string" ? args.source : "",
+    since,
   });
   const detector = detectorFor(host.config());
-  const capped = events.slice(-MCP_LOG_CAP);
+  const fresh = since === "" ? events : events.filter((ev) => ev.timestamp > since);
+  const capped = fresh.slice(-MCP_LOG_CAP);
+  const last = capped[capped.length - 1]?.timestamp ?? since;
   return {
     events: capped.map((ev) => ({
       timestamp: ev.timestamp,
@@ -198,6 +206,7 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
       pid: ev.pid,
     })),
     truncated: events.length > MCP_LOG_CAP,
+    next_since: last,
   };
 }
 
@@ -261,7 +270,10 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
     case "run_doctor":
       return host.doctor();
     case "start_services":
-      return host.start({ services: stringList(args.services) });
+      return host.start({
+        services: stringList(args.services),
+        profile: typeof args.profile === "string" ? args.profile : "",
+      });
     case "stop_services":
       await host.stop(stringList(args.services));
       return { ok: true };

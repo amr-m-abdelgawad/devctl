@@ -27,6 +27,7 @@ function sampleSnap(): StatusSnapshot {
       iap: false,
     },
     logs: { total: 3, errors: 0, counts: { api: 3 } },
+    system: { platform: "test", cpuCount: 1, loadAvg1: 0, loadAvg5: 0, loadAvg15: 0, memTotalKB: 0, memFreeKB: 0, memAvailableKB: 0, hostUptimeSec: 0 },
   };
 }
 
@@ -102,6 +103,34 @@ describe("mcp tools", () => {
     expect(result.events).toHaveLength(2);
     expect(result.events.every((ev) => ev.service === "api")).toBe(true);
     expect(result.events[1]?.message).not.toContain("super-secret");
+  });
+
+  test("get_logs returns a follow cursor and skips lines at since", async () => {
+    const result = (await callMcpTool(stubHost(), "get_logs", { since: "t1" })) as {
+      events: Array<{ timestamp: string }>;
+      next_since: string;
+    };
+    expect(result.events.map((ev) => ev.timestamp)).toEqual(["t2", "t3"]);
+    expect(result.next_since).toBe("t3");
+    const empty = (await callMcpTool(stubHost(), "get_logs", { since: "t3" })) as {
+      events: unknown[];
+      next_since: string;
+    };
+    expect(empty.events).toEqual([]);
+    expect(empty.next_since).toBe("t3");
+  });
+
+  test("start_services forwards profile and does not invent a service list", async () => {
+    const host = stubHost();
+    let seen: { services?: string[]; profile?: string } | undefined;
+    host.start = async (req) => {
+      seen = req;
+      return { started: true };
+    };
+    await callMcpTool(host, "start_services", { profile: "backend" });
+    expect(seen).toEqual({ services: [], profile: "backend" });
+    await callMcpTool(host, "start_services", {});
+    expect(seen).toEqual({ services: [], profile: "" });
   });
 
   test("get_logs caps at 200", async () => {

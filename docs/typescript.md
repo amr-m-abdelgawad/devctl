@@ -25,7 +25,7 @@ cd app && bun link    # optional: `devctl` on PATH
 | `app/src/bin.ts` | Entry |
 | `app/src/cli.ts` | Commander CLI |
 | `app/src/supervisor.ts` | Process owner, proxy, MCP, logs |
-| `app/src/controller.ts` | Local supervisor or Unix socket client |
+| `app/src/controller.ts` | Local supervisor or socket / named-pipe client |
 | `app/src/config/` | Discover, decode, merge, validate |
 | `app/src/tui/` | OpenTUI screens and overlays |
 | `app/src/mcp/` | Streamable HTTP MCP server |

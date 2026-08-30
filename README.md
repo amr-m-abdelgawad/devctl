@@ -67,9 +67,12 @@ Profiles: `minimal` · `backend` · `full` (includes the React console on [local
 
 ## Install
 
+Tagged builds from [GitHub Releases](https://github.com/amr-m-abdelgawad/devctl/releases) (`devctl version` matches the tag). Until a tag exists, install from source:
+
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-cd app
+git clone https://github.com/amr-m-abdelgawad/devctl.git
+cd devctl/app
 bun install
 bun link          # optional: `devctl` on PATH
 devctl version
@@ -81,7 +84,7 @@ Or run from the repo root without linking:
 bun run app/src/bin.ts --help
 ```
 
-`gcloud` only if a service or route needs user identity, impersonation, or IAP.
+`gcloud` only if a service or route needs user identity, impersonation, or IAP. Details: [Installation](docs/installation.md).
 
 ---
 

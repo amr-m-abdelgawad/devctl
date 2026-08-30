@@ -64,6 +64,30 @@ async function capture(cmd: string[]): Promise<string> {
   }
 }
 
+export type ResourceSample = { pid: number; cpuPercent: number; memoryKB: number };
+
+export async function sampleResourceUsageUnix(pids: number[]): Promise<Map<number, ResourceSample>> {
+  const result = new Map<number, ResourceSample>();
+  if (pids.length === 0) {
+    return result;
+  }
+  const out = await capture(["ps", "-o", "pid=,pcpu=,rss=", "-p", pids.join(",")]);
+  for (const line of out.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed === "") {
+      continue;
+    }
+    const [pidStr, cpuStr, rssStr] = trimmed.split(/\s+/);
+    const pid = Number(pidStr);
+    const cpuPercent = Number(cpuStr);
+    const memoryKB = Number(rssStr);
+    if (Number.isFinite(pid) && Number.isFinite(cpuPercent) && Number.isFinite(memoryKB)) {
+      result.set(pid, { pid, cpuPercent, memoryKB });
+    }
+  }
+  return result;
+}
+
 export function commandMatches(expected: string[], observed: string): boolean {
   if (expected.length === 0 || observed === "") {
     return false;

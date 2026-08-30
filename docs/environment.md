@@ -16,7 +16,7 @@ flowchart LR
 | `process` | The supervisor’s own environment |
 | `profile` | `profiles.<name>.environment` |
 | `dotenv` | Repo-root then service working-dir: `.env`, `.env.local`, `.env.development`, `.env.<profile>` |
-| `generated` | Reserved hook (empty unless a plugin fills it) |
+| `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API |
 | `defaults` | `services.<name>.environment.defaults` |
@@ -49,6 +49,10 @@ flowchart LR
   tuiJson --> yaml["repo .devctl"]
   yaml --> defaults["defaults"]
 ```
+
+## File plugins
+
+`plugins[].path` is a JS/TS module imported when the supervisor starts. It may export any of: `environmentSources`, `healthChecks`, `identityProviders`, `tokenProviders`, `logParsers`, `proxyMiddleware`. The built-in `generated` source stays empty unless you register an environment source.
 
 ## Related
 

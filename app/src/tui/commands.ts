@@ -19,6 +19,7 @@ export function allCommands(): CommandSpec[] {
     { name: "proxy", aliases: ["p"], desc: "Open the proxy screen", leader: "p", group: "nav" },
     { name: "mcp", aliases: ["agent"], desc: "Open the MCP server screen for coding agents", leader: "", group: "nav" },
     { name: "doctor", aliases: ["d"], desc: "Run environment diagnostics", leader: "d", group: "nav" },
+    { name: "stats", aliases: ["metrics"], desc: "View system and service statistics", leader: "m", group: "nav" },
     { name: "config", aliases: ["c"], desc: "View merged configuration", leader: "c", group: "nav" },
     { name: "profiles", aliases: ["o"], desc: "Select a development profile", leader: "o", group: "nav" },
     { name: "setup", aliases: ["init"], desc: "Open setup guidance", leader: "i", group: "nav" },

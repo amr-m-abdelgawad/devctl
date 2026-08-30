@@ -45,11 +45,11 @@ devctl mcp --json
 | `list_services` | Name, state, health, ports, pid, last error |
 | `get_service` | One service plus command/cwd/ports (env redacted or left as `${…}` refs) |
 | `get_status` | Profile, session, identity flags, proxy, log counts, MCP listen |
-| `get_logs` | Filtered logs, capped at 200 events, secrets redacted |
+| `get_logs` | Filtered logs, capped at 200 events, secrets redacted. Pass `since` from the previous `next_since` to read only newer lines |
 | `list_profiles` | Config profiles and members |
 | `get_config` | Merged summary: project, services, routes, proxy paths |
 | `run_doctor` | Doctor report |
-| `start_services` | Named list, or **every** configured service when omitted (not “current profile”) |
+| `start_services` | Named list, or a `profile`. Omitted names use `profile`, then the active session profile, then the first configured profile — never every service. No profile and no names fails closed |
 | `stop_services` | Named list, or all started services when omitted |
 | `restart_services` | Stop then start; start still expands dependencies |
 | `reload_config` | Reload `.devctl` |

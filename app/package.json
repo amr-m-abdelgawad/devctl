@@ -6,6 +6,14 @@
   "module": "src/bin.ts",
   "type": "module",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amr-m-abdelgawad/devctl.git"
+  },
+  "homepage": "https://github.com/amr-m-abdelgawad/devctl",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "bin": {
     "devctl": "./src/bin.ts"
   },

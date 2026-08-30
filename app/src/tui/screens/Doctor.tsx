@@ -1,4 +1,5 @@
 import { EmptyState, ErrorState, LoadingState } from "../chrome.tsx";
+import { renderBar } from "../helpers.ts";
 import { ScreenFrame, scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
 import { stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type Check, type Report } from "../../doctor.ts";
@@ -28,9 +29,7 @@ export function DoctorScreen(props: {
   const warnCount = report.checks.filter((c) => c.severity === "warn").length;
   const errorCount = report.checks.filter((c) => c.severity === "error").length;
   const total = report.checks.length;
-  const barLen = 20;
-  const filled = total > 0 ? Math.round((okCount / total) * barLen) : 0;
-  const bar = "█".repeat(filled) + "░".repeat(Math.max(0, barLen - filled));
+  const bar = renderBar(total > 0 ? okCount / total : 0);
   const barColor = errorCount > 0 ? palette.error : warnCount > 0 ? palette.warning : palette.success;
   return (
     <ScreenFrame palette={palette} title={`doctor  ${report.issues} issue(s)`}>

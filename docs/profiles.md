@@ -22,7 +22,7 @@ The TUI **profiles** screen (`o` or `/profiles`) lists configured profiles. `ent
 
 Empty-dashboard `enter` uses the first profile name **alphabetically** when no session profile is set.
 
-`devctl start` / MCP `start_services` with **no** profile and **no** names starts every service in the config, not “the current profile”. Pass `--profile` or explicit names to stay on a subset.
+`devctl start` / MCP `start_services` with **no** profile and **no** names starts the active session profile, or the first configured profile (alphabetically). With no profiles it fails closed. Pass `--profile` or explicit names to stay on a subset. It never expands to every service just because the list was empty.
 
 ## Sessions
 
@@ -32,7 +32,8 @@ Per-repo state lives under `~/.devctl/state/<repoID>/`:
 |------|------|
 | `state.json` | session id, profile, pid / command / cwd / startTime / ports |
 | `devctl.lock` | supervisor lock (stale locks from dead PIDs are replaced) |
-| `devctl.sock` | JSON-RPC socket for TUI, CLI, and attach |
+| `devctl.sock` | JSON-RPC socket for TUI, CLI, and attach (Unix) |
+| `\\.\pipe\devctl-<repoID>` | Named pipe used instead of the socket on Windows |
 
 A leftover `~/.devctl/sessions/<repoID>/` is migrated once.
 

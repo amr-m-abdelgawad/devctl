@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { load } from "../config/load.ts";
-import { resolveProfile, startupPlan } from "../services.ts";
+import { resolveStartRequest, startupPlan } from "../services.ts";
 import { defaultProfileName, formatStarted, noneStarted } from "./helpers.ts";
 
 describe("demo-platform TUI first-run flow", () => {
@@ -10,8 +10,9 @@ describe("demo-platform TUI first-run flow", () => {
     const profile = defaultProfileName(cfg);
     expect(profile).toBe("backend");
     expect(noneStarted(undefined)).toBe(true);
-    const resolved = resolveProfile(cfg, profile, []);
-    const plan = startupPlan(cfg, resolved.services, profile);
+    const resolved = resolveStartRequest(cfg, {});
+    expect(resolved.profile).toBe("backend");
+    const plan = startupPlan(cfg, resolved.services, resolved.profile);
     expect(plan.waves.flat()).toEqual(["identity", "invoices-api", "invoices-worker"]);
     expect(formatStarted(plan)).toBe("Started identity → invoices-api → invoices-worker");
   });

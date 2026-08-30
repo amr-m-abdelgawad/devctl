@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { available } from "./ports.ts";
-import { ProcessManager, sameProcess } from "./processes.ts";
+import { ProcessManager, sameProcess, sampleResourceUsage } from "./processes.ts";
 
 function listenPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -108,5 +108,23 @@ describe("process stop", () => {
     await mgr.stop("holder", 800);
     await sleep(100);
     expect(await available(port)).toBe(true);
+  });
+});
+
+describe("sampleResourceUsage", () => {
+  test("reports cpu and memory for a live pid", async () => {
+    if (process.platform === "win32") {
+      return;
+    }
+    const samples = await sampleResourceUsage([process.pid]);
+    const self = samples.get(process.pid);
+    expect(self).toBeDefined();
+    expect(self?.cpuPercent).toBeGreaterThanOrEqual(0);
+    expect(self?.memoryKB).toBeGreaterThan(0);
+  });
+
+  test("returns an empty map for no pids", async () => {
+    const samples = await sampleResourceUsage([]);
+    expect(samples.size).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 import { spawn, type Subprocess } from "bun";
 import { KindProcessStart, newError, wrapError } from "./errors.ts";
-import { commandMatches, inspectProcessUnix, killProcessTreeUnix, type ProcessIdentity } from "./processes/unix.ts";
+import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./processes/unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows } from "./processes/windows.ts";
 import { processAlive } from "./storage.ts";
 
@@ -167,6 +167,17 @@ export async function inspectProcess(pid: number): Promise<ProcessIdentity | und
     return inspectProcessWindows(pid);
   }
   return inspectProcessUnix(pid);
+}
+
+export type { ResourceSample };
+
+export async function sampleResourceUsage(pids: number[]): Promise<Map<number, ResourceSample>> {
+  // ps-based sampling; no Windows equivalent wired up yet, so report nothing there
+  // rather than guess at a wmic/typeperf translation.
+  if (process.platform === "win32") {
+    return new Map();
+  }
+  return sampleResourceUsageUnix(pids);
 }
 
 const START_TIME_TOLERANCE_MS = 2_000;

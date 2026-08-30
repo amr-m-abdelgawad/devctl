@@ -9,7 +9,7 @@ import { humanMessage } from "../errors.ts";
 import { LogReceived, type BusEvent } from "../events.ts";
 import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent } from "../logs.ts";
 import { exportsDir } from "../storage.ts";
-import { resolveProfile, shutdownPlan, startupPlan, type Plan } from "../services.ts";
+import { resolveStartRequest, shutdownPlan, startupPlan, type Plan } from "../services.ts";
 import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../mcp/snippets.ts";
 import { type StatusSnapshot } from "../types.ts";
@@ -53,6 +53,7 @@ import { ProxyScreen } from "./screens/Proxy.tsx";
 import { ServiceDetail } from "./screens/ServiceDetail.tsx";
 import { ServicesScreen } from "./screens/Services.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
+import { StatsScreen } from "./screens/Stats.tsx";
 import { SetupScreen } from "./screens/Setup.tsx";
 import { McpScreen } from "./screens/Mcp.tsx";
 import { DensityContext } from "./density.tsx";
@@ -633,8 +634,8 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         return;
       }
       try {
-        const resolved = resolveProfile(cfg, profileName, targets);
-        const nextPlan = startupPlan(cfg, resolved.services, profileName);
+        const resolved = resolveStartRequest(cfg, { services: targets, profile: profileName });
+        const nextPlan = startupPlan(cfg, resolved.services, resolved.profile);
         setLifecycle("start");
         setPlan(nextPlan);
         setOverlay("plan");
@@ -644,8 +645,8 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         }
         const needed = resolved.services.filter((name) => !isActiveRuntime(snap?.services[name]));
         const result = await controller.start({
-          services: needed.length > 0 ? needed : targets,
-          profile: profileName,
+          services: needed.length > 0 ? needed : resolved.services,
+          profile: resolved.profile,
         });
         await refresh();
         setPlanBusy(false);
@@ -814,6 +815,9 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             return;
           case "doctor":
             setScreen("doctor");
+            return;
+          case "stats":
+            setScreen("stats");
             return;
           case "start":
             await beginStart(targets, profile);
@@ -1712,6 +1716,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             logSources={logSources}
             onFilterService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onShowErrors={() => {
+              setLogService("");
+              setErrorOnly(true);
+            }}
             wrapMode={logWrap}
             view={logSlice}
             follow={!logPinned}
@@ -1804,6 +1812,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             onPick={setSelected}
           />
         ) : null}
+        {screen === "stats" ? <StatsScreen palette={palette} cfg={cfg} snap={snap} width={width} onRefresh={refresh} /> : null}
         {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} scrollRef={configScrollRef} /> : null}
         {screen === "profiles" ? (
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />

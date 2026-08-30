@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:net";
 import { existsSync, unlinkSync, watch, type FSWatcher } from "node:fs";
+import { cpus, loadavg, platform, uptime } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
   type DevctlConfig,
@@ -30,11 +31,12 @@ import {
 } from "./events.ts";
 import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
 import { checkHealth, healthIntervalMs, healthLevel } from "./health.ts";
+import { readHostMemory } from "./host-stats.ts";
 import { configuredServiceAccounts, fromConfig, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
 import { LogManager, type LogEvent } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
-import { ProcessManager, inspectProcess, processAlive, sameProcess } from "./processes.ts";
+import { ProcessManager, inspectProcess, processAlive, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { McpHttpServer } from "./mcp/server.ts";
 import { type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
@@ -56,7 +58,7 @@ import {
   displayState,
   emptyRuntime,
   formatPlan,
-  resolveProfile,
+  resolveStartRequest,
   shutdownPlan,
   startupPlan,
   type Plan,
@@ -66,7 +68,7 @@ import {
 } from "./services.ts";
 import { acquireLock, newSessionID, randomSecret, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
-import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
+import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
 const HEALTH_POLL_MS = 100;
@@ -76,6 +78,7 @@ const DEFAULT_BACKOFF_SECONDS = 2;
 const DEFAULT_HEALTH_INTERVAL_MS = 2000;
 const WATCH_DEBOUNCE_MS = 200;
 const HEALTH_RESTART_STREAK = 3;
+const RESOURCE_POLL_MS = 3_000;
 
 export class Supervisor {
   private readonly cfg: DevctlConfig;
@@ -110,6 +113,7 @@ export class Supervisor {
   private watchTimer?: ReturnType<typeof setTimeout>;
   private readonly unhealthyStreak = new Map<string, number>();
   private profileEnv: Record<string, string> = {};
+  private resourceTimer?: ReturnType<typeof setInterval>;
 
   constructor(cfg: DevctlConfig, deps?: { detectGoogle?: (project: string) => Promise<GoogleStatus>; tokens?: TokenManager }) {
     this.cfg = cfg;
@@ -173,6 +177,7 @@ export class Supervisor {
     this.persistState();
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
+    this.resourceTimer = setInterval(() => void this.pollResourceUsage(), RESOURCE_POLL_MS);
     if (this.cfg.proxy.enabled && opts?.autoStartProxy !== false) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
@@ -328,12 +333,16 @@ export class Supervisor {
     if (req.detach === true) {
       this.detached = true;
     }
-    const { services, env } = resolveProfile(this.cfg, req.profile ?? "", req.services ?? []);
-    if (req.profile) {
-      this.profile = req.profile;
+    const resolved = resolveStartRequest(this.cfg, {
+      services: req.services,
+      profile: req.profile,
+      activeProfile: this.profile,
+    });
+    if (resolved.profile) {
+      this.profile = resolved.profile;
     }
-    this.profileEnv = env;
-    const plan = startupPlan(this.cfg, services, req.profile ?? "");
+    this.profileEnv = resolved.env;
+    const plan = startupPlan(this.cfg, resolved.services, resolved.profile);
     if (this.cfg.proxy.enabled) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
@@ -361,7 +370,7 @@ export class Supervisor {
     for (const wave of plan.waves) {
       const launch = wave.filter((name) => pending.includes(name));
       if (launch.length > 0) {
-        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, env)));
+        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.env)));
         let waveFailed = false;
         for (const result of results) {
           if (result.status === "rejected") {
@@ -603,7 +612,7 @@ export class Supervisor {
     if (should && n < max) {
       this.setState(name, StateRestarting, HealthUnknown, 0, msg);
       const backoff = svc && svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
-      this.restarts.set(name, n + 1);
+      this.bumpRestartCount(name, n + 1);
       setTimeout(() => {
         void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
       }, backoff * (2 ** n) * 1000);
@@ -801,6 +810,9 @@ export class Supervisor {
     if (this.watchTimer) {
       clearTimeout(this.watchTimer);
     }
+    if (this.resourceTimer) {
+      clearInterval(this.resourceTimer);
+    }
     this.server?.close();
     this.lock?.release();
     await this.logs.close();
@@ -840,6 +852,7 @@ export class Supervisor {
       detached: this.detached,
       logs: this.logs.snapshot(),
       restart_required: [...this.restartRequired],
+      system: systemSnapshot(),
     };
   }
 
@@ -888,6 +901,7 @@ export class Supervisor {
       search: req.search,
       regex: req.regex,
       source: req.source,
+      since: req.since,
     });
     if (req.export) {
       this.logs.exportTo(req.export, {
@@ -922,8 +936,48 @@ export class Supervisor {
     rt.health = health;
     rt.pid = pid;
     rt.last_error = lastError;
+    const keepUsage = state === StateRunning || state === StateHealthy || state === StateUnhealthy;
+    rt.startTime = keepUsage ? this.processMeta.get(name)?.startTime.toISOString() : undefined;
+    if (!keepUsage) {
+      rt.cpuPercent = undefined;
+      rt.memoryKB = undefined;
+    }
     this.runtimes.set(name, rt);
     this.bus.publish(newEvent(ServiceStateChanged, name, { state, health, pid }));
+  }
+
+  // this.restarts (the private retry-budget counter) and Runtime.restarts
+  // (the field sent to clients) must stay in sync — bump both together so
+  // status snapshots reflect real restart counts instead of always 0.
+  private bumpRestartCount(name: string, n: number): void {
+    this.restarts.set(name, n);
+    const rt = this.runtimes.get(name);
+    if (rt) {
+      rt.restarts = n;
+    }
+  }
+
+  // Runtimes only carry a pid; CPU/memory are sampled out-of-band via `ps`
+  // on an interval rather than tracked per state transition, since they
+  // change continuously while a process runs.
+  private async pollResourceUsage(): Promise<void> {
+    const pids: number[] = [];
+    for (const rt of this.runtimes.values()) {
+      if (rt.pid > 0 && (rt.state === StateRunning || rt.state === StateHealthy || rt.state === StateUnhealthy)) {
+        pids.push(rt.pid);
+      }
+    }
+    if (pids.length === 0) {
+      return;
+    }
+    const samples = await sampleResourceUsage(pids);
+    for (const rt of this.runtimes.values()) {
+      const sample = rt.pid > 0 ? samples.get(rt.pid) : undefined;
+      if (sample) {
+        rt.cpuPercent = sample.cpuPercent;
+        rt.memoryKB = sample.memoryKB;
+      }
+    }
   }
 
   private setHealth(name: string, health: ServiceHealth, message: string): void {
@@ -963,7 +1017,7 @@ export class Supervisor {
       return;
     }
     const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
-    this.restarts.set(name, n + 1);
+    this.bumpRestartCount(name, n + 1);
     this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks (attempt ${n + 1}/${max})`);
     setTimeout(() => {
       void this.restart([name]).catch((err) => this.log(name, "ERROR", humanMessage(err)));
@@ -1282,6 +1336,22 @@ function emptyIdentitySnapshot(cfg?: DevctlConfig): IdentitySnapshot {
     adc: false,
     service_accounts: Object.fromEntries(cfg ? configuredServiceAccounts(cfg).map((email) => [email, false]) : []),
     iap: cfg?.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap") ?? false,
+  };
+}
+
+function systemSnapshot(): SystemSnapshot {
+  const avg = loadavg();
+  const mem = readHostMemory();
+  return {
+    platform: platform(),
+    cpuCount: cpus().length,
+    loadAvg1: avg[0] ?? 0,
+    loadAvg5: avg[1] ?? 0,
+    loadAvg15: avg[2] ?? 0,
+    memTotalKB: mem.totalKB,
+    memFreeKB: mem.unusedKB,
+    memAvailableKB: mem.leftoverKB,
+    hostUptimeSec: uptime(),
   };
 }
 

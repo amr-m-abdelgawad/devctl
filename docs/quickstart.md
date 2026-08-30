@@ -32,7 +32,7 @@ devctl logs invoices-api
 devctl attach
 ```
 
-`devctl start` with no profile and no service names starts **every** configured service (and their dependencies). Pass `--profile` or explicit names to stay narrower.
+`devctl start` with no profile and no service names starts the active session profile, or the first configured profile. Pass `--profile` or explicit names to stay narrower. With no profiles, start fails instead of launching every service.
 
 `devctl attach` only dials an existing supervisor. If nothing is listening, start with `--detach` first.
 

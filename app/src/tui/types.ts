@@ -11,7 +11,8 @@ export type Screen =
   | "profiles"
   | "setup"
   | "settings"
-  | "mcp";
+  | "mcp"
+  | "stats";
 
 export type Overlay = "none" | "slash" | "palette" | "themes" | "help" | "confirm" | "plan" | "leader" | "log-details";
 

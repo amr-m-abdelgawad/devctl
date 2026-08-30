@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../../../schema/devctl.config.schema.json
 version: 1
 
 project:

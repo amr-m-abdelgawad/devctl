@@ -1,13 +1,31 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { existsSync, statSync, writeFileSync } from "node:fs";
-import { acquireLock, lockPath, newSessionID, processAlive, readPersistedState, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, lockPath, newSessionID, processAlive, readPersistedState, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
 
 describe("session storage", () => {
+  test("Windows attach uses a named pipe, Unix uses devctl.sock", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-sock-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    expect(socketPath("/repo", "win32")).toMatch(/^\\\\.\\pipe\\devctl-[0-9a-f]{16}$/);
+    const unix = socketPath("/repo", "darwin");
+    expect(unix.endsWith("devctl.sock")).toBe(true);
+    expect(unix.includes("/state/")).toBe(true);
+  });
+
   test("session IDs use timestamp plus random suffix", () => {
     const id = newSessionID(new Date("2026-08-30T00:00:00.000Z"));
     expect(id.startsWith("2026-08-30T00-00-00Z-")).toBe(true);
     expect(id.length).toBeGreaterThan(22);
+  });
+
+  test("sessionStartedAt reverses newSessionID's format", () => {
+    const fixed = new Date("2026-08-30T14:22:07.000Z");
+    const id = newSessionID(fixed);
+    expect(sessionStartedAt(id)?.getTime()).toBe(fixed.getTime());
+    expect(sessionStartedAt("not-a-session-id")).toBeUndefined();
+    expect(sessionStartedAt("")).toBeUndefined();
   });
 
   test("persisted process state round-trips", () => {

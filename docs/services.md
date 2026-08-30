@@ -77,7 +77,7 @@ flowchart LR
 
 Starting or restarting `invoices-worker` therefore includes `identity` and `invoices-api`. Waves run left to right on start, right to left on stop.
 
-`devctl start` with **no** profile and **no** service names starts **every** service in the file (same as MCP `start_services` with an empty list). Use `--profile` or explicit names.
+`devctl start` with **no** profile and **no** service names starts the active session profile, or the first configured profile — the same contract as MCP `start_services`. Use `--profile` or explicit names. With no profiles, start fails closed.
 
 Default TUI profile (empty dashboard `enter`) is the first profile name **alphabetically**.
 
@@ -89,6 +89,8 @@ Default TUI profile (empty dashboard `enter`) is the first profile name **alphab
 | `tcp` | Connect to `address` or a named port |
 | `command` | Run `health.command`; exit 0 is healthy |
 | `process` or empty | PID still alive |
+
+`devctl` watches `.devctl/` and offers reload. It does not restart a service when its source files change. Put `air`, `bun --watch`, or your language’s reloader in the service `command`.
 
 Plugins can register extra health types. `capabilities` document intent (`local_http`, `google`, `iap`, …) for doctor; they do not start processes.
 

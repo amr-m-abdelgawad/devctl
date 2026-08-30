@@ -1,5 +1,5 @@
 import { type DevctlConfig } from "./config/index.ts";
-import { KindDependency, KindServiceNotFound, newError } from "./errors.ts";
+import { KindConfiguration, KindDependency, KindServiceNotFound, newError } from "./errors.ts";
 
 export const StateUnknown = "UNKNOWN";
 export const StateStarting = "STARTING";
@@ -37,6 +37,9 @@ export type Runtime = {
   restarts: number;
   last_error: string;
   identity: string;
+  startTime?: string;
+  cpuPercent?: number;
+  memoryKB?: number;
 };
 
 export function displayState(rt: Runtime): string {
@@ -59,6 +62,9 @@ export function emptyRuntime(name: string): Runtime {
     restarts: 0,
     last_error: "",
     identity: "",
+    startTime: undefined,
+    cpuPercent: undefined,
+    memoryKB: undefined,
   };
 }
 
@@ -168,6 +174,7 @@ export function formatPlan(plan: Plan): string {
   return out;
 }
 
+// Empty name and empty extra still means every service. Start paths must use resolveStartRequest.
 export function resolveProfile(
   cfg: DevctlConfig,
   name: string,
@@ -188,6 +195,27 @@ export function resolveProfile(
     return { services: Object.keys(cfg.services), env };
   }
   return { services: uniqueServices(cfg, cfg.profiles[name]?.services ?? []), env };
+}
+
+export function firstProfileName(cfg: DevctlConfig): string {
+  const names = Object.keys(cfg.profiles).sort();
+  return names[0] ?? "";
+}
+
+export function resolveStartRequest(
+  cfg: DevctlConfig,
+  opts: { services?: string[]; profile?: string; activeProfile?: string },
+): { services: string[]; profile: string; env: Record<string, string> } {
+  const extra = opts.services ?? [];
+  let profile = opts.profile ?? "";
+  if (extra.length === 0 && profile === "") {
+    profile = opts.activeProfile || firstProfileName(cfg);
+    if (profile === "") {
+      throw newError(KindConfiguration, "no profile or services given; pass service names or add a profile");
+    }
+  }
+  const resolved = resolveProfile(cfg, profile, extra);
+  return { services: resolved.services, env: resolved.env, profile };
 }
 
 function uniqueServices(cfg: DevctlConfig, names: string[]): string[] {

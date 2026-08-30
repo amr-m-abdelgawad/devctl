@@ -2,6 +2,15 @@
 
 `devctl` is driven by YAML. Unknown fields are rejected. `version: 1` is required.
 
+Editors and agents: point at the JSON Schema so field names complete.
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/schema/devctl.config.schema.json
+version: 1
+```
+
+The schema file lives at [`schema/devctl.config.schema.json`](../schema/devctl.config.schema.json). The demo config uses a relative path so it works offline.
+
 ## Discovery
 
 Walks from the current directory toward the filesystem root:
@@ -63,8 +72,8 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `ui` | Optional theme / keymap hints in YAML (TUI prefs still win from `tui.json`) |
 | `secrets` | Extra redaction markers and regexes |
 | `doctor.tools` | Extra CLI binaries to probe |
-| `plugins` | `{ path }` modules loaded at runtime |
-| `environment.sources` / `secrets` | Env plugin order and named secrets |
+| `plugins` | `{ path }` modules loaded when the supervisor starts |
+| `environment.sources` / `secrets` | Env source order and named secrets |
 
 ## Templates
 

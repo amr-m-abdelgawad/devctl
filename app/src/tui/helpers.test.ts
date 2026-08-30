@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
-import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, filterLogs, focusedServices, foldLogLines, formatLogDetails, formatLogLine, formatLogsForClipboard, formatStarted, formatStopped, footerHints, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, prevScreen, runningLabel, screenListCount, selectedSlashCommand, serviceCommandText, serviceEnvEntries, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, slashWindowStart, statusChipTone, statusStripChips, tabChipWidth, visibleHints, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prevScreen, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -436,15 +436,15 @@ describe("TUI helpers", () => {
 
   test("first-run setup and letter nav stay on the cycle", () => {
     expect(NAV_ITEMS.some((item) => item.id === "setup")).toBe(true);
-    expect(nextScreen("setup")).toBe("settings");
-    expect(prevScreen("settings")).toBe("setup");
+    expect(nextScreen("setup")).toBe("stats");
+    expect(prevScreen("stats")).toBe("setup");
     expect(NAV_ITEMS.some((item) => item.id === "credentials")).toBe(true);
     expect(footerHints("setup", "none").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("config", "none").some((h) => h.key === "/reload")).toBe(true);
   });
 
   test("nav digits cover ten tabs and chrome height matches the toolbar stack", () => {
-    expect(NAV_ITEMS).toHaveLength(11);
+    expect(NAV_ITEMS).toHaveLength(12);
     expect(navItemForDigit("1")).toBe("dashboard");
     expect(navItemForDigit("8")).toBe("config");
     expect(navItemForDigit("9")).toBe("profiles");
@@ -456,6 +456,38 @@ describe("TUI helpers", () => {
     expect(chromeReserved(HEADER_STACK_WIDTH - 1)).toBe(CHROME_RESERVED);
     expect(compactChrome(COMPACT_CHROME_HEIGHT - 1)).toBe(true);
     expect(compactChrome(COMPACT_CHROME_HEIGHT)).toBe(false);
+  });
+
+  test("renderBar clamps ratios and fills proportionally", () => {
+    expect(renderBar(0, 10)).toBe("░".repeat(10));
+    expect(renderBar(1, 10)).toBe("█".repeat(10));
+    expect(renderBar(0.5, 10)).toBe("█████░░░░░");
+    expect(renderBar(2, 10)).toBe("█".repeat(10));
+    expect(renderBar(-1, 10)).toBe("░".repeat(10));
+    expect(renderBar(Number.NaN, 10)).toBe("░".repeat(10));
+  });
+
+  test("formatUptime renders human-friendly durations", () => {
+    expect(formatUptime(500)).toBe("< 1s");
+    expect(formatUptime(45_000)).toBe("45s");
+    expect(formatUptime(125_000)).toBe("2m 05s");
+    expect(formatUptime(2 * 3_600_000 + 5 * 60_000)).toBe("2h 5m");
+    expect(formatUptime(3 * 86_400_000 + 4 * 3_600_000)).toBe("3d 4h");
+  });
+
+  test("formatMemoryKB scales through K/M/G", () => {
+    expect(formatMemoryKB(512)).toBe("512K");
+    expect(formatMemoryKB(2048)).toBe("2M");
+    expect(formatMemoryKB(1_536_000)).toBe("1.5G");
+    expect(formatMemoryKB(Number.NaN)).toBe("—");
+    expect(formatMemoryKB(-1)).toBe("—");
+  });
+
+  test("formatCpuPercent renders one decimal place", () => {
+    expect(formatCpuPercent(0)).toBe("0.0%");
+    expect(formatCpuPercent(12.34)).toBe("12.3%");
+    expect(formatCpuPercent(Number.NaN)).toBe("—");
+    expect(formatCpuPercent(-1)).toBe("—");
   });
 
   test("screenListCount clamps the shared cursor to the active list", () => {
@@ -484,5 +516,116 @@ describe("TUI helpers", () => {
     expect(veryNarrow.length).toBe(2);
     const narrowChars = veryNarrow.reduce((sum, chip) => sum + chip.label.length + 2, 0);
     expect(narrowChars).toBeLessThanOrEqual(24);
+  });
+
+  test("service fleet buckets are exclusive and do not subtract healthy from stopped", () => {
+    const names = ["api", "auth", "worker", "proxy", "idle"];
+    const snap = {
+      services: {
+        api: { state: "RUNNING", health: "HEALTHY" },
+        auth: { state: "RUNNING", health: "HEALTHY" },
+        worker: { state: "STARTING", health: "UNKNOWN" },
+        proxy: { state: "FAILED", health: "UNHEALTHY" },
+      },
+    } as never;
+    const fleet = serviceFleetStats(names, snap);
+    expect(fleet).toEqual({
+      total: 5,
+      live: 3,
+      running: 2,
+      starting: 1,
+      healthy: 2,
+      failed: 1,
+      stopping: 0,
+      stopped: 1,
+    });
+    expect(fleet.running + fleet.starting + fleet.stopping + fleet.failed + fleet.stopped).toBe(fleet.total);
+  });
+
+  test("stale healthy health does not count a stopped process as running", () => {
+    expect(isActiveRuntime({ state: "STOPPED", health: "HEALTHY" } as never)).toBe(false);
+    expect(isActiveRuntime({ state: "RUNNING", health: "UNHEALTHY" } as never)).toBe(true);
+    expect(isActiveRuntime({ state: "RESTARTING", health: "UNKNOWN" } as never)).toBe(true);
+    expect(countRunning({ services: { api: { state: "STOPPED", health: "HEALTHY" } } } as never)).toEqual({ running: 0, total: 1 });
+    expect(countRunning({ services: { api: { state: "RUNNING" }, extra: { state: "STOPPED" } } } as never, ["api"])).toEqual({
+      running: 1,
+      total: 1,
+    });
+  });
+
+  test("system stat helpers clamp and label pressure", () => {
+    expect(memoryUsedKB(16_000, 4_000)).toBe(12_000);
+    expect(memoryUsedKB(100, 200)).toBe(0);
+    expect(memoryUsedKB(Number.NaN, 10)).toBe(0);
+    expect(loadPerCpu(4, 8)).toBe(0.5);
+    expect(loadPerCpu(2, 0)).toBe(0);
+    expect(loadTone(2, 8)).toBe("success");
+    expect(loadTone(8, 8)).toBe("warning");
+    expect(loadTone(16, 8)).toBe("error");
+    expect(leftoverTone(3_000, 10_000)).toBe("success");
+    expect(leftoverTone(1_500, 10_000)).toBe("warning");
+    expect(leftoverTone(500, 10_000)).toBe("error");
+    expect(memoryTone(8_500, 10_000)).toBe("warning");
+    expect(memoryTone(9_500, 10_000)).toBe("error");
+    expect(formatLoadAvg(1.234)).toBe("1.23");
+    expect(formatLoadAvg(-1)).toBe("—");
+    expect(formatRatioPercent(0.756)).toBe("76%");
+    expect(runtimeUptime(undefined)).toBe("—");
+    expect(runtimeUptime({ startTime: new Date(1_000).toISOString() } as never, 46_000)).toBe("45s");
+    expect(topLogSources({ api: 2, auth: 5, zed: 5 })).toEqual([
+      ["auth", 5],
+      ["zed", 5],
+      ["api", 2],
+    ]);
+    expect(statsServiceColumns(40).health).toBe(false);
+    expect(statsServiceColumns(90).pid).toBe(false);
+    expect(statsServiceColumns(100).pid).toBe(true);
+    expect(statsServiceColumns(100).name).toBeGreaterThan(10);
+    expect(statsPaneWidth(80, 1)).toBe(71);
+    expect(statsPaneWidth(80, 2)).toBeLessThan(statsPaneWidth(80, 1));
+    const wideFacts = factTableColumns(
+      [
+        { what: "RAM leftover", reading: "12.4G of 36.0G", meaning: "RAM the computer can still give out" },
+        { what: "Google account", reading: "not signed in", meaning: "no Google user for this session" },
+      ],
+      80,
+    );
+    expect(wideFacts.reading).toBeGreaterThanOrEqual("12.4G of 36.0G".length);
+    expect(wideFacts.reading).toBeGreaterThanOrEqual("not signed in".length);
+    expect(wideFacts.what).toBeGreaterThanOrEqual("Google account".length);
+    expect(wideFacts.meter).toBe(0);
+    expect(wideFacts.what + wideFacts.reading + wideFacts.meaning + STATS_FACT_GAP * 2).toBeLessThanOrEqual(80);
+    const metered = factTableColumns([{ what: "CPU work", reading: "not busy", meaning: "fine", meter: { ratio: 0.3, label: "30%" } }], 80);
+    expect(metered.meter).toBeGreaterThan(0);
+    expect(metered.what + metered.reading + metered.meter + metered.meaning + STATS_FACT_GAP * 3).toBeLessThanOrEqual(80);
+  });
+
+  test("stats copy uses words a person can act on", () => {
+    expect(platformLabel("darwin")).toBe("macOS");
+    expect(loadCopy(1, 8).reading).toBe("not busy");
+    expect(loadCopy(1, 8).meaning).toContain("under 8 is fine");
+    expect(loadCopy(1, 8).meter?.label).toBe("13%");
+    expect(loadCopy(16, 8).reading).toBe("overloaded");
+    expect(loadCopy(16, 8).meter?.ratio).toBe(1);
+    expect(leftoverCopy(8_192, 16_384).what).toBe("RAM leftover");
+    expect(leftoverCopy(8_192, 16_384).meaning).toContain("still give out");
+    expect(leftoverCopy(8_192, 16_384).meter?.label).toBe("50%");
+    expect(serviceStatusLabel({ state: "HEALTHY" } as never)).toBe("up");
+    expect(serviceStatusLabel({ state: "FAILED" } as never)).toBe("crashed");
+    expect(serviceCheckLabel({ state: "RUNNING", health: "HEALTHY" } as never)).toBe("ready");
+    expect(serviceCheckLabel({ state: "STOPPED", health: "UNKNOWN" } as never)).toBe("—");
+    expect(usesTrafficHealth({ health: { type: "http" } } as never)).toBe(true);
+    expect(usesTrafficHealth({ health: { type: "process" } } as never)).toBe(false);
+    const facts = fleetFacts(
+      { total: 4, live: 2, running: 2, starting: 0, healthy: 1, failed: 1, stopping: 0, stopped: 1 },
+      true,
+    );
+    expect(facts.map((row) => row.what)).toEqual(["Started", "Ready", "Crashed", "Not started"]);
+    expect(facts.find((row) => row.what === "Ready")?.reading).toBe("1");
+    expect(fleetFacts({ total: 1, live: 1, running: 1, starting: 0, healthy: 1, failed: 0, stopping: 0, stopped: 0 }, false).map((row) => row.what)).toEqual([
+      "Started",
+      "Crashed",
+      "Not started",
+    ]);
   });
 });

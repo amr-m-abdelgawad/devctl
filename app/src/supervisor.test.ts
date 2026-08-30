@@ -207,6 +207,23 @@ describe("supervisor snapshot", () => {
     }
   });
 
+  test("snapshot includes live host system stats", () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const sys = sup.snapshot().system;
+    expect(sys.cpuCount).toBeGreaterThan(0);
+    expect(sys.memTotalKB).toBeGreaterThan(0);
+    expect(sys.memFreeKB).toBeGreaterThanOrEqual(0);
+    expect(sys.memAvailableKB).toBeGreaterThanOrEqual(0);
+    expect(sys.memAvailableKB).toBeLessThanOrEqual(sys.memTotalKB);
+    expect(sys.platform).toBe(process.platform);
+  });
+
   test("reload diffs command env ports and identity", () => {
     const prev = defaultConfig();
     const next = defaultConfig();
@@ -216,6 +233,53 @@ describe("supervisor snapshot", () => {
     expect(result.restart_required).toContain("api");
     expect(result.changes.api).toContain("command");
   });
+
+  test("startTime is set while a service runs and cleared once stopped", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"] });
+      const running = sup.snapshot().services.api;
+      expect(running?.startTime).toBeDefined();
+      const startedAt = new Date(running?.startTime ?? "").getTime();
+      expect(Math.abs(Date.now() - startedAt)).toBeLessThan(10_000);
+      await sup.stop(["api"]);
+      expect(sup.snapshot().services.api?.startTime).toBeUndefined();
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 15000);
+
+  test("crash restarts are reflected in Runtime.restarts", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.flaky = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },
+      restart: { policy: "always", max_retries: 5, backoff_seconds: 1 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      void sup.start({ services: ["flaky"] }).catch(() => {});
+      await new Promise((resolve) => setTimeout(resolve, 3500));
+      expect(sup.snapshot().services.flaky?.restarts ?? 0).toBeGreaterThan(0);
+    } finally {
+      await sup.stop(["flaky"]).catch(() => {});
+    }
+  }, 15000);
 });
 
 function bunServe(port: number): { args: string[]; shell: boolean } {

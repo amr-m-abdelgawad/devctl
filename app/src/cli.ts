@@ -162,9 +162,10 @@ function addLogs(root: Command): void {
     .option("--search <text>", "substring or regex search")
     .option("--regex", "treat search as regular expression")
     .option("--source <source>", "filter by source")
+    .option("--since <timestamp>", "only events at or after this ISO timestamp")
     .option("--output <path>", "export path")
     .option("--json", "machine-readable output")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; output?: string; json?: boolean }) => {
+    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; output?: string; json?: boolean }) => {
       const ctrl = await openController("", configFlag(root), true);
       try {
         const events = await ctrl.logs({
@@ -173,6 +174,7 @@ function addLogs(root: Command): void {
           search: opts.search,
           regex: opts.regex,
           source: opts.source,
+          since: opts.since,
           export: opts.output,
         });
         if (opts.output) {

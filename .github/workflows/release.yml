@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Compile and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Install
+        working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Compile binaries
+        working-directory: app
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          mkdir -p ../dist
+          compile() {
+            local target="$1"
+            local out="$2"
+            bun build --compile --target="$target" \
+              --define "process.env.DEVCTL_VERSION=\"${VERSION}\"" \
+              --outfile "../dist/${out}" src/bin.ts
+          }
+          compile bun-darwin-arm64 devctl-darwin-arm64
+          compile bun-darwin-x64 devctl-darwin-x64
+          compile bun-linux-x64 devctl-linux-x64
+          compile bun-linux-arm64 devctl-linux-arm64
+          compile bun-windows-x64 devctl-windows-x64.exe
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            dist/devctl-darwin-arm64 \
+            dist/devctl-darwin-x64 \
+            dist/devctl-linux-x64 \
+            dist/devctl-linux-arm64 \
+            dist/devctl-windows-x64.exe

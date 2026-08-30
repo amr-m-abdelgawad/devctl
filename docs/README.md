@@ -9,7 +9,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | Page | What you get |
 |------|----------------|
 | [How it fits together](overview.md) | Supervisor, TUI, CLI, MCP, and what lives on disk |
-| [Installation](installation.md) | Bun, `bun link`, optional `gcloud` |
+| [Installation](installation.md) | Release binaries, Bun, `bun link`, optional `gcloud` |
 | [Quick start](quickstart.md) | First session: setup → doctor → TUI |
 | [Developer setup](developer-setup.md) | Day-to-day loop without admin privileges |
 | [Demo platform](../examples/demo-platform/README.md) | Local invoicing example (no Google Cloud) |
@@ -29,7 +29,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 
 | Page | Side |
 |------|------|
-| [Configuration](configuration.md) | Discovery, merge, validation, reload |
+| [Configuration](configuration.md) | Discovery, merge, validation, JSON Schema, reload |
 | [Services](services.md) | Commands, ports, health, restart, dependencies |
 | [Profiles](profiles.md) | Named sets, session recovery |
 | [Environment](environment.md) | Source order, `${…}` refs, secrets |

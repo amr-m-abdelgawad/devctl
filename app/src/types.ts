@@ -21,6 +21,7 @@ export type LogsRequest = {
   search?: string;
   regex?: boolean;
   source?: string;
+  since?: string;
   export?: string;
 };
 
@@ -81,6 +82,18 @@ export type ReloadResult = {
   supervisor_restart_required?: string[];
 };
 
+export type SystemSnapshot = {
+  platform: string;
+  cpuCount: number;
+  loadAvg1: number;
+  loadAvg5: number;
+  loadAvg15: number;
+  memTotalKB: number;
+  memFreeKB: number;
+  memAvailableKB: number;
+  hostUptimeSec: number;
+};
+
 export type StatusSnapshot = {
   session_id: string;
   repo_root: string;
@@ -94,6 +107,7 @@ export type StatusSnapshot = {
   logs: LogSnapshot;
   plan?: string[];
   restart_required?: string[];
+  system: SystemSnapshot;
 };
 
 export type Envelope = {
