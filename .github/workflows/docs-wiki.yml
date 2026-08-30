@@ -42,43 +42,27 @@ jobs:
     needs: prepare
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: wiki-pages
           path: wiki-out
-      - name: Enable wiki
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh api -X PATCH "repos/${GITHUB_REPOSITORY}" -f has_wiki=true >/dev/null
       - name: Push pages
         env:
-          # Default token cannot write .wiki.git. A repo secret WIKI_TOKEN
-          # (fine-grained: Wiki read/write, or classic repo scope) is enough.
           WIKI_TOKEN: ${{ secrets.WIKI_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          token="${WIKI_TOKEN:-}"
-          if [[ -z "${token}" ]]; then
-            token="${GH_TOKEN}"
+          if [[ -z "${WIKI_TOKEN}" ]]; then
+            echo "::error::Add a repository secret named WIKI_TOKEN."
+            echo "The default Actions token cannot write the wiki or change repo settings."
+            echo "Fine-grained PAT: this repo + Wiki Read and write."
+            echo "Classic PAT: repo scope."
+            echo "Then open the Wiki tab once so GitHub creates the empty wiki."
+            exit 1
           fi
-          remote="https://x-access-token:${token}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          remote="https://x-access-token:${WIKI_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
           work="$(mktemp -d)"
-          if git clone --depth 1 "${remote}" "${work}" 2>/tmp/wiki-clone.err; then
-            :
-          else
-            if [[ -z "${WIKI_TOKEN}" ]]; then
-              echo "::error::GitHub's default GITHUB_TOKEN cannot push to the wiki."
-              echo "Add a repository secret named WIKI_TOKEN (Settings → Secrets → Actions)."
-              echo "Fine-grained PAT: repository access + Wiki Read and write."
-              echo "Classic PAT: repo scope."
-              echo "Also open the Wiki tab once if clone said the wiki does not exist."
-              cat /tmp/wiki-clone.err
-              exit 1
-            fi
+          if ! git clone --depth 1 "${remote}" "${work}" 2>/tmp/wiki-clone.err; then
             echo "Wiki clone failed; initializing a new wiki repo."
             cat /tmp/wiki-clone.err
             git -C "${work}" init
@@ -93,4 +77,5 @@ jobs:
             exit 0
           fi
           git -C "${work}" commit -m "Sync docs from ${GITHUB_SHA}"
-          git -C "${work}" push origin "HEAD:master"
+          git -C "${work}" push -u origin HEAD:master
+
