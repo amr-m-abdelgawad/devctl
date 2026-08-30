@@ -1,6 +1,6 @@
 # Building from source
 
-The application lives in `ts/`. Runtime is [Bun](https://bun.sh). The TUI is [OpenTUI](https://opentui.com/docs/).
+The application lives in `app/`. Runtime is [Bun](https://bun.sh). The TUI is [OpenTUI](https://opentui.com/docs/).
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
@@ -11,10 +11,10 @@ bun test
 bunx tsc --noEmit
 ```
 
-From the repository root (after `bun install` in `ts/`):
+From the repository root (after `bun install` in `app/`):
 
 ```bash
-bun run ts/src/bin.ts
+bun run app/src/bin.ts
 cd ts && bun link    # optional: `devctl` on PATH
 ```
 
@@ -22,15 +22,15 @@ cd ts && bun link    # optional: `devctl` on PATH
 
 | Path | Role |
 |------|------|
-| `ts/src/bin.ts` | Entry |
-| `ts/src/cli.ts` | Commander CLI |
-| `ts/src/supervisor.ts` | Process owner, proxy, MCP, logs |
-| `ts/src/controller.ts` | Local supervisor or Unix socket client |
-| `ts/src/config/` | Discover, decode, merge, validate |
-| `ts/src/tui/` | OpenTUI screens and overlays |
-| `ts/src/mcp/` | Streamable HTTP MCP server |
-| `ts/src/proxy.ts` | Auth-injecting reverse proxy |
-| `ts/tui.json` | Starter TUI preferences |
+| `app/src/bin.ts` | Entry |
+| `app/src/cli.ts` | Commander CLI |
+| `app/src/supervisor.ts` | Process owner, proxy, MCP, logs |
+| `app/src/controller.ts` | Local supervisor or Unix socket client |
+| `app/src/config/` | Discover, decode, merge, validate |
+| `app/src/tui/` | OpenTUI screens and overlays |
+| `app/src/mcp/` | Streamable HTTP MCP server |
+| `app/src/proxy.ts` | Auth-injecting reverse proxy |
+| `app/tui.json` | Starter TUI preferences |
 
 There is no separate Go tree.
 

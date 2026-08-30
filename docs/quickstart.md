@@ -40,7 +40,7 @@ devctl attach
 
 ```bash
 cd examples/demo-platform
-bun run ../../ts/src/bin.ts
+bun run ../../app/src/bin.ts
 ```
 
 No Google Cloud. Profiles: `minimal`, `backend`, `full`. Details: [demo platform](../examples/demo-platform/README.md).

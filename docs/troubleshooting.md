@@ -24,7 +24,7 @@
 | Reload needs a restart | `devctl reload` and `/reload` list services whose command, env, ports, or identity changed |
 | Configuration invalid | `devctl config validate` — unknown fields, cycles, and missing refs fail closed |
 | MCP agent cannot connect | Listener is off by default. `/mcp` or `devctl mcp --on`. URL is loopback only; snippets include the bearer token |
-| `devctl: command not found` | From `ts/`: `bun install` then `bun link`. Or run `bun run ts/src/bin.ts` — [Installation](installation.md) |
+| `devctl: command not found` | From `app/`: `bun install` then `bun link`. Or run `bun run app/src/bin.ts` — [Installation](installation.md) |
 
 Internal `devctl` logs appear in the Logs screen with source `devctl`.
 

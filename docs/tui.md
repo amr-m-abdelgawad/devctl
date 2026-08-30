@@ -4,7 +4,7 @@ The TUI is [OpenTUI](https://opentui.com/docs/) (`@opentui/core` + `@opentui/rea
 
 ```bash
 cd examples/demo-platform
-bun run ../../ts/src/bin.ts
+bun run ../../app/src/bin.ts
 ```
 
 If a supervisor session already exists, the TUI attaches to it. Preferences: `tui.json` / `DEVCTL_TUI_CONFIG` — see [Building from source](typescript.md).

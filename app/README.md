@@ -1,4 +1,4 @@
-# devctl (`ts/`)
+# devctl (`app/`)
 
 This directory is the application. Runtime is [Bun](https://bun.sh). The TUI is [OpenTUI](https://opentui.com/docs/).
 

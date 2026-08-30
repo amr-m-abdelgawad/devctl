@@ -14,14 +14,14 @@ Profiles: `minimal` (identity + api), `backend` (+ worker), `full` (+ console). 
 ```bash
 # python3 and bun on PATH
 cd examples/demo-platform
-bun run ../../ts/src/bin.ts                 # TUI
-bun run ../../ts/src/bin.ts config validate
-bun run ../../ts/src/bin.ts start --profile full --detach
-bun run ../../ts/src/bin.ts status
+bun run ../../app/src/bin.ts                 # TUI
+bun run ../../app/src/bin.ts config validate
+bun run ../../app/src/bin.ts start --profile full --detach
+bun run ../../app/src/bin.ts status
 # Billing console UI: http://127.0.0.1:18003
 # Proxy: 127.0.0.1:18080
-bun run ../../ts/src/bin.ts mcp --on        # optional agent URL
-bun run ../../ts/src/bin.ts stop
+bun run ../../app/src/bin.ts mcp --on        # optional agent URL
+bun run ../../app/src/bin.ts stop
 ```
 
 The first `billing-console` start runs `bun install` in `billing-console/` if `node_modules` is missing.

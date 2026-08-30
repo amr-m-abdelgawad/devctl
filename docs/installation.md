@@ -22,7 +22,7 @@ Run without installing a global command:
 ```bash
 bun run src/bin.ts --help
 # from the repo root:
-bun run ts/src/bin.ts --help
+bun run app/src/bin.ts --help
 ```
 
 Link the `devctl` command onto your PATH:
@@ -32,7 +32,7 @@ cd ts && bun link
 devctl version
 ```
 
-`bun link` registers the `bin` entry in `ts/package.json` (`devctl` → `./src/bin.ts`).
+`bun link` registers the `bin` entry in `app/package.json` (`devctl` → `./src/bin.ts`).
 
 ## Google Cloud CLI (optional)
 
@@ -40,7 +40,7 @@ Install `gcloud` only if you use user identity, impersonation, or IAP. Local-onl
 
 ## Cross-platform
 
-macOS, Linux, and Windows. Process-group handling is OS-specific (`ts/src/processes/`); the rest of the application is shared.
+macOS, Linux, and Windows. Process-group handling is OS-specific (`app/src/processes/`); the rest of the application is shared.
 
 ## Related
 
