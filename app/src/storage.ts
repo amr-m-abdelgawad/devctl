@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -193,9 +194,29 @@ export function processAlive(pid: number): boolean {
   if (pid <= 0) {
     return false;
   }
+  if (process.platform === "win32") {
+    return processAliveWindows(pid);
+  }
   try {
     process.kill(pid, 0);
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function processAliveWindows(pid: number): boolean {
+  try {
+    const result = spawnSync("tasklist", ["/FO", "CSV", "/NH", "/FI", `PID eq ${pid}`], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 3_000,
+    });
+    const out = `${result.stdout ?? ""}`.toLowerCase();
+    if (out.includes("no tasks") || out.includes("no matching")) {
+      return false;
+    }
+    return out.includes(String(pid));
   } catch {
     return false;
   }

@@ -186,7 +186,7 @@ describe("supervisor snapshot", () => {
         {
           name: "api",
           pid,
-          command: [observed!.command],
+          command: bunServe(port).args,
           cwd: observed?.cwd ?? "",
           startTime: observed?.startTime ?? "",
           ports: { http: port },

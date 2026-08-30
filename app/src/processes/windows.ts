@@ -24,22 +24,58 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
   if (!processAlive(pid)) {
     return undefined;
   }
-  const text = await capture([
+  const cim = await capture([
     "powershell",
     "-NoProfile",
     "-Command",
     `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object CommandLine,ExecutablePath,CreationDate | ConvertTo-Json -Compress`,
   ]);
-  const parsed = parseCimProcess(text);
-  if (!parsed) {
-    return { pid, command: "", cwd: "" };
+  const parsed = parseCimProcess(cim);
+  if (parsed && parsed.command !== "") {
+    return {
+      pid,
+      command: parsed.command,
+      cwd: parsed.cwd,
+      startTime: parsed.startTime,
+    };
+  }
+  const fallback = await capture([
+    "powershell",
+    "-NoProfile",
+    "-Command",
+    `Get-Process -Id ${pid} -ErrorAction SilentlyContinue | Select-Object Path,StartTime | ConvertTo-Json -Compress`,
+  ]);
+  const fromProcess = parseGetProcess(fallback);
+  if (!fromProcess && !parsed) {
+    return undefined;
   }
   return {
     pid,
-    command: parsed.command,
-    cwd: parsed.cwd,
-    startTime: parsed.startTime,
+    command: parsed?.command || fromProcess?.command || "",
+    cwd: parsed?.cwd || fromProcess?.cwd || "",
+    startTime: parsed?.startTime || fromProcess?.startTime,
   };
+}
+
+export function parseGetProcess(text: string): { command: string; cwd: string; startTime?: string } | undefined {
+  const raw = text.trim();
+  if (raw === "") {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw) as { Path?: string; StartTime?: string };
+    const path = (parsed.Path || "").trim();
+    if (path === "") {
+      return undefined;
+    }
+    return { command: path, cwd: dirnameOf(path), startTime: parsed.StartTime };
+  } catch {
+    const path = pickValue(raw, "Path");
+    if (path === "") {
+      return undefined;
+    }
+    return { command: path, cwd: dirnameOf(path) };
+  }
 }
 
 export function parseCimProcess(text: string): { command: string; cwd: string; startTime?: string } | undefined {

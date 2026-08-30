@@ -48,6 +48,12 @@ describe("session storage", () => {
     }
   });
 
+  test("processAlive sees this process and not a missing pid", () => {
+    expect(processAlive(process.pid)).toBe(true);
+    expect(processAlive(0)).toBe(false);
+    expect(processAlive(999_999_999)).toBe(false);
+  });
+
   test("acquireLock replaces a stale lock and release removes it", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-lock-${Date.now()}`;
     mkdirSync(dir, { recursive: true });

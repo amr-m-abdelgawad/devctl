@@ -97,7 +97,7 @@ export function commandMatches(expected: string[], observed: string): boolean {
     return true;
   }
   const first = expected[0] ?? "";
-  const base = first.split("/").pop() ?? "";
+  const base = first.split(/[/\\]/).pop() ?? "";
   if (base !== "" && observed.includes(base)) {
     return true;
   }
