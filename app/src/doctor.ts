@@ -1,9 +1,8 @@
 import "./gcp-env.ts";
-import { spawn } from "bun";
 import { type DevctlConfig, validate } from "./config/index.ts";
 import { versionLine } from "./version.ts";
 import { humanMessage } from "./errors.ts";
-import { detectGoogle } from "./google.ts";
+import { detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "./google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "./identity.ts";
 import { available, findPortHolder, type PortHolder } from "./ports.ts";
 
@@ -29,7 +28,21 @@ export type Report = {
 
 const LIVE_PROBE_MS = 4_000;
 
-export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
+export type DoctorHost = {
+  detectGoogle(project: string): Promise<GoogleStatus>;
+  hasCommand(name: string): Promise<boolean>;
+  portAvailable(port: number): Promise<boolean>;
+  hasLocalAdc?: () => boolean;
+};
+
+const defaultHost: DoctorHost = {
+  detectGoogle,
+  hasCommand,
+  portAvailable: available,
+  hasLocalAdc: hasLocalAdcMaterial,
+};
+
+export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHost): Promise<Report> {
   const report: Report = { checks: [], issues: 0 };
   const add = (c: Check): void => {
     report.checks.push(c);
@@ -37,7 +50,7 @@ export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
       report.issues += 1;
     }
   };
-  if (await hasCommand("gcloud")) {
+  if (await host.hasCommand("gcloud")) {
     add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });
   } else {
     add({
@@ -47,7 +60,7 @@ export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
       hint: "install the Google Cloud CLI from https://cloud.google.com/sdk/docs/install",
     });
   }
-  const st = await detectGoogle(cfg.google.project_id);
+  const st = await host.detectGoogle(cfg.google.project_id);
   if (st.adcAvailable) {
     add({ name: "Google authentication available", severity: "ok", message: "Application Default Credentials found" });
   } else {
@@ -72,12 +85,12 @@ export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
     needsCloudFeatures(cfg) ||
     Object.values(cfg.services).some((svc) => svc.capabilities.includes("google") || svc.identity.type !== "");
   if (probeCloud) {
-    await addLiveCloudChecks(cfg, add);
-    await addLiveApiChecks(cfg, add);
+    await addLiveCloudChecks(cfg, add, host);
+    await addLiveApiChecks(cfg, add, host);
   }
   for (const tool of cfg.doctor.tools) {
     const cmd = tool.command || tool.name;
-    if (await hasCommand(cmd)) {
+    if (await host.hasCommand(cmd)) {
       add({ name: `${tool.name} installed`, severity: "ok", message: `${cmd} found` });
     } else {
       add({
@@ -109,7 +122,7 @@ export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
         add({ name: label, severity: "error", message: `configured on both ${seenPorts[p.value]} and ${name}` });
       } else {
         seenPorts[p.value] = name;
-        if (await available(p.value)) {
+        if (await host.portAvailable(p.value)) {
           add({ name: label, severity: "ok", message: "available" });
         } else {
           add(await busyPortCheck(label, p.value, `services.${name}.ports`));
@@ -119,7 +132,7 @@ export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
   }
   if (cfg.proxy.listen.port > 0) {
     const label = `Port ${cfg.proxy.listen.port}`;
-    if (await available(cfg.proxy.listen.port)) {
+    if (await host.portAvailable(cfg.proxy.listen.port)) {
       add({ name: label, severity: "ok", message: "proxy listen port available" });
     } else {
       add(await busyPortCheck(label, cfg.proxy.listen.port, "proxy.listen.port"));
@@ -128,9 +141,10 @@ export async function runDoctor(cfg: DevctlConfig): Promise<Report> {
   return report;
 }
 
-async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void): Promise<void> {
+async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void, host: DoctorHost): Promise<void> {
   const project = cfg.google.project_id;
-  if (project === "") {
+  const adc = host.hasLocalAdc ?? hasLocalAdcMaterial;
+  if (project === "" || !adc()) {
     return;
   }
   const apis = [
@@ -174,7 +188,7 @@ async function probeServiceUsage(project: string, service: string): Promise<bool
   return resp.ok;
 }
 
-async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void): Promise<void> {
+async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void, host: DoctorHost): Promise<void> {
   const accounts = configuredServiceAccounts(cfg);
   const iapRoutes = cfg.proxy.routes.filter((route) => route.auth.type.toLowerCase() === "iap");
   const mintableIap = iapRoutes.filter((route) => route.auth.audience.trim() !== "");
@@ -189,6 +203,10 @@ async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void): P
     }
   }
   if (accounts.length === 0 && mintableIap.length === 0) {
+    return;
+  }
+  const adc = host.hasLocalAdc ?? hasLocalAdcMaterial;
+  if (!adc()) {
     return;
   }
   const tokens = await loadTokenManager(0);
@@ -278,7 +296,3 @@ export function formatDoctor(r: Report): string {
   return lines.join("\n") + "\n";
 }
 
-async function hasCommand(name: string): Promise<boolean> {
-  const proc = spawn({ cmd: process.platform === "win32" ? ["where", name] : ["which", name], stdout: "ignore", stderr: "ignore" });
-  return (await proc.exited) === 0;
-}

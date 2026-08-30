@@ -26,6 +26,8 @@ export type GoogleStatus = {
 };
 
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
+export const COMMAND_PROBE_MS = 1_500;
+const ADC_PROBE_MS = 2_000;
 
 export async function detectGoogle(configuredProject: string): Promise<GoogleStatus> {
   const st: GoogleStatus = {
@@ -53,19 +55,7 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
   }
   if (hasLocalAdcMaterial()) {
     try {
-      const { GoogleAuth } = await import("google-auth-library");
-      const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
-      await auth.getClient();
-      st.adcAvailable = true;
-      const project = await auth.getProjectId().catch(() => "");
-      if (st.projectID === "" && project) {
-        st.projectID = project;
-        st.projectSource = "application default credentials";
-      }
-      const email = await emailFromAuth(auth);
-      if (email !== "") {
-        st.userEmail = email;
-      }
+      await withDeadline(fillAdc(st), ADC_PROBE_MS);
     } catch (err) {
       st.adcAvailable = false;
       st.error = classifyGoogle(err);
@@ -75,6 +65,22 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
     st.userEmail = await gcloudConfig("core/account");
   }
   return st;
+}
+
+async function fillAdc(st: GoogleStatus): Promise<void> {
+  const { GoogleAuth } = await import("google-auth-library");
+  const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
+  await auth.getClient();
+  st.adcAvailable = true;
+  const project = await auth.getProjectId().catch(() => "");
+  if (st.projectID === "" && project) {
+    st.projectID = project;
+    st.projectSource = "application default credentials";
+  }
+  const email = await emailFromAuth(auth);
+  if (email !== "") {
+    st.userEmail = email;
+  }
 }
 
 async function emailFromAuth(auth: GoogleAuth): Promise<string> {
@@ -196,16 +202,19 @@ function firstEnv(...keys: string[]): string {
   return "";
 }
 
-async function hasCommand(name: string): Promise<boolean> {
-  const proc = spawn({
-    cmd: process.platform === "win32" ? ["where", name] : ["which", name],
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  return (await proc.exited) === 0;
+export async function hasCommand(name: string): Promise<boolean> {
+  try {
+    const result = await spawnTimed(
+      process.platform === "win32" ? ["where", name] : ["which", name],
+      COMMAND_PROBE_MS,
+    );
+    return result.code === 0;
+  } catch {
+    return false;
+  }
 }
 
-function hasLocalAdcMaterial(): boolean {
+export function hasLocalAdcMaterial(): boolean {
   const fromEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   if (fromEnv && existsSync(fromEnv)) {
     return true;
@@ -219,22 +228,53 @@ function hasLocalAdcMaterial(): boolean {
 
 async function gcloudConfig(key: string): Promise<string> {
   try {
-    const proc = spawn({
-      cmd: ["gcloud", "config", "get-value", key],
-      stdout: "pipe",
-      stderr: "ignore",
-    });
-    const text = await new Response(proc.stdout).text();
-    const code = await proc.exited;
-    if (code !== 0) {
+    const result = await spawnTimed(["gcloud", "config", "get-value", key], COMMAND_PROBE_MS);
+    if (result.code !== 0) {
       return "";
     }
-    const v = text.trim();
-    if (v === "" || v === "(unset)") {
+    const value = result.stdout.trim();
+    if (value === "" || value === "(unset)") {
       return "";
     }
-    return v;
+    return value;
   } catch {
     return "";
   }
+}
+
+async function spawnTimed(cmd: string[], timeoutMs: number): Promise<{ code: number; stdout: string }> {
+  const proc = spawn({
+    cmd,
+    stdout: "pipe",
+    stderr: "ignore",
+    env: {
+      ...process.env,
+      CLOUDSDK_CORE_DISABLE_PROMPTS: "1",
+      CLOUDSDK_CORE_DISABLE_USAGE_REPORTING: "true",
+    },
+  });
+  const stdoutP = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
+  try {
+    const [stdout, code] = await withDeadline(Promise.all([stdoutP, proc.exited]), timeoutMs);
+    return { code: code ?? 1, stdout };
+  } catch {
+    proc.kill();
+    return { code: 1, stdout: "" };
+  }
+}
+
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
 }
