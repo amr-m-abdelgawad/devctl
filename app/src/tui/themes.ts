@@ -609,6 +609,12 @@ const BYTE_MASK = 255;
 const RED_SHIFT = 16;
 const GREEN_SHIFT = 8;
 
+export const CHIP_DARK_INK = "#1A1A1A";
+
+export function chipForeground(background: string, fallback: string): string {
+  return hexLuminance(background) >= LIGHT_BG_CUTOFF ? CHIP_DARK_INK : fallback;
+}
+
 export function hexLuminance(hex: string): number {
   const raw = hex.startsWith("#") ? hex.slice(1) : hex;
   const value = Number.parseInt(raw, HEX_RADIX);

@@ -18,6 +18,8 @@ export type ProcessSpec = {
   workDir: string;
   env: Record<string, string>;
   graceMs: number;
+  captureStdout?: boolean;
+  captureStderr?: boolean;
   onLine?: LineHandler;
   onExit?: (code: number, err?: Error) => void;
 };
@@ -60,8 +62,8 @@ export class ProcessManager {
         cmd,
         cwd: spec.workDir === "" ? undefined : spec.workDir,
         env: spec.env,
-        stdout: "pipe",
-        stderr: "pipe",
+        stdout: spec.captureStdout === false ? "ignore" : "pipe",
+        stderr: spec.captureStderr === false ? "ignore" : "pipe",
         stdin: "ignore",
         detached: process.platform !== "win32",
       });

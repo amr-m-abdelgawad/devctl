@@ -56,3 +56,13 @@ export function shouldConfirmInterrupt(now: number, armedAt: number, windowMs = 
 export function isBound(key: KeyLike, tui: TuiConfig, name: string, fallback: string): boolean {
   return keyMatches(key, tui.keybinds[name] ?? fallback);
 }
+
+export function isPageDownKey(key: KeyLike): boolean {
+  const name = (key.name ?? "").toLowerCase();
+  return name === "pagedown" || (key.ctrl === true && name === "d" && !key.meta);
+}
+
+export function isPageUpKey(key: KeyLike): boolean {
+  const name = (key.name ?? "").toLowerCase();
+  return name === "pageup" || (key.ctrl === true && name === "u" && !key.meta);
+}

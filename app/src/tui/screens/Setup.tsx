@@ -43,7 +43,13 @@ export function SetupScreen(props: {
     <ScreenFrame palette={palette} title="setup">
       <text fg={palette.primary}>Developer onboarding — 9 steps</text>
       {rows.map((row, index) => (
-        <box key={row.name} height={scale.rowH} flexDirection="row" overflow="hidden">
+        <box
+          key={row.name}
+          height={scale.rowH}
+          flexDirection="row"
+          overflow="hidden"
+          backgroundColor={index === step ? palette.highlight : undefined}
+        >
           <box width={2} flexShrink={0}>
             <text fg={stateColor(palette, row.ok ? "OK" : "WARN")}>{stateGlyph(row.ok ? "OK" : "WARN")}</text>
           </box>
@@ -51,18 +57,24 @@ export function SetupScreen(props: {
             <text fg={index === step ? palette.primary : palette.text}>{`${index + 1}. ${row.name}`}</text>
           </box>
           <box flexGrow={1} overflow="hidden">
-            <text fg={palette.text} wrapMode="none">
+            <text fg={index === step ? palette.text : palette.muted} wrapMode="none">
               {row.detail}
             </text>
           </box>
         </box>
       ))}
+      {rows[step] && !rows[step].ok ? (
+        <text fg={palette.warning} wrapMode="word">
+          {`Selected: ${rows[step].detail}`}
+        </text>
+      ) : null}
       <text fg={palette.muted} wrapMode="word">
         Service accounts and IAP audiences stay in configuration. They are never hard-coded. Run `devctl setup` for the interactive CLI wizard.
       </text>
       <KeyHints
         palette={palette}
         hints={[
+          { key: "j/k", label: "steps" },
           { key: "enter", label: cfg ? "start" : "begin setup" },
           { key: "esc", label: "exit" },
           { key: "o", label: "profiles" },

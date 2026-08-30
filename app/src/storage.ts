@@ -64,6 +64,9 @@ export function credentialsDir(): string {
 }
 
 export function socketPath(repoRoot: string): string {
+  if (process.platform === "win32") {
+    return `\\\\.\\pipe\\devctl-${repoID(repoRoot)}`;
+  }
   return join(sessionDir(repoRoot), "devctl.sock");
 }
 

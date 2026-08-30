@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { useDensity } from "./density.tsx";
 import { isCompactScale, isTightScale } from "./settings.ts";
-import { type Palette } from "./themes.ts";
+import { CHIP_DARK_INK, chipForeground, isLightPalette, type Palette } from "./themes.ts";
 import { overlayRect, tabChipWidth, visibleTabRange } from "./helpers.ts";
 
 export type ChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle";
@@ -10,17 +10,17 @@ export type ChipTone = "primary" | "accent" | "success" | "warning" | "error" | 
 function chipColors(palette: Palette, tone: ChipTone): { bg: string; fg: string } {
   switch (tone) {
     case "primary":
-      return { bg: palette.primary, fg: palette.inverse };
+      return { bg: palette.primary, fg: chipForeground(palette.primary, palette.inverse) };
     case "accent":
-      return { bg: palette.accent, fg: palette.inverse };
+      return { bg: palette.accent, fg: isLightPalette(palette) ? CHIP_DARK_INK : chipForeground(palette.accent, palette.inverse) };
     case "success":
-      return { bg: palette.success, fg: palette.inverse };
+      return { bg: palette.success, fg: chipForeground(palette.success, palette.inverse) };
     case "warning":
-      return { bg: palette.warning, fg: palette.inverse };
+      return { bg: palette.warning, fg: isLightPalette(palette) ? CHIP_DARK_INK : chipForeground(palette.warning, palette.inverse) };
     case "error":
-      return { bg: palette.error, fg: palette.inverse };
+      return { bg: palette.error, fg: chipForeground(palette.error, palette.inverse) };
     case "info":
-      return { bg: palette.info, fg: palette.inverse };
+      return { bg: palette.info, fg: chipForeground(palette.info, palette.inverse) };
     case "muted":
       return { bg: palette.element, fg: palette.text };
     default:

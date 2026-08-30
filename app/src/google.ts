@@ -198,7 +198,7 @@ function firstEnv(...keys: string[]): string {
 
 async function hasCommand(name: string): Promise<boolean> {
   const proc = spawn({
-    cmd: ["which", name],
+    cmd: process.platform === "win32" ? ["where", name] : ["which", name],
     stdout: "ignore",
     stderr: "ignore",
   });

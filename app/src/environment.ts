@@ -14,6 +14,8 @@ export type EnvRequest = {
   runtime: Record<string, string>;
   cfg?: DevctlConfig;
   sourceValues?: Partial<Record<string, Record<string, string>>>;
+  fetchSecret?: (resource: string) => string | Promise<string>;
+  pluginSources?: EnvironmentSource[];
 };
 
 export type EnvSourceContext = {
@@ -71,23 +73,59 @@ export function keychainSource(): EnvironmentSource {
   };
 }
 
-export function secretManagerSource(fetchSecret?: (name: string) => string): EnvironmentSource {
+export function secretManagerSource(fetchSecret?: (name: string) => string | Promise<string>): EnvironmentSource {
   return {
     name: "secret_manager",
     load: (ctx) => loadSecretManagerEnv(ctx, fetchSecret),
   };
 }
 
-export function sourceOrder(cfg?: DevctlConfig): EnvSourceName[] {
+// Production fetcher for the secret_manager environment source: calls the
+// Secret Manager REST API directly using a caller-supplied access token, so
+// it has no dependency on the Google Cloud client libraries.
+export function secretManagerFetcher(getAccessToken: () => Promise<string>): (resource: string) => Promise<string> {
+  return async (resource: string): Promise<string> => {
+    const versioned = resource.includes("/versions/") ? resource : `${resource}/versions/latest`;
+    const token = await getAccessToken();
+    const res = await fetch(`https://secretmanager.googleapis.com/v1/${versioned}:access`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw newError(KindConfiguration, `secret manager request failed for ${resource}: HTTP ${res.status}`);
+    }
+    const body = (await res.json()) as { payload?: { data?: string } };
+    if (!body.payload?.data) {
+      throw newError(KindConfiguration, `secret manager response for ${resource} had no payload`);
+    }
+    return Buffer.from(body.payload.data, "base64").toString("utf8");
+  };
+}
+
+// Returns the source names to apply, in precedence order (later wins).
+// Plugin-registered sources (any configured name outside ENV_SOURCE_ORDER)
+// are spliced in right before "defaults" — after the external/credential
+// sources but still overridable by a service's own defaults/vars/runtime.
+export function sourceOrder(cfg?: DevctlConfig): string[] {
   const configured = cfg?.environment.sources ?? [];
   if (configured.length === 0) {
     return [...ENV_SOURCE_ORDER];
   }
   const wanted = new Set<string>([...ALWAYS_ON_SOURCES, ...configured]);
-  return ENV_SOURCE_ORDER.filter((name) => wanted.has(name));
+  const builtin = new Set<string>(ENV_SOURCE_ORDER);
+  const extra = configured.filter((name) => !builtin.has(name));
+  const order: string[] = [];
+  for (const name of ENV_SOURCE_ORDER) {
+    if (name === "defaults") {
+      order.push(...extra);
+    }
+    if (wanted.has(name)) {
+      order.push(name);
+    }
+  }
+  return order;
 }
 
-export function resolveEnvironment(repoRoot: string, req: EnvRequest): Record<string, string> {
+export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
   let workDir = req.serviceCfg.working_dir;
   if (workDir !== "" && !isAbsolute(workDir)) {
@@ -105,16 +143,23 @@ export function resolveEnvironment(repoRoot: string, req: EnvRequest): Record<st
   const layers: Record<string, Record<string, string>> = {
     process: osEnviron(),
     profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll),
-    dotenv: resolveMaybe(dotenvSource().load(ctx) as Record<string, string>, req.cfg, assignedAll),
+    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll),
     generated: {},
     keychain: req.sourceValues?.keychain ?? loadKeychainEnv(ctx),
-    secret_manager: req.sourceValues?.secret_manager ?? loadSecretManagerEnv(ctx),
+    secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
     defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll),
     vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll),
     runtime: req.runtime,
   };
   for (const name of sourceOrder(req.cfg)) {
-    Object.assign(out, layers[name] ?? {});
+    if (layers[name] !== undefined) {
+      Object.assign(out, layers[name]);
+      continue;
+    }
+    const plugin = req.pluginSources?.find((source) => source.name === name);
+    if (plugin) {
+      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll));
+    }
   }
   for (const key of req.serviceCfg.environment.required) {
     if ((out[key] ?? "").trim() === "") {
@@ -179,7 +224,7 @@ function loadKeychainEnv(ctx: EnvSourceContext): Record<string, string> {
   return out;
 }
 
-function loadSecretManagerEnv(ctx: EnvSourceContext, fetchSecret?: (name: string) => string): Record<string, string> {
+async function loadSecretManagerEnv(ctx: EnvSourceContext, fetchSecret?: (name: string) => string | Promise<string>): Promise<Record<string, string>> {
   const wanted = ctx.cfg?.environment.sources ?? [];
   if (!wanted.includes("secret_manager")) {
     return {};
@@ -196,7 +241,7 @@ function loadSecretManagerEnv(ctx: EnvSourceContext, fetchSecret?: (name: string
         `environment source secret_manager is not configured — set credentials or remove it from environment.sources`,
       );
     }
-    out[key] = fetchSecret(resource);
+    out[key] = await fetchSecret(resource);
   }
   return out;
 }

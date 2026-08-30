@@ -10,14 +10,14 @@ import { LogReceived, type BusEvent } from "../events.ts";
 import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent } from "../logs.ts";
 import { exportsDir } from "../storage.ts";
 import { resolveProfile, shutdownPlan, startupPlan, type Plan } from "../services.ts";
-import { clampMcpPort, derivedMcpPort, isDerivedMcpPort } from "../mcp/port.ts";
+import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../mcp/snippets.ts";
 import { type StatusSnapshot } from "../types.ts";
 import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, type CommandSpec } from "./commands.ts";
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, paletteOptions, pickLogService, planServices, prevScreen, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
+import { canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
   isCommandChord,
@@ -25,6 +25,8 @@ import {
   isCtrlC,
   isHelpChord,
   isLeaderChord,
+  isPageDownKey,
+  isPageUpKey,
   isPaletteChord,
   isSearchChord,
   overlayConsumesTyping,
@@ -146,10 +148,13 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [logsFullscreen, setLogsFullscreen] = useState(false);
   const configScrollRef = useRef<ScrollBoxRenderable>(null);
   const helpScrollRef = useRef<ScrollBoxRenderable>(null);
+  const detailScrollRef = useRef<ScrollBoxRenderable>(null);
+  const logDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
+  const planScrollRef = useRef<ScrollBoxRenderable>(null);
   const lastExportPath = useRef("");
   const commandBusy = useRef(false);
   const [logViewStart, setLogViewStart] = useState(0);
-  const [setupStep] = useState(0);
+  const [mcpPortDraft, setMcpPortDraft] = useState("");
   const [plan, setPlan] = useState<Plan | undefined>();
   const [planBusy, setPlanBusy] = useState(false);
   const [lifecycle, setLifecycle] = useState<LifecycleKind>("start");
@@ -425,6 +430,16 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
     },
     [controller, persistPrefs],
   );
+
+  const applyMcpPortDraft = useCallback(() => {
+    if (mcpPortDraft === "") {
+      return mcpPort;
+    }
+    const next = commitMcpPortDraft(mcpPortDraft, mcpPort);
+    setMcpPortDraft("");
+    persistMcpPort(next);
+    return next;
+  }, [mcpPort, mcpPortDraft, persistMcpPort]);
 
   const restartMcpOnPort = useCallback(
     async (port: number) => {
@@ -1041,6 +1056,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         void toggleMcp();
         return;
       }
+      if (listCursor === 1) {
+        applyMcpPortDraft();
+        return;
+      }
       copyFocusedMcpSnippet(listCursor);
       return;
     }
@@ -1059,7 +1078,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
     if (name && (screen === "dashboard" || screen === "services")) {
       openDetail(name);
     }
-  }, [activateSetting, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, logSlice, names, openDetail, profile, screen, settingRows, snap, toggleMcp]);
+  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, logSlice, names, openDetail, profile, screen, settingRows, snap, toggleMcp]);
 
   useKeyboard((key: KeyLike) => {
     const name = (key.name ?? "").toLowerCase();
@@ -1117,12 +1136,38 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
     if (overlay === "log-details") {
       if (name === "escape") {
         closeOverlay();
+        return;
+      }
+      if (name === "down" || name === "j") {
+        scrollBoxBy(logDetailsScrollRef.current, tui.scroll_speed);
+        return;
+      }
+      if (name === "up" || name === "k") {
+        scrollBoxBy(logDetailsScrollRef.current, -tui.scroll_speed);
+        return;
+      }
+      if (isPageDownKey(key)) {
+        scrollBoxBy(logDetailsScrollRef.current, pageScrollAmount(height));
+        return;
+      }
+      if (isPageUpKey(key)) {
+        scrollBoxBy(logDetailsScrollRef.current, -pageScrollAmount(height));
+        return;
       }
       return;
     }
     if (overlay === "plan") {
       if (name === "escape" || (name === "return" && !planBusy)) {
         closeOverlay();
+        return;
+      }
+      if (name === "down" || name === "j") {
+        scrollBoxBy(planScrollRef.current, tui.scroll_speed);
+        return;
+      }
+      if (name === "up" || name === "k") {
+        scrollBoxBy(planScrollRef.current, -tui.scroll_speed);
+        return;
       }
       return;
     }
@@ -1139,11 +1184,11 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         scrollBoxBy(helpScrollRef.current, -1);
         return;
       }
-      if (name === "pagedown") {
+      if (name === "pagedown" || isPageDownKey(key)) {
         scrollBoxBy(helpScrollRef.current, HELP_SCROLL_PAGE);
         return;
       }
-      if (name === "pageup") {
+      if (name === "pageup" || isPageUpKey(key)) {
         scrollBoxBy(helpScrollRef.current, -HELP_SCROLL_PAGE);
         return;
       }
@@ -1321,6 +1366,16 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       setScreen("profiles");
       return;
     }
+    if ((screen === "dashboard" || screen === "services") && (name === "*" || (key.shift && name === "8"))) {
+      setChecked([...names]);
+      setStatus(`Selected ${names.length} services`);
+      return;
+    }
+    if ((screen === "dashboard" || screen === "services") && (name === "-" || name === "_" || name === "minus")) {
+      setChecked([]);
+      setStatus("Selection cleared");
+      return;
+    }
     if ((screen === "dashboard" || screen === "services") && name === "n") {
       void beginStart(focusedServices(checked, names[listCursor] ?? ""), profile);
       return;
@@ -1351,8 +1406,15 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       return;
     }
     if (name === "down" || name === "j") {
+      if (screen === "mcp" && listCursor === 1) {
+        applyMcpPortDraft();
+      }
       if (screen === "config") {
         scrollBoxBy(configScrollRef.current, tui.scroll_speed);
+        return;
+      }
+      if (screen === "detail") {
+        scrollBoxBy(detailScrollRef.current, tui.scroll_speed);
         return;
       }
       if (screen === "logs") {
@@ -1363,8 +1425,15 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       return;
     }
     if (name === "up" || name === "k") {
+      if (screen === "mcp" && listCursor === 1) {
+        applyMcpPortDraft();
+      }
       if (screen === "config") {
         scrollBoxBy(configScrollRef.current, -tui.scroll_speed);
+        return;
+      }
+      if (screen === "detail") {
+        scrollBoxBy(detailScrollRef.current, -tui.scroll_speed);
         return;
       }
       if (screen === "logs") {
@@ -1372,6 +1441,40 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         return;
       }
       setSelected((i) => Math.max(0, Math.min(i, Math.max(listCount - 1, 0)) - 1));
+      return;
+    }
+    if (isPageDownKey(key)) {
+      const page = pageScrollAmount(height);
+      if (screen === "config") {
+        scrollBoxBy(configScrollRef.current, page);
+        return;
+      }
+      if (screen === "detail") {
+        scrollBoxBy(detailScrollRef.current, page);
+        return;
+      }
+      if (screen === "logs") {
+        applyLogCursor(listCursor + page);
+        return;
+      }
+      setSelected((i) => Math.min(Math.max(listCount - 1, 0), i + page));
+      return;
+    }
+    if (isPageUpKey(key)) {
+      const page = pageScrollAmount(height);
+      if (screen === "config") {
+        scrollBoxBy(configScrollRef.current, -page);
+        return;
+      }
+      if (screen === "detail") {
+        scrollBoxBy(detailScrollRef.current, -page);
+        return;
+      }
+      if (screen === "logs") {
+        applyLogCursor(listCursor - page);
+        return;
+      }
+      setSelected((i) => Math.max(0, i - page));
       return;
     }
     if (screen === "proxy" && name === "n") {
@@ -1408,20 +1511,23 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       }
     }
     if (screen === "mcp" && listCursor === 1 && (name === "left" || name === "h")) {
-      const next = clampMcpPort(mcpPort - 1);
+      const next = clampMcpPort(applyMcpPortDraft() - 1);
       persistMcpPort(next);
       void restartMcpOnPort(next);
       return;
     }
     if (screen === "mcp" && listCursor === 1 && (name === "right" || name === "l")) {
-      const next = clampMcpPort(mcpPort + 1);
+      const next = clampMcpPort(applyMcpPortDraft() + 1);
       persistMcpPort(next);
       void restartMcpOnPort(next);
       return;
     }
+    if (screen === "mcp" && listCursor === 1 && (name === "backspace" || name === "delete")) {
+      setMcpPortDraft((draft) => backspaceMcpPortDraft(draft));
+      return;
+    }
     if (screen === "mcp" && listCursor === 1 && name.length === 1 && name >= "0" && name <= "9") {
-      const next = clampMcpPort(mcpPort >= 10000 ? Number(name) : mcpPort * 10 + Number(name));
-      persistMcpPort(next);
+      setMcpPortDraft((draft) => typeMcpPortDigit(draft, name));
       return;
     }
     if (screen === "settings" && (name === "left" || name === "h")) {
@@ -1433,6 +1539,15 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       return;
     }
     if (name === "space") {
+      if (screen === "profiles") {
+        const keys = Object.keys(cfg?.profiles ?? {}).sort();
+        const pick = keys[listCursor];
+        if (pick) {
+          setProfile(pick);
+          setStatus(`Profile ${pick}`);
+        }
+        return;
+      }
       if (screen === "mcp") {
         if (listCursor === 0) {
           void toggleMcp();
@@ -1595,6 +1710,16 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             view={logSlice}
             follow={!logPinned}
             onLeaveLatest={pinLogView}
+            onPickLog={(index) => {
+              const event = logSlice[index];
+              if (!event) {
+                return;
+              }
+              applyLogCursor(index);
+              setLogDetail(event);
+              setScreen("logs");
+              setOverlay("log-details");
+            }}
           />
         ) : null}
         {screen === "services" ? (
@@ -1613,7 +1738,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
           />
         ) : null}
         {screen === "detail" ? (
-          <ServiceDetail palette={palette} cfg={cfg} snap={snap} name={detailName} reveal={reveal} width={width} />
+          <ServiceDetail palette={palette} cfg={cfg} snap={snap} name={detailName} reveal={reveal} width={width} envScrollRef={detailScrollRef} />
         ) : null}
         {screen === "logs" ? (
           <LogsScreen
@@ -1655,6 +1780,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             palette={palette}
             snap={snap}
             port={mcpPort}
+            portDraft={mcpPortDraft}
             selected={listCursor}
             onPick={setSelected}
             onToggle={() => {
@@ -1677,7 +1803,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         {screen === "profiles" ? (
           <ProfilesScreen palette={palette} cfg={cfg} profile={profile} selected={listCursor} onPick={setSelected} />
         ) : null}
-        {screen === "setup" ? <SetupScreen palette={palette} cfg={cfg} google={google} bootError={bootError} step={setupStep} /> : null}
+        {screen === "setup" ? <SetupScreen palette={palette} cfg={cfg} google={google} bootError={bootError} step={listCursor} /> : null}
         {screen === "settings" ? (
           <SettingsScreen
             palette={palette}
@@ -1731,7 +1857,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         <ConfirmOverlay palette={palette} title={confirm.title} body={confirm.body} termW={width} termH={height} />
       ) : null}
       {overlay === "log-details" ? (
-        <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} />
+        <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} />
       ) : null}
       {overlay === "plan" && plan ? (
         <PlanOverlay
@@ -1741,6 +1867,8 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
           busy={planBusy}
           failed={failedPlan}
           kind={lifecycle}
+          termH={height}
+          scrollRef={planScrollRef}
           onDismiss={closeOverlay}
         />
       ) : null}

@@ -5,14 +5,14 @@ import { defaultConfig, emptyService } from "./config/types.ts";
 import { resolveEnvironment, runtimeForService } from "./environment.ts";
 
 describe("environment precedence", () => {
-  test("runtime overrides dotenv and service defaults", () => {
+  test("runtime overrides dotenv and service defaults", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, ".env"), "FROM_DOTENV=a\nSHARED=dotenv\n");
     const svc = emptyService();
     svc.environment.defaults = { SHARED: "default", FROM_DEFAULT: "d" };
     svc.environment.vars = { SHARED: "svc" };
-    const env = resolveEnvironment(dir, {
+    const env = await resolveEnvironment(dir, {
       service: "api",
       profile: "",
       serviceCfg: svc,
@@ -26,7 +26,7 @@ describe("environment precedence", () => {
     expect(env.SERVICE_PORT).toBe("9000");
   });
 
-  test("resolves profile environment refs", () => {
+  test("resolves profile environment refs", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-ref-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
     const svc = emptyService();
@@ -34,7 +34,7 @@ describe("environment precedence", () => {
     full.services.auth = emptyService();
     full.services.auth.ports = [{ name: "http", value: 8001, auto: false }];
     full.services.api = svc;
-    const env = resolveEnvironment(dir, {
+    const env = await resolveEnvironment(dir, {
       service: "api",
       profile: "dev",
       serviceCfg: svc,
@@ -46,11 +46,11 @@ describe("environment precedence", () => {
     expect(env.AUTH_URL).toBe("http://127.0.0.1:8001");
   });
 
-  test("secret_manager source uses injected values", () => {
+  test("secret_manager source uses injected values", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
     const svc = emptyService();
-    const env = resolveEnvironment(dir, {
+    const env = await resolveEnvironment(dir, {
       service: "api",
       profile: "",
       serviceCfg: svc,

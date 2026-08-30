@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { stringify } from "yaml";
-import { load, validate } from "./config/index.ts";
+import { load, stopOnExit, validate } from "./config/index.ts";
 import { openAttach, openController } from "./controller.ts";
 import { readPersistedState } from "./storage.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
@@ -294,9 +294,14 @@ function addReload(root: Command): void {
       const result = await ctrl.reload();
       if (result.restart_required.length === 0) {
         writeOut("configuration reloaded\n");
-        return;
+      } else {
+        writeOut(`configuration reloaded; restart required: ${result.restart_required.join(", ")}\n`);
       }
-      writeOut(`configuration reloaded; restart required: ${result.restart_required.join(", ")}\n`);
+      if (result.supervisor_restart_required && result.supervisor_restart_required.length > 0) {
+        writeOut(
+          `note: ${result.supervisor_restart_required.join(", ")} changed and only take effect after \`devctl stop && devctl start\`\n`,
+        );
+      }
     } finally {
       await ctrl.close();
     }
@@ -452,6 +457,21 @@ function addSupervisor(root: Command): void {
     .action(async (opts: { repo?: string }) => {
       const cfg = load(opts.repo ?? "", configFlag(root));
       const sup = new Supervisor(cfg);
+      // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
+      // but it can also receive a signal directly (system shutdown, an
+      // admin `kill`, a container orchestrator). Without a handler, Node's
+      // default action skips shutdown() entirely — including flushing the
+      // now-asynchronous log writes — so register one as a safety net.
+      let shuttingDown = false;
+      const onSignal = (): void => {
+        if (shuttingDown) {
+          return;
+        }
+        shuttingDown = true;
+        void sup.shutdown(stopOnExit(cfg.shutdown)).finally(() => process.exit(0));
+      };
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
       await sup.run();
     });
 }

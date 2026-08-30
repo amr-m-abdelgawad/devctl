@@ -14,12 +14,13 @@ export function McpScreen(props: {
   palette: Palette;
   snap?: StatusSnapshot;
   port: number;
+  portDraft?: string;
   selected: number;
   onPick: (index: number) => void;
   onToggle: () => void;
   onCopy: (snippet: McpSnippet) => void;
 }) {
-  const { palette, snap, port, selected, onPick, onToggle, onCopy } = props;
+  const { palette, snap, port, portDraft = "", selected, onPick, onToggle, onCopy } = props;
   const scale = useDensity();
   const running = snap?.mcp?.running === true;
   const livePort = snap?.mcp?.port ?? port;
@@ -57,9 +58,9 @@ export function McpScreen(props: {
               active={selected === MCP_PORT_ROW}
               rowH={scale.rowH}
               label="Port"
-              value={`‹ ${port} ›`}
+              value={`‹ ${portDraft === "" ? port : portDraft} ›`}
               valueTone="info"
-              hint="← → change   type digits"
+              hint={portDraft === "" ? "← → change   type digits   enter apply" : "typing…  enter apply  ⌫ erase"}
               onPick={() => onPick(MCP_PORT_ROW)}
             />
             <box height={1} overflow="hidden">
@@ -111,6 +112,7 @@ export function mcpHints(selected: number, running: boolean): Array<{ key: strin
     return [
       { key: "←→", label: "change port" },
       { key: "0-9", label: "type port" },
+      { key: "enter", label: "apply port" },
       { key: "j/k", label: "move" },
     ];
   }

@@ -124,6 +124,8 @@ export function SelectionHint(props: {
         items={[{ text: `${count} selected`, tone: "primary" }]}
         hints={[
           { key: "space", label: "unmark" },
+          { key: "*", label: "all" },
+          { key: "-", label: "none" },
           { key: "n", label: "start these" },
           { key: "x", label: "stop these" },
         ]}

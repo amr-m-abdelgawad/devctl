@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentColor, hexLuminance, isLightPalette, logMessageColor, logSpanColor, onAgentColor, paletteFor, resolveThemeName, serviceColor, THEME_BLURBS, THEME_NAMES, themeBlurb } from "./themes.ts";
+import { agentColor, chipForeground, CHIP_DARK_INK, hexLuminance, isLightPalette, logMessageColor, logSpanColor, onAgentColor, paletteFor, resolveThemeName, serviceColor, THEME_BLURBS, THEME_NAMES, themeBlurb } from "./themes.ts";
 
 describe("themes", () => {
   test("every named theme has a palette and blurb", () => {
@@ -70,5 +70,12 @@ describe("themes", () => {
     expect(logSpanColor(dark, "INFO", "number")).toBe(dark.info);
     expect(logSpanColor(dark, "INFO", "keyword")).toBe(dark.error);
     expect(logSpanColor(dark, "ERROR", "text")).toBe(dark.error);
+  });
+
+  test("light warning chips use dark ink", () => {
+    const latte = paletteFor("catppuccin-latte");
+    expect(isLightPalette(latte)).toBe(true);
+    expect(chipForeground("#E8C547", latte.inverse)).toBe(CHIP_DARK_INK);
+    expect(chipForeground("#111111", latte.inverse)).toBe(latte.inverse);
   });
 });

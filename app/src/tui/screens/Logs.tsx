@@ -7,11 +7,11 @@ import {
   foldLogLines,
   LOG_COL_GAP,
   LOG_LEVEL_COL,
-  LOG_MSG_MIN,
-  LOG_ROW_GUTTER,
+  LOG_META_COL,
   LOG_TIME_COL,
   logFilterCatalog,
   logMessageSpans,
+  logMessageWidth,
   logRowExpanded,
   logServiceColumnWidth,
   logWrapLabel,
@@ -287,10 +287,7 @@ export function LogList(props: {
   const slice = limit === undefined ? logs : logs.slice(-limit);
   const serviceNames = [...new Set(logs.map((ev) => ev.service))];
   const serviceWidth = logServiceColumnWidth(width, serviceNames);
-  const msgWidth = Math.max(
-    LOG_MSG_MIN,
-    width - LOG_TIME_COL - serviceWidth - LOG_LEVEL_COL - LOG_ROW_GUTTER - LOG_COL_GAP - LOG_COL_GAP,
-  );
+  const msgWidth = logMessageWidth({ width, serviceWidth, showTimestamps, showMeta });
 
   useEffect(() => {
     const box = scrollRef.current;
@@ -429,9 +426,9 @@ function LogRow(props: {
               {lineIndex === 0 ? String(event.level) : ""}
             </text>
           </box>
-          {showMeta && lineIndex === 0 && event.source ? (
-            <box width={8} flexShrink={0} overflow="hidden">
-              <text fg={palette.muted}>{padClip(event.source, 8)}</text>
+          {showMeta ? (
+            <box width={LOG_META_COL} flexShrink={0} overflow="hidden">
+              <text fg={palette.muted}>{lineIndex === 0 && event.source ? padClip(event.source, LOG_META_COL) : ""}</text>
             </box>
           ) : null}
           <box width={LOG_COL_GAP} flexShrink={0} overflow="hidden">

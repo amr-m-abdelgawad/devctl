@@ -13,7 +13,7 @@ function tmp(): string {
 }
 
 describe("LogManager persistence", () => {
-  test("writes redacted lines to the session file", () => {
+  test("writes redacted lines to the session file", async () => {
     const dir = tmp();
     const mgr = new LogManager(100, undefined, new Detector([], []), true, dir, "abc", 0, 0);
     mgr.append({
@@ -24,6 +24,9 @@ describe("LogManager persistence", () => {
       message: "Authorization: Bearer super-secret-token",
       pid: 1,
     });
+    // Persistence is asynchronous now (no more blocking appendFileSync per
+    // line); flush() waits for the write to actually land before we read it back.
+    await mgr.flush();
     const file = join(mgr.sessionDir(), "api.log");
     expect(existsSync(file)).toBe(true);
     const body = readFileSync(file, "utf8");

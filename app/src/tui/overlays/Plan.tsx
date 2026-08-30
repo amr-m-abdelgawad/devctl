@@ -1,4 +1,6 @@
-import { alreadyUpNames, pendingPlanWaves, planHeadline, planNextAction, planRowNote, serviceLineState } from "../helpers.ts";
+import { type Ref } from "react";
+import { type ScrollBoxRenderable } from "@opentui/core";
+import { alreadyUpNames, pendingPlanWaves, planHeadline, planNextAction, planOverlayHeight, planRowNote, serviceLineState } from "../helpers.ts";
 import { stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type LifecycleKind } from "../types.ts";
 import { type Plan } from "../../services.ts";
@@ -14,14 +16,17 @@ export function PlanOverlay(props: {
   busy: boolean;
   failed: string;
   kind: LifecycleKind;
+  termH?: number;
+  scrollRef?: Ref<ScrollBoxRenderable>;
   onDismiss: () => void;
 }) {
-  const { palette, plan, snap, busy, failed, kind, onDismiss } = props;
+  const { palette, plan, snap, busy, failed, kind, termH = 24, scrollRef, onDismiss } = props;
   const running = alreadyUpNames(plan, snap);
   const waves = pendingPlanWaves(plan, snap);
   const names = waves.flat();
   const waveCount = waves.length;
-  const height = Math.min(22, names.length + running.length + waveCount * WAVE_HEADER_ROWS + CHROME_ROWS + (running.length > 0 ? 1 : 0));
+  const contentRows = names.length + running.length + waveCount * WAVE_HEADER_ROWS + CHROME_ROWS + (running.length > 0 ? 1 : 0);
+  const height = planOverlayHeight(termH, contentRows);
   const title = planTitle(kind, busy, failed);
   const action = planActionCopy(busy, failed);
   const actionFg = failed || busy ? palette.text : palette.inverse;
@@ -65,6 +70,7 @@ export function PlanOverlay(props: {
           </text>
         </box>
       ) : null}
+      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={{ rootOptions: { flexGrow: 1, overflow: "hidden", backgroundColor: palette.panel }, viewportOptions: { backgroundColor: palette.panel }, contentOptions: { backgroundColor: palette.panel } }}>
       {waves.map((wave, waveIdx) => (
         <box key={`wave-${waveIdx}`} flexDirection="column" flexShrink={0} overflow="hidden">
           <box height={1} overflow="hidden">
@@ -102,6 +108,7 @@ export function PlanOverlay(props: {
           })}
         </box>
       ))}
+      </scrollbox>
       <box height={1} overflow="hidden" flexShrink={0}>
         <text fg={failed ? palette.error : palette.muted} wrapMode="none">
           {planNextAction(busy, failed, kind)}

@@ -88,7 +88,9 @@ google:
 
 profiles:${profile === "" ? " {}" : `\n  ${profile}:\n    services: []`}
 
-services: {}
+services:
+  app:
+    command: ["echo", "replace this with your service's start command"]
 
 proxy:
   enabled: true

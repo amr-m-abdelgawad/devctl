@@ -1,3 +1,5 @@
+import { type Ref } from "react";
+import { type ScrollBoxRenderable } from "@opentui/core";
 import {
   clipText,
   envKeyColumnWidth,
@@ -30,6 +32,7 @@ export function ServiceDetail(props: {
   name: string;
   reveal: boolean;
   width: number;
+  envScrollRef?: Ref<ScrollBoxRenderable>;
 }) {
   const { palette, name } = props;
   return (
@@ -57,8 +60,9 @@ export function ServiceInspector(props: {
   reveal: boolean;
   width: number;
   compact?: boolean;
+  envScrollRef?: Ref<ScrollBoxRenderable>;
 }) {
-  const { palette, cfg, snap, name, reveal, width, compact = true } = props;
+  const { palette, cfg, snap, name, reveal, width, compact = true, envScrollRef } = props;
   const scale = useDensity();
   const svc = cfg?.services[name];
   if (!svc) {
@@ -115,7 +119,7 @@ export function ServiceInspector(props: {
         valueWidth={Math.max(8, innerWidth - FACT_LABEL)}
       />
       <FactGrid palette={palette} left={leftFacts} right={rightFacts} wide={wide} colWidth={colWidth} />
-      <EnvPane palette={palette} entries={entries} reveal={reveal} width={width} focused={!compact} />
+      <EnvPane palette={palette} entries={entries} reveal={reveal} width={width} focused={!compact} scrollRef={envScrollRef} />
       {compact ? null : (
         <KeyHints
           palette={palette}
@@ -198,8 +202,9 @@ function EnvPane(props: {
   reveal: boolean;
   width: number;
   focused: boolean;
+  scrollRef?: Ref<ScrollBoxRenderable>;
 }) {
-  const { palette, entries, reveal, width, focused } = props;
+  const { palette, entries, reveal, width, focused, scrollRef } = props;
   const keyWidth = envKeyColumnWidth(width);
   const valueWidth = Math.max(8, width - keyWidth - 4);
   return (
@@ -217,6 +222,7 @@ function EnvPane(props: {
       ) : (
         <box flexGrow={1} height="100%" overflow="hidden">
           <scrollbox
+            ref={scrollRef}
             focused={focused}
             stickyScroll={false}
             scrollX={false}

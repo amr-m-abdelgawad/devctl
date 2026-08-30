@@ -74,6 +74,11 @@ export type CredentialsSnapshot = {
 export type ReloadResult = {
   restart_required: string[];
   changes: Record<string, string[]>;
+  // Fields the running supervisor process itself cannot pick up from a
+  // config reload (log capacity/persistence, auth refresh threshold, plugin
+  // paths) — these need `devctl stop && devctl start`, not a service
+  // restart, so they're reported separately from restart_required.
+  supervisor_restart_required?: string[];
 };
 
 export type StatusSnapshot = {

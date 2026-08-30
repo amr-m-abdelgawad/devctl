@@ -279,6 +279,6 @@ export function formatDoctor(r: Report): string {
 }
 
 async function hasCommand(name: string): Promise<boolean> {
-  const proc = spawn({ cmd: ["which", name], stdout: "ignore", stderr: "ignore" });
+  const proc = spawn({ cmd: process.platform === "win32" ? ["where", name] : ["which", name], stdout: "ignore", stderr: "ignore" });
   return (await proc.exited) === 0;
 }

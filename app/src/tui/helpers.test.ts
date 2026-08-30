@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
-import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, filterLogs, focusedServices, foldLogLines, formatLogDetails, formatLogLine, formatLogsForClipboard, formatStarted, formatStopped, footerHints, groupedCommands, HEADER_STACK_WIDTH, logCursorStep, logFilterCatalog, logMessageSpans, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planHeadline, planNextAction, planRowNote, planServices, prevScreen, runningLabel, screenListCount, selectedSlashCommand, serviceCommandText, serviceEnvEntries, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, slashWindowStart, statusChipTone, tabChipWidth, visibleHints, visibleLogs, visibleTabRange, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, filterLogs, focusedServices, foldLogLines, formatLogDetails, formatLogLine, formatLogsForClipboard, formatStarted, formatStopped, footerHints, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planHeadline, planNextAction, planOverlayHeight, planRowNote, planServices, prevScreen, runningLabel, screenListCount, selectedSlashCommand, serviceCommandText, serviceEnvEntries, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, slashWindowStart, statusChipTone, tabChipWidth, visibleHints, visibleLogs, visibleTabRange, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -273,6 +273,12 @@ describe("TUI helpers", () => {
     expect(logServiceColumnWidth(80, ["api"])).toBe(10);
     expect(logServiceColumnWidth(80, ["payment-gateway-worker"])).toBe("payment-gateway-worker".length);
     expect(logServiceColumnWidth(40, ["payment-gateway-worker"])).toBeLessThan("payment-gateway-worker".length);
+    expect(logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: false, showMeta: false })).toBeGreaterThan(
+      logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: true }),
+    );
+    expect(logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: false }) - logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: false, showMeta: false })).toBe(-LOG_TIME_COL);
+    expect(headerStatusChips({ width: HEADER_NARROW_WIDTH - 1, running: 0, total: 3, proxyOn: false, proxyAddress: "", mcpOn: false, adc: false, reveal: false }).some((chip) => chip.label === "!ADC")).toBe(true);
+    expect(planOverlayHeight(20, 40)).toBeLessThanOrEqual(14);
     expect(logMessageSpans(`ready "auth" on 18001 ERROR`).map((span) => span.kind)).toEqual([
       "text",
       "string",
@@ -438,5 +444,6 @@ describe("TUI helpers", () => {
     expect(screenListCount("logs", counts)).toBe(0);
     expect(screenListCount("logs", { ...counts, logs: 12 })).toBe(12);
     expect(screenListCount("mcp", counts)).toBe(6);
+    expect(screenListCount("setup", counts)).toBe(9);
   });
 });

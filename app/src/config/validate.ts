@@ -19,6 +19,24 @@ import {
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
 
+export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command"];
+
+// Health types outside BUILTIN_HEALTH_TYPES are only valid if a plugin
+// registers a matching health check. validateHealth() can't confirm that —
+// plugins load after config validation — so it lets them through when
+// cfg.plugins is non-empty; call this once plugins are loaded to confirm
+// each such type actually resolved to a registered check.
+export function unresolvedHealthTypes(cfg: DevctlConfig): Array<{ service: string; type: string }> {
+  const unresolved: Array<{ service: string; type: string }> = [];
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const type = svc.health.type;
+    if (type !== "" && !BUILTIN_HEALTH_TYPES.includes(type.toLowerCase())) {
+      unresolved.push({ service: name, type });
+    }
+  }
+  return unresolved;
+}
+
 const unseen = 0;
 const active = 1;
 const done = 2;
@@ -73,11 +91,11 @@ function validateServices(cfg: DevctlConfig): string[] {
         usedPorts[port.value] = name;
       }
     }
-    const identErr = validateIdentity(`${prefix}.identity`, svc.identity);
+    const identErr = validateIdentity(`${prefix}.identity`, svc.identity, cfg.plugins.length > 0);
     if (identErr !== "") {
       issues.push(identErr);
     }
-    issues.push(...validateHealth(prefix, svc));
+    issues.push(...validateHealth(prefix, svc, cfg.plugins.length > 0));
     const policy = effectiveRestartPolicy(svc.restart);
     if (policy !== RestartNever && policy !== RestartOnFailure && policy !== RestartAlways) {
       issues.push(`${prefix}.restart.policy must be never, on_failure, or always`);
@@ -87,13 +105,21 @@ function validateServices(cfg: DevctlConfig): string[] {
   return issues;
 }
 
-function validateHealth(prefix: string, svc: { health: { type: string; url: string; address: string; command: { args: string[] } }; ports: unknown[] }): string[] {
+function validateHealth(
+  prefix: string,
+  svc: { health: { type: string; url: string; address: string; command: { args: string[] } }; ports: unknown[] },
+  pluginsConfigured: boolean,
+): string[] {
   const issues: string[] = [];
   if (svc.health.type === "") {
     return issues;
   }
   const kind = svc.health.type.toLowerCase();
-  if (kind !== "http" && kind !== "tcp" && kind !== "process" && kind !== "command") {
+  // A plugin can register a custom health check type, but plugins load
+  // after config validation, so their names aren't known here. Defer the
+  // final say to the supervisor (see Supervisor.run), which re-checks any
+  // non-builtin type against the loaded plugin registry once it's ready.
+  if (!BUILTIN_HEALTH_TYPES.includes(kind) && !pluginsConfigured) {
     issues.push(`${prefix}.health.type must be http, tcp, process, or command`);
   }
   if (kind === "http" && svc.health.url === "") {
@@ -108,7 +134,14 @@ function validateHealth(prefix: string, svc: { health: { type: string; url: stri
   return issues;
 }
 
-function validateIdentity(prefix: string, ident: IdentityConfig): string {
+// Types outside this set are only valid if a plugin registers a matching
+// identity provider. Like health.type, that can't be confirmed here —
+// plugins load after config validation — so it's let through when
+// cfg.plugins is non-empty; Supervisor.run() re-checks it once plugins are
+// loaded (see checkPluginIdentityTypes).
+export const BUILTIN_IDENTITY_KINDS = ["", "user", "service", "service_account"];
+
+function validateIdentity(prefix: string, ident: IdentityConfig, pluginsConfigured: boolean): string {
   const kind = identityKind(ident).toLowerCase();
   if (kind === "" || kind === "user") {
     return "";
@@ -122,7 +155,21 @@ function validateIdentity(prefix: string, ident: IdentityConfig): string {
     }
     return "";
   }
+  if (pluginsConfigured) {
+    return "";
+  }
   return `${prefix}.type must be user or service_account`;
+}
+
+export function unresolvedIdentityTypes(cfg: DevctlConfig): Array<{ service: string; type: string }> {
+  const unresolved: Array<{ service: string; type: string }> = [];
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const kind = identityKind(svc.identity).toLowerCase();
+    if (!BUILTIN_IDENTITY_KINDS.includes(kind)) {
+      unresolved.push({ service: name, type: kind });
+    }
+  }
+  return unresolved;
 }
 
 function validateCycles(cfg: DevctlConfig): string[] {

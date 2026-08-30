@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type WriteStream } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { type Bus } from "./events.ts";
@@ -131,6 +131,9 @@ export class LogManager {
   private readonly detector?: Detector;
   private readonly persistDir: string;
   private readonly persist: boolean;
+  private readonly streams = new Map<string, WriteStream>();
+  private readonly lastWrite = new Map<string, Promise<void>>();
+  private parsers: LogParser[] = [];
 
   constructor(
     max: number,
@@ -158,12 +161,21 @@ export class LogManager {
     return this.persistDir;
   }
 
+  // Plugin log parsers are loaded asynchronously after this manager is
+  // constructed (loadPluginPaths runs after the Supervisor wires up
+  // logging), so they're pushed in here rather than taken as a constructor
+  // argument.
+  setParsers(parsers: LogParser[]): void {
+    this.parsers = parsers;
+  }
+
   append(ev: LogEvent): void {
+    const parsed = this.parseLine(ev.message);
     const next: LogEvent = {
       ...ev,
       timestamp: ev.timestamp || new Date().toISOString(),
-      level: ev.level || parseLevel(ev.message),
-      request_id: ev.request_id || parseRequestID(ev.message),
+      level: ev.level || parsed.level || parseLevel(ev.message),
+      request_id: ev.request_id || parsed.request_id || parseRequestID(ev.message),
       message: this.detector ? this.detector.redactText(ev.message) : ev.message,
     };
     this.events.push(next);
@@ -173,8 +185,71 @@ export class LogManager {
     this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.level }));
     if (this.persist) {
       const line = `${next.timestamp} ${next.service} ${next.level} ${next.message}\n`;
-      appendFileSync(join(this.persistDir, `${safeServiceFile(next.service)}.log`), line, { mode: 0o600 });
+      const key = safeServiceFile(next.service);
+      const stream = this.streamFor(key);
+      // fs.WriteStream.write() queues the write asynchronously instead of
+      // blocking the event loop the way appendFileSync() does; writes to a
+      // given stream are still delivered in order, so tracking only the
+      // most recent one is enough for flush() to know everything queued
+      // before it has landed.
+      this.lastWrite.set(
+        key,
+        new Promise((resolve) => {
+          stream.write(line, () => resolve());
+        }),
+      );
     }
+  }
+
+  // Waits for all writes queued so far to land on disk. Persistence is
+  // asynchronous during normal operation; call this where code needs the
+  // on-disk file to be current (tests, and close()).
+  async flush(): Promise<void> {
+    await Promise.all([...this.lastWrite.values()]);
+  }
+
+  private parseLine(line: string): Partial<LogEvent> {
+    let out: Partial<LogEvent> = {};
+    for (const parser of this.parsers) {
+      try {
+        const result = parser.parse(line);
+        if (result) {
+          out = { ...out, ...result };
+        }
+      } catch {
+        // a misbehaving plugin parser must not break log ingestion
+      }
+    }
+    return out;
+  }
+
+  private streamFor(key: string): WriteStream {
+    let stream = this.streams.get(key);
+    if (stream === undefined) {
+      stream = createWriteStream(join(this.persistDir, `${key}.log`), { flags: "a", mode: 0o600 });
+      // A write stream with no error listener crashes the process on error
+      // (e.g. disk full, file removed underneath us); we have no better
+      // channel to report it from inside the logger itself, so drop it.
+      stream.on("error", () => {});
+      this.streams.set(key, stream);
+    }
+    return stream;
+  }
+
+  // Flushes pending writes and releases the per-service file handles kept
+  // open by append(). Call on supervisor shutdown.
+  async close(): Promise<void> {
+    await this.flush();
+    await Promise.all(
+      [...this.streams.values()].map(
+        (stream) =>
+          new Promise<void>((resolve) => {
+            stream.end(() => resolve());
+          }),
+      ),
+    );
+    this.streams.clear();
+    this.lastWrite.clear();
   }
 
   query(filter: LogFilter): LogEvent[] {

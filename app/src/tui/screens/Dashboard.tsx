@@ -35,6 +35,7 @@ export function Dashboard(props: {
   view?: LogEvent[];
   follow?: boolean;
   onLeaveLatest?: () => void;
+  onPickLog?: (index: number) => void;
 }) {
   const {
     palette,
@@ -61,6 +62,7 @@ export function Dashboard(props: {
     view,
     follow = true,
     onLeaveLatest,
+    onPickLog,
   } = props;
   const scale = useDensity();
   if (!cfg || names.length === 0) {
@@ -181,6 +183,7 @@ export function Dashboard(props: {
             wrapMode={wrapMode}
             follow={follow}
             onLeaveLatest={onLeaveLatest}
+            onPick={onPickLog}
           />
         )}
       </box>

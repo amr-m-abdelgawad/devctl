@@ -25,6 +25,12 @@ const SHOW_PORT_AT = 60;
 const SHOW_PID_AT = 72;
 const LIST_PANE_SHARE = 0.48;
 export const HEADER_STACK_WIDTH = 90;
+export const HEADER_NARROW_WIDTH = 60;
+export const SETUP_STEP_COUNT = 9;
+export const LOG_META_COL = 8;
+export const PAGE_SCROLL_MIN = 8;
+export const PLAN_OVERLAY_MAX = 22;
+export const PLAN_OVERLAY_CHROME = 6;
 export const COMPACT_CHROME_HEIGHT = 20;
 const CHROME_HEADER = 1;
 const CHROME_NAV = 1;
@@ -347,6 +353,52 @@ export function logMessageSpans(message: string): LogSpan[] {
   return spans;
 }
 
+export function logMessageWidth(opts: {
+  width: number;
+  serviceWidth: number;
+  showTimestamps: boolean;
+  showMeta: boolean;
+}): number {
+  const time = opts.showTimestamps ? LOG_TIME_COL : 0;
+  const meta = opts.showMeta ? LOG_META_COL : 0;
+  return Math.max(
+    LOG_MSG_MIN,
+    opts.width - time - opts.serviceWidth - LOG_LEVEL_COL - meta - LOG_ROW_GUTTER - LOG_COL_GAP * LOG_GAPS,
+  );
+}
+
+export function pageScrollAmount(termH: number): number {
+  return Math.max(PAGE_SCROLL_MIN, termH - PLAN_OVERLAY_CHROME * 2);
+}
+
+export function planOverlayHeight(termH: number, contentRows: number): number {
+  const cap = Math.min(PLAN_OVERLAY_MAX, Math.max(PAGE_SCROLL_MIN, termH - PLAN_OVERLAY_CHROME));
+  return Math.min(cap, Math.max(PAGE_SCROLL_MIN, contentRows));
+}
+
+export type HeaderChip = { label: string; tone: "success" | "idle" | "info" | "error" | "warning"; hide?: boolean };
+
+export function headerStatusChips(opts: {
+  width: number;
+  running: number;
+  total: number;
+  proxyOn: boolean;
+  proxyAddress: string;
+  mcpOn: boolean;
+  adc: boolean;
+  reveal: boolean;
+}): HeaderChip[] {
+  const narrow = opts.width < HEADER_NARROW_WIDTH;
+  const proxyLabel = opts.proxyOn ? `● ${clipText(opts.proxyAddress, narrow ? 10 : 18)}` : narrow ? "" : "○ off";
+  return [
+    { label: narrow ? `${opts.running}/${opts.total}` : runningLabel(opts.running, opts.total), tone: opts.running > 0 ? "success" : "idle" },
+    { label: proxyLabel, tone: opts.proxyOn ? "info" : "idle", hide: narrow && !opts.proxyOn },
+    { label: "MCP", tone: "info", hide: !opts.mcpOn },
+    { label: opts.adc ? (narrow ? "ADC" : "ADC ok") : narrow ? "!ADC" : "ADC missing", tone: opts.adc ? "success" : "error" },
+    { label: narrow ? "sec" : "secrets shown", tone: "warning", hide: !opts.reveal },
+  ];
+}
+
 export function logServiceColumnWidth(paneWidth: number, names: string[]): number {
   const longest = names.reduce((max, name) => Math.max(max, name.length), 0);
   const reserved = LOG_TIME_COL + LOG_LEVEL_COL + LOG_ROW_GUTTER + LOG_MSG_MIN + LOG_COL_GAP * LOG_GAPS;
@@ -478,6 +530,9 @@ export function screenListCount(
   }
   if (screen === "mcp") {
     return counts.mcp ?? MCP_FOCUS_COUNT;
+  }
+  if (screen === "setup") {
+    return SETUP_STEP_COUNT;
   }
   return 0;
 }
@@ -885,6 +940,7 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   }
   if (overlay === "log-details") {
     return [
+      { key: "j/k", label: "scroll" },
       { key: copyKey, label: "copy" },
       { key: "esc", label: "close" },
     ];
@@ -929,6 +985,8 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
     case "dashboard":
       return [
         { key: "space", label: "select" },
+        { key: "*", label: "all" },
+        { key: "-", label: "none" },
         { key: "enter", label: "start or open" },
         { key: "n", label: "start" },
         { key: "x", label: "stop" },
@@ -945,6 +1003,8 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
       return [
         { key: "enter", label: "detail" },
         { key: "space", label: "select" },
+        { key: "*", label: "all" },
+        { key: "-", label: "none" },
         { key: "n", label: "start" },
         { key: "x", label: "stop" },
         { key: "r", label: "refresh" },
@@ -952,7 +1012,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         ...common,
       ];
     case "detail":
-      return [{ key: "n", label: "start" }, { key: "x", label: "stop" }, { key: "o", label: "config" }, { key: "l", label: "logs" }, { key: "esc", label: "back" }, ...common];
+      return [{ key: "j/k", label: "scroll env" }, { key: "n", label: "start" }, { key: "x", label: "stop" }, { key: "o", label: "config" }, { key: "l", label: "logs" }, { key: "esc", label: "back" }, ...common];
     case "logs":
       return [
         { key: "←→", label: "filter" },
@@ -971,7 +1031,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         ...common,
       ];
     case "profiles":
-      return [{ key: "enter", label: "use profile" }, { key: "j/k", label: "move" }, ...common];
+      return [{ key: "space", label: "set current" }, { key: "enter", label: "set and start" }, { key: "j/k", label: "move" }, ...common];
     case "proxy":
       return [{ key: "n", label: "start proxy" }, { key: "x", label: "stop proxy" }, ...common];
     case "mcp":
@@ -985,7 +1045,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
     case "config":
       return [{ key: "e", label: "edit" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
     case "setup":
-      return [{ key: "esc", label: "dashboard" }, ...common];
+      return [{ key: "j/k", label: "steps" }, { key: "esc", label: "dashboard" }, ...common];
     case "doctor":
       return [{ key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, { key: "r", label: "rerun" }, ...common];
     case "settings":

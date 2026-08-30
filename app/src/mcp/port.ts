@@ -9,12 +9,38 @@ const HEX_PREFIX_LEN = 8;
 const WALK_LIMIT = 600;
 const MAX_TCP_PORT = 65535;
 export const MIN_USER_PORT = 1024;
+const MCP_PORT_DIGITS = 5;
 
 export function clampMcpPort(port: number): number {
   if (!Number.isInteger(port)) {
     return MCP_PORT_BASE;
   }
   return Math.min(MAX_TCP_PORT, Math.max(MIN_USER_PORT, port));
+}
+
+export function typeMcpPortDigit(draft: string, digit: string): string {
+  if (digit.length !== 1 || digit < "0" || digit > "9") {
+    return draft;
+  }
+  if (draft.length >= MCP_PORT_DIGITS) {
+    return digit;
+  }
+  return `${draft}${digit}`;
+}
+
+export function backspaceMcpPortDraft(draft: string): string {
+  return draft.slice(0, -1);
+}
+
+export function commitMcpPortDraft(draft: string, fallback: number): number {
+  if (draft === "") {
+    return clampMcpPort(fallback);
+  }
+  const parsed = Number(draft);
+  if (!Number.isInteger(parsed)) {
+    return clampMcpPort(fallback);
+  }
+  return clampMcpPort(parsed);
 }
 
 export function derivedMcpPort(repoRoot: string): number {

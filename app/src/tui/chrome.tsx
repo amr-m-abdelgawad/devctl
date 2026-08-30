@@ -1,6 +1,6 @@
 import { versionLine } from "../version.ts";
 import { useDensity } from "./density.tsx";
-import { clipText, countRunning, footerHints, HEADER_STACK_WIDTH, NAV_ITEMS, navActiveIndex, navTabLabel, runningLabel, statusChipTone, visibleHints } from "./helpers.ts";
+import { clipText, countRunning, footerHints, headerStatusChips, HEADER_STACK_WIDTH, NAV_ITEMS, navActiveIndex, navTabLabel, statusChipTone, visibleHints } from "./helpers.ts";
 import { Banner, Chip, KeyHints, MetaBar, TabStrip, Toolbar, type ChipTone } from "./layout.tsx";
 import { isTightScale } from "./settings.ts";
 import { stateColor, stateGlyph, type Palette } from "./themes.ts";
@@ -25,14 +25,22 @@ export function Header(props: {
   const stacked = width < HEADER_STACK_WIDTH;
   const project = clipText(cfg?.project.name || "local", stacked ? 18 : 22);
   const profileName = clipText(profile || snap?.profile || "no profile", 16);
-  const proxyLabel = proxyOn ? `● ${clipText(snap?.proxy.address ?? "", 18)}` : "○ off";
   const chips = (
     <>
-      <Chip palette={palette} label={runningLabel(counts.running, counts.total)} tone={counts.running > 0 ? "success" : "idle"} />
-      <Chip palette={palette} label={proxyLabel} tone={proxyOn ? "info" : "idle"} />
-      {snap?.mcp?.running ? <Chip palette={palette} label="MCP" tone="info" /> : null}
-      <Chip palette={palette} label={adc ? "ADC ok" : "ADC missing"} tone={adc ? "success" : "error"} />
-      {reveal ? <Chip palette={palette} label="secrets shown" tone="warning" /> : null}
+      {headerStatusChips({
+        width,
+        running: counts.running,
+        total: counts.total,
+        proxyOn,
+        proxyAddress: snap?.proxy.address ?? "",
+        mcpOn: snap?.mcp?.running === true,
+        adc,
+        reveal,
+      })
+        .filter((chip) => !chip.hide && chip.label !== "")
+        .map((chip) => (
+          <Chip key={chip.label} palette={palette} label={chip.label} tone={chip.tone} />
+        ))}
     </>
   );
   const tight = isTightScale(useDensity());

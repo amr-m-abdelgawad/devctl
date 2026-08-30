@@ -13,10 +13,24 @@ const DEFAULT_NAME_MARKERS = [
 export const REDACTED_VALUE = "********";
 
 export class Detector {
-  private readonly nameMarkers: string[];
-  private readonly patterns: RegExp[];
+  private nameMarkers: string[];
+  private patterns: RegExp[];
 
   constructor(extraMarkers: string[], extraPatterns: string[]) {
+    this.nameMarkers = [...DEFAULT_NAME_MARKERS, ...extraMarkers];
+    this.patterns = extraPatterns.flatMap((pattern) => {
+      try {
+        return [new RegExp(pattern)];
+      } catch {
+        return [];
+      }
+    });
+  }
+
+  // Mutates in place (rather than requiring callers to swap the instance) so
+  // long-lived holders of this Detector — LogManager, ProxyServer — pick up
+  // a configuration reload without themselves being reconstructed.
+  update(extraMarkers: string[], extraPatterns: string[]): void {
     this.nameMarkers = [...DEFAULT_NAME_MARKERS, ...extraMarkers];
     this.patterns = extraPatterns.flatMap((pattern) => {
       try {

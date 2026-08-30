@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOUBLE_INTERRUPT_MS, isCopyChord, isCtrlC, shouldConfirmInterrupt } from "./keymap.ts";
+import { DOUBLE_INTERRUPT_MS, isCopyChord, isCtrlC, isPageDownKey, isPageUpKey, shouldConfirmInterrupt } from "./keymap.ts";
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
@@ -19,4 +19,14 @@ describe("tui keymap", () => {
     expect(shouldConfirmInterrupt(1000 + DOUBLE_INTERRUPT_MS, 1000)).toBe(true);
     expect(shouldConfirmInterrupt(1001 + DOUBLE_INTERRUPT_MS, 1000)).toBe(false);
   });
+
+  test("page keys include ctrl+d and ctrl+u", () => {
+    expect(isPageDownKey({ name: "pagedown" })).toBe(true);
+    expect(isPageDownKey({ name: "d", ctrl: true })).toBe(true);
+    expect(isPageDownKey({ name: "d" })).toBe(false);
+    expect(isPageUpKey({ name: "pageup" })).toBe(true);
+    expect(isPageUpKey({ name: "u", ctrl: true })).toBe(true);
+    expect(isPageUpKey({ name: "u" })).toBe(false);
+  });
 });
+

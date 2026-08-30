@@ -142,7 +142,23 @@ export function serviceAccountIdentityProvider(): IdentityProvider {
   };
 }
 
-export async function resolveIdentity(cfg: IdentityConfig, detect: () => Promise<Identity>): Promise<Identity> {
+export async function resolveIdentity(
+  cfg: IdentityConfig,
+  detect: () => Promise<Identity>,
+  providers?: IdentityProvider[],
+): Promise<Identity> {
+  // Registered providers include the builtins (pushed first by
+  // registerBuiltins()) followed by any plugin-supplied providers, so
+  // iterating in reverse gives plugins first refusal without needing to
+  // special-case them.
+  if (providers) {
+    for (let i = providers.length - 1; i >= 0; i -= 1) {
+      const provider = providers[i];
+      if (provider?.accepts(cfg)) {
+        return provider.resolve(cfg, detect);
+      }
+    }
+  }
   if (isServiceAccountIdentity(cfg)) {
     return serviceAccountIdentityProvider().resolve(cfg, detect);
   }

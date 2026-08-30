@@ -4,13 +4,17 @@ import { isAbsolute, join } from "node:path";
 import {
   type DevctlConfig,
   type ServiceConfig,
+  captureStderr,
+  captureStdout,
   graceSeconds,
   listenAddress,
   load,
   stopOnExit,
+  unresolvedHealthTypes,
+  unresolvedIdentityTypes,
 } from "./config/index.ts";
-import { envList, resolveEnvironment, runtimeForService } from "./environment.ts";
-import { DevctlError, KindGeneral, KindHealthCheck, KindProcessStart, humanMessage, newError, serializeError } from "./errors.ts";
+import { envList, resolveEnvironment, runtimeForService, secretManagerFetcher } from "./environment.ts";
+import { DevctlError, KindConfiguration, KindGeneral, KindHealthCheck, KindProcessStart, humanMessage, newError, serializeError } from "./errors.ts";
 import {
   AuthenticationChanged,
   Bus,
@@ -105,6 +109,7 @@ export class Supervisor {
   private configWatcher?: FSWatcher;
   private watchTimer?: ReturnType<typeof setTimeout>;
   private readonly unhealthyStreak = new Map<string, number>();
+  private profileEnv: Record<string, string> = {};
 
   constructor(cfg: DevctlConfig, deps?: { detectGoogle?: (project: string) => Promise<GoogleStatus>; tokens?: TokenManager }) {
     this.cfg = cfg;
@@ -149,7 +154,9 @@ export class Supervisor {
 
   async run(opts?: { autoStartProxy?: boolean }): Promise<void> {
     const socket = socketPath(this.cfg.repoRoot);
-    if (existsSync(socket)) {
+    // Windows named pipes are not filesystem entries and vanish with the
+    // process that held them; existsSync/unlinkSync do not apply.
+    if (process.platform !== "win32" && existsSync(socket)) {
       try {
         unlinkSync(socket);
       } catch {
@@ -159,6 +166,8 @@ export class Supervisor {
     this.lock = acquireLock(this.cfg.repoRoot, socket);
     this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path));
     this.applyRegistry();
+    this.checkPluginHealthTypes();
+    this.checkPluginIdentityTypes();
     await this.recoverSession();
     this.watchConfig();
     this.persistState();
@@ -178,8 +187,44 @@ export class Supervisor {
 
   private handleConn(socketConn: import("node:net").Socket): void {
     let buf = "";
+    // Bound the outgoing queue so a slow reader under a high-frequency log
+    // stream can't grow memory without limit. Only pure event pushes (no
+    // `id`) are droppable — an RPC response always carries an `id` and the
+    // client would hang forever waiting for it, so those are never dropped.
+    const MAX_QUEUED_EVENTS = 2000;
+    const queue: Envelope[] = [];
+    let waitingForDrain = false;
+    const pump = (): void => {
+      while (queue.length > 0) {
+        const env = queue[0];
+        const ok = socketConn.write(`${JSON.stringify(env)}\n`);
+        queue.shift();
+        if (!ok) {
+          waitingForDrain = true;
+          socketConn.once("drain", () => {
+            waitingForDrain = false;
+            pump();
+          });
+          return;
+        }
+      }
+    };
     const write = (env: Envelope): void => {
-      socketConn.write(JSON.stringify(env) + "\n");
+      const droppable = env.id === undefined && env.event !== undefined;
+      if (droppable && queue.length >= MAX_QUEUED_EVENTS) {
+        // Evict the oldest droppable entry specifically — not index 0, which
+        // may be an RPC response the client is blocked waiting on. If the
+        // queue is entirely RPC responses, let it grow; that's fine, RPCs
+        // aren't the high-frequency case this cap exists for.
+        const i = queue.findIndex((e) => e.id === undefined && e.event !== undefined);
+        if (i >= 0) {
+          queue.splice(i, 1);
+        }
+      }
+      queue.push(env);
+      if (!waitingForDrain) {
+        pump();
+      }
     };
     const unsub = this.bus.subscribe((event) => write({ event }));
     socketConn.on("data", (chunk) => {
@@ -287,6 +332,7 @@ export class Supervisor {
     if (req.profile) {
       this.profile = req.profile;
     }
+    this.profileEnv = env;
     const plan = startupPlan(this.cfg, services, req.profile ?? "");
     if (this.cfg.proxy.enabled) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
@@ -307,7 +353,7 @@ export class Supervisor {
       } catch (err) {
         const name = err instanceof DevctlError && err.service !== "" ? err.service : pending[0];
         if (name) {
-          this.fail(name, err);
+          await this.fail(name, err);
         }
         throw err;
       }
@@ -350,7 +396,10 @@ export class Supervisor {
     if (current.health === HealthHealthy || current.state === StateHealthy) {
       return true;
     }
-    return current.state === StateStarting || current.state === StateRunning || current.state === StateRestarting;
+    // RESTARTING has no live process (pid is cleared in onExit) — it must not
+    // count as active, or the scheduled restart's startOne() call would see
+    // itself as already up and bail out without ever spawning a new process.
+    return current.state === StateStarting || current.state === StateRunning;
   }
 
   private serviceWorkDir(svc: ServiceConfig): string {
@@ -382,11 +431,28 @@ export class Supervisor {
     const holder = first === undefined ? undefined : await findPortHolder(first);
     const pid = holder?.pid ?? 0;
     if (pid > 0 && pid !== process.pid) {
+      const persistedRec = readPersistedState(this.cfg.repoRoot)?.processes.find((rec) => rec.name === name && rec.pid === pid);
+      if (!persistedRec) {
+        // No prior record ties this pid to this service. Matching on
+        // command + cwd alone isn't enough to safely adopt — a same-command
+        // process started independently of devctl would satisfy that too —
+        // so without a persisted start-time to corroborate identity, treat
+        // the port as unavailable rather than adopting.
+        this.log(name, "WARN", `port ${first} is held by pid ${pid} with no persisted record for ${name}; not adopting`);
+        return false;
+      }
       const observed = await inspectProcess(pid);
       const identityOk =
-        !observed ||
-        observed.command === "" ||
-        sameProcess({ args: [...svc.command.args], workDir: this.serviceWorkDir(svc) }, observed);
+        observed !== undefined &&
+        observed.command !== "" &&
+        sameProcess(
+          {
+            args: [...svc.command.args],
+            workDir: this.serviceWorkDir(svc),
+            startTime: new Date(persistedRec.startTime),
+          },
+          observed,
+        );
       if (identityOk) {
         this.ports.set(name, occupied);
         this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date());
@@ -412,13 +478,13 @@ export class Supervisor {
     let ident = fromConfig(svc.identity);
     if (requiresCloud(ident)) {
       try {
-        ident = await resolveIdentity(svc.identity, () => detectIdentity(this.cfg.google.project_id));
+        ident = await resolveIdentity(svc.identity, () => detectIdentity(this.cfg.google.project_id), this.registry?.identityProviders);
         if (ident.kind === "service_account") {
           await this.tokens.get(tokenIdentityKey(ident), "", []);
         }
       } catch (err) {
         if (requiresCloudCapability(svc) || ident.kind === "service_account") {
-          this.fail(name, err);
+          await this.fail(name, err);
           throw err;
         }
         this.log(name, "WARN", "cloud identity unavailable; starting service locally");
@@ -436,7 +502,7 @@ export class Supervisor {
     if (this.cfg.proxy.token_endpoint.enabled) {
       runtimeEnv.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
     }
-    const env = resolveEnvironment(this.cfg.repoRoot, {
+    const env = await resolveEnvironment(this.cfg.repoRoot, {
       service: name,
       profile: this.profile,
       serviceCfg: svc,
@@ -444,6 +510,8 @@ export class Supervisor {
       assignedPorts: assigned,
       runtime: runtimeEnv,
       cfg: this.cfg,
+      fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
+      pluginSources: this.registry?.environmentSources,
     });
     let workDir = svc.working_dir;
     if (workDir !== "" && !isAbsolute(workDir)) {
@@ -456,6 +524,8 @@ export class Supervisor {
       workDir,
       env: envList(env),
       graceMs: graceSeconds(this.cfg.shutdown) * 1000,
+      captureStdout: captureStdout(svc),
+      captureStderr: captureStderr(svc),
       onLine: (stream, line) => {
         this.logs.append({
           timestamp: new Date().toISOString(),
@@ -480,7 +550,7 @@ export class Supervisor {
       try {
         await this.waitHealthy(name, timeout);
       } catch (err) {
-        this.fail(name, err);
+        await this.fail(name, err);
         throw err;
       }
     }
@@ -496,7 +566,7 @@ export class Supervisor {
       try {
         await this.waitHealthy(name, timeout);
       } catch (err) {
-        this.fail(name, err);
+        await this.fail(name, err);
         throw err;
       }
     }
@@ -535,11 +605,11 @@ export class Supervisor {
       const backoff = svc && svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
       this.restarts.set(name, n + 1);
       setTimeout(() => {
-        void this.startOne(name, {});
+        void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
       }, backoff * (2 ** n) * 1000);
       return;
     }
-    this.fail(name, newError("process_start", msg));
+    void this.fail(name, newError("process_start", msg));
   }
 
   private startHealth(
@@ -676,10 +746,43 @@ export class Supervisor {
   async reload(): Promise<ReloadResult> {
     const next = load(this.cfg.repoRoot, this.cfg.configPath);
     const result = diffReload(this.cfg, next);
+    const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
+    const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);
     Object.assign(this.cfg, next);
     this.restartRequired = result.restart_required;
-    this.bus.publish(newEvent(ConfigurationChanged, "", { restart_required: result.restart_required, changes: result.changes }));
+    // Detector is a cheap, stateless holder of markers/patterns — update it
+    // in place so the LogManager/ProxyServer instances that already hold a
+    // reference to it see the new rules immediately. LogManager and the
+    // plugin registry are deliberately NOT rebuilt here: recreating
+    // LogManager would drop the in-memory log ring buffer and start a new
+    // persistence session out from under the TUI, which is worse than
+    // asking for a restart; reloading plugins mid-session is out of scope.
+    if (secretsChanged) {
+      this.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns);
+    }
+    if (proxyChanged) {
+      const wasRunning = this.proxy?.isRunning() ?? false;
+      await this.stopProxy();
+      if (wasRunning && this.cfg.proxy.enabled) {
+        await this.startProxy();
+      }
+      this.log("devctl", "INFO", "proxy configuration changed; proxy restarted");
+    }
+    this.bus.publish(
+      newEvent(ConfigurationChanged, "", {
+        restart_required: result.restart_required,
+        changes: result.changes,
+        supervisor_restart_required: result.supervisor_restart_required,
+      }),
+    );
     this.log("devctl", "INFO", result.restart_required.length === 0 ? "configuration reloaded" : `configuration reloaded; restart required: ${result.restart_required.join(", ")}`);
+    if (result.supervisor_restart_required) {
+      this.log(
+        "devctl",
+        "WARN",
+        `configuration changed in ${result.supervisor_restart_required.join(", ")} — these only take effect after a full \`devctl stop && devctl start\`, not a reload`,
+      );
+    }
     this.persistState();
     return result;
   }
@@ -700,6 +803,7 @@ export class Supervisor {
     }
     this.server?.close();
     this.lock?.release();
+    await this.logs.close();
   }
 
   snapshot(): StatusSnapshot {
@@ -849,8 +953,21 @@ export class Supervisor {
       return;
     }
     this.unhealthyStreak.set(name, 0);
-    this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks`);
-    void this.restart([name]);
+    // Share the same restart budget and backoff as crash-triggered restarts
+    // (onExit) so a service that is merely unhealthy but never exits can't
+    // restart forever at a fixed 3-checks-per-restart cadence.
+    const n = this.restarts.get(name) ?? 0;
+    const max = svc.restart.max_retries > 0 ? svc.restart.max_retries : DEFAULT_MAX_RETRIES;
+    if (n >= max) {
+      this.log(name, "WARN", `unhealthy after ${streak} consecutive checks but the restart limit (${max}) has already been reached; not restarting`);
+      return;
+    }
+    const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
+    this.restarts.set(name, n + 1);
+    this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks (attempt ${n + 1}/${max})`);
+    setTimeout(() => {
+      void this.restart([name]).catch((err) => this.log(name, "ERROR", humanMessage(err)));
+    }, backoff * (2 ** n) * 1000);
   }
 
   private applyRegistry(): void {
@@ -859,6 +976,53 @@ export class Supervisor {
     }
     if (this.registry.tokenProviders.length > 0) {
       this.tokens.replaceProviders(this.registry.tokenProviders);
+    }
+    this.logs.setParsers(this.registry.logParsers);
+  }
+
+  // validate() lets a non-builtin health.type through when cfg.plugins is
+  // non-empty, since plugins aren't loaded yet at config-parse time. Now
+  // that they are, confirm each such type actually resolved to a registered
+  // health check plugin.
+  private checkPluginHealthTypes(): void {
+    const unresolved = unresolvedHealthTypes(this.cfg);
+    if (unresolved.length === 0) {
+      return;
+    }
+    // checkHealth() matches plugin name to health.type case-insensitively; mirror that here.
+    const known = new Set((this.registry?.healthChecks ?? []).map((check) => check.name.toLowerCase()));
+    const stillUnknown = unresolved.filter((entry) => !known.has(entry.type.toLowerCase()));
+    if (stillUnknown.length > 0) {
+      throw newError(
+        KindConfiguration,
+        `unknown health check type(s): ${stillUnknown.map((entry) => `${entry.service}.health.type=${entry.type}`).join(", ")}`,
+      );
+    }
+  }
+
+  // Mirrors checkPluginHealthTypes: validate() lets a non-builtin
+  // identity.type through when cfg.plugins is non-empty, since plugins
+  // aren't loaded yet at config-parse time. Confirm each such type actually
+  // resolved to a registered identity provider now that they are.
+  private checkPluginIdentityTypes(): void {
+    const unresolved = unresolvedIdentityTypes(this.cfg);
+    if (unresolved.length === 0) {
+      return;
+    }
+    // userIdentityProvider() accepts anything that isn't a service account,
+    // so it would silently "resolve" any custom type as a Google user
+    // identity if we checked the full provider list. Only a provider other
+    // than the two builtins counts as actually resolving a custom type.
+    const pluginProviders = (this.registry?.identityProviders ?? []).filter((provider) => provider.name !== "user" && provider.name !== "service_account");
+    const stillUnknown = unresolved.filter(({ service }) => {
+      const svc = this.cfg.services[service];
+      return !svc || !pluginProviders.some((provider) => provider.accepts(svc.identity));
+    });
+    if (stillUnknown.length > 0) {
+      throw newError(
+        KindConfiguration,
+        `unknown identity type(s): ${stillUnknown.map((entry) => `${entry.service}.identity.type=${entry.type}`).join(", ")}`,
+      );
     }
   }
 
@@ -886,10 +1050,30 @@ export class Supervisor {
     if (!ports) {
       return;
     }
+    const svc = this.cfg.services[name];
+    const meta = this.processMeta.get(name);
     for (const port of Object.values(ports)) {
       const holder = await findPortHolder(port);
       if (!holder || holder.pid === process.pid) {
         continue;
+      }
+      if (svc) {
+        const observed = await inspectProcess(holder.pid);
+        const identityOk =
+          observed !== undefined &&
+          observed.command !== "" &&
+          sameProcess(
+            {
+              args: meta?.command ?? [...svc.command.args],
+              workDir: meta?.cwd ?? this.serviceWorkDir(svc),
+              startTime: meta?.startTime,
+            },
+            observed,
+          );
+        if (!identityOk) {
+          this.log(name, "WARN", `port ${port} is held by pid ${holder.pid}, which does not match ${name}; leaving it running`);
+          continue;
+        }
       }
       try {
         await freePort(holder);
@@ -901,7 +1085,17 @@ export class Supervisor {
     this.ports.delete(name);
   }
 
-  private fail(name: string, err: unknown): void {
+  private async fail(name: string, err: unknown): Promise<void> {
+    const timer = this.healthTimers.get(name);
+    if (timer) {
+      clearInterval(timer);
+      this.healthTimers.delete(name);
+    }
+    try {
+      await this.procs.stop(name, graceSeconds(this.cfg.shutdown) * 1000);
+    } catch (stopErr) {
+      this.log(name, "WARN", humanMessage(stopErr));
+    }
     this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
     this.bus.publish(newEvent(ServiceFailed, name, { error: humanMessage(err) }));
     this.log(name, "ERROR", humanMessage(err));
@@ -971,8 +1165,8 @@ export class Supervisor {
       }
       const observed = await inspectProcess(rec.pid);
       const identityOk =
-        !observed ||
-        observed.command === "" ||
+        observed !== undefined &&
+        observed.command !== "" &&
         sameProcess({ args: rec.command, workDir: rec.cwd, startTime: rec.startTime ? new Date(rec.startTime) : undefined }, observed);
       if (!identityOk) {
         const portOk =
@@ -1018,8 +1212,16 @@ export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult
       fields.push("presence");
       restart.add(name);
     } else {
-      if (before.command.args.join("\0") !== after.command.args.join("\0") || before.shell !== after.shell) {
+      if (
+        before.command.args.join("\0") !== after.command.args.join("\0") ||
+        before.command.shell !== after.command.shell ||
+        before.shell !== after.shell
+      ) {
         fields.push("command");
+        restart.add(name);
+      }
+      if (before.working_dir !== after.working_dir) {
+        fields.push("working_dir");
         restart.add(name);
       }
       if (JSON.stringify(before.environment) !== JSON.stringify(after.environment)) {
@@ -1034,12 +1236,42 @@ export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult
         fields.push("identity");
         restart.add(name);
       }
+      if (JSON.stringify(before.health) !== JSON.stringify(after.health)) {
+        fields.push("health");
+        restart.add(name);
+      }
+      if (JSON.stringify(before.restart) !== JSON.stringify(after.restart)) {
+        fields.push("restart");
+        restart.add(name);
+      }
+      if (JSON.stringify(before.startup) !== JSON.stringify(after.startup)) {
+        fields.push("startup");
+        restart.add(name);
+      }
+      if (JSON.stringify(before.logs) !== JSON.stringify(after.logs)) {
+        fields.push("logs");
+        restart.add(name);
+      }
     }
     if (fields.length > 0) {
       changes[name] = fields;
     }
   }
-  return { restart_required: [...restart].sort(), changes };
+  const supervisorRestart: string[] = [];
+  if (JSON.stringify(prev.logs) !== JSON.stringify(next.logs)) {
+    supervisorRestart.push("logs");
+  }
+  if (JSON.stringify(prev.auth) !== JSON.stringify(next.auth)) {
+    supervisorRestart.push("auth");
+  }
+  if (JSON.stringify(prev.plugins) !== JSON.stringify(next.plugins)) {
+    supervisorRestart.push("plugins");
+  }
+  return {
+    restart_required: [...restart].sort(),
+    changes,
+    supervisor_restart_required: supervisorRestart.length > 0 ? supervisorRestart : undefined,
+  };
 }
 
 function emptyIdentitySnapshot(cfg?: DevctlConfig): IdentitySnapshot {

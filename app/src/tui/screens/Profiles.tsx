@@ -55,7 +55,7 @@ export function ProfilesScreen(props: {
         </box>
       </scrollbox>
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-        <KeyHints palette={palette} hints={[{ key: "enter", label: "use this profile and start it" }]} />
+        <KeyHints palette={palette} hints={[{ key: "space", label: "set current" }, { key: "enter", label: "set and start" }]} />
       </Toolbar>
     </ScreenFrame>
   );
