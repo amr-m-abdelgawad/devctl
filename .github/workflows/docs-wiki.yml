@@ -54,13 +54,12 @@ jobs:
           set -euo pipefail
           if [[ -z "${WIKI_TOKEN}" ]]; then
             echo "::error::Add a repository secret named WIKI_TOKEN."
-            echo "The default Actions token cannot write the wiki or change repo settings."
-            echo "Fine-grained PAT: this repo + Wiki Read and write."
-            echo "Classic PAT: repo scope."
-            echo "Then open the Wiki tab once so GitHub creates the empty wiki."
+            echo "Fine-grained PAT: Contents Read and write + Wiki Read and write."
+            echo "If that still 403s, use a classic PAT with the repo scope."
             exit 1
           fi
-          remote="https://x-access-token:${WIKI_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
+          # Fine-grained PATs must use the GitHub username, not x-access-token.
+          remote="https://${GITHUB_ACTOR}:${WIKI_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
           work="$(mktemp -d)"
           if ! git clone --depth 1 "${remote}" "${work}" 2>/tmp/wiki-clone.err; then
             echo "Wiki clone failed; initializing a new wiki repo."
