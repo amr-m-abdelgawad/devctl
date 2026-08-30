@@ -3,7 +3,7 @@ import { type DevctlConfig } from "../../config/index.ts";
 import { type GoogleStatus } from "../../google.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { KeyHints, ScreenFrame } from "../layout.tsx";
+import { Chip, KeyHints, ScreenFrame } from "../layout.tsx";
 import { stateColor, stateGlyph, type Palette } from "../themes.ts";
 
 const STEPS = [
@@ -39,37 +39,80 @@ export function SetupScreen(props: {
   }
   const issues = cfg ? validate(cfg) : ["configuration not loaded"];
   const rows = setupRows(cfg, google, issues);
+  const done = rows.filter((row) => row.ok).length;
+  const total = rows.length;
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0;
+  const barLen = 20;
+  const filled = Math.round((percent / 100) * barLen);
+  const bar = "█".repeat(filled) + "░".repeat(Math.max(0, barLen - filled));
+  const barColor = percent === 100 ? palette.success : percent === 0 ? palette.muted : palette.primary;
+  const selected = rows[step];
   return (
-    <ScreenFrame palette={palette} title="setup">
-      <text fg={palette.primary}>Developer onboarding — 9 steps</text>
-      {rows.map((row, index) => (
-        <box
-          key={row.name}
-          height={scale.rowH}
-          flexDirection="row"
-          overflow="hidden"
-          backgroundColor={index === step ? palette.highlight : undefined}
-        >
-          <box width={2} flexShrink={0}>
-            <text fg={stateColor(palette, row.ok ? "OK" : "WARN")}>{stateGlyph(row.ok ? "OK" : "WARN")}</text>
-          </box>
-          <box width={22} flexShrink={0} overflow="hidden">
-            <text fg={index === step ? palette.primary : palette.text}>{`${index + 1}. ${row.name}`}</text>
-          </box>
-          <box flexGrow={1} overflow="hidden">
-            <text fg={index === step ? palette.text : palette.muted} wrapMode="none">
-              {row.detail}
-            </text>
-          </box>
-        </box>
-      ))}
-      {rows[step] && !rows[step].ok ? (
-        <text fg={palette.warning} wrapMode="word">
-          {`Selected: ${rows[step].detail}`}
+    <ScreenFrame palette={palette} title="setup" scroll>
+      <box flexDirection="row" overflow="hidden" flexShrink={0}>
+        <text fg={palette.primary}>Developer onboarding</text>
+      </box>
+      <box height={1} flexDirection="row" overflow="hidden" flexShrink={0}>
+        <text wrapMode="none">
+          <span fg={barColor}>{`[${bar}]`}</span>
+          <span fg={palette.text}>{`  ${done}/${total} ready`}</span>
+          <span fg={palette.muted}>{`  (${percent}%)`}</span>
         </text>
+      </box>
+      <box height={1} flexShrink={0} />
+      {rows.map((row, index) => {
+        const isSelected = index === step;
+        return (
+          <box
+            key={row.name}
+            height={scale.rowH}
+            flexDirection="row"
+            overflow="hidden"
+            backgroundColor={isSelected ? palette.highlight : undefined}
+            paddingLeft={1}
+          >
+            <box width={2} flexShrink={0}>
+              <text fg={stateColor(palette, row.ok ? "OK" : "WARN")}>{stateGlyph(row.ok ? "OK" : "WARN")}</text>
+            </box>
+            <box width={3} flexShrink={0}>
+              <text fg={isSelected ? palette.primary : palette.muted}>{String(index + 1).padStart(2, " ")}</text>
+            </box>
+            <box width={20} flexShrink={0} overflow="hidden">
+              <text fg={isSelected ? palette.primary : palette.text}>{row.name}</text>
+            </box>
+            <box flexGrow={1} overflow="hidden">
+              <text fg={isSelected ? palette.text : palette.muted} wrapMode="none">
+                {row.detail}
+              </text>
+            </box>
+          </box>
+        );
+      })}
+      <box height={1} flexShrink={0} />
+      {selected ? (
+        <box
+          border
+          borderStyle="rounded"
+          borderColor={selected.ok ? palette.success : palette.warning}
+          title={selected.name}
+          titleColor={selected.ok ? palette.success : palette.warning}
+          flexDirection="column"
+          paddingLeft={1}
+          paddingRight={1}
+          flexShrink={0}
+          overflow="hidden"
+        >
+          <text fg={selected.ok ? palette.text : palette.warning} wrapMode="word">
+            {selected.detail}
+          </text>
+        </box>
       ) : null}
+      <box height={1} flexShrink={0} />
+      <box flexDirection="row" overflow="hidden" flexShrink={0}>
+        <Chip palette={palette} label="never hard-coded" tone="idle" />
+      </box>
       <text fg={palette.muted} wrapMode="word">
-        Service accounts and IAP audiences stay in configuration. They are never hard-coded. Run `devctl setup` for the interactive CLI wizard.
+        Service accounts and IAP audiences stay in configuration. Run `devctl setup` for the interactive CLI wizard.
       </text>
       <KeyHints
         palette={palette}

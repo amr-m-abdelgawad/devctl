@@ -1779,7 +1779,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         ) : null}
         {screen === "auth" ? <AuthScreen palette={palette} cfg={cfg} google={google} identity={snap?.identity} /> : null}
         {screen === "credentials" ? <CredentialsScreen palette={palette} credentials={snap?.credentials} /> : null}
-        {screen === "proxy" ? <ProxyScreen palette={palette} snap={snap} /> : null}
+        {screen === "proxy" ? <ProxyScreen palette={palette} cfg={cfg} snap={snap} /> : null}
         {screen === "mcp" ? (
           <McpScreen
             palette={palette}
@@ -1806,7 +1806,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         ) : null}
         {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} scrollRef={configScrollRef} /> : null}
         {screen === "profiles" ? (
-          <ProfilesScreen palette={palette} cfg={cfg} profile={profile} selected={listCursor} onPick={setSelected} />
+          <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />
         ) : null}
         {screen === "setup" ? <SetupScreen palette={palette} cfg={cfg} google={google} bootError={bootError} step={listCursor} /> : null}
         {screen === "settings" ? (
