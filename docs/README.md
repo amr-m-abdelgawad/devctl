@@ -51,5 +51,6 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 |------|------|
 | [Building from source](typescript.md) | `ts/` layout, tests, TUI config file |
 | [Architecture spec](devctl-architecture.md) | Original implementation specification (historical). Do not treat the `cmd/` tree there as the current repo. |
+| [License](../LICENSE) | MIT |
 
 Configuration never hard-codes service names, ports, or service accounts. Those belong in `.devctl/`.

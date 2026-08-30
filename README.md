@@ -51,3 +51,7 @@ Try the local demo (no Google Cloud): [examples/demo-platform](examples/demo-pla
 - Tokens and secrets are redacted in the TUI, logs, and MCP output
 - The proxy, token endpoint, and MCP server bind to `127.0.0.1` only
 - Purely local services work without Google Cloud
+
+## License
+
+[MIT](LICENSE) © 2026 Amr MOUSA. Dependencies stay under their own licenses (MIT, Apache-2.0, BSD, ISC) when installed via Bun.

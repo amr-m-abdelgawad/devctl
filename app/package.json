@@ -2,6 +2,7 @@
   "name": "devctl",
   "version": "0.1.0",
   "description": "Local development orchestrator",
+  "license": "MIT",
   "module": "src/bin.ts",
   "type": "module",
   "private": true,

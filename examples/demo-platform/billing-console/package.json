@@ -1,6 +1,7 @@
 {
   "name": "billing-console",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "bun run ./dev.ts"
