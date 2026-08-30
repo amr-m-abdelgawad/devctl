@@ -1,3 +1,4 @@
+import "./gcp-env.ts";
 import { spawn } from "bun";
 import { type DevctlConfig, validate } from "./config/index.ts";
 import { versionLine } from "./version.ts";
@@ -5,7 +6,6 @@ import { humanMessage } from "./errors.ts";
 import { detectGoogle } from "./google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "./identity.ts";
 import { available, findPortHolder, type PortHolder } from "./ports.ts";
-import { TokenManager, googleTokenProviders } from "./token.ts";
 
 export type Severity = "ok" | "warn" | "error";
 
@@ -158,8 +158,13 @@ async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void): Pro
   }
 }
 
+async function loadTokenManager(thresholdMs: number) {
+  const { TokenManager, googleTokenProviders } = await import("./token.ts");
+  return new TokenManager(thresholdMs, googleTokenProviders());
+}
+
 async function probeServiceUsage(project: string, service: string): Promise<boolean> {
-  const tokens = new TokenManager(60_000, googleTokenProviders());
+  const tokens = await loadTokenManager(60_000);
   const tok = await withTimeout(tokens.get("user", "", []), LIVE_PROBE_MS);
   const url = `https://serviceusage.googleapis.com/v1/projects/${project}/services/${service}`;
   const resp = await withTimeout(
@@ -170,17 +175,9 @@ async function probeServiceUsage(project: string, service: string): Promise<bool
 }
 
 async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void): Promise<void> {
-  const tokens = new TokenManager(0, googleTokenProviders());
   const accounts = configuredServiceAccounts(cfg);
-  for (const email of accounts) {
-    try {
-      await withTimeout(tokens.get(`sa:${email}`, "", []), LIVE_PROBE_MS);
-      add({ name: `Impersonate ${email}`, severity: "ok", message: "token minted" });
-    } catch (err) {
-      add(classifyLiveFailure(`Impersonate ${email}`, err, "grant roles/iam.serviceAccountTokenCreator on this service account"));
-    }
-  }
   const iapRoutes = cfg.proxy.routes.filter((route) => route.auth.type.toLowerCase() === "iap");
+  const mintableIap = iapRoutes.filter((route) => route.auth.audience.trim() !== "");
   for (const route of iapRoutes) {
     if (route.auth.audience.trim() === "") {
       add({
@@ -189,8 +186,21 @@ async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void): P
         message: "missing audience",
         hint: "set auth.audience to the IAP OAuth client ID",
       });
-      continue;
     }
+  }
+  if (accounts.length === 0 && mintableIap.length === 0) {
+    return;
+  }
+  const tokens = await loadTokenManager(0);
+  for (const email of accounts) {
+    try {
+      await withTimeout(tokens.get(`sa:${email}`, "", []), LIVE_PROBE_MS);
+      add({ name: `Impersonate ${email}`, severity: "ok", message: "token minted" });
+    } catch (err) {
+      add(classifyLiveFailure(`Impersonate ${email}`, err, "grant roles/iam.serviceAccountTokenCreator on this service account"));
+    }
+  }
+  for (const route of mintableIap) {
     try {
       await withTimeout(tokens.get(fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user", route.auth.audience, []), LIVE_PROBE_MS);
       add({ name: `IAP ${route.name}`, severity: "ok", message: "id token minted" });

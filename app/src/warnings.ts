@@ -1,3 +1,5 @@
+import "./gcp-env.ts";
+
 const METADATA_WARNING = "MetadataLookupWarning";
 const METADATA_PREFIX = "received unexpected error =";
 
@@ -11,9 +13,6 @@ export function isGcpMetadataWarning(message: string, type = ""): boolean {
 }
 
 export function silenceGcpMetadataWarnings(): void {
-  if (process.env.METADATA_SERVER_DETECTION === undefined) {
-    process.env.METADATA_SERVER_DETECTION = "bios-only";
-  }
   if (warningsSilenced) {
     return;
   }

@@ -1,8 +1,9 @@
+import "./gcp-env.ts";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "bun";
-import { GoogleAuth } from "google-auth-library";
+import type { GoogleAuth } from "google-auth-library";
 import {
   hintError,
   KindAuthentication,
@@ -51,8 +52,8 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
     }
   }
   if (hasLocalAdcMaterial()) {
-    preferBiosMetadataDetection();
     try {
+      const { GoogleAuth } = await import("google-auth-library");
       const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
       await auth.getClient();
       st.adcAvailable = true;
@@ -202,12 +203,6 @@ async function hasCommand(name: string): Promise<boolean> {
     stderr: "ignore",
   });
   return (await proc.exited) === 0;
-}
-
-function preferBiosMetadataDetection(): void {
-  if (process.env.METADATA_SERVER_DETECTION === undefined) {
-    process.env.METADATA_SERVER_DETECTION = "bios-only";
-  }
 }
 
 function hasLocalAdcMaterial(): boolean {

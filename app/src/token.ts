@@ -1,3 +1,4 @@
+import "./gcp-env.ts";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { GoogleAuth, Impersonated } from "google-auth-library";
