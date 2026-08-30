@@ -146,6 +146,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
   const [logPinned, setLogPinned] = useState(false);
   const [logsFullscreen, setLogsFullscreen] = useState(false);
+  const [dashboardLogCursor, setDashboardLogCursor] = useState(-1);
   const configScrollRef = useRef<ScrollBoxRenderable>(null);
   const helpScrollRef = useRef<ScrollBoxRenderable>(null);
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
@@ -224,6 +225,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const listCursor = listCount <= 0 ? selected : Math.min(selected, listCount - 1);
 
   useEffect(() => {
+    setDashboardLogCursor(-1);
     if (screen !== "logs") {
       setLogsFullscreen(false);
       return;
@@ -1651,7 +1653,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
     }
     if ((screen === "logs" || screen === "dashboard") && name === "g") {
       setLogPinned(false);
-      setSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
+      setDashboardLogCursor(-1);
+      if (screen === "logs") {
+        setSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
+      }
       setLogFollow((tick) => tick + 1);
       setStatus(logWindow.newer > 0 ? `Jumped to latest (+${logWindow.newer} new)` : "Jumped to latest logs");
       return;
@@ -1702,6 +1707,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             errorOnly={errorOnly}
             onOpen={openDetail}
             onSelectIndex={setSelected}
+            selectedLog={dashboardLogCursor}
             onToggle={toggleChecked}
             logSources={logSources}
             onFilterService={setLogService}
@@ -1715,10 +1721,9 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
               if (!event) {
                 return;
               }
-              applyLogCursor(index);
+              setDashboardLogCursor(index);
               setLogDetail(event);
-              setScreen("logs");
-              setOverlay("log-details");
+              pinLogView();
             }}
           />
         ) : null}
@@ -1867,6 +1872,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
           busy={planBusy}
           failed={failedPlan}
           kind={lifecycle}
+          termW={width}
           termH={height}
           scrollRef={planScrollRef}
           onDismiss={closeOverlay}

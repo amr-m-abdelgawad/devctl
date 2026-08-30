@@ -873,6 +873,143 @@ export function planNextAction(busy: boolean, failed: string, kind: LifecycleKin
   return "Finished.  enter or esc  back to dashboard";
 }
 
+export type WaveStatus = "completed" | "active" | "failed" | "queued";
+
+export function waveStatus(wave: string[], snap?: StatusSnapshot, kind: LifecycleKind = "start"): WaveStatus {
+  if (wave.length === 0) {
+    return "completed";
+  }
+  const runtimes = wave.map((name) => snap?.services[name]);
+  if (runtimes.some((rt) => rt?.state === "FAILED")) {
+    return "failed";
+  }
+  if (kind === "stop") {
+    if (runtimes.every((rt) => !rt || rt.state === "STOPPED" || rt.state === "UNKNOWN")) {
+      return "completed";
+    }
+    if (runtimes.some((rt) => rt?.state === "STOPPING")) {
+      return "active";
+    }
+    return "queued";
+  }
+  const isHealthy = (rt?: Runtime): boolean =>
+    Boolean(rt && (rt.state === "HEALTHY" || rt.health === "HEALTHY" || (rt.state === "RUNNING" && rt.health !== "UNHEALTHY")));
+  if (runtimes.every(isHealthy)) {
+    return "completed";
+  }
+  if (runtimes.some((rt) => rt?.state === "STARTING" || rt?.state === "RUNNING" || rt?.state === "RESTARTING")) {
+    return "active";
+  }
+  return "queued";
+}
+
+export type PlanProgressInfo = {
+  total: number;
+  ready: number;
+  active: number;
+  failed: number;
+  percent: number;
+  progressBar: string;
+  currentWaveIndex: number;
+  totalWaves: number;
+  isComplete: boolean;
+};
+
+export function planProgress(plan: Plan, snap?: StatusSnapshot, kind: LifecycleKind = "start"): PlanProgressInfo {
+  const allServices = plan.waves.flat();
+  const total = allServices.length;
+  let ready = 0;
+  let failed = 0;
+  let active = 0;
+  let currentWaveIndex = 0;
+
+  for (let i = 0; i < plan.waves.length; i++) {
+    const wave = plan.waves[i] ?? [];
+    const st = waveStatus(wave, snap, kind);
+    if (st === "active" || st === "failed") {
+      currentWaveIndex = i;
+    } else if (st === "completed" && currentWaveIndex === i && i < plan.waves.length - 1) {
+      currentWaveIndex = i + 1;
+    }
+    for (const name of wave) {
+      const rt = snap?.services[name];
+      const isDone =
+        kind === "stop"
+          ? !rt || rt.state === "STOPPED" || rt.state === "UNKNOWN"
+          : Boolean(rt && (rt.state === "HEALTHY" || rt.health === "HEALTHY" || (rt.state === "RUNNING" && rt.health !== "UNHEALTHY")));
+      if (isDone) {
+        ready++;
+      } else if (rt?.state === "FAILED") {
+        failed++;
+      } else if (rt?.state === "STARTING" || rt?.state === "RUNNING" || rt?.state === "STOPPING" || rt?.state === "RESTARTING") {
+        active++;
+      }
+    }
+  }
+
+  const percent = total > 0 ? Math.round((ready / total) * 100) : 100;
+  const barLen = 16;
+  const filled = Math.round((percent / 100) * barLen);
+  const progressBar = "█".repeat(filled) + "░".repeat(Math.max(0, barLen - filled));
+  const isComplete = ready === total && total > 0;
+
+  return {
+    total,
+    ready,
+    active,
+    failed,
+    percent,
+    progressBar,
+    currentWaveIndex,
+    totalWaves: plan.waves.length,
+    isComplete,
+  };
+}
+
+export function waveCardTitle(kind: LifecycleKind, waveIdx: number, st: WaveStatus): string {
+  const statusLabel =
+    st === "completed" ? "✓ Completed" : st === "failed" ? "✗ Failed" : st === "active" ? "⏳ In Progress" : "○ Queued";
+  const orderLabel =
+    kind === "stop"
+      ? waveIdx === 0
+        ? "Wave 1 (Stop First)"
+        : `Wave ${waveIdx + 1}`
+      : waveIdx === 0
+        ? "Wave 1 (Start First)"
+        : `Wave ${waveIdx + 1}`;
+  return `${orderLabel} · ${statusLabel}`;
+}
+
+export function planTitle(kind: LifecycleKind, busy: boolean, failed: string, profile?: string): string {
+  const profileSuffix = profile ? ` · Profile ${profile}` : "";
+  if (failed) {
+    return `${kind === "stop" ? "Shutdown" : "Startup"} Failed (${failed})`;
+  }
+  if (busy) {
+    return `${kind === "stop" ? "Stopping Services" : kind === "restart" ? "Restarting Pipeline" : "Starting Pipeline"}${profileSuffix}`;
+  }
+  return `${kind === "stop" ? "Shutdown Complete" : "Startup Complete"}${profileSuffix}`;
+}
+
+export function planActionCopy(busy: boolean, failed: string): { primary: string; secondary: string } {
+  if (busy) {
+    return {
+      primary: "Working…  esc  hide this panel (keeps running in background)",
+      secondary: "Services are transitioning. You can dismiss anytime without stopping them.",
+    };
+  }
+  if (failed) {
+    return {
+      primary: "enter or esc  back to dashboard",
+      secondary: "Execution stopped. Check logs or open Doctor to resolve errors.",
+    };
+  }
+  return {
+    primary: "enter or esc  back to dashboard",
+    secondary: "All waves finished. Click here or press enter to continue.",
+  };
+}
+
 export function nextScreen(current: Screen): Screen {
   const idx = NAV_CYCLE.indexOf(current);
   if (idx < 0) {
@@ -1211,4 +1348,63 @@ export function profileMembers(cfg: DevctlConfig | undefined, name: string): str
     return "";
   }
   return (cfg.profiles[name]?.services ?? []).join(", ");
+}
+
+export type StatusStripChip = {
+  label: string;
+  tone: "idle" | "muted" | "primary" | "accent" | "info" | "success" | "warning" | "error";
+};
+
+export function statusStripChips(
+  email: string | undefined,
+  project: string | undefined,
+  logsTotal: number,
+  paneWidth: number,
+): StatusStripChip[] {
+  const budget = Math.max(8, paneWidth - 2);
+  const logsText = `logs ${logsTotal}`;
+  const logsCost = tabChipWidth(logsText);
+  const user = email || "(no user)";
+  const rawProject = project || "";
+
+  if (budget <= logsCost + 6) {
+    const userBudget = Math.max(2, budget - logsCost - 2);
+    return [
+      { label: clipText(user, userBudget), tone: "idle" },
+      { label: clipText(logsText, logsCost - 2), tone: "muted" },
+    ];
+  }
+
+  const remaining = budget - logsCost;
+
+  if (rawProject && remaining >= 36) {
+    const projLabel = clipText(rawProject, 14);
+    const projCost = tabChipWidth(projLabel);
+    const userBudget = remaining - projCost - 2;
+    const userPrefix = userBudget >= user.length + 9 ? `identity ${user}` : user;
+    const userLabel = clipText(userPrefix, userBudget);
+    return [
+      { label: userLabel, tone: "idle" },
+      { label: projLabel, tone: "muted" },
+      { label: logsText, tone: "muted" },
+    ];
+  }
+
+  if (rawProject && remaining >= 28 && rawProject.length <= 10) {
+    const projLabel = clipText(rawProject, 10);
+    const projCost = tabChipWidth(projLabel);
+    const userBudget = remaining - projCost - 2;
+    return [
+      { label: clipText(user, userBudget), tone: "idle" },
+      { label: projLabel, tone: "muted" },
+      { label: logsText, tone: "muted" },
+    ];
+  }
+
+  const userPrefix = remaining >= user.length + 9 ? `identity ${user}` : user;
+  const userLabel = clipText(userPrefix, remaining - 2);
+  return [
+    { label: userLabel, tone: "idle" },
+    { label: logsText, tone: "muted" },
+  ];
 }

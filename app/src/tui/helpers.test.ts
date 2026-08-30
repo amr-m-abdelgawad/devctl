@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
-import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, filterLogs, focusedServices, foldLogLines, formatLogDetails, formatLogLine, formatLogsForClipboard, formatStarted, formatStopped, footerHints, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planHeadline, planNextAction, planOverlayHeight, planRowNote, planServices, prevScreen, runningLabel, screenListCount, selectedSlashCommand, serviceCommandText, serviceEnvEntries, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, slashWindowStart, statusChipTone, tabChipWidth, visibleHints, visibleLogs, visibleTabRange, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, filterLogs, focusedServices, foldLogLines, formatLogDetails, formatLogLine, formatLogsForClipboard, formatStarted, formatStopped, footerHints, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, prevScreen, runningLabel, screenListCount, selectedSlashCommand, serviceCommandText, serviceEnvEntries, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, slashWindowStart, statusChipTone, statusStripChips, tabChipWidth, visibleHints, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -122,6 +122,27 @@ describe("TUI helpers", () => {
         },
       } as never),
     ).toBe("queued");
+
+    expect(waveStatus(["auth"], { services: { auth: { state: "HEALTHY" } } } as never)).toBe("completed");
+    expect(waveStatus(["api"], { services: { api: { state: "STARTING" } } } as never)).toBe("active");
+    expect(waveStatus(["api"], { services: { api: { state: "FAILED" } } } as never)).toBe("failed");
+    expect(waveStatus(["api"], { services: { api: { state: "STOPPED" } } } as never)).toBe("queued");
+    expect(waveCardTitle("start", 0, "completed")).toContain("Wave 1 (Start First) · ✓ Completed");
+    expect(waveCardTitle("stop", 1, "active")).toContain("Wave 2 · ⏳ In Progress");
+    expect(planTitle("start", true, "", "backend")).toBe("Starting Pipeline · Profile backend");
+    expect(planTitle("stop", false, "")).toBe("Shutdown Complete");
+    expect(planActionCopy(true, "").primary).toContain("Working…");
+
+    const prog = planProgress(plan, {
+      services: {
+        auth: { state: "HEALTHY" },
+        api: { state: "STARTING" },
+      },
+    } as never);
+    expect(prog.total).toBe(2);
+    expect(prog.ready).toBe(1);
+    expect(prog.percent).toBe(50);
+    expect(prog.progressBar).toContain("█");
   });
 
   test("confirm copy covers quit and profile start", () => {
@@ -445,5 +466,23 @@ describe("TUI helpers", () => {
     expect(screenListCount("logs", { ...counts, logs: 12 })).toBe(12);
     expect(screenListCount("mcp", counts)).toBe(6);
     expect(screenListCount("setup", counts)).toBe(9);
+  });
+
+  test("statusStripChips adapts to pane width and prevents overflow", () => {
+    const wide = statusStripChips("dev@company.com", "gcp-proj", 100, 80);
+    expect(wide).toHaveLength(3);
+    expect(wide[0]?.label).toContain("dev@company.com");
+    expect(wide[1]?.label).toBe("gcp-proj");
+    expect(wide[2]?.label).toBe("logs 100");
+
+    const medium = statusStripChips("amr.longemailaddress@organization.enterprise.com", "gcp-proj-12345", 2500, 38);
+    expect(medium.length).toBeLessThanOrEqual(3);
+    const totalChars = medium.reduce((sum, chip) => sum + chip.label.length + 2, 0);
+    expect(totalChars).toBeLessThanOrEqual(38);
+
+    const veryNarrow = statusStripChips("user@test.com", "proj", 10, 24);
+    expect(veryNarrow.length).toBe(2);
+    const narrowChars = veryNarrow.reduce((sum, chip) => sum + chip.label.length + 2, 0);
+    expect(narrowChars).toBeLessThanOrEqual(24);
   });
 });

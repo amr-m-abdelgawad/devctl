@@ -1,4 +1,4 @@
-import { canStartAll, clipText, countRunning, defaultProfileName, filterLogs, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, type LogWrapMode } from "../helpers.ts";
+import { canStartAll, countRunning, defaultProfileName, filterLogs, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, type LogWrapMode } from "../helpers.ts";
 import { useDensity } from "../density.tsx";
 import { Chip, MetaBar, Toolbar } from "../layout.tsx";
 import { EmptyState } from "../chrome.tsx";
@@ -17,6 +17,7 @@ export function Dashboard(props: {
   logs: LogEvent[];
   names: string[];
   selected: number;
+  selectedLog?: number;
   checked: string[];
   profile: string;
   google?: GoogleStatus;
@@ -44,6 +45,7 @@ export function Dashboard(props: {
     logs,
     names,
     selected,
+    selectedLog = -1,
     checked,
     profile,
     google,
@@ -124,7 +126,7 @@ export function Dashboard(props: {
             onToggle={onToggle}
           />
         </box>
-        <StatusStrip palette={palette} cfg={cfg} snap={snap} google={google} />
+        <StatusStrip palette={palette} cfg={cfg} snap={snap} google={google} width={listWidth} />
       </box>
       <box
         flexGrow={2}
@@ -181,6 +183,7 @@ export function Dashboard(props: {
             followTick={followTick}
             focused={false}
             wrapMode={wrapMode}
+            selected={selectedLog}
             follow={follow}
             onLeaveLatest={onLeaveLatest}
             onPick={onPickLog}
@@ -196,17 +199,20 @@ function StatusStrip(props: {
   cfg: DevctlConfig;
   snap?: StatusSnapshot;
   google?: GoogleStatus;
+  width: number;
 }) {
-  const { palette, cfg, snap, google } = props;
-  const user = clipText(google?.userEmail || "(no user)", 22);
-  const project = clipText(google?.projectID || cfg.google.project_id || "", 14);
+  const { palette, cfg, snap, google, width } = props;
+  const email = google?.userEmail;
+  const project = google?.projectID || cfg.google.project_id || "";
+  const logsTotal = snap?.logs.total ?? 0;
+  const chips = statusStripChips(email, project, logsTotal, width);
   return (
     <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-    <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
-      <Chip palette={palette} label={`identity ${user}`} tone="idle" />
-      {project ? <Chip palette={palette} label={project} tone="muted" /> : null}
-      <Chip palette={palette} label={`logs ${snap?.logs.total ?? 0}`} tone="muted" />
-    </box>
+      <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
+        {chips.map((chip, i) => (
+          <Chip key={`${chip.label}-${i}`} palette={palette} label={chip.label} tone={chip.tone} />
+        ))}
+      </box>
     </Toolbar>
   );
 }
