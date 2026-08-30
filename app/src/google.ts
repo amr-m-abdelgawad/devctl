@@ -25,7 +25,6 @@ export type GoogleStatus = {
 };
 
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
-const ADC_METADATA_PROBE_MS = 1_000;
 
 export async function detectGoogle(configuredProject: string): Promise<GoogleStatus> {
   const st: GoogleStatus = {
@@ -51,27 +50,25 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
       }
     }
   }
-  preferBiosMetadataDetection();
-  try {
-    const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
-    if (hasLocalAdcMaterial()) {
+  if (hasLocalAdcMaterial()) {
+    preferBiosMetadataDetection();
+    try {
+      const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
       await auth.getClient();
-    } else {
-      await withTimeout(auth.getClient(), ADC_METADATA_PROBE_MS);
+      st.adcAvailable = true;
+      const project = await auth.getProjectId().catch(() => "");
+      if (st.projectID === "" && project) {
+        st.projectID = project;
+        st.projectSource = "application default credentials";
+      }
+      const email = await emailFromAuth(auth);
+      if (email !== "") {
+        st.userEmail = email;
+      }
+    } catch (err) {
+      st.adcAvailable = false;
+      st.error = classifyGoogle(err);
     }
-    st.adcAvailable = true;
-    const project = await auth.getProjectId().catch(() => "");
-    if (st.projectID === "" && project) {
-      st.projectID = project;
-      st.projectSource = "application default credentials";
-    }
-    const email = await emailFromAuth(auth);
-    if (email !== "") {
-      st.userEmail = email;
-    }
-  } catch (err) {
-    st.adcAvailable = false;
-    st.error = classifyGoogle(err);
   }
   if (st.userEmail === "" && st.gcloudInstalled) {
     st.userEmail = await gcloudConfig("core/account");
@@ -223,22 +220,6 @@ function hasLocalAdcMaterial(): boolean {
   }
   const appData = process.env.APPDATA;
   return Boolean(appData && existsSync(join(appData, "gcloud", "application_default_credentials.json")));
-}
-
-function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout")), ms);
-    work.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err: unknown) => {
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
-  });
 }
 
 async function gcloudConfig(key: string): Promise<string> {
