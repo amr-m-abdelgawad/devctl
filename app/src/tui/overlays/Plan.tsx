@@ -88,6 +88,14 @@ export function PlanOverlay(props: {
       </box>
 
       {/* 3. Already Running Notification (if incremental start) */}
+      {(plan.blockers ?? []).length > 0 ? (
+        <box height={1} overflow="hidden" flexShrink={0}>
+          <text fg={palette.error} wrapMode="none">
+            {`✗ Blocked: ${plan.blockers?.map((b) => `${b.name} (${b.message})`).join(", ")}`}
+          </text>
+        </box>
+      ) : null}
+
       {running.length > 0 ? (
         <box height={1} overflow="hidden" flexShrink={0}>
           <text fg={palette.success} wrapMode="none">

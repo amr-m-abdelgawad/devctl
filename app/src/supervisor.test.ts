@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
 import { SessionRecovered } from "./events.ts";
 import { available } from "./ports.ts";
+import { inspectProcess } from "./processes.ts";
 import { writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
@@ -166,6 +167,12 @@ describe("supervisor snapshot", () => {
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    let observed = await inspectProcess(pid);
+    for (let i = 0; i < 40 && (!observed || observed.command === ""); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      observed = await inspectProcess(pid);
+    }
+    expect(observed?.command).toBeTruthy();
     cfg.services.api = {
       ...emptyService(),
       command: bunServe(port),
@@ -179,9 +186,9 @@ describe("supervisor snapshot", () => {
         {
           name: "api",
           pid,
-          command: bunServe(port).args,
-          cwd: "",
-          startTime: new Date().toISOString(),
+          command: [observed!.command],
+          cwd: observed?.cwd ?? "",
+          startTime: observed?.startTime ?? "",
           ports: { http: port },
         },
       ],

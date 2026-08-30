@@ -74,10 +74,16 @@ export type PlanStep = {
   dependencies: string[];
 };
 
+export type PlanBlocker = {
+  name: string;
+  message: string;
+};
+
 export type Plan = {
   profile: string;
   steps: PlanStep[];
   waves: string[][];
+  blockers?: PlanBlocker[];
 };
 
 export function startupPlan(cfg: DevctlConfig, selected: string[], profile: string): Plan {
@@ -143,7 +149,7 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
       });
     }
   });
-  return { profile, steps, waves };
+  return { profile, steps, waves, blockers: [] };
 }
 
 export function shutdownPlan(cfg: DevctlConfig, selected: string[]): Plan {
@@ -155,7 +161,7 @@ export function shutdownPlan(cfg: DevctlConfig, selected: string[]): Plan {
       steps.push({ name, wave: i + 1, dependencies: cfg.services[name]?.dependencies ?? [] });
     }
   });
-  return { steps, waves, profile: "" };
+  return { steps, waves, profile: "", blockers: [] };
 }
 
 export function formatPlan(plan: Plan): string {
@@ -169,6 +175,12 @@ export function formatPlan(plan: Plan): string {
     for (const name of wave) {
       out += `${n}. ${name}\n`;
       n += 1;
+    }
+  }
+  if ((plan.blockers ?? []).length > 0) {
+    out += "\nBlocked:\n";
+    for (const blocker of plan.blockers ?? []) {
+      out += `- ${blocker.name}: ${blocker.message}\n`;
     }
   }
   return out;

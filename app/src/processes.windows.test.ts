@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { killProcessTreeWindows } from "./processes/windows.ts";
+import { killProcessTreeWindows, parseCimProcess, parseWindowsResourceSamples } from "./processes/windows.ts";
 
 describe("windows process backend", () => {
   test("taskkill helper is defined", async () => {
@@ -9,5 +9,19 @@ describe("windows process backend", () => {
     }
     await killProcessTreeWindows(0, "SIGTERM");
     expect(true).toBe(true);
+  });
+
+  test("parses CIM inspect JSON for command and executable directory", () => {
+    const parsed = parseCimProcess(
+      '{"CommandLine":"python main.py","ExecutablePath":"C:\\\\repo\\\\api\\\\python.exe","CreationDate":"2026-08-31T00:00:00"}',
+    );
+    expect(parsed?.command).toBe("python main.py");
+    expect(parsed?.cwd).toBe("C:\\repo\\api");
+    expect(parsed?.startTime).toBe("2026-08-31T00:00:00");
+  });
+
+  test("parses process resource JSON into kb and cpu", () => {
+    const samples = parseWindowsResourceSamples('{"Id":42,"CPU":1.5,"WorkingSet64":2097152}');
+    expect(samples.get(42)).toEqual({ pid: 42, cpuPercent: 1.5, memoryKB: 2048 });
   });
 });

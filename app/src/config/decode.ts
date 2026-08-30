@@ -187,7 +187,21 @@ export function decodeService(value: unknown): ServiceConfig {
     restart: decodeRestart(value.restart),
     startup: decodeStartup(value.startup),
     capabilities: asStringArray(value.capabilities),
+    proxy: decodeServiceProxy(value.proxy),
   };
+}
+
+export function decodeServiceProxy(value: unknown): RouteConfig[] {
+  if (value === undefined || value === null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => decodeRoute(item));
+  }
+  if (isRecord(value)) {
+    return [decodeRoute(value)];
+  }
+  return [];
 }
 
 export function decodeProfile(value: unknown): ProfileConfig {

@@ -47,6 +47,7 @@ describe("TUI helpers", () => {
     expect(filterLogs(events, { search: "up" }).map((ev) => ev.service)).toEqual(["auth"]);
     expect(filterLogs(events, { services: ["api", "auth"], regex: true, search: "^b" }).map((ev) => ev.service)).toEqual(["api"]);
     expect(filterLogs(events, { source: "auth" }).map((ev) => ev.service)).toEqual(["auth"]);
+    expect(filterLogs(events, { until: "2026-01-01T00:00:00.000Z" })).toEqual([]);
     expect(logServiceCounts(events, ["auth", "api"]).map((row) => row.count)).toEqual([1, 1]);
     expect(cycleLogService(["auth", "api"], "", 1)).toBe("auth");
     expect(cycleLogService(["auth", "api"], "api", 1)).toBe("");
@@ -170,6 +171,7 @@ describe("TUI helpers", () => {
     expect(footerHints("mcp", "none").some((h) => h.label === "start or copy")).toBe(true);
     expect(footerHints("dashboard", "plan").some((h) => h.label.includes("dashboard"))).toBe(true);
     expect(footerHints("dashboard", "help").some((h) => h.key === "j/k")).toBe(true);
+    expect(footerHints("config", "config-edit").some((h) => h.key === "ctrl+s")).toBe(true);
   });
 
   test("grouped commands keep command groups", () => {

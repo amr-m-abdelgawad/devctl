@@ -24,6 +24,9 @@ services:
       timeout_seconds: 1
     identity:
       type: user                 # or service_account
+    proxy:                       # optional; merged into the global proxy at load
+      match: { path: /api }
+      upstream: { url: http://127.0.0.1:8000 }
     restart:
       policy: on_failure         # never | on_failure | always
       max_retries: 3

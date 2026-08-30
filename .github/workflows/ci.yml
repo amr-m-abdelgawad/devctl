@@ -71,6 +71,35 @@ jobs:
         working-directory: examples/demo-platform
         run: bun run ../../app/src/bin.ts config validate
 
+  compile-smoke:
+    name: Compile smoke
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: bun build --compile linux-x64
+        working-directory: app
+        run: bun build --compile --target=bun-linux-x64 --outfile /tmp/devctl-linux-x64 src/bin.ts
+
+  windows-tests:
+    name: Windows tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: bun test
+        working-directory: app
+        run: bun test
+
   audit:
     name: Audit
     needs: setup
@@ -113,7 +142,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, demo-config, audit, codeql, dependency-review]
+    needs: [tests, typecheck, demo-config, compile-smoke, windows-tests, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -122,6 +151,8 @@ jobs:
           TESTS: ${{ needs.tests.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
           DEMO: ${{ needs.demo-config.result }}
+          COMPILE: ${{ needs.compile-smoke.result }}
+          WINDOWS: ${{ needs.windows-tests.result }}
           AUDIT: ${{ needs.audit.result }}
           CODEQL: ${{ needs.codeql.result }}
           DEPS: ${{ needs.dependency-review.result }}
@@ -129,6 +160,8 @@ jobs:
           test "$TESTS" = success
           test "$TYPECHECK" = success
           test "$DEMO" = success
+          test "$COMPILE" = success
+          test "$WINDOWS" = success
           test "$AUDIT" = success
           test "$CODEQL" = success
           test "$DEPS" = success -o "$DEPS" = skipped

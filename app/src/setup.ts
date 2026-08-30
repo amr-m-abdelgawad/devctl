@@ -78,7 +78,8 @@ function writeStarter(
   mkdirSync(join(dir, "proxy"), { recursive: true });
   writeFileSync(
     join(dir, "config.yaml"),
-    `version: 1
+    `# yaml-language-server: $schema=https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/schema/devctl.config.schema.json
+version: 1
 
 project:
   name: ${name}

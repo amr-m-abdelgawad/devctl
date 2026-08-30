@@ -38,6 +38,21 @@ proxy:
 
 Match is host + optional path prefix.
 
+### Per-service routes
+
+Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`). Duplicate names fail validation. Runtime stays one listener.
+
+```yaml
+services:
+  api:
+    command: python main.py
+    proxy:
+      - match:
+          path: /api
+        upstream:
+          url: http://127.0.0.1:8000
+```
+
 ## Token endpoint
 
 Optional `GET /token` (`proxy.token_endpoint`) binds to `127.0.0.1` (never `0.0.0.0`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers.

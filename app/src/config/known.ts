@@ -31,6 +31,7 @@ export const knownService = [
   "restart",
   "startup",
   "capabilities",
+  "proxy",
 ];
 
 export const knownHealth = ["type", "url", "address", "command", "interval_seconds", "timeout_seconds"];

@@ -113,6 +113,7 @@ export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; widt
         <KeyHints
           palette={palette}
           hints={[
+            { key: "v", label: "validate/save buffer" },
             { key: "e", label: "open in $EDITOR" },
             { key: "/reload", label: "re-read .devctl after editing" },
             { key: "j/k", label: "scroll" },

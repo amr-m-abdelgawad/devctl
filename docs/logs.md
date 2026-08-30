@@ -25,14 +25,14 @@ Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, plus proxy
 - `/export [path]` — write the **current** filters. Default file: `~/.devctl/exports/devctl-logs-<timestamp>.log`.
 - `/exports` or the **open folder** chip — reveal that directory.
 - `/history [id]` — load a persisted session (`LogManager.listSessions`).
-- `/regex`, `/since`, `/until` — search and time range.
+- `/regex`, `/since`, `/until` — search and time range (`until` is exclusive of later lines).
 
 Long lines fold with a `▸N` marker. `j`/`k` moves the highlight and unwraps that row.
 
 ## CLI
 
 ```bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--json]
 devctl logs --output FILE          # same filters, write a file
 devctl logs export --output FILE   # explicit export subcommand
 ```

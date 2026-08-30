@@ -1,6 +1,8 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type ScrollBoxRenderable } from "@opentui/core";
+import { type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { validateConfigText } from "../config/index.ts";
 import { type Controller } from "../controller.ts";
 import { runDoctor, type Report } from "../doctor.ts";
 import { freePort, type PortHolder } from "../ports.ts";
@@ -34,6 +36,7 @@ import {
   type KeyLike,
 } from "./keymap.ts";
 import { scrollBoxBy } from "./layout.tsx";
+import { ConfigEditOverlay } from "./overlays/ConfigEdit.tsx";
 import { ConfirmOverlay } from "./overlays/Confirm.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
 import { HELP_SCROLL_PAGE, HelpOverlay } from "./overlays/Help.tsx";
@@ -135,6 +138,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [logSearchFocused, setLogSearchFocused] = useState(false);
   const [logFollow, setLogFollow] = useState(0);
   const [logSince, setLogSince] = useState("");
+  const [logUntil, setLogUntil] = useState("");
   const [logService, setLogService] = useState("");
   const [logServices, setLogServices] = useState<string[]>([]);
   const [logShowTimestamps, setLogShowTimestamps] = useState(tui.log_timestamps !== false);
@@ -153,6 +157,9 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
   const logDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
   const planScrollRef = useRef<ScrollBoxRenderable>(null);
+  const configEditRef = useRef<TextareaRenderable>(null);
+  const [configEditText, setConfigEditText] = useState("");
+  const [configEditError, setConfigEditError] = useState("");
   const lastExportPath = useRef("");
   const commandBusy = useRef(false);
   const [logViewStart, setLogViewStart] = useState(0);
@@ -207,8 +214,9 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         regex: logRegex,
         source: logSource,
         since: logSince,
+        until: logUntil,
       }),
-    [errorOnly, logRegex, logSearch, logService, logServices, logSince, logSource, logs],
+    [errorOnly, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs],
   );
   const logWindow = useMemo(
     () => logViewWindow(filteredLogs, logPinned, logViewStart),
@@ -741,6 +749,47 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
     }
   }, [errorOnly, logDetail, logSearch, logService, logs, overlay]);
 
+  const openConfigBuffer = useCallback(() => {
+    if (!cfg) {
+      return;
+    }
+    try {
+      setConfigEditText(readFileSync(cfg.configPath, "utf8"));
+      setConfigEditError("");
+      setOverlay("config-edit");
+    } catch (err) {
+      setStatus(humanMessage(err));
+    }
+  }, [cfg]);
+
+  const saveConfigBuffer = useCallback(() => {
+    if (!cfg) {
+      return;
+    }
+    const text = configEditRef.current?.plainText ?? configEditText;
+    const issues = validateConfigText(text);
+    if (issues.length > 0) {
+      setConfigEditError(issues.join("\n"));
+      setStatus("Config buffer not saved");
+      return;
+    }
+    writeFileSync(cfg.configPath, text);
+    setConfigEditError("");
+    setOverlay("none");
+    if (!controller) {
+      setStatus(`Wrote ${cfg.configPath}`);
+      return;
+    }
+    void controller.reload().then((result) => {
+      setStatus(result.restart_required.length === 0 ? "Configuration saved and reloaded" : `Saved; restart required: ${result.restart_required.join(", ")}`);
+      if (result.restart_required.length > 0) {
+        setConfirmKind("reload");
+        setOverlay("confirm");
+      }
+      void refresh();
+    });
+  }, [cfg, configEditText, controller, refresh]);
+
   const runCommand = useCallback(
     async (spec: CommandSpec, args: string[]) => {
       if (commandBusy.current) {
@@ -893,6 +942,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             setLogSince(args[0] || new Date(Date.now() - 3_600_000).toISOString());
             setStatus(`Logs since ${args[0] || "1h"}`);
             return;
+          case "until":
+            setLogUntil(args[0] || new Date().toISOString());
+            setStatus(`Logs until ${args[0] || "now"}`);
+            return;
           case "history": {
             const { listSessions, loadSessionEvents } = await import("../logs.ts");
             const sessions = listSessions();
@@ -905,6 +958,9 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             setStatus(`Loaded session ${pick}`);
             return;
           }
+          case "buffer":
+            openConfigBuffer();
+            return;
           case "edit": {
             if (!cfg) {
               return;
@@ -930,7 +986,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, controller, copyVisibleLogs, errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSource, logs, logWrap, persistTheme, profile, refresh, reveal, screen, themeName],
+    [beginRestart, beginStart, beginStop, checked, cfg, controller, copyVisibleLogs, errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSource, logs, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName],
   );
 
   const openExportsFolder = useCallback(() => {
@@ -1245,6 +1301,18 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       const spec = action ? lookupCommand(action) : undefined;
       if (spec) {
         void runCommand(spec, []);
+      }
+      return;
+    }
+    if (overlay === "config-edit") {
+      if (name === "escape") {
+        setConfigEditError("");
+        closeOverlay();
+        return;
+      }
+      if (key.ctrl && name === "s") {
+        saveConfigBuffer();
+        return;
       }
       return;
     }
@@ -1646,6 +1714,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       void runCommand(lookupCommand("/edit") ?? { name: "edit", aliases: [], desc: "", leader: "", group: "ui" }, []);
       return;
     }
+    if (screen === "config" && name === "v") {
+      openConfigBuffer();
+      return;
+    }
     if (screen === "doctor" && name === "r") {
       setDoctorTick((tick) => tick + 1);
       setStatus("Re-running doctor");
@@ -1873,6 +1945,17 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       {overlay === "log-details" ? (
         <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} />
       ) : null}
+      {overlay === "config-edit" && cfg ? (
+        <ConfigEditOverlay
+          palette={palette}
+          path={cfg.configPath}
+          initialValue={configEditText}
+          error={configEditError}
+          termW={width}
+          termH={height}
+          textareaRef={configEditRef}
+        />
+      ) : null}
       {overlay === "plan" && plan ? (
         <PlanOverlay
           palette={palette}
@@ -1887,7 +1970,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
           onDismiss={closeOverlay}
         />
       ) : null}
-      {overlay === "slash" || overlay === "plan" || logsFullscreen || (compactChrome(height) && overlay === "none") ? null : (
+      {overlay === "slash" || overlay === "plan" || overlay === "config-edit" || logsFullscreen || (compactChrome(height) && overlay === "none") ? null : (
         <CommandLine palette={palette} overlay={overlay} query={query} onQuery={setQuery} onSubmit={submitCommandLine} />
       )}
       {logsFullscreen ? null : (

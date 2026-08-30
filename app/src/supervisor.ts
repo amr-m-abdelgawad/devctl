@@ -32,7 +32,7 @@ import {
 import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
 import { checkHealth, healthIntervalMs, healthLevel } from "./health.ts";
 import { readHostMemory } from "./host-stats.ts";
-import { configuredServiceAccounts, fromConfig, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
+import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
 import { LogManager, type LogEvent } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
@@ -343,12 +343,18 @@ export class Supervisor {
     }
     this.profileEnv = resolved.env;
     const plan = startupPlan(this.cfg, resolved.services, resolved.profile);
+    const google = await this.detectGoogleFn(this.cfg.google.project_id);
+    plan.blockers = identityBlockers(this.cfg, plan.waves.flat(), google.adcAvailable);
+    const blocked = new Set(plan.blockers.map((blocker) => blocker.name));
+    for (const blocker of plan.blockers) {
+      await this.fail(blocker.name, newError(KindProcessStart, blocker.message));
+    }
     if (this.cfg.proxy.enabled) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
     const pending: string[] = [];
     for (const name of plan.waves.flat()) {
-      if (await this.claimIfAlreadyUp(name)) {
+      if (blocked.has(name) || (await this.claimIfAlreadyUp(name))) {
         continue;
       }
       pending.push(name);
@@ -902,6 +908,7 @@ export class Supervisor {
       regex: req.regex,
       source: req.source,
       since: req.since,
+      until: req.until,
     });
     if (req.export) {
       this.logs.exportTo(req.export, {
@@ -910,6 +917,8 @@ export class Supervisor {
         search: req.search,
         regex: req.regex,
         source: req.source,
+        since: req.since,
+        until: req.until,
       });
     }
     return { events };
@@ -1244,6 +1253,7 @@ export class Supervisor {
       if (svc) {
         this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), {});
       }
+      this.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
       adopted.push(rec.name);
     }
     if (adopted.length > 0) {

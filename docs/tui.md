@@ -75,7 +75,7 @@ The status bar only lists keys that work **on the current screen**. On a termina
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
 - **Proxy** — status + routes; `n` start / `x` stop
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. `enter` on a busy port asks to stop that process; `r` reruns
-- **Config** — read-only merged view. `e` / `/edit` opens `cfg.configPath` in `$EDITOR` / `DEVCTL_EDITOR`, then `/reload` after you save
+- **Config** — merged view. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
 - **Settings** — grouped prefs: theme, display size, mouse, leader timeout, **MCP settings page**, about, reset. `←`/`→` writes the highlighted cycle or toggles mouse. Reset asks before restoring defaults. Saves to `~/.devctl/tui.json` unless `DEVCTL_TUI_CONFIG` is set
@@ -100,7 +100,7 @@ The status bar only lists keys that work **on the current screen**. On a termina
 /copy                 copy visible logs to the clipboard
 /export [path]        write filtered logs to ~/.devctl/exports (or the given path)
 /exports              open the export folder
-/regex /since /history /edit
+/regex /since /until /history /edit /buffer
 /clear
 /refresh
 /reload               reload .devctl

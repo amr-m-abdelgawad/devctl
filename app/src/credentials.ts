@@ -54,23 +54,15 @@ class FileCredentialStore implements CredentialStore {
   readonly backend: CredentialBackend = "file";
 
   async get(key: string): Promise<CredentialRecord | undefined> {
-    const path = credentialFilePath(key);
-    if (!existsSync(path)) {
+    const rec = readFileRecord(key);
+    if (!rec || rec.accessToken === "") {
       return undefined;
     }
-    try {
-      const parsed = JSON.parse(readFileSync(path, "utf8")) as CredentialRecord;
-      if (typeof parsed.accessToken !== "string" || parsed.accessToken === "") {
-        return undefined;
-      }
-      return parsed;
-    } catch {
-      return undefined;
-    }
+    return rec;
   }
 
   async set(key: string, record: CredentialRecord): Promise<void> {
-    writeFileSecure(credentialFilePath(key), `${JSON.stringify(record)}\n`);
+    writeFileSecure(credentialFilePath(key), `${JSON.stringify(fileSafeRecord(record))}\n`);
   }
 
   async delete(key: string): Promise<void> {
@@ -91,7 +83,7 @@ class FileCredentialStore implements CredentialStore {
         continue;
       }
       const key = name.slice(0, -FILE_SUFFIX.length);
-      const rec = await this.get(key);
+      const rec = readFileRecord(key);
       if (!rec) {
         continue;
       }
@@ -164,6 +156,33 @@ function rememberedKeys(): string[] {
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
   } catch {
     return [];
+  }
+}
+
+function fileSafeRecord(record: CredentialRecord): CredentialRecord {
+  return { ...record, accessToken: "" };
+}
+
+function readFileRecord(key: string): CredentialRecord | undefined {
+  const path = credentialFilePath(key);
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<CredentialRecord>;
+    if (typeof parsed.identity !== "string") {
+      return undefined;
+    }
+    return {
+      identity: parsed.identity,
+      audience: typeof parsed.audience === "string" ? parsed.audience : "",
+      scopes: Array.isArray(parsed.scopes) ? parsed.scopes.filter((item): item is string => typeof item === "string") : [],
+      accessToken: typeof parsed.accessToken === "string" ? parsed.accessToken : "",
+      tokenType: typeof parsed.tokenType === "string" ? parsed.tokenType : "Bearer",
+      expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : "",
+    };
+  } catch {
+    return undefined;
   }
 }
 

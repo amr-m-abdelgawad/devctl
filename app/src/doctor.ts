@@ -5,6 +5,7 @@ import { humanMessage } from "./errors.ts";
 import { detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "./google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "./identity.ts";
 import { available, findPortHolder, type PortHolder } from "./ports.ts";
+import { withRetry } from "./retry.ts";
 
 export type Severity = "ok" | "warn" | "error";
 
@@ -154,7 +155,7 @@ async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void, host
   ];
   for (const api of apis) {
     try {
-      const ok = await probeServiceUsage(project, api.service);
+      const ok = await withRetry(() => probeServiceUsage(project, api.service), { attempts: 3, backoffMs: 200 });
       add({
         name: api.name,
         severity: ok ? "ok" : "warn",
@@ -212,7 +213,7 @@ async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void, ho
   const tokens = await loadTokenManager(0);
   for (const email of accounts) {
     try {
-      await withTimeout(tokens.get(`sa:${email}`, "", []), LIVE_PROBE_MS);
+      await withRetry(() => withTimeout(tokens.get(`sa:${email}`, "", []), LIVE_PROBE_MS), { attempts: 3, backoffMs: 200 });
       add({ name: `Impersonate ${email}`, severity: "ok", message: "token minted" });
     } catch (err) {
       add(classifyLiveFailure(`Impersonate ${email}`, err, "grant roles/iam.serviceAccountTokenCreator on this service account"));
@@ -220,7 +221,14 @@ async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void, ho
   }
   for (const route of mintableIap) {
     try {
-      await withTimeout(tokens.get(fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user", route.auth.audience, []), LIVE_PROBE_MS);
+      await withRetry(
+        () =>
+          withTimeout(
+            tokens.get(fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user", route.auth.audience, []),
+            LIVE_PROBE_MS,
+          ),
+        { attempts: 3, backoffMs: 200 },
+      );
       add({ name: `IAP ${route.name}`, severity: "ok", message: "id token minted" });
     } catch (err) {
       add(classifyLiveFailure(`IAP ${route.name}`, err, "check IAP OAuth client ID and ADC"));

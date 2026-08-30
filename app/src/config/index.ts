@@ -1,4 +1,4 @@
-export { load, loadPath } from "./load.ts";
+export { load, loadPath, validateConfigText } from "./load.ts";
 export { discover, ConfigDirName, ConfigFileName } from "./discover.ts";
 export { validate, unresolvedHealthTypes, unresolvedIdentityTypes } from "./validate.ts";
 export { migrate } from "./migrate.ts";

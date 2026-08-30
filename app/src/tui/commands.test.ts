@@ -28,6 +28,10 @@ describe("slash commands", () => {
     expect(lookupCommand("/reveal")?.name).toBe("reveal");
   });
 
+  test("buffer is a first-class command", () => {
+    expect(lookupCommand("/buffer")?.name).toBe("buffer");
+  });
+
   test("settings is a first-class command", () => {
     expect(lookupCommand("/settings")?.name).toBe("settings");
     expect(lookupCommand("/prefs")?.name).toBe("settings");

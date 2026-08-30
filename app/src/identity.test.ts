@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
-import { configuredServiceAccounts, needsCloudFeatures } from "./identity.ts";
+import { configuredServiceAccounts, identityBlockers, needsCloudFeatures } from "./identity.ts";
 
 describe("identity helpers", () => {
   test("collects service accounts from services and routes", () => {
@@ -29,5 +29,17 @@ describe("identity helpers", () => {
     cfg.services.api = { ...emptyService(), command: { args: ["true"], shell: false } };
     expect(needsCloudFeatures(cfg)).toBe(false);
     expect(configuredServiceAccounts(cfg)).toEqual([]);
+  });
+
+  test("identity preflight blocks cloud services without ADC and leaves local ones", () => {
+    const cfg = defaultConfig();
+    cfg.services.api = { ...emptyService(), command: { args: ["true"], shell: false } };
+    cfg.services.worker = {
+      ...emptyService(),
+      command: { args: ["true"], shell: false },
+      identity: { type: "service_account", mode: "", service_account: "worker-dev@example.com" },
+    };
+    expect(identityBlockers(cfg, ["api", "worker"], false)).toEqual([{ name: "worker", message: "ADC unavailable" }]);
+    expect(identityBlockers(cfg, ["api", "worker"], true)).toEqual([]);
   });
 });

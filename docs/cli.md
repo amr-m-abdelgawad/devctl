@@ -9,7 +9,7 @@ devctl start [svc…] [--profile] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--json]
 devctl status [--json]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--output] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json]
 devctl logs export --output FILE
 devctl reload
 devctl doctor [--json]
@@ -19,6 +19,8 @@ devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--json]
 devctl config validate|show [--json]
 devctl attach
+devctl completion zsh|bash|fish
+devctl update [--json]
 ```
 
 `_supervisor` is an internal command. Do not invoke it by hand.
@@ -37,6 +39,27 @@ devctl attach
 `devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start --detach` first.
 
 RPC errors include `{ error, kind, hint }` so the CLI maps kinds to the table below.
+
+## Completions
+
+`devctl completion zsh` (or `bash` / `fish`) prints a script that calls `devctl __complete` for live values (profiles, service names, `start` / `stop` / `logs`).
+
+```bash
+# zsh — add to ~/.zshrc
+source <(devctl completion zsh)
+
+# bash
+source <(devctl completion bash)
+
+# fish
+devctl completion fish > ~/.config/fish/completions/devctl.fish
+```
+
+`__complete` is an internal helper. It loads configuration the same way the CLI does.
+
+## Update
+
+`devctl update` checks the latest GitHub Release and prints the current version, latest tag, and an install hint. It does **not** overwrite the running binary.
 
 ## Exit codes
 

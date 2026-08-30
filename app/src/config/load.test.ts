@@ -118,4 +118,38 @@ mystery: true
     );
     expect(() => load(dir, "")).toThrow(/unknown fields/);
   });
+
+  test("merges per-service proxy routes into the global proxy", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-svc-proxy-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    proxy:
+      - match:
+          path: /api
+        upstream:
+          url: http://127.0.0.1:8000
+      - match:
+          path: /api/v2
+        upstream:
+          url: http://127.0.0.1:8001
+  worker:
+    command: echo hi
+    proxy:
+      match:
+        path: /jobs
+      upstream:
+        url: http://127.0.0.1:9000
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes.map((route) => route.name)).toEqual(["api-1", "api-2", "worker"]);
+    expect(cfg.proxy.routes[0]?.upstream.url).toBe("http://127.0.0.1:8000");
+    expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
+  });
 });

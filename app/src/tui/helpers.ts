@@ -1101,13 +1101,14 @@ export function formatLogsForClipboard(events: LogEvent[]): string {
 
 export function filterLogs(
   events: LogEvent[],
-  opts: { service?: string; services?: string[]; errorOnly?: boolean; search?: string; regex?: boolean; source?: string; since?: string },
+  opts: { service?: string; services?: string[]; errorOnly?: boolean; search?: string; regex?: boolean; source?: string; since?: string; until?: string },
 ): LogEvent[] {
   const services = opts.services?.filter((name) => name !== "") ?? [];
   const service = opts.service ?? "";
   const search = (opts.search ?? "").trim();
   const source = opts.source ?? "";
   const since = opts.since ?? "";
+  const until = opts.until ?? "";
   let matcher: ((text: string) => boolean) | undefined;
   if (search !== "") {
     if (opts.regex === true) {
@@ -1133,6 +1134,9 @@ export function filterLogs(
       return false;
     }
     if (since !== "" && ev.timestamp < since) {
+      return false;
+    }
+    if (until !== "" && ev.timestamp > until) {
       return false;
     }
     if (opts.errorOnly === true && ev.level !== "ERROR" && ev.level !== "FATAL") {
@@ -1544,6 +1548,12 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "leader") {
     return leaderHints();
   }
+  if (overlay === "config-edit") {
+    return [
+      { key: "ctrl+s", label: "save" },
+      { key: "esc", label: "discard" },
+    ];
+  }
   return screenHints(screen, copyKey);
 }
 
@@ -1627,7 +1637,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         ...common,
       ];
     case "config":
-      return [{ key: "e", label: "edit" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
+      return [{ key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
     case "setup":
       return [{ key: "j/k", label: "steps" }, { key: "esc", label: "dashboard" }, ...common];
     case "doctor":

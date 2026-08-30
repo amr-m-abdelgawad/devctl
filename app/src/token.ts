@@ -6,6 +6,7 @@ import { type CredentialRecord, type CredentialStatus, type CredentialStore, ope
 import { DevctlError, KindAuthorization, KindConfiguration, KindToken, newError } from "./errors.ts";
 import { type Bus, TokenRefreshed, newEvent } from "./events.ts";
 import { classifyGoogle } from "./google.ts";
+import { withRetry } from "./retry.ts";
 import { credentialsDir, writeFileSecure } from "./storage.ts";
 
 const DEFAULT_THRESHOLD_MS = 5 * 60 * 1000;
@@ -133,21 +134,19 @@ export class TokenManager {
     }
     let lastErr: Error = newError(KindToken, "no token provider available");
     for (const provider of candidates) {
-      for (let attempt = 0; attempt < TOKEN_RETRY_MAX; attempt += 1) {
-        try {
-          const tok = await provider.fetch(identity, audience, scopes);
-          this.cache.set(key, tok);
-          persistTokenMeta(key, tok);
-          await this.store.set(key, toRecord(tok));
-          this.bus?.publish(newEvent(TokenRefreshed, "", { identity: tok.identity, audience: tok.audience }));
-          return tok;
-        } catch (err) {
-          lastErr = err instanceof Error ? err : new Error(String(err));
-          if (!isTransientTokenError(err) || attempt === TOKEN_RETRY_MAX - 1) {
-            break;
-          }
-          await sleep(TOKEN_RETRY_BACKOFF_MS * (attempt + 1));
-        }
+      try {
+        const tok = await withRetry(() => provider.fetch(identity, audience, scopes), {
+          attempts: TOKEN_RETRY_MAX,
+          backoffMs: TOKEN_RETRY_BACKOFF_MS,
+          retry: isTransientTokenError,
+        });
+        this.cache.set(key, tok);
+        persistTokenMeta(key, tok);
+        await this.store.set(key, toRecord(tok));
+        this.bus?.publish(newEvent(TokenRefreshed, "", { identity: tok.identity, audience: tok.audience }));
+        return tok;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
       }
     }
     throw lastErr;
@@ -155,7 +154,7 @@ export class TokenManager {
 
   private async loadStored(key: string): Promise<AccessToken | undefined> {
     const rec = await this.store.get(key);
-    if (!rec) {
+    if (!rec || rec.accessToken === "") {
       return undefined;
     }
     return fromRecord(rec);
@@ -390,8 +389,3 @@ function isTransientTokenError(err: unknown): boolean {
   return message.includes("network") || message.includes("econnreset") || message.includes("etimedout") || message.includes("503") || message.includes("429");
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}

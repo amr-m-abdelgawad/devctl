@@ -47,6 +47,12 @@ describe("sameProcess", () => {
         { pid: 1, command: "python main.py", cwd: "/repo", startTime: new Date(now.getTime() + 10_000).toISOString() },
       ),
     ).toBe(false);
+    expect(
+      sameProcess(
+        { args: ["python", "main.py"], workDir: "", startTime: now },
+        { pid: 1, command: "python main.py", cwd: "/repo", startTime: now.toISOString() },
+      ),
+    ).toBe(true);
   });
 });
 

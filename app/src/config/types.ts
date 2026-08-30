@@ -70,6 +70,7 @@ export type ServiceConfig = {
   restart: RestartConfig;
   startup: StartupConfig;
   capabilities: string[];
+  proxy: RouteConfig[];
 };
 
 export type ProfileConfig = {
@@ -240,6 +241,7 @@ export function emptyService(): ServiceConfig {
     restart: { policy: "", max_retries: 0, backoff_seconds: 0 },
     startup: { wait_for_healthy: false, timeout_seconds: 0 },
     capabilities: [],
+    proxy: [],
   };
 }
 

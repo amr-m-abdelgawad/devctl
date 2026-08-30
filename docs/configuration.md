@@ -99,7 +99,9 @@ devctl config show
 devctl reload
 ```
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency cycles, duplicate ports, identities, proxy routes, environment references, profile references, and optional `plugins[].path`.
+Checks: YAML syntax, required fields, unknown fields, service references, dependency cycles, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
+
+The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
 
 The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, or identity changed.
 

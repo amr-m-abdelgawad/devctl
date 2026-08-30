@@ -22,7 +22,8 @@
 | `start` brought up extra services | Empty start uses the active or first profile, plus dependencies. Pass `--profile` or explicit names to stay narrower |
 | TUI stale / not updating | TUI follows the event bus (20–50ms batch). Quit and let a new supervisor start if an old one is still listening |
 | Reload needs a restart | `devctl reload` and `/reload` list services whose command, env, ports, or identity changed |
-| Configuration invalid | `devctl config validate` — unknown fields, cycles, and missing refs fail closed |
+| Configuration invalid | `devctl config validate` — unknown fields, cycles, and missing refs fail closed. TUI `v` / `/buffer` validates before write |
+| `devctl update` says unavailable | GitHub Releases API could not be reached. Install from a [Release](https://github.com/amr-m-abdelgawad/devctl/releases) or the [Homebrew formula](installation.md) |
 | MCP agent cannot connect | Listener is off by default. `/mcp` or `devctl mcp --on`. URL is loopback only; snippets include the bearer token |
 | `devctl: command not found` | Install a [Release](https://github.com/amr-m-abdelgawad/devctl/releases) binary, or from `app/`: `bun install` then `bun link`. See [Installation](installation.md) |
 

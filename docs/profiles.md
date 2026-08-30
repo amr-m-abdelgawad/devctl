@@ -37,7 +37,7 @@ Per-repo state lives under `~/.devctl/state/<repoID>/`:
 
 A leftover `~/.devctl/sessions/<repoID>/` is migrated once.
 
-A new supervisor **adopts** leftover processes only when pid + command + cwd + startTime still match. It never signals an unrelated PID. `SessionRecovered` is published when anything is adopted. A port-only leftover is logged and shown in Doctor; it is not attached.
+A new supervisor **adopts** leftover processes only when pid + command + cwd + startTime still match. An empty cwd on either side is ignored. It never signals an unrelated PID. `SessionRecovered` is published when anything is adopted. Adopted processes keep health polling; stdout/stderr from before adopt are not captured. A port-only leftover is logged and shown in Doctor; it is not attached.
 
 Override the home directory with `DEVCTL_HOME`.
 

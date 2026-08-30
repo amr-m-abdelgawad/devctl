@@ -99,6 +99,9 @@ export function mergeService(base: ServiceConfig, overlay: ServiceConfig): Servi
   if (overlay.capabilities.length > 0) {
     out.capabilities = overlay.capabilities;
   }
+  if (overlay.proxy.length > 0) {
+    out.proxy = overlay.proxy;
+  }
   return out;
 }
 
@@ -108,6 +111,25 @@ function mergeEnv(base: EnvConfig, overlay: EnvConfig): EnvConfig {
     defaults: { ...base.defaults, ...overlay.defaults },
     required: overlay.required.length > 0 ? overlay.required : [...base.required],
   };
+}
+
+export function mergeServiceProxyRoutes(cfg: DevctlConfig): void {
+  const names = Object.keys(cfg.services).sort();
+  for (const name of names) {
+    const fragments = cfg.services[name]?.proxy ?? [];
+    if (fragments.length === 0) {
+      continue;
+    }
+    fragments.forEach((frag, i) => {
+      const routeName = fragments.length === 1 ? name : `${name}-${i + 1}`;
+      cfg.proxy.routes.push({
+        name: routeName,
+        match: frag.match,
+        upstream: frag.upstream,
+        auth: frag.auth,
+      });
+    });
+  }
 }
 
 export function applyTemplates(cfg: DevctlConfig): void {

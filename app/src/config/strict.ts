@@ -139,11 +139,29 @@ function servicePathKnown(path: string): string[] {
         return knownServiceLogs;
       case "environment":
         return knownEnvStructured;
+      case "proxy":
+        return serviceProxyPathKnown(parts);
       default:
         return [];
     }
   }
   return [];
+}
+
+function serviceProxyPathKnown(parts: string[]): string[] {
+  const rest = parts.slice(3);
+  const start = rest[0] !== undefined && /^\d+$/.test(rest[0]) ? 1 : 0;
+  const kind = rest[start] ?? "";
+  if (kind === "match") {
+    return knownMatch;
+  }
+  if (kind === "upstream") {
+    return knownUpstream;
+  }
+  if (kind === "auth") {
+    return knownRouteAuth;
+  }
+  return knownRoute;
 }
 
 function routePathKnown(path: string): string[] {

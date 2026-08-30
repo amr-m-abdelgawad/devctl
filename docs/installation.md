@@ -23,7 +23,15 @@ sudo mv devctl-darwin-arm64 /usr/local/bin/devctl
 devctl version
 ```
 
-There is no npm package and no Homebrew formula yet. The published artifact is the GitHub Release binary.
+There is no npm package. A Homebrew formula lives in this repo (not Homebrew-core):
+
+```bash
+brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/homebrew/devctl.rb
+```
+
+`devctl update` reports whether a newer GitHub Release exists and prints that install hint. It does not overwrite the running binary.
+
+The published artifact is the GitHub Release binary.
 
 ## From this repository
 
@@ -52,6 +60,15 @@ devctl version
 ```
 
 `bun link` registers the `bin` entry in `app/package.json` (`devctl` → `./src/bin.ts`).
+
+## Shell completions
+
+```bash
+source <(devctl completion zsh)    # or bash
+devctl completion fish > ~/.config/fish/completions/devctl.fish
+```
+
+See [CLI](cli.md).
 
 ## Google Cloud CLI (optional)
 

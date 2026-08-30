@@ -89,6 +89,36 @@ export function configuredServiceAccounts(cfg: DevctlConfig): string[] {
   return [...found].sort();
 }
 
+export type IdentityBlocker = {
+  name: string;
+  message: string;
+};
+
+export function identityBlockers(
+  cfg: DevctlConfig,
+  names: string[],
+  adcAvailable: boolean,
+): IdentityBlocker[] {
+  const out: IdentityBlocker[] = [];
+  for (const name of names) {
+    const svc = cfg.services[name];
+    if (!svc) {
+      continue;
+    }
+    const ident = fromConfig(svc.identity);
+    if (isServiceAccountIdentity(svc.identity) && svc.identity.service_account === "") {
+      out.push({ name, message: "service account identity is not configured" });
+      continue;
+    }
+    const needsCloud =
+      requiresCloud(ident) || svc.capabilities.some((cap) => cap === "google_api" || cap === "iap" || cap === "service_identity");
+    if (needsCloud && !adcAvailable) {
+      out.push({ name, message: "ADC unavailable" });
+    }
+  }
+  return out;
+}
+
 export function needsCloudFeatures(cfg: DevctlConfig): boolean {
   if (configuredServiceAccounts(cfg).length > 0) {
     return true;

@@ -5,11 +5,39 @@ import { KindConfiguration, newError, wrapError } from "../errors.ts";
 import { homeDir } from "../storage.ts";
 import { applyRoot, decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
 import { ConfigDirName, discover, fileExists } from "./discover.ts";
-import { applyTemplates, mergeConfig, mergeService } from "./merge.ts";
+import { applyTemplates, mergeConfig, mergeService, mergeServiceProxyRoutes } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "./types.ts";
 import { validate } from "./validate.ts";
+
+export function validateConfigText(text: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = parse(text);
+  } catch (err) {
+    return [`invalid YAML: ${err instanceof Error ? err.message : String(err)}`];
+  }
+  if (parsed === null || parsed === undefined) {
+    parsed = {};
+  }
+  if (!isRecord(parsed)) {
+    return ["config is not a mapping"];
+  }
+  const unknown = collectUnknownFields(parsed, "");
+  if (unknown.length > 0) {
+    return [formatUnknown(unknown)];
+  }
+  const cfg = defaultConfig();
+  applyRoot(cfg, parsed);
+  try {
+    applyTemplates(cfg);
+  } catch (err) {
+    return [err instanceof Error ? err.message : String(err)];
+  }
+  mergeServiceProxyRoutes(cfg);
+  return validate(cfg);
+}
 
 export function load(startDir: string, explicit: string): DevctlConfig {
   const { repoRoot, configPath } = discover(startDir, explicit);
@@ -32,6 +60,7 @@ export function loadPath(repoRoot: string, configPath: string): DevctlConfig {
   } catch (err) {
     throw wrapError(KindConfiguration, "template merge failed", err);
   }
+  mergeServiceProxyRoutes(cfg);
   const issues = validate(cfg);
   if (issues.length > 0) {
     throw newError(KindConfiguration, issues.join("\n"));

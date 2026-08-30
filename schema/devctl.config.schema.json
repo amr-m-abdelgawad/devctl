@@ -231,6 +231,13 @@
         "capabilities": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "proxy": {
+          "description": "Route fragments merged into the global proxy at load (names become <service> or <service>-<n>)",
+          "oneOf": [
+            { "$ref": "#/$defs/route" },
+            { "type": "array", "items": { "$ref": "#/$defs/route" } }
+          ]
         }
       }
     },

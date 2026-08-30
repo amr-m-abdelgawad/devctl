@@ -22,6 +22,7 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       restart: { policy: "", max_retries: 0, backoff_seconds: 0 },
       startup: { wait_for_healthy: false, timeout_seconds: 0 },
       capabilities: [],
+      proxy: [],
     };
   }
   return c;

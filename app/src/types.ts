@@ -22,6 +22,7 @@ export type LogsRequest = {
   regex?: boolean;
   source?: string;
   since?: string;
+  until?: string;
   export?: string;
 };
 

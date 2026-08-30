@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { stringify } from "yaml";
-import { load, stopOnExit, validate } from "./config/index.ts";
+import { defaultConfig, load, stopOnExit, validate } from "./config/index.ts";
 import { openAttach, openController } from "./controller.ts";
 import { readPersistedState } from "./storage.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
@@ -15,6 +15,8 @@ import { derivedMcpPort } from "./mcp/port.ts";
 import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "./mcp/snippets.ts";
 import { loadTuiConfig } from "./tui/tui-config.ts";
 import { runTui } from "./tui/index.tsx";
+import { completeLine, completionScript } from "./complete.ts";
+import { checkUpdate } from "./update.ts";
 import { versionLine } from "./version.ts";
 
 export function newRoot(): Command {
@@ -44,6 +46,8 @@ export function newRoot(): Command {
   addConfig(root);
   addReload(root);
   addAttach(root);
+  addCompletion(root);
+  addUpdate(root);
   addSupervisor(root);
   return root;
 }
@@ -163,9 +167,10 @@ function addLogs(root: Command): void {
     .option("--regex", "treat search as regular expression")
     .option("--source <source>", "filter by source")
     .option("--since <timestamp>", "only events at or after this ISO timestamp")
+    .option("--until <timestamp>", "only events at or before this ISO timestamp")
     .option("--output <path>", "export path")
     .option("--json", "machine-readable output")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; output?: string; json?: boolean }) => {
+    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean }) => {
       const ctrl = await openController("", configFlag(root), true);
       try {
         const events = await ctrl.logs({
@@ -175,6 +180,7 @@ function addLogs(root: Command): void {
           regex: opts.regex,
           source: opts.source,
           since: opts.since,
+          until: opts.until,
           export: opts.output,
         });
         if (opts.output) {
@@ -441,6 +447,51 @@ function addConfig(root: Command): void {
         return;
       }
       writeOut(stringify(loaded));
+    });
+}
+
+function addCompletion(root: Command): void {
+  root
+    .command("completion")
+    .argument("[shell]", "zsh, bash, or fish")
+    .description("print a shell completion script")
+    .action((shell: string | undefined) => {
+      writeOut(completionScript(shell || "zsh"));
+    });
+  root
+    .command("__complete", { hidden: true })
+    .argument("[line...]")
+    .description("internal completion helper")
+    .action((words: string[]) => {
+      const line = words.join(" ");
+      const prefix = line === "" ? "devctl " : line;
+      try {
+        const cfg = load("", configFlag(root));
+        writeOut(completeLine(prefix, cfg).join("\n") + "\n");
+      } catch {
+        writeOut(completeLine(prefix, defaultConfig()).join("\n") + "\n");
+      }
+    });
+}
+
+function addUpdate(root: Command): void {
+  root
+    .command("update")
+    .description("check GitHub Releases for a newer version")
+    .option("--json", "machine-readable output")
+    .action(async (opts: { json?: boolean }) => {
+      const result = await checkUpdate();
+      if (opts.json) {
+        writeOut(JSON.stringify(result, null, 2) + "\n");
+        return;
+      }
+      writeOut(`current  ${result.current}\n`);
+      writeOut(`latest   ${result.latest || "(unavailable)"}\n`);
+      if (result.newer) {
+        writeOut(`install  ${result.hint}\n`);
+      } else if (result.latest !== "") {
+        writeOut("up to date\n");
+      }
     });
 }
 

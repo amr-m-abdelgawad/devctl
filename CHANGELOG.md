@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- File credential fallback stores metadata only; the access token stays in the keychain or the session cache.
+- Windows process inspect fills cwd and samples WorkingSet/CPU.
+- TUI `/until` and `devctl logs --until`.
+- Starter config writes a `$schema` comment for yaml-language-server.
+- Start-plan identity preflight: missing SA or ADC fails that service only.
+- `devctl completion zsh|bash|fish` and hidden `__complete` for live service/profile names.
+- CI compile smoke (`bun build --compile` linux-x64) and `windows-latest` test job.
+- Homebrew formula at `homebrew/devctl.rb` (`brew install --formula <raw url>`).
+- `devctl update` reports the latest GitHub Release and an install hint; it does not overwrite the binary.
+- Config screen validate/save buffer (`v` / `/buffer`); invalid YAML is not written.
+- Per-service `proxy` route fragments merge into the global proxy at load.
+- Shared `withRetry` for token mint and doctor live probes; configuration errors are not retried.
 - JSON Schema for `.devctl/config.yaml` (`schema/devctl.config.schema.json`) so editors and agents can complete field names.
 - `start_services` / `devctl start` with no names use the given profile, then the active session profile, then the first configured profile. They no longer start every service. With no profiles and no names, start fails closed.
 - MCP `get_logs` accepts `since` and returns `next_since` so agents can follow new lines instead of re-pulling the last 200.
