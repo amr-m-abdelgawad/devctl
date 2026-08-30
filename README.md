@@ -19,6 +19,8 @@ Start services, watch logs, check identity, and drive the proxy — from a keybo
   ·
   <a href="docs/README.md">Wiki</a>
   ·
+  <a href="https://github.com/amr-m-abdelgawad/devctl/wiki">GitHub Wiki</a>
+  ·
   <a href="docs/mcp.md">MCP</a>
 </p>
 
