@@ -1,0 +1,134 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  setup:
+    name: Setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - name: Install
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+  tests:
+    name: Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: bun test
+        working-directory: app
+        run: bun test
+
+  typecheck:
+    name: Typecheck
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: tsc --noEmit
+        working-directory: app
+        run: bunx tsc --noEmit
+
+  demo-config:
+    name: Demo config
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: config validate
+        working-directory: examples/demo-platform
+        run: bun run ../../app/src/bin.ts config validate
+
+  audit:
+    name: Audit
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: bun audit
+        working-directory: app
+        run: bun audit
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          source-root: app
+      - uses: github/codeql-action/analyze@v3
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+
+  ci:
+    name: CI
+    needs: [tests, typecheck, demo-config, audit, codeql, dependency-review]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every check
+        env:
+          TESTS: ${{ needs.tests.result }}
+          TYPECHECK: ${{ needs.typecheck.result }}
+          DEMO: ${{ needs.demo-config.result }}
+          AUDIT: ${{ needs.audit.result }}
+          CODEQL: ${{ needs.codeql.result }}
+          DEPS: ${{ needs.dependency-review.result }}
+        run: |
+          test "$TESTS" = success
+          test "$TYPECHECK" = success
+          test "$DEMO" = success
+          test "$AUDIT" = success
+          test "$CODEQL" = success
+          test "$DEPS" = success -o "$DEPS" = skipped

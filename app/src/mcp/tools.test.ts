@@ -6,7 +6,11 @@ import { type LogsRequest, type StatusSnapshot } from "../types.ts";
 import { callMcpTool, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
-  const api = { ...emptyRuntime("api"), state: StateRunning, health: HealthHealthy, pid: 42, ports: { http: 9000 }, last_error: "" };
+  const api = emptyRuntime("api");
+  api.state = StateRunning;
+  api.health = HealthHealthy;
+  api.pid = 42;
+  api.ports = { http: 9000 };
   return {
     session_id: "sess",
     repo_root: "/repo",

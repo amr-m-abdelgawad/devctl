@@ -137,8 +137,8 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [logShowTimestamps, setLogShowTimestamps] = useState(tui.log_timestamps !== false);
   const [logShowMeta, setLogShowMeta] = useState(tui.log_metadata !== false);
   const [extraLogSources, setExtraLogSources] = useState<string[]>([]);
-  const [logLevel, setLogLevel] = useState("");
-  const [logSource, setLogSource] = useState("");
+  const [logLevel] = useState("");
+  const [logSource] = useState("");
   const [logRegex, setLogRegex] = useState(false);
   const [logDetail, setLogDetail] = useState<LogEvent | undefined>();
   const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
@@ -149,7 +149,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const lastExportPath = useRef("");
   const commandBusy = useRef(false);
   const [logViewStart, setLogViewStart] = useState(0);
-  const [setupStep, setSetupStep] = useState(0);
+  const [setupStep] = useState(0);
   const [plan, setPlan] = useState<Plan | undefined>();
   const [planBusy, setPlanBusy] = useState(false);
   const [lifecycle, setLifecycle] = useState<LifecycleKind>("start");

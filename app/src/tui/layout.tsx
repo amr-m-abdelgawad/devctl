@@ -227,7 +227,7 @@ export function OverlayShell(props: {
 }
 
 export function scrollboxStyle(palette: Palette): {
-  rootOptions: { flexGrow: number; height: string; overflow: "hidden"; backgroundColor: string };
+  rootOptions: { flexGrow: number; height: `${number}%`; overflow: "hidden"; backgroundColor: string };
   viewportOptions: { backgroundColor: string };
   contentOptions: { backgroundColor: string };
   scrollbarOptions: { trackOptions: { foregroundColor: string; backgroundColor: string } };
@@ -303,11 +303,19 @@ export function ScreenFrame(props: {
   );
 }
 
-export function FieldRow(props: { palette: Palette; label: string; value: string; tone?: "text" | "success" | "error" | "muted" }) {
+export function FieldRow(props: { palette: Palette; label: string; value: string; tone?: "text" | "success" | "warning" | "error" | "muted" }) {
   const { palette, label, value, tone = "text" } = props;
   const scale = useDensity();
   const valueFg =
-    tone === "success" ? palette.success : tone === "error" ? palette.error : tone === "muted" ? palette.muted : palette.text;
+    tone === "success"
+      ? palette.success
+      : tone === "warning"
+        ? palette.warning
+        : tone === "error"
+          ? palette.error
+          : tone === "muted"
+            ? palette.muted
+            : palette.text;
   return (
     <box height={scale.rowH} flexDirection="row" overflow="hidden">
       <box width={14} flexShrink={0} overflow="hidden">

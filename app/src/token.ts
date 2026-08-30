@@ -353,7 +353,7 @@ async function fetchUserToken(identity: string, audience: string, scopes: string
   }
 }
 
-function expiryFromToken(token: string, client?: { credentials?: { expiry_date?: number } }): Date {
+function expiryFromToken(token: string, client?: { credentials?: { expiry_date?: number | null } }): Date {
   if (client?.credentials?.expiry_date) {
     return new Date(client.credentials.expiry_date);
   }
@@ -361,7 +361,7 @@ function expiryFromToken(token: string, client?: { credentials?: { expiry_date?:
   return fromJwt ?? new Date(Date.now() + FALLBACK_TTL_MS);
 }
 
-function expiryFromCredentials(client: { credentials?: { expiry_date?: number } }, token: string): Date {
+function expiryFromCredentials(client: { credentials?: { expiry_date?: number | null } }, token: string): Date {
   return expiryFromToken(token, client);
 }
 

@@ -107,7 +107,7 @@ describe("supervisor snapshot", () => {
       expect(sup.snapshot().services.base?.pid ?? 0).toBeGreaterThan(0);
       await sup.start({ services: ["plus"] });
       expect(sup.snapshot().services.plus?.pid ?? 0).toBeGreaterThan(0);
-      expect(["RUNNING", "HEALTHY"]).toContain(sup.snapshot().services.base?.state);
+      expect(["RUNNING", "HEALTHY"]).toContain(sup.snapshot().services.base?.state ?? "");
     } finally {
       await sup.stop(["plus", "base"]);
     }

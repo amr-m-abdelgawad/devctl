@@ -38,9 +38,9 @@ export function holdStderrForTui(): () => void {
       return true;
     }
     if (typeof encoding === "function") {
-      return write(chunk as string, encoding);
+      return write(chunk as string, encoding as (err?: Error | null) => void);
     }
-    return write(chunk as string, encoding as BufferEncoding, callback as ((err?: Error) => void) | undefined);
+    return write(chunk as string, encoding as BufferEncoding, callback as ((err?: Error | null) => void) | undefined);
   }) as typeof process.stderr.write;
   return () => {
     process.stderr.write = write;

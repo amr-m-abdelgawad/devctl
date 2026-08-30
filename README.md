@@ -6,6 +6,7 @@
 
 Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.
 
+[![CI](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml/badge.svg)](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488?style=flat-square)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f59e0b?style=flat-square)](https://bun.sh)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](app/)

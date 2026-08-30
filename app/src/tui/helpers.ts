@@ -643,7 +643,7 @@ export function filterLogs(
   });
 }
 
-export function logServiceCounts(events: LogEvent[], names: string[]): { name: string; count: number }[] {
+export function logServiceCounts(events: Array<{ service: string }>, names: string[]): { name: string; count: number }[] {
   const counts: Record<string, number> = {};
   for (const ev of events) {
     counts[ev.service] = (counts[ev.service] ?? 0) + 1;

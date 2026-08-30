@@ -1,4 +1,4 @@
-import { type Ref } from "react";
+import { type ReactNode, type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { EmptyState } from "../chrome.tsx";
 import {

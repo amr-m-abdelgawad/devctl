@@ -127,10 +127,11 @@ export class Supervisor {
     this.procs = new ProcessManager();
     this.tokens = deps?.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), this.bus);
     this.bus.subscribe((ev) => {
+      const payload = ev.payload ?? {};
       const message =
         ev.type === TokenRefreshed
-          ? `token refreshed identity=${String(ev.payload.identity ?? "")}`
-          : `authentication changed user=${String(ev.payload.user ?? "")}`;
+          ? `token refreshed identity=${String(payload.identity ?? "")}`
+          : `authentication changed user=${String(payload.user ?? "")}`;
       this.logs.append({
         timestamp: new Date().toISOString(),
         service: "auth",
@@ -391,7 +392,7 @@ export class Supervisor {
         this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date());
         this.setState(name, StateRunning, HealthUnknown, pid, "");
         this.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
-        this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), []);
+        this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), {});
         return true;
       }
       this.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
@@ -993,7 +994,7 @@ export class Supervisor {
       this.setState(rec.name, StateRunning, HealthUnknown, rec.pid, "");
       const svc = this.cfg.services[rec.name];
       if (svc) {
-        this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), []);
+        this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), {});
       }
       adopted.push(rec.name);
     }
