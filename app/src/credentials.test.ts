@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { basename } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { credentialFilePath, openCredentialStore } from "./credentials.ts";
 
@@ -27,6 +28,7 @@ describe("CredentialStore", () => {
     expect(listed[0]?.valid).toBe(true);
     const raw = await Bun.file(credentialFilePath("user|aud")).text();
     expect(raw).not.toContain("secret-value");
+    expect(basename(credentialFilePath("user|aud"))).not.toContain("|");
     await store.delete("user|aud");
     expect(await store.get("user|aud")).toBeUndefined();
   });

@@ -110,7 +110,7 @@ Two checkouts do not share a lock. `repoID` is `sha256(repo root)` (16 hex chars
 | `~/.devctl/state/<repoID>/` | `state.json`, `devctl.lock`, and on Unix `devctl.sock`. Windows attach uses `\\.\pipe\devctl-<repoID>` |
 | leftover `~/.devctl/sessions/` | Migrated once |
 | Stale lock from a dead PID | Replaced |
-| `~/.devctl/credentials/` | Directory `0700`, files `0600`. OS keychain holds tokens; the file fallback stores metadata only (no access token). Restart remints via ADC |
+| `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | `.devctl/config.local.yaml` | Gitignore-friendly overlay — still do not commit secrets |
 
 Override the home directory with `DEVCTL_HOME`.

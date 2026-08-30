@@ -36,11 +36,11 @@ describe("supervisor snapshot", () => {
     cfg.google.project_id = "company-dev";
     cfg.services.ping = {
       ...emptyService(),
-      command: { args: ["sleep", "20"], shell: false },
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1e6)"], shell: false },
     };
     cfg.services.worker = {
       ...emptyService(),
-      command: { args: ["true"], shell: false },
+      command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },
       identity: { type: "service_account", mode: "", service_account: "worker-dev@example.com" },
     };
     const provider: TokenProvider = {
@@ -74,7 +74,7 @@ describe("supervisor snapshot", () => {
     } finally {
       await sup.stop(["ping"]);
     }
-  });
+  }, 15_000);
 
   test("starts a dependent service while another is already running", async () => {
     const dir = tmp();
@@ -112,7 +112,7 @@ describe("supervisor snapshot", () => {
     } finally {
       await sup.stop(["plus", "base"]);
     }
-  });
+  }, 15_000);
 
   test("does not rebind a dependency that is already listening", async () => {
     const dir = tmp();
@@ -168,8 +168,8 @@ describe("supervisor snapshot", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     let observed = await inspectProcess(pid);
-    for (let i = 0; i < 40 && (!observed || observed.command === ""); i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
+    for (let i = 0; i < 8 && (!observed || observed.command === ""); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
       observed = await inspectProcess(pid);
     }
     expect(observed?.command).toBeTruthy();
@@ -212,7 +212,7 @@ describe("supervisor snapshot", () => {
     } finally {
       child.kill();
     }
-  });
+  }, 20_000);
 
   test("snapshot includes live host system stats", () => {
     const dir = tmp();

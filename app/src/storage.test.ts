@@ -11,7 +11,7 @@ describe("session storage", () => {
     expect(socketPath("/repo", "win32")).toMatch(/^\\\\.\\pipe\\devctl-[0-9a-f]{16}$/);
     const unix = socketPath("/repo", "darwin");
     expect(unix.endsWith("devctl.sock")).toBe(true);
-    expect(unix.includes("/state/")).toBe(true);
+    expect(unix.replaceAll("\\", "/")).toContain("/state/");
   });
 
   test("session IDs use timestamp plus random suffix", () => {
@@ -42,8 +42,10 @@ describe("session storage", () => {
     expect(loaded?.profile).toBe("backend");
     expect(loaded?.processes[0]?.command).toEqual(["python", "main.py"]);
     expect(loaded?.processes[0]?.ports.http).toBe(18000);
-    const mode = statSync(statePath("/repo")).mode & 0o777;
-    expect(mode).toBe(0o600);
+    if (process.platform !== "win32") {
+      const mode = statSync(statePath("/repo")).mode & 0o777;
+      expect(mode).toBe(0o600);
+    }
   });
 
   test("acquireLock replaces a stale lock and release removes it", () => {

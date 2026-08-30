@@ -199,7 +199,7 @@ function statusOf(key: string, rec: CredentialRecord): CredentialStatus {
 }
 
 function safeKey(key: string): string {
-  return key.replace(/[^A-Za-z0-9._|-]+/g, "_").slice(0, 80) || "token";
+  return key.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 80) || "token";
 }
 
 async function keychainGet(key: string): Promise<CredentialRecord | undefined> {

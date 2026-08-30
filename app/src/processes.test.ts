@@ -93,9 +93,9 @@ describe("process stop", () => {
     await mgr.start({
       name: "holder",
       args: [
-        "sh",
-        "-c",
-        `${process.execPath} -e 'require("node:net").createServer().listen(${port}, "127.0.0.1"); setInterval(() => {}, 1e6)'`,
+        process.execPath,
+        "-e",
+        `require("node:net").createServer().listen(${port}, "127.0.0.1"); setInterval(() => {}, 1e6)`,
       ],
       shell: false,
       workDir: "",
@@ -112,8 +112,15 @@ describe("process stop", () => {
     }
     expect(held).toBe(true);
     await mgr.stop("holder", 800);
-    await sleep(100);
-    expect(await available(port)).toBe(true);
+    let freed = false;
+    for (let i = 0; i < 40; i += 1) {
+      if (await available(port)) {
+        freed = true;
+        break;
+      }
+      await sleep(50);
+    }
+    expect(freed).toBe(true);
   });
 });
 
