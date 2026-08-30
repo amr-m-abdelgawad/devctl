@@ -1,3 +1,5 @@
+<img width="1470" height="851" alt="image" src="https://github.com/user-attachments/assets/f14cc11e-8034-4ce4-92b7-2e9ae736377d" />
+
 # devctl
 
 A configuration-driven local development orchestrator: services, dependencies, environment, Google identity, service-account impersonation, IAP, an authentication-aware proxy, health checks, centralized logs, a keyboard-first TUI, and an optional MCP server for coding agents.
