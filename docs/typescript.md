@@ -4,7 +4,7 @@ The application lives in `app/`. Runtime is [Bun](https://bun.sh). The TUI is [O
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
-cd ts
+cd app
 bun install
 bun run src/bin.ts --help
 bun test
@@ -15,7 +15,7 @@ From the repository root (after `bun install` in `app/`):
 
 ```bash
 bun run app/src/bin.ts
-cd ts && bun link    # optional: `devctl` on PATH
+cd app && bun link    # optional: `devctl` on PATH
 ```
 
 ## Layout
@@ -70,7 +70,7 @@ Settings writes go to `~/.devctl/tui.json` unless the env override is set (then 
 ## Tests
 
 ```bash
-cd ts && bun test
+cd app && bun test
 ```
 
 Integration tests that need Google stay skipped unless credentials are present.

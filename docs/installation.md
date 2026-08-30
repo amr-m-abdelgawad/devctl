@@ -13,7 +13,7 @@ export PATH="$HOME/.bun/bin:$PATH"
 
 ```bash
 git clone https://github.com/amrmohamed/devctl
-cd devctl/ts
+cd devctl/app
 bun install
 ```
 
@@ -28,7 +28,7 @@ bun run app/src/bin.ts --help
 Link the `devctl` command onto your PATH:
 
 ```bash
-cd ts && bun link
+cd app && bun link
 devctl version
 ```
 
