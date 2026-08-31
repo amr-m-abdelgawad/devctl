@@ -73,6 +73,8 @@ describe("LogManager persistence", () => {
 
   test("compileLogSearch rejects nested and oversized patterns", () => {
     expect(compileLogSearch("^ok")?.test("ok")).toBe(true);
+    expect(compileLogSearch("err(or|no)")?.test("errno")).toBe(true);
+    expect(compileLogSearch("a+")?.test("aaa")).toBe(true);
     expect(compileLogSearch("(a+)+")).toBeUndefined();
     expect(compileLogSearch("a{65}")).toBeUndefined();
     expect(compileLogSearch("[")).toBeUndefined();
