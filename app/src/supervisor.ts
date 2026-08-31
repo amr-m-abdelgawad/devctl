@@ -36,7 +36,7 @@ import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud,
 import { LogManager, type LogEvent } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
-import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage } from "./processes.ts";
+import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "./processes.ts";
 import { McpHttpServer } from "./mcp/server.ts";
 import { type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
@@ -104,6 +104,8 @@ export class Supervisor {
   private detached = false;
   private identityCache: IdentitySnapshot = emptyIdentitySnapshot();
   private readonly detectGoogleFn: (project: string) => Promise<GoogleStatus>;
+  private readonly inspectProcessFn: (pid: number) => Promise<ProcessIdentity | undefined>;
+  private readonly processAliveFn: (pid: number) => boolean;
   private registry?: Registry;
   private restartRequired: string[] = [];
   private readonly processMeta = new Map<string, { command: string[]; cwd: string; startTime: Date }>();
@@ -115,13 +117,23 @@ export class Supervisor {
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
 
-  constructor(cfg: DevctlConfig, deps?: { detectGoogle?: (project: string) => Promise<GoogleStatus>; tokens?: TokenManager }) {
+  constructor(
+    cfg: DevctlConfig,
+    deps?: {
+      detectGoogle?: (project: string) => Promise<GoogleStatus>;
+      tokens?: TokenManager;
+      inspectProcess?: (pid: number) => Promise<ProcessIdentity | undefined>;
+      processAlive?: (pid: number) => boolean;
+    },
+  ) {
     this.cfg = cfg;
     this.sessionID = newSessionID();
     this.internalTok = randomSecret();
     this.mcpToken = randomSecret();
     this.bus = new Bus(2048);
     this.detectGoogleFn = deps?.detectGoogle ?? detectGoogle;
+    this.inspectProcessFn = deps?.inspectProcess ?? inspectProcess;
+    this.processAliveFn = deps?.processAlive ?? processAlive;
     this.detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
     this.logs = new LogManager(
       cfg.logs.max_memory_events,
@@ -1197,22 +1209,27 @@ export class Supervisor {
   }
 
   private attachProcess(name: string, pid: number, args: string[], workDir: string, startTime: Date): void {
-    if (this.procs.get(name) && processAlive(this.procs.get(name)?.pid ?? 0)) {
+    if (this.procs.get(name) && this.processAliveFn(this.procs.get(name)?.pid ?? 0)) {
       return;
     }
-    if (!processAlive(pid) || pid === process.pid) {
+    if (!this.processAliveFn(pid) || pid === process.pid) {
       return;
     }
-    this.procs.adopt({
-      name,
-      pid,
-      args,
-      workDir,
-      startTime,
-      onExit: (code, err) => {
-        this.onExit(name, code, err);
-      },
-    });
+    try {
+      this.procs.adopt({
+        name,
+        pid,
+        args,
+        workDir,
+        startTime,
+        onExit: (code, err) => {
+          this.onExit(name, code, err);
+        },
+      });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.log(name, "WARN", `adopt pid ${pid} failed (${detail}); tracking leftover in snapshot only`);
+    }
     this.processMeta.set(name, { command: args, cwd: workDir, startTime });
   }
 
@@ -1223,10 +1240,10 @@ export class Supervisor {
     }
     const adopted: string[] = [];
     for (const rec of persisted.processes) {
-      if (!this.cfg.services[rec.name] || rec.pid <= 0 || rec.pid === process.pid || !processAlive(rec.pid)) {
+      if (!this.cfg.services[rec.name] || rec.pid <= 0 || rec.pid === process.pid || !this.processAliveFn(rec.pid)) {
         continue;
       }
-      const observed = await inspectProcess(rec.pid);
+      const observed = await this.inspectProcessFn(rec.pid);
       const identityOk =
         observed !== undefined &&
         observed.command !== "" &&

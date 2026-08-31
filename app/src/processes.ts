@@ -176,7 +176,7 @@ export async function inspectProcess(pid: number): Promise<ProcessIdentity | und
   return inspectProcessUnix(pid);
 }
 
-export type { ResourceSample };
+export type { ProcessIdentity, ResourceSample };
 
 export async function sampleResourceUsage(pids: number[]): Promise<Map<number, ResourceSample>> {
   if (process.platform === "win32") {

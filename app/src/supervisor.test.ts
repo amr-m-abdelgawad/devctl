@@ -3,8 +3,6 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
 import { SessionRecovered } from "./events.ts";
-import { available, findPortHolder } from "./ports.ts";
-import { inspectProcess } from "./processes.ts";
 import { writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
@@ -158,29 +156,14 @@ describe("supervisor snapshot", () => {
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
     cfg.shutdown.grace_seconds = 1;
-    const port = await freePort();
-    const child = Bun.spawn({
-      cmd: [process.execPath, "-e", `Bun.serve({port:${port},fetch(){return new Response("ok")}})`],
-      stdout: "ignore",
-      stderr: "ignore",
-    });
-    const spawned = child.pid ?? 0;
-    for (let i = 0; i < 40; i += 1) {
-      if (!(await available(port))) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    const holder = await findPortHolder(port);
-    const pid = holder?.pid || spawned;
-    let observed = await inspectProcess(pid);
-    if (!observed || observed.command === "") {
-      observed = { pid, command: process.execPath, cwd: "" };
-    }
     cfg.services.api = {
       ...emptyService(),
-      command: bunServe(port),
-      ports: [{ name: "http", value: port, auto: false }],
+      command: { args: ["python", "main.py"], shell: false },
+    };
+    const leftover = {
+      pid: 4242,
+      command: "python main.py",
+      cwd: "",
     };
     writePersistedState(dir, {
       session_id: "2026-08-30T00-00-00Z-abc123",
@@ -189,11 +172,11 @@ describe("supervisor snapshot", () => {
       processes: [
         {
           name: "api",
-          pid,
-          command: bunServe(port).args,
-          cwd: observed.cwd,
-          startTime: observed.startTime ?? "",
-          ports: { http: port },
+          pid: leftover.pid,
+          command: ["python", "main.py"],
+          cwd: leftover.cwd,
+          startTime: "",
+          ports: { http: 18000 },
         },
       ],
     });
@@ -206,17 +189,14 @@ describe("supervisor snapshot", () => {
         projectID: "",
         projectSource: "",
       }),
+      processAlive: (pid) => pid === leftover.pid,
+      inspectProcess: async (pid) => (pid === leftover.pid ? leftover : undefined),
     });
     sup.subscribe((ev) => seen.push(ev.type));
-    try {
-      await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
-      expect(seen).toContain(SessionRecovered);
-      expect(sup.snapshot().services.api?.pid).toBe(pid);
-      await sup.stop(["api"]);
-    } finally {
-      child.kill();
-    }
-  }, 20_000);
+    await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
+    expect(seen).toContain(SessionRecovered);
+    expect(sup.snapshot().services.api?.pid).toBe(leftover.pid);
+  });
 
   test("snapshot includes live host system stats", () => {
     const dir = tmp();
