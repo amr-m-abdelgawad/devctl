@@ -1,19 +1,15 @@
 import { spawn } from "bun";
-import { processAlive } from "../storage.ts";
+import { processAlive, windowsTasklistLine } from "../storage.ts";
 import type { ProcessIdentity, ResourceSample } from "./unix.ts";
 
 const BYTES_PER_KB = 1024;
 
-export async function killProcessTreeWindows(pid: number, signal: "SIGTERM" | "SIGKILL"): Promise<void> {
+export async function killProcessTreeWindows(pid: number, _signal: "SIGTERM" | "SIGKILL"): Promise<void> {
   if (pid <= 0) {
     return;
   }
-  const force = signal === "SIGKILL";
-  const cmd = force
-    ? ["taskkill", "/PID", String(pid), "/T", "/F"]
-    : ["taskkill", "/PID", String(pid), "/T"];
   try {
-    const proc = spawn({ cmd, stdout: "ignore", stderr: "ignore" });
+    const proc = spawn({ cmd: ["taskkill", "/PID", String(pid), "/T", "/F"], stdout: "ignore", stderr: "ignore" });
     await proc.exited;
   } catch {
     return;
@@ -21,6 +17,10 @@ export async function killProcessTreeWindows(pid: number, signal: "SIGTERM" | "S
 }
 
 export async function inspectProcessWindows(pid: number): Promise<ProcessIdentity | undefined> {
+  const listed = parseTasklistCsv(windowsTasklistLine(pid), pid);
+  if (listed) {
+    return listed;
+  }
   if (!processAlive(pid)) {
     return undefined;
   }
@@ -55,6 +55,22 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
     cwd: parsed?.cwd || fromProcess?.cwd || "",
     startTime: parsed?.startTime || fromProcess?.startTime,
   };
+}
+
+export function parseTasklistCsv(text: string, pid: number): ProcessIdentity | undefined {
+  const needle = String(pid);
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.includes(needle)) {
+      continue;
+    }
+    const cols = line.split(",").map((col) => col.replace(/^"|"$/g, "").trim());
+    const image = cols[0] ?? "";
+    if (image === "" || image.toLowerCase().includes("info:")) {
+      continue;
+    }
+    return { pid, command: image, cwd: "" };
+  }
+  return undefined;
 }
 
 export function parseGetProcess(text: string): { command: string; cwd: string; startTime?: string } | undefined {

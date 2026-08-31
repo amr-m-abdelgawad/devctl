@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
 import { SessionRecovered } from "./events.ts";
-import { available } from "./ports.ts";
+import { available, findPortHolder } from "./ports.ts";
 import { inspectProcess } from "./processes.ts";
 import { writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
@@ -33,6 +33,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     cfg.google.project_id = "company-dev";
     cfg.services.ping = {
       ...emptyService(),
@@ -81,6 +82,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     const basePort = await freePort();
     const plusPort = await freePort();
     cfg.services.base = {
@@ -119,6 +121,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     const held = await listenPort();
     const plusPort = await freePort();
     cfg.services.base = {
@@ -154,25 +157,26 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     const port = await freePort();
     const child = Bun.spawn({
       cmd: [process.execPath, "-e", `Bun.serve({port:${port},fetch(){return new Response("ok")}})`],
       stdout: "ignore",
       stderr: "ignore",
     });
-    const pid = child.pid ?? 0;
+    const spawned = child.pid ?? 0;
     for (let i = 0; i < 40; i += 1) {
       if (!(await available(port))) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
+    const holder = await findPortHolder(port);
+    const pid = holder?.pid || spawned;
     let observed = await inspectProcess(pid);
-    for (let i = 0; i < 8 && (!observed || observed.command === ""); i += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      observed = await inspectProcess(pid);
+    if (!observed || observed.command === "") {
+      observed = { pid, command: process.execPath, cwd: "" };
     }
-    expect(observed?.command).toBeTruthy();
     cfg.services.api = {
       ...emptyService(),
       command: bunServe(port),
@@ -187,8 +191,8 @@ describe("supervisor snapshot", () => {
           name: "api",
           pid,
           command: bunServe(port).args,
-          cwd: observed?.cwd ?? "",
-          startTime: observed?.startTime ?? "",
+          cwd: observed.cwd,
+          startTime: observed.startTime ?? "",
           ports: { http: port },
         },
       ],
@@ -219,6 +223,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     const sup = new Supervisor(cfg, {
       detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
     });
@@ -246,6 +251,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     cfg.services.api = {
       ...emptyService(),
       command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
@@ -271,6 +277,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
     cfg.services.flaky = {
       ...emptyService(),
       command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },

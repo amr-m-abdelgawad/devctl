@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { killProcessTreeWindows, parseCimProcess, parseGetProcess, parseWindowsResourceSamples } from "./processes/windows.ts";
+import { killProcessTreeWindows, parseCimProcess, parseGetProcess, parseTasklistCsv, parseWindowsResourceSamples } from "./processes/windows.ts";
 
 describe("windows process backend", () => {
   test("taskkill helper is defined", async () => {
@@ -18,6 +18,12 @@ describe("windows process backend", () => {
     expect(parsed?.command).toBe("python main.py");
     expect(parsed?.cwd).toBe("C:\\repo\\api");
     expect(parsed?.startTime).toBe("2026-08-31T00:00:00");
+  });
+
+  test("parses tasklist CSV for image name", () => {
+    const parsed = parseTasklistCsv('"bun.exe","4242","Console","1","12,345 K"', 4242);
+    expect(parsed?.command).toBe("bun.exe");
+    expect(parsed?.pid).toBe(4242);
   });
 
   test("parses Get-Process JSON for executable path", () => {

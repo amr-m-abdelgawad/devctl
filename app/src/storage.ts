@@ -205,21 +205,47 @@ export function processAlive(pid: number): boolean {
   }
 }
 
+export function windowsTasklistLine(pid: number): string {
+  try {
+    const result = spawnSync("cmd.exe", ["/d", "/c", `tasklist /FO CSV /NH /FI "PID eq ${pid}"`], {
+      encoding: "buffer",
+      windowsHide: true,
+      timeout: 5_000,
+    });
+    return decodeWindowsOutput(result.stdout);
+  } catch {
+    return "";
+  }
+}
+
 function processAliveWindows(pid: number): boolean {
   try {
-    const result = spawnSync("tasklist", ["/FO", "CSV", "/NH", "/FI", `PID eq ${pid}`], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 3_000,
-    });
-    const out = `${result.stdout ?? ""}`.toLowerCase();
-    if (out.includes("no tasks") || out.includes("no matching")) {
-      return false;
-    }
-    return out.includes(String(pid));
+    process.kill(pid, 0);
+    return true;
   } catch {
+    // Bun/Node may reject signal 0 for other processes.
+  }
+  const out = windowsTasklistLine(pid).toLowerCase();
+  if (out === "" || out.includes("no tasks") || out.includes("no matching")) {
     return false;
   }
+  return out.includes(String(pid));
+}
+
+function decodeWindowsOutput(buf: Buffer | string | null | undefined): string {
+  if (!buf) {
+    return "";
+  }
+  if (typeof buf === "string") {
+    return buf;
+  }
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+    return buf.toString("utf16le");
+  }
+  if (buf.length >= 4 && buf[1] === 0 && buf[3] === 0) {
+    return buf.toString("utf16le");
+  }
+  return buf.toString("utf8");
 }
 
 export function randomSecret(): string {

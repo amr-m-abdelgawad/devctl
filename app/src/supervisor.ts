@@ -36,7 +36,7 @@ import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud,
 import { LogManager, type LogEvent } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
-import { ProcessManager, inspectProcess, processAlive, sameProcess, sampleResourceUsage } from "./processes.ts";
+import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { McpHttpServer } from "./mcp/server.ts";
 import { type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
@@ -401,7 +401,7 @@ export class Supervisor {
 
   private serviceIsActive(name: string): boolean {
     const handle = this.procs.get(name);
-    if (handle && processAlive(handle.pid)) {
+    if (handle && handleStillRunning(handle)) {
       return true;
     }
     const current = this.runtimes.get(name);

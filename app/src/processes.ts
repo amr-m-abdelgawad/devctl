@@ -48,7 +48,7 @@ export class ProcessManager {
 
   async start(spec: ProcessSpec): Promise<Handle> {
     const existing = this.running.get(spec.name);
-    if (existing && processAlive(existing.pid)) {
+    if (existing && handleStillRunning(existing)) {
       return existing;
     }
     this.running.delete(spec.name);
@@ -98,7 +98,7 @@ export class ProcessManager {
 
   adopt(spec: AdoptSpec): Handle {
     const existing = this.running.get(spec.name);
-    if (existing && processAlive(existing.pid)) {
+    if (existing && handleStillRunning(existing)) {
       return existing;
     }
     if (!processAlive(spec.pid)) {
@@ -153,6 +153,13 @@ export class ProcessManager {
 }
 
 export { processAlive };
+
+export function handleStillRunning(handle: Handle): boolean {
+  if (handle.proc) {
+    return handle.proc.exitCode === null && !handle.proc.killed;
+  }
+  return processAlive(handle.pid);
+}
 
 export async function killProcessTree(pid: number, signal: "SIGTERM" | "SIGKILL"): Promise<void> {
   if (process.platform === "win32") {
