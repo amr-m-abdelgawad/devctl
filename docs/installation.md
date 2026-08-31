@@ -6,7 +6,7 @@
 
 ## From a GitHub Release
 
-After a `v*` tag, the [Release](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/release.yml) workflow publishes compile artifacts:
+After a `v*` tag, the [Release](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/release.yml) workflow installs OpenTUI native packages for every OS/CPU (`bun install --os="*" --cpu="*"`), then publishes compile artifacts:
 
 | Asset | Platform |
 |-------|----------|

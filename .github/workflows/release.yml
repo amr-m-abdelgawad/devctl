@@ -19,27 +19,19 @@ jobs:
           bun-version: 1.4.0
       - name: Install
         working-directory: app
-        run: bun install --frozen-lockfile
+        # Host bun install skips other OS/CPU optional packages. OpenTUI
+        # resolves @opentui/core-<platform> at compile time, so every target
+        # native package must be on disk before bun build --compile.
+        run: bun install --frozen-lockfile --os="*" --cpu="*"
       - name: Compile binaries
         working-directory: app
         env:
-          TAG: ${{ github.ref_name }}
+          DEVCTL_VERSION: ${{ github.ref_name }}
+          OUTDIR: ../dist
         run: |
           set -euo pipefail
-          VERSION="${TAG#v}"
-          mkdir -p ../dist
-          compile() {
-            local target="$1"
-            local out="$2"
-            bun build --compile --target="$target" \
-              --define "process.env.DEVCTL_VERSION=\"${VERSION}\"" \
-              --outfile "../dist/${out}" src/bin.ts
-          }
-          compile bun-darwin-arm64 devctl-darwin-arm64
-          compile bun-darwin-x64 devctl-darwin-x64
-          compile bun-linux-x64 devctl-linux-x64
-          compile bun-linux-arm64 devctl-linux-arm64
-          compile bun-windows-x64 devctl-windows-x64.exe
+          export DEVCTL_VERSION="${DEVCTL_VERSION#v}"
+          bash ../.github/scripts/compile-binaries.sh
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
