@@ -81,10 +81,13 @@ jobs:
         with:
           bun-version: 1.4.0
       - working-directory: app
-        run: bun install --frozen-lockfile
-      - name: bun build --compile linux-x64
+        run: bun install --frozen-lockfile --os="*" --cpu="*"
+      - name: bun build --compile all release targets
         working-directory: app
-        run: bun build --compile --target=bun-linux-x64 --outfile /tmp/devctl-linux-x64 src/bin.ts
+        env:
+          DEVCTL_VERSION: 0.0.0-ci
+          OUTDIR: /tmp/devctl-dist
+        run: bash ../.github/scripts/compile-binaries.sh
 
   windows-tests:
     name: Windows tests
