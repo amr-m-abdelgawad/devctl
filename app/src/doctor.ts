@@ -5,7 +5,7 @@ import { humanMessage } from "./errors.ts";
 import { detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "./google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "./identity.ts";
 import { available, findPortHolder, type PortHolder } from "./ports.ts";
-import { withRetry } from "./retry.ts";
+import { openCredentialStore } from "./credentials.ts";
 
 export type Severity = "ok" | "warn" | "error";
 
@@ -28,12 +28,16 @@ export type Report = {
 };
 
 const LIVE_PROBE_MS = 4_000;
+const LIVE_SECTION_MS = 8_000;
 
 export type DoctorHost = {
   detectGoogle(project: string): Promise<GoogleStatus>;
   hasCommand(name: string): Promise<boolean>;
   portAvailable(port: number): Promise<boolean>;
   hasLocalAdc?: () => boolean;
+  liveDeadlineMs?: number;
+  mintToken?: (identity: string, audience: string) => Promise<void>;
+  probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
 };
 
 const defaultHost: DoctorHost = {
@@ -41,6 +45,8 @@ const defaultHost: DoctorHost = {
   hasCommand,
   portAvailable: available,
   hasLocalAdc: hasLocalAdcMaterial,
+  mintToken: defaultMintToken,
+  probeServiceUsage: defaultProbeServiceUsage,
 };
 
 export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHost): Promise<Report> {
@@ -86,8 +92,30 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
     needsCloudFeatures(cfg) ||
     Object.values(cfg.services).some((svc) => svc.capabilities.includes("google") || svc.identity.type !== "");
   if (probeCloud) {
-    await addLiveCloudChecks(cfg, add, host);
-    await addLiveApiChecks(cfg, add, host);
+    let liveOpen = true;
+    const liveAdd = (c: Check): void => {
+      if (liveOpen) {
+        add(c);
+      }
+    };
+    try {
+      await withTimeout(
+        (async () => {
+          await addLiveCloudChecks(cfg, liveAdd, host);
+          await addLiveApiChecks(cfg, liveAdd, host);
+        })(),
+        host.liveDeadlineMs ?? LIVE_SECTION_MS,
+      );
+    } catch (err) {
+      liveAdd({
+        name: "Live Google probes",
+        severity: "warn",
+        message: humanMessage(err),
+        hint: "network or timeout — retry when online",
+      });
+    } finally {
+      liveOpen = false;
+    }
   }
   for (const tool of cfg.doctor.tools) {
     const cmd = tool.command || tool.name;
@@ -148,44 +176,61 @@ async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void, host
   if (project === "" || !adc()) {
     return;
   }
+  const probe = host.probeServiceUsage ?? defaultProbeServiceUsage;
   const apis = [
     { name: "IAM Credentials API", service: "iamcredentials.googleapis.com" },
     { name: "Resource Manager API", service: "cloudresourcemanager.googleapis.com" },
     { name: "IAP API", service: "iap.googleapis.com" },
   ];
-  for (const api of apis) {
-    try {
-      const ok = await withRetry(() => probeServiceUsage(project, api.service), { attempts: 3, backoffMs: 200 });
-      add({
-        name: api.name,
-        severity: ok ? "ok" : "warn",
-        message: ok ? "reachable" : "not enabled or unreachable",
-        hint: ok ? undefined : `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
-      });
-    } catch (err) {
-      add({
-        name: api.name,
-        severity: "warn",
-        message: humanMessage(err),
-        hint: `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
-      });
+  const results = await Promise.allSettled(apis.map((api) => withTimeout(probe(project, api.service), LIVE_PROBE_MS)));
+  results.forEach((result, index) => {
+    const api = apis[index];
+    if (!api) {
+      return;
     }
+    if (result.status === "fulfilled") {
+      add({
+        name: api.name,
+        severity: result.value ? "ok" : "warn",
+        message: result.value ? "reachable" : "not enabled or unreachable",
+        hint: result.value ? undefined : `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
+      });
+      return;
+    }
+    add({
+      name: api.name,
+      severity: "warn",
+      message: humanMessage(result.reason),
+      hint: `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
+    });
+  });
+}
+
+let doctorTokens: Promise<import("./token.ts").TokenManager> | undefined;
+
+async function doctorTokenManager() {
+  if (!doctorTokens) {
+    doctorTokens = import("./token.ts").then(
+      ({ TokenManager, googleTokenProviders }) =>
+        new TokenManager(60_000, googleTokenProviders(), undefined, openCredentialStore("file")),
+    );
   }
+  return doctorTokens;
 }
 
-async function loadTokenManager(thresholdMs: number) {
-  const { TokenManager, googleTokenProviders } = await import("./token.ts");
-  return new TokenManager(thresholdMs, googleTokenProviders());
+async function defaultMintToken(identity: string, audience: string): Promise<void> {
+  const tokens = await doctorTokenManager();
+  await tokens.get(identity, audience, []);
 }
 
-async function probeServiceUsage(project: string, service: string): Promise<boolean> {
-  const tokens = await loadTokenManager(60_000);
+async function defaultProbeServiceUsage(project: string, service: string): Promise<boolean> {
+  const tokens = await doctorTokenManager();
   const tok = await withTimeout(tokens.get("user", "", []), LIVE_PROBE_MS);
   const url = `https://serviceusage.googleapis.com/v1/projects/${project}/services/${service}`;
-  const resp = await withTimeout(
-    fetch(url, { headers: { Authorization: `Bearer ${tok.accessToken}` } }),
-    LIVE_PROBE_MS,
-  );
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${tok.accessToken}` },
+    signal: AbortSignal.timeout(LIVE_PROBE_MS),
+  });
   return resp.ok;
 }
 
@@ -210,30 +255,25 @@ async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void, ho
   if (!adc()) {
     return;
   }
-  const tokens = await loadTokenManager(0);
-  for (const email of accounts) {
+  const mint = host.mintToken ?? defaultMintToken;
+  const impersonation = accounts.map(async (email) => {
     try {
-      await withRetry(() => withTimeout(tokens.get(`sa:${email}`, "", []), LIVE_PROBE_MS), { attempts: 3, backoffMs: 200 });
+      await withTimeout(mint(`sa:${email}`, ""), LIVE_PROBE_MS);
       add({ name: `Impersonate ${email}`, severity: "ok", message: "token minted" });
     } catch (err) {
       add(classifyLiveFailure(`Impersonate ${email}`, err, "grant roles/iam.serviceAccountTokenCreator on this service account"));
     }
-  }
-  for (const route of mintableIap) {
+  });
+  const iap = mintableIap.map(async (route) => {
+    const identity = fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user";
     try {
-      await withRetry(
-        () =>
-          withTimeout(
-            tokens.get(fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user", route.auth.audience, []),
-            LIVE_PROBE_MS,
-          ),
-        { attempts: 3, backoffMs: 200 },
-      );
+      await withTimeout(mint(identity, route.auth.audience), LIVE_PROBE_MS);
       add({ name: `IAP ${route.name}`, severity: "ok", message: "id token minted" });
     } catch (err) {
       add(classifyLiveFailure(`IAP ${route.name}`, err, "check IAP OAuth client ID and ADC"));
     }
-  }
+  });
+  await Promise.all([...impersonation, ...iap]);
 }
 
 function classifyLiveFailure(name: string, err: unknown, hint: string): Check {

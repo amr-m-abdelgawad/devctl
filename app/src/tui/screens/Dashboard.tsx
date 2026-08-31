@@ -1,4 +1,4 @@
-import { canStartAll, countRunning, defaultProfileName, filterLogs, formatUptime, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, type LogWrapMode } from "../helpers.ts";
+import { canStartAll, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, type LogWrapMode } from "../helpers.ts";
 import { useDensity } from "../density.tsx";
 import { Chip, MetaBar, Toolbar } from "../layout.tsx";
 import { EmptyState } from "../chrome.tsx";
@@ -211,7 +211,7 @@ function StatusStrip(props: {
 }) {
   const { palette, cfg, snap, google, width } = props;
   const email = google?.userEmail;
-  const project = google?.projectID || cfg.google.project_id || "";
+  const project = googleProjectDisplay(cfg, snap?.identity, google).project;
   const logsTotal = snap?.logs.total ?? 0;
   const chips = statusStripChips(email, project, logsTotal, width);
   return (

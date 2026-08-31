@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
-import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prevScreen, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prevScreen, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -500,6 +500,20 @@ describe("TUI helpers", () => {
     expect(screenListCount("logs", { ...counts, logs: 12 })).toBe(12);
     expect(screenListCount("mcp", counts)).toBe(6);
     expect(screenListCount("setup", counts)).toBe(9);
+  });
+
+  test("googleProjectDisplay prefers google.project_id from config", () => {
+    expect(
+      googleProjectDisplay(
+        { google: { project_id: "from-yaml" } },
+        { project: "from-identity", project_source: "gcloud configuration" },
+        { projectID: "from-adc", projectSource: "application default credentials" },
+      ),
+    ).toEqual({ project: "from-yaml", source: "configuration" });
+    expect(googleProjectDisplay(undefined, { project: "from-identity", project_source: "gcloud configuration" }, undefined)).toEqual({
+      project: "from-identity",
+      source: "gcloud configuration",
+    });
   });
 
   test("statusStripChips adapts to pane width and prevents overflow", () => {

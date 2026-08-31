@@ -24,6 +24,10 @@ function offlineHost(): DoctorHost {
     hasCommand: async () => false,
     portAvailable: async () => true,
     hasLocalAdc: () => false,
+    mintToken: async () => {
+      throw new Error("offline");
+    },
+    probeServiceUsage: async () => false,
   };
 }
 
@@ -50,5 +54,38 @@ describe("doctor", () => {
     expect(aud?.message).toContain("missing audience");
     expect(report.checks.some((c) => c.name.startsWith("IAP billing"))).toBe(false);
     expect(report.checks.some((c) => c.name === "IAM Credentials API")).toBe(false);
+  });
+
+  test("live ADC probes cannot stall doctor", async () => {
+    const cfg = localCfg();
+    cfg.google.project_id = "company-dev";
+    cfg.services.api = {
+      ...cfg.services.api!,
+      identity: { type: "user", mode: "", service_account: "" },
+    };
+    const hang = (): Promise<boolean> => new Promise(() => {});
+    const host: DoctorHost = {
+      detectGoogle: async () => ({
+        gcloudInstalled: true,
+        adcAvailable: true,
+        userEmail: "dev@example.com",
+        projectID: "company-dev",
+        projectSource: "configuration",
+      }),
+      hasCommand: async () => true,
+      portAvailable: async () => true,
+      hasLocalAdc: () => true,
+      liveDeadlineMs: 50,
+      mintToken: async () => {
+        await hang();
+      },
+      probeServiceUsage: hang,
+    };
+    const started = Date.now();
+    const report = await runDoctor(cfg, host);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(report.checks.some((c) => c.name === "Repository configuration")).toBe(true);
+    expect(report.checks.some((c) => c.name === "Google authentication available" && c.severity === "ok")).toBe(true);
+    expect(report.checks.some((c) => c.name === "Live Google probes" && c.severity === "warn")).toBe(true);
   });
 });

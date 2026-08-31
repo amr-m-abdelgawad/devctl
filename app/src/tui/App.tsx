@@ -601,7 +601,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       .catch((err: unknown) => {
         setStatus(humanMessage(err));
       });
-  }, [cfg?.google.project_id]);
+  }, [cfg?.google.project_id, snap?.identity.project]);
 
   useEffect(() => {
     if (screen !== "doctor" || !cfg) {
@@ -616,14 +616,17 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
           return;
         }
         setDoctor(report);
-        setDoctorLoading(false);
       })
       .catch((err: unknown) => {
         if (cancelled) {
           return;
         }
         setDoctorError(humanMessage(err));
-        setDoctorLoading(false);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDoctorLoading(false);
+        }
       });
     return () => {
       cancelled = true;

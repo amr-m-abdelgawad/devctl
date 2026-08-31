@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { LoadingState } from "../chrome.tsx";
+import { googleProjectDisplay } from "../helpers.ts";
 import { Chip, FieldRow, ScreenFrame } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 import { type DevctlConfig, isServiceAccountIdentity } from "../../config/index.ts";
@@ -35,8 +36,7 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
   }
   const accounts = serviceAccountRows(cfg, identity);
   const user = identity?.user || google?.userEmail || "";
-  const project = identity?.project || google?.projectID || cfg?.google.project_id || "";
-  const source = identity?.project_source || google?.projectSource || "";
+  const { project, source } = googleProjectDisplay(cfg, identity, google);
   const adc = identity?.adc ?? google?.adcAvailable === true;
   const iap = identity?.iap ?? (cfg?.proxy.routes ?? []).some((r) => r.auth.type.toLowerCase() === "iap");
   const impersonationAvailable = accounts.some((row) => row.ok === true);

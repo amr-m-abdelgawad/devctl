@@ -4,6 +4,7 @@ import { type GoogleStatus } from "../../google.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { Chip, KeyHints, ScreenFrame } from "../layout.tsx";
+import { googleProjectDisplay } from "../helpers.ts";
 import { stateColor, stateGlyph, type Palette } from "../themes.ts";
 
 const STEPS = [
@@ -134,10 +135,11 @@ function setupRows(
 ): Array<{ name: string; ok: boolean; detail: string }> {
   const ports = Object.values(cfg?.services ?? {}).flatMap((svc) => svc.ports.filter((p) => !p.auto));
   const iap = (cfg?.proxy.routes ?? []).some((route) => route.auth.type.toLowerCase() === "iap");
+  const googleProject = googleProjectDisplay(cfg, undefined, google).project;
   return [
     { name: STEPS[0], ok: Boolean(cfg?.repoRoot), detail: cfg?.repoRoot || "unknown" },
     { name: STEPS[1], ok: Boolean(cfg?.project.name), detail: cfg?.project.name || "set project.name" },
-    { name: STEPS[2], ok: Boolean(cfg?.google.project_id || google?.projectID), detail: cfg?.google.project_id || google?.projectID || "optional for local-only" },
+    { name: STEPS[2], ok: Boolean(googleProject), detail: googleProject || "optional for local-only" },
     { name: STEPS[3], ok: google?.adcAvailable === true, detail: google?.adcAvailable ? "ADC available" : "needed only for cloud identity / IAP" },
     { name: STEPS[4], ok: true, detail: "read from configuration; never hard-coded" },
     { name: STEPS[5], ok: !iap || (cfg?.proxy.routes ?? []).every((r) => r.auth.type.toLowerCase() !== "iap" || r.auth.audience !== ""), detail: iap ? "IAP routes present" : "no IAP routes" },

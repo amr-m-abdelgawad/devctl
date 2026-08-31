@@ -811,6 +811,7 @@ export class Supervisor {
       );
     }
     this.persistState();
+    void this.refreshIdentity();
     return result;
   }
 
