@@ -111,8 +111,7 @@ export class ProxyServer {
     const requestID = req.headers[REQUEST_ID_HEADER]?.toString() || randomBytes(8).toString("hex");
     const route = matchRoute(this.cfg.routes, req);
     if (!route) {
-      res.statusCode = 404;
-      res.end("no matching proxy route");
+      writePlain(res, 404, "no matching proxy route");
       return;
     }
     const ident = fromRoute(route.auth);
@@ -136,8 +135,7 @@ export class ProxyServer {
       for (const hook of this.middleware) {
         await hook.apply({ route, headers, tokens: this.tokens });
       }
-      const target = new URL(req.url ?? "/", route.upstream.url);
-      const upstream = new URL(target.pathname + target.search, route.upstream.url);
+      const upstream = resolveProxyTarget(route.upstream.url, req.url ?? "/");
       const body = req.method && req.method !== "GET" && req.method !== "HEAD" ? req : undefined;
       const resp = await fetch(upstream, {
         method: req.method,
@@ -168,8 +166,18 @@ export class ProxyServer {
       });
       this.bus?.publish(newEvent(ProxyRequest, route.name, { status: resp.status, request_id: requestID, duration, identity: identityKey }));
     } catch (err) {
-      res.statusCode = 502;
-      res.end(err instanceof Error ? err.message : "proxy error");
+      const detail = err instanceof Error ? err.message : "proxy error";
+      this.logs?.append({
+        timestamp: new Date().toISOString(),
+        service: "proxy",
+        source: "proxy",
+        level: "ERROR",
+        message: `${req.method} ${req.url ?? "/"} route=${route.name} identity=${identityKey} error=${detail}`,
+        pid: 0,
+        request_id: requestID,
+        identity: identityKey,
+      });
+      writePlain(res, 502, "proxy error");
     }
   }
 
@@ -204,6 +212,31 @@ async function pipeResponse(resp: Response, res: ServerResponse): Promise<void> 
     res.on("finish", resolve);
     readable.pipe(res);
   });
+}
+
+export function resolveProxyTarget(upstreamUrl: string, requestUrl: string): URL {
+  const configured = new URL(upstreamUrl);
+  const resolved = new URL(requestUrl || "/", configured);
+  const pinned = new URL(configured.href);
+  pinned.pathname = singleSlashPath(resolved.pathname);
+  pinned.search = resolved.search;
+  pinned.hash = "";
+  if (pinned.origin !== configured.origin) {
+    throw newError(KindProxy, "refusing to proxy to a different origin");
+  }
+  return pinned;
+}
+
+function singleSlashPath(pathname: string): string {
+  const withSlash = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return withSlash.replace(/^\/+/, "/");
+}
+
+function writePlain(res: ServerResponse, status: number, body: string): void {
+  res.statusCode = status;
+  res.setHeader("content-type", "text/plain; charset=utf-8");
+  res.setHeader("x-content-type-options", "nosniff");
+  res.end(body);
 }
 
 export function matchRoute(routes: RouteConfig[], req: IncomingMessage): RouteConfig | undefined {
@@ -257,18 +290,15 @@ export class TokenEndpoint {
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (!isLoopback(req.socket.remoteAddress)) {
-      res.statusCode = 403;
-      res.end("forbidden");
+      writePlain(res, 403, "forbidden");
       return;
     }
     if ((req.headers[INTERNAL_TOKEN_HEADER] ?? "") !== this.secret) {
-      res.statusCode = 401;
-      res.end("unauthorized");
+      writePlain(res, 401, "unauthorized");
       return;
     }
     if (req.url?.startsWith("/token") !== true) {
-      res.statusCode = 404;
-      res.end("not found");
+      writePlain(res, 404, "not found");
       return;
     }
     const url = new URL(req.url, "http://127.0.0.1");
@@ -285,9 +315,8 @@ export class TokenEndpoint {
           identity: tok.identity,
         }),
       );
-    } catch (err) {
-      res.statusCode = 500;
-      res.end(err instanceof Error ? err.message : "token error");
+    } catch {
+      writePlain(res, 500, "token error");
     }
   }
 }

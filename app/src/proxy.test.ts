@@ -4,7 +4,7 @@ import { defaultConfig } from "./config/types.ts";
 import { startMockIapServer } from "./testdata/mock-iap-server.ts";
 import { KindProxy } from "./errors.ts";
 import { LogManager } from "./logs.ts";
-import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, TokenEndpoint } from "./proxy.ts";
+import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "./secrets.ts";
 import { TokenManager, type AccessToken } from "./token.ts";
 
@@ -21,6 +21,40 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
 }
 
 describe("proxy", () => {
+  test("resolveProxyTarget keeps the configured origin", () => {
+    const base = "http://127.0.0.1:8000/api/";
+    expect(resolveProxyTarget(base, "/ping").href).toBe("http://127.0.0.1:8000/ping");
+    expect(resolveProxyTarget(base, "rel?q=1").href).toBe("http://127.0.0.1:8000/api/rel?q=1");
+    expect(resolveProxyTarget(base, "http://evil.example/steal").href).toBe("http://127.0.0.1:8000/steal");
+    expect(resolveProxyTarget(base, "//evil.example/steal").href).toBe("http://127.0.0.1:8000/steal");
+    expect(resolveProxyTarget(base, "///evil.example").href).toBe("http://127.0.0.1:8000/");
+  });
+
+  test("failed upstream writes a plain 502 without the exception text", async () => {
+    const reserved = createServer();
+    await new Promise<void>((resolve) => {
+      reserved.listen(0, "127.0.0.1", () => resolve());
+    });
+    const reservedAddr = reserved.address();
+    const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({
+      name: "down",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:1" },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+    });
+    const server = new ProxyServer(cfg);
+    await server.start();
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/<img src=x onerror=alert(1)>`);
+    expect(resp.status).toBe(502);
+    expect(resp.headers.get("content-type")).toContain("text/plain");
+    expect(await resp.text()).toBe("proxy error");
+    await server.stop();
+  });
+
   test("matchRoute uses host and path prefix", () => {
     const routes = defaultConfig().proxy.routes;
     routes.push({

@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Detector } from "./secrets.ts";
-import { defaultExportPath, LogManager, matchLog, pruneSessions, resolveExportPath, writeLogExport } from "./logs.ts";
+import { compileLogSearch, defaultExportPath, LogManager, matchLog, pruneSessions, resolveExportPath, writeLogExport } from "./logs.ts";
 import { exportsDir } from "./storage.ts";
 
 function tmp(): string {
@@ -66,6 +66,17 @@ describe("LogManager persistence", () => {
     expect(matchLog({ source: "proxy", since: "2026-08-30T00:00:00.000Z", until: "2026-08-30T23:00:00.000Z" }, ev)).toBe(true);
     expect(matchLog({ source: "stdout" }, ev)).toBe(false);
     expect(matchLog({ since: "2026-08-31T00:00:00.000Z" }, ev)).toBe(false);
+    expect(matchLog({ regex: true, search: "^ok" }, ev)).toBe(true);
+    expect(matchLog({ regex: true, search: "^fail" }, ev)).toBe(false);
+    expect(matchLog({ regex: true, search: "(a+)+" }, { ...ev, message: "aaaa" })).toBe(false);
+  });
+
+  test("compileLogSearch rejects nested and oversized patterns", () => {
+    expect(compileLogSearch("^ok")?.test("ok")).toBe(true);
+    expect(compileLogSearch("(a+)+")).toBeUndefined();
+    expect(compileLogSearch("a{65}")).toBeUndefined();
+    expect(compileLogSearch("[")).toBeUndefined();
+    expect(compileLogSearch("x".repeat(201))).toBeUndefined();
   });
 });
 

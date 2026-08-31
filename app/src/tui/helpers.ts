@@ -1,5 +1,5 @@
 import { type DevctlConfig, type ServiceConfig } from "../config/index.ts";
-import { type LogEvent } from "../logs.ts";
+import { compileLogSearch, type LogEvent } from "../logs.ts";
 import { Detector } from "../secrets.ts";
 import { displayState, type Plan, type Runtime } from "../services.ts";
 import { type StatusSnapshot } from "../types.ts";
@@ -1112,10 +1112,10 @@ export function filterLogs(
   let matcher: ((text: string) => boolean) | undefined;
   if (search !== "") {
     if (opts.regex === true) {
-      try {
-        const re = new RegExp(search);
+      const re = compileLogSearch(search);
+      if (re) {
         matcher = (text) => re.test(text);
-      } catch {
+      } else {
         matcher = (text) => text.toLowerCase().includes(search.toLowerCase());
       }
     } else {

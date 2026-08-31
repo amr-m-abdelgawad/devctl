@@ -112,13 +112,69 @@ export function matchLog(filter: LogFilter, ev: LogEvent): boolean {
     return true;
   }
   if (filter.regex) {
-    try {
-      return new RegExp(filter.search).test(ev.message);
-    } catch {
-      return ev.message.toLowerCase().includes(filter.search.toLowerCase());
+    const re = compileLogSearch(filter.search);
+    if (re) {
+      return re.test(ev.message);
     }
   }
   return ev.message.toLowerCase().includes(filter.search.toLowerCase());
+}
+
+const MAX_LOG_SEARCH_REGEX = 200;
+const MAX_LOG_REGEX_QUANTIFIERS = 8;
+const MAX_LOG_REGEX_REPEAT = 64;
+const NESTED_QUANTIFIER = /\((?:[^)\\]|\\.)*([+*?]|\{)(?:[^)\\]|\\.)*\)[+*?{]/;
+
+export function compileLogSearch(pattern: string): RegExp | undefined {
+  if (pattern.length === 0 || pattern.length > MAX_LOG_SEARCH_REGEX || unsafeLogRegex(pattern)) {
+    return undefined;
+  }
+  try {
+    return new RegExp(pattern);
+  } catch {
+    return undefined;
+  }
+}
+
+function unsafeLogRegex(pattern: string): boolean {
+  if (quantifierCount(pattern) > MAX_LOG_REGEX_QUANTIFIERS) {
+    return true;
+  }
+  if (NESTED_QUANTIFIER.test(pattern)) {
+    return true;
+  }
+  return oversizedRepeat(pattern);
+}
+
+function quantifierCount(pattern: string): number {
+  let count = 0;
+  let escaped = false;
+  for (const ch of pattern) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === "*" || ch === "+" || ch === "?" || ch === "{") {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function oversizedRepeat(pattern: string): boolean {
+  for (const match of pattern.matchAll(/\{(\d+)(?:,(\d*))?\}/g)) {
+    const start = Number(match[1]);
+    const rawEnd = match[2];
+    const end = rawEnd === undefined || rawEnd === "" ? start : Number(rawEnd);
+    if (start > MAX_LOG_REGEX_REPEAT || end > MAX_LOG_REGEX_REPEAT) {
+      return true;
+    }
+  }
+  return false;
 }
 
 const DEFAULT_MAX_EVENTS = 50_000;
