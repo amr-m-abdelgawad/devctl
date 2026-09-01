@@ -6,7 +6,7 @@ Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, plus proxy
 
 ## Buffer and persistence
 
-- In-memory ring: `logs.max_memory_events` (default 50,000). The TUI follows this cap.
+- In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills; the TUI can page across the whole retained history.
 - Optional persistence under `~/.devctl/logs/` (`persistence.enabled`, `directory`, `retention_days`, `max_session_logs`).
 - Ingest is a bounded channel; UI updates batch (~30ms) so a noisy service cannot freeze the TUI.
 
@@ -19,7 +19,7 @@ Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, plus proxy
 - `t` / `m` — timestamp and metadata columns (persist in `tui.json`).
 - `w` / `/wrap` — clip → unwrap the selected row → wrap every long line.
 - `g` — jump to latest. Leaving the tail pins the view (`pinned · +N new`).
-- `space` — multi-select service chips. `1`–`9` jump log sources when chips overflow.
+- `1`–`9` jump log sources when chips overflow.
 - `enter` — details overlay (full message, pid, stream, request_id, identity).
 - `cmd+c` (macOS) or `ctrl+shift+c` — copy visible lines. Remap with `keybinds.copy`.
 - `/export [path]` — write the **current** filters. Default file: `~/.devctl/exports/devctl-logs-<timestamp>.log`.

@@ -38,6 +38,11 @@ export function isSearchChord(key: KeyLike, tui: TuiConfig): boolean {
   return keyMatches(key, tui.keybinds.search ?? "f");
 }
 
+export function isRestartKey(key: KeyLike): boolean {
+  const name = key.name ?? "";
+  return name === "R" || (key.shift === true && name.toLowerCase() === "r");
+}
+
 export function isCtrlC(key: KeyLike, tui?: TuiConfig): boolean {
   if (tui && keyMatches(key, tui.keybinds.interrupt ?? "ctrl+c")) {
     return true;

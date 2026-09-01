@@ -338,6 +338,7 @@ const SESSION_PREFIX = "session-";
 
 export class LogManager {
   private events: LogEvent[] = [];
+  private eventStart = 0;
   private readonly max: number;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
@@ -390,9 +391,11 @@ export class LogManager {
       request_id: ev.request_id || parsed.request_id || parseRequestID(ev.message),
       message: this.detector ? this.detector.redactText(ev.message) : ev.message,
     };
-    this.events.push(next);
-    if (this.events.length > this.max) {
-      this.events = this.events.slice(this.events.length - this.max);
+    if (this.events.length < this.max) {
+      this.events.push(next);
+    } else {
+      this.events[this.eventStart] = next;
+      this.eventStart = (this.eventStart + 1) % this.max;
     }
     this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.level }));
     if (this.persist) {
@@ -465,23 +468,40 @@ export class LogManager {
   }
 
   query(filter: LogFilter): LogEvent[] {
-    return this.events.filter((ev) => matchLog(filter, ev));
+    const out: LogEvent[] = [];
+    this.forEachEvent((event) => {
+      if (matchLog(filter, event)) {
+        out.push(event);
+      }
+    });
+    return out;
   }
 
   snapshot(): { total: number; errors: number; counts: Record<string, number> } {
     const counts: Record<string, number> = {};
     let errors = 0;
-    for (const ev of this.events) {
+    this.forEachEvent((ev) => {
       counts[ev.service] = (counts[ev.service] ?? 0) + 1;
       if (ev.level === LevelError || ev.level === LevelFatal) {
         errors += 1;
       }
-    }
+    });
     return { total: this.events.length, errors, counts };
   }
 
   clear(): void {
     this.events = [];
+    this.eventStart = 0;
+  }
+
+  private forEachEvent(visit: (event: LogEvent) => void): void {
+    const count = this.events.length;
+    for (let offset = 0; offset < count; offset += 1) {
+      const event = this.events[(this.eventStart + offset) % count];
+      if (event) {
+        visit(event);
+      }
+    }
   }
 
   exportTo(path: string, filter: LogFilter): void {

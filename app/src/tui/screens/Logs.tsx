@@ -12,6 +12,7 @@ import {
   logFilterCatalog,
   logMessageSpans,
   logMessageWidth,
+  logPaneInnerWidth,
   logRowExpanded,
   logServiceColumnWidth,
   logWrapLabel,
@@ -50,12 +51,15 @@ export function LogsScreen(props: {
   selected?: number;
   follow?: boolean;
   newer?: number;
+  viewStart?: number;
+  viewTotal?: number;
   onSearch: (value: string) => void;
   onService: (service: string) => void;
   onToggleErrors: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
   onOpenExports?: () => void;
+  onJumpLatest?: () => void;
   fullscreen?: boolean;
 }) {
   const {
@@ -78,12 +82,16 @@ export function LogsScreen(props: {
     selected = -1,
     follow = true,
     newer = 0,
+    viewStart = 0,
+    viewTotal,
     onLeaveLatest,
     onOpenExports,
+    onJumpLatest,
     view,
     fullscreen = false,
   } = props;
   const scale = useDensity();
+  const innerWidth = logPaneInnerWidth(width, scale.pad, fullscreen);
   const filtered = filterLogs(logs, {
     service,
     services: props.services,
@@ -93,6 +101,9 @@ export function LogsScreen(props: {
     source: props.source,
   });
   const shown = view ?? filtered;
+  const shownTotal = viewTotal ?? filtered.length;
+  const viewEnd = Math.min(shownTotal, viewStart + shown.length);
+  const rangeLabel = shownTotal === 0 ? "empty" : `${viewStart + 1}–${viewEnd} of ${shownTotal}`;
   const selectedServices = props.services ?? [];
   const scope = selectedServices.length > 0 ? selectedServices.join(",") : service === "" ? "all services" : service;
   return (
@@ -103,8 +114,11 @@ export function LogsScreen(props: {
             palette={palette}
             items={[
               { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
-              { text: `shown ${filtered.length}`, tone: "info" },
+              { text: `shown ${shownTotal}`, tone: "info" },
               { text: `total ${logs.length}` },
+              ...(view && shownTotal > view.length
+                ? [{ text: `${viewStart + 1}–${viewStart + view.length} / ${shownTotal}`, tone: "info" as const }]
+                : []),
               { text: scope, tone: service === "" ? "idle" : "primary" },
               { text: logWrapLabel(wrapMode), tone: wrapMode === "clip" ? "idle" : "accent" },
               ...(follow ? [] : [{ text: newer > 0 ? `pinned · +${newer} new` : "pinned", tone: "warning" as const }]),
@@ -141,17 +155,20 @@ export function LogsScreen(props: {
           />
         </box>
       ) : null}
+      {view && shownTotal > shown.length ? (
+        <LogHistoryBar palette={palette} start={viewStart} count={shown.length} total={shownTotal} />
+      ) : null}
       <box
         flexGrow={1}
         border={!fullscreen}
         borderStyle="rounded"
         borderColor={palette.border}
-        title={fullscreen ? undefined : `logs  ${scope}`}
+        title={fullscreen ? undefined : `logs  ${scope}  ·  ${rangeLabel}`}
         titleColor={palette.primary}
         padding={fullscreen ? 0 : scale.pad}
         overflow="hidden"
       >
-        {filtered.length === 0 ? (
+        {shown.length === 0 ? (
           <EmptyState
             palette={palette}
             title={logs.length === 0 ? "No log events" : "No events in this filter"}
@@ -163,7 +180,7 @@ export function LogsScreen(props: {
             key={followTick}
             palette={palette}
             logs={shown}
-            width={width}
+            width={innerWidth}
             followTick={followTick}
             focused={false}
             wrapMode={wrapMode}
@@ -173,6 +190,7 @@ export function LogsScreen(props: {
             showMeta={props.showMeta !== false}
             onPick={onSelect}
             onLeaveLatest={onLeaveLatest}
+            viewStart={viewStart}
           />
         )}
       </box>
@@ -189,6 +207,7 @@ export function LogsScreen(props: {
             { key: "g", label: newer > 0 ? `latest +${newer}` : "latest" },
             { key: "w", label: "wrap" },
             { key: "j/k", label: "move" },
+            { key: "pgup/pgdn", label: "history" },
             { key: "enter", label: "details" },
             { key: "p", label: "pause" },
             { key: "z", label: fullscreen ? "exit full" : "full screen" },
@@ -196,6 +215,55 @@ export function LogsScreen(props: {
           ]}
         />
       </Toolbar>
+      {!follow ? (
+        <JumpLatestPrompt palette={palette} width={width} newer={newer} onJump={onJumpLatest} />
+      ) : null}
+    </box>
+  );
+}
+
+export function LogHistoryBar(props: { palette: Palette; start: number; count: number; total: number }) {
+  const end = Math.min(props.total, props.start + props.count);
+  const older = Math.max(0, props.start);
+  const newer = Math.max(0, props.total - end);
+  return (
+    <MetaBar
+      palette={props.palette}
+      items={[
+        { text: `view ${props.start + 1}–${end} of ${props.total}`, tone: "primary" },
+        { text: older > 0 ? `↑ ${older} older` : "start of history", tone: older > 0 ? "info" : "idle" },
+        { text: newer > 0 ? `↓ ${newer} newer` : "at latest", tone: newer > 0 ? "warning" : "success" },
+      ]}
+      hints={[
+        { key: "pgup/pgdn", label: "move history window" },
+        { key: "g", label: "latest" },
+      ]}
+    />
+  );
+}
+
+export function JumpLatestPrompt(props: { palette: Palette; width: number; newer: number; bottom?: number; onJump?: () => void }) {
+  const label = props.newer > 0 ? `g  jump to latest  ·  ${props.newer} new` : "g  jump to latest";
+  const promptWidth = Math.min(props.width, label.length + 4);
+  return (
+    <box
+      position="absolute"
+      left={Math.max(0, Math.floor((props.width - promptWidth) / 2))}
+      bottom={props.bottom ?? 2}
+      width={promptWidth}
+      height={3}
+      border
+      borderStyle="rounded"
+      borderColor={props.palette.warning}
+      backgroundColor={props.palette.panel}
+      alignItems="center"
+      justifyContent="center"
+      onMouseDown={props.onJump}
+    >
+      <text wrapMode="none">
+        <span fg={props.palette.primary}>g</span>
+        <span fg={props.palette.text}>{label.slice(1)}</span>
+      </text>
     </box>
   );
 }
@@ -267,6 +335,7 @@ export function LogList(props: {
   showMeta?: boolean;
   onPick?: (index: number) => void;
   onLeaveLatest?: () => void;
+  viewStart?: number;
 }) {
   const {
     palette,
@@ -282,8 +351,10 @@ export function LogList(props: {
     showMeta = true,
     onPick,
     onLeaveLatest,
+    viewStart = 0,
   } = props;
   const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const alignedSelection = useRef("");
   const slice = limit === undefined ? logs : logs.slice(-limit);
   const serviceNames = [...new Set(logs.map((ev) => ev.service))];
   const serviceWidth = logServiceColumnWidth(width, serviceNames);
@@ -302,6 +373,11 @@ export function LogList(props: {
   }, [follow, followTick]);
 
   useEffect(() => {
+    const alignment = `${viewStart}:${selected}:${wrapMode}`;
+    if (alignedSelection.current === alignment) {
+      return;
+    }
+    alignedSelection.current = alignment;
     if (follow && (selected < 0 || selected >= slice.length - 1)) {
       return;
     }
@@ -315,7 +391,7 @@ export function LogList(props: {
       box.scrollChildIntoView(id);
     });
     return () => cancelAnimationFrame(frame);
-  }, [follow, selected, slice.length, wrapMode]);
+  }, [follow, selected, slice.length, viewStart, wrapMode]);
 
   useEffect(() => {
     if (!follow || !onLeaveLatest) {

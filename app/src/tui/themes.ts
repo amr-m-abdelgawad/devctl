@@ -778,6 +778,13 @@ export function isLightPalette(palette: Palette): boolean {
   return hexLuminance(palette.background) >= LIGHT_BG_CUTOFF;
 }
 
+export function isDarkTerminalBackground(background: string | null | undefined): boolean {
+  if (!background || !/^#[0-9a-f]{6}$/i.test(background)) {
+    return false;
+  }
+  return hexLuminance(background) < LIGHT_BG_CUTOFF;
+}
+
 export function agentColor(kind: AgentBrandKind, palette: Palette): string {
   const pair = AGENT_BRAND[kind];
   return isLightPalette(palette) ? pair.light : pair.dark;

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
+import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { validateConfigText } from "../config/index.ts";
 import { type Controller } from "../controller.ts";
@@ -19,7 +19,7 @@ import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, 
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
+import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
   isCommandChord,
@@ -30,6 +30,7 @@ import {
   isPageDownKey,
   isPageUpKey,
   isPaletteChord,
+  isRestartKey,
   isSearchChord,
   overlayConsumesTyping,
   shouldConfirmInterrupt,
@@ -74,20 +75,22 @@ import {
   uiScaleFor,
   type SettingsItem,
 } from "./settings.ts";
-import { paletteFor, THEME_NAMES } from "./themes.ts";
+import { isDarkTerminalBackground, paletteFor, resolveThemeName, THEME_NAMES } from "./themes.ts";
 import { type ConfirmDetail, type ConfirmKind, type LifecycleKind, type Overlay, type Screen } from "./types.ts";
 import { defaultCopyKeybind, saveTuiPreferences, type TuiConfig, type TuiPreferencePatch } from "./tui-config.ts";
 
 const COMMAND_LOCK_MS = 50;
+const NO_LOG_SERVICES: string[] = [];
 
 type AppProps = {
   controller?: Controller;
   tui: TuiConfig;
   onQuit: (detach?: boolean) => void;
   bootError?: string;
+  terminalBackground?: string | null;
 };
 
-export function App({ controller, tui, onQuit, bootError }: AppProps) {
+export function App({ controller, tui, onQuit, bootError, terminalBackground }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const [themeName, setThemeName] = useState(tui.theme || controller?.cfg.ui.theme || "devctl");
   const committedTheme = useRef(themeName);
@@ -98,7 +101,24 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [fontSize, setFontSize] = useState(() => nearestFontSize(tui.font_size));
   const committedFont = useRef(fontSize);
   const prefsLocked = tuiPrefsLocked();
-  const palette = useMemo(() => paletteFor(themeName), [themeName]);
+  const palette = useMemo(() => {
+    const base = paletteFor(themeName);
+    if (resolveThemeName(themeName) !== "terminal" || !isDarkTerminalBackground(terminalBackground)) {
+      return base;
+    }
+    const native = terminalBackground ?? base.background;
+    return {
+      ...base,
+      background: native,
+      panel: native,
+      element: native,
+      inverse: native,
+    };
+  }, [terminalBackground, themeName]);
+  const rootBackground =
+    resolveThemeName(themeName) === "terminal" && isDarkTerminalBackground(terminalBackground)
+      ? RGBA.defaultBackground(terminalBackground ?? undefined)
+      : palette.background;
   const [screen, setScreen] = useState<Screen>(controller ? "dashboard" : "setup");
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [query, setQuery] = useState("");
@@ -140,7 +160,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [logSince, setLogSince] = useState("");
   const [logUntil, setLogUntil] = useState("");
   const [logService, setLogService] = useState("");
-  const [logServices, setLogServices] = useState<string[]>([]);
+  const logServices = NO_LOG_SERVICES;
   const [logShowTimestamps, setLogShowTimestamps] = useState(tui.log_timestamps !== false);
   const [logShowMeta, setLogShowMeta] = useState(tui.log_metadata !== false);
   const [extraLogSources, setExtraLogSources] = useState<string[]>([]);
@@ -150,6 +170,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const [logDetail, setLogDetail] = useState<LogEvent | undefined>();
   const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
   const [logPinned, setLogPinned] = useState(false);
+  const [logSelected, setLogSelected] = useState(LOG_LIST_TAIL - 1);
   const [logsFullscreen, setLogsFullscreen] = useState(false);
   const [dashboardLogCursor, setDashboardLogCursor] = useState(-1);
   const configScrollRef = useRef<ScrollBoxRenderable>(null);
@@ -231,23 +252,26 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
     logs: logSlice.length,
     mcp: MCP_FOCUS_COUNT,
   });
-  const listCursor = listCount <= 0 ? selected : Math.min(selected, listCount - 1);
+  const cursorState = screen === "logs" ? logSelected : selected;
+  const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
 
   useEffect(() => {
     setDashboardLogCursor(-1);
+    setLogPinned(false);
+    setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
+  }, [errorOnly, logSearch, logService]);
+
+  useEffect(() => {
     if (screen !== "logs") {
       setLogsFullscreen(false);
-      return;
     }
-    setLogPinned(false);
-    setSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-  }, [errorOnly, logSearch, logService, screen]);
+  }, [screen]);
 
   useEffect(() => {
     if (screen !== "logs" || logPinned) {
       return;
     }
-    setSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
+    setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
   }, [filteredLogs.length, logPinned, screen]);
 
   useEffect(() => {
@@ -273,7 +297,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       if (step.startDelta !== 0) {
         setLogViewStart(Math.max(0, logWindow.start + step.startDelta));
         setLogPinned(true);
-        setSelected(step.selected);
+        setLogSelected(step.selected);
         return;
       }
       const last = Math.max(listCount - 1, 0);
@@ -284,10 +308,33 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       } else if (!leaveLatest) {
         setLogPinned(false);
       }
-      setSelected(step.selected);
+      setLogSelected(step.selected);
     },
     [filteredLogs.length, listCount, logPinned, logWindow.newer, logWindow.start],
   );
+
+  const applyDashboardLogCursor = useCallback(
+    (next: number) => {
+      const count = logSlice.length;
+      const step = logCursorStep(next, count, logWindow.start, logWindow.newer);
+      if (step.startDelta !== 0) {
+        setLogViewStart(Math.max(0, logWindow.start + step.startDelta));
+        setLogPinned(true);
+      }
+      setDashboardLogCursor(step.selected);
+    },
+    [logSlice.length, logWindow.newer, logWindow.start],
+  );
+
+  const jumpToLatestLogs = useCallback(() => {
+    setLogPinned(false);
+    setDashboardLogCursor(-1);
+    if (screen === "logs") {
+      setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
+    }
+    setLogFollow((tick) => tick + 1);
+    setStatus(logWindow.newer > 0 ? `Jumped to latest (+${logWindow.newer} new)` : "Jumped to latest logs");
+  }, [filteredLogs.length, logWindow.newer, screen]);
 
   const closeOverlay = useCallback(() => {
     setOverlay("none");
@@ -415,7 +462,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
 
   const refresh = useCallback(async () => {
     if (!controller) {
-      return;
+      return undefined;
     }
     try {
       const next = await controller.status();
@@ -423,8 +470,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       if (next.profile && profile === "") {
         setProfile(next.profile);
       }
+      return next;
     } catch (err) {
       setStatus(humanMessage(err));
+      return undefined;
     }
   }, [controller, profile]);
 
@@ -517,7 +566,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
   const snapRef = useRef(snap);
   snapRef.current = snap;
 
-  const refreshLogs = useCallback(async () => {
+  const refreshLogs = useCallback(async (status?: StatusSnapshot) => {
     if (!controller || paused) {
       return;
     }
@@ -528,15 +577,14 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         regex: logRegex,
         source: logSource,
       });
-      setLogs(visibleLogs(events, snapRef.current, logSince));
+      setLogs(visibleLogs(events, status ?? snapRef.current, logSince));
     } catch (err) {
       setStatus(humanMessage(err));
     }
   }, [controller, errorOnly, logLevel, logRegex, logSearch, logSince, logSource, paused]);
 
   useEffect(() => {
-    void refresh();
-    void refreshLogs();
+    void refresh().then((status) => refreshLogs(status));
   }, [refresh, refreshLogs]);
 
   useEffect(() => {
@@ -564,7 +612,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       timer = undefined;
       if (pendingLogs.length > 0) {
         const batch = pendingLogs.splice(0, pendingLogs.length);
-        setLogs((current) => visibleLogs([...current, ...batch], snapRef.current, logSince).slice(-cap));
+        setLogs((current) => appendVisibleLogs(current, batch, snapRef.current, logSince, cap));
       }
       if (statusDirty) {
         statusDirty = false;
@@ -1404,8 +1452,12 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         setScreen("services");
         return;
       }
-      if (screen === "setup" && controller) {
-        setScreen("dashboard");
+      if (screen === "setup") {
+        if (controller) {
+          setScreen("dashboard");
+        } else {
+          onQuit(true);
+        }
       }
       return;
     }
@@ -1461,13 +1513,13 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       void beginStop(focusedServices(checked, names[listCursor] ?? ""));
       return;
     }
+    if ((screen === "dashboard" || screen === "services" || screen === "detail") && isRestartKey(key)) {
+      void beginRestart(focusedServices(checked, names[listCursor] ?? detailName), profile);
+      return;
+    }
     if ((screen === "dashboard" || screen === "services") && name === "r") {
       void refresh();
       setStatus("Refreshed");
-      return;
-    }
-    if ((screen === "dashboard" || screen === "services" || screen === "detail") && name === "R") {
-      void beginRestart(focusedServices(checked, names[listCursor] ?? detailName), profile);
       return;
     }
     if (screen === "logs" && name === "t") {
@@ -1498,6 +1550,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         applyLogCursor(listCursor + 1);
         return;
       }
+      if (screen === "dashboard" && dashboardLogCursor >= 0) {
+        applyDashboardLogCursor(dashboardLogCursor + 1);
+        return;
+      }
       setSelected((i) => Math.min(Math.max(listCount - 1, 0), i + 1));
       return;
     }
@@ -1517,6 +1573,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         applyLogCursor(listCursor - 1);
         return;
       }
+      if (screen === "dashboard" && dashboardLogCursor >= 0) {
+        applyDashboardLogCursor(dashboardLogCursor - 1);
+        return;
+      }
       setSelected((i) => Math.max(0, Math.min(i, Math.max(listCount - 1, 0)) - 1));
       return;
     }
@@ -1534,6 +1594,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         applyLogCursor(listCursor + page);
         return;
       }
+      if (screen === "dashboard" && (logPinned || dashboardLogCursor >= 0)) {
+        applyDashboardLogCursor(Math.max(0, dashboardLogCursor) + page);
+        return;
+      }
       setSelected((i) => Math.min(Math.max(listCount - 1, 0), i + page));
       return;
     }
@@ -1549,6 +1613,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       }
       if (screen === "logs") {
         applyLogCursor(listCursor - page);
+        return;
+      }
+      if (screen === "dashboard" && (logPinned || dashboardLogCursor >= 0)) {
+        applyDashboardLogCursor(Math.max(0, dashboardLogCursor) - page);
         return;
       }
       setSelected((i) => Math.max(0, i - page));
@@ -1634,10 +1702,6 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
         return;
       }
       if (screen === "logs") {
-        const svc = logSources[listCursor] || names[listCursor];
-        if (svc) {
-          setLogServices((current) => (current.includes(svc) ? current.filter((item) => item !== svc) : [...current, svc]));
-        }
         return;
       }
       if (screen === "settings") {
@@ -1654,6 +1718,21 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       return;
     }
     if (name === "return") {
+      if (screen === "setup" && !controller) {
+        void import("../setup.ts").then(({ createStarterConfig }) => {
+          try {
+            const path = createStarterConfig(process.cwd());
+            setStatus(`Wrote ${path}. Restart devctl or run the CLI wizard.`);
+          } catch (err) {
+            setStatus(humanMessage(err));
+          }
+        });
+        return;
+      }
+      if (screen === "setup" && controller) {
+        void beginStart([], profile);
+        return;
+      }
       handleEnter();
       return;
     }
@@ -1668,21 +1747,6 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       }
       setConfirmKind("quit");
       setOverlay("confirm");
-      return;
-    }
-    if (!controller && screen === "setup" && name === "escape") {
-      onQuit(true);
-      return;
-    }
-    if (!controller && screen === "setup" && name === "return") {
-      void import("../setup.ts").then(({ createStarterConfig }) => {
-        try {
-          const path = createStarterConfig(process.cwd());
-          setStatus(`Wrote ${path}. Restart devctl or run the CLI wizard.`);
-        } catch (err) {
-          setStatus(humanMessage(err));
-        }
-      });
       return;
     }
     if (isBound(key, tui, "services", "s") && overlay === "none" && screen !== "logs") {
@@ -1731,13 +1795,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
       return;
     }
     if ((screen === "logs" || screen === "dashboard") && name === "g") {
-      setLogPinned(false);
-      setDashboardLogCursor(-1);
-      if (screen === "logs") {
-        setSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-      }
-      setLogFollow((tick) => tick + 1);
-      setStatus(logWindow.newer > 0 ? `Jumped to latest (+${logWindow.newer} new)` : "Jumped to latest logs");
+      jumpToLatestLogs();
       return;
     }
     if ((screen === "logs" || screen === "dashboard") && name === "w") {
@@ -1760,7 +1818,7 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
 
   return (
     <DensityContext.Provider value={uiScaleFor(fontSize)}>
-    <box flexDirection="column" width={width} height={height} backgroundColor={palette.background} overflow="hidden">
+    <box flexDirection="column" width={width} height={height} backgroundColor={rootBackground} overflow="hidden">
       {logsFullscreen ? null : (
         <>
           <Header palette={palette} cfg={cfg} snap={snap} google={google} profile={profile} reveal={reveal} width={width} />
@@ -1808,6 +1866,10 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
               setLogDetail(event);
               pinLogView();
             }}
+            viewStart={logWindow.start}
+            viewTotal={filteredLogs.length}
+            newer={logWindow.newer}
+            onJumpLatest={jumpToLatestLogs}
           />
         ) : null}
         {screen === "services" ? (
@@ -1854,10 +1916,13 @@ export function App({ controller, tui, onQuit, bootError }: AppProps) {
             selected={listCursor}
             follow={!logPinned}
             newer={logWindow.newer}
+            viewStart={logWindow.start}
+            viewTotal={filteredLogs.length}
             onSelect={applyLogCursor}
             fullscreen={logsFullscreen}
             onLeaveLatest={pinLogView}
             onOpenExports={openExportsFolder}
+            onJumpLatest={jumpToLatestLogs}
           />
         ) : null}
         {screen === "auth" ? <AuthScreen palette={palette} cfg={cfg} google={google} identity={snap?.identity} /> : null}

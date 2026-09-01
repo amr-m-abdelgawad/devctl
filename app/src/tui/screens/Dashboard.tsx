@@ -1,4 +1,4 @@
-import { canStartAll, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, type LogWrapMode } from "../helpers.ts";
+import { canStartAll, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, visibleLogErrorCount, type LogWrapMode } from "../helpers.ts";
 import { useDensity } from "../density.tsx";
 import { Chip, MetaBar, Toolbar } from "../layout.tsx";
 import { EmptyState } from "../chrome.tsx";
@@ -9,7 +9,7 @@ import { type LogEvent } from "../../logs.ts";
 import { sessionStartedAt } from "../../storage.ts";
 import { type StatusSnapshot } from "../../types.ts";
 import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
-import { LogFilterBar, LogList } from "./Logs.tsx";
+import { JumpLatestPrompt, LogFilterBar, LogHistoryBar, LogList } from "./Logs.tsx";
 
 export function Dashboard(props: {
   palette: Palette;
@@ -39,6 +39,10 @@ export function Dashboard(props: {
   follow?: boolean;
   onLeaveLatest?: () => void;
   onPickLog?: (index: number) => void;
+  viewStart?: number;
+  viewTotal?: number;
+  newer?: number;
+  onJumpLatest?: () => void;
 }) {
   const {
     palette,
@@ -68,6 +72,10 @@ export function Dashboard(props: {
     follow = true,
     onLeaveLatest,
     onPickLog,
+    viewStart = 0,
+    viewTotal,
+    newer = 0,
+    onJumpLatest,
   } = props;
   const scale = useDensity();
   if (!cfg || names.length === 0) {
@@ -86,12 +94,16 @@ export function Dashboard(props: {
   const failed = names.filter((name) => snap?.services[name]?.state === "FAILED").length;
   const sessionStart = snap?.session_id ? sessionStartedAt(snap.session_id) : undefined;
   const uptime = sessionStart ? formatUptime(Date.now() - sessionStart.getTime()) : undefined;
-  const logErrors = snap?.logs.errors ?? 0;
+  const logErrors = visibleLogErrorCount(logs);
   const profileName = profile || defaultProfileName(cfg);
   const members = profileMembers(cfg, profileName);
   const listWidth = serviceListPaneWidth(width, names, stacked);
-  const logWidth = Math.max(24, stacked ? width - 4 : Math.floor(width * 0.58) - 4);
+  const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
   const visible = filterLogs(logs, { service: logService, errorOnly });
+  const shown = view ?? visible;
+  const shownTotal = viewTotal ?? visible.length;
+  const viewEnd = Math.min(shownTotal, viewStart + shown.length);
+  const rangeLabel = shownTotal === 0 ? "empty" : `${viewStart + 1}–${viewEnd} of ${shownTotal}`;
   const scope = logService === "" ? "all services" : logService;
 
   return (
@@ -137,6 +149,7 @@ export function Dashboard(props: {
         <StatusStrip palette={palette} cfg={cfg} snap={snap} google={google} width={listWidth} />
       </box>
       <box
+        position="relative"
         flexGrow={2}
         minWidth={stacked ? undefined : 32}
         minHeight={stacked ? 8 : undefined}
@@ -144,7 +157,7 @@ export function Dashboard(props: {
         borderStyle="rounded"
         borderColor={palette.border}
         backgroundColor={palette.panel}
-        title="logs"
+        title={`logs  ·  ${rangeLabel}`}
         titleColor={palette.primary}
         overflow="hidden"
         flexDirection="column"
@@ -169,6 +182,9 @@ export function Dashboard(props: {
           onService={onFilterService}
           onToggleErrors={onToggleErrors}
         />
+        {shownTotal > shown.length ? (
+          <LogHistoryBar palette={palette} start={viewStart} count={shown.length} total={shownTotal} />
+        ) : null}
         {visible.length === 0 ? (
           <EmptyState
             palette={palette}
@@ -186,7 +202,7 @@ export function Dashboard(props: {
           <LogList
             key={followTick}
             palette={palette}
-            logs={view ?? visible}
+            logs={shown}
             width={logWidth}
             followTick={followTick}
             focused={false}
@@ -195,8 +211,10 @@ export function Dashboard(props: {
             follow={follow}
             onLeaveLatest={onLeaveLatest}
             onPick={onPickLog}
+            viewStart={viewStart}
           />
         )}
+        {!follow ? <JumpLatestPrompt palette={palette} width={logWidth} newer={newer} bottom={1} onJump={onJumpLatest} /> : null}
       </box>
     </box>
   );

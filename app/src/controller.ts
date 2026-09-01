@@ -205,8 +205,16 @@ export class Controller {
     return () => undefined;
   }
 
-  async close(opts?: { detach?: boolean }): Promise<void> {
-    this.client?.close();
+  async close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void> {
+    if (this.client) {
+      try {
+        if (opts?.shutdownSupervisor === true && opts.detach !== true) {
+          await this.call("shutdown", { stop_services: true });
+        }
+      } finally {
+        this.client.close();
+      }
+    }
     if (this.local) {
       const detach = opts?.detach === true || this.local.isDetached();
       const stop = detach ? false : stopOnExit(this.cfg.shutdown);

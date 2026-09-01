@@ -38,6 +38,12 @@ export async function renderApp(
     useKittyKeyboard: {},
   });
   const root = createRoot(renderer);
+  let terminalBackground: string | null = null;
+  try {
+    terminalBackground = (await renderer.getPalette({ timeout: 120, size: 16 })).defaultBackground;
+  } catch {
+    // Keep the explicit theme background when the terminal does not answer OSC palette queries.
+  }
   await new Promise<void>((resolve) => {
     const quit = (detach?: boolean): void => {
       const finish = (): void => {
@@ -49,9 +55,9 @@ export async function renderApp(
         finish();
         return;
       }
-      void controller.close({ detach }).finally(finish);
+      void controller.close({ detach, shutdownSupervisor: true }).finally(finish);
     };
-    root.render(<App controller={controller} tui={tui} onQuit={quit} bootError={bootError} />);
+    root.render(<App controller={controller} tui={tui} onQuit={quit} bootError={bootError} terminalBackground={terminalBackground} />);
   });
 }
 

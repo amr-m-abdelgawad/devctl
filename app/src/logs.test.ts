@@ -13,6 +13,23 @@ function tmp(): string {
 }
 
 describe("LogManager persistence", () => {
+  test("circular buffer retains the newest events in chronological order", () => {
+    const mgr = new LogManager(3, undefined, new Detector([], []), false, tmp(), "ring", 0, 0);
+    for (let index = 0; index < 6; index += 1) {
+      mgr.append({
+        timestamp: `2026-08-30T00:00:0${index}.000Z`,
+        service: "api",
+        source: "stdout",
+        level: index === 5 ? "ERROR" : "INFO",
+        message: `line ${index}`,
+        pid: 1,
+      });
+    }
+
+    expect(mgr.query({}).map((event) => event.message)).toEqual(["line 3", "line 4", "line 5"]);
+    expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 } });
+  });
+
   test("writes redacted lines to the session file", async () => {
     const dir = tmp();
     const mgr = new LogManager(100, undefined, new Detector([], []), true, dir, "abc", 0, 0);

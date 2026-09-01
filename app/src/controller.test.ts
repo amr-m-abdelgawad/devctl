@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { openAttach } from "./controller.ts";
+import { Controller, openAttach } from "./controller.ts";
 import { KindGeneral } from "./errors.ts";
 
 describe("attach", () => {
@@ -20,5 +20,43 @@ services:
 `,
     );
     await expect(openAttach(dir, "")).rejects.toMatchObject({ kind: KindGeneral });
+  });
+});
+
+describe("controller close", () => {
+  test("TUI-owned close asks an attached supervisor to stop services", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    let closed = false;
+    const ctrl = new Controller({ shutdown: { stop_services_on_exit: true } } as never);
+    ctrl.client = {
+      call: async (method: string, params: unknown) => {
+        calls.push({ method, params });
+        return null;
+      },
+      close: () => {
+        closed = true;
+      },
+    } as never;
+
+    await ctrl.close({ shutdownSupervisor: true });
+
+    expect(calls).toEqual([{ method: "shutdown", params: { stop_services: true } }]);
+    expect(closed).toBe(true);
+  });
+
+  test("detach and ordinary command cleanup only close the client", async () => {
+    for (const opts of [{ shutdownSupervisor: true, detach: true }, undefined]) {
+      const calls: string[] = [];
+      const ctrl = new Controller({ shutdown: { stop_services_on_exit: true } } as never);
+      ctrl.client = {
+        call: async (method: string) => {
+          calls.push(method);
+          return null;
+        },
+        close: () => undefined,
+      } as never;
+      await ctrl.close(opts);
+      expect(calls).toEqual([]);
+    }
   });
 });

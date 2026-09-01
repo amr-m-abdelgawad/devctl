@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOUBLE_INTERRUPT_MS, isCopyChord, isCtrlC, isPageDownKey, isPageUpKey, shouldConfirmInterrupt } from "./keymap.ts";
+import { DOUBLE_INTERRUPT_MS, isCopyChord, isCtrlC, isPageDownKey, isPageUpKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
@@ -28,5 +28,11 @@ describe("tui keymap", () => {
     expect(isPageUpKey({ name: "u", ctrl: true })).toBe(true);
     expect(isPageUpKey({ name: "u" })).toBe(false);
   });
-});
 
+  test("restart is shift+r and remains distinct from refresh", () => {
+    expect(isRestartKey({ name: "r", shift: true })).toBe(true);
+    expect(isRestartKey({ name: "R", shift: true })).toBe(true);
+    expect(isRestartKey({ name: "R" })).toBe(true);
+    expect(isRestartKey({ name: "r" })).toBe(false);
+  });
+});

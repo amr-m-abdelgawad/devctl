@@ -182,11 +182,18 @@ export const LOG_MSG_MIN = 16;
 export const LOG_ROW_GUTTER = 2;
 export const LOG_COL_GAP = 1;
 export const LOG_LIST_TAIL = 200;
+const LOG_PANE_BORDER = 2;
+const LOG_SCROLLBAR = 1;
 export const LOG_FOLD_MARK = "▸";
 const LOG_GAPS = 2;
 const LOG_WRAP_BIAS = 0.4;
 
 export type LogWrapMode = "clip" | "focus" | "all";
+
+export function logPaneInnerWidth(width: number, pad: number, fullscreen: boolean): number {
+  const chrome = fullscreen ? LOG_SCROLLBAR : LOG_PANE_BORDER + LOG_SCROLLBAR + Math.max(0, pad) * 2;
+  return Math.max(1, width - chrome);
+}
 
 export type LogFold = {
   readonly visible: string[];
@@ -285,10 +292,11 @@ export function logCursorStep(
 ): { selected: number; startDelta: number } {
   const last = Math.max(listCount - 1, 0);
   if (next < 0 && windowStart > 0) {
-    return { selected: 0, startDelta: -1 };
+    const delta = Math.max(-windowStart, next);
+    return { selected: 0, startDelta: delta };
   }
   if (next > last && newer > 0) {
-    return { selected: last, startDelta: 1 };
+    return { selected: last, startDelta: Math.min(newer, next - last) };
   }
   return { selected: Math.min(last, Math.max(0, next)), startDelta: 0 };
 }
@@ -1078,6 +1086,32 @@ export function visibleLogs(events: LogEvent[], snap?: StatusSnapshot, since?: s
   return events.filter((ev) => ev.timestamp >= since);
 }
 
+export function appendVisibleLogs(
+  current: LogEvent[],
+  incoming: LogEvent[],
+  snap: StatusSnapshot | undefined,
+  since: string,
+  cap: number,
+): LogEvent[] {
+  if (noneStarted(snap)) {
+    return [];
+  }
+  const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
+  if (accepted.length === 0) {
+    return current;
+  }
+  const limit = Math.max(1, cap);
+  if (accepted.length >= limit) {
+    return accepted.slice(-limit);
+  }
+  const drop = Math.max(0, current.length + accepted.length - limit);
+  return current.slice(drop).concat(accepted);
+}
+
+export function visibleLogErrorCount(events: readonly LogEvent[]): number {
+  return events.filter((event) => event.level === "ERROR" || event.level === "FATAL").length;
+}
+
 export function formatLogLine(ev: LogEvent): string {
   return `${ev.timestamp} ${ev.service} ${ev.level} ${ev.message}`;
 }
@@ -1639,7 +1673,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
     case "config":
       return [{ key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
     case "setup":
-      return [{ key: "j/k", label: "steps" }, { key: "esc", label: "dashboard" }, ...common];
+      return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back or exit" }, ...common];
     case "doctor":
       return [{ key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, { key: "r", label: "rerun" }, ...common];
     case "settings":

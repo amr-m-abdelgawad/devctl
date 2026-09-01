@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
-import { alreadyUpNames, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prevScreen, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prevScreen, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -34,6 +34,28 @@ describe("TUI helpers", () => {
     const running = { services: { api: { state: "RUNNING" }, auth: { state: "RUNNING" } } } as never;
     expect(visibleLogs([...events, later], running)).toHaveLength(2);
     expect(visibleLogs([...events, later], running, "2026-08-30T00:00:30.000Z")).toEqual([later]);
+  });
+
+  test("visible error count matches rows the dashboard can open", () => {
+    expect(visibleLogErrorCount([
+      { timestamp: "2026-08-30T00:00:00.000Z", service: "api", level: "INFO", message: "ready" },
+      { timestamp: "2026-08-30T00:00:01.000Z", service: "api", level: "ERROR", message: "failed" },
+      { timestamp: "2026-08-30T00:00:02.000Z", service: "api", level: "FATAL", message: "stopped" },
+    ] as never)).toBe(2);
+  });
+
+  test("live log append filters only the incoming batch and keeps the cap", () => {
+    const event = (timestamp: string, message: string) => ({ timestamp, service: "api", level: "INFO", message });
+    const snap = { services: { api: { state: "RUNNING" } } } as never;
+    const current = [event("2026-08-30T00:00:01.000Z", "one"), event("2026-08-30T00:00:02.000Z", "two")];
+    const next = appendVisibleLogs(
+      current as never,
+      [event("2026-08-30T00:00:00.000Z", "old"), event("2026-08-30T00:00:03.000Z", "three")] as never,
+      snap,
+      "2026-08-30T00:00:01.000Z",
+      3,
+    );
+    expect(next.map((item) => item.message)).toEqual(["one", "two", "three"]);
   });
 
   test("log filters keep all services until a chip is chosen", () => {
@@ -247,6 +269,12 @@ describe("TUI helpers", () => {
     expect(logWrapLabel("focus")).toBe("wrap selected");
   });
 
+  test("log pane width reserves borders padding and scrollbar", () => {
+    expect(logPaneInnerWidth(100, 1, false)).toBe(95);
+    expect(logPaneInnerWidth(100, 1, true)).toBe(99);
+    expect(logPaneInnerWidth(3, 2, false)).toBe(1);
+  });
+
   test("pinned log window stays put while newer events arrive", () => {
     const ev = (n: number) =>
       ({
@@ -272,6 +300,12 @@ describe("TUI helpers", () => {
     expect(logCursorStep(3, 3, 0, 2)).toEqual({ selected: 2, startDelta: 1 });
     expect(logCursorStep(1, 3, 4, 0)).toEqual({ selected: 1, startDelta: 0 });
     expect(logCursorStep(-1, 3, 0, 0)).toEqual({ selected: 0, startDelta: 0 });
+  });
+
+  test("log cursor pages through deep history by the requested distance", () => {
+    expect(logCursorStep(-20, 200, 1000, 500)).toEqual({ selected: 0, startDelta: -20 });
+    expect(logCursorStep(219, 200, 1000, 500)).toEqual({ selected: 199, startDelta: 20 });
+    expect(logCursorStep(999, 200, 1000, 7)).toEqual({ selected: 199, startDelta: 7 });
   });
 
   test("clipText reserves a slot without overflow", () => {

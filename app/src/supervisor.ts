@@ -305,6 +305,8 @@ export class Supervisor {
           search: typeof rec.search === "string" ? rec.search : "",
           regex: rec.regex === true,
           source: typeof rec.source === "string" ? rec.source : "",
+          since: typeof rec.since === "string" ? rec.since : "",
+          until: typeof rec.until === "string" ? rec.until : "",
           export: typeof rec.export === "string" ? rec.export : "",
         });
       case "proxy_start":
@@ -328,8 +330,9 @@ export class Supervisor {
         this.tokens.invalidate();
         return null;
       case "shutdown":
+        const stopServices = typeof rec.stop_services === "boolean" ? rec.stop_services : stopOnExit(this.cfg.shutdown);
         setTimeout(() => {
-          void this.shutdown(stopOnExit(this.cfg.shutdown));
+          void this.shutdown(stopServices);
         }, 50);
         return null;
       default:
@@ -820,7 +823,7 @@ export class Supervisor {
       return;
     }
     this.shuttingDown = true;
-    if (stopServices && !this.detached) {
+    if (stopServices) {
       await this.stop([]);
     }
     await this.stopProxy();

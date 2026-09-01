@@ -26,6 +26,22 @@ function token(): AccessToken {
 }
 
 describe("supervisor snapshot", () => {
+  test("explicit shutdown stops services even after a detached start", async () => {
+    const cfg = defaultConfig();
+    cfg.repoRoot = tmp();
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg);
+    const calls: string[][] = [];
+    (sup as unknown as { detached: boolean }).detached = true;
+    sup.stop = async (services: string[]) => {
+      calls.push(services);
+    };
+
+    await sup.shutdown(true);
+
+    expect(calls).toEqual([[]]);
+  });
+
   test("records detach and fills identity from stubs", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

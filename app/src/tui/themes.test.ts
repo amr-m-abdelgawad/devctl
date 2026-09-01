@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentColor, chipForeground, CHIP_DARK_INK, hexLuminance, isLightPalette, logMessageColor, logSpanColor, onAgentColor, paletteFor, resolveThemeName, serviceColor, THEME_BLURBS, THEME_NAMES, themeBlurb } from "./themes.ts";
+import { agentColor, chipForeground, CHIP_DARK_INK, hexLuminance, isDarkTerminalBackground, isLightPalette, logMessageColor, logSpanColor, onAgentColor, paletteFor, resolveThemeName, serviceColor, THEME_BLURBS, THEME_NAMES, themeBlurb } from "./themes.ts";
 
 describe("themes", () => {
   test("every named theme has a palette and blurb", () => {
@@ -77,5 +77,12 @@ describe("themes", () => {
     expect(isLightPalette(latte)).toBe(true);
     expect(chipForeground("#E8C547", latte.inverse)).toBe(CHIP_DARK_INK);
     expect(chipForeground("#111111", latte.inverse)).toBe(latte.inverse);
+  });
+
+  test("native terminal background is inherited only when detected as dark", () => {
+    expect(isDarkTerminalBackground("#101216")).toBe(true);
+    expect(isDarkTerminalBackground("#f5f5f5")).toBe(false);
+    expect(isDarkTerminalBackground(null)).toBe(false);
+    expect(isDarkTerminalBackground("default")).toBe(false);
   });
 });
