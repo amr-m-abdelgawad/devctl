@@ -4,7 +4,7 @@ import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentu
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import { validateConfigText } from "../config/index.ts";
 import { type Controller } from "../controller.ts";
-import { runDoctor, type Report } from "../doctor.ts";
+import { runDoctor, type DoctorProgress, type Report } from "../doctor.ts";
 import { freePort, type PortHolder } from "../ports.ts";
 import { detectGoogle, type GoogleStatus } from "../google.ts";
 import { humanMessage } from "../errors.ts";
@@ -22,6 +22,7 @@ import { writeClipboard } from "./clipboard.ts";
 import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
+  isClearLogsKey,
   isCommandChord,
   isCopyChord,
   isCtrlC,
@@ -143,12 +144,16 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [paused, setPaused] = useState(false);
   const [errorOnly, setErrorOnly] = useState(false);
+  const [showSystemLogs, setShowSystemLogs] = useState(true);
   const [status, setStatus] = useState(bootError ?? "");
   const [google, setGoogle] = useState<GoogleStatus | undefined>();
   const [doctor, setDoctor] = useState<Report | undefined>();
   const [doctorLoading, setDoctorLoading] = useState(false);
   const [doctorError, setDoctorError] = useState("");
   const [doctorTick, setDoctorTick] = useState(0);
+  const [doctorProgress, setDoctorProgress] = useState<DoctorProgress>({ active: "Preparing diagnostics", checks: [] });
+  const doctorRunKey = useRef<{ cfg: unknown; tick: number; sessionID: string } | undefined>(undefined);
+  const doctorRunGeneration = useRef(0);
   const [confirmDetail, setConfirmDetail] = useState<ConfirmDetail>({});
   const [portTarget, setPortTarget] = useState<PortHolder | undefined>();
   const [profile, setProfile] = useState(defaultProfileName(controller?.cfg));
@@ -236,8 +241,9 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
         source: logSource,
         since: logSince,
         until: logUntil,
+        systemLogs: showSystemLogs,
       }),
-    [errorOnly, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs],
+    [errorOnly, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs, showSystemLogs],
   );
   const logWindow = useMemo(
     () => logViewWindow(filteredLogs, logPinned, logViewStart),
@@ -259,7 +265,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
     setDashboardLogCursor(-1);
     setLogPinned(false);
     setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-  }, [errorOnly, logSearch, logService]);
+  }, [errorOnly, logSearch, logService, showSystemLogs]);
 
   useEffect(() => {
     if (screen !== "logs") {
@@ -563,10 +569,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
     [copyMcpSnippet, mcpPort, snap?.mcp?.address, snap?.mcp?.port, snap?.mcp?.token],
   );
 
-  const snapRef = useRef(snap);
-  snapRef.current = snap;
-
-  const refreshLogs = useCallback(async (status?: StatusSnapshot) => {
+  const refreshLogs = useCallback(async () => {
     if (!controller || paused) {
       return;
     }
@@ -577,14 +580,25 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
         regex: logRegex,
         source: logSource,
       });
-      setLogs(visibleLogs(events, status ?? snapRef.current, logSince));
+      setLogs(visibleLogs(events, logSince));
     } catch (err) {
       setStatus(humanMessage(err));
     }
   }, [controller, errorOnly, logLevel, logRegex, logSearch, logSince, logSource, paused]);
 
+  const clearLogs = useCallback(() => {
+    setLogs([]);
+    setLogSince(new Date().toISOString());
+    void controller?.clearLogs();
+    setStatus("Cleared on-screen log buffer");
+  }, [controller]);
+
+  const toggleSystemLogs = useCallback(() => {
+    setShowSystemLogs((v) => !v);
+  }, []);
+
   useEffect(() => {
-    void refresh().then((status) => refreshLogs(status));
+    void refresh().then(() => refreshLogs());
   }, [refresh, refreshLogs]);
 
   useEffect(() => {
@@ -612,7 +626,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
       timer = undefined;
       if (pendingLogs.length > 0) {
         const batch = pendingLogs.splice(0, pendingLogs.length);
-        setLogs((current) => appendVisibleLogs(current, batch, snapRef.current, logSince, cap));
+        setLogs((current) => appendVisibleLogs(current, batch, logSince, cap));
       }
       if (statusDirty) {
         statusDirty = false;
@@ -655,31 +669,44 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
     if (screen !== "doctor" || !cfg) {
       return;
     }
-    let cancelled = false;
+    const previous = doctorRunKey.current;
+    const sessionID = snap?.session_id ?? "";
+    if (previous?.cfg === cfg && previous.tick === doctorTick && previous.sessionID === sessionID) {
+      return;
+    }
+    doctorRunKey.current = { cfg, tick: doctorTick, sessionID };
+    const generation = ++doctorRunGeneration.current;
     setDoctorLoading(true);
     setDoctorError("");
-    void runDoctor(cfg)
+    setDoctorProgress({ active: "Preparing diagnostics", checks: [] });
+    void runDoctor(
+      cfg,
+      undefined,
+      (progress) => {
+        if (generation === doctorRunGeneration.current) {
+          setDoctorProgress(progress);
+        }
+      },
+      { services: snap?.services, proxyRunning: snap?.proxy.running },
+    )
       .then((report) => {
-        if (cancelled) {
+        if (generation !== doctorRunGeneration.current) {
           return;
         }
         setDoctor(report);
       })
       .catch((err: unknown) => {
-        if (cancelled) {
+        if (generation !== doctorRunGeneration.current) {
           return;
         }
         setDoctorError(humanMessage(err));
       })
       .finally(() => {
-        if (!cancelled) {
+        if (generation === doctorRunGeneration.current) {
           setDoctorLoading(false);
         }
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [screen, cfg, doctorTick]);
+  }, [screen, cfg, doctorTick, snap?.session_id]);
 
   const openDetail = useCallback((name: string) => {
     setDetailName(name);
@@ -940,11 +967,12 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
             setErrorOnly((v) => !v);
             setScreen("logs");
             return;
+          case "system":
+            toggleSystemLogs();
+            setScreen("logs");
+            return;
           case "clear":
-            setLogs([]);
-            setLogSince(new Date().toISOString());
-            void controller?.clearLogs();
-            setStatus("Cleared on-screen log buffer");
+            clearLogs();
             return;
           case "reveal": {
             const next = !reveal;
@@ -1037,7 +1065,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, controller, copyVisibleLogs, errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSource, logs, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSource, logs, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName, toggleSystemLogs],
   );
 
   const openExportsFolder = useCallback(() => {
@@ -1806,6 +1834,15 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
     }
     if ((screen === "logs" || screen === "dashboard") && name === "e") {
       setErrorOnly((v) => !v);
+      return;
+    }
+    if ((screen === "logs" || screen === "dashboard") && name === "i") {
+      toggleSystemLogs();
+      setStatus(showSystemLogs ? "Hiding internal auth/mcp/devctl/proxy logs" : "Showing internal logs");
+      return;
+    }
+    if ((screen === "logs" || screen === "dashboard") && isClearLogsKey(key)) {
+      clearLogs();
     }
   });
 
@@ -1842,6 +1879,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
             followTick={logFollow}
             logService={logService}
             errorOnly={errorOnly}
+            showSystemLogs={showSystemLogs}
             onOpen={openDetail}
             onSelectIndex={setSelected}
             selectedLog={dashboardLogCursor}
@@ -1849,6 +1887,8 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
             logSources={logSources}
             onFilterService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onToggleSystemLogs={toggleSystemLogs}
+            onClearLogs={clearLogs}
             onShowErrors={() => {
               setLogService("");
               setErrorOnly(true);
@@ -1899,6 +1939,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
             service={logService}
             paused={paused}
             errorOnly={errorOnly}
+            showSystemLogs={showSystemLogs}
             search={logSearch}
             searchFocused={logSearchFocused}
             followTick={logFollow}
@@ -1906,6 +1947,8 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
             onSearch={setLogSearch}
             onService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onToggleSystemLogs={toggleSystemLogs}
+            onClearLogs={clearLogs}
             source={logSource}
             regex={logRegex}
             services={logServices}
@@ -1947,9 +1990,14 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
             palette={palette}
             report={doctor}
             loading={doctorLoading}
+            progress={doctorProgress}
             error={doctorError}
             selected={listCursor}
             onPick={setSelected}
+            onReload={() => {
+              setDoctorTick((tick) => tick + 1);
+              setStatus("Re-running doctor");
+            }}
           />
         ) : null}
         {screen === "stats" ? <StatsScreen palette={palette} cfg={cfg} snap={snap} width={width} onRefresh={refresh} /> : null}

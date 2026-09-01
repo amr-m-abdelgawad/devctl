@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOUBLE_INTERRUPT_MS, isCopyChord, isCtrlC, isPageDownKey, isPageUpKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
+import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isPageDownKey, isPageUpKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
@@ -34,5 +34,12 @@ describe("tui keymap", () => {
     expect(isRestartKey({ name: "R", shift: true })).toBe(true);
     expect(isRestartKey({ name: "R" })).toBe(true);
     expect(isRestartKey({ name: "r" })).toBe(false);
+  });
+
+  test("clear-logs is ctrl+l, since plain c already jumps to the config screen", () => {
+    expect(isClearLogsKey({ name: "l", ctrl: true })).toBe(true);
+    expect(isClearLogsKey({ name: "L", ctrl: true })).toBe(true);
+    expect(isClearLogsKey({ name: "l" })).toBe(false);
+    expect(isClearLogsKey({ name: "c", shift: true })).toBe(false);
   });
 });

@@ -47,6 +47,7 @@ export async function renderApp(
   await new Promise<void>((resolve) => {
     const quit = (detach?: boolean): void => {
       const finish = (): void => {
+        root.unmount();
         restoreStderr();
         renderer.destroy();
         resolve();

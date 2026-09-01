@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { existsSync, statSync, writeFileSync } from "node:fs";
-import { acquireLock, lockPath, newSessionID, processAlive, readPersistedState, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
 
 describe("session storage", () => {
   test("Windows attach uses a named pipe, Unix uses devctl.sock", () => {
@@ -26,6 +26,23 @@ describe("session storage", () => {
     expect(sessionStartedAt(id)?.getTime()).toBe(fixed.getTime());
     expect(sessionStartedAt("not-a-session-id")).toBeUndefined();
     expect(sessionStartedAt("")).toBeUndefined();
+  });
+
+  test("MCP token survives restarts instead of rotating every launch", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-mcp-token-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    expect(existsSync(mcpTokenPath("/repo"))).toBe(false);
+    const first = readOrCreateMcpToken("/repo");
+    expect(first.length).toBeGreaterThan(0);
+    expect(existsSync(mcpTokenPath("/repo"))).toBe(true);
+    // A second "process" (fresh call) reads the same token back rather than minting a new one.
+    expect(readOrCreateMcpToken("/repo")).toBe(first);
+    // Different repos never share a token.
+    expect(readOrCreateMcpToken("/other-repo")).not.toBe(first);
+    // Deleting the token file is how a user opts back into rotation.
+    writeFileSync(mcpTokenPath("/repo"), "");
+    expect(readOrCreateMcpToken("/repo")).not.toBe(first);
   });
 
   test("persisted process state round-trips", () => {

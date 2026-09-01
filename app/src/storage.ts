@@ -251,3 +251,24 @@ function decodeWindowsOutput(buf: Buffer | string | null | undefined): string {
 export function randomSecret(): string {
   return randomBytes(24).toString("hex");
 }
+
+export function mcpTokenPath(repoRoot: string): string {
+  return join(sessionDir(repoRoot), "mcp-token");
+}
+
+// The MCP token is pasted into an external agent's config file (Claude Code, Cursor, etc.), so
+// unlike the internal RPC token it needs to survive restarts — otherwise every relaunch of devctl
+// forces the user to re-copy and re-paste a new token into that external config. Reuse whatever is
+// already on disk for this repo; only mint a new one the first time, or if it's ever been deleted.
+export function readOrCreateMcpToken(repoRoot: string): string {
+  const path = mcpTokenPath(repoRoot);
+  if (existsSync(path)) {
+    const existing = readFileSync(path, "utf8").trim();
+    if (existing !== "") {
+      return existing;
+    }
+  }
+  const token = randomSecret();
+  writeFileSecure(path, token);
+  return token;
+}

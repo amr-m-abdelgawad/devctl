@@ -5,6 +5,7 @@ export const ServiceStateChanged = "ServiceStateChanged";
 export const ServiceHealthChanged = "ServiceHealthChanged";
 export const LogReceived = "LogReceived";
 export const TokenRefreshed = "TokenRefreshed";
+export const TokenRefreshFailed = "TokenRefreshFailed";
 export const AuthenticationChanged = "AuthenticationChanged";
 export const ProxyStarted = "ProxyStarted";
 export const ProxyStopped = "ProxyStopped";
@@ -20,6 +21,7 @@ export type EventType =
   | typeof ServiceHealthChanged
   | typeof LogReceived
   | typeof TokenRefreshed
+  | typeof TokenRefreshFailed
   | typeof AuthenticationChanged
   | typeof ProxyStarted
   | typeof ProxyStopped

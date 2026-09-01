@@ -17,23 +17,33 @@ describe("TUI helpers", () => {
     expect(noneStarted(undefined)).toBe(true);
   });
 
-  test("visibleLogs hides history while services are stopped", () => {
-    const events = [
-      {
-        timestamp: "2026-08-30T00:00:00.000Z",
-        service: "devctl",
-        source: "devctl",
-        level: "INFO",
-        message: "supervisor started session=abc",
-        pid: 0,
-      },
-    ];
-    expect(visibleLogs(events, undefined)).toEqual([]);
-    expect(visibleLogs(events, { services: { api: { state: "STOPPED" } } } as never)).toEqual([]);
-    const later = { ...events[0]!, timestamp: "2026-08-30T00:01:00.000Z", service: "api", message: "ready" };
-    const running = { services: { api: { state: "RUNNING" }, auth: { state: "RUNNING" } } } as never;
-    expect(visibleLogs([...events, later], running)).toHaveLength(2);
-    expect(visibleLogs([...events, later], running, "2026-08-30T00:00:30.000Z")).toEqual([later]);
+  test("visibleLogs only scopes by the since boundary, never by current run state", () => {
+    const systemEvent = {
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "devctl",
+      source: "devctl",
+      level: "INFO",
+      message: "supervisor started session=abc",
+      pid: 0,
+    };
+    const serviceEvent = { ...systemEvent, timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", message: "ready" };
+    // Stopping every service must not clear the view — there's no `snap` parameter to react to that.
+    expect(visibleLogs([systemEvent, serviceEvent])).toEqual([systemEvent, serviceEvent]);
+    const later = { ...serviceEvent, timestamp: "2026-08-30T00:01:00.000Z", message: "ready again" };
+    expect(visibleLogs([systemEvent, serviceEvent, later], "2026-08-30T00:00:30.000Z")).toEqual([later]);
+  });
+
+  test("appendVisibleLogs keeps regular per-service logs visible after a stop", () => {
+    const sys = (ts: string, message: string) => ({ timestamp: ts, service: "devctl", source: "devctl", level: "INFO", message, pid: 0 });
+    const svc = (ts: string, message: string) => ({ timestamp: ts, service: "api", source: "api", level: "INFO", message, pid: 0 });
+    const current = [sys("2026-08-30T00:00:00.000Z", "old-sys"), svc("2026-08-30T00:00:01.000Z", "old-svc")];
+    const next = appendVisibleLogs(
+      current as never,
+      [svc("2026-08-30T00:00:02.000Z", "new-svc"), sys("2026-08-30T00:00:03.000Z", "new-sys")] as never,
+      "",
+      50,
+    );
+    expect(next.map((event) => event.message)).toEqual(["old-sys", "old-svc", "new-svc", "new-sys"]);
   });
 
   test("visible error count matches rows the dashboard can open", () => {
@@ -46,12 +56,10 @@ describe("TUI helpers", () => {
 
   test("live log append filters only the incoming batch and keeps the cap", () => {
     const event = (timestamp: string, message: string) => ({ timestamp, service: "api", level: "INFO", message });
-    const snap = { services: { api: { state: "RUNNING" } } } as never;
     const current = [event("2026-08-30T00:00:01.000Z", "one"), event("2026-08-30T00:00:02.000Z", "two")];
     const next = appendVisibleLogs(
       current as never,
       [event("2026-08-30T00:00:00.000Z", "old"), event("2026-08-30T00:00:03.000Z", "three")] as never,
-      snap,
       "2026-08-30T00:00:01.000Z",
       3,
     );
@@ -70,6 +78,8 @@ describe("TUI helpers", () => {
     expect(filterLogs(events, { services: ["api", "auth"], regex: true, search: "^b" }).map((ev) => ev.service)).toEqual(["api"]);
     expect(filterLogs(events, { source: "auth" }).map((ev) => ev.service)).toEqual(["auth"]);
     expect(filterLogs(events, { until: "2026-01-01T00:00:00.000Z" })).toEqual([]);
+    expect(filterLogs(events, { systemLogs: false }).map((ev) => ev.service)).toEqual(["api"]);
+    expect(filterLogs(events, { systemLogs: true }).map((ev) => ev.service)).toEqual(["auth", "api"]);
     expect(logServiceCounts(events, ["auth", "api"]).map((row) => row.count)).toEqual([1, 1]);
     expect(cycleLogService(["auth", "api"], "", 1)).toBe("auth");
     expect(cycleLogService(["auth", "api"], "api", 1)).toBe("");

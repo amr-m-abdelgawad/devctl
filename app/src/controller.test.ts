@@ -1,8 +1,25 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { Controller, openAttach } from "./controller.ts";
+import { EventEmitter } from "node:events";
+import { Client, Controller, openAttach } from "./controller.ts";
 import { KindGeneral } from "./errors.ts";
+
+describe("RPC client", () => {
+  test("closing the socket rejects pending calls instead of keeping the process alive", async () => {
+    const socket = new EventEmitter() as EventEmitter & { write: () => boolean; destroy: () => void };
+    socket.write = () => true;
+    socket.destroy = () => socket.emit("close");
+    const client = new Client(socket as never);
+    const pending = client.call("shutdown", {}, 1_000);
+    const outcome = pending.then(
+      () => "resolved",
+      (err: unknown) => err instanceof Error ? err.message : String(err),
+    );
+    client.close();
+    expect(await outcome).toContain("supervisor connection closed");
+  });
+});
 
 describe("attach", () => {
   test("openAttach does not spawn a supervisor when none is running", async () => {

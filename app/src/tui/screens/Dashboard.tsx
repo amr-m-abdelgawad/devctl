@@ -1,11 +1,12 @@
-import { canStartAll, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, NARROW_WIDTH, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, statusStripChips, visibleLogErrorCount, type LogWrapMode } from "../helpers.ts";
+import { canStartAll, clipText, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, isSystemLogSource, NARROW_WIDTH, padClip, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, serviceLineState, statusStripChips, visibleHints, visibleLogErrorCount, type LogWrapMode } from "../helpers.ts";
 import { useDensity } from "../density.tsx";
-import { Chip, MetaBar, Toolbar } from "../layout.tsx";
+import { Chip, KeyHints, MetaBar, Toolbar } from "../layout.tsx";
 import { EmptyState } from "../chrome.tsx";
-import { type Palette } from "../themes.ts";
+import { serviceColor, stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../config/index.ts";
 import { type GoogleStatus } from "../../google.ts";
 import { type LogEvent } from "../../logs.ts";
+import { HealthUnhealthy, StateFailed, StateRestarting, type Runtime } from "../../services.ts";
 import { sessionStartedAt } from "../../storage.ts";
 import { type StatusSnapshot } from "../../types.ts";
 import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
@@ -28,11 +29,14 @@ export function Dashboard(props: {
   logService: string;
   logSources?: string[];
   errorOnly: boolean;
+  showSystemLogs: boolean;
   onOpen: (name: string) => void;
   onSelectIndex: (index: number) => void;
   onToggle: (name: string) => void;
   onFilterService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleSystemLogs: () => void;
+  onClearLogs: () => void;
   onShowErrors?: () => void;
   wrapMode?: LogWrapMode;
   view?: LogEvent[];
@@ -61,11 +65,14 @@ export function Dashboard(props: {
     logService,
     logSources,
     errorOnly,
+    showSystemLogs,
     onOpen,
     onSelectIndex,
     onToggle,
     onFilterService,
     onToggleErrors,
+    onToggleSystemLogs,
+    onClearLogs,
     onShowErrors,
     wrapMode = "clip",
     view,
@@ -99,7 +106,8 @@ export function Dashboard(props: {
   const members = profileMembers(cfg, profileName);
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
-  const visible = filterLogs(logs, { service: logService, errorOnly });
+  const filterBarLogs = showSystemLogs ? logs : logs.filter((ev) => !isSystemLogSource(ev.source));
+  const visible = filterLogs(logs, { service: logService, errorOnly, systemLogs: showSystemLogs });
   const shown = view ?? visible;
   const shownTotal = viewTotal ?? visible.length;
   const viewEnd = Math.min(shownTotal, viewStart + shown.length);
@@ -146,6 +154,7 @@ export function Dashboard(props: {
             onToggle={onToggle}
           />
         </box>
+        <IssuesPanel palette={palette} names={names} snap={snap} width={listWidth} onOpen={onOpen} />
         <StatusStrip palette={palette} cfg={cfg} snap={snap} google={google} width={listWidth} />
       </box>
       <box
@@ -170,11 +179,13 @@ export function Dashboard(props: {
             { text: `total ${logs.length}` },
             { text: scope, tone: logService === "" ? "idle" : "primary" },
             { text: errorOnly ? "ERROR+" : "all levels", tone: errorOnly ? "error" : "idle", onMouseDown: onToggleErrors },
+            { text: showSystemLogs ? "system: on" : "system: off", tone: showSystemLogs ? "accent" : "idle", onMouseDown: onToggleSystemLogs },
+            { text: "clear", tone: "muted", onMouseDown: onClearLogs },
           ]}
         />
         <LogFilterBar
           palette={palette}
-          logs={logs}
+          logs={filterBarLogs}
           names={logSources ?? names}
           service={logService}
           errorOnly={errorOnly}
@@ -214,8 +225,111 @@ export function Dashboard(props: {
             viewStart={viewStart}
           />
         )}
+        <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
+          <KeyHints
+            palette={palette}
+            hints={visibleHints(
+              [
+                { key: "e", label: "errors" },
+                { key: "i", label: showSystemLogs ? "internal off" : "internal on" },
+                { key: "ctrl+l", label: "clear" },
+                { key: "g", label: "latest" },
+                { key: "z", label: "full logs" },
+                { key: "←→", label: "filter" },
+              ],
+              Math.max(20, logWidth - 2),
+            )}
+          />
+        </Toolbar>
         {!follow ? <JumpLatestPrompt palette={palette} width={logWidth} newer={newer} bottom={1} onJump={onJumpLatest} /> : null}
       </box>
+    </box>
+  );
+}
+
+const ISSUES_MAX_ROWS = 4;
+const ISSUE_NAME_COL = 14;
+
+function needsAttention(rt?: Runtime): boolean {
+  if (!rt) {
+    return false;
+  }
+  return rt.state === StateFailed || rt.health === HealthUnhealthy || rt.state === StateRestarting || rt.restarts > 0 || rt.last_error !== "";
+}
+
+function issueSeverity(rt: Runtime): number {
+  if (rt.state === StateFailed) {
+    return 0;
+  }
+  if (rt.health === HealthUnhealthy) {
+    return 1;
+  }
+  if (rt.state === StateRestarting) {
+    return 2;
+  }
+  return 3;
+}
+
+function issueMessage(rt: Runtime): string {
+  if (rt.last_error !== "") {
+    return rt.last_error;
+  }
+  if (rt.restarts > 0) {
+    return `restarted ${rt.restarts}x, no error recorded`;
+  }
+  return rt.health === HealthUnhealthy ? "failing health check" : rt.state.toLowerCase();
+}
+
+function IssuesPanel(props: { palette: Palette; names: string[]; snap?: StatusSnapshot; width: number; onOpen: (name: string) => void }) {
+  const { palette, names, snap, width, onOpen } = props;
+  const rows = names
+    .map((name) => ({ name, rt: snap?.services[name] }))
+    .filter((row): row is { name: string; rt: Runtime } => needsAttention(row.rt))
+    .sort((a, b) => issueSeverity(a.rt) - issueSeverity(b.rt));
+  if (rows.length === 0) {
+    return null;
+  }
+  const shown = rows.slice(0, ISSUES_MAX_ROWS);
+  const hidden = rows.length - shown.length;
+  const msgWidth = Math.max(8, width - ISSUE_NAME_COL - 4);
+  return (
+    <box
+      border
+      borderStyle="rounded"
+      borderColor={palette.error}
+      title={`issues (${rows.length})`}
+      titleColor={palette.error}
+      flexDirection="column"
+      flexShrink={0}
+      paddingLeft={1}
+      paddingRight={1}
+      overflow="hidden"
+    >
+      {shown.map(({ name, rt }) => {
+        const state = serviceLineState(rt);
+        return (
+        <box key={name} height={1} flexDirection="row" overflow="hidden" onMouseDown={() => onOpen(name)}>
+          <box width={2} flexShrink={0}>
+            <text fg={stateColor(palette, state)}>{stateGlyph(state)}</text>
+          </box>
+          <box width={ISSUE_NAME_COL} flexShrink={0} overflow="hidden">
+            <text fg={serviceColor(name, palette)} wrapMode="none">
+              {padClip(name, ISSUE_NAME_COL)}
+            </text>
+          </box>
+          <box width={msgWidth} flexShrink={0} overflow="hidden">
+            <text fg={palette.muted} wrapMode="none">
+              {clipText(issueMessage(rt), msgWidth)}
+            </text>
+          </box>
+        </box>
+        );
+      })}
+      {hidden > 0 ? (
+        <text fg={palette.muted} wrapMode="none">
+          {`+${hidden} more — open a service to see details`}
+        </text>
+      ) : null}
     </box>
   );
 }

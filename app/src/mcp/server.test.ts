@@ -61,4 +61,46 @@ describe("mcp server", () => {
       await server.stop();
     }
   });
+
+  test("emits lifecycle, connection, auth, and tool-call events", async () => {
+    const events: Array<{ level: string; message: string }> = [];
+    const server = new McpHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      token: "sess",
+      hostApi: host(),
+      onEvent: (level, message) => events.push({ level, message }),
+    });
+    await server.start();
+    const port = server.listenPort();
+    try {
+      await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+      });
+      await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer sess" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "initialize",
+          params: { clientInfo: { name: "claude", version: "1.0" } },
+        }),
+      });
+      await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer sess" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_services", arguments: {} } }),
+      });
+    } finally {
+      await server.stop();
+    }
+    expect(events.some((ev) => ev.level === "INFO" && ev.message.startsWith("listening on"))).toBe(true);
+    expect(events.some((ev) => ev.level === "WARN" && ev.message.includes("unauthorized"))).toBe(true);
+    expect(events.some((ev) => ev.level === "INFO" && ev.message.includes("client connected") && ev.message.includes("claude 1.0"))).toBe(true);
+    expect(events.some((ev) => ev.level === "INFO" && ev.message.includes("tool call name=list_services"))).toBe(true);
+    expect(events.some((ev) => ev.level === "INFO" && ev.message === "stopped")).toBe(true);
+  });
 });

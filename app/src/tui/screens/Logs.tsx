@@ -5,6 +5,7 @@ import { useDensity } from "../density.tsx";
 import {
   filterLogs,
   foldLogLines,
+  isSystemLogSource,
   LOG_COL_GAP,
   LOG_LEVEL_COL,
   LOG_META_COL,
@@ -18,6 +19,7 @@ import {
   logWrapLabel,
   padClip,
   tabChipWidth,
+  visibleHints,
   wrapLogMessage,
   type LogWrapMode,
 } from "../helpers.ts";
@@ -37,6 +39,7 @@ export function LogsScreen(props: {
   service: string;
   paused: boolean;
   errorOnly: boolean;
+  showSystemLogs: boolean;
   search: string;
   searchFocused: boolean;
   followTick: number;
@@ -56,6 +59,8 @@ export function LogsScreen(props: {
   onSearch: (value: string) => void;
   onService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleSystemLogs: () => void;
+  onClearLogs: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
   onOpenExports?: () => void;
@@ -70,6 +75,7 @@ export function LogsScreen(props: {
     service,
     paused,
     errorOnly,
+    showSystemLogs,
     search,
     searchFocused,
     followTick,
@@ -77,6 +83,8 @@ export function LogsScreen(props: {
     onSearch,
     onService,
     onToggleErrors,
+    onToggleSystemLogs,
+    onClearLogs,
     onSelect,
     wrapMode = "focus",
     selected = -1,
@@ -92,6 +100,7 @@ export function LogsScreen(props: {
   } = props;
   const scale = useDensity();
   const innerWidth = logPaneInnerWidth(width, scale.pad, fullscreen);
+  const filterBarLogs = showSystemLogs ? logs : logs.filter((ev) => !isSystemLogSource(ev.source));
   const filtered = filterLogs(logs, {
     service,
     services: props.services,
@@ -99,6 +108,7 @@ export function LogsScreen(props: {
     search,
     regex: props.regex,
     source: props.source,
+    systemLogs: showSystemLogs,
   });
   const shown = view ?? filtered;
   const shownTotal = viewTotal ?? filtered.length;
@@ -123,15 +133,17 @@ export function LogsScreen(props: {
               { text: logWrapLabel(wrapMode), tone: wrapMode === "clip" ? "idle" : "accent" },
               ...(follow ? [] : [{ text: newer > 0 ? `pinned · +${newer} new` : "pinned", tone: "warning" as const }]),
               { text: errorOnly ? "ERROR+" : "all levels", tone: errorOnly ? "error" : "idle", onMouseDown: onToggleErrors },
+              { text: showSystemLogs ? "system: on" : "system: off", tone: showSystemLogs ? "accent" : "idle", onMouseDown: onToggleSystemLogs },
               ...(props.source ? [{ text: `src ${props.source}`, tone: "info" as const }] : []),
               ...(props.regex ? [{ text: "regex", tone: "accent" as const }] : []),
               ...(search === "" ? [] : [{ text: `search ${search}`, tone: "accent" as const }]),
+              { text: "clear", tone: "muted", onMouseDown: onClearLogs },
               { text: "open folder", tone: "primary", onMouseDown: onOpenExports },
             ]}
           />
           <LogFilterBar
             palette={palette}
-            logs={logs}
+            logs={filterBarLogs}
             names={logSources ?? names}
             service={service}
             errorOnly={errorOnly}
@@ -173,7 +185,7 @@ export function LogsScreen(props: {
             palette={palette}
             title={logs.length === 0 ? "No log events" : "No events in this filter"}
             body={logs.length === 0 ? "Start services to stream logs." : "Pick All, another service, or clear search / ERROR+."}
-            hint="← → cycle filters   1-9 pick a source   e errors"
+            hint="← → cycle filters   1-9 pick a source   e errors   i internal   ctrl+l clear"
           />
         ) : (
           <LogList
@@ -197,22 +209,27 @@ export function LogsScreen(props: {
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
         <KeyHints
           palette={palette}
-          hints={[
-            { key: "←→", label: "filter" },
-            { key: "1-9", label: "source" },
-            { key: "e", label: "errors" },
-            { key: "f", label: "search" },
-            { key: "t", label: props.showTimestamps === false ? "time off" : "time" },
-            { key: "m", label: props.showMeta === false ? "meta off" : "meta" },
-            { key: "g", label: newer > 0 ? `latest +${newer}` : "latest" },
-            { key: "w", label: "wrap" },
-            { key: "j/k", label: "move" },
-            { key: "pgup/pgdn", label: "history" },
-            { key: "enter", label: "details" },
-            { key: "p", label: "pause" },
-            { key: "z", label: fullscreen ? "exit full" : "full screen" },
-            { key: "/exports", label: "open folder" },
-          ]}
+          hints={visibleHints(
+            [
+              { key: "←→", label: "filter" },
+              { key: "1-9", label: "source" },
+              { key: "e", label: "errors" },
+              { key: "i", label: showSystemLogs ? "internal off" : "internal on" },
+              { key: "ctrl+l", label: "clear" },
+              { key: "f", label: "search" },
+              { key: "j/k", label: "move" },
+              { key: "enter", label: "details" },
+              { key: "g", label: newer > 0 ? `latest +${newer}` : "latest" },
+              { key: "w", label: "wrap" },
+              { key: "p", label: "pause" },
+              { key: "z", label: fullscreen ? "exit full" : "full screen" },
+              { key: "t", label: props.showTimestamps === false ? "time off" : "time" },
+              { key: "m", label: props.showMeta === false ? "meta off" : "meta" },
+              { key: "pgup/pgdn", label: "history" },
+              { key: "/exports", label: "open folder" },
+            ],
+            Math.max(20, width - 2),
+          )}
         />
       </Toolbar>
       {!follow ? (

@@ -1076,26 +1076,21 @@ export function focusedServices(checked: string[], focused: string): string[] {
   return focused === "" ? [] : [focused];
 }
 
-export function visibleLogs(events: LogEvent[], snap?: StatusSnapshot, since?: string): LogEvent[] {
-  if (noneStarted(snap)) {
-    return [];
-  }
-  if (!since) {
-    return events;
-  }
-  return events.filter((ev) => ev.timestamp >= since);
+const SYSTEM_LOG_SOURCES = new Set(["auth", "devctl", "proxy"]);
+
+export function isSystemLogSource(source: string): boolean {
+  return SYSTEM_LOG_SOURCES.has(source);
 }
 
-export function appendVisibleLogs(
-  current: LogEvent[],
-  incoming: LogEvent[],
-  snap: StatusSnapshot | undefined,
-  since: string,
-  cap: number,
-): LogEvent[] {
-  if (noneStarted(snap)) {
-    return [];
-  }
+// Log history is a per-process in-memory buffer (never re-populated from disk on launch), so there
+// is no stale cross-session data to protect against here — only `since` (the log-view boundary,
+// reset by starting after a full stop, or by an explicit clear) should ever hide events. Stopping
+// services on its own must not clear the view; see the `clear` command / Clear button for that.
+export function visibleLogs(events: LogEvent[], since?: string): LogEvent[] {
+  return since ? events.filter((ev) => ev.timestamp >= since) : events;
+}
+
+export function appendVisibleLogs(current: LogEvent[], incoming: LogEvent[], since: string, cap: number): LogEvent[] {
   const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
   if (accepted.length === 0) {
     return current;
@@ -1135,7 +1130,17 @@ export function formatLogsForClipboard(events: LogEvent[]): string {
 
 export function filterLogs(
   events: LogEvent[],
-  opts: { service?: string; services?: string[]; errorOnly?: boolean; search?: string; regex?: boolean; source?: string; since?: string; until?: string },
+  opts: {
+    service?: string;
+    services?: string[];
+    errorOnly?: boolean;
+    search?: string;
+    regex?: boolean;
+    source?: string;
+    since?: string;
+    until?: string;
+    systemLogs?: boolean;
+  },
 ): LogEvent[] {
   const services = opts.services?.filter((name) => name !== "") ?? [];
   const service = opts.service ?? "";
@@ -1165,6 +1170,9 @@ export function filterLogs(
       return false;
     }
     if (source !== "" && ev.source !== source) {
+      return false;
+    }
+    if (opts.systemLogs === false && isSystemLogSource(ev.source)) {
       return false;
     }
     if (since !== "" && ev.timestamp < since) {
@@ -1623,6 +1631,8 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         { key: "←→", label: "log filter" },
         { key: "g", label: "latest" },
         { key: "z", label: "full logs" },
+        { key: "i", label: "internal logs" },
+        { key: "ctrl+l", label: "clear logs" },
         { key: copyKey, label: "copy logs" },
         { key: "j/k", label: "move" },
         ...common,
@@ -1646,6 +1656,8 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         { key: "←→", label: "filter" },
         { key: "1-9", label: "source" },
         { key: "e", label: "errors" },
+        { key: "i", label: "internal logs" },
+        { key: "ctrl+l", label: "clear logs" },
         { key: "g", label: "latest" },
         { key: "f", label: "search" },
         { key: "t", label: "time" },
@@ -1675,7 +1687,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
     case "setup":
       return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back or exit" }, ...common];
     case "doctor":
-      return [{ key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, { key: "r", label: "rerun" }, ...common];
+      return [{ key: "r", label: "run doctor again" }, { key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, ...common];
     case "settings":
       return [
         { key: "j/k", label: "move" },

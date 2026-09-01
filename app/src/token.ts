@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { GoogleAuth, Impersonated } from "google-auth-library";
 import { type CredentialRecord, type CredentialStatus, type CredentialStore, openCredentialStore } from "./credentials.ts";
-import { DevctlError, KindAuthorization, KindConfiguration, KindToken, newError } from "./errors.ts";
-import { type Bus, TokenRefreshed, newEvent } from "./events.ts";
-import { classifyGoogle } from "./google.ts";
+import { DevctlError, humanMessage, KindAuthorization, KindConfiguration, KindToken, newError } from "./errors.ts";
+import { type Bus, TokenRefreshed, TokenRefreshFailed, newEvent } from "./events.ts";
+import { classifyGoogle, ensureFetchShim } from "./google.ts";
 import { withRetry } from "./retry.ts";
 import { credentialsDir, writeFileSecure } from "./storage.ts";
 
@@ -149,6 +149,7 @@ export class TokenManager {
         lastErr = err instanceof Error ? err : new Error(String(err));
       }
     }
+    this.bus?.publish(newEvent(TokenRefreshFailed, "", { identity, audience, error: humanMessage(lastErr) }));
     throw lastErr;
   }
 
@@ -260,6 +261,7 @@ function iapProvider(): TokenProvider {
 async function fetchImpersonatedAccessToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
   const email = identity.slice(3);
   try {
+    ensureFetchShim();
     const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [CLOUD_SCOPE] });
     const source = await auth.getClient();
     const impersonated = new Impersonated({
@@ -289,6 +291,7 @@ async function fetchImpersonatedAccessToken(identity: string, audience: string, 
 async function fetchImpersonatedIdToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
   const email = identity.slice(3);
   try {
+    ensureFetchShim();
     const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
     const client = await auth.getClient();
     const url = `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(email)}:generateIdToken`;
@@ -316,6 +319,7 @@ async function fetchImpersonatedIdToken(identity: string, audience: string, scop
 
 async function fetchUserIdToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
   try {
+    ensureFetchShim();
     const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [IAP_SCOPE] });
     const client = await auth.getIdTokenClient(audience);
     const tok = await client.idTokenProvider.fetchIdToken(audience);
@@ -334,6 +338,7 @@ async function fetchUserIdToken(identity: string, audience: string, scopes: stri
 
 async function fetchUserToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
   try {
+    ensureFetchShim();
     const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [CLOUD_SCOPE] });
     const client = await auth.getClient();
     const tok = await client.getAccessToken();

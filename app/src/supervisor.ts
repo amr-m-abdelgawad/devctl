@@ -27,6 +27,7 @@ import {
   ServiceStopped,
   SessionRecovered,
   TokenRefreshed,
+  TokenRefreshFailed,
   newEvent,
 } from "./events.ts";
 import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
@@ -66,7 +67,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "./services.ts";
-import { acquireLock, newSessionID, randomSecret, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
+import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
 import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
 
@@ -129,7 +130,7 @@ export class Supervisor {
     this.cfg = cfg;
     this.sessionID = newSessionID();
     this.internalTok = randomSecret();
-    this.mcpToken = randomSecret();
+    this.mcpToken = readOrCreateMcpToken(cfg.repoRoot);
     this.bus = new Bus(2048);
     this.detectGoogleFn = deps?.detectGoogle ?? detectGoogle;
     this.inspectProcessFn = deps?.inspectProcess ?? inspectProcess;
@@ -152,16 +153,18 @@ export class Supervisor {
       const message =
         ev.type === TokenRefreshed
           ? `token refreshed identity=${String(payload.identity ?? "")}`
-          : `authentication changed user=${String(payload.user ?? "")}`;
+          : ev.type === TokenRefreshFailed
+            ? `token refresh failed identity=${String(payload.identity ?? "")} audience=${String(payload.audience ?? "")}: ${String(payload.error ?? "")}`
+            : `authentication changed user=${String(payload.user ?? "")}`;
       this.logs.append({
         timestamp: new Date().toISOString(),
         service: "auth",
         source: "auth",
-        level: "INFO",
+        level: ev.type === TokenRefreshFailed ? "WARN" : "INFO",
         message,
         pid: 0,
       });
-    }, [TokenRefreshed, AuthenticationChanged]);
+    }, [TokenRefreshed, TokenRefreshFailed, AuthenticationChanged]);
     this.identityCache = emptyIdentitySnapshot(cfg);
     for (const name of Object.keys(cfg.services)) {
       this.runtimes.set(name, emptyRuntime(name));
@@ -379,6 +382,8 @@ export class Supervisor {
         const assigned = await assignPorts(this.cfg, pending, Object.fromEntries(this.ports));
         for (const [name, ports] of Object.entries(assigned)) {
           this.ports.set(name, ports);
+          const summary = Object.entries(ports).map(([portName, value]) => `${portName}=${value}`).join(", ");
+          this.log(name, "INFO", `assigned ports: ${summary || "none"}`);
         }
       } catch (err) {
         const name = err instanceof DevctlError && err.service !== "" ? err.service : pending[0];
@@ -748,9 +753,9 @@ export class Supervisor {
       port: resolved,
       token: this.mcpToken,
       hostApi: this.asMcpHost(),
+      onEvent: (level, message) => this.log("mcp", level, `mcp ${message}`),
     });
     await this.mcp.start();
-    this.log("devctl", "INFO", `mcp listening on ${this.mcp.address()}`);
     this.persistState();
   }
 

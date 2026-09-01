@@ -32,11 +32,14 @@ type JsonRpcMessage = {
   params?: unknown;
 };
 
+export type McpLogLevel = "INFO" | "WARN" | "ERROR";
+
 export type McpListenOptions = {
   host: string;
   port: number;
   token: string;
   hostApi: McpHost;
+  onEvent?: (level: McpLogLevel, message: string) => void;
 };
 
 export class McpHttpServer {
@@ -62,6 +65,10 @@ export class McpHttpServer {
     return this.running;
   }
 
+  private emit(level: McpLogLevel, message: string): void {
+    this.opts.onEvent?.(level, message);
+  }
+
   start(): Promise<void> {
     if (!isLoopbackHost(this.opts.host)) {
       return Promise.reject(newError(KindGeneral, `refusing to bind MCP to ${this.opts.host}`));
@@ -76,6 +83,7 @@ export class McpHttpServer {
         this.boundPort = typeof addr === "object" && addr ? addr.port : this.opts.port;
         this.addr = `${this.opts.host}:${this.boundPort}`;
         this.running = true;
+        this.emit("INFO", `listening on ${this.addr}`);
         resolve();
       });
     });
@@ -83,6 +91,7 @@ export class McpHttpServer {
 
   stop(): Promise<void> {
     const server = this.server;
+    const wasRunning = this.running;
     if (!server) {
       this.running = false;
       return Promise.resolve();
@@ -93,6 +102,9 @@ export class McpHttpServer {
         this.addr = "";
         this.boundPort = 0;
         this.server = undefined;
+        if (wasRunning) {
+          this.emit("INFO", "stopped");
+        }
         resolve();
       });
     });
@@ -105,6 +117,7 @@ export class McpHttpServer {
       return;
     }
     if (!this.authorized(req)) {
+      this.emit("WARN", `rejected unauthorized request from ${remoteAddr(req)}`);
       json(res, 401, { error: "unauthorized" });
       return;
     }
@@ -137,10 +150,11 @@ export class McpHttpServer {
       json(res, 400, rpcError(null, PARSE_ERROR, "parse error"));
       return;
     }
+    const addr = remoteAddr(req);
     if (Array.isArray(parsed)) {
       const replies = [];
       for (const item of parsed) {
-        const reply = await this.dispatch(item);
+        const reply = await this.dispatch(item, addr);
         if (reply !== undefined) {
           replies.push(reply);
         }
@@ -148,7 +162,7 @@ export class McpHttpServer {
       json(res, 200, replies);
       return;
     }
-    const reply = await this.dispatch(parsed);
+    const reply = await this.dispatch(parsed, addr);
     if (reply === undefined) {
       res.writeHead(202, corsHeaders());
       res.end();
@@ -165,7 +179,7 @@ export class McpHttpServer {
     return header === `Bearer ${this.opts.token}`;
   }
 
-  private async dispatch(raw: unknown): Promise<unknown | undefined> {
+  private async dispatch(raw: unknown, addr: string): Promise<unknown | undefined> {
     if (!isRecord(raw)) {
       return rpcError(null, INVALID_REQUEST, "invalid request");
     }
@@ -176,7 +190,7 @@ export class McpHttpServer {
       return notification ? undefined : rpcError(id, INVALID_REQUEST, "missing method");
     }
     try {
-      const result = await this.handleMethod(msg.method, isRecord(msg.params) ? msg.params : {});
+      const result = await this.handleMethod(msg.method, isRecord(msg.params) ? msg.params : {}, addr);
       if (notification) {
         return undefined;
       }
@@ -186,18 +200,23 @@ export class McpHttpServer {
         return undefined;
       }
       const code = err instanceof McpRpcError ? err.code : INTERNAL_ERROR;
-      return rpcError(id, code, err instanceof Error ? err.message : "internal error");
+      const message = err instanceof Error ? err.message : "internal error";
+      this.emit("WARN", `rpc error method=${msg.method} addr=${addr}: ${message}`);
+      return rpcError(id, code, message);
     }
   }
 
-  private async handleMethod(method: string, params: Record<string, unknown>): Promise<unknown> {
+  private async handleMethod(method: string, params: Record<string, unknown>, addr: string): Promise<unknown> {
     switch (method) {
-      case "initialize":
+      case "initialize": {
+        const client = extractClientInfo(params);
+        this.emit("INFO", `client connected addr=${addr}${client ? ` (${client})` : ""}`);
         return {
           protocolVersion: PROTOCOL_VERSION,
           capabilities: { tools: {}, resources: {} },
           serverInfo: { name: "devctl", version: VERSION },
         };
+      }
       case "notifications/initialized":
       case "ping":
         return {};
@@ -232,11 +251,14 @@ export class McpHttpServer {
       throw new McpRpcError(INVALID_PARAMS, "tool name is required");
     }
     const args = isRecord(params.arguments) ? params.arguments : {};
+    const started = Date.now();
     try {
       const result = await callMcpTool(this.opts.hostApi, name, args);
+      this.emit("INFO", `tool call name=${name} duration=${Date.now() - started}ms`);
       return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
     } catch (err) {
       const message = err instanceof Error ? err.message : "tool failed";
+      this.emit("WARN", `tool call failed name=${name} duration=${Date.now() - started}ms: ${message}`);
       return { content: [{ type: "text", text: message }], isError: true };
     }
   }
@@ -247,10 +269,28 @@ export class McpHttpServer {
       throw new McpRpcError(INVALID_PARAMS, `unknown resource ${uri}`);
     }
     const result = await readMcpResource(this.opts.hostApi, uri);
+    this.emit("INFO", `resource read uri=${uri}`);
     return {
       contents: [{ uri, mimeType: "application/json", text: JSON.stringify(result, null, 2) }],
     };
   }
+}
+
+function extractClientInfo(params: Record<string, unknown>): string {
+  const info = params.clientInfo;
+  if (!isRecord(info)) {
+    return "";
+  }
+  const name = typeof info.name === "string" ? info.name : "";
+  const version = typeof info.version === "string" ? info.version : "";
+  if (name === "") {
+    return "";
+  }
+  return version === "" ? name : `${name} ${version}`;
+}
+
+function remoteAddr(req: IncomingMessage): string {
+  return req.socket.remoteAddress ?? "unknown";
 }
 
 class McpRpcError extends Error {

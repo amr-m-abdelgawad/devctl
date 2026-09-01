@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { Bus, TokenRefreshed } from "./events.ts";
+import { Bus, TokenRefreshed, TokenRefreshFailed } from "./events.ts";
 import { TokenManager, isValidToken, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
 
 function tok(partial: Partial<AccessToken> = {}): AccessToken {
@@ -136,5 +136,22 @@ describe("TokenManager", () => {
     const mgr = new TokenManager(60_000, [{ name: "stub", fetch: async () => tok() }], bus);
     await mgr.get("user", "", []);
     expect(seen).toEqual([TokenRefreshed]);
+  });
+
+  test("publishes TokenRefreshFailed with identity, audience, and the error once every provider fails", async () => {
+    home();
+    const bus = new Bus(8);
+    const events: Array<{ identity?: unknown; audience?: unknown; error?: unknown }> = [];
+    bus.subscribe((ev) => events.push(ev.payload ?? {}), [TokenRefreshFailed]);
+    const mgr = new TokenManager(60_000, [
+      {
+        name: "stub",
+        fetch: async () => {
+          throw new Error("permission denied");
+        },
+      },
+    ], bus);
+    await expect(mgr.get("sa:test@example.iam.gserviceaccount.com", "some-audience", [])).rejects.toThrow();
+    expect(events).toEqual([{ identity: "sa:test@example.iam.gserviceaccount.com", audience: "some-audience", error: "permission denied" }]);
   });
 });

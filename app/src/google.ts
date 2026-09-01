@@ -1,5 +1,5 @@
 import "./gcp-env.ts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "bun";
@@ -28,6 +28,37 @@ export type GoogleStatus = {
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 export const COMMAND_PROBE_MS = 1_500;
 const ADC_PROBE_MS = 2_000;
+
+/**
+ * OpenTUI's CliRenderer sets `global.window = {}` (for a requestAnimationFrame shim) as soon as
+ * the TUI starts rendering. gaxios's fetch-implementation detection treats the mere presence of a
+ * global `window` as a signal that it's running in a browser and unconditionally uses
+ * `window.fetch` — which OpenTUI never defines — instead of falling back to Bun/Node's native
+ * `fetch`. The result is every Google API call failing with "fetchImpl is not a function" the
+ * moment devctl runs inside the interactive TUI, while the plain CLI (no `window` global) is
+ * unaffected. This has nothing to do with credentials, IAM, or enabled APIs — call this before any
+ * gaxios-backed request to make sure `window.fetch`, if `window` exists at all, points at the real
+ * fetch implementation.
+ */
+export function ensureFetchShim(): void {
+  const g = globalThis as unknown as { window?: { fetch?: typeof fetch } };
+  if (g.window && typeof g.window.fetch !== "function") {
+    g.window.fetch = fetch;
+  }
+}
+
+export function adcQuotaProject(): string {
+  const path = process.env.GOOGLE_APPLICATION_CREDENTIALS || join(homedir(), ".config", "gcloud", "application_default_credentials.json");
+  if (!existsSync(path)) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { quota_project_id?: unknown };
+    return typeof parsed.quota_project_id === "string" ? parsed.quota_project_id : "";
+  } catch {
+    return "";
+  }
+}
 
 export async function detectGoogle(configuredProject: string): Promise<GoogleStatus> {
   const st: GoogleStatus = {
@@ -68,6 +99,7 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
 }
 
 async function fillAdc(st: GoogleStatus): Promise<void> {
+  ensureFetchShim();
   const { GoogleAuth } = await import("google-auth-library");
   const auth = new GoogleAuth({ scopes: [CLOUD_SCOPE] });
   await auth.getClient();
@@ -157,18 +189,20 @@ export async function logoutGoogle(): Promise<void> {
 }
 
 export function classifyGoogle(err: unknown): Error {
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  const msg = googleErrorText(err).toLowerCase();
   if (includesAny(msg, ["unauth", "invalid_grant", "token has been expired", "expired"])) {
     return hintError(KindAuthentication, "credential expired or invalid", "run `devctl auth login` or `gcloud auth application-default login`");
   }
+  // Disabled Google APIs commonly return a 403 containing both "permission"
+  // and "iamcredentials". Match the specific cause before generic IAM errors.
+  if (includesAny(msg, ["api has not been used", "has not been enabled", "access not configured", "service_disabled"])) {
+    return hintError(KindAuthorization, "required Google API is not enabled", "enable the API in the target service account project; devctl will not enable APIs automatically");
+  }
   if (includesAny(msg, ["permission", "forbidden", "iam"])) {
-    if (includesAny(msg, ["serviceaccounttoken", "iamcredentials", "token creator"])) {
+    if (includesAny(msg, ["serviceaccounttoken", "iamcredentials", "token creator", "getaccesstoken"])) {
       return hintError(KindImpersonation, "cannot impersonate service account", "ask an administrator to grant roles/iam.serviceAccountTokenCreator on the target service account");
     }
     return hintError(KindAuthorization, "authorization failure", "verify IAM permissions for the current user on this project");
-  }
-  if (includesAny(msg, ["api has not been used", "has not been enabled", "access not configured"])) {
-    return hintError(KindAuthorization, "required Google API is not enabled", "ask an administrator to enable the API; devctl will not enable APIs automatically");
   }
   if (msg.includes("audience")) {
     return hintError(KindIAP, "IAP audience is incorrect", "set auth.audience on the proxy route to the IAP OAuth client ID");
@@ -186,6 +220,38 @@ export function classifyGoogle(err: unknown): Error {
     return hintError(KindAuthentication, "application default credentials unavailable", "run `gcloud auth application-default login`");
   }
   return wrapError(KindAuthentication, "Google authentication failed", err);
+}
+
+function googleErrorText(err: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  const visit = (value: unknown, depth: number): void => {
+    if (value === null || value === undefined || depth > 8 || seen.has(value)) {
+      return;
+    }
+    if (typeof value === "string") {
+      parts.push(value);
+      return;
+    }
+    if (typeof value !== "object") {
+      return;
+    }
+    seen.add(value);
+    const record = value as Record<string, unknown>;
+    for (const key of ["message", "reason", "status", "code", "error_description", "permission", "service"]) {
+      visit(record[key], depth + 1);
+    }
+    for (const key of ["error", "errors", "details", "response", "data", "cause", "metadata"]) {
+      const child = record[key];
+      if (Array.isArray(child)) {
+        child.forEach((item) => visit(item, depth + 1));
+      } else {
+        visit(child, depth + 1);
+      }
+    }
+  };
+  visit(err, 0);
+  return parts.length > 0 ? parts.join(" ") : String(err);
 }
 
 function includesAny(msg: string, parts: string[]): boolean {

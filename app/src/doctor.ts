@@ -1,8 +1,8 @@
 import "./gcp-env.ts";
 import { type DevctlConfig, validate } from "./config/index.ts";
 import { versionLine } from "./version.ts";
-import { humanMessage } from "./errors.ts";
-import { detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "./google.ts";
+import { DevctlError, humanMessage } from "./errors.ts";
+import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "./google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "./identity.ts";
 import { available, findPortHolder, type PortHolder } from "./ports.ts";
 import { openCredentialStore } from "./credentials.ts";
@@ -27,6 +27,16 @@ export type Report = {
   issues: number;
 };
 
+export type DoctorProgress = {
+  active: string;
+  checks: Check[];
+};
+
+export type DoctorRuntimeContext = {
+  services?: Record<string, { pid: number; ports: Record<string, number> }>;
+  proxyRunning?: boolean;
+};
+
 const LIVE_PROBE_MS = 4_000;
 const LIVE_SECTION_MS = 8_000;
 
@@ -35,6 +45,7 @@ export type DoctorHost = {
   hasCommand(name: string): Promise<boolean>;
   portAvailable(port: number): Promise<boolean>;
   hasLocalAdc?: () => boolean;
+  adcQuotaProject?: () => string;
   liveDeadlineMs?: number;
   mintToken?: (identity: string, audience: string) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
@@ -45,18 +56,32 @@ const defaultHost: DoctorHost = {
   hasCommand,
   portAvailable: available,
   hasLocalAdc: hasLocalAdcMaterial,
+  adcQuotaProject,
   mintToken: defaultMintToken,
   probeServiceUsage: defaultProbeServiceUsage,
 };
 
-export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHost): Promise<Report> {
+export async function runDoctor(
+  cfg: DevctlConfig,
+  host: DoctorHost = defaultHost,
+  onProgress?: (progress: DoctorProgress) => void,
+  runtime?: DoctorRuntimeContext,
+): Promise<Report> {
   const report: Report = { checks: [], issues: 0 };
+  let active = "Preparing diagnostics";
+  const publish = (): void => onProgress?.({ active, checks: [...report.checks] });
+  const checking = (name: string): void => {
+    active = name;
+    publish();
+  };
   const add = (c: Check): void => {
     report.checks.push(c);
     if (c.severity === "error") {
       report.issues += 1;
     }
+    publish();
   };
+  checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {
     add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });
   } else {
@@ -67,6 +92,7 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
       hint: "install the Google Cloud CLI from https://cloud.google.com/sdk/docs/install",
     });
   }
+  checking("Google environment");
   const st = await host.detectGoogle(cfg.google.project_id);
   if (st.adcAvailable) {
     add({ name: "Google authentication available", severity: "ok", message: "Application Default Credentials found" });
@@ -92,6 +118,7 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
     needsCloudFeatures(cfg) ||
     Object.values(cfg.services).some((svc) => svc.capabilities.includes("google") || svc.identity.type !== "");
   if (probeCloud) {
+    checking("Live Google access");
     let liveOpen = true;
     const liveAdd = (c: Check): void => {
       if (liveOpen) {
@@ -101,7 +128,7 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
     try {
       await withTimeout(
         (async () => {
-          await addLiveCloudChecks(cfg, liveAdd, host);
+          await addLiveCloudChecks(cfg, liveAdd, host, st.userEmail);
           await addLiveApiChecks(cfg, liveAdd, host);
         })(),
         host.liveDeadlineMs ?? LIVE_SECTION_MS,
@@ -119,6 +146,7 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
   }
   for (const tool of cfg.doctor.tools) {
     const cmd = tool.command || tool.name;
+    checking(`${tool.name} installed`);
     if (await host.hasCommand(cmd)) {
       add({ name: `${tool.name} installed`, severity: "ok", message: `${cmd} found` });
     } else {
@@ -130,6 +158,7 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
       });
     }
   }
+  checking("Repository configuration");
   try {
     const issues = validate(cfg);
     if (issues.length > 0) {
@@ -147,11 +176,16 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
         continue;
       }
       const label = `Port ${p.value}`;
+      checking(label);
       if (seenPorts[p.value]) {
         add({ name: label, severity: "error", message: `configured on both ${seenPorts[p.value]} and ${name}` });
       } else {
         seenPorts[p.value] = name;
-        if (await host.portAvailable(p.value)) {
+        const owner = runtime?.services?.[name];
+        const ownedByRunningService = Boolean(owner && owner.pid > 0 && Object.values(owner.ports).includes(p.value));
+        if (ownedByRunningService) {
+          add({ name: label, severity: "ok", message: `in use by running service ${name}` });
+        } else if (await host.portAvailable(p.value)) {
           add({ name: label, severity: "ok", message: "available" });
         } else {
           add(await busyPortCheck(label, p.value, `services.${name}.ports`));
@@ -161,12 +195,17 @@ export async function runDoctor(cfg: DevctlConfig, host: DoctorHost = defaultHos
   }
   if (cfg.proxy.listen.port > 0) {
     const label = `Port ${cfg.proxy.listen.port}`;
-    if (await host.portAvailable(cfg.proxy.listen.port)) {
+    checking(label);
+    if (runtime?.proxyRunning) {
+      add({ name: label, severity: "ok", message: "in use by the running proxy" });
+    } else if (await host.portAvailable(cfg.proxy.listen.port)) {
       add({ name: label, severity: "ok", message: "proxy listen port available" });
     } else {
       add(await busyPortCheck(label, cfg.proxy.listen.port, "proxy.listen.port"));
     }
   }
+  active = "Diagnostics complete";
+  publish();
   return report;
 }
 
@@ -192,7 +231,7 @@ async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void, host
       add({
         name: api.name,
         severity: result.value ? "ok" : "warn",
-        message: result.value ? "reachable" : "not enabled or unreachable",
+        message: result.value ? "enabled" : "not enabled or unreachable",
         hint: result.value ? undefined : `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
       });
       return;
@@ -231,10 +270,19 @@ async function defaultProbeServiceUsage(project: string, service: string): Promi
     headers: { Authorization: `Bearer ${tok.accessToken}` },
     signal: AbortSignal.timeout(LIVE_PROBE_MS),
   });
-  return resp.ok;
+  if (!resp.ok) {
+    return false;
+  }
+  const body = await resp.json().catch(() => undefined) as { state?: string } | undefined;
+  return body?.state === "ENABLED";
 }
 
-async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void, host: DoctorHost): Promise<void> {
+async function addLiveCloudChecks(
+  cfg: DevctlConfig,
+  add: (c: Check) => void,
+  host: DoctorHost,
+  sourcePrincipal: string,
+): Promise<void> {
   const accounts = configuredServiceAccounts(cfg);
   const iapRoutes = cfg.proxy.routes.filter((route) => route.auth.type.toLowerCase() === "iap");
   const mintableIap = iapRoutes.filter((route) => route.auth.audience.trim() !== "");
@@ -261,7 +309,22 @@ async function addLiveCloudChecks(cfg: DevctlConfig, add: (c: Check) => void, ho
       await withTimeout(mint(`sa:${email}`, ""), LIVE_PROBE_MS);
       add({ name: `Impersonate ${email}`, severity: "ok", message: "token minted" });
     } catch (err) {
-      add(classifyLiveFailure(`Impersonate ${email}`, err, "grant roles/iam.serviceAccountTokenCreator on this service account"));
+      const quotaProject = (host.adcQuotaProject ?? adcQuotaProject)();
+      const principal = sourcePrincipal || "the ADC principal";
+      const quota = quotaProject === "" ? "unknown" : quotaProject;
+      const check = classifyLiveFailure(
+        `Impersonate ${email}`,
+        err,
+        `grant roles/iam.serviceAccountTokenCreator to ${principal} on ${email}; ADC quota project: ${quota}`,
+      );
+      if (quotaProject !== "" && check.message.toLowerCase().includes("api is not enabled")) {
+        check.message = `IAM Credentials API is disabled in ADC quota project ${quotaProject}`;
+        check.hint = `enable iamcredentials.googleapis.com in ${quotaProject}, or set the ADC quota project to ${cfg.google.project_id}`;
+      } else if (check.message.toLowerCase() === "google authentication failed") {
+        check.message = `access-token mint failed: ${principal} → ${email}`;
+        check.hint = `verify roles/iam.serviceAccountTokenCreator for ${principal} on this service account; ADC quota project: ${quota}`;
+      }
+      add(check);
     }
   });
   const iap = mintableIap.map(async (route) => {
@@ -281,6 +344,11 @@ function classifyLiveFailure(name: string, err: unknown, hint: string): Check {
   const lower = message.toLowerCase();
   if (lower.includes("timeout") || lower.includes("network") || lower.includes("econnrefused") || lower.includes("enotfound")) {
     return { name, severity: "warn", message, hint: "network or timeout — retry when online" };
+  }
+  if (err instanceof DevctlError && err.hint !== "") {
+    const prefix = `${err.kind}: `;
+    const summary = err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
+    return { name, severity: "error", message: summary, hint: err.hint };
   }
   return { name, severity: "error", message, hint };
 }
@@ -343,4 +411,3 @@ export function formatDoctor(r: Report): string {
   lines.push("", `${r.issues} issue(s) found.`);
   return lines.join("\n") + "\n";
 }
-

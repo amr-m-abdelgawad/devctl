@@ -12,11 +12,12 @@ import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot 
 const DIAL_RETRY_MS = 50;
 const DIAL_TIMEOUT_MS = 8_000;
 const TRY_DIAL_MS = 200;
+const RPC_CALL_TIMEOUT_MS = 30_000;
 
 export class Client {
   private readonly socket: Socket;
   private buf = "";
-  private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly listeners: Array<(ev: BusEvent) => void> = [];
   private nextID = 0;
 
@@ -33,6 +34,8 @@ export class Client {
         this.onLine(line);
       }
     });
+    socket.on("error", (err) => this.rejectPending(err instanceof Error ? err : new Error(String(err))));
+    socket.on("close", () => this.rejectPending(new Error("supervisor connection closed")));
   }
 
   private onLine(line: string): void {
@@ -53,6 +56,7 @@ export class Client {
       return;
     }
     this.pending.delete(env.id ?? "");
+    clearTimeout(pending.timer);
     if (env.error) {
       pending.reject(parseError({ error: env.error, kind: env.kind as import("./errors.ts").ErrorKind | undefined, hint: env.hint, service: env.service }));
       return;
@@ -70,17 +74,30 @@ export class Client {
     };
   }
 
-  call(method: string, params: unknown): Promise<unknown> {
+  call(method: string, params: unknown, timeoutMs = RPC_CALL_TIMEOUT_MS): Promise<unknown> {
     this.nextID += 1;
     const id = String(this.nextID);
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`${method} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer });
       this.socket.write(JSON.stringify({ id, method, params }) + "\n");
     });
   }
 
   close(): void {
+    this.rejectPending(new Error("supervisor connection closed"));
     this.socket.destroy();
+  }
+
+  private rejectPending(err: Error): void {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(err);
+    }
+    this.pending.clear();
   }
 }
 
@@ -209,7 +226,8 @@ export class Controller {
     if (this.client) {
       try {
         if (opts?.shutdownSupervisor === true && opts.detach !== true) {
-          await this.call("shutdown", { stop_services: true });
+          const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
+          await this.client.call("shutdown", { stop_services: true }, shutdownTimeout);
         }
       } finally {
         this.client.close();

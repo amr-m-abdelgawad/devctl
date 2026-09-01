@@ -43,6 +43,15 @@ export function isRestartKey(key: KeyLike): boolean {
   return name === "R" || (key.shift === true && name.toLowerCase() === "r");
 }
 
+// Plain "c" already jumps to the config screen (see isBound(key, tui, "config", "c")). Shift+C
+// doesn't reliably avoid that: keyMatches() lowercases the key name and compares shift as an exact
+// boolean, so a terminal that reports Shift+C as bare {name: "C"} (no shift flag) still satisfies
+// the config binding's shift:false expectation. Ctrl+L sidesteps this entirely — none of the
+// screen-jump bindings expect ctrl — and matches the classic terminal "clear" chord (bash/readline).
+export function isClearLogsKey(key: KeyLike): boolean {
+  return key.ctrl === true && (key.name ?? "").toLowerCase() === "l";
+}
+
 export function isCtrlC(key: KeyLike, tui?: TuiConfig): boolean {
   if (tui && keyMatches(key, tui.keybinds.interrupt ?? "ctrl+c")) {
     return true;
