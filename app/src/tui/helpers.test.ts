@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
 import { ConfigurationReloadFailed } from "../events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prevScreen, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prevScreen, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -107,6 +107,46 @@ describe("TUI helpers", () => {
     expect(logFilterCatalog(names, view, ["devctl"]).map((row) => row.name)).toEqual(["", "auth", "api", "devctl"]);
     expect(cycleLogService(["auth", "api", "devctl"], "", 1)).toBe("auth");
     expect(cycleLogService(["auth", "api", "devctl"], "auth", -1)).toBe("");
+  });
+
+  test("mergeLoadedPage keeps the page and only strictly-newer already-held events", () => {
+    const ev = (seq: number) => ({ timestamp: "t", service: "api", source: "api", level: "INFO", message: `m${seq}`, pid: 1, seq });
+    const page = [ev(1), ev(2), ev(3)];
+    // "current" simulates events already held client-side before the page
+    // resolved: seq 1-3 duplicate what the page now covers, seq 4 arrived
+    // live while the fetch was in flight and must not be dropped.
+    const current = [ev(1), ev(2), ev(3), ev(4)];
+    expect(mergeLoadedPage(current, page).map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    expect(mergeLoadedPage(current, []).map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+  });
+
+  test("prependOlderPage adds older events without duplicating ones already loaded", () => {
+    const ev = (seq: number) => ({ timestamp: "t", service: "api", source: "api", level: "INFO", message: `m${seq}`, pid: 1, seq });
+    const current = [ev(3), ev(4)];
+    expect(prependOlderPage(current, [ev(1), ev(2), ev(3)]).map((e) => e.seq)).toEqual([1, 2, 3, 4]);
+    expect(prependOlderPage(current, [])).toBe(current);
+  });
+
+  test("needsOlderLogPage fires only at the top of a pinned window with more server history", () => {
+    expect(needsOlderLogPage(true, 0, true)).toBe(true);
+    expect(needsOlderLogPage(false, 0, true)).toBe(false);
+    expect(needsOlderLogPage(true, 1, true)).toBe(false);
+    expect(needsOlderLogPage(true, 0, false)).toBe(false);
+  });
+
+  test("facetServiceCounts fills zero for known services the server hasn't counted yet", () => {
+    expect(facetServiceCounts(["auth", "api"], { api: 4 })).toEqual([
+      { name: "auth", count: 0 },
+      { name: "api", count: 4 },
+    ]);
+  });
+
+  test("facetFilterCatalog mirrors logFilterCatalog's shape from server-computed counts", () => {
+    const names = ["auth", "api"];
+    const facets = { total: 5, byService: { auth: 2, api: 2, devctl: 1 }, byLevel: {}, bySource: {} };
+    const catalog = facetFilterCatalog(names, facets);
+    expect(catalog.map((row) => row.name)).toEqual(["", "auth", "api", "devctl"]);
+    expect(catalog.map((row) => row.count)).toEqual([5, 2, 2, 1]);
   });
 
   test("incremental start keeps already-running services out of new waves", () => {

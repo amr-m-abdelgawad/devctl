@@ -3,6 +3,7 @@ import { type ScrollBoxRenderable } from "@opentui/core";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import {
+  facetFilterCatalog,
   filterLogs,
   foldLogLines,
   isSystemLogSource,
@@ -25,7 +26,7 @@ import {
 } from "../helpers.ts";
 import { Chip, KeyHints, MetaBar, TabStrip, Toolbar } from "../layout.tsx";
 import { logSpanColor, serviceColor, stateColor, type Palette } from "../themes.ts";
-import { type LogEvent } from "../../logs.ts";
+import { type LogEvent, type LogFacets } from "../../logs.ts";
 
 const FOLLOW_ARM_MS = 400;
 const FOLLOW_POLL_MS = 200;
@@ -56,6 +57,7 @@ export function LogsScreen(props: {
   newer?: number;
   viewStart?: number;
   viewTotal?: number;
+  facets?: LogFacets;
   onSearch: (value: string) => void;
   onService: (service: string) => void;
   onToggleErrors: () => void;
@@ -97,6 +99,7 @@ export function LogsScreen(props: {
     onJumpLatest,
     view,
     fullscreen = false,
+    facets,
   } = props;
   const scale = useDensity();
   const innerWidth = logPaneInnerWidth(width, scale.pad, fullscreen);
@@ -125,7 +128,7 @@ export function LogsScreen(props: {
             items={[
               { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
               { text: `shown ${shownTotal}`, tone: "info" },
-              { text: `total ${logs.length}` },
+              { text: facets ? `total ${facets.total}` : `total ${logs.length}` },
               ...(view && shownTotal > view.length
                 ? [{ text: `${viewStart + 1}–${viewStart + view.length} / ${shownTotal}`, tone: "info" as const }]
                 : []),
@@ -150,6 +153,7 @@ export function LogsScreen(props: {
             width={width}
             onService={onService}
             onToggleErrors={onToggleErrors}
+            facets={facets}
           />
         </>
       )}
@@ -294,9 +298,10 @@ export function LogFilterBar(props: {
   width: number;
   onService: (service: string) => void;
   onToggleErrors: () => void;
+  facets?: LogFacets;
 }) {
-  const { palette, logs, names, service, errorOnly, width, onService, onToggleErrors } = props;
-  const sources = logFilterCatalog(names, logs);
+  const { palette, logs, names, service, errorOnly, width, onService, onToggleErrors, facets } = props;
+  const sources = facets ? facetFilterCatalog(names, facets) : logFilterCatalog(names, logs);
   const compact = width < 80;
   const items = sources.map((item, index) => {
     const slot = index + 1;
