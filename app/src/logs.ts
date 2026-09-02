@@ -45,6 +45,11 @@ export type LogEvent = {
   stream?: string;
   request_id?: string;
   identity?: string;
+  // Assigned by LogManager.append(), monotonically increasing within one
+  // daemon session (never reused, never reassigned on ring-buffer eviction).
+  // Cursor-based pagination pages by this instead of by timestamp, since
+  // multiple events can share a millisecond but never a sequence number.
+  seq: number;
 };
 
 export type LogParser = {
@@ -336,14 +341,79 @@ function parseEscape(parser: RegexParser): boolean {
 const DEFAULT_MAX_EVENTS = 50_000;
 const SESSION_PREFIX = "session-";
 
+export const DEFAULT_LOG_PAGE_SIZE = 500;
+export const MAX_LOG_PAGE_SIZE = 5_000;
+
+type LogCursor = { session: string; seq: number };
+
+// Opaque to callers: they carry a cursor from one page's nextCursor/prevCursor
+// straight into the next request without inspecting it. Encoding it (rather
+// than exposing the raw session+seq pair) keeps that contract enforceable —
+// a client can't construct or mutate a cursor into pointing somewhere the
+// server didn't hand it.
+function encodeLogCursor(c: LogCursor): string {
+  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
+}
+
+function decodeLogCursor(raw: string): LogCursor | undefined {
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as { session?: unknown }).session === "string" &&
+      typeof (parsed as { seq?: unknown }).seq === "number"
+    ) {
+      return parsed as LogCursor;
+    }
+  } catch {
+    // malformed cursor — treated as absent by callers
+  }
+  return undefined;
+}
+
+export type LogPageDirection = "forward" | "backward";
+
+export type LogPageRequest = {
+  cursor?: string;
+  // "backward" (the default when a cursor is given) pages toward older
+  // events; "forward" pages toward newer ones. Irrelevant with no cursor —
+  // that always returns the latest page.
+  direction?: LogPageDirection;
+  limit?: number;
+};
+
+export type LogPage = {
+  // Always in ascending sequence (chronological) order, regardless of
+  // paging direction.
+  events: LogEvent[];
+  nextCursor: string;
+  prevCursor: string;
+  hasNext: boolean;
+  hasPrev: boolean;
+  // True when a cursor was given but named a prior daemon session (a
+  // restart happened since it was issued); the cursor is then ignored and
+  // this page is the latest one, same as no cursor at all.
+  sessionChanged: boolean;
+};
+
+export function clampLogPageSize(limit?: number): number {
+  if (!Number.isInteger(limit) || (limit ?? 0) <= 0) {
+    return DEFAULT_LOG_PAGE_SIZE;
+  }
+  return Math.min(limit as number, MAX_LOG_PAGE_SIZE);
+}
+
 export class LogManager {
   private events: LogEvent[] = [];
   private eventStart = 0;
+  private nextSeq = 1;
   private readonly max: number;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
   private readonly persistDir: string;
   private readonly persist: boolean;
+  private readonly sessionID: string;
   private readonly streams = new Map<string, WriteStream>();
   private readonly lastWrite = new Map<string, Promise<void>>();
   private parsers: LogParser[] = [];
@@ -361,6 +431,7 @@ export class LogManager {
     this.max = max > 0 ? max : DEFAULT_MAX_EVENTS;
     this.bus = bus;
     this.detector = detector;
+    this.sessionID = sessionID;
     const root = directory === "" || directory.startsWith("~/") ? logsDir() : directory;
     this.persist = persist && sessionID !== "";
     this.persistDir = this.persist ? join(root, `${SESSION_PREFIX}${sessionID}`) : "";
@@ -382,7 +453,7 @@ export class LogManager {
     this.parsers = parsers;
   }
 
-  append(ev: LogEvent): void {
+  append(ev: Omit<LogEvent, "seq">): void {
     const parsed = this.parseLine(ev.message);
     const next: LogEvent = {
       ...ev,
@@ -390,6 +461,7 @@ export class LogManager {
       level: ev.level || parsed.level || parseLevel(ev.message),
       request_id: ev.request_id || parsed.request_id || parseRequestID(ev.message),
       message: this.detector ? this.detector.redactText(ev.message) : ev.message,
+      seq: this.nextSeq++,
     };
     if (this.events.length < this.max) {
       this.events.push(next);
@@ -475,6 +547,48 @@ export class LogManager {
       }
     });
     return out;
+  }
+
+  // Bounded, cursor-paged counterpart to query() — query() itself stays
+  // unbounded on purpose (export, and anything else that legitimately wants
+  // every matching event, must not be silently truncated by a page size).
+  queryPage(filter: LogFilter, page: LogPageRequest = {}): LogPage {
+    const limit = clampLogPageSize(page.limit);
+    const requested = page.cursor ? decodeLogCursor(page.cursor) : undefined;
+    const sessionChanged = requested !== undefined && requested.session !== this.sessionID;
+    const cursor = sessionChanged ? undefined : requested;
+    const direction: LogPageDirection = cursor ? (page.direction ?? "backward") : "backward";
+
+    const matches: LogEvent[] = [];
+    this.forEachEvent((event) => {
+      if (matchLog(filter, event)) {
+        matches.push(event);
+      }
+    });
+
+    let windowed: LogEvent[];
+    if (!cursor) {
+      windowed = matches.slice(Math.max(0, matches.length - limit));
+    } else if (direction === "forward") {
+      windowed = matches.filter((ev) => ev.seq > cursor.seq).slice(0, limit);
+    } else {
+      const before = matches.filter((ev) => ev.seq < cursor.seq);
+      windowed = before.slice(Math.max(0, before.length - limit));
+    }
+
+    const firstSeq = windowed[0]?.seq;
+    const lastSeq = windowed[windowed.length - 1]?.seq;
+    const hasPrev = firstSeq !== undefined && matches.some((ev) => ev.seq < firstSeq);
+    const hasNext = lastSeq !== undefined && matches.some((ev) => ev.seq > lastSeq);
+
+    return {
+      events: windowed,
+      prevCursor: encodeLogCursor({ session: this.sessionID, seq: firstSeq ?? cursor?.seq ?? 0 }),
+      nextCursor: encodeLogCursor({ session: this.sessionID, seq: lastSeq ?? cursor?.seq ?? this.nextSeq - 1 }),
+      hasNext,
+      hasPrev,
+      sessionChanged,
+    };
   }
 
   snapshot(): { total: number; errors: number; counts: Record<string, number> } {
@@ -571,10 +685,19 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogEve
         level: parts[2] ?? "INFO",
         message: parts.slice(3).join(" "),
         pid: 0,
+        // A past session's own sequence numbers aren't recoverable from the
+        // persisted text format, and these are a read-only historical view,
+        // never paginated against the live session — index order after the
+        // chronological sort below is a fine, locally-consistent stand-in.
+        seq: 0,
       });
     }
   }
-  return events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const sorted = events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  sorted.forEach((ev, i) => {
+    ev.seq = i + 1;
+  });
+  return sorted;
 }
 
 export function safeServiceFile(service: string): string {

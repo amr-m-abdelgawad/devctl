@@ -43,9 +43,9 @@ function stubHost(): McpHost {
   svc.environment.vars = { API_TOKEN: "super-secret", NAME: "ok" };
   cfg.services.api = svc;
   const logs = [
-    { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1 },
-    { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1 },
-    { timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2 },
+    { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 },
+    { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 },
+    { timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2, seq: 3 },
   ];
   return {
     status: () => sampleSnap(),
@@ -143,6 +143,7 @@ describe("mcp tools", () => {
       level: "INFO",
       message: `line ${i}`,
       pid: 1,
+      seq: i + 1,
     }));
     host.logs = () => many;
     const result = (await callMcpTool(host, "get_logs", {})) as { events: unknown[]; truncated: boolean };

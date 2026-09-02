@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Detector } from "./secrets.ts";
-import { compileLogSearch, defaultExportPath, LogManager, matchLog, pruneSessions, resolveExportPath, writeLogExport } from "./logs.ts";
+import { clampLogPageSize, compileLogSearch, DEFAULT_LOG_PAGE_SIZE, defaultExportPath, LogManager, MAX_LOG_PAGE_SIZE, matchLog, pruneSessions, resolveExportPath, writeLogExport } from "./logs.ts";
 import { exportsDir } from "./storage.ts";
 
 function tmp(): string {
@@ -79,6 +79,7 @@ describe("LogManager persistence", () => {
       message: "ok",
       pid: 1,
       identity: "user",
+      seq: 1,
     };
     expect(matchLog({ source: "proxy", since: "2026-08-30T00:00:00.000Z", until: "2026-08-30T23:00:00.000Z" }, ev)).toBe(true);
     expect(matchLog({ source: "stdout" }, ev)).toBe(false);
@@ -96,6 +97,97 @@ describe("LogManager persistence", () => {
     expect(compileLogSearch("a{65}")).toBeUndefined();
     expect(compileLogSearch("[")).toBeUndefined();
     expect(compileLogSearch("x".repeat(201))).toBeUndefined();
+  });
+});
+
+describe("LogManager pagination", () => {
+  // Events 4, 5, and 6 deliberately share one timestamp so a page boundary
+  // can land inside that cluster — the scenario a timestamp-based cursor
+  // can't page correctly (it would either duplicate or drop whichever of
+  // the tied events falls on the wrong side), but a sequence-based one can.
+  function seeded(sessionID = "s1"): LogManager {
+    const mgr = new LogManager(1000, undefined, new Detector([], []), false, tmp(), sessionID, 0, 0);
+    for (let i = 1; i <= 10; i += 1) {
+      const tied = i >= 4 && i <= 6;
+      mgr.append({
+        timestamp: tied ? "2026-08-30T00:00:04.000Z" : `2026-08-30T00:00:${String(i).padStart(2, "0")}.000Z`,
+        service: "api",
+        source: "stdout",
+        level: "INFO",
+        message: `line ${i}`,
+        pid: 1,
+      });
+    }
+    return mgr;
+  }
+
+  test("with no cursor, returns the latest page and reports more history behind it", () => {
+    const mgr = seeded();
+    const page = mgr.queryPage({}, { limit: 5 });
+    expect(page.events.map((ev) => ev.message)).toEqual(["line 6", "line 7", "line 8", "line 9", "line 10"]);
+    expect(page.hasPrev).toBe(true);
+    expect(page.hasNext).toBe(false);
+    expect(page.sessionChanged).toBe(false);
+  });
+
+  test("backward paging splits a same-timestamp cluster across pages without gap or duplication", () => {
+    const mgr = seeded();
+    const latest = mgr.queryPage({}, { limit: 5 }); // line 6..10 (line 6 shares ts with 4 and 5)
+    const older = mgr.queryPage({}, { cursor: latest.prevCursor, direction: "backward", limit: 5 });
+    // line 4 and 5 share line 6's exact timestamp but must still land in the
+    // earlier page, not be re-included here or dropped entirely.
+    expect(older.events.map((ev) => ev.message)).toEqual(["line 1", "line 2", "line 3", "line 4", "line 5"]);
+    expect(older.hasPrev).toBe(false);
+    expect(older.hasNext).toBe(true);
+  });
+
+  test("forward paging from history reconstructs the exact original sequence, tie included", () => {
+    const mgr = seeded();
+    const latest = mgr.queryPage({}, { limit: 5 });
+    const older = mgr.queryPage({}, { cursor: latest.prevCursor, direction: "backward", limit: 5 });
+    expect(older.hasPrev).toBe(false);
+    // Walking forward from the oldest page's own nextCursor must reproduce
+    // exactly the newer page already fetched — no repeat of line 5, no skip
+    // of line 6, despite the tied timestamp straddling the boundary.
+    const caughtUp = mgr.queryPage({}, { cursor: older.nextCursor, direction: "forward", limit: 5 });
+    expect(caughtUp.events.map((ev) => ev.message)).toEqual(latest.events.map((ev) => ev.message));
+    expect(caughtUp.hasNext).toBe(false);
+  });
+
+  test("a cursor from a prior daemon session is reported as changed and treated as absent", () => {
+    const before = seeded("session-a").queryPage({}, { limit: 3 });
+    const restarted = seeded("session-b");
+    const page = restarted.queryPage({}, { cursor: before.nextCursor, direction: "forward", limit: 3 });
+    expect(page.sessionChanged).toBe(true);
+    // Ignored, not rejected: falls back to the latest page of the new session.
+    expect(page.events.map((ev) => ev.message)).toEqual(["line 8", "line 9", "line 10"]);
+  });
+
+  test("filters apply before pagination, so a page respects them like an unbounded query would", () => {
+    const mgr = new LogManager(1000, undefined, new Detector([], []), false, tmp(), "s1", 0, 0);
+    for (let i = 1; i <= 6; i += 1) {
+      mgr.append({
+        timestamp: `2026-08-30T00:00:0${i}.000Z`,
+        service: i % 2 === 0 ? "api" : "worker",
+        source: "stdout",
+        level: "INFO",
+        message: `line ${i}`,
+        pid: 1,
+      });
+    }
+    const page = mgr.queryPage({ services: ["api"] }, { limit: 10 });
+    expect(page.events.map((ev) => ev.message)).toEqual(["line 2", "line 4", "line 6"]);
+    expect(page.hasPrev).toBe(false);
+  });
+
+  test("clampLogPageSize enforces the default and maximum page sizes", () => {
+    expect(clampLogPageSize(undefined)).toBe(DEFAULT_LOG_PAGE_SIZE);
+    expect(clampLogPageSize(0)).toBe(DEFAULT_LOG_PAGE_SIZE);
+    expect(clampLogPageSize(-5)).toBe(DEFAULT_LOG_PAGE_SIZE);
+    expect(clampLogPageSize(1.5)).toBe(DEFAULT_LOG_PAGE_SIZE);
+    expect(clampLogPageSize(10)).toBe(10);
+    expect(clampLogPageSize(MAX_LOG_PAGE_SIZE)).toBe(MAX_LOG_PAGE_SIZE);
+    expect(clampLogPageSize(MAX_LOG_PAGE_SIZE + 1)).toBe(MAX_LOG_PAGE_SIZE);
   });
 });
 
@@ -146,6 +238,7 @@ describe("log export paths", () => {
         level: "INFO",
         message: "hello",
         pid: 1,
+        seq: 1,
       },
     ]);
     expect(readFileSync(dest, "utf8")).toBe("2026-08-30T00:00:00.000Z api INFO hello\n");

@@ -5,7 +5,7 @@ import { resolveDaemonTarget } from "./daemon.ts";
 import { osEnviron } from "./environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
-import { type LogEvent } from "./logs.ts";
+import { type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { type Plan } from "./services.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
@@ -19,7 +19,7 @@ const RPC_CALL_TIMEOUT_MS = 30_000;
 // daemon: removing it (`down` → the "shutdown" call, made directly on
 // Client rather than through Controller.call) and reading its logs so the
 // user has something to look at before deciding to run `down`.
-const ALWAYS_ALLOWED_METHODS = new Set(["logs"]);
+const ALWAYS_ALLOWED_METHODS = new Set(["logs", "logs_page"]);
 
 export type DaemonCompat = {
   compatible: boolean;
@@ -296,6 +296,10 @@ export class Controller {
   async logs(req: LogsRequest): Promise<LogEvent[]> {
     const raw = (await this.call("logs", req)) as { events?: LogEvent[] };
     return raw.events ?? [];
+  }
+
+  async logsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
+    return (await this.call("logs_page", req)) as LogPage;
   }
 
   async proxyStart(): Promise<void> {

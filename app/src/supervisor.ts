@@ -35,7 +35,7 @@ import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
 import { checkHealth, healthIntervalMs, healthLevel } from "./health.ts";
 import { readHostMemory } from "./host-stats.ts";
 import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
-import { LogManager, type LogEvent } from "./logs.ts";
+import { LogManager, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
 import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "./processes.ts";
@@ -404,6 +404,19 @@ export class Supervisor {
           since: typeof rec.since === "string" ? rec.since : "",
           until: typeof rec.until === "string" ? rec.until : "",
           export: typeof rec.export === "string" ? rec.export : "",
+        });
+      case "logs_page":
+        return this.queryLogsPage({
+          services: asStringArray(rec.services),
+          level: typeof rec.level === "string" ? rec.level : "",
+          search: typeof rec.search === "string" ? rec.search : "",
+          regex: rec.regex === true,
+          source: typeof rec.source === "string" ? rec.source : "",
+          since: typeof rec.since === "string" ? rec.since : "",
+          until: typeof rec.until === "string" ? rec.until : "",
+          cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
+          direction: rec.direction === "forward" ? "forward" : "backward",
+          limit: typeof rec.limit === "number" ? rec.limit : undefined,
         });
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
@@ -1378,6 +1391,25 @@ export class Supervisor {
       });
     }
     return { events };
+  }
+
+  // Bounded, cursor-paged counterpart to queryLogs() — added alongside it
+  // rather than replacing it so CLI/TUI/MCP consumers can migrate to paging
+  // one at a time; queryLogs()/the plain "logs" RPC still returns everything
+  // matching, unbounded, until every consumer has moved off it.
+  queryLogsPage(req: LogFilter & LogPageRequest): LogPage {
+    return this.logs.queryPage(
+      {
+        services: req.services,
+        level: req.level,
+        search: req.search,
+        regex: req.regex,
+        source: req.source,
+        since: req.since,
+        until: req.until,
+      },
+      { cursor: req.cursor, direction: req.direction, limit: req.limit },
+    );
   }
 
   subscribe(handler: (event: import("./events.ts").BusEvent) => void): () => void {

@@ -26,6 +26,7 @@ describe("TUI helpers", () => {
       level: "INFO",
       message: "supervisor started session=abc",
       pid: 0,
+      seq: 1,
     };
     const serviceEvent = { ...systemEvent, timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", message: "ready" };
     // Stopping every service must not clear the view — there's no `snap` parameter to react to that.
@@ -69,8 +70,8 @@ describe("TUI helpers", () => {
 
   test("log filters keep all services until a chip is chosen", () => {
     const events = [
-      { timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1 },
-      { timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2 },
+      { timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1, seq: 1 },
+      { timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2, seq: 2 },
     ];
     expect(filterLogs(events, {}).map((ev) => ev.service)).toEqual(["auth", "api"]);
     expect(filterLogs(events, { service: "api" }).map((ev) => ev.service)).toEqual(["api"]);
@@ -93,9 +94,9 @@ describe("TUI helpers", () => {
   test("log filter catalog keeps extras and totals when the view is filtered", () => {
     const names = ["auth", "api"];
     const events = [
-      { timestamp: "t", service: "devctl", source: "devctl", level: "INFO", message: "session", pid: 0 },
-      { timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1 },
-      { timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2 },
+      { timestamp: "t", service: "devctl", source: "devctl", level: "INFO", message: "session", pid: 0, seq: 1 },
+      { timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1, seq: 2 },
+      { timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2, seq: 3 },
     ];
     const catalog = logFilterCatalog(names, events);
     expect(catalog.map((row) => row.name)).toEqual(["", "auth", "api", "devctl"]);
@@ -254,6 +255,7 @@ describe("TUI helpers", () => {
       pid: 1,
       request_id: "req-1",
       identity: "user",
+      seq: 1,
     };
     expect(formatLogLine(ev)).toBe("2026-08-30T00:00:00.000Z auth INFO ready");
     expect(formatLogDetails(ev)).toContain("request   req-1");
@@ -295,6 +297,7 @@ describe("TUI helpers", () => {
         level: "INFO",
         message: `line ${n}`,
         pid: 1,
+        seq: n,
       }) as const;
     const first = [0, 1, 2, 3, 4].map(ev);
     const live = logViewWindow(first, false, 0, 3);

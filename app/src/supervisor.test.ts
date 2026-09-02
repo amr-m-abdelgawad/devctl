@@ -654,6 +654,38 @@ services:
     }
   }, 15_000);
 
+  test("logs_page RPC returns a bounded, cursor-carrying page instead of the whole buffer", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      const page = (await sup.dispatch("logs_page", { limit: 1 })) as {
+        events: unknown[];
+        nextCursor: string;
+        prevCursor: string;
+        hasNext: boolean;
+        hasPrev: boolean;
+        sessionChanged: boolean;
+      };
+      expect(page.events.length).toBe(1);
+      expect(typeof page.nextCursor).toBe("string");
+      expect(typeof page.prevCursor).toBe("string");
+      expect(page.hasNext).toBe(false);
+      expect(page.sessionChanged).toBe(false);
+      // Still reachable through the plain, unbounded "logs" method too — the
+      // old path isn't replaced yet, just joined by the new one.
+      const unbounded = (await sup.dispatch("logs", {})) as { events: unknown[] };
+      expect(unbounded.events.length).toBeGreaterThanOrEqual(page.events.length);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();
     const cfg = defaultConfig();
