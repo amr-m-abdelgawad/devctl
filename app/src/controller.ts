@@ -1,6 +1,7 @@
 import { createConnection, type Socket } from "node:net";
 import { spawn } from "bun";
 import { type DevctlConfig, load, stopOnExit } from "./config/index.ts";
+import { resolveDaemonTarget } from "./daemon.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
 import { type LogEvent } from "./logs.ts";
@@ -47,6 +48,15 @@ export function compatWarning(compat: DaemonCompat): string | undefined {
     return `attached daemon is devctl ${compat.daemonVersion}; this client is ${VERSION} (run \`devctl down\` then start again to update it)`;
   }
   return undefined;
+}
+
+// Shared by Controller.call() and any lighter-weight caller (status,
+// down, daemon logs) that talks to a Client directly instead of through a
+// Controller.
+export function assertMethodAllowed(client: Client, method: string): void {
+  if (!client.compat.compatible && !ALWAYS_ALLOWED_METHODS.has(method)) {
+    throw hintError(KindGeneral, describeIncompatibility(client.compat), "run `devctl down` to stop it, then start again");
+  }
 }
 
 export class Client {
@@ -347,9 +357,7 @@ export class Controller {
     if (!this.client) {
       throw wrapError(KindGeneral, "supervisor is not running", new Error("no client"));
     }
-    if (!this.client.compat.compatible && !ALWAYS_ALLOWED_METHODS.has(method)) {
-      throw hintError(KindGeneral, describeIncompatibility(this.client.compat), "run `devctl down` to stop it, then start again");
-    }
+    assertMethodAllowed(this.client, method);
     return this.client.call(method, params);
   }
 }
@@ -361,6 +369,26 @@ function warnIfVersionMismatch(client: Client | undefined): void {
   if (warning) {
     process.stderr.write(`warning: ${warning}\n`);
   }
+}
+
+// A lighter-weight alternative to openController/openAttach for commands
+// (status, down, daemon logs) that only need to find and dial a daemon, not
+// parse and validate a full DevctlConfig — repository/session lookup here
+// is deliberately independent of local config parsing, via
+// resolveDaemonTarget's discovery-then-state-scan fallback, so a deleted
+// .devctl directory can never make a still-live daemon unreachable.
+export async function findDaemon(startDir: string, explicitRepo: string): Promise<{ repoRoot: string; client?: Client }> {
+  const target = resolveDaemonTarget(startDir, explicitRepo);
+  if (!target) {
+    throw hintError(
+      KindGeneral,
+      "no devctl configuration found",
+      "run `devctl setup`, create a .devctl/config.yaml in the repository root, or pass --repo",
+    );
+  }
+  const client = await tryDial(target.repoRoot);
+  warnIfVersionMismatch(client);
+  return { repoRoot: target.repoRoot, client };
 }
 
 export async function openController(startDir: string, configPath: string, startSupervisor: boolean): Promise<Controller> {

@@ -1,9 +1,9 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, dial, ensureSupervisor, openAttach, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, supervisorSpawnCommand } from "./controller.ts";
 import { KindGeneral } from "./errors.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
@@ -190,6 +190,38 @@ describe("daemon compatibility handshake", () => {
       await sup.shutdown(false);
     }
   }, 15_000);
+});
+
+describe("findDaemon", () => {
+  test("locates a live daemon via the state-scan fallback after .devctl is deleted", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const { Supervisor } = await import("./supervisor.ts");
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run({ autoStartProxy: false });
+      // The whole point: the configuration this daemon was started with no
+      // longer exists, yet the daemon itself is still running.
+      rmSync(join(dir, ".devctl"), { recursive: true, force: true });
+      const { repoRoot, client } = await findDaemon(dir, "");
+      expect(repoRoot).toBe(dir);
+      expect(client).toBeDefined();
+      client?.close();
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("throws a clear error when neither discovery nor a daemon can be found", async () => {
+    const dir = tmp();
+    await expect(findDaemon(dir, "")).rejects.toThrow(/no devctl configuration found/);
+  });
 });
 
 describe("attach", () => {

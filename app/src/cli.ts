@@ -1,8 +1,9 @@
 import { Command } from "commander";
 import { stringify } from "yaml";
 import { defaultConfig, load, stopOnExit, validate } from "./config/index.ts";
-import { openAttach, openController } from "./controller.ts";
+import { assertMethodAllowed, findDaemon, openAttach, openController } from "./controller.ts";
 import { readPersistedState } from "./storage.ts";
+import type { StatusSnapshot } from "./types.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { ExitSuccess, humanMessage, exitCode } from "./errors.ts";
 import { detectGoogle, loginGoogle, logoutGoogle } from "./google.ts";
@@ -121,12 +122,17 @@ function addRestart(root: Command): void {
 function addStatus(root: Command): void {
   root
     .command("status")
+    .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--json", "machine-readable output")
-    .action(async (opts: { json?: boolean }) => {
-      const ctrl = await openController("", configFlag(root), false);
+    .action(async (opts: { repo?: string; json?: boolean }) => {
+      // Deliberately not openController(): status only needs a repo root to
+      // dial, not a parsed config, so a deleted .devctl must not prevent it
+      // from finding a still-live daemon (findDaemon's discovery-then-
+      // state-scan fallback handles that).
+      const { repoRoot, client } = await findDaemon("", opts.repo ?? "");
       try {
-        if (!ctrl.client && !ctrl.local) {
-          const persisted = readPersistedState(ctrl.cfg.repoRoot);
+        if (!client) {
+          const persisted = readPersistedState(repoRoot);
           if (opts.json) {
             writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
             return;
@@ -140,7 +146,8 @@ function addStatus(root: Command): void {
           }
           return;
         }
-        const snap = await ctrl.status();
+        assertMethodAllowed(client, "status");
+        const snap = (await client.call("status", null)) as StatusSnapshot;
         if (opts.json) {
           writeOut(JSON.stringify(snap, null, 2) + "\n");
           return;
@@ -154,7 +161,7 @@ function addStatus(root: Command): void {
         writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
         writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
       } finally {
-        await ctrl.close();
+        client?.close();
       }
     });
 }
