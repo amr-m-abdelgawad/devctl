@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `tui.json`'s `cursor`, `scroll_acceleration`, `diff_style`, and `attention` fields are no longer documented or included in the starter file — none of them were ever wired up to anything the TUI reads. Parsing them is unchanged, so a `tui.json` that already sets any of them keeps loading cleanly.
+
+### Fixed
+
+- Configuration merging (root overlays, local overlays, modular per-service files, and template inheritance) now checks whether a raw YAML key was actually present instead of comparing its decoded value against a zero default, so an explicit `false`, `0`, or `[]` is applied instead of being silently discarded as "not set." Several latent instances of the same bug are fixed alongside it: `proxy.enabled`/`proxy.token_endpoint.enabled`, the four `logs.persistence.*` fields, `auth.refresh_threshold_seconds`, `ui.keymap`, and `secrets.extra_markers`/`extra_patterns` could all be unconditionally overwritten or wiped by an overlay that didn't repeat every sibling field.
+- `devctl logs export --output <path>` failed every invocation with "required option '--output <path>' not specified" regardless of what was passed: the parent `logs` command's own (optional) `--output` claimed the value before the `export` subcommand's own (required) copy ever saw it. Both `devctl logs --output <path>` and `devctl logs export --output <path>` now also resolve a relative path against the CLI's own working directory before sending it to the daemon, instead of the daemon's — a long-running background process that can have an unrelated one — matching how the TUI's own `/export` already worked.
+- `mcp_start` (`devctl mcp --on` with no `--port`, or any on-demand MCP toggle) now falls back to the saved `mcp_port` preference before the repo-derived default, matching what daemon boot already does; it previously ignored a previously chosen port whenever MCP was started outside the boot path.
+- The dotenv family now loads `.env.local` after `.env.development`, so a developer's personal, gitignored `.env.local` correctly outranks a checked-in, team-shared `.env.development` instead of being silently overridden by it.
+- A proxy route with `auth.type: none` now ignores any leftover `auth.identity`, matching how the proxy's own request handling already treats "none." A stale identity left over from a template or an earlier config could otherwise make service-account bookkeeping — and, transitively, Google Cloud/ADC preflight checks — require an identity the route will never actually use.
+- `--config` pointing directly at a `.devctl` directory now resolves the repository root to its parent correctly on every platform, including Windows, and even when that directory already contains `config.yaml` (the ordinary case) — both a hardcoded `/`-splitting path check and a check-ordering bug previously made this resolve to the `.devctl` directory itself instead.
+- `config.yaml`'s `ui.keymap` is now actually applied to the TUI's keybindings, below every `tui.json` layer; it was previously parsed and summarized on the config screen but never affected any real keybinding.
+- The TUI's `/clear` command now only clears its own on-screen log view. It previously also cleared the daemon's one shared log buffer, so any other attached client — another TUI session, the CLI, MCP — lost their log history too whenever one client cleared theirs; the `logs_clear` RPC is removed, since nothing else in the codebase used it.
+- Copying logs (and exporting them locally, without a daemon attached) now matches every currently active filter — regex search, source, multi-service selection, the since/until window, and the system-logs toggle — instead of an incomplete, separately reconstructed filter that could silently copy or export different lines than what was actually on screen.
+
 ### Added
 
 - File credential fallback stores metadata only; the access token stays in the keychain or the session cache.
