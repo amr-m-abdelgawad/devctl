@@ -40,6 +40,12 @@ export type Runtime = {
   startTime?: string;
   cpuPercent?: number;
   memoryKB?: number;
+  // Non-secret launch context: the profile in effect (empty if never
+  // explicitly started under one) and whether its environment's "process"
+  // layer came from a real client or the daemon's own fallback — never the
+  // resolved environment values themselves, which may hold secrets.
+  profile: string;
+  env_source: "client" | "daemon";
 };
 
 export function displayState(rt: Runtime): string {
@@ -65,6 +71,8 @@ export function emptyRuntime(name: string): Runtime {
     startTime: undefined,
     cpuPercent: undefined,
     memoryKB: undefined,
+    profile: "",
+    env_source: "daemon",
   };
 }
 

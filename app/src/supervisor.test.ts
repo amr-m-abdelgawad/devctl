@@ -1,5 +1,5 @@
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
@@ -935,6 +935,81 @@ describe("persisted state durability", () => {
     } finally {
       await sup2.stop(["api"]).catch(() => {});
       await sup1.stop(["api"]).catch(() => {});
+    }
+  }, 15_000);
+});
+
+describe("per-service launch context", () => {
+  test("start() records each service's own profile and environment source", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.profiles.backend = { services: ["api"], environment: {} };
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000);"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"], profile: "backend" });
+      expect(sup.snapshot().services.api?.profile).toBe("backend");
+      expect(sup.snapshot().services.api?.env_source).toBe("daemon");
+
+      await sup.restart(["api"], { clientEnv: { X: "1" } });
+      expect(sup.snapshot().services.api?.env_source).toBe("client");
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("a crash-restart resolves its environment from the service's own tracked profile, not whatever the daemon-wide fallback has since become", async () => {
+    const dir = tmp();
+    const markerFile = join(dir, "profile-marker.txt");
+    const doneFile = join(dir, "crashed-once.marker");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.profiles.backend = { services: ["flaky"], environment: { PROFILE_MARKER: "backend-marker" } };
+    cfg.services.flaky = {
+      ...emptyService(),
+      environment: { vars: { OUT_FILE: markerFile, CRASH_MARKER: doneFile }, required: [], defaults: {} },
+      command: {
+        args: [
+          process.execPath,
+          "-e",
+          "const fs=require('fs'); fs.writeFileSync(process.env.OUT_FILE, process.env.PROFILE_MARKER ?? 'unset'); if(!fs.existsSync(process.env.CRASH_MARKER)){fs.writeFileSync(process.env.CRASH_MARKER,'1'); process.exit(1);} setInterval(()=>{},1000);",
+        ],
+        shell: false,
+      },
+      restart: { policy: "always", max_retries: 5, backoff_seconds: 0.2 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["flaky"], profile: "backend" });
+      await waitForFileContent(markerFile, "backend-marker");
+      // Delete it so the check below can only pass on a fresh write from the
+      // post-crash-restart process, never stale content from this first one.
+      unlinkSync(markerFile);
+
+      // Simulates an unrelated service elsewhere being started under a
+      // different profile while flaky's crash-restart is still pending in
+      // its backoff window — the daemon-wide fallback moves, but flaky's
+      // own tracked context (recorded when it was started above) is what
+      // its crash-restart must actually resolve its environment from.
+      (sup as unknown as { profile: string }).profile = "frontend";
+      (sup as unknown as { profileEnv: Record<string, string> }).profileEnv = { PROFILE_MARKER: "frontend-marker" };
+
+      await waitFor(() => (sup.snapshot().services.flaky?.restarts ?? 0) > 0);
+      await waitForFileContent(markerFile, "backend-marker");
+    } finally {
+      await sup.stop(["flaky"]).catch(() => {});
     }
   }, 15_000);
 });

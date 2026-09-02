@@ -118,6 +118,15 @@ export class Supervisor {
   // intentionally never persisted: it does not survive a daemon replacement,
   // which must be restarted by a real client to pick up fresh env again.
   private readonly clientEnv = new Map<string, Record<string, string>>();
+  // Per-service: the profile (name + resolved env) in effect the last time
+  // this service was explicitly (re)started. Read by onExit's crash-restart
+  // and restart()'s own respawn so that starting a *different* service under
+  // a different profile — which moves the daemon-wide this.profile/
+  // this.profileEnv used as the fallback below — can never change what an
+  // unrelated, already-running service's next automatic restart resolves
+  // its environment with. Same never-persisted rationale as clientEnv.
+  private readonly serviceProfile = new Map<string, string>();
+  private readonly serviceProfileEnv = new Map<string, Record<string, string>>();
   // Bumped on every event that ends a service's current lifecycle epoch —
   // a fresh spawn, an adopted process, an explicit stop, or a terminal
   // failure — so an exit, health-check, or scheduled-restart callback
@@ -447,6 +456,12 @@ export class Supervisor {
         this.clientEnv.set(name, req.client_env);
       }
     }
+    // Every explicit start (client or MCP-initiated) records the profile
+    // context it resolved for each named service — see serviceProfile.
+    for (const name of resolved.services) {
+      this.serviceProfile.set(name, resolved.profile);
+      this.serviceProfileEnv.set(name, resolved.env);
+    }
     // A real start request forgives past restarts for everything it names —
     // see resetRestartCount. `auto` marks a start restart() issued for its
     // own automatic (health-triggered) relaunch, which must preserve the
@@ -499,7 +514,7 @@ export class Supervisor {
     for (const wave of plan.waves) {
       const launch = wave.filter((name) => pending.includes(name));
       if (launch.length > 0) {
-        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.env)));
+        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.profile, resolved.env)));
         let waveFailed = false;
         for (const result of results) {
           if (result.status === "rejected") {
@@ -610,7 +625,7 @@ export class Supervisor {
     return false;
   }
 
-  private async startOne(name: string, profileEnv: Record<string, string>): Promise<void> {
+  private async startOne(name: string, profile: string, profileEnv: Record<string, string>): Promise<void> {
     if (this.serviceIsActive(name)) {
       return;
     }
@@ -649,7 +664,7 @@ export class Supervisor {
     }
     const env = await resolveEnvironment(this.cfg.repoRoot, {
       service: name,
-      profile: this.profile,
+      profile,
       serviceCfg: svc,
       profileEnv,
       assignedPorts: assigned,
@@ -772,7 +787,13 @@ export class Supervisor {
       // stale record there until some unrelated later event persists again.
       this.persistState();
       this.armRestart(name, svc, gen, n, () => {
-        void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
+        // Use this service's own last-tracked profile context, not the
+        // daemon-wide fallback — an unrelated service started under a
+        // different profile in the meantime must not change what this one
+        // crash-restarts with.
+        const profile = this.serviceProfile.get(name) ?? this.profile;
+        const profileEnv = this.serviceProfileEnv.get(name) ?? this.profileEnv;
+        void this.startOne(name, profile, profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
       });
       return;
     }
@@ -860,7 +881,11 @@ export class Supervisor {
     const plan = cascade ? shutdownPlan(this.cfg, names) : shutdownPlanExact(this.cfg, names);
     const manual = opts?.auto !== true;
     await this.runStopPlan(plan, { resetRestartCounts: manual });
-    await this.start({ services: targets, profile: this.profile, client_env: opts?.clientEnv, auto: opts?.auto });
+    // Reuse whichever of these targets already has its own tracked profile
+    // context (see serviceProfile) rather than the daemon-wide this.profile,
+    // which an unrelated service's start may have since moved on from.
+    const profile = targets.map((name) => this.serviceProfile.get(name)).find((p) => p !== undefined) ?? this.profile;
+    await this.start({ services: targets, profile, client_env: opts?.clientEnv, auto: opts?.auto });
   }
 
   private async runStopPlan(plan: Plan, opts?: { resetRestartCounts?: boolean }): Promise<void> {
@@ -1049,7 +1074,12 @@ export class Supervisor {
   snapshot(): StatusSnapshot {
     const services: Record<string, Runtime> = {};
     for (const [name, rt] of this.runtimes) {
-      services[name] = { ...rt, ports: this.ports.get(name) ?? rt.ports };
+      services[name] = {
+        ...rt,
+        ports: this.ports.get(name) ?? rt.ports,
+        profile: this.serviceProfile.get(name) ?? rt.profile,
+        env_source: this.clientEnv.has(name) ? "client" : "daemon",
+      };
     }
     return {
       session_id: this.sessionID,
