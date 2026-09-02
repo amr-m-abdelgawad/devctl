@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -86,6 +86,64 @@ export function statePath(repoRoot: string): string {
 // don't interleave their startup errors in one file.
 export function bootstrapLogPath(repoRoot: string): string {
   return join(sessionDir(repoRoot), "bootstrap.log");
+}
+
+export const BOOTSTRAP_LOG_HISTORY = 5;
+const BOOTSTRAP_LOG_PREFIX = "bootstrap-";
+
+// ensureSupervisor() opens bootstrapLogPath() with Bun.file() as the new
+// child's stderr sink, which truncates on open — so without this, every
+// failed boot attempt silently erases the previous one's stderr, leaving
+// only the latest when a user goes looking for why the daemon won't start.
+// Call this right before spawning: it moves whatever is currently at
+// bootstrapLogPath() aside under its own bounded, timestamped rotation —
+// entirely separate from how service logs are persisted/pruned
+// (LogManager's per-session directories) — so the next Bun.file() open
+// starts fresh while recent history survives.
+export function rotateBootstrapLog(repoRoot: string): void {
+  const current = bootstrapLogPath(repoRoot);
+  if (!existsSync(current)) {
+    return;
+  }
+  const dir = sessionDir(repoRoot);
+  const rotated = join(dir, `${BOOTSTRAP_LOG_PREFIX}${newSessionID()}.log`);
+  try {
+    renameSync(current, rotated);
+  } catch {
+    return;
+  }
+  pruneBootstrapLogs(dir);
+}
+
+function pruneBootstrapLogs(dir: string): void {
+  let names: string[];
+  try {
+    names = readdirSync(dir).filter((name) => name.startsWith(BOOTSTRAP_LOG_PREFIX) && name.endsWith(".log"));
+  } catch {
+    return;
+  }
+  // Ordered by actual mtime rather than by name: newSessionID()'s stamp is
+  // only second-resolution, so several rotations within one second (a fast
+  // crash loop) would otherwise tie-break on their random suffix alone and
+  // risk pruning a newer attempt instead of an older one.
+  const files = names
+    .map((name) => {
+      const path = join(dir, name);
+      try {
+        return { path, mtime: statSync(path).mtimeMs };
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((entry): entry is { path: string; mtime: number } => entry !== undefined)
+    .sort((a, b) => b.mtime - a.mtime);
+  for (let i = BOOTSTRAP_LOG_HISTORY; i < files.length; i++) {
+    try {
+      unlinkSync(files[i]!.path);
+    } catch {
+      // best-effort cleanup; a failed unlink here isn't worth surfacing
+    }
+  }
 }
 
 export function writeFileSecure(path: string, data: string | Buffer): void {

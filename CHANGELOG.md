@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `tui.json`'s `cursor`, `scroll_acceleration`, `diff_style`, and `attention` fields are no longer documented or included in the starter file — none of them were ever wired up to anything the TUI reads. Parsing them is unchanged, so a `tui.json` that already sets any of them keeps loading cleanly.
+
+### Fixed
+
+- Configuration merging (root overlays, local overlays, modular per-service files, and template inheritance) now checks whether a raw YAML key was actually present instead of comparing its decoded value against a zero default, so an explicit `false`, `0`, or `[]` is applied instead of being silently discarded as "not set." Several latent instances of the same bug are fixed alongside it: `proxy.enabled`/`proxy.token_endpoint.enabled`, the four `logs.persistence.*` fields, `auth.refresh_threshold_seconds`, `ui.keymap`, and `secrets.extra_markers`/`extra_patterns` could all be unconditionally overwritten or wiped by an overlay that didn't repeat every sibling field.
+- `devctl logs export --output <path>` failed every invocation with "required option '--output <path>' not specified" regardless of what was passed: the parent `logs` command's own (optional) `--output` claimed the value before the `export` subcommand's own (required) copy ever saw it. Both `devctl logs --output <path>` and `devctl logs export --output <path>` now also resolve a relative path against the CLI's own working directory before sending it to the daemon, instead of the daemon's — a long-running background process that can have an unrelated one — matching how the TUI's own `/export` already worked.
+- `mcp_start` (`devctl mcp --on` with no `--port`, or any on-demand MCP toggle) now falls back to the saved `mcp_port` preference before the repo-derived default, matching what daemon boot already does; it previously ignored a previously chosen port whenever MCP was started outside the boot path.
+- The dotenv family now loads `.env.local` after `.env.development`, so a developer's personal, gitignored `.env.local` correctly outranks a checked-in, team-shared `.env.development` instead of being silently overridden by it.
+- A proxy route with `auth.type: none` now ignores any leftover `auth.identity`, matching how the proxy's own request handling already treats "none." A stale identity left over from a template or an earlier config could otherwise make service-account bookkeeping — and, transitively, Google Cloud/ADC preflight checks — require an identity the route will never actually use.
+- `--config` pointing directly at a `.devctl` directory now resolves the repository root to its parent correctly on every platform, including Windows, and even when that directory already contains `config.yaml` (the ordinary case) — both a hardcoded `/`-splitting path check and a check-ordering bug previously made this resolve to the `.devctl` directory itself instead.
+- `config.yaml`'s `ui.keymap` is now actually applied to the TUI's keybindings, below every `tui.json` layer; it was previously parsed and summarized on the config screen but never affected any real keybinding.
+- The TUI's `/clear` command now only clears its own on-screen log view. It previously also cleared the daemon's one shared log buffer, so any other attached client — another TUI session, the CLI, MCP — lost their log history too whenever one client cleared theirs; the `logs_clear` RPC is removed, since nothing else in the codebase used it.
+- Copying logs (and exporting them locally, without a daemon attached) now matches every currently active filter — regex search, source, multi-service selection, the since/until window, and the system-logs toggle — instead of an incomplete, separately reconstructed filter that could silently copy or export different lines than what was actually on screen.
+
 ### Added
 
 - File credential fallback stores metadata only; the access token stays in the keychain or the session cache.
@@ -70,6 +86,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `devctl status` and `devctl down` silently ignored the global `--config` flag (only `--repo` worked); both now honor `--config` the same as every other command.
 - The TUI could fail to open at all when the on-disk configuration was invalid or deleted, even with a live daemon still attachable. It now attaches independent of local configuration validity, falling back to local parsing — to spawn a daemon, open setup, or report a real error — only when no daemon is reachable.
 - `Bun.spawn()`'s default environment is a snapshot of this process's own `process.env` taken at its own launch, not a live view of it; the supervisor spawned for `start`/`attach` now receives the caller's live environment explicitly, so runtime env changes (e.g. Google Cloud metadata-server detection overrides) reach it correctly.
+
+### Added
+
+- `restart --cascade` (and MCP `restart_services`' `cascade` argument) also restarts a service's transitive dependents; a plain restart touches only the service named.
+- Reload reconciles running services against the new configuration: a newly added service appears immediately as stopped; an already-stopped removed service is forgotten; a still-running removed service is marked orphaned — stoppable by name, but no longer restartable or reachable by a cascade. A reload referencing a health or identity plugin type nothing provides is rejected outright, the same as an unparseable config file.
+- `Runtime` reports non-secret per-service launch context: `profile`, `env_source` (`client` or `daemon`), and `orphaned`.
+- Identity status gains `service_account_status` (`unknown` / `available` / `unavailable`) per configured service account, alongside the existing boolean compatibility map (which now omits identities nothing has probed yet, rather than defaulting them to unavailable).
+
+### Changed
+
+- **Breaking:** `devctl stop x` (and a cascading `restart x --cascade`) now stops `x` and its transitive **dependents** — never its dependencies, which other running services may still need. Previously it stopped `x`'s dependencies instead, which was backwards.
+- Service-account probing is lazy and cached, not automatic: a real token fetch per configured identity now only happens on first use (a service actually starting under it), an explicit `auth_refresh`, or a doctor inspection — never on the daemon's own boot or after a reload, which only ever refresh ADC/user/project metadata.
+
+### Fixed
+
+- A slow health check still in flight when its service crashed and restarted under a new pid could land on and corrupt the newer process's state instead of being recognized as stale.
+- A port-assignment conflict discovered while assigning a later service in the list could mark an unrelated, earlier-pending service failed instead of the service the conflict actually named.
+- A service's restart count stayed maxed out across a manual stop/start (or the stop/start half of a client-requested restart), so the very next crash could fail it outright instead of getting a fresh retry budget; it now also resets after the service has run healthily for long enough. An automatic, health-triggered restart still preserves the count across its own stop/start cycle, so `max_retries` remains an actual limit.
+- Supervisor state was persisted only once, at the very end of a whole start or stop plan: an earlier wave's successfully spawned processes, and a crash-restart's respawn (which never goes through the batched path at all), could be lost to a daemon crash instead of being adoptable on the next boot. State is now persisted right after each spawn, adoption, exit, and failure.
+- Adopting an already-listening service via its configured port stamped its start time as "now" instead of the real, already-verified persisted start time, understating its uptime and poisoning the record a future adoption would check identity against.
+- Starting a different service under a different profile could silently change what environment an unrelated, already-running service's next crash-restart resolved with, since both read the same daemon-wide fallback; each service now keeps its own last-used profile and environment.
+- An adopted process's command-type health check ran with a completely empty environment, unable to even resolve `PATH` to find its own executable; it's now reconstructed from the same configured, reproducible sources (profile, dotenv, defaults/vars, secrets, runtime) a fresh start would use.
+- An unhandled error on an accepted RPC client socket (an abrupt disconnect — killed, crashed, a network blip) crashed the whole daemon; it's now logged and handled like an ordinary disconnect.
+
+### Added
+
+- `devctl logs -f`, `devctl status --watch`, and `devctl daemon logs [-f]` follow their output live from the terminal until interrupted.
+- Log queries are cursor-paginated instead of unbounded: a page defaults to the latest 500 matching events (maximum 5,000), identified by an opaque cursor that supports paging both backward (older) and forward (newer); `since`/`until` timestamp filters keep working alongside it. CLI, TUI, and MCP's `get_logs` all use it.
+- Server-side log facets: total matching events, plus per-service/level/source counts (each under every other active filter but its own), via a new lightweight stats-only query. The TUI refreshes them live every two seconds while its logs screen is open, and immediately after a filter change, a clear, or reconnecting.
+- The detached supervisor's bootstrap log keeps a short rotated history (the 5 most recent boot attempts) instead of each new attempt silently overwriting the last one's stderr.
+
+### Changed
+
+- The TUI's logs screen fetches a bounded page instead of the entire matching log history on every filter change, and only fetches further back into history as you actually scroll there; live-streamed events keep arriving incrementally on top, with no duplicate or dropped events among ones sharing the same millisecond.
+- MCP `get_logs` follows by an opaque `cursor`/`next_cursor` instead of `since`/`next_since`; a plain timestamp cursor could duplicate or drop whichever of several same-millisecond events landed on the wrong side of a page boundary, which a sequence-based cursor cannot. `since`/`until` are now plain inclusive filters for a fresh query rather than doubling as a follow mechanism. The response also gains `has_more` (more events are already waiting — fetch again immediately rather than waiting out the poll interval) and `session_changed` (the daemon restarted since the given cursor was issued, so the latest page was returned instead).
+
+### Fixed
+
+- `devctl status --watch` and `devctl logs -f` no longer crash (and could hang indefinitely retrying the same failing write) when their output is piped into something that closes early, like `| head`, or a terminal that goes away mid-stream — writing to a closed stdout now ends that command quietly instead.
 
 ## [0.1.0] - 2026-08-30
 

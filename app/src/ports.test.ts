@@ -71,4 +71,19 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
       await held.close();
     }
   });
+
+  test("an invalid port is attributed to the service that declared it", async () => {
+    const cfg = defaultConfig();
+    cfg.services.api = { ...emptyService(), ports: [{ name: "http", value: 0, auto: false }] };
+    await expect(assignPorts(cfg, ["api"])).rejects.toMatchObject({ service: "api" });
+  });
+
+  test("a duplicate port is attributed to the service whose assignment actually collides, not an unrelated one", async () => {
+    const cfg = defaultConfig();
+    cfg.services.a = { ...emptyService(), ports: [{ name: "http", value: 19_999, auto: false }] };
+    cfg.services.b = { ...emptyService(), ports: [{ name: "http", value: 19_999, auto: false }] };
+    // a claims 19999 first (no conflict yet); b is the one whose assignment
+    // discovers the collision — it must be blamed, not a.
+    await expect(assignPorts(cfg, ["a", "b"])).rejects.toMatchObject({ service: "b" });
+  });
 });

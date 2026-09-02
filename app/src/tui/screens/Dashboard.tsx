@@ -5,7 +5,7 @@ import { EmptyState } from "../chrome.tsx";
 import { serviceColor, stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../config/index.ts";
 import { type GoogleStatus } from "../../google.ts";
-import { type LogEvent } from "../../logs.ts";
+import { type LogEvent, type LogFacets } from "../../logs.ts";
 import { HealthUnhealthy, StateFailed, StateRestarting, type Runtime } from "../../services.ts";
 import { sessionStartedAt } from "../../storage.ts";
 import { type StatusSnapshot } from "../../types.ts";
@@ -47,6 +47,7 @@ export function Dashboard(props: {
   viewTotal?: number;
   newer?: number;
   onJumpLatest?: () => void;
+  facets?: LogFacets;
 }) {
   const {
     palette,
@@ -83,6 +84,7 @@ export function Dashboard(props: {
     viewTotal,
     newer = 0,
     onJumpLatest,
+    facets,
   } = props;
   const scale = useDensity();
   if (!cfg || names.length === 0) {
@@ -176,7 +178,7 @@ export function Dashboard(props: {
           items={[
             { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
             { text: `shown ${visible.length}`, tone: "info" },
-            { text: `total ${logs.length}` },
+            { text: facets ? `total ${facets.total}` : `total ${logs.length}` },
             { text: scope, tone: logService === "" ? "idle" : "primary" },
             { text: errorOnly ? "ERROR+" : "all levels", tone: errorOnly ? "error" : "idle", onMouseDown: onToggleErrors },
             { text: showSystemLogs ? "system: on" : "system: off", tone: showSystemLogs ? "accent" : "idle", onMouseDown: onToggleSystemLogs },
@@ -192,6 +194,7 @@ export function Dashboard(props: {
           width={logWidth}
           onService={onFilterService}
           onToggleErrors={onToggleErrors}
+          facets={facets}
         />
         {shownTotal > shown.length ? (
           <LogHistoryBar palette={palette} start={viewStart} count={shown.length} total={shownTotal} />

@@ -117,4 +117,60 @@ describe("tui.json", () => {
       }
     }
   });
+
+  test("a tui.json with legacy cursor/scroll_acceleration/diff_style/attention fields still parses without error", () => {
+    // These fields were once advertised as configurable (in the starter
+    // app/tui.json and docs/typescript.md) but were never actually wired up
+    // to anything the TUI reads. They're no longer advertised, but an
+    // existing user's tui.json that still has them from before must keep
+    // loading cleanly — dropping the advertisement is not the same as
+    // dropping parse support.
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-legacy-fields-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "tui.json"),
+      JSON.stringify({
+        theme: "nord",
+        cursor: { style: "underline", blinking: false },
+        scroll_acceleration: { enabled: true },
+        diff_style: "stacked",
+        attention: { enabled: true, sound: true, sound_pack: "chime" },
+      }),
+    );
+    expect(() => loadTuiConfig(dir)).not.toThrow();
+    // A genuinely supported field alongside them still merges correctly.
+    expect(loadTuiConfig(dir).theme).toBe("nord");
+  });
+
+  test("a YAML ui.keymap applies on top of the hardcoded defaults", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-yaml-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
+    expect(cfg.keybinds.leader).toBe("ctrl+z");
+    expect(cfg.keybinds.quit).toBe("x");
+    // Untouched bindings still come from the hardcoded defaults.
+    expect(cfg.keybinds.command_list).toBe("ctrl+p");
+  });
+
+  test("tui.json still wins over a YAML ui.keymap for the same binding", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-yaml-precedence-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    try {
+      writeFileSync(userTuiConfigPath(), JSON.stringify({ keybinds: { leader: "ctrl+y" } }));
+      // The YAML keymap sets both leader and quit; tui.json only overrides
+      // leader, so quit must still come from the YAML layer underneath it —
+      // this is a per-key merge, not tui.json wholesale replacing it.
+      const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
+      expect(cfg.keybinds.leader).toBe("ctrl+y");
+      expect(cfg.keybinds.quit).toBe("x");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
 });

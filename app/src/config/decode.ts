@@ -5,13 +5,11 @@ import {
   emptyIdentity,
   emptyService,
   type Command,
-  type DevctlConfig,
   type EnvConfig,
   type HealthCheckConfig,
   type IdentityConfig,
   type PortSpec,
   type ProfileConfig,
-  type ProxyConfig,
   type RestartConfig,
   type RouteAuthConfig,
   type RouteConfig,
@@ -22,6 +20,14 @@ import {
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// The set of top-level keys a raw YAML node actually declared — the only
+// reliable way to tell "explicitly set to false/0/[]" apart from "not set
+// at all", since both decode to the same zero value. Merge functions use
+// this instead of comparing a decoded value against its zero default.
+export function presentKeys(value: unknown): Set<string> {
+  return isRecord(value) ? new Set(Object.keys(value)) : new Set();
 }
 
 export function asString(value: unknown): string {
@@ -255,94 +261,7 @@ export function decodeRoute(value: unknown): RouteConfig {
   };
 }
 
-export function applyRoot(cfg: DevctlConfig, raw: Record<string, unknown>): void {
-  if (raw.version !== undefined) {
-    cfg.version = asNumber(raw.version);
-  }
-  if (isRecord(raw.project)) {
-    cfg.project.name = asString(raw.project.name);
-  }
-  if (isRecord(raw.google)) {
-    cfg.google.project_id = asString(raw.google.project_id);
-    cfg.google.region = asString(raw.google.region);
-  }
-  if (isRecord(raw.profiles)) {
-    for (const [name, value] of Object.entries(raw.profiles)) {
-      cfg.profiles[name] = decodeProfile(value);
-    }
-  }
-  if (isRecord(raw.templates)) {
-    for (const [name, value] of Object.entries(raw.templates)) {
-      cfg.templates[name] = decodeService(value);
-    }
-  }
-  if (isRecord(raw.services)) {
-    for (const [name, value] of Object.entries(raw.services)) {
-      cfg.services[name] = decodeService(value);
-    }
-  }
-  if (isRecord(raw.proxy)) {
-    applyProxy(cfg.proxy, raw.proxy);
-  }
-  if (isRecord(raw.logs)) {
-    cfg.logs.max_memory_events = asNumber(raw.logs.max_memory_events) || cfg.logs.max_memory_events;
-    if (isRecord(raw.logs.persistence)) {
-      cfg.logs.persistence.enabled = raw.logs.persistence.enabled !== false;
-      cfg.logs.persistence.directory = asString(raw.logs.persistence.directory) || cfg.logs.persistence.directory;
-      cfg.logs.persistence.retention_days = asNumber(raw.logs.persistence.retention_days) || cfg.logs.persistence.retention_days;
-      cfg.logs.persistence.max_session_logs = asNumber(raw.logs.persistence.max_session_logs);
-    }
-  }
-  if (isRecord(raw.auth)) {
-    cfg.auth.refresh_threshold_seconds = asNumber(raw.auth.refresh_threshold_seconds) || cfg.auth.refresh_threshold_seconds;
-  }
-  if (isRecord(raw.shutdown)) {
-    if (raw.shutdown.stop_services_on_exit !== undefined) {
-      cfg.shutdown.stop_services_on_exit = asBoolean(raw.shutdown.stop_services_on_exit);
-    }
-    if (raw.shutdown.grace_seconds !== undefined) {
-      cfg.shutdown.grace_seconds = asNumber(raw.shutdown.grace_seconds);
-    }
-  }
-  if (isRecord(raw.ui)) {
-    cfg.ui.theme = asString(raw.ui.theme) || cfg.ui.theme;
-    cfg.ui.keymap = asStringMap(raw.ui.keymap);
-  }
-  if (isRecord(raw.secrets)) {
-    cfg.secrets.extra_markers = asStringArray(raw.secrets.extra_markers);
-    cfg.secrets.extra_patterns = asStringArray(raw.secrets.extra_patterns);
-  }
-  if (isRecord(raw.doctor) && Array.isArray(raw.doctor.tools)) {
-    cfg.doctor.tools = raw.doctor.tools.filter(isRecord).map((tool) => ({
-      name: asString(tool.name),
-      command: asString(tool.command),
-    }));
-  }
-  if (Array.isArray(raw.plugins)) {
-    cfg.plugins = raw.plugins.filter(isRecord).map((plugin) => ({ path: asString(plugin.path) })).filter((plugin) => plugin.path !== "");
-  }
-  if (isRecord(raw.environment)) {
-    if (Array.isArray(raw.environment.sources)) {
-      cfg.environment.sources = asStringArray(raw.environment.sources);
-    }
-    if (isRecord(raw.environment.secrets)) {
-      cfg.environment.secrets = { ...cfg.environment.secrets, ...asStringMap(raw.environment.secrets) };
-    }
-  }
-}
-
-function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {
-  proxy.enabled = asBoolean(raw.enabled);
-  if (isRecord(raw.listen)) {
-    proxy.listen.host = asString(raw.listen.host) || proxy.listen.host;
-    proxy.listen.port = asNumber(raw.listen.port) || proxy.listen.port;
-  }
-  if (isRecord(raw.token_endpoint)) {
-    proxy.token_endpoint.enabled = asBoolean(raw.token_endpoint.enabled);
-    proxy.token_endpoint.host = asString(raw.token_endpoint.host);
-    proxy.token_endpoint.port = asNumber(raw.token_endpoint.port);
-  }
-  if (Array.isArray(raw.routes)) {
-    proxy.routes = raw.routes.map((route) => decodeRoute(route));
-  }
-}
+// applyRoot() and applyProxy() live in merge.ts now — they need mergeService/
+// mergeProfile to merge services/profiles/templates against whatever's
+// already in cfg (from an earlier file in the same load) rather than just
+// decoding into a fresh object, and merge.ts is where that merge logic lives.

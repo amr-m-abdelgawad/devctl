@@ -40,6 +40,17 @@ export type Runtime = {
   startTime?: string;
   cpuPercent?: number;
   memoryKB?: number;
+  // Non-secret launch context: the profile in effect (empty if never
+  // explicitly started under one) and whether its environment's "process"
+  // layer came from a real client or the daemon's own fallback — never the
+  // resolved environment values themselves, which may hold secrets.
+  profile: string;
+  env_source: "client" | "daemon";
+  // Set when this service was removed from configuration (by a reload)
+  // while still running. Its dependency graph is gone along with its
+  // config entry, so it can only be stopped directly, never cascaded to or
+  // restarted — devctl has nothing left to relaunch it with.
+  orphaned: boolean;
 };
 
 export function displayState(rt: Runtime): string {
@@ -65,6 +76,9 @@ export function emptyRuntime(name: string): Runtime {
     startTime: undefined,
     cpuPercent: undefined,
     memoryKB: undefined,
+    profile: "",
+    env_source: "daemon",
+    orphaned: false,
   };
 }
 
@@ -86,24 +100,12 @@ export type Plan = {
   blockers?: PlanBlocker[];
 };
 
-export function startupPlan(cfg: DevctlConfig, selected: string[], profile: string): Plan {
-  const needed: Record<string, boolean> = {};
-  const visit = (name: string): void => {
-    if (needed[name]) {
-      return;
-    }
-    const svc = cfg.services[name];
-    if (!svc) {
-      throw newError(KindServiceNotFound, `unknown service "${name}"`);
-    }
-    needed[name] = true;
-    for (const dep of svc.dependencies) {
-      visit(dep);
-    }
-  };
-  for (const name of selected) {
-    visit(name);
-  }
+// Topologically sorts an already-determined set of services into
+// dependency-respecting waves (a service's dependencies, restricted to this
+// same set, all come out in an earlier wave). Shared by startupPlan (whose
+// "needed" set is a dependency closure) and shutdownPlan/shutdownPlanExact
+// (whose "needed" set is a dependents closure, or the exact selection).
+function wavesForSet(cfg: DevctlConfig, needed: Record<string, boolean>): string[][] {
   const indegree: Record<string, number> = {};
   const edges: Record<string, string[]> = {};
   for (const name of Object.keys(needed)) {
@@ -139,6 +141,31 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
       }
     }
   }
+  return waves;
+}
+
+function requireKnown(cfg: DevctlConfig, name: string): void {
+  if (!cfg.services[name]) {
+    throw newError(KindServiceNotFound, `unknown service "${name}"`);
+  }
+}
+
+export function startupPlan(cfg: DevctlConfig, selected: string[], profile: string): Plan {
+  const needed: Record<string, boolean> = {};
+  const visit = (name: string): void => {
+    if (needed[name]) {
+      return;
+    }
+    requireKnown(cfg, name);
+    needed[name] = true;
+    for (const dep of cfg.services[name]?.dependencies ?? []) {
+      visit(dep);
+    }
+  };
+  for (const name of selected) {
+    visit(name);
+  }
+  const waves = wavesForSet(cfg, needed);
   const steps: PlanStep[] = [];
   waves.forEach((wave, i) => {
     for (const name of wave) {
@@ -152,9 +179,36 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
   return { profile, steps, waves, blockers: [] };
 }
 
-export function shutdownPlan(cfg: DevctlConfig, selected: string[]): Plan {
-  const start = startupPlan(cfg, selected, "");
-  const waves = [...start.waves].reverse().map((wave) => [...wave].sort());
+// Every service that depends on `selected`, directly or transitively,
+// including `selected` itself — the reverse of startupPlan's dependency
+// closure. Exported so a cascading restart can start back up exactly what
+// shutdownPlan stopped.
+export function dependentsClosure(cfg: DevctlConfig, selected: string[]): string[] {
+  const dependents: Record<string, string[]> = {};
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    for (const dep of svc.dependencies) {
+      dependents[dep] = [...(dependents[dep] ?? []), name];
+    }
+  }
+  const needed: Record<string, boolean> = {};
+  const visit = (name: string): void => {
+    if (needed[name]) {
+      return;
+    }
+    requireKnown(cfg, name);
+    needed[name] = true;
+    for (const dependent of dependents[name] ?? []) {
+      visit(dependent);
+    }
+  };
+  for (const name of selected) {
+    visit(name);
+  }
+  return Object.keys(needed);
+}
+
+function reversedPlanForSet(cfg: DevctlConfig, needed: Record<string, boolean>): Plan {
+  const waves = [...wavesForSet(cfg, needed)].reverse().map((wave) => [...wave].sort());
   const steps: PlanStep[] = [];
   waves.forEach((wave, i) => {
     for (const name of wave) {
@@ -162,6 +216,28 @@ export function shutdownPlan(cfg: DevctlConfig, selected: string[]): Plan {
     }
   });
   return { steps, waves, profile: "", blockers: [] };
+}
+
+// stop x must also stop everything that depends on x, directly or
+// transitively — never x's own dependencies, which other running services
+// may still need. This is the public semantics for `devctl stop` and plain
+// `devctl down`; it is the mirror image of startupPlan's dependency
+// closure, walking the reverse edge (who depends on me) instead.
+export function shutdownPlan(cfg: DevctlConfig, selected: string[]): Plan {
+  const needed = Object.fromEntries(dependentsClosure(cfg, selected).map((name) => [name, true]));
+  return reversedPlanForSet(cfg, needed);
+}
+
+// Stops exactly the named services, in dependency-respecting order, with no
+// dependents expansion — what a plain `restart x` (no --cascade) uses so it
+// never touches anything downstream of x.
+export function shutdownPlanExact(cfg: DevctlConfig, selected: string[]): Plan {
+  const needed: Record<string, boolean> = {};
+  for (const name of selected) {
+    requireKnown(cfg, name);
+    needed[name] = true;
+  }
+  return reversedPlanForSet(cfg, needed);
 }
 
 export function formatPlan(plan: Plan): string {

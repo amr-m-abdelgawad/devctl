@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { hintError, KindConfigurationMissing, wrapError } from "../errors.ts";
 
 export const ConfigDirName = ".devctl";
@@ -42,17 +42,20 @@ function discoverExplicit(explicit: string): { repoRoot: string; configPath: str
     throw wrapError(KindConfigurationMissing, "config path not found", err);
   }
   if (info.isDirectory()) {
-    const cfg = join(abs, ConfigFileName);
-    if (fileExists(cfg)) {
-      return { repoRoot: abs, configPath: cfg };
+    // Whether abs is named .devctl decides repoRoot on its own — it must
+    // not depend on config.yaml already existing inside it. That existence
+    // check used to run first and win whenever the file was already there
+    // (the ordinary case), so this branch was effectively unreachable and
+    // an explicit --config pointing at .devctl resolved repoRoot to .devctl
+    // itself instead of its parent, contradicting the documented contract
+    // ("repository root is the directory that contains .devctl").
+    if (basename(abs) === ConfigDirName) {
+      return { repoRoot: dirname(abs), configPath: join(abs, ConfigFileName) };
     }
-    if (abs.endsWith(ConfigDirName) || abs.split("/").pop() === ConfigDirName) {
-      return { repoRoot: dirname(abs), configPath: cfg };
-    }
-    return { repoRoot: abs, configPath: cfg };
+    return { repoRoot: abs, configPath: join(abs, ConfigFileName) };
   }
   let root = dirname(abs);
-  if (root.split("/").pop() === ConfigDirName) {
+  if (basename(root) === ConfigDirName) {
     root = dirname(root);
   }
   return { repoRoot: root, configPath: abs };

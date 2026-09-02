@@ -5,9 +5,9 @@ import { resolveDaemonTarget } from "./daemon.ts";
 import { osEnviron } from "./environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
-import { type LogEvent } from "./logs.ts";
+import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { type Plan } from "./services.ts";
-import { bootstrapLogPath, socketPath } from "./storage.ts";
+import { bootstrapLogPath, rotateBootstrapLog, socketPath } from "./storage.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
@@ -19,7 +19,7 @@ const RPC_CALL_TIMEOUT_MS = 30_000;
 // daemon: removing it (`down` → the "shutdown" call, made directly on
 // Client rather than through Controller.call) and reading its logs so the
 // user has something to look at before deciding to run `down`.
-const ALWAYS_ALLOWED_METHODS = new Set(["logs"]);
+const ALWAYS_ALLOWED_METHODS = new Set(["logs", "logs_page", "logs_stats"]);
 
 export type DaemonCompat = {
   compatible: boolean;
@@ -226,13 +226,17 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
   if (existing) {
     return existing;
   }
+  rotateBootstrapLog(repoRoot);
   const bootstrapLog = bootstrapLogPath(repoRoot);
+  // --config is root's own global option, so with root's positional-options
+  // parsing it must precede the _supervisor subcommand name; --repo belongs
+  // to _supervisor itself and can stay after it.
   const cmd = supervisorSpawnCommand(process.execPath, process.argv[1] ?? "", Bun.isStandaloneExecutable === true, [
+    "--config",
+    configPath,
     "_supervisor",
     "--repo",
     repoRoot,
-    "--config",
-    configPath,
   ]);
   const child = spawn({
     cmd,
@@ -273,8 +277,8 @@ export class Controller {
     await this.call("stop", { services });
   }
 
-  async restart(services: string[]): Promise<void> {
-    await this.call("restart", { services, client_env: osEnviron() });
+  async restart(services: string[], cascade?: boolean): Promise<void> {
+    await this.call("restart", { services, cascade: cascade === true, client_env: osEnviron() });
   }
 
   async status(): Promise<StatusSnapshot> {
@@ -295,6 +299,17 @@ export class Controller {
     return raw.events ?? [];
   }
 
+  async logsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
+    return (await this.call("logs_page", req)) as LogPage;
+  }
+
+  // Deliberately lightweight: no event payload, so a follow-mode consumer
+  // can poll this every couple of seconds for live facet counts without
+  // re-fetching (and re-transferring) events it already has.
+  async logsStats(req: LogFilter): Promise<LogFacets> {
+    return (await this.call("logs_stats", req)) as LogFacets;
+  }
+
   async proxyStart(): Promise<void> {
     await this.call("proxy_start", null);
   }
@@ -313,10 +328,6 @@ export class Controller {
 
   async reload(): Promise<ReloadResult> {
     return (await this.call("reload", null)) as ReloadResult;
-  }
-
-  async clearLogs(): Promise<void> {
-    await this.call("logs_clear", null);
   }
 
   async invalidateAuth(): Promise<void> {

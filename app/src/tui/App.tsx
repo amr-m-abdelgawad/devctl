@@ -9,7 +9,7 @@ import { freePort, type PortHolder } from "../ports.ts";
 import { detectGoogle, type GoogleStatus } from "../google.ts";
 import { humanMessage } from "../errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogReceived, type BusEvent } from "../events.ts";
-import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent } from "../logs.ts";
+import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent, type LogFacets } from "../logs.ts";
 import { exportsDir } from "../storage.ts";
 import { resolveStartRequest, shutdownPlan, startupPlan, type Plan } from "../services.ts";
 import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
@@ -19,7 +19,7 @@ import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, 
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
+import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
   isClearLogsKey,
@@ -82,6 +82,7 @@ import { defaultCopyKeybind, saveTuiPreferences, type TuiConfig, type TuiPrefere
 
 const COMMAND_LOCK_MS = 50;
 const NO_LOG_SERVICES: string[] = [];
+const FACETS_POLL_MS = 2000;
 
 type AppProps = {
   controller?: Controller;
@@ -179,6 +180,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [logSelected, setLogSelected] = useState(LOG_LIST_TAIL - 1);
   const [logsFullscreen, setLogsFullscreen] = useState(false);
   const [dashboardLogCursor, setDashboardLogCursor] = useState(-1);
+  const [logFacets, setLogFacets] = useState<LogFacets | undefined>();
+  const [logPrevCursor, setLogPrevCursor] = useState("");
+  const [logHasPrevPage, setLogHasPrevPage] = useState(false);
+  const [loadingOlderLogs, setLoadingOlderLogs] = useState(false);
+  const logsRef = useRef<LogEvent[]>([]);
   const configScrollRef = useRef<ScrollBoxRenderable>(null);
   const helpScrollRef = useRef<ScrollBoxRenderable>(null);
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
@@ -573,29 +579,57 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     [copyMcpSnippet, mcpPort, snap?.mcp?.address, snap?.mcp?.port, snap?.mcp?.token],
   );
 
+  const currentLogFilter = useMemo(
+    () => ({
+      services: logService !== "" ? [logService] : logServices,
+      level: errorOnly ? "ERROR" : logLevel,
+      search: logSearch,
+      regex: logRegex,
+      source: logSource,
+      since: logSince,
+      until: logUntil,
+    }),
+    [errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil],
+  );
+
+  // Deliberately lightweight (no event payload) — safe to poll on a timer
+  // and after every filter change without re-transferring events already
+  // held locally.
+  const refreshFacets = useCallback(async () => {
+    if (!controller) {
+      return;
+    }
+    try {
+      setLogFacets(await controller.logsStats(currentLogFilter));
+    } catch (err) {
+      setStatus(humanMessage(err));
+    }
+  }, [controller, currentLogFilter]);
+
   const refreshLogs = useCallback(async () => {
     if (!controller || paused) {
       return;
     }
     try {
-      const events = await controller.logs({
-        level: errorOnly ? "ERROR" : logLevel,
-        search: logSearch,
-        regex: logRegex,
-        source: logSource,
-      });
-      setLogs(visibleLogs(events, logSince));
+      const page = await controller.logsPage(currentLogFilter);
+      setLogs((current) => mergeLoadedPage(current, page.events));
+      setLogPrevCursor(page.prevCursor);
+      setLogHasPrevPage(page.hasPrev);
+      await refreshFacets();
     } catch (err) {
       setStatus(humanMessage(err));
     }
-  }, [controller, errorOnly, logLevel, logRegex, logSearch, logSince, logSource, paused]);
+  }, [controller, currentLogFilter, paused, refreshFacets]);
 
+  // Client-local: hides everything up to now from this view via logSince,
+  // without touching the daemon's shared log buffer — other attached
+  // clients (another TUI session, the CLI, MCP) keep their own history.
   const clearLogs = useCallback(() => {
     setLogs([]);
     setLogSince(new Date().toISOString());
-    void controller?.clearLogs();
+    setLogPinned(false);
     setStatus("Cleared on-screen log buffer");
-  }, [controller]);
+  }, []);
 
   const toggleSystemLogs = useCallback(() => {
     setShowSystemLogs((v) => !v);
@@ -604,6 +638,53 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   useEffect(() => {
     void refresh().then(() => refreshLogs());
   }, [refresh, refreshLogs]);
+
+  useEffect(() => {
+    logsRef.current = logs;
+  }, [logs]);
+
+  // Fetch older pages only while scrolling: the user has paged all the way
+  // back to the top of what's currently loaded, and the server has more
+  // history for the active filter. Sequence-based cursors make this safe to
+  // interleave with events still streaming in live (see mergeLoadedPage).
+  useEffect(() => {
+    if (!controller || loadingOlderLogs || !needsOlderLogPage(logPinned, logWindow.start, logHasPrevPage)) {
+      return;
+    }
+    setLoadingOlderLogs(true);
+    void controller
+      .logsPage({ ...currentLogFilter, cursor: logPrevCursor, direction: "backward" })
+      .then((older) => {
+        if (older.sessionChanged) {
+          setStatus("Daemon session changed — older log history is no longer available");
+          setLogHasPrevPage(false);
+          return;
+        }
+        const before = logsRef.current;
+        const merged = prependOlderPage(before, older.events);
+        setLogs(merged);
+        if (merged.length > before.length) {
+          setLogViewStart((start) => start + (merged.length - before.length));
+        }
+        setLogPrevCursor(older.prevCursor);
+        setLogHasPrevPage(older.hasPrev);
+      })
+      .catch((err: unknown) => setStatus(humanMessage(err)))
+      .finally(() => setLoadingOlderLogs(false));
+  }, [controller, currentLogFilter, loadingOlderLogs, logHasPrevPage, logPinned, logPrevCursor, logWindow.start]);
+
+  // Facets are cheap (no event payload) so they can be kept live on a timer
+  // while the logs screen is actively tailing, on top of the immediate
+  // refresh already triggered by refreshLogs on every filter change/clear.
+  useEffect(() => {
+    if (!controller || paused || screen !== "logs") {
+      return;
+    }
+    const id = setInterval(() => {
+      void refreshFacets();
+    }, FACETS_POLL_MS);
+    return () => clearInterval(id);
+  }, [controller, paused, refreshFacets, screen]);
 
   useEffect(() => {
     if (!controller) {
@@ -807,10 +888,12 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   );
 
   const copyVisibleLogs = useCallback(async (note = "") => {
+    // filteredLogs is the exact set the list itself renders from — reusing
+    // it (rather than reconstructing the filter here) is what guarantees
+    // this matches every currently active filter, not just the ones this
+    // callback happens to remember to pass along.
     const text =
-      overlay === "log-details" && logDetail
-        ? formatLogDetails(logDetail)
-        : formatLogsForClipboard(filterLogs(logs, { service: logService, errorOnly, search: logSearch }));
+      overlay === "log-details" && logDetail ? formatLogDetails(logDetail) : formatLogsForClipboard(filteredLogs);
     const suffix = note === "" ? "" : ` · ${note}`;
     if (text.trim() === "") {
       setStatus(`No logs to copy${suffix}`);
@@ -824,7 +907,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     } catch (err) {
       setStatus(humanMessage(err));
     }
-  }, [errorOnly, logDetail, logSearch, logService, logs, overlay]);
+  }, [filteredLogs, logDetail, overlay]);
 
   const openConfigBuffer = useCallback(() => {
     if (!cfg) {
@@ -1000,7 +1083,10 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
                 source: logSource,
               });
             } else {
-              writeLogExport(dest, filterLogs(logs, { service: logService, errorOnly, search: logSearch, regex: logRegex, source: logSource }));
+              // Same reasoning as copyVisibleLogs: reuse the already-filtered
+              // list instead of reconstructing the filter, so a local-only
+              // export (no daemon attached) matches every active filter too.
+              writeLogExport(dest, filteredLogs);
             }
             lastExportPath.current = dest;
             setStatus(`Exported ${dest}`);
@@ -1064,7 +1150,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSource, logs, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName, toggleSystemLogs],
   );
 
   const openExportsFolder = useCallback(() => {
@@ -1921,6 +2007,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             viewTotal={filteredLogs.length}
             newer={logWindow.newer}
             onJumpLatest={jumpToLatestLogs}
+            facets={logFacets}
           />
         ) : null}
         {screen === "services" ? (
@@ -1977,6 +2064,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             onLeaveLatest={pinLogView}
             onOpenExports={openExportsFolder}
             onJumpLatest={jumpToLatestLogs}
+            facets={logFacets}
           />
         ) : null}
         {screen === "auth" ? <AuthScreen palette={palette} cfg={cfg} google={google} identity={snap?.identity} /> : null}

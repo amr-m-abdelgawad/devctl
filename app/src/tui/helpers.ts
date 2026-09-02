@@ -1,6 +1,6 @@
 import { type DevctlConfig, type ServiceConfig } from "../config/index.ts";
 import { type BusEvent } from "../events.ts";
-import { compileLogSearch, type LogEvent } from "../logs.ts";
+import { compileLogSearch, type LogEvent, type LogFacets } from "../logs.ts";
 import { Detector } from "../secrets.ts";
 import { displayState, type Plan, type Runtime } from "../services.ts";
 import { type StatusSnapshot } from "../types.ts";
@@ -1104,6 +1104,36 @@ export function appendVisibleLogs(current: LogEvent[], incoming: LogEvent[], sin
   return current.slice(drop).concat(accepted);
 }
 
+// Reconciles a freshly loaded bounded page with whatever was already held
+// client-side: the page is authoritative for every event at or before its
+// own tail sequence, so only already-held events strictly newer than that
+// (arrived live while the page request was in flight) are kept alongside
+// it — never both, which is what would show a duplicate.
+export function mergeLoadedPage(current: LogEvent[], page: LogEvent[]): LogEvent[] {
+  const tailSeq = page.length > 0 ? page[page.length - 1]!.seq : -1;
+  const newer = current.filter((ev) => ev.seq > tailSeq);
+  return [...page, ...newer];
+}
+
+// Prepends a page fetched by scrolling back past the currently loaded
+// window. De-duplicates by seq in case the two pages touch at the boundary.
+export function prependOlderPage(current: LogEvent[], older: LogEvent[]): LogEvent[] {
+  if (older.length === 0) {
+    return current;
+  }
+  const known = new Set(current.map((ev) => ev.seq));
+  const fresh = older.filter((ev) => !known.has(ev.seq));
+  return fresh.length === 0 ? current : [...fresh, ...current];
+}
+
+// True exactly when the user has scrolled to the very top of the currently
+// loaded window and the server has more (older) history for the active
+// filter — the signal to fetch another page rather than paginating further
+// within what's already loaded.
+export function needsOlderLogPage(pinned: boolean, windowStart: number, hasPrev: boolean): boolean {
+  return pinned && windowStart <= 0 && hasPrev;
+}
+
 export function visibleLogErrorCount(events: readonly LogEvent[]): number {
   return events.filter((event) => event.level === "ERROR" || event.level === "FATAL").length;
 }
@@ -1212,6 +1242,31 @@ export function logFilterCatalog(
 ): { name: string; count: number }[] {
   const sources = logFilterSources(names, events, extra);
   return [{ name: "", count: events.length }, ...logServiceCounts(events, sources)];
+}
+
+// Adapts server-computed per-service facet counts into the same shape
+// logServiceCounts() produces from a client-side buffer, so a facets-based
+// caller and a client-buffer-based one can share the same rendering code.
+export function facetServiceCounts(names: string[], byService: Record<string, number>): { name: string; count: number }[] {
+  const known = names.map((name) => ({ name, count: byService[name] ?? 0 }));
+  const extra = Object.keys(byService)
+    .filter((name) => !names.includes(name))
+    .sort()
+    .map((name) => ({ name, count: byService[name] ?? 0 }));
+  return [...known, ...extra];
+}
+
+// Facets-based counterpart to logFilterCatalog() — same shape, but counts
+// come from the server's true totals for the active filter instead of
+// whatever page of events happens to be loaded client-side.
+export function facetFilterCatalog(
+  names: string[],
+  facets: LogFacets,
+  extra: string[] = [],
+): { name: string; count: number }[] {
+  const pseudoEvents = Object.keys(facets.byService).map((service) => ({ service }));
+  const sources = logFilterSources(names, pseudoEvents, extra);
+  return [{ name: "", count: facets.total }, ...facetServiceCounts(sources, facets.byService)];
 }
 
 export function runningLabel(running: number, total: number): string {

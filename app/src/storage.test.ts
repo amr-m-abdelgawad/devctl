@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-import { existsSync, statSync, writeFileSync } from "node:fs";
-import { acquireLock, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { existsSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, rotateBootstrapLog, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
 
 describe("session storage", () => {
   test("Windows attach uses a named pipe, Unix uses devctl.sock", () => {
@@ -80,5 +80,55 @@ describe("session storage", () => {
     expect(processAlive(process.pid)).toBe(true);
     lock.release();
     expect(existsSync(lockPath("/repo"))).toBe(false);
+  });
+
+  test("rotateBootstrapLog preserves the previous boot attempt instead of letting it be silently truncated", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-bootstrap-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    // No prior attempt yet — nothing to rotate, must not throw.
+    rotateBootstrapLog("/repo");
+    expect(existsSync(bootstrapLogPath("/repo"))).toBe(false);
+
+    writeFileSync(bootstrapLogPath("/repo"), "first boot attempt failed: EADDRINUSE");
+    rotateBootstrapLog("/repo");
+    // The canonical path is clear again, ready for Bun.file() to open fresh...
+    expect(existsSync(bootstrapLogPath("/repo"))).toBe(false);
+    // ...but the content that was there is still readable under a rotated name.
+    const rotated = readdirSync(sessionDir("/repo")).filter((name) => name.startsWith("bootstrap-"));
+    expect(rotated).toHaveLength(1);
+    expect(readFileSync(`${sessionDir("/repo")}/${rotated[0]}`, "utf8")).toBe("first boot attempt failed: EADDRINUSE");
+  });
+
+  test("rotateBootstrapLog keeps only the most recent BOOTSTRAP_LOG_HISTORY attempts", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-bootstrap-cap-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    const dirPath = sessionDir("/repo");
+    const stamped = new Set<string>();
+    const total = BOOTSTRAP_LOG_HISTORY + 3;
+    for (let i = 0; i < total; i++) {
+      writeFileSync(bootstrapLogPath("/repo"), `attempt ${i}`);
+      rotateBootstrapLog("/repo");
+      // This loop runs far faster than real crash-loop restarts (each of
+      // which pays real process-spawn overhead) would, so distinct mtimes
+      // aren't guaranteed by natural timing alone here — pin each rotated
+      // file's mtime to its real attempt order as soon as it's created, a
+      // comfortably-past date so it can never be mistaken for "newest" by a
+      // later iteration's own (real, "now") unstamped file.
+      const justRotated = readdirSync(dirPath)
+        .filter((name) => name.startsWith("bootstrap-") && !stamped.has(name));
+      for (const name of justRotated) {
+        stamped.add(name);
+        const at = new Date(2000, 0, 1, 0, 0, i);
+        utimesSync(`${dirPath}/${name}`, at, at);
+      }
+    }
+    const remaining = readdirSync(dirPath).filter((name) => name.startsWith("bootstrap-"));
+    expect(remaining).toHaveLength(BOOTSTRAP_LOG_HISTORY);
+    // The oldest attempts (0, 1, 2) must be the ones pruned, not the newest.
+    const contents = remaining.map((name) => readFileSync(`${dirPath}/${name}`, "utf8"));
+    expect(contents).not.toContain("attempt 0");
+    expect(contents).toContain(`attempt ${total - 1}`);
   });
 });

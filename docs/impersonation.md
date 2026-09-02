@@ -22,7 +22,7 @@ If impersonation is unavailable, **that** service fails to start. Unrelated loca
 
 When a proxy route uses `auth.type: iap` and a service-account identity, `devctl` calls IAM Credentials `generateIdToken` for that account (never a user ID token). Access tokens without an audience still use `generateAccessToken`.
 
-Doctor probes each configured SA and reports AVAILABLE / UNAVAILABLE. Organization policies that disable impersonation or constrain ADC look like IAM failures — confirm those before changing developer machines. See [Admin setup](admin-setup.md).
+Probing a configured SA is lazy and cached, never automatic: it happens the first time a service actually starts under that identity, on an explicit `auth_refresh`, or on a doctor inspection — never on the daemon's own boot or after a reload, which only ever refresh ADC/user/project. Status is one of `unknown` (not probed yet), `available`, or `unavailable`; doctor and the TUI's Auth screen render "not probed yet" distinctly from a confirmed failure rather than treating it as unavailable. Organization policies that disable impersonation or constrain ADC look like IAM failures — confirm those before changing developer machines. See [Admin setup](admin-setup.md).
 
 ## Related
 

@@ -1,7 +1,8 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { newRoot } from "./cli.ts";
+import { followLogs, newRoot } from "./cli.ts";
+import { type LogEvent, type LogPage } from "./logs.ts";
 import { processAlive, readPersistedState } from "./storage.ts";
 
 function tmp(): string {
@@ -177,6 +178,47 @@ services:
   }, 20_000);
 });
 
+describe("devctl logs export", () => {
+  test("resolves a relative --output path against the CLI's own cwd, not the long-running daemon's", async () => {
+    const dir = tmp();
+    writeFileSync(
+      configFile(dir),
+      `version: 1
+shutdown:
+  grace_seconds: 1
+services:
+  api:
+    command: [${JSON.stringify(process.execPath)}, "-e", "setInterval(() => {}, 1000)"]
+`,
+    );
+    const originalArgv1 = process.argv[1] ?? "";
+    const originalCwd = process.cwd();
+    process.argv[1] = join(import.meta.dir, "bin.ts");
+    const workDir = join(dir, "workdir");
+    mkdirSync(workDir, { recursive: true });
+    try {
+      // The daemon is spawned while cwd is still the repo dir, so its own
+      // cwd is fixed there for its whole lifetime.
+      process.chdir(dir);
+      await run(["--config", configFile(dir), "start", "api", "--detach"]);
+
+      // A relative --output given after moving elsewhere must land next to
+      // where the command was actually run, not wherever the daemon's cwd
+      // happened to be frozen at spawn time.
+      process.chdir(workDir);
+      await run(["--config", configFile(dir), "logs", "export", "--output", "relative.log"]);
+
+      expect(existsSync(join(workDir, "relative.log"))).toBe(true);
+      expect(existsSync(join(dir, "relative.log"))).toBe(false);
+
+      await run(["--config", configFile(dir), "down"]);
+    } finally {
+      process.chdir(originalCwd);
+      process.argv[1] = originalArgv1;
+    }
+  }, 20_000);
+});
+
 describe("devctl status/down honor the global --config flag", () => {
   test("--config alone (no --repo) resolves the daemon, matching every other command", async () => {
     const dir = tmp();
@@ -206,4 +248,98 @@ services:
       process.argv[1] = originalArgv1;
     }
   }, 20_000);
+});
+
+describe("devctl status --watch piped into a reader that closes early", () => {
+  test("exits cleanly on EPIPE instead of crashing with an uncaught exception", async () => {
+    const dir = tmp();
+    writeFileSync(configFile(dir), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const binPath = join(import.meta.dir, "bin.ts");
+    const originalArgv1 = process.argv[1] ?? "";
+    process.argv[1] = binPath;
+    try {
+      await run(["--config", configFile(dir), "start", "api", "--detach"]);
+
+      // A real bash pipe (not an in-process stream) so closing the reader
+      // produces a genuine OS-level EPIPE on the writer's next write, the
+      // same condition a real `devctl status --watch | head -1` hits.
+      const script = `set -o pipefail; ${JSON.stringify(process.execPath)} ${JSON.stringify(binPath)} --config ${JSON.stringify(configFile(dir))} status --watch | head -1`;
+      const proc = Bun.spawn({ cmd: ["bash", "-c", script], stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+
+      // head -1 only ever sees the very first line devctl wrote (the
+      // "--- <timestamp> ---" tick header) before closing the pipe.
+      expect(stdout).toMatch(/^--- .+ ---\n$/);
+      expect(stderr).not.toContain("EPIPE");
+      expect(exitCode).toBe(0);
+
+      await run(["--config", configFile(dir), "down"]);
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
+  }, 20_000);
+});
+
+function fakeLogEvent(message: string): LogEvent {
+  return { timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message, pid: 1, seq: 1 };
+}
+
+function fakePage(events: LogEvent[], nextCursor: string, prevCursor = ""): LogPage {
+  return { events, nextCursor, prevCursor, hasNext: false, hasPrev: false, sessionChanged: false };
+}
+
+describe("followLogs", () => {
+  test("prints the first page, then advances the cursor on each subsequent poll without repeating events", async () => {
+    const abort = new AbortController();
+    let call = 0;
+    const printed: string[] = [];
+    const fetchPage = async (cursor?: string): Promise<LogPage> => {
+      call += 1;
+      if (call === 1) {
+        expect(cursor).toBeUndefined();
+        return fakePage([fakeLogEvent("one")], "c1");
+      }
+      if (call === 2) {
+        expect(cursor).toBe("c1");
+        return fakePage([fakeLogEvent("two")], "c2");
+      }
+      if (call === 3) {
+        // Requires the cursor to have advanced a *second* time (from this
+        // call's own predecessor's nextCursor, not just the very first
+        // page's) — a cursor that only ever updates once would still pass
+        // call 2's assertion but fail here.
+        expect(cursor).toBe("c2");
+        // The abort fires from inside this fetch (simulating "the user hit
+        // ctrl+C while a poll was in flight") rather than from a real timer,
+        // so the test has no wall-clock dependency: the event this call
+        // returns must still be printed before the loop notices and stops,
+        // but no 4th fetch should ever happen.
+        abort.abort();
+        return fakePage([fakeLogEvent("three")], "c3");
+      }
+      throw new Error(`fetchPage should not be called a 4th time (cursor=${cursor})`);
+    };
+    await followLogs(fetchPage, (ev) => printed.push(ev.message), abort.signal, 1);
+    expect(printed).toEqual(["one", "two", "three"]);
+    expect(call).toBe(3);
+  });
+
+  test("stops promptly when aborted mid-poll-wait, not at the next full interval", async () => {
+    const abort = new AbortController();
+    const fetchPage = async (): Promise<LogPage> => fakePage([], "c");
+    const started = Date.now();
+    const promise = followLogs(fetchPage, () => {}, abort.signal, 10_000);
+    setTimeout(() => abort.abort(), 20);
+    await promise;
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+describe("devctl daemon logs", () => {
+  test("reports no bootstrap log yet for a repo whose daemon has never been spawned", async () => {
+    const dir = tmp();
+    writeFileSync(configFile(dir), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const out = await run(["--config", configFile(dir), "daemon", "logs"]);
+    expect(out).toContain("no daemon bootstrap log yet");
+  });
 });

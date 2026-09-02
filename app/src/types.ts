@@ -9,6 +9,11 @@ export type StartRequest = {
   // resolve each started service's env from whichever client most recently
   // started/restarted it, rather than the daemon's own stale process.env.
   client_env?: Record<string, string>;
+  // Internal only: marks a start the supervisor issued for its own
+  // automatic (health-triggered) restart, as opposed to one a real client
+  // asked for. A real caller should never set this — it suppresses the
+  // restart-count reset a genuine start/restart request would otherwise get.
+  auto?: boolean;
 };
 
 export type StopRequest = {
@@ -50,12 +55,19 @@ export type McpSnapshot = {
   token?: string;
 };
 
+export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
+
 export type IdentitySnapshot = {
   user: string;
   project: string;
   project_source: string;
   adc: boolean;
+  // Boolean compatibility map: present only for identities that have
+  // actually been probed (never defaulted to false) — see
+  // service_account_status for the full unknown/available/unavailable
+  // picture, including identities nothing has probed yet.
   service_accounts: Record<string, boolean>;
+  service_account_status: Record<string, ServiceAccountStatus>;
   iap: boolean;
 };
 

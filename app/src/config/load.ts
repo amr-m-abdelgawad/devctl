@@ -3,9 +3,9 @@ import { basename, dirname, extname, join } from "node:path";
 import { parse } from "yaml";
 import { DevctlError, KindConfiguration, newError, wrapError } from "../errors.ts";
 import { homeDir } from "../storage.ts";
-import { applyRoot, decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
+import { decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
 import { ConfigDirName, discover, fileExists } from "./discover.ts";
-import { applyTemplates, mergeConfig, mergeService, mergeServiceProxyRoutes } from "./merge.ts";
+import { applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, type ConfigPresence } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "./types.ts";
@@ -45,17 +45,18 @@ export function load(startDir: string, explicit: string): DevctlConfig {
 
 export function loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig {
   let cfg = defaultConfig();
-  decodeFile(configPath, cfg, opts?.candidateText);
+  const presence = newConfigPresence();
+  decodeFile(configPath, cfg, presence, opts?.candidateText);
   cfg.repoRoot = repoRoot;
   cfg.configPath = configPath;
   const dir = dirname(configPath);
   if (basename(dir) === ConfigDirName) {
-    loadModular(dir, cfg);
+    loadModular(dir, cfg, presence);
   }
-  cfg = applyLocalOverlays(cfg, repoRoot, configPath);
+  cfg = applyLocalOverlays(cfg, repoRoot, configPath, presence);
   cfg = migrate(cfg);
   try {
-    applyTemplates(cfg);
+    applyTemplates(cfg, presence);
   } catch (err) {
     throw wrapError(KindConfiguration, "template merge failed", err);
   }
@@ -67,39 +68,39 @@ export function loadPath(repoRoot: string, configPath: string, opts?: { candidat
   return cfg;
 }
 
-function applyLocalOverlays(cfg: DevctlConfig, repoRoot: string, configPath: string): DevctlConfig {
-  let next = cfg;
+function applyLocalOverlays(cfg: DevctlConfig, repoRoot: string, configPath: string, presence: ConfigPresence): DevctlConfig {
   const homeLocal = join(homeDir(), "config.local.yaml");
   const repoLocal = join(repoRoot, ConfigDirName, "config.local.yaml");
   for (const path of [homeLocal, repoLocal]) {
     if (path === configPath || !fileExists(path)) {
       continue;
     }
-    const overlay = defaultConfig();
-    decodeFile(path, overlay);
-    next = mergeConfig(next, overlay);
+    // Applied directly onto the accumulating cfg (not a fresh defaultConfig()
+    // merged in afterward) so presence-aware field-by-field merging sees what
+    // the main file and any modular files have already contributed.
+    decodeFile(path, cfg, presence);
   }
-  return next;
+  return cfg;
 }
 
-function decodeFile(path: string, cfg: DevctlConfig, candidateText?: string): void {
+function decodeFile(path: string, cfg: DevctlConfig, presence: ConfigPresence, candidateText?: string): void {
   const raw = candidateText !== undefined ? parseYamlText(candidateText, path) : parseYamlFile(path);
   const unknown = collectUnknownFields(raw, "");
   if (unknown.length > 0) {
     throw newError(KindConfiguration, formatUnknown(unknown));
   }
-  applyRoot(cfg, raw);
+  applyRoot(cfg, raw, presence);
 }
 
-function loadModular(dir: string, cfg: DevctlConfig): void {
+function loadModular(dir: string, cfg: DevctlConfig, presence: ConfigPresence): void {
   loadYAMLDir(join(dir, "services"), (name, node) => {
     const unknown = collectUnknownFields(node, `services.${name}`);
     if (unknown.length > 0) {
       throw newError(KindConfiguration, formatUnknown(unknown));
     }
-    const svc = decodeService(node);
     const existing = cfg.services[name];
-    cfg.services[name] = existing ? mergeService(existing, svc) : svc;
+    cfg.services[name] = existing ? mergeService(existing, node) : decodeService(node);
+    recordPresence(presence.services, name, node);
   });
   loadYAMLDir(join(dir, "profiles"), (name, node) => {
     const unknown = collectUnknownFields(node, `profiles.${name}`);

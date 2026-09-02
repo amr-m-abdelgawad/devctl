@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
+import { matchLog, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "../logs.ts";
 import { REDACTED_VALUE } from "../secrets.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../services.ts";
-import { type LogsRequest, type StatusSnapshot } from "../types.ts";
+import { type StatusSnapshot } from "../types.ts";
 import { callMcpTool, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
@@ -24,10 +25,42 @@ function sampleSnap(): StatusSnapshot {
       project_source: "configuration",
       adc: true,
       service_accounts: {},
+      service_account_status: {},
       iap: false,
     },
     logs: { total: 3, errors: 0, counts: { api: 3 } },
     system: { platform: "test", cpuCount: 1, loadAvg1: 0, loadAvg5: 0, loadAvg15: 0, memTotalKB: 0, memFreeKB: 0, memAvailableKB: 0, hostUptimeSec: 0 },
+  };
+}
+
+// A faithful-enough stand-in for LogManager.queryPage() — reuses the real
+// matchLog() for filtering (services/level/search/source/since/until) and
+// hand-implements only the seq-based cursor/direction/limit windowing, so
+// getLogs()'s own request shaping and response handling can be tested
+// against a bounded host without pulling in the real daemon-side log
+// manager.
+function fakeLogsPage(logs: LogEvent[], req: LogFilter & LogPageRequest): LogPage {
+  const matches = logs.filter((ev) => matchLog(req, ev));
+  const limit = req.limit && req.limit > 0 ? req.limit : matches.length;
+  const cursorSeq = req.cursor ? Number(req.cursor) : undefined;
+  let windowed: LogEvent[];
+  if (cursorSeq === undefined) {
+    windowed = matches.slice(Math.max(0, matches.length - limit));
+  } else if (req.direction === "forward") {
+    windowed = matches.filter((ev) => ev.seq > cursorSeq).slice(0, limit);
+  } else {
+    const before = matches.filter((ev) => ev.seq < cursorSeq);
+    windowed = before.slice(Math.max(0, before.length - limit));
+  }
+  const firstSeq = windowed[0]?.seq;
+  const lastSeq = windowed[windowed.length - 1]?.seq;
+  return {
+    events: windowed,
+    nextCursor: String(lastSeq ?? cursorSeq ?? 0),
+    prevCursor: String(firstSeq ?? cursorSeq ?? 0),
+    hasNext: lastSeq !== undefined && matches.some((ev) => ev.seq > lastSeq),
+    hasPrev: firstSeq !== undefined && matches.some((ev) => ev.seq < firstSeq),
+    sessionChanged: false,
   };
 }
 
@@ -42,16 +75,13 @@ function stubHost(): McpHost {
   svc.environment.vars = { API_TOKEN: "super-secret", NAME: "ok" };
   cfg.services.api = svc;
   const logs = [
-    { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1 },
-    { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1 },
-    { timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2 },
+    { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 },
+    { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 },
+    { timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2, seq: 3 },
   ];
   return {
     status: () => sampleSnap(),
-    logs: (req: LogsRequest) => {
-      const wanted = req.services ?? [];
-      return logs.filter((ev) => wanted.length === 0 || wanted.includes(ev.service));
-    },
+    logsPage: (req: LogFilter & LogPageRequest) => fakeLogsPage(logs, req),
     config: () => cfg,
     start: async () => ({ started: true }),
     stop: async () => undefined,
@@ -105,19 +135,47 @@ describe("mcp tools", () => {
     expect(result.events[1]?.message).not.toContain("super-secret");
   });
 
-  test("get_logs returns a follow cursor and skips lines at since", async () => {
-    const result = (await callMcpTool(stubHost(), "get_logs", { since: "t1" })) as {
+  test("get_logs since/until are plain inclusive timestamp filters, not a follow cursor", async () => {
+    const result = (await callMcpTool(stubHost(), "get_logs", { since: "t2" })) as {
       events: Array<{ timestamp: string }>;
-      next_since: string;
     };
+    // Inclusive, same as CLI/TUI's own since filter — unlike the old
+    // next_since-as-resume convention, this makes no attempt to exclude the
+    // boundary event itself; that correctness now belongs to cursor.
     expect(result.events.map((ev) => ev.timestamp)).toEqual(["t2", "t3"]);
-    expect(result.next_since).toBe("t3");
-    const empty = (await callMcpTool(stubHost(), "get_logs", { since: "t3" })) as {
-      events: unknown[];
-      next_since: string;
+    const bounded = (await callMcpTool(stubHost(), "get_logs", { since: "t1", until: "t2" })) as {
+      events: Array<{ timestamp: string }>;
     };
-    expect(empty.events).toEqual([]);
-    expect(empty.next_since).toBe("t3");
+    expect(bounded.events.map((ev) => ev.timestamp)).toEqual(["t1", "t2"]);
+  });
+
+  test("get_logs cursor pages forward without repeating or losing events", async () => {
+    const host = stubHost();
+    const first = (await callMcpTool(host, "get_logs", {})) as {
+      events: Array<{ timestamp: string }>;
+      next_cursor: string;
+    };
+    expect(first.events.map((ev) => ev.timestamp)).toEqual(["t1", "t2", "t3"]);
+    const followed = (await callMcpTool(host, "get_logs", { cursor: first.next_cursor })) as {
+      events: unknown[];
+      next_cursor: string;
+    };
+    expect(followed.events).toEqual([]);
+    expect(followed.next_cursor).toBe(first.next_cursor);
+  });
+
+  test("get_logs surfaces a stale cursor from a different daemon session", async () => {
+    const host = stubHost();
+    host.logsPage = async () => ({
+      events: [],
+      nextCursor: "c",
+      prevCursor: "c",
+      hasNext: false,
+      hasPrev: false,
+      sessionChanged: true,
+    });
+    const result = (await callMcpTool(host, "get_logs", { cursor: "stale" })) as { session_changed: boolean };
+    expect(result.session_changed).toBe(true);
   });
 
   test("start_services forwards profile and does not invent a service list", async () => {
@@ -135,17 +193,19 @@ describe("mcp tools", () => {
 
   test("get_logs caps at 200", async () => {
     const host = stubHost();
-    const many = Array.from({ length: MCP_LOG_CAP + 20 }, (_, i) => ({
+    const many: LogEvent[] = Array.from({ length: MCP_LOG_CAP + 20 }, (_, i) => ({
       timestamp: String(i),
       service: "api",
       source: "stdout",
       level: "INFO",
       message: `line ${i}`,
       pid: 1,
+      seq: i + 1,
     }));
-    host.logs = () => many;
-    const result = (await callMcpTool(host, "get_logs", {})) as { events: unknown[]; truncated: boolean };
+    host.logsPage = (req) => fakeLogsPage(many, req);
+    const result = (await callMcpTool(host, "get_logs", {})) as { events: unknown[]; truncated: boolean; has_more: boolean };
     expect(result.events).toHaveLength(MCP_LOG_CAP);
     expect(result.truncated).toBe(true);
+    expect(result.has_more).toBe(false);
   });
 });

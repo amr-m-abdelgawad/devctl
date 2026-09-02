@@ -153,3 +153,165 @@ services:
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
   });
 });
+
+describe("presence-aware merging", () => {
+  test("a template chain lets a service explicitly override false, 0, and an empty collection", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-tmpl-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+templates:
+  base:
+    shell: true
+    dependencies: [db]
+    restart:
+      policy: on_failure
+      max_retries: 5
+    startup:
+      wait_for_healthy: true
+services:
+  db:
+    command: echo hi
+  api:
+    extends: base
+    command: echo hi
+    shell: false
+    dependencies: []
+    restart:
+      max_retries: 0
+    startup:
+      wait_for_healthy: false
+`,
+    );
+    const cfg = load(dir, "");
+    const api = cfg.services.api;
+    // Explicit false/0/[] on the service win over the template — not
+    // silently discarded because they look the same as "not set".
+    expect(api?.shell).toBe(false);
+    expect(api?.dependencies).toEqual([]);
+    expect(api?.restart.max_retries).toBe(0);
+    expect(api?.startup.wait_for_healthy).toBe(false);
+    // Fields the service never mentioned within a nested section it *did*
+    // partially override still come from the template — nested sections
+    // merge field by field, not as an all-or-nothing block.
+    expect(api?.restart.policy).toBe("on_failure");
+  });
+
+  test("a local overlay can explicitly disable something the main config enabled", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-overlay-disable-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: echo hi
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/config.local.yaml",
+      `
+proxy:
+  enabled: false
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.enabled).toBe(false);
+  });
+
+  test("a local overlay touching only part of a section doesn't blow away the rest of it", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-overlay-partial-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: echo hi
+`,
+    );
+    // The overlay only mentions listen.port — enabled must stay inherited
+    // as true instead of being reset to false just because the overlay's
+    // proxy section exists and doesn't happen to repeat it.
+    writeFile(
+      dir,
+      ".devctl/config.local.yaml",
+      `
+proxy:
+  listen:
+    port: 9001
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.enabled).toBe(true);
+    expect(cfg.proxy.listen.port).toBe(9001);
+    expect(cfg.proxy.listen.host).toBe("127.0.0.1");
+  });
+
+  test("a modular service file can explicitly turn off logging the main file's inline definition turned on", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-modular-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      stderr: true
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/services/api.yaml",
+      `
+logs:
+  stdout: false
+  stderr: false
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.logs.stdout).toBe(false);
+    expect(cfg.services.api?.logs.stderr).toBe(false);
+  });
+
+  test("a template lets a service explicitly clear an inherited required-env list", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-required-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+templates:
+  base:
+    environment:
+      required: [AUTH_URL]
+services:
+  api:
+    extends: base
+    command: echo hi
+    environment:
+      required: []
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.environment.required).toEqual([]);
+  });
+});

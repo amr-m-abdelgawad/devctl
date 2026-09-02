@@ -1,8 +1,8 @@
 import { type DevctlConfig } from "../config/index.ts";
 import { type Report } from "../doctor.ts";
-import { type LogEvent } from "../logs.ts";
+import { type LogFilter, type LogPage, type LogPageRequest } from "../logs.ts";
 import { Detector } from "../secrets.ts";
-import { type LogsRequest, type ReloadResult, type StartRequest, type StatusSnapshot } from "../types.ts";
+import { type ReloadResult, type StartRequest, type StatusSnapshot } from "../types.ts";
 
 export const MCP_LOG_CAP = 200;
 
@@ -18,11 +18,11 @@ export type McpResourceUri = (typeof MCP_RESOURCE_URIS)[number];
 
 export type McpHost = {
   status(): StatusSnapshot;
-  logs(req: LogsRequest): LogEvent[] | Promise<LogEvent[]>;
+  logsPage(req: LogFilter & LogPageRequest): LogPage | Promise<LogPage>;
   config(): DevctlConfig;
   start(req: StartRequest): Promise<unknown>;
   stop(names: string[]): Promise<void>;
-  restart(names: string[]): Promise<void>;
+  restart(names: string[], cascade?: boolean): Promise<void>;
   reload(): Promise<ReloadResult>;
   doctor(): Promise<Report>;
 };
@@ -56,7 +56,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_logs",
-    description: "Recent log lines, optionally filtered. Capped at 200 events. Secrets are redacted. Pass since=next_since to read only newer lines.",
+    description:
+      "Recent log lines, optionally filtered. Capped at 200 events per page. Secrets are redacted. Pass cursor=next_cursor to page forward with no duplicate or same-millisecond-lost events; since/until are plain timestamp filters for a fresh query, not a follow cursor.",
     inputSchema: {
       type: "object",
       properties: {
@@ -64,7 +65,9 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         level: { type: "string" },
         search: { type: "string" },
         source: { type: "string" },
-        since: { type: "string", description: "Follow cursor from a previous next_since; only events after this timestamp" },
+        since: { type: "string", description: "Only events at or after this timestamp" },
+        until: { type: "string", description: "Only events at or before this timestamp" },
+        cursor: { type: "string", description: "Opaque cursor from a previous response's next_cursor; continues forward from exactly there" },
       },
       additionalProperties: false,
     },
@@ -98,7 +101,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "stop_services",
-    description: "Stop named services, or all started services when names are omitted",
+    description:
+      "Stop named services, or all started services when names are omitted. Also stops every service that transitively depends on a named one (never a named service's own dependencies, which other running services may still need).",
     inputSchema: {
       type: "object",
       properties: { services: { type: "array", items: { type: "string" } } },
@@ -107,10 +111,14 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "restart_services",
-    description: "Restart named services",
+    description:
+      "Restart named services. By default this touches only the named services, not anything that depends on them. Pass cascade=true to also restart their transitive dependents (the same set stop_services would affect).",
     inputSchema: {
       type: "object",
-      properties: { services: { type: "array", items: { type: "string" } } },
+      properties: {
+        services: { type: "array", items: { type: "string" } },
+        cascade: { type: "boolean", description: "Also restart transitive dependents; default false restarts only the named services" },
+      },
       additionalProperties: false,
     },
   },
@@ -169,6 +177,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
       adc: snap.identity.adc,
       iap: snap.identity.iap,
       service_accounts: snap.identity.service_accounts,
+      service_account_status: snap.identity.service_account_status,
     },
     proxy: {
       running: snap.proxy.running,
@@ -185,19 +194,26 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
 export async function getLogs(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
   const service = typeof args.service === "string" ? args.service : "";
   const since = typeof args.since === "string" ? args.since : "";
-  const events = await host.logs({
+  // A cursor names an exact sequence position, so resuming from one pages
+  // strictly forward from there — immune to the same-millisecond
+  // duplicate/loss a plain timestamp boundary can't avoid. since/until stay
+  // ordinary inclusive filters for a fresh query; they are not this tool's
+  // follow mechanism.
+  const cursor = typeof args.cursor === "string" ? args.cursor : undefined;
+  const page = await host.logsPage({
     services: service === "" ? [] : [service],
     level: typeof args.level === "string" ? args.level : "",
     search: typeof args.search === "string" ? args.search : "",
     source: typeof args.source === "string" ? args.source : "",
     since,
+    until: typeof args.until === "string" ? args.until : "",
+    cursor,
+    direction: cursor ? "forward" : undefined,
+    limit: MCP_LOG_CAP,
   });
   const detector = detectorFor(host.config());
-  const fresh = since === "" ? events : events.filter((ev) => ev.timestamp > since);
-  const capped = fresh.slice(-MCP_LOG_CAP);
-  const last = capped[capped.length - 1]?.timestamp ?? since;
   return {
-    events: capped.map((ev) => ({
+    events: page.events.map((ev) => ({
       timestamp: ev.timestamp,
       service: ev.service,
       source: ev.source,
@@ -205,8 +221,15 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
       message: detector.redactText(ev.message),
       pid: ev.pid,
     })),
-    truncated: events.length > MCP_LOG_CAP,
-    next_since: last,
+    // Same meaning it always had: more (older) history exists than this
+    // capped page shows. has_more is the complementary forward-looking
+    // signal for a cursor-following caller — events already waiting beyond
+    // this page, worth fetching again immediately rather than waiting.
+    truncated: page.hasPrev,
+    has_more: page.hasNext,
+    next_since: page.events[page.events.length - 1]?.timestamp ?? since,
+    next_cursor: page.nextCursor,
+    session_changed: page.sessionChanged,
   };
 }
 
@@ -278,7 +301,7 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       await host.stop(stringList(args.services));
       return { ok: true };
     case "restart_services":
-      await host.restart(stringList(args.services));
+      await host.restart(stringList(args.services), args.cascade === true);
       return { ok: true };
     case "reload_config":
       return host.reload();

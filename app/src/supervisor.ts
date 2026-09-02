@@ -15,7 +15,7 @@ import {
   unresolvedIdentityTypes,
 } from "./config/index.ts";
 import { envList, resolveEnvironment, runtimeForService, secretManagerFetcher } from "./environment.ts";
-import { DevctlError, KindConfiguration, KindGeneral, KindHealthCheck, KindProcessStart, humanMessage, newError, serializeError } from "./errors.ts";
+import { DevctlError, KindConfiguration, KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError, serializeError } from "./errors.ts";
 import {
   AuthenticationChanged,
   Bus,
@@ -35,7 +35,7 @@ import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
 import { checkHealth, healthIntervalMs, healthLevel } from "./health.ts";
 import { readHostMemory } from "./host-stats.ts";
 import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
-import { LogManager, type LogEvent } from "./logs.ts";
+import { LogManager, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
 import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "./processes.ts";
@@ -58,11 +58,13 @@ import {
   StateStarting,
   StateStopped,
   StateStopping,
+  dependentsClosure,
   displayState,
   emptyRuntime,
   formatPlan,
   resolveStartRequest,
   shutdownPlan,
+  shutdownPlanExact,
   startupPlan,
   type Plan,
   type Runtime,
@@ -71,7 +73,7 @@ import {
 } from "./services.ts";
 import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
-import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
+import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
@@ -82,6 +84,11 @@ const DEFAULT_BACKOFF_SECONDS = 2;
 const DEFAULT_HEALTH_INTERVAL_MS = 2000;
 const WATCH_DEBOUNCE_MS = 200;
 const HEALTH_RESTART_STREAK = 3;
+// Consecutive healthy checks that count a service as stable enough to
+// forgive its past crashes/unhealthy spells — otherwise a service that has
+// run fine for hours could still hit max_retries and fail outright on its
+// next stumble, purely because of failures long in its past.
+const HEALTH_RESET_STREAK = 10;
 const RESOURCE_POLL_MS = 3_000;
 
 export class Supervisor {
@@ -111,6 +118,22 @@ export class Supervisor {
   // intentionally never persisted: it does not survive a daemon replacement,
   // which must be restarted by a real client to pick up fresh env again.
   private readonly clientEnv = new Map<string, Record<string, string>>();
+  // Per-service: the profile (name + resolved env) in effect the last time
+  // this service was explicitly (re)started. Read by onExit's crash-restart
+  // and restart()'s own respawn so that starting a *different* service under
+  // a different profile — which moves the daemon-wide this.profile/
+  // this.profileEnv used as the fallback below — can never change what an
+  // unrelated, already-running service's next automatic restart resolves
+  // its environment with. Same never-persisted rationale as clientEnv.
+  private readonly serviceProfile = new Map<string, string>();
+  private readonly serviceProfileEnv = new Map<string, Record<string, string>>();
+  // Bumped on every event that ends a service's current lifecycle epoch —
+  // a fresh spawn, an adopted process, an explicit stop, or a terminal
+  // failure — so an exit, health-check, or scheduled-restart callback
+  // captured under an older epoch can recognize it's stale (something newer
+  // already superseded it) and become a no-op instead of acting on state
+  // that belongs to a different process than the one it was scheduled for.
+  private readonly generation = new Map<string, number>();
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private readonly healthTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -120,6 +143,13 @@ export class Supervisor {
   private shuttingDown = false;
   private detached = false;
   private identityCache: IdentitySnapshot = emptyIdentitySnapshot();
+  // Cached probe results, keyed by service account email — populated
+  // lazily (a service actually using the identity, an explicit auth_refresh,
+  // or a doctor inspection), never by the automatic refresh that runs at
+  // boot and after every reload, which only ever updates ADC/user/project.
+  // An email with no entry here is "unknown", not "unavailable" — see
+  // serviceAccountSnapshot().
+  private readonly serviceAccountStatus = new Map<string, ServiceAccountStatus>();
   private readonly detectGoogleFn: (project: string) => Promise<GoogleStatus>;
   private readonly inspectProcessFn: (pid: number) => Promise<ProcessIdentity | undefined>;
   private readonly processAliveFn: (pid: number) => boolean;
@@ -134,6 +164,7 @@ export class Supervisor {
   private configWatcher?: FSWatcher;
   private watchTimer?: ReturnType<typeof setTimeout>;
   private readonly unhealthyStreak = new Map<string, number>();
+  private readonly healthyStreak = new Map<string, number>();
   private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
@@ -298,6 +329,16 @@ export class Supervisor {
       }
     };
     const unsub = this.bus.subscribe((event) => write({ event }));
+    // Without a listener here, Node's default behavior for an unhandled
+    // socket 'error' (ECONNRESET/EPIPE from a client that disconnected
+    // abruptly — killed, crashed, network blip — mid-write) is to throw,
+    // crashing the whole daemon and every other attached client and
+    // running service along with it. This is an ordinary disconnect, not a
+    // supervisor fault: log it and let the "close" handler below do its
+    // usual cleanup.
+    socketConn.on("error", (err) => {
+      this.log("devctl", "WARN", `client connection error: ${humanMessage(err)}`);
+    });
     socketConn.on("data", (chunk) => {
       buf += chunk.toString("utf8");
       const lines = buf.split("\n");
@@ -345,11 +386,11 @@ export class Supervisor {
         await this.stop(asStringArray(rec.services));
         return null;
       case "restart":
-        await this.restart(asStringArray(rec.services), asStringRecord(rec.client_env));
+        await this.restart(asStringArray(rec.services), { cascade: rec.cascade === true, clientEnv: asStringRecord(rec.client_env) });
         return null;
       case "auth_refresh":
         this.tokens.invalidate();
-        await this.refreshIdentity();
+        await this.refreshIdentity({ probeServiceAccounts: true });
         return this.snapshot().identity;
       case "status":
         return this.snapshot();
@@ -364,6 +405,29 @@ export class Supervisor {
           until: typeof rec.until === "string" ? rec.until : "",
           export: typeof rec.export === "string" ? rec.export : "",
         });
+      case "logs_page":
+        return this.queryLogsPage({
+          services: asStringArray(rec.services),
+          level: typeof rec.level === "string" ? rec.level : "",
+          search: typeof rec.search === "string" ? rec.search : "",
+          regex: rec.regex === true,
+          source: typeof rec.source === "string" ? rec.source : "",
+          since: typeof rec.since === "string" ? rec.since : "",
+          until: typeof rec.until === "string" ? rec.until : "",
+          cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
+          direction: rec.direction === "forward" ? "forward" : "backward",
+          limit: typeof rec.limit === "number" ? rec.limit : undefined,
+        });
+      case "logs_stats":
+        return this.queryLogsFacets({
+          services: asStringArray(rec.services),
+          level: typeof rec.level === "string" ? rec.level : "",
+          search: typeof rec.search === "string" ? rec.search : "",
+          regex: rec.regex === true,
+          source: typeof rec.source === "string" ? rec.source : "",
+          since: typeof rec.since === "string" ? rec.since : "",
+          until: typeof rec.until === "string" ? rec.until : "",
+        });
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
         // itself is also called from start() and reload(), which must not
@@ -375,9 +439,16 @@ export class Supervisor {
         this.proxySuppressed = true;
         await this.stopProxy();
         return null;
-      case "mcp_start":
-        await this.startMcp(typeof rec.port === "number" ? rec.port : undefined);
+      case "mcp_start": {
+        // A caller that names a port explicitly wins outright; otherwise
+        // fall back to the user's saved preference, the same as daemon boot
+        // does above — not straight past it to the bare derived default,
+        // which would silently forget a previously chosen port whenever a
+        // client starts MCP on demand instead of at boot.
+        const explicitPort = typeof rec.port === "number" ? rec.port : undefined;
+        await this.startMcp(explicitPort ?? loadTuiConfig(this.cfg.repoRoot).mcp_port);
         return null;
+      }
       case "mcp_stop":
         await this.stopMcp();
         return null;
@@ -390,9 +461,6 @@ export class Supervisor {
         // via the same Detector-based redaction it already applies
         // elsewhere unless the user has explicitly turned on /reveal.
         return this.cfg;
-      case "logs_clear":
-        this.logs.clear();
-        return null;
       case "auth_invalidate":
         this.tokens.invalidate();
         return null;
@@ -432,6 +500,21 @@ export class Supervisor {
         this.clientEnv.set(name, req.client_env);
       }
     }
+    // Every explicit start (client or MCP-initiated) records the profile
+    // context it resolved for each named service — see serviceProfile.
+    for (const name of resolved.services) {
+      this.serviceProfile.set(name, resolved.profile);
+      this.serviceProfileEnv.set(name, resolved.env);
+    }
+    // A real start request forgives past restarts for everything it names —
+    // see resetRestartCount. `auto` marks a start restart() issued for its
+    // own automatic (health-triggered) relaunch, which must preserve the
+    // count armRestart's caller just bumped rather than immediately erase it.
+    if (req.auto !== true) {
+      for (const name of resolved.services) {
+        this.resetRestartCount(name);
+      }
+    }
     const plan = startupPlan(this.cfg, resolved.services, resolved.profile);
     const google = await this.detectGoogleFn(this.cfg.google.project_id);
     plan.blockers = identityBlockers(this.cfg, plan.waves.flat(), google.adcAvailable);
@@ -458,9 +541,16 @@ export class Supervisor {
           this.log(name, "INFO", `assigned ports: ${summary || "none"}`);
         }
       } catch (err) {
-        const name = err instanceof DevctlError && err.service !== "" ? err.service : pending[0];
-        if (name) {
-          await this.fail(name, err);
+        // Fail exactly the service a structured error names — never guess by
+        // blaming pending[0]: an error unrelated to that service (a port
+        // conflict discovered while assigning a *later* one, say) must not
+        // mark it failed just because it happened to be first in the list.
+        // With no real attribution, this is a global failure: log it and let
+        // it propagate, without marking any particular service failed.
+        if (err instanceof DevctlError && err.service !== "") {
+          await this.fail(err.service, err);
+        } else {
+          this.log("devctl", "ERROR", humanMessage(err));
         }
         throw err;
       }
@@ -468,7 +558,7 @@ export class Supervisor {
     for (const wave of plan.waves) {
       const launch = wave.filter((name) => pending.includes(name));
       if (launch.length > 0) {
-        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.env)));
+        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.profile, resolved.env)));
         let waveFailed = false;
         for (const result of results) {
           if (result.status === "rejected") {
@@ -562,10 +652,18 @@ export class Supervisor {
         );
       if (identityOk) {
         this.ports.set(name, occupied);
-        this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date());
+        // Use the persisted start time, not "now" — this process has been
+        // running since persistedRec.startTime (that's exactly what
+        // sameProcess() above just verified); reporting "now" would both
+        // show a bogus near-zero uptime and, once this adoption is itself
+        // persisted, poison the record a future adoption verifies identity
+        // against.
+        const gen = this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? this.bumpGeneration(name);
         this.setState(name, StateRunning, HealthUnknown, pid, "");
         this.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
-        this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), {});
+        const workDir = this.serviceWorkDir(svc);
+        const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, occupied);
+        this.startHealth(name, svc, pid, occupied, workDir, healthEnv, gen);
         return true;
       }
       this.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
@@ -573,7 +671,7 @@ export class Supervisor {
     return false;
   }
 
-  private async startOne(name: string, profileEnv: Record<string, string>): Promise<void> {
+  private async startOne(name: string, profile: string, profileEnv: Record<string, string>): Promise<void> {
     if (this.serviceIsActive(name)) {
       return;
     }
@@ -582,14 +680,22 @@ export class Supervisor {
       throw newError(KindGeneral, `unknown service ${name}`);
     }
     this.setState(name, StateStarting, HealthUnknown, 0, "");
+    const gen = this.bumpGeneration(name);
     let ident = fromConfig(svc.identity);
     if (requiresCloud(ident)) {
       try {
         ident = await resolveIdentity(svc.identity, () => detectIdentity(this.cfg.google.project_id), this.registry?.identityProviders);
         if (ident.kind === "service_account") {
           await this.tokens.get(tokenIdentityKey(ident), "", []);
+          // First real use of this identity — cache the result so status
+          // reflects it without waiting for an explicit refresh or doctor
+          // inspection to get around to probing it.
+          this.serviceAccountStatus.set(ident.serviceAccount, "available");
         }
       } catch (err) {
+        if (ident.kind === "service_account") {
+          this.serviceAccountStatus.set(ident.serviceAccount, "unavailable");
+        }
         if (requiresCloudCapability(svc) || ident.kind === "service_account") {
           await this.fail(name, err);
           throw err;
@@ -611,7 +717,7 @@ export class Supervisor {
     }
     const env = await resolveEnvironment(this.cfg.repoRoot, {
       service: name,
-      profile: this.profile,
+      profile,
       serviceCfg: svc,
       profileEnv,
       assignedPorts: assigned,
@@ -646,13 +752,18 @@ export class Supervisor {
         });
       },
       onExit: (code, err) => {
-        this.onExit(name, code, err);
+        this.onExit(name, gen, code, err);
       },
     });
     this.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
     this.setState(name, StateRunning, HealthUnknown, handle.pid, "");
     this.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));
-    this.startHealth(name, svc, handle.pid, assigned, workDir, envList(env));
+    this.startHealth(name, svc, handle.pid, assigned, workDir, envList(env), gen);
+    // Persist right after a successful spawn — not batched at the end of
+    // start()'s whole plan — so a crash-restart's respawn (which never goes
+    // through start() at all) and an earlier wave's processes both survive
+    // a daemon crash even when a later wave or health wait goes on to fail.
+    this.persistState();
     if (svc.startup.wait_for_healthy) {
       const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
       try {
@@ -661,6 +772,48 @@ export class Supervisor {
         await this.fail(name, err);
         throw err;
       }
+    }
+  }
+
+  // Reconstructs a reproducible environment for an adopted process's health
+  // checks. recoverSession()/claimIfAlreadyUp() adopt a process devctl
+  // itself never spawned this session — its real launch environment isn't
+  // persisted (and for a leftover from a previous daemon, no longer exists
+  // to read back) — so a command-type health check given no environment at
+  // all can't even resolve PATH to find its own executable. This recomputes
+  // one from the same configured, reproducible sources a fresh start would
+  // use (profile, dotenv, defaults/vars, secrets, runtime) with no
+  // client_env of course, falling back to just the daemon's own
+  // environment — a usable baseline PATH at minimum — if resolution itself
+  // fails, e.g. a required var only a now-vanished client ever supplied.
+  private async resolveAdoptedHealthEnv(name: string, svc: ServiceConfig, assigned: Record<string, number>): Promise<Record<string, string>> {
+    let proxyURL = "";
+    if (this.proxy?.isRunning()) {
+      proxyURL = `http://${this.proxy.address()}`;
+    } else if (this.cfg.proxy.enabled) {
+      proxyURL = `http://${listenAddress(this.cfg.proxy.listen)}`;
+    }
+    const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, this.cfg.project.name);
+    runtimeEnv.DEVCTL_INTERNAL_TOKEN = this.internalTok;
+    if (this.cfg.proxy.token_endpoint.enabled) {
+      runtimeEnv.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
+    }
+    try {
+      const env = await resolveEnvironment(this.cfg.repoRoot, {
+        service: name,
+        profile: this.serviceProfile.get(name) ?? this.profile,
+        serviceCfg: svc,
+        profileEnv: this.serviceProfileEnv.get(name) ?? this.profileEnv,
+        assignedPorts: assigned,
+        runtime: runtimeEnv,
+        cfg: this.cfg,
+        fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
+        pluginSources: this.registry?.environmentSources,
+      });
+      return envList(env);
+    } catch (err) {
+      this.log(name, "WARN", `could not fully reconstruct environment for adopted service's health check (${humanMessage(err)}); using a baseline environment`);
+      return envList(runtimeEnv);
     }
   }
 
@@ -695,7 +848,13 @@ export class Supervisor {
     throw newError(KindHealthCheck, `service ${name} did not become healthy in time`);
   }
 
-  private onExit(name: string, code: number, waitErr?: Error): void {
+  private onExit(name: string, gen: number, code: number, waitErr?: Error): void {
+    // This exit belongs to a process from an epoch stop()/fail()/a newer
+    // start already ended — whatever it implies about restart policy no
+    // longer applies to whatever (if anything) currently holds this name.
+    if (!this.isCurrentGeneration(name, gen)) {
+      return;
+    }
     const rt = this.runtimes.get(name);
     if (rt?.state === StateFailed) {
       // fail() already set this state and is in the middle of killing the
@@ -714,12 +873,22 @@ export class Supervisor {
     const should = policy === "always" || (policy === "on_failure" && code !== 0);
     const n = this.restarts.get(name) ?? 0;
     const max = svc && svc.restart.max_retries > 0 ? svc.restart.max_retries : DEFAULT_MAX_RETRIES;
-    if (should && n < max) {
+    if (should && svc && n < max) {
       this.setState(name, StateRestarting, HealthUnknown, 0, msg);
-      const backoff = svc && svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
       this.bumpRestartCount(name, n + 1);
-      this.scheduleRestart(name, backoff * (2 ** n) * 1000, () => {
-        void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
+      // The process that just exited is already gone from procs.all() (the
+      // ProcessManager removes it before invoking this callback), so this
+      // promptly clears its now-dead pid from disk instead of leaving a
+      // stale record there until some unrelated later event persists again.
+      this.persistState();
+      this.armRestart(name, svc, gen, n, () => {
+        // Use this service's own last-tracked profile context, not the
+        // daemon-wide fallback — an unrelated service started under a
+        // different profile in the meantime must not change what this one
+        // crash-restarts with.
+        const profile = this.serviceProfile.get(name) ?? this.profile;
+        const profileEnv = this.serviceProfileEnv.get(name) ?? this.profileEnv;
+        void this.startOne(name, profile, profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
       });
       return;
     }
@@ -733,6 +902,7 @@ export class Supervisor {
     assigned: Record<string, number>,
     workDir: string,
     env: Record<string, string>,
+    gen: number,
   ): void {
     const prev = this.healthTimers.get(name);
     if (prev) {
@@ -747,6 +917,13 @@ export class Supervisor {
       void checkHealth(svc.health, pid, assigned, workDir, env, this.registry?.healthChecks)
         .catch((err: unknown) => ({ status: HealthUnhealthy, message: humanMessage(err) }) as const)
         .then((res) => {
+          // A slow check (e.g. an HTTP request against a hung endpoint) can
+          // still be in flight when this service crashes and restarts under
+          // a new pid; without this guard its stale result would land on
+          // whatever process now holds this service's name instead.
+          if (!this.isCurrentGeneration(name, gen)) {
+            return;
+          }
           this.setHealth(name, res.status, res.message);
           this.logs.append({
             timestamp: new Date().toISOString(),
@@ -756,13 +933,16 @@ export class Supervisor {
             message: `health ${res.status} ${res.message}`,
             pid,
           });
-          this.maybeRestartUnhealthy(name, svc, res.status);
+          this.maybeRestartUnhealthy(name, svc, res.status, gen);
         });
     };
     tick();
     this.healthTimers.set(name, setInterval(tick, interval));
   }
 
+  // stop x also stops everything that (transitively) depends on x, never
+  // x's own dependencies — see shutdownPlan. Empty names stops every
+  // currently-active service but leaves the daemon itself running.
   async stop(names: string[]): Promise<void> {
     let selected = names;
     if (selected.length === 0) {
@@ -773,14 +953,126 @@ export class Supervisor {
     if (selected.length === 0) {
       return;
     }
-    // A crash or unhealthy restart scheduled just before this stop() call
-    // must not go on to revive a service the caller explicitly asked to
-    // stop — startOne() only checks "is it already active", which a stopped
-    // service is not.
-    for (const name of selected) {
-      this.clearRestartTimer(name);
+    // An orphaned service (removed from configuration by a reload while
+    // still running — see reconcileServices) has no dependency graph left
+    // to plan against; only a genuinely unknown name should still fail
+    // closed the way shutdownPlan's requireKnown would.
+    const orphaned = selected.filter((name) => !this.cfg.services[name] && this.runtimes.has(name));
+    const trulyUnknown = selected.filter((name) => !this.cfg.services[name] && !this.runtimes.has(name));
+    if (trulyUnknown.length > 0) {
+      throw newError(KindServiceNotFound, `unknown service "${trulyUnknown[0]}"`);
     }
-    const plan = shutdownPlan(this.cfg, selected);
+    const known = selected.filter((name) => this.cfg.services[name] !== undefined);
+    if (known.length > 0) {
+      // A user-initiated stop always forgives past restarts — see
+      // resetRestartCount — for every service the plan touches, including
+      // dependents pulled in by the cascade, not just the named service(s).
+      await this.runStopPlan(shutdownPlan(this.cfg, known), { resetRestartCounts: true });
+    }
+    if (orphaned.length > 0) {
+      // No config means no dependency graph to cascade through — stop
+      // exactly the orphaned services named, each its own wave, then drop
+      // their tracking entirely: nothing (config or process) is left for
+      // it to describe.
+      await this.runStopPlan({ profile: this.profile, steps: [], waves: orphaned.map((name) => [name]) }, { resetRestartCounts: true });
+      for (const name of orphaned) {
+        this.forgetService(name);
+      }
+    }
+  }
+
+  // Drops every trace of a service that no longer has a configuration
+  // entry and isn't running — called both when a reload removes an
+  // already-stopped service and after an orphaned one is explicitly
+  // stopped. Safe to call on a service that was never tracked at all.
+  private forgetService(name: string): void {
+    const timer = this.healthTimers.get(name);
+    if (timer) {
+      clearInterval(timer);
+      this.healthTimers.delete(name);
+    }
+    this.clearRestartTimer(name);
+    this.runtimes.delete(name);
+    this.ports.delete(name);
+    this.processMeta.delete(name);
+    this.clientEnv.delete(name);
+    this.serviceProfile.delete(name);
+    this.serviceProfileEnv.delete(name);
+    this.restarts.delete(name);
+    this.generation.delete(name);
+    this.unhealthyStreak.delete(name);
+    this.healthyStreak.delete(name);
+  }
+
+  // After a reload, cfg.services no longer necessarily matches what's
+  // actually tracked. A newly added service gets a STOPPED runtime entry
+  // right away instead of silently not existing until first started. A
+  // removed service that's already stopped is forgotten outright; one
+  // still running is marked orphaned (see Runtime.orphaned) and left
+  // alone — stop() can still reach it by name — rather than silently
+  // dropped with no way to stop it short of a full `down`.
+  private reconcileServices(prevServices: Record<string, ServiceConfig>, nextServices: Record<string, ServiceConfig>): void {
+    for (const name of Object.keys(nextServices)) {
+      if (!prevServices[name] && !this.runtimes.has(name)) {
+        this.runtimes.set(name, emptyRuntime(name));
+      }
+    }
+    for (const name of Object.keys(prevServices)) {
+      if (nextServices[name]) {
+        continue;
+      }
+      if (this.serviceIsActive(name)) {
+        const rt = this.runtimes.get(name);
+        if (rt) {
+          rt.orphaned = true;
+        }
+        this.log(name, "WARN", "removed from configuration while still running; now orphaned — stop it explicitly to clean it up");
+        continue;
+      }
+      this.forgetService(name);
+    }
+  }
+
+  // Plain restart touches only the named services — never their
+  // dependents — matching stop's "never dependencies" rule in spirit: a
+  // restart is a minimal, targeted action unless the caller explicitly
+  // opts into the wider blast radius of `cascade`, which restarts the same
+  // dependents shutdownPlan/stop would have stopped.
+  //
+  // `auto` marks a restart the supervisor scheduled itself (a health-check
+  // failure via maybeRestartUnhealthy) rather than one a real client asked
+  // for. Only a real client's restart forgives past restarts; an automatic
+  // one must preserve the count armRestart's caller just bumped, or the
+  // max_retries budget it exists to enforce would reset itself every cycle.
+  async restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string>; auto?: boolean }): Promise<void> {
+    const cascade = opts?.cascade === true;
+    const targets = cascade ? dependentsClosure(this.cfg, names) : names;
+    const plan = cascade ? shutdownPlan(this.cfg, names) : shutdownPlanExact(this.cfg, names);
+    const manual = opts?.auto !== true;
+    await this.runStopPlan(plan, { resetRestartCounts: manual });
+    // Reuse whichever of these targets already has its own tracked profile
+    // context (see serviceProfile) rather than the daemon-wide this.profile,
+    // which an unrelated service's start may have since moved on from.
+    const profile = targets.map((name) => this.serviceProfile.get(name)).find((p) => p !== undefined) ?? this.profile;
+    await this.start({ services: targets, profile, client_env: opts?.clientEnv, auto: opts?.auto });
+  }
+
+  private async runStopPlan(plan: Plan, opts?: { resetRestartCounts?: boolean }): Promise<void> {
+    // A crash or unhealthy restart scheduled just before this call must not
+    // go on to revive a service the caller explicitly asked to stop —
+    // startOne() only checks "is it already active", which a stopped
+    // service is not. Bumping the generation is belt-and-suspenders for the
+    // same reason: it also invalidates any exit/health callback still in
+    // flight from the process this call is about to kill. This covers
+    // every service the plan actually touches, including dependents pulled
+    // in by a cascade — not just whatever the caller explicitly named.
+    for (const name of plan.waves.flat()) {
+      this.clearRestartTimer(name);
+      this.bumpGeneration(name);
+      if (opts?.resetRestartCounts) {
+        this.resetRestartCount(name);
+      }
+    }
     const grace = graceSeconds(this.cfg.shutdown) * 1000;
     for (const wave of plan.waves) {
       await Promise.all(
@@ -799,11 +1091,6 @@ export class Supervisor {
       );
     }
     this.persistState();
-  }
-
-  async restart(names: string[], clientEnv?: Record<string, string>): Promise<void> {
-    await this.stop(names);
-    await this.start({ services: names, profile: this.profile, client_env: clientEnv });
   }
 
   async startProxy(): Promise<void> {
@@ -856,13 +1143,21 @@ export class Supervisor {
   private asMcpHost(): McpHost {
     return {
       status: () => this.snapshot(),
-      logs: (req) => this.queryLogs(req).events,
+      logsPage: (req) => this.queryLogsPage(req),
       config: () => this.cfg,
       start: (req) => this.start(req),
       stop: (names) => this.stop(names),
-      restart: (names) => this.restart(names),
+      restart: (names, cascade) => this.restart(names, { cascade }),
       reload: () => this.reload(),
-      doctor: () => runDoctor(this.cfg),
+      doctor: async () => {
+        // Explicit doctor inspection is one of the three things allowed to
+        // actually probe service accounts (the others: first use, an
+        // explicit auth_refresh) — never the automatic boot/reload refresh.
+        for (const email of configuredServiceAccounts(this.cfg)) {
+          await this.probeServiceAccount(email);
+        }
+        return runDoctor(this.cfg);
+      },
     };
   }
 
@@ -880,10 +1175,25 @@ export class Supervisor {
       this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
       throw err;
     }
+    try {
+      // Revalidate against the candidate config, not this.cfg — a newly
+      // added service (or one whose health/identity type just changed)
+      // referencing a plugin type nothing provides should reject the
+      // reload the same way an unparseable config file does, rather than
+      // silently taking effect and only surfacing once someone starts it.
+      this.checkPluginHealthTypes(next);
+      this.checkPluginIdentityTypes(next);
+    } catch (err) {
+      this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
+      this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
+      throw err;
+    }
     const result = diffReload(this.cfg, next);
     const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
     const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);
+    const prevServices = this.cfg.services;
     Object.assign(this.cfg, next);
+    this.reconcileServices(prevServices, next.services);
     this.restartRequired = result.restart_required;
     // Detector is a cheap, stateless holder of markers/patterns — update it
     // in place so the LogManager/ProxyServer instances that already hold a
@@ -956,7 +1266,12 @@ export class Supervisor {
   snapshot(): StatusSnapshot {
     const services: Record<string, Runtime> = {};
     for (const [name, rt] of this.runtimes) {
-      services[name] = { ...rt, ports: this.ports.get(name) ?? rt.ports };
+      services[name] = {
+        ...rt,
+        ports: this.ports.get(name) ?? rt.ports,
+        profile: this.serviceProfile.get(name) ?? rt.profile,
+        env_source: this.clientEnv.has(name) ? "client" : "daemon",
+      };
     }
     return {
       session_id: this.sessionID,
@@ -979,7 +1294,11 @@ export class Supervisor {
         port: this.mcp?.isRunning() ? this.mcp.listenPort() : undefined,
         token: this.mcpToken,
       },
-      identity: { ...this.identityCache },
+      // service_accounts/service_account_status come from the live cache,
+      // not identityCache's snapshot — a first-use probe (startOne) or a
+      // doctor inspection updates serviceAccountStatus directly without
+      // going through refreshIdentity, and must be visible immediately.
+      identity: { ...this.identityCache, ...this.serviceAccountSnapshot() },
       credentials: {
         backend: this.tokens.storeBackend(),
         entries: [...this.credentialEntries],
@@ -991,19 +1310,30 @@ export class Supervisor {
     };
   }
 
-  async refreshIdentity(): Promise<void> {
+  // Automatic refresh (boot, after every reload) only ever updates ADC,
+  // user, and project metadata — cheap, local checks. Probing every
+  // configured service account is comparatively expensive (a real token
+  // fetch per identity, each with its own timeout) and only happens when
+  // opts.probeServiceAccounts is explicitly set: an "auth_refresh" request
+  // or a doctor inspection, never an automatic pass. A service starting
+  // under a service-account identity for the first time also updates the
+  // cache for that one identity — see startOne.
+  async refreshIdentity(opts?: { probeServiceAccounts?: boolean }): Promise<void> {
     try {
       const st = await this.detectGoogleFn(this.cfg.google.project_id);
-      const accounts: Record<string, boolean> = {};
-      for (const email of configuredServiceAccounts(this.cfg)) {
-        accounts[email] = await this.probeServiceAccount(email);
+      if (opts?.probeServiceAccounts) {
+        for (const email of configuredServiceAccounts(this.cfg)) {
+          await this.probeServiceAccount(email);
+        }
       }
+      const { service_accounts, service_account_status } = this.serviceAccountSnapshot();
       this.identityCache = {
         user: st.userEmail,
         project: st.projectID || this.cfg.google.project_id,
         project_source: st.projectSource || (this.cfg.google.project_id ? "configuration" : ""),
         adc: st.adcAvailable,
-        service_accounts: accounts,
+        service_accounts,
+        service_account_status,
         iap: this.cfg.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap"),
       };
       this.credentialEntries = (await this.tokens.listStatus()).map((entry) => ({
@@ -1020,13 +1350,33 @@ export class Supervisor {
     }
   }
 
-  private async probeServiceAccount(email: string): Promise<boolean> {
+  // Builds the two service-account views the snapshot exposes from the
+  // cache alone — never a fresh probe — against the currently configured
+  // set of identities, so a reload that adds or removes one is reflected
+  // immediately even though nothing has probed the new one yet.
+  private serviceAccountSnapshot(): { service_accounts: Record<string, boolean>; service_account_status: Record<string, ServiceAccountStatus> } {
+    const service_accounts: Record<string, boolean> = {};
+    const service_account_status: Record<string, ServiceAccountStatus> = {};
+    for (const email of configuredServiceAccounts(this.cfg)) {
+      const status = this.serviceAccountStatus.get(email) ?? "unknown";
+      service_account_status[email] = status;
+      if (status !== "unknown") {
+        service_accounts[email] = status === "available";
+      }
+    }
+    return { service_accounts, service_account_status };
+  }
+
+  private async probeServiceAccount(email: string): Promise<ServiceAccountStatus> {
+    let status: ServiceAccountStatus;
     try {
       await withTimeout(this.tokens.get(`sa:${email}`, "", []), IDENTITY_PROBE_MS);
-      return true;
+      status = "available";
     } catch {
-      return false;
+      status = "unavailable";
     }
+    this.serviceAccountStatus.set(email, status);
+    return status;
   }
 
   queryLogs(req: LogsRequest): { events: LogEvent[] } {
@@ -1051,6 +1401,37 @@ export class Supervisor {
       });
     }
     return { events };
+  }
+
+  // Bounded, cursor-paged counterpart to queryLogs() — added alongside it
+  // rather than replacing it so CLI/TUI/MCP consumers can migrate to paging
+  // one at a time; queryLogs()/the plain "logs" RPC still returns everything
+  // matching, unbounded, until every consumer has moved off it.
+  queryLogsPage(req: LogFilter & LogPageRequest): LogPage {
+    return this.logs.queryPage(
+      {
+        services: req.services,
+        level: req.level,
+        search: req.search,
+        regex: req.regex,
+        source: req.source,
+        since: req.since,
+        until: req.until,
+      },
+      { cursor: req.cursor, direction: req.direction, limit: req.limit },
+    );
+  }
+
+  queryLogsFacets(req: LogFilter): LogFacets {
+    return this.logs.queryFacets({
+      services: req.services,
+      level: req.level,
+      search: req.search,
+      regex: req.regex,
+      source: req.source,
+      since: req.since,
+      until: req.until,
+    });
   }
 
   subscribe(handler: (event: import("./events.ts").BusEvent) => void): () => void {
@@ -1095,6 +1476,34 @@ export class Supervisor {
     }
   }
 
+  // A manual stop or start is the caller taking explicit control of this
+  // service; whatever crash history it had stops mattering from here — it
+  // gets a fresh restart budget rather than staying close to max_retries
+  // because of failures from before this intervention.
+  private resetRestartCount(name: string): void {
+    this.healthyStreak.set(name, 0);
+    this.bumpRestartCount(name, 0);
+  }
+
+  // Ends the current lifecycle epoch for a service: any exit, health-check,
+  // or scheduled-restart callback still holding an older generation number
+  // is now stale and must recognize that via isCurrentGeneration() rather
+  // than act on state that belongs to a different process.
+  private bumpGeneration(name: string): number {
+    const next = (this.generation.get(name) ?? 0) + 1;
+    this.generation.set(name, next);
+    // A new epoch starts its own healthy streak from zero — otherwise a
+    // streak built up before a crash could carry over and forgive that very
+    // crash's restart-count bump on the next tick, without the service ever
+    // actually proving itself stable again under the new process.
+    this.healthyStreak.set(name, 0);
+    return next;
+  }
+
+  private isCurrentGeneration(name: string, gen: number): boolean {
+    return this.generation.get(name) === gen;
+  }
+
   // Crash restarts (onExit) and unhealthy restarts (maybeRestartUnhealthy)
   // both schedule a delayed respawn via setTimeout. Tracking the handle lets
   // stop/fail/shutdown cancel it — otherwise a restart scheduled moments
@@ -1107,6 +1516,21 @@ export class Supervisor {
       action();
     }, delayMs);
     this.restartTimers.set(name, timer);
+  }
+
+  // Shared by crash-triggered (onExit) and health-triggered
+  // (maybeRestartUnhealthy) restarts: computes backoff from the pre-bump
+  // attempt count and arms the timer, guarding the eventual fire against a
+  // generation that has since moved on — a manual stop/start/restart, or a
+  // fail(), already happened for this service — so a stale scheduled
+  // restart from a superseded epoch never fires.
+  private armRestart(name: string, svc: ServiceConfig, gen: number, attempt: number, action: () => void): void {
+    const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
+    this.scheduleRestart(name, backoff * (2 ** attempt) * 1000, () => {
+      if (this.isCurrentGeneration(name, gen)) {
+        action();
+      }
+    });
   }
 
   private clearRestartTimer(name: string): void {
@@ -1159,11 +1583,15 @@ export class Supervisor {
     this.bus.publish(newEvent(ServiceHealthChanged, name, { health, message }));
   }
 
-  private maybeRestartUnhealthy(name: string, svc: ServiceConfig, health: ServiceHealth): void {
+  private maybeRestartUnhealthy(name: string, svc: ServiceConfig, health: ServiceHealth, gen: number): void {
     if (health !== HealthUnhealthy) {
       this.unhealthyStreak.set(name, 0);
+      if (health === HealthHealthy) {
+        this.maybeForgiveRestarts(name);
+      }
       return;
     }
+    this.healthyStreak.set(name, 0);
     const policy = svc.restart.policy || (svc.restart.enabled ? "on_failure" : "never");
     if (policy !== "on_failure" && policy !== "always") {
       return;
@@ -1183,12 +1611,23 @@ export class Supervisor {
       this.log(name, "WARN", `unhealthy after ${streak} consecutive checks but the restart limit (${max}) has already been reached; not restarting`);
       return;
     }
-    const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
     this.bumpRestartCount(name, n + 1);
     this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks (attempt ${n + 1}/${max})`);
-    this.scheduleRestart(name, backoff * (2 ** n) * 1000, () => {
-      void this.restart([name]).catch((err) => this.log(name, "ERROR", humanMessage(err)));
+    this.armRestart(name, svc, gen, n, () => {
+      void this.restart([name], { auto: true }).catch((err) => this.log(name, "ERROR", humanMessage(err)));
     });
+  }
+
+  // Forgives past restarts once a service proves itself stable, so a long
+  // healthy run doesn't leave it one stumble away from max_retries because
+  // of crashes/unhealthy spells long in its past.
+  private maybeForgiveRestarts(name: string): void {
+    const streak = (this.healthyStreak.get(name) ?? 0) + 1;
+    this.healthyStreak.set(name, streak);
+    if (streak >= HEALTH_RESET_STREAK && (this.restarts.get(name) ?? 0) > 0) {
+      this.log(name, "INFO", `restart count reset after ${streak} consecutive healthy checks`);
+      this.bumpRestartCount(name, 0);
+    }
   }
 
   private applyRegistry(): void {
@@ -1205,8 +1644,8 @@ export class Supervisor {
   // non-empty, since plugins aren't loaded yet at config-parse time. Now
   // that they are, confirm each such type actually resolved to a registered
   // health check plugin.
-  private checkPluginHealthTypes(): void {
-    const unresolved = unresolvedHealthTypes(this.cfg);
+  private checkPluginHealthTypes(cfg: DevctlConfig = this.cfg): void {
+    const unresolved = unresolvedHealthTypes(cfg);
     if (unresolved.length === 0) {
       return;
     }
@@ -1225,8 +1664,8 @@ export class Supervisor {
   // identity.type through when cfg.plugins is non-empty, since plugins
   // aren't loaded yet at config-parse time. Confirm each such type actually
   // resolved to a registered identity provider now that they are.
-  private checkPluginIdentityTypes(): void {
-    const unresolved = unresolvedIdentityTypes(this.cfg);
+  private checkPluginIdentityTypes(cfg: DevctlConfig = this.cfg): void {
+    const unresolved = unresolvedIdentityTypes(cfg);
     if (unresolved.length === 0) {
       return;
     }
@@ -1236,7 +1675,7 @@ export class Supervisor {
     // than the two builtins counts as actually resolving a custom type.
     const pluginProviders = (this.registry?.identityProviders ?? []).filter((provider) => provider.name !== "user" && provider.name !== "service_account");
     const stillUnknown = unresolved.filter(({ service }) => {
-      const svc = this.cfg.services[service];
+      const svc = cfg.services[service];
       return !svc || !pluginProviders.some((provider) => provider.accepts(svc.identity));
     });
     if (stillUnknown.length > 0) {
@@ -1313,11 +1752,14 @@ export class Supervisor {
       this.healthTimers.delete(name);
     }
     this.clearRestartTimer(name);
+    this.bumpGeneration(name);
     // Set FAILED before killing the process, not after: procs.stop() awaits
     // the same exit promise that drives onExit(), and onExit() runs (as part
     // of resolving that promise) before this await returns — so onExit()
     // must already see FAILED at that point to know this exit was ours and
-    // skip scheduling a restart for it.
+    // skip scheduling a restart for it. (The generation bump above already
+    // makes that exit a no-op on its own; the FAILED check stays as a second,
+    // independent guard.)
     this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
     try {
       await this.procs.stop(name, graceSeconds(this.cfg.shutdown) * 1000);
@@ -1326,6 +1768,7 @@ export class Supervisor {
     }
     this.bus.publish(newEvent(ServiceFailed, name, { error: humanMessage(err) }));
     this.log(name, "ERROR", humanMessage(err));
+    this.persistState();
   }
 
   private log(service: string, level: string, message: string): void {
@@ -1360,13 +1803,20 @@ export class Supervisor {
     });
   }
 
-  private attachProcess(name: string, pid: number, args: string[], workDir: string, startTime: Date): void {
+  // Returns the generation this adoption was recorded under, or undefined
+  // if nothing was adopted (already tracked and alive, or the pid isn't a
+  // live process devctl can attach to) — callers pass whichever they get
+  // (bumping their own fallback generation otherwise) through to
+  // startHealth() so its tick and this process's onExit agree on the same
+  // epoch.
+  private attachProcess(name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
     if (this.procs.get(name) && this.processAliveFn(this.procs.get(name)?.pid ?? 0)) {
-      return;
+      return undefined;
     }
     if (!this.processAliveFn(pid) || pid === process.pid) {
-      return;
+      return undefined;
     }
+    const gen = this.bumpGeneration(name);
     try {
       this.procs.adopt({
         name,
@@ -1375,7 +1825,7 @@ export class Supervisor {
         workDir,
         startTime,
         onExit: (code, err) => {
-          this.onExit(name, code, err);
+          this.onExit(name, gen, code, err);
         },
       });
     } catch (err) {
@@ -1383,6 +1833,8 @@ export class Supervisor {
       this.log(name, "WARN", `adopt pid ${pid} failed (${detail}); tracking leftover in snapshot only`);
     }
     this.processMeta.set(name, { command: args, cwd: workDir, startTime });
+    this.persistState();
+    return gen;
   }
 
   private async recoverSession(): Promise<void> {
@@ -1413,14 +1865,16 @@ export class Supervisor {
         }
         continue;
       }
-      this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || Date.now()));
+      const gen = this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || Date.now())) ?? this.bumpGeneration(rec.name);
       if (Object.keys(rec.ports).length > 0) {
         this.ports.set(rec.name, rec.ports);
       }
       this.setState(rec.name, StateRunning, HealthUnknown, rec.pid, "");
       const svc = this.cfg.services[rec.name];
       if (svc) {
-        this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), {});
+        const workDir = rec.cwd || this.serviceWorkDir(svc);
+        const healthEnv = await this.resolveAdoptedHealthEnv(rec.name, svc, rec.ports);
+        this.startHealth(rec.name, svc, rec.pid, rec.ports, workDir, healthEnv, gen);
       }
       this.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
       adopted.push(rec.name);
@@ -1513,7 +1967,10 @@ function emptyIdentitySnapshot(cfg?: DevctlConfig): IdentitySnapshot {
     project: cfg?.google.project_id ?? "",
     project_source: cfg?.google.project_id ? "configuration" : "",
     adc: false,
-    service_accounts: Object.fromEntries(cfg ? configuredServiceAccounts(cfg).map((email) => [email, false]) : []),
+    // Nothing has been probed yet — omitted here, not defaulted to false;
+    // see service_account_status for the "not probed yet" state itself.
+    service_accounts: {},
+    service_account_status: Object.fromEntries(cfg ? configuredServiceAccounts(cfg).map((email) => [email, "unknown" as const]) : []),
     iap: cfg?.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap") ?? false,
   };
 }
