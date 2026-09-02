@@ -770,6 +770,16 @@ function addSupervisor(root: Command): void {
 }
 
 export async function execute(): Promise<void> {
+  // A downstream reader closing early (`devctl status --watch | head -1`, a
+  // terminal that goes away mid-stream) makes the next stdout write fail
+  // with EPIPE — a normal, quiet end of output, not a crash. This backstops
+  // the `error` event a write can emit asynchronously; writeOut() below
+  // separately catches the synchronous-throw case.
+  process.stdout.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EPIPE") {
+      process.exit(0);
+    }
+  });
   try {
     await newRoot().parseAsync(process.argv);
   } catch (err) {
@@ -779,7 +789,14 @@ export async function execute(): Promise<void> {
 }
 
 function writeOut(text: string): void {
-  process.stdout.write(text);
+  try {
+    process.stdout.write(text);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EPIPE") {
+      process.exit(0);
+    }
+    throw err;
+  }
 }
 
 export { ExitSuccess };

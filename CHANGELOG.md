@@ -110,6 +110,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An adopted process's command-type health check ran with a completely empty environment, unable to even resolve `PATH` to find its own executable; it's now reconstructed from the same configured, reproducible sources (profile, dotenv, defaults/vars, secrets, runtime) a fresh start would use.
 - An unhandled error on an accepted RPC client socket (an abrupt disconnect — killed, crashed, a network blip) crashed the whole daemon; it's now logged and handled like an ordinary disconnect.
 
+### Added
+
+- `devctl logs -f`, `devctl status --watch`, and `devctl daemon logs [-f]` follow their output live from the terminal until interrupted.
+- Log queries are cursor-paginated instead of unbounded: a page defaults to the latest 500 matching events (maximum 5,000), identified by an opaque cursor that supports paging both backward (older) and forward (newer); `since`/`until` timestamp filters keep working alongside it. CLI, TUI, and MCP's `get_logs` all use it.
+- Server-side log facets: total matching events, plus per-service/level/source counts (each under every other active filter but its own), via a new lightweight stats-only query. The TUI refreshes them live every two seconds while its logs screen is open, and immediately after a filter change, a clear, or reconnecting.
+- The detached supervisor's bootstrap log keeps a short rotated history (the 5 most recent boot attempts) instead of each new attempt silently overwriting the last one's stderr.
+
+### Changed
+
+- The TUI's logs screen fetches a bounded page instead of the entire matching log history on every filter change, and only fetches further back into history as you actually scroll there; live-streamed events keep arriving incrementally on top, with no duplicate or dropped events among ones sharing the same millisecond.
+- MCP `get_logs` follows by an opaque `cursor`/`next_cursor` instead of `since`/`next_since`; a plain timestamp cursor could duplicate or drop whichever of several same-millisecond events landed on the wrong side of a page boundary, which a sequence-based cursor cannot. `since`/`until` are now plain inclusive filters for a fresh query rather than doubling as a follow mechanism. The response also gains `has_more` (more events are already waiting — fetch again immediately rather than waiting out the poll interval) and `session_changed` (the daemon restarted since the given cursor was issued, so the latest page was returned instead).
+
+### Fixed
+
+- `devctl status --watch` and `devctl logs -f` no longer crash (and could hang indefinitely retrying the same failing write) when their output is piped into something that closes early, like `| head`, or a terminal that goes away mid-stream — writing to a closed stdout now ends that command quietly instead.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added

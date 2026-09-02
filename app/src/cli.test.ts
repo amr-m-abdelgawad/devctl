@@ -250,6 +250,36 @@ services:
   }, 20_000);
 });
 
+describe("devctl status --watch piped into a reader that closes early", () => {
+  test("exits cleanly on EPIPE instead of crashing with an uncaught exception", async () => {
+    const dir = tmp();
+    writeFileSync(configFile(dir), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const binPath = join(import.meta.dir, "bin.ts");
+    const originalArgv1 = process.argv[1] ?? "";
+    process.argv[1] = binPath;
+    try {
+      await run(["--config", configFile(dir), "start", "api", "--detach"]);
+
+      // A real bash pipe (not an in-process stream) so closing the reader
+      // produces a genuine OS-level EPIPE on the writer's next write, the
+      // same condition a real `devctl status --watch | head -1` hits.
+      const script = `set -o pipefail; ${JSON.stringify(process.execPath)} ${JSON.stringify(binPath)} --config ${JSON.stringify(configFile(dir))} status --watch | head -1`;
+      const proc = Bun.spawn({ cmd: ["bash", "-c", script], stdout: "pipe", stderr: "pipe" });
+      const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+
+      // head -1 only ever sees the very first line devctl wrote (the
+      // "--- <timestamp> ---" tick header) before closing the pipe.
+      expect(stdout).toMatch(/^--- .+ ---\n$/);
+      expect(stderr).not.toContain("EPIPE");
+      expect(exitCode).toBe(0);
+
+      await run(["--config", configFile(dir), "down"]);
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
+  }, 20_000);
+});
+
 function fakeLogEvent(message: string): LogEvent {
   return { timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message, pid: 1, seq: 1 };
 }
