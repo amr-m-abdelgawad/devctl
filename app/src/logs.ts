@@ -397,6 +397,25 @@ export type LogPage = {
   sessionChanged: boolean;
 };
 
+export type LogFacets = {
+  // Every active filter applied, exactly like query()'s own result count.
+  total: number;
+  // Each of these applies every *other* active filter but not its own
+  // dimension — byService, for instance, still respects the current level/
+  // source/search/since/until filters, just not a services filter, so it
+  // answers "how many would match per service under my other filters" for
+  // a service-picker UI to show without the user first clearing anything.
+  byService: Record<string, number>;
+  byLevel: Record<string, number>;
+  bySource: Record<string, number>;
+};
+
+function withoutFilterDimension(filter: LogFilter, dimension: "services" | "level" | "source"): LogFilter {
+  const copy = { ...filter };
+  copy[dimension] = undefined;
+  return copy;
+}
+
 export function clampLogPageSize(limit?: number): number {
   if (!Number.isInteger(limit) || (limit ?? 0) <= 0) {
     return DEFAULT_LOG_PAGE_SIZE;
@@ -589,6 +608,35 @@ export class LogManager {
       hasPrev,
       sessionChanged,
     };
+  }
+
+  // Lightweight on purpose: no event payload, just counts, so a client
+  // following logs can poll this every couple of seconds for live facet
+  // counts without re-fetching (and re-transferring) the page it already
+  // has.
+  queryFacets(filter: LogFilter): LogFacets {
+    const withoutServices = withoutFilterDimension(filter, "services");
+    const withoutLevel = withoutFilterDimension(filter, "level");
+    const withoutSource = withoutFilterDimension(filter, "source");
+    let total = 0;
+    const byService: Record<string, number> = {};
+    const byLevel: Record<string, number> = {};
+    const bySource: Record<string, number> = {};
+    this.forEachEvent((ev) => {
+      if (matchLog(filter, ev)) {
+        total += 1;
+      }
+      if (matchLog(withoutServices, ev)) {
+        byService[ev.service] = (byService[ev.service] ?? 0) + 1;
+      }
+      if (matchLog(withoutLevel, ev)) {
+        byLevel[ev.level] = (byLevel[ev.level] ?? 0) + 1;
+      }
+      if (matchLog(withoutSource, ev)) {
+        bySource[ev.source] = (bySource[ev.source] ?? 0) + 1;
+      }
+    });
+    return { total, byService, byLevel, bySource };
   }
 
   snapshot(): { total: number; errors: number; counts: Record<string, number> } {

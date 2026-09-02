@@ -5,7 +5,7 @@ import { resolveDaemonTarget } from "./daemon.ts";
 import { osEnviron } from "./environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
-import { type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
+import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { type Plan } from "./services.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
@@ -19,7 +19,7 @@ const RPC_CALL_TIMEOUT_MS = 30_000;
 // daemon: removing it (`down` → the "shutdown" call, made directly on
 // Client rather than through Controller.call) and reading its logs so the
 // user has something to look at before deciding to run `down`.
-const ALWAYS_ALLOWED_METHODS = new Set(["logs", "logs_page"]);
+const ALWAYS_ALLOWED_METHODS = new Set(["logs", "logs_page", "logs_stats"]);
 
 export type DaemonCompat = {
   compatible: boolean;
@@ -300,6 +300,13 @@ export class Controller {
 
   async logsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
     return (await this.call("logs_page", req)) as LogPage;
+  }
+
+  // Deliberately lightweight: no event payload, so a follow-mode consumer
+  // can poll this every couple of seconds for live facet counts without
+  // re-fetching (and re-transferring) events it already has.
+  async logsStats(req: LogFilter): Promise<LogFacets> {
+    return (await this.call("logs_stats", req)) as LogFacets;
   }
 
   async proxyStart(): Promise<void> {

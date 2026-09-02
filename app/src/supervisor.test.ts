@@ -686,6 +686,30 @@ services:
     }
   }, 15_000);
 
+  test("logs_stats RPC returns facet counts without an event payload", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      const facets = (await sup.dispatch("logs_stats", {})) as {
+        total: number;
+        byService: Record<string, number>;
+        byLevel: Record<string, number>;
+        bySource: Record<string, number>;
+      };
+      expect(facets.total).toBeGreaterThan(0);
+      expect(facets.byService.devctl).toBeGreaterThan(0);
+      expect("events" in facets).toBe(false);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

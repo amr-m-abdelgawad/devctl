@@ -191,6 +191,49 @@ describe("LogManager pagination", () => {
   });
 });
 
+describe("LogManager facets", () => {
+  function seededMixed(): LogManager {
+    const mgr = new LogManager(1000, undefined, new Detector([], []), false, tmp(), "s1", 0, 0);
+    const rows: Array<[string, string, string]> = [
+      ["api", "INFO", "stdout"],
+      ["api", "ERROR", "stdout"],
+      ["api", "ERROR", "stderr"],
+      ["worker", "INFO", "stdout"],
+      ["worker", "INFO", "stderr"],
+      ["worker", "ERROR", "stderr"],
+    ];
+    rows.forEach(([service, level, source], i) => {
+      mgr.append({ timestamp: `2026-08-30T00:00:0${i}.000Z`, service, source, level, message: `line ${i}`, pid: 1 });
+    });
+    return mgr;
+  }
+
+  test("total respects every active filter, matching what query() itself would return", () => {
+    const mgr = seededMixed();
+    const facets = mgr.queryFacets({ services: ["api"], level: "ERROR" });
+    expect(facets.total).toBe(mgr.query({ services: ["api"], level: "ERROR" }).length);
+    expect(facets.total).toBe(2);
+  });
+
+  test("byService ignores the services filter but keeps every other one active", () => {
+    const mgr = seededMixed();
+    // Filtered down to api, but byService must still show worker's own
+    // count under the same level filter — that's the whole point of a
+    // service-picker facet: showing what switching services would yield.
+    const facets = mgr.queryFacets({ services: ["api"], level: "ERROR" });
+    expect(facets.byService).toEqual({ api: 2, worker: 1 });
+  });
+
+  test("byLevel and bySource each ignore only their own dimension", () => {
+    const mgr = seededMixed();
+    const facets = mgr.queryFacets({ level: "ERROR", source: "stderr" });
+    // byLevel: source stays applied (stderr), level does not.
+    expect(facets.byLevel).toEqual({ ERROR: 2, INFO: 1 });
+    // bySource: level stays applied (ERROR), source does not.
+    expect(facets.bySource).toEqual({ stdout: 1, stderr: 2 });
+  });
+});
+
 describe("log export paths", () => {
   test("defaultExportPath writes under DEVCTL_HOME/exports", () => {
     const home = tmp();

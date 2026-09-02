@@ -35,7 +35,7 @@ import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
 import { checkHealth, healthIntervalMs, healthLevel } from "./health.ts";
 import { readHostMemory } from "./host-stats.ts";
 import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
-import { LogManager, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
+import { LogManager, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
 import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "./processes.ts";
@@ -417,6 +417,16 @@ export class Supervisor {
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           direction: rec.direction === "forward" ? "forward" : "backward",
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+        });
+      case "logs_stats":
+        return this.queryLogsFacets({
+          services: asStringArray(rec.services),
+          level: typeof rec.level === "string" ? rec.level : "",
+          search: typeof rec.search === "string" ? rec.search : "",
+          regex: rec.regex === true,
+          source: typeof rec.source === "string" ? rec.source : "",
+          since: typeof rec.since === "string" ? rec.since : "",
+          until: typeof rec.until === "string" ? rec.until : "",
         });
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
@@ -1410,6 +1420,18 @@ export class Supervisor {
       },
       { cursor: req.cursor, direction: req.direction, limit: req.limit },
     );
+  }
+
+  queryLogsFacets(req: LogFilter): LogFacets {
+    return this.logs.queryFacets({
+      services: req.services,
+      level: req.level,
+      search: req.search,
+      regex: req.regex,
+      source: req.source,
+      since: req.since,
+      until: req.until,
+    });
   }
 
   subscribe(handler: (event: import("./events.ts").BusEvent) => void): () => void {
