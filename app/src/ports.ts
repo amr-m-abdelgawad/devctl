@@ -1,7 +1,7 @@
 import { spawn } from "bun";
 import { createServer } from "node:net";
 import { type DevctlConfig } from "./config/index.ts";
-import { hintError, KindConfiguration, KindProcessStart, newError, wrapError, type DevctlError } from "./errors.ts";
+import { DevctlError, hintError, KindConfiguration, KindProcessStart, wrapError } from "./errors.ts";
 
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
@@ -30,10 +30,10 @@ export async function assignPorts(
         val = await allocate();
       }
       if (val < MIN_PORT || val > MAX_PORT) {
-        throw newError(KindConfiguration, `invalid port ${val} on service ${name}`);
+        throw new DevctlError(KindConfiguration, `invalid port ${val} on service ${name}`, { service: name });
       }
       if (used[val] && used[val] !== name) {
-        throw newError(KindConfiguration, `duplicate port ${val} used by ${used[val]} and ${name}`);
+        throw new DevctlError(KindConfiguration, `duplicate port ${val} used by ${used[val]} and ${name}`, { service: name });
       }
       const reused = held === val;
       if (!reused && !spec.auto && !(await available(val))) {

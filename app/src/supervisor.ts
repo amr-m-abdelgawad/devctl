@@ -467,9 +467,16 @@ export class Supervisor {
           this.log(name, "INFO", `assigned ports: ${summary || "none"}`);
         }
       } catch (err) {
-        const name = err instanceof DevctlError && err.service !== "" ? err.service : pending[0];
-        if (name) {
-          await this.fail(name, err);
+        // Fail exactly the service a structured error names — never guess by
+        // blaming pending[0]: an error unrelated to that service (a port
+        // conflict discovered while assigning a *later* one, say) must not
+        // mark it failed just because it happened to be first in the list.
+        // With no real attribution, this is a global failure: log it and let
+        // it propagate, without marking any particular service failed.
+        if (err instanceof DevctlError && err.service !== "") {
+          await this.fail(err.service, err);
+        } else {
+          this.log("devctl", "ERROR", humanMessage(err));
         }
         throw err;
       }

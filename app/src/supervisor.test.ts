@@ -826,6 +826,34 @@ describe("stop/restart graph direction", () => {
   }, 15_000);
 });
 
+describe("port-assignment error attribution", () => {
+  test("a port conflict fails the service actually involved, never an unrelated pending one", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const longRunning = { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false };
+    cfg.services.a = { ...emptyService(), command: longRunning };
+    // b and c collide on the same fixed port; a has none and is wholly
+    // unrelated to that conflict, but is first in iteration/pending order.
+    cfg.services.b = { ...emptyService(), command: longRunning, ports: [{ name: "http", value: 19_998, auto: false }] };
+    cfg.services.c = { ...emptyService(), command: longRunning, ports: [{ name: "http", value: 19_998, auto: false }] };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await expect(sup.start({ services: ["a", "b", "c"] })).rejects.toThrow(/duplicate port/);
+      const snap = sup.snapshot().services;
+      expect(snap.a?.state).not.toBe("FAILED");
+      const blamed = ["b", "c"].filter((name) => snap[name]?.state === "FAILED");
+      expect(blamed).toEqual(["c"]);
+    } finally {
+      await sup.stop([]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+});
+
 function pidsOf(sup: Supervisor, names: string[]): Record<string, number> {
   const snap = sup.snapshot().services;
   const out: Record<string, number> = {};
