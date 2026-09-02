@@ -629,6 +629,31 @@ services:
     }
   }, 15_000);
 
+  test("logs_clear is no longer a valid RPC method — a client cannot wipe the daemon's shared log buffer", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      // "clear logs" in the TUI must only affect that client's own view
+      // (hiding old events locally via a since-timestamp), never wipe what
+      // other attached clients — another TUI session, the CLI, MCP — still
+      // see. run() itself already logs a startup line, so there's something
+      // real to prove survives.
+      const before = (await sup.dispatch("logs", {})) as { events: unknown[] };
+      expect(before.events.length).toBeGreaterThan(0);
+      await expect(sup.dispatch("logs_clear", null)).rejects.toThrow(/unknown method/);
+      const after = (await sup.dispatch("logs", {})) as { events: unknown[] };
+      expect(after.events.length).toBe(before.events.length);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

@@ -590,12 +590,14 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     }
   }, [controller, errorOnly, logLevel, logRegex, logSearch, logSince, logSource, paused]);
 
+  // Client-local: hides everything up to now from this view via logSince,
+  // without touching the daemon's shared log buffer — other attached
+  // clients (another TUI session, the CLI, MCP) keep their own history.
   const clearLogs = useCallback(() => {
     setLogs([]);
     setLogSince(new Date().toISOString());
-    void controller?.clearLogs();
     setStatus("Cleared on-screen log buffer");
-  }, [controller]);
+  }, []);
 
   const toggleSystemLogs = useCallback(() => {
     setShowSystemLogs((v) => !v);

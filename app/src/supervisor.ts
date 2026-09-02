@@ -438,9 +438,6 @@ export class Supervisor {
         // via the same Detector-based redaction it already applies
         // elsewhere unless the user has explicitly turned on /reveal.
         return this.cfg;
-      case "logs_clear":
-        this.logs.clear();
-        return null;
       case "auth_invalidate":
         this.tokens.invalidate();
         return null;

@@ -489,11 +489,6 @@ export class LogManager {
     return { total: this.events.length, errors, counts };
   }
 
-  clear(): void {
-    this.events = [];
-    this.eventStart = 0;
-  }
-
   private forEachEvent(visit: (event: LogEvent) => void): void {
     const count = this.events.length;
     for (let offset = 0; offset < count; offset += 1) {

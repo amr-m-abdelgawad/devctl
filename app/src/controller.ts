@@ -318,10 +318,6 @@ export class Controller {
     return (await this.call("reload", null)) as ReloadResult;
   }
 
-  async clearLogs(): Promise<void> {
-    await this.call("logs_clear", null);
-  }
-
   async invalidateAuth(): Promise<void> {
     await this.call("auth_invalidate", null);
   }
