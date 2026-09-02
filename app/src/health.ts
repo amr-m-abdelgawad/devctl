@@ -40,8 +40,15 @@ export async function checkHealth(
   const kind = cfg.type.toLowerCase();
   const plugin = plugins.find((item) => item.name.toLowerCase() === kind);
   if (plugin) {
-    const res = await plugin.check(cfg, { pid, ports, workDir, env });
-    return { status: res.status as ServiceHealth, message: res.message };
+    // A throwing plugin must not crash the health-check loop (and the caller
+    // in supervisor.ts's tick() has no .catch of its own): treat a rejected
+    // check the same as a check that reported unhealthy.
+    try {
+      const res = await plugin.check(cfg, { pid, ports, workDir, env });
+      return { status: res.status as ServiceHealth, message: res.message };
+    } catch (err) {
+      return { status: HealthUnhealthy, message: err instanceof Error ? err.message : String(err) };
+    }
   }
   if (kind === "http") {
     return checkHTTP(cfg.url, timeout);
@@ -120,13 +127,20 @@ async function checkCommand(
     return { status: HealthUnhealthy, message: "empty health command" };
   }
   const cmd = shell ? (process.platform === "win32" ? ["cmd.exe", "/c", args.join(" ")] : ["/bin/sh", "-c", args.join(" ")]) : args;
-  const proc = Bun.spawn({
-    cmd,
-    cwd: workDir === "" ? undefined : workDir,
-    env,
-    stdout: "ignore",
-    stderr: "ignore",
-  });
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn({
+      cmd,
+      cwd: workDir === "" ? undefined : workDir,
+      env,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+  } catch (err) {
+    // e.g. the command doesn't exist or workDir is invalid — a health check
+    // that can't even start is unhealthy, not a crash of the check loop.
+    return { status: HealthUnhealthy, message: err instanceof Error ? err.message : String(err) };
+  }
   const timer = setTimeout(() => proc.kill("SIGKILL"), timeout);
   const code = await proc.exited;
   clearTimeout(timer);

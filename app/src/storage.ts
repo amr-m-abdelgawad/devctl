@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
@@ -79,9 +79,25 @@ export function statePath(repoRoot: string): string {
   return join(sessionDir(repoRoot), "state.json");
 }
 
+// Bootstrap stderr from the detached `_supervisor` process spawned by
+// ensureSupervisor() — separate from the service/session logs the running
+// supervisor writes once it's up, since a boot failure means those never
+// start. Repo-specific (not shared across repos) so concurrent supervisors
+// don't interleave their startup errors in one file.
+export function bootstrapLogPath(repoRoot: string): string {
+  return join(sessionDir(repoRoot), "bootstrap.log");
+}
+
 export function writeFileSecure(path: string, data: string | Buffer): void {
   ensureDir(dirname(path));
-  writeFileSync(path, data, { mode: FILE_PERM });
+  // Write-then-rename instead of an in-place write so a reader (or a crash
+  // mid-write) never observes a truncated/partial file — rename() is atomic
+  // on the same filesystem on both POSIX and Windows. This matters most for
+  // state.json: it's the file a future `devctl start`/`status` reads back to
+  // adopt processes left running after a detach-quit.
+  const tmp = join(dirname(path), `.${basename(path)}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`);
+  writeFileSync(tmp, data, { mode: FILE_PERM });
+  renameSync(tmp, path);
 }
 
 export function newSessionID(now = new Date()): string {

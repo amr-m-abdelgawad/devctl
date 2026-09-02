@@ -23,6 +23,12 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 
+// What we always tell upstream we accept — fetch() transparently decompresses
+// a response in any of these, so it's also the exact set we can safely
+// assume was decompressed when deciding whether to strip content-encoding /
+// content-length below.
+const NEGOTIATED_ENCODINGS = new Set(["gzip", "deflate", "br"]);
+
 export type ProxyMiddleware = {
   name: string;
   apply: (ctx: ProxyMiddlewareContext) => Promise<void>;
@@ -128,6 +134,21 @@ export class ProxyServer {
           headers[key] = value.join(",");
         }
       }
+      const clientAddress = req.socket.remoteAddress ?? "";
+      const originalHost = headers.host ?? "";
+      const forwardedFor = headers["x-forwarded-for"];
+      headers["x-forwarded-for"] = forwardedFor ? `${forwardedFor}, ${clientAddress}` : clientAddress;
+      headers["x-forwarded-host"] = originalHost;
+      headers["x-forwarded-proto"] = "http";
+      // Let fetch derive Host from the upstream URL instead of forwarding
+      // the client's — otherwise the upstream sees the devctl-facing
+      // hostname instead of its own.
+      delete headers.host;
+      // Pin exactly what we can safely undo below: fetch auto-decompresses
+      // a response in any of these regardless of what the client asked for,
+      // but still reports the *compressed* content-encoding/content-length
+      // on the Response object — see the header-stripping logic after fetch.
+      headers["accept-encoding"] = "gzip, deflate, br";
       headers[REQUEST_ID_HEADER] = requestID;
       if (this.middleware.length === 0) {
         await injectIdentityHeaders(route, headers, this.tokens);
@@ -146,10 +167,29 @@ export class ProxyServer {
         duplex: body ? "half" : undefined,
       });
       res.statusCode = resp.status;
+      // fetch() already decompressed the body if its content-encoding is
+      // one of NEGOTIATED_ENCODINGS (see above) — but it leaves the
+      // Response's own content-encoding/content-length headers describing
+      // the original *compressed* bytes, not the decompressed body
+      // pipeResponse is about to send. Forwarding those headers unchanged
+      // would lie to the client. Strip them only when every encoding on the
+      // response is one we know fetch decompressed; anything outside that
+      // set was never touched, so its headers still describe exactly the
+      // bytes being forwarded and must be preserved as-is.
+      const responseEncodings = (resp.headers.get("content-encoding") ?? "")
+        .split(",")
+        .map((token) => token.trim().toLowerCase())
+        .filter((token) => token !== "");
+      const decompressedByFetch = responseEncodings.length > 0 && responseEncodings.every((token) => NEGOTIATED_ENCODINGS.has(token));
       resp.headers.forEach((value, key) => {
-        if (!HOP_BY_HOP.has(key.toLowerCase())) {
-          res.setHeader(key, this.detector ? this.detector.redactText(value) : value);
+        const lower = key.toLowerCase();
+        if (HOP_BY_HOP.has(lower)) {
+          return;
         }
+        if (decompressedByFetch && (lower === "content-encoding" || lower === "content-length")) {
+          return;
+        }
+        res.setHeader(key, this.detector ? this.detector.redactText(value) : value);
       });
       await pipeResponse(resp, res);
       const duration = Date.now() - started;

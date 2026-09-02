@@ -13,6 +13,8 @@ If a supervisor session already exists, the TUI attaches to it. Preferences: `tu
 
 With no `.devctl` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter writes a starter config (or run `devctl setup` for the 9-step wizard).
 
+If a `.devctl/config.yaml` exists but fails to parse or validate, the TUI shows **Configuration error** with the actual error instead — pressing Enter here does not run setup, since that would silently overwrite the file the error is about. Fix the file and restart devctl, or run `devctl config validate` for the same error from the CLI.
+
 When services exist but none are running, the dashboard empty state:
 
 - `enter` starts the default profile (first profile name alphabetically) after a plan overlay

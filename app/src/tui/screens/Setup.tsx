@@ -24,17 +24,28 @@ export function SetupScreen(props: {
   cfg?: DevctlConfig;
   google?: GoogleStatus;
   bootError?: string;
+  bootErrorMissing?: boolean;
   step?: number;
 }) {
-  const { palette, cfg, google, bootError, step = 0 } = props;
+  const { palette, cfg, google, bootError, bootErrorMissing = false, step = 0 } = props;
   const scale = useDensity();
   if (bootError && !cfg) {
-    return (
+    // A missing configuration is safe to offer setup for; an existing-but-
+    // invalid one must show the real error instead — running setup here
+    // would silently overwrite it rather than help fix it.
+    return bootErrorMissing ? (
       <EmptyState
         palette={palette}
         title="No configuration found"
         body="Would you like to run setup?"
         hint="[Enter] Setup   [Esc] Exit"
+      />
+    ) : (
+      <EmptyState
+        palette={palette}
+        title="Configuration error"
+        body={bootError}
+        hint="Fix .devctl/config.yaml, then restart devctl   [Esc] Exit"
       />
     );
   }

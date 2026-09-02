@@ -1,9 +1,10 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, openAttach } from "./controller.ts";
+import { Client, Controller, ensureSupervisor, openAttach, supervisorSpawnCommand } from "./controller.ts";
 import { KindGeneral } from "./errors.ts";
+import { bootstrapLogPath } from "./storage.ts";
 
 describe("RPC client", () => {
   test("closing the socket rejects pending calls instead of keeping the process alive", async () => {
@@ -19,6 +20,54 @@ describe("RPC client", () => {
     client.close();
     expect(await outcome).toContain("supervisor connection closed");
   });
+});
+
+describe("supervisor spawn command", () => {
+  test("source mode passes the script path so Bun knows what to run", () => {
+    expect(supervisorSpawnCommand("/root/.bun/bin/bun", "/repo/app/src/bin.ts", false, ["_supervisor", "--repo", "/repo"])).toEqual([
+      "/root/.bun/bin/bun",
+      "/repo/app/src/bin.ts",
+      "_supervisor",
+      "--repo",
+      "/repo",
+    ]);
+  });
+
+  test("compiled-binary mode omits the virtual script argument", () => {
+    // A compiled executable's argv[1] is the caller's own first CLI argument
+    // (e.g. "status"), not a script path — including it would make the child
+    // parse "status _supervisor --repo /repo" as its own command line.
+    expect(supervisorSpawnCommand("/usr/local/bin/devctl", "status", true, ["_supervisor", "--repo", "/repo"])).toEqual([
+      "/usr/local/bin/devctl",
+      "_supervisor",
+      "--repo",
+      "/repo",
+    ]);
+  });
+});
+
+describe("ensureSupervisor bootstrap failure", () => {
+  test("reports the bootstrap log path when the supervisor never comes up", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-bootstrap-fail-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = join(dir, "home");
+    // No .devctl/config.yaml exists at this path, so the real spawned
+    // `_supervisor` process fails to load configuration and exits almost
+    // immediately instead of ever binding a socket — exercising the real
+    // dial-timeout-then-report path end to end, not a mocked one.
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const originalArgv1 = process.argv[1] ?? "";
+    process.argv[1] = join(import.meta.dir, "bin.ts");
+    try {
+      await expect(ensureSupervisor(dir, configPath)).rejects.toMatchObject({
+        kind: KindGeneral,
+        hint: `see ${bootstrapLogPath(dir)} for details`,
+      });
+      expect(readFileSync(bootstrapLogPath(dir), "utf8").length).toBeGreaterThan(0);
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
+  }, 15_000);
 });
 
 describe("attach", () => {

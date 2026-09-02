@@ -2,7 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { type DevctlConfig } from "../config/index.ts";
 import { openLocal, type Controller } from "../controller.ts";
-import { humanMessage } from "../errors.ts";
+import { humanMessage, isKind, KindConfigurationMissing } from "../errors.ts";
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../warnings.ts";
 import { loadTuiConfig } from "./tui-config.ts";
@@ -15,19 +15,22 @@ export async function runTuiWithController(controller: Controller): Promise<void
 export async function runTui(configPath: string): Promise<void> {
   let controller: Controller | undefined;
   let bootError: string | undefined;
+  let bootErrorMissing = false;
   try {
     controller = await openLocal("", configPath);
   } catch (err) {
     bootError = humanMessage(err);
+    bootErrorMissing = isKind(err, KindConfigurationMissing);
   }
   const tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd());
-  await renderApp(controller, tui, bootError);
+  await renderApp(controller, tui, bootError, bootErrorMissing);
 }
 
 export async function renderApp(
   controller: Controller | undefined,
   tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd()),
   bootError?: string,
+  bootErrorMissing = false,
 ): Promise<void> {
   silenceGcpMetadataWarnings();
   const restoreStderr = holdStderrForTui();
@@ -51,6 +54,13 @@ export async function renderApp(
         restoreStderr();
         renderer.destroy();
         resolve();
+        // A detached local supervisor keeps its services' stdout/stderr
+        // piped into this same process for log capture, so those pipes stay
+        // open (by design — the services do too) and the event loop never
+        // drains on its own. controller.close() has already finished all
+        // async cleanup by this point, so exiting explicitly is safe and is
+        // what actually lets a detach-quit return control to the terminal.
+        process.exit(0);
       };
       if (!controller) {
         finish();
@@ -58,7 +68,16 @@ export async function renderApp(
       }
       void controller.close({ detach, shutdownSupervisor: true }).finally(finish);
     };
-    root.render(<App controller={controller} tui={tui} onQuit={quit} bootError={bootError} terminalBackground={terminalBackground} />);
+    root.render(
+      <App
+        controller={controller}
+        tui={tui}
+        onQuit={quit}
+        bootError={bootError}
+        bootErrorMissing={bootErrorMissing}
+        terminalBackground={terminalBackground}
+      />,
+    );
   });
 }
 

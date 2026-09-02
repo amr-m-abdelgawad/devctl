@@ -8,6 +8,11 @@ export const ExitHealth = 6;
 export const ExitProxy = 7;
 
 export const KindConfiguration = "configuration";
+// A repo with no devctl configuration at all is not the same problem as one
+// whose configuration exists but fails to parse or validate: the former is
+// safe to offer `devctl setup` for, the latter must never be "fixed" by
+// silently overwriting whatever the user already has.
+export const KindConfigurationMissing = "configuration_missing";
 export const KindServiceNotFound = "service_not_found";
 export const KindDependency = "dependency";
 export const KindProcessStart = "process_start";
@@ -22,6 +27,7 @@ export const KindGeneral = "general";
 
 export type ErrorKind =
   | typeof KindConfiguration
+  | typeof KindConfigurationMissing
   | typeof KindServiceNotFound
   | typeof KindDependency
   | typeof KindProcessStart
@@ -52,6 +58,7 @@ export class DevctlError extends Error {
   exitCode(): number {
     switch (this.kind) {
       case KindConfiguration:
+      case KindConfigurationMissing:
       case KindServiceNotFound:
       case KindDependency:
         return ExitConfig;
