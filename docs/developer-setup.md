@@ -29,7 +29,7 @@ flowchart LR
   start --> proxy["p — proxy"]
 ```
 
-`devctl start --detach` leaves the supervisor running. `devctl` or `devctl attach` reconnects.
+`devctl start` leaves the supervisor running; `devctl` or `devctl attach` reconnects. `devctl down` stops it again. (`--detach` on `start` is deprecated — the daemon already outlives the command without it.)
 
 ## Quit behavior
 

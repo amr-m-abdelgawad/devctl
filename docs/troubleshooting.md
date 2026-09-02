@@ -16,7 +16,7 @@
 | Token audience incorrect | Set `auth.audience` on the IAP route; Doctor flags missing audiences |
 | IAP used a user token for an SA route | Confirm the route identity is `service_account`; Doctor probes impersonated IAP separately |
 | Leftover process after crash | Reopen `devctl` — adopt only when pid + command + cwd + startTime match `~/.devctl/state/<hash>/state.json`. A port-only leftover is never attached |
-| `devctl attach` fails | No supervisor. Use `devctl start --detach` first; attach never starts one |
+| `devctl attach` fails | No supervisor. Use `devctl start` first; attach never starts one |
 | `devctl status` looks empty | If the socket is down, status prints persisted state and exits 0 when nothing is running |
 | Start exits 5 or 6 | 5 = spawn failed; 6 = health never passed. Doctor then Logs |
 | `start` brought up extra services | Empty start uses the active or first profile, plus dependencies. Pass `--profile` or explicit names to stay narrower |

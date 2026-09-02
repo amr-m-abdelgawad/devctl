@@ -417,7 +417,7 @@ export async function openAttach(startDir: string, configPath: string): Promise<
   const ctrl = new Controller(cfg);
   const existing = await tryDial(cfg.repoRoot);
   if (!existing) {
-    throw hintError(KindGeneral, "supervisor is not running", "run `devctl start --detach` before `devctl attach`");
+    throw hintError(KindGeneral, "supervisor is not running", "run `devctl start` before `devctl attach`");
   }
   ctrl.client = existing;
   warnIfVersionMismatch(ctrl.client);

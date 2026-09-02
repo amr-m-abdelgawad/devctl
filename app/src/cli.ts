@@ -64,9 +64,14 @@ function addStart(root: Command): void {
     .command("start")
     .argument("[services...]", "services to start")
     .option("--profile <name>", "profile to start")
-    .option("--detach", "leave supervisor running after the command exits")
+    .option("--detach", "deprecated, no longer changes behavior: the daemon already outlives this command; use `devctl down` to stop it")
     .option("--json", "machine-readable output")
     .action(async (services: string[], opts: { profile?: string; detach?: boolean; json?: boolean }) => {
+      if (opts.detach) {
+        process.stderr.write(
+          "warning: --detach is deprecated and no longer changes behavior — the daemon already keeps running after `start` exits; use `devctl down` to stop it\n",
+        );
+      }
       const ctrl = await openController("", configFlag(root), true);
       try {
         const plan = await ctrl.start({ services, profile: opts.profile, detach: opts.detach === true });

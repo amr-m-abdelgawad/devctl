@@ -8,7 +8,8 @@ devctl version
 devctl start [svc…] [--profile] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--json]
-devctl status [--json]
+devctl down [--repo <path>] [--keep-services]
+devctl status [--repo <path>] [--json]
 devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json]
 devctl logs export --output FILE
 devctl reload
@@ -29,14 +30,16 @@ devctl update [--json]
 
 - `start` with `--profile` starts that profile’s members (plus dependencies).
 - `start` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
-- `--detach` leaves the supervisor running after the command exits.
+- `start` always ensures a daemon and leaves it (and its services) running after the command exits — that is not conditional on any flag.
+- `--detach` is **deprecated**: it predates that always-on daemon and no longer changes behavior. Passing it prints a warning on stderr; it does nothing else.
 - `start` exits **5** when a requested service fails to spawn, **6** when it starts but never becomes healthy.
 - `stop` with no names stops every started service.
 - `restart` is stop then start; start still expands dependencies.
+- `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - `status` also prints proxy and MCP listen lines when a supervisor is up.
 
-`devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start --detach` first.
+`devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start` first.
 
 ## Setup
 

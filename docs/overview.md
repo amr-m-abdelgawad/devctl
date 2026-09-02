@@ -32,7 +32,7 @@ The supervisor is the long-lived process. It:
 
 `repoID` is the first 16 hex characters of `sha256(absolute repo root)`. Two checkouts get two state directories. A leftover `~/.devctl/sessions/<id>/` is migrated once.
 
-`devctl start --detach` leaves the supervisor running. `devctl` (no args) and `devctl attach` dial the session socket: `devctl.sock` on macOS/Linux, `\\.\pipe\devctl-<repoID>` on Windows. Attach never starts a supervisor; the default TUI may.
+`devctl start` always ensures a daemon and leaves it running after the command exits (`--detach` is deprecated and no longer changes that). `devctl` (no args) and `devctl attach` dial the session socket: `devctl.sock` on macOS/Linux, `\\.\pipe\devctl-<repoID>` on Windows. Attach never starts a supervisor; the default TUI may. `devctl down` stops the daemon (and, unless `--keep-services`, its services).
 
 Override the home directory with `DEVCTL_HOME` (default `~/.devctl`).
 

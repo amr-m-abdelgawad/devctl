@@ -26,6 +26,21 @@ function captureStdout(): { output: () => string; restore: () => void } {
   };
 }
 
+function captureStderr(): { output: () => string; restore: () => void } {
+  const chunks: string[] = [];
+  const original = process.stderr.write.bind(process.stderr);
+  process.stderr.write = ((chunk: unknown) => {
+    chunks.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  return {
+    output: () => chunks.join(""),
+    restore: () => {
+      process.stderr.write = original;
+    },
+  };
+}
+
 async function run(args: string[]): Promise<string> {
   const cap = captureStdout();
   try {
@@ -125,6 +140,39 @@ services:
           // already gone
         }
       }
+    }
+  }, 20_000);
+});
+
+describe("devctl start --detach", () => {
+  test("--detach prints a deprecation warning; a plain start does not", async () => {
+    const dir = tmp();
+    writeFileSync(
+      configFile(dir),
+      `version: 1
+shutdown:
+  grace_seconds: 1
+services:
+  api:
+    command: [${JSON.stringify(process.execPath)}, "-e", "setInterval(() => {}, 1000)"]
+`,
+    );
+    const originalArgv1 = process.argv[1] ?? "";
+    process.argv[1] = join(import.meta.dir, "bin.ts");
+    try {
+      const withDetach = captureStderr();
+      await run(["--config", configFile(dir), "start", "api", "--detach"]);
+      withDetach.restore();
+      expect(withDetach.output()).toContain("--detach is deprecated");
+      await run(["down", "--repo", dir]);
+
+      const withoutDetach = captureStderr();
+      await run(["--config", configFile(dir), "start", "api"]);
+      withoutDetach.restore();
+      expect(withoutDetach.output()).not.toContain("deprecated");
+      await run(["down", "--repo", dir]);
+    } finally {
+      process.argv[1] = originalArgv1;
     }
   }, 20_000);
 });
