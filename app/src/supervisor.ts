@@ -871,6 +871,13 @@ export class Supervisor {
       return;
     }
     this.shuttingDown = true;
+    // Flush current state before anything else — most importantly for the
+    // detach case (stopServices=false): the process list persisted here is
+    // exactly what a later `devctl start`/`status` reads back to adopt the
+    // still-running services this call is about to walk away from.
+    // writeFileSecure() writes it atomically, so a crash or SIGKILL right
+    // after this point can't leave a truncated state.json behind.
+    this.persistState();
     if (stopServices) {
       await this.stop([]);
     }

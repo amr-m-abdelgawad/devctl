@@ -88,10 +88,11 @@ type AppProps = {
   tui: TuiConfig;
   onQuit: (detach?: boolean) => void;
   bootError?: string;
+  bootErrorMissing?: boolean;
   terminalBackground?: string | null;
 };
 
-export function App({ controller, tui, onQuit, bootError, terminalBackground }: AppProps) {
+export function App({ controller, tui, onQuit, bootError, bootErrorMissing = false, terminalBackground }: AppProps) {
   const { width, height } = useTerminalDimensions();
   const [themeName, setThemeName] = useState(tui.theme || controller?.cfg.ui.theme || "devctl");
   const committedTheme = useRef(themeName);
@@ -845,7 +846,7 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
       return;
     }
     const text = configEditRef.current?.plainText ?? configEditText;
-    const issues = validateConfigText(text);
+    const issues = validateConfigText(cfg.repoRoot, cfg.configPath, text);
     if (issues.length > 0) {
       setConfigEditError(issues.join("\n"));
       setStatus("Config buffer not saved");
@@ -1747,6 +1748,13 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
     }
     if (name === "return") {
       if (screen === "setup" && !controller) {
+        if (!bootErrorMissing) {
+          // The boot error is an existing-but-invalid configuration, not a
+          // missing one — offering to "set up" here would silently
+          // overwrite whatever the user already has instead of fixing it.
+          setStatus(bootError || "Existing configuration is invalid — fix it and restart devctl.");
+          return;
+        }
         void import("../setup.ts").then(({ createStarterConfig }) => {
           try {
             const path = createStarterConfig(process.cwd());
@@ -2005,7 +2013,9 @@ export function App({ controller, tui, onQuit, bootError, terminalBackground }: 
         {screen === "profiles" ? (
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />
         ) : null}
-        {screen === "setup" ? <SetupScreen palette={palette} cfg={cfg} google={google} bootError={bootError} step={listCursor} /> : null}
+        {screen === "setup" ? (
+          <SetupScreen palette={palette} cfg={cfg} google={google} bootError={bootError} bootErrorMissing={bootErrorMissing} step={listCursor} />
+        ) : null}
         {screen === "settings" ? (
           <SettingsScreen
             palette={palette}

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join } from "node:path";
 import { parse } from "yaml";
-import { KindConfiguration, newError, wrapError } from "../errors.ts";
+import { DevctlError, KindConfiguration, newError, wrapError } from "../errors.ts";
 import { homeDir } from "../storage.ts";
 import { applyRoot, decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
 import { ConfigDirName, discover, fileExists } from "./discover.ts";
@@ -11,32 +11,31 @@ import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "./types.ts";
 import { validate } from "./validate.ts";
 
-export function validateConfigText(text: string): string[] {
-  let parsed: unknown;
+// Buffer validation (the TUI's config screen `v` / `/buffer`) needs to check
+// unsaved edits against the *real* pipeline — modular services/profiles,
+// local overlays, templates — not a hand-rolled subset of it that silently
+// drifts out of sync. candidateText is the hook: it substitutes the given
+// text at the point loadPath() would otherwise read configPath from disk,
+// and everything downstream of that runs exactly as it does for a real load.
+export function validateConfigText(repoRoot: string, configPath: string, text: string): string[] {
   try {
-    parsed = parse(text);
+    loadPath(repoRoot, configPath, { candidateText: text });
+    return [];
   } catch (err) {
-    return [`invalid YAML: ${err instanceof Error ? err.message : String(err)}`];
-  }
-  if (parsed === null || parsed === undefined) {
-    parsed = {};
-  }
-  if (!isRecord(parsed)) {
-    return ["config is not a mapping"];
-  }
-  const unknown = collectUnknownFields(parsed, "");
-  if (unknown.length > 0) {
-    return [formatUnknown(unknown)];
-  }
-  const cfg = defaultConfig();
-  applyRoot(cfg, parsed);
-  try {
-    applyTemplates(cfg);
-  } catch (err) {
+    // One array entry per distinct problem would be nice, but the underlying
+    // errors don't share a shape that supports it uniformly: a validate()
+    // failure joins multiple issues with "\n", while a YAML parse error's
+    // *single* message also contains embedded newlines (the parser's own
+    // source-context snippet) that must not be split apart. The only
+    // caller (the TUI config buffer) immediately rejoins with "\n" for
+    // display anyway, so keep this as one element and preserve full detail.
+    if (err instanceof DevctlError) {
+      const prefix = `${err.kind}: `;
+      const message = err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
+      return [message];
+    }
     return [err instanceof Error ? err.message : String(err)];
   }
-  mergeServiceProxyRoutes(cfg);
-  return validate(cfg);
 }
 
 export function load(startDir: string, explicit: string): DevctlConfig {
@@ -44,9 +43,9 @@ export function load(startDir: string, explicit: string): DevctlConfig {
   return loadPath(repoRoot, configPath);
 }
 
-export function loadPath(repoRoot: string, configPath: string): DevctlConfig {
+export function loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig {
   let cfg = defaultConfig();
-  decodeFile(configPath, cfg);
+  decodeFile(configPath, cfg, opts?.candidateText);
   cfg.repoRoot = repoRoot;
   cfg.configPath = configPath;
   const dir = dirname(configPath);
@@ -83,8 +82,8 @@ function applyLocalOverlays(cfg: DevctlConfig, repoRoot: string, configPath: str
   return next;
 }
 
-function decodeFile(path: string, cfg: DevctlConfig): void {
-  const raw = parseYamlFile(path);
+function decodeFile(path: string, cfg: DevctlConfig, candidateText?: string): void {
+  const raw = candidateText !== undefined ? parseYamlText(candidateText, path) : parseYamlFile(path);
   const unknown = collectUnknownFields(raw, "");
   if (unknown.length > 0) {
     throw newError(KindConfiguration, formatUnknown(unknown));
@@ -177,6 +176,10 @@ function parseYamlFile(path: string): Record<string, unknown> {
   } catch (err) {
     throw wrapError(KindConfiguration, "unable to read config", err);
   }
+  return parseYamlText(data, path);
+}
+
+function parseYamlText(data: string, path: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = parse(data);

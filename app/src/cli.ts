@@ -243,9 +243,12 @@ function addDoctor(root: Command): void {
 }
 
 function addSetup(root: Command): void {
-  root.command("setup").action(async () => {
-    await runSetup("");
-  });
+  root
+    .command("setup")
+    .option("--force", "overwrite an existing configuration")
+    .action(async (opts: { force?: boolean }) => {
+      await runSetup("", configFlag(root), opts.force === true);
+    });
 }
 
 function addAuth(root: Command): void {

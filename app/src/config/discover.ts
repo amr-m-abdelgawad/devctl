@@ -1,6 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { hintError, KindConfiguration, wrapError } from "../errors.ts";
+import { hintError, KindConfigurationMissing, wrapError } from "../errors.ts";
 
 export const ConfigDirName = ".devctl";
 export const ConfigFileName = "config.yaml";
@@ -27,7 +27,7 @@ export function discover(startDir: string, explicit: string): { repoRoot: string
     dir = parent;
   }
   throw hintError(
-    KindConfiguration,
+    KindConfigurationMissing,
     "no devctl configuration found",
     "run `devctl setup` or create a .devctl/config.yaml in the repository root",
   );
@@ -39,7 +39,7 @@ function discoverExplicit(explicit: string): { repoRoot: string; configPath: str
   try {
     info = statSync(abs);
   } catch (err) {
-    throw wrapError(KindConfiguration, "config path not found", err);
+    throw wrapError(KindConfigurationMissing, "config path not found", err);
   }
   if (info.isDirectory()) {
     const cfg = join(abs, ConfigFileName);

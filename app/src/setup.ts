@@ -1,31 +1,74 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { basename, join } from "node:path";
-import { DEFAULT_PROXY_PORT, load } from "./config/index.ts";
+import { basename, dirname, join, resolve } from "node:path";
+import { ConfigDirName, ConfigFileName, DEFAULT_PROXY_PORT, load } from "./config/index.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
+import { KindConfiguration, newError } from "./errors.ts";
 import { detectGoogle, loginGoogle } from "./google.ts";
 
-export function createStarterConfig(repo: string, name = basename(repo), project = "", profile = ""): string {
-  writeStarter(repo, name, project, profile);
-  return join(repo, ".devctl", "config.yaml");
+// Honors the same "config file or .devctl directory" convention as the
+// global --config flag, but — unlike discover()'s explicit-path resolution —
+// tolerates a target that doesn't exist yet, since setup's job is often to
+// create it for the first time.
+export function resolveSetupTarget(startDir: string, explicitConfig: string): { repo: string; cfgPath: string } {
+  const cwd = startDir === "" ? process.cwd() : startDir;
+  if (explicitConfig === "") {
+    return { repo: cwd, cfgPath: join(cwd, ConfigDirName, ConfigFileName) };
+  }
+  const abs = resolve(explicitConfig);
+  const isDir = existsSync(abs) ? statSync(abs).isDirectory() : !/\.ya?ml$/i.test(abs);
+  if (!isDir) {
+    const parent = dirname(abs);
+    const repo = basename(parent) === ConfigDirName ? dirname(parent) : parent;
+    return { repo, cfgPath: abs };
+  }
+  if (basename(abs) === ConfigDirName) {
+    return { repo: dirname(abs), cfgPath: join(abs, ConfigFileName) };
+  }
+  return { repo: abs, cfgPath: join(abs, ConfigDirName, ConfigFileName) };
 }
 
-export async function runSetup(startDir: string): Promise<void> {
+export function createStarterConfig(repo: string, name = basename(repo), project = "", profile = "", force = false): string {
+  const cfgPath = join(repo, ConfigDirName, ConfigFileName);
+  if (!force && existsSync(cfgPath)) {
+    throw newError(KindConfiguration, `configuration already exists at ${cfgPath}; not overwriting`);
+  }
+  writeStarter(repo, name, project, profile);
+  return cfgPath;
+}
+
+export async function runSetup(startDir: string, explicitConfig = "", force = false): Promise<void> {
+  const { repo, cfgPath } = resolveSetupTarget(startDir, explicitConfig);
+  if (!force && existsSync(cfgPath)) {
+    writeLine(`Found existing configuration at ${cfgPath}; nothing written.`);
+    writeLine("Pass --force to overwrite it, or edit it directly.");
+    return;
+  }
   const rl = createInterface({ input, output });
   const ask = async (prompt: string, def: string): Promise<string> => {
     const suffix = def !== "" ? ` [${def}]` : "";
     const line = (await rl.question(`${prompt}${suffix}: `)).trim();
     return line === "" ? def : line;
   };
-  writeLine("devctl setup — 9 steps");
+  // Repository root is already settled (from --config or cwd) once --config
+  // was given explicitly; asking again would just invite a mismatch between
+  // what was passed and what setup actually writes to.
+  const steps = explicitConfig === "" ? 9 : 8;
+  let step = 0;
+  const nextStep = (): number => {
+    step += 1;
+    return step;
+  };
+  writeLine(`devctl setup — ${steps} steps`);
   writeLine("");
-  const cwd = startDir === "" ? process.cwd() : startDir;
-  const repo = await ask("1. Repository root", cwd);
-  const name = await ask("2. Environment / project name", basename(repo));
+  if (explicitConfig === "") {
+    await ask(`${nextStep()}. Repository root`, repo);
+  }
+  const name = await ask(`${nextStep()}. Environment / project name`, basename(repo));
   const st = await detectGoogle("");
-  const gproj = await ask("3. Google Cloud project", st.projectID);
-  writeLine("4. Authentication");
+  const gproj = await ask(`${nextStep()}. Google Cloud project`, st.projectID);
+  writeLine(`${nextStep()}. Authentication`);
   if (!st.adcAvailable) {
     writeLine("   ADC is not available. Run: gcloud auth application-default login");
     const now = await ask("   Run login now? (y/N)", "n");
@@ -42,19 +85,16 @@ export async function runSetup(startDir: string): Promise<void> {
       writeLine(`   user: ${st.userEmail}`);
     }
   }
-  const sa = await ask("5. Service account email to record (optional, never hard-coded at runtime)", "");
-  const audience = await ask("6. IAP audience to record on a sample route (optional)", "");
-  const portRaw = await ask("7. Proxy listen port", String(DEFAULT_PROXY_PORT));
+  const sa = await ask(`${nextStep()}. Service account email to record (optional, never hard-coded at runtime)`, "");
+  const audience = await ask(`${nextStep()}. IAP audience to record on a sample route (optional)`, "");
+  const portRaw = await ask(`${nextStep()}. Proxy listen port`, String(DEFAULT_PROXY_PORT));
   const proxyPort = Number(portRaw) || DEFAULT_PROXY_PORT;
-  const profile = await ask("8. Default profile name (optional)", "");
+  const profile = await ask(`${nextStep()}. Default profile name (optional)`, "");
   rl.close();
-  const cfgPath = join(repo, ".devctl", "config.yaml");
-  if (!existsSync(cfgPath)) {
-    writeStarter(repo, name, gproj, profile, { sa, audience, proxyPort });
-    writeLine("");
-    writeLine(`Wrote starter configuration to ${cfgPath}`);
-  }
-  writeLine("9. Validation");
+  writeStarter(repo, name, gproj, profile, { sa, audience, proxyPort });
+  writeLine("");
+  writeLine(`Wrote starter configuration to ${cfgPath}`);
+  writeLine(`${nextStep()}. Validation`);
   try {
     const cfg = load(repo, "");
     const report = await runDoctor(cfg);

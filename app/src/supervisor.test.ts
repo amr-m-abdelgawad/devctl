@@ -3,7 +3,7 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
 import { SessionRecovered } from "./events.ts";
-import { writePersistedState } from "./storage.ts";
+import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
 
@@ -419,6 +419,43 @@ describe("supervisor snapshot", () => {
       }
     } finally {
       await sup.stop(["neverhealthy"]).catch(() => {});
+    }
+  }, 15_000);
+
+  test("detach shutdown re-persists current state, correcting whatever was recorded before it", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.longrunner = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    let pid = 0;
+    try {
+      await sup.start({ services: ["longrunner"], detach: true });
+      pid = sup.snapshot().services.longrunner?.pid ?? 0;
+      expect(pid).toBeGreaterThan(0);
+      // Simulate state.json having gone stale relative to the supervisor's
+      // in-memory state (e.g. from an earlier un-persisted mutation) —
+      // shutdown() must overwrite it with the truth on its way out, not
+      // trust whatever was already on disk.
+      writePersistedState(dir, { session_id: "stale", repo_root: dir, profile: "", processes: [] });
+      await sup.shutdown(false);
+      // Detach means "leave it running", not "kill it" — the process must
+      // still be alive after a detach shutdown.
+      expect(processAlive(pid)).toBe(true);
+      const persisted = readPersistedState(dir);
+      const rec = persisted?.processes.find((p) => p.name === "longrunner");
+      expect(rec?.pid).toBe(pid);
+    } finally {
+      if (pid > 0) {
+        process.kill(pid, "SIGKILL");
+      }
     }
   }, 15_000);
 
