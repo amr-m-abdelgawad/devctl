@@ -26,6 +26,7 @@ Start services, watch logs, check identity, and drive the proxy — from a keybo
 
 <img width="1470" height="851" alt="devctl TUI — dashboard with services, identity, proxy, and live logs" src="https://github.com/user-attachments/assets/60824954-8d8e-46de-8377-8c250aee555b" />
 
+Hint: This code is 90% Vibe Coded, Not by me :)
 
 </div>
 
