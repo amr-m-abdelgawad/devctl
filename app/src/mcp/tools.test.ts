@@ -24,6 +24,7 @@ function sampleSnap(): StatusSnapshot {
       project_source: "configuration",
       adc: true,
       service_accounts: {},
+      service_account_status: {},
       iap: false,
     },
     logs: { total: 3, errors: 0, counts: { api: 3 } },

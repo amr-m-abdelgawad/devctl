@@ -106,11 +106,16 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
   );
 }
 
+// Reads service_account_status (available/unavailable/unknown), not the
+// boolean compatibility map — that map omits identities nothing has probed
+// yet, which would otherwise silently drop them from this list the moment
+// any other identity had been probed, rather than showing them as "not
+// probed yet" (ok: undefined) alongside the ones that have.
 function serviceAccountRows(cfg?: DevctlConfig, identity?: IdentitySnapshot): { email: string; ok?: boolean }[] {
-  if (identity && Object.keys(identity.service_accounts).length > 0) {
-    return Object.entries(identity.service_accounts)
+  if (identity && Object.keys(identity.service_account_status).length > 0) {
+    return Object.entries(identity.service_account_status)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([email, ok]) => ({ email, ok }));
+      .map(([email, status]) => ({ email, ok: status === "unknown" ? undefined : status === "available" }));
   }
   const seen = new Set<string>();
   const rows: { email: string; ok?: boolean }[] = [];

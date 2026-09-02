@@ -81,10 +81,18 @@ describe("supervisor snapshot", () => {
       }),
       tokens: new TokenManager(60_000, [provider]),
     });
+    // An automatic (no-args) refresh only updates ADC/user/project — it must
+    // not probe service accounts on its own.
     await sup.refreshIdentity();
+    const before = sup.snapshot().identity;
+    expect(before.user).toBe("dev@example.com");
+    expect(before.adc).toBe(true);
+    expect(before.service_account_status["worker-dev@example.com"]).toBe("unknown");
+    expect(before.service_accounts["worker-dev@example.com"]).toBeUndefined();
+
+    await sup.refreshIdentity({ probeServiceAccounts: true });
     const ident = sup.snapshot().identity;
-    expect(ident.user).toBe("dev@example.com");
-    expect(ident.adc).toBe(true);
+    expect(ident.service_account_status["worker-dev@example.com"]).toBe("available");
     expect(ident.service_accounts["worker-dev@example.com"]).toBe(true);
     try {
       await sup.start({ services: ["ping"], detach: true });
@@ -1319,6 +1327,170 @@ services:
       expect(sup.snapshot().services.worker).toBeUndefined();
       const snap = (await sup.dispatch("config_snapshot", null)) as { services: Record<string, unknown> };
       expect(snap.services.worker).toBeUndefined();
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+});
+
+describe("service-account status", () => {
+  test("starting a service under a service-account identity updates its status immediately, with no explicit refresh", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.goodworker = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      identity: { type: "service_account", mode: "", service_account: "good@example.com" },
+    };
+    cfg.services.badworker = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      identity: { type: "service_account", mode: "", service_account: "bad@example.com" },
+    };
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (identity) => {
+        if (identity === "sa:bad@example.com") {
+          throw new Error("permission denied");
+        }
+        if (!identity.startsWith("sa:")) {
+          throw new Error("not sa");
+        }
+        return token();
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: true, adcAvailable: true, userEmail: "dev@example.com", projectID: "", projectSource: "" }),
+      tokens: new TokenManager(60_000, [provider]),
+    });
+    try {
+      expect(sup.snapshot().identity.service_account_status["good@example.com"]).toBe("unknown");
+      expect(sup.snapshot().identity.service_account_status["bad@example.com"]).toBe("unknown");
+
+      await sup.start({ services: ["goodworker"] });
+      expect(sup.snapshot().identity.service_account_status["good@example.com"]).toBe("available");
+      expect(sup.snapshot().identity.service_accounts["good@example.com"]).toBe(true);
+
+      await sup.start({ services: ["badworker"] }).catch(() => {});
+      expect(sup.snapshot().identity.service_account_status["bad@example.com"]).toBe("unavailable");
+      expect(sup.snapshot().identity.service_accounts["bad@example.com"]).toBe(false);
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("an automatic refresh after reload does not probe service accounts", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeFileSync(
+      configPath,
+      `version: 1
+project:
+  name: sa-test
+services:
+  worker:
+    command: [echo, ok]
+    identity:
+      type: service_account
+      service_account: worker-dev@example.com
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    let probed = false;
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (identity) => {
+        if (identity.startsWith("sa:")) {
+          probed = true;
+          return token();
+        }
+        throw new Error("not sa");
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: true, adcAvailable: true, userEmail: "dev@example.com", projectID: "", projectSource: "" }),
+      tokens: new TokenManager(60_000, [provider]),
+    });
+    try {
+      await sup.reload();
+      // refreshIdentity() runs fire-and-forget from reload() — give it a
+      // moment to actually run before checking it didn't probe anything.
+      await sleep(300);
+
+      expect(probed).toBe(false);
+      expect(sup.snapshot().identity.service_account_status["worker-dev@example.com"]).toBe("unknown");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("the auth_refresh RPC explicitly probes service accounts", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.worker = {
+      ...emptyService(),
+      identity: { type: "service_account", mode: "", service_account: "worker-dev@example.com" },
+    };
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (identity) => {
+        if (!identity.startsWith("sa:")) {
+          throw new Error("not sa");
+        }
+        return token();
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: true, adcAvailable: true, userEmail: "dev@example.com", projectID: "", projectSource: "" }),
+      tokens: new TokenManager(60_000, [provider]),
+    });
+    try {
+      expect(sup.snapshot().identity.service_account_status["worker-dev@example.com"]).toBe("unknown");
+
+      await sup.dispatch("auth_refresh", null);
+
+      expect(sup.snapshot().identity.service_account_status["worker-dev@example.com"]).toBe("available");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("doctor inspection probes service accounts through asMcpHost", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.worker = {
+      ...emptyService(),
+      identity: { type: "service_account", mode: "", service_account: "worker-dev@example.com" },
+    };
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (identity) => {
+        if (!identity.startsWith("sa:")) {
+          throw new Error("not sa");
+        }
+        return token();
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: true, adcAvailable: true, userEmail: "dev@example.com", projectID: "", projectSource: "" }),
+      tokens: new TokenManager(60_000, [provider]),
+    });
+    try {
+      expect(sup.snapshot().identity.service_account_status["worker-dev@example.com"]).toBe("unknown");
+
+      await (sup as unknown as { asMcpHost: () => { doctor: () => Promise<unknown> } }).asMcpHost().doctor();
+
+      expect(sup.snapshot().identity.service_account_status["worker-dev@example.com"]).toBe("available");
     } finally {
       await sup.stop([]).catch(() => {});
     }

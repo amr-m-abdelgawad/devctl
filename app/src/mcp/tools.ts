@@ -174,6 +174,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
       adc: snap.identity.adc,
       iap: snap.identity.iap,
       service_accounts: snap.identity.service_accounts,
+      service_account_status: snap.identity.service_account_status,
     },
     proxy: {
       running: snap.proxy.running,

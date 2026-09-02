@@ -73,7 +73,7 @@ import {
 } from "./services.ts";
 import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
-import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
+import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
@@ -143,6 +143,13 @@ export class Supervisor {
   private shuttingDown = false;
   private detached = false;
   private identityCache: IdentitySnapshot = emptyIdentitySnapshot();
+  // Cached probe results, keyed by service account email — populated
+  // lazily (a service actually using the identity, an explicit auth_refresh,
+  // or a doctor inspection), never by the automatic refresh that runs at
+  // boot and after every reload, which only ever updates ADC/user/project.
+  // An email with no entry here is "unknown", not "unavailable" — see
+  // serviceAccountSnapshot().
+  private readonly serviceAccountStatus = new Map<string, ServiceAccountStatus>();
   private readonly detectGoogleFn: (project: string) => Promise<GoogleStatus>;
   private readonly inspectProcessFn: (pid: number) => Promise<ProcessIdentity | undefined>;
   private readonly processAliveFn: (pid: number) => boolean;
@@ -373,7 +380,7 @@ export class Supervisor {
         return null;
       case "auth_refresh":
         this.tokens.invalidate();
-        await this.refreshIdentity();
+        await this.refreshIdentity({ probeServiceAccounts: true });
         return this.snapshot().identity;
       case "status":
         return this.snapshot();
@@ -643,8 +650,15 @@ export class Supervisor {
         ident = await resolveIdentity(svc.identity, () => detectIdentity(this.cfg.google.project_id), this.registry?.identityProviders);
         if (ident.kind === "service_account") {
           await this.tokens.get(tokenIdentityKey(ident), "", []);
+          // First real use of this identity — cache the result so status
+          // reflects it without waiting for an explicit refresh or doctor
+          // inspection to get around to probing it.
+          this.serviceAccountStatus.set(ident.serviceAccount, "available");
         }
       } catch (err) {
+        if (ident.kind === "service_account") {
+          this.serviceAccountStatus.set(ident.serviceAccount, "unavailable");
+        }
         if (requiresCloudCapability(svc) || ident.kind === "service_account") {
           await this.fail(name, err);
           throw err;
@@ -1098,7 +1112,15 @@ export class Supervisor {
       stop: (names) => this.stop(names),
       restart: (names, cascade) => this.restart(names, { cascade }),
       reload: () => this.reload(),
-      doctor: () => runDoctor(this.cfg),
+      doctor: async () => {
+        // Explicit doctor inspection is one of the three things allowed to
+        // actually probe service accounts (the others: first use, an
+        // explicit auth_refresh) — never the automatic boot/reload refresh.
+        for (const email of configuredServiceAccounts(this.cfg)) {
+          await this.probeServiceAccount(email);
+        }
+        return runDoctor(this.cfg);
+      },
     };
   }
 
@@ -1235,7 +1257,11 @@ export class Supervisor {
         port: this.mcp?.isRunning() ? this.mcp.listenPort() : undefined,
         token: this.mcpToken,
       },
-      identity: { ...this.identityCache },
+      // service_accounts/service_account_status come from the live cache,
+      // not identityCache's snapshot — a first-use probe (startOne) or a
+      // doctor inspection updates serviceAccountStatus directly without
+      // going through refreshIdentity, and must be visible immediately.
+      identity: { ...this.identityCache, ...this.serviceAccountSnapshot() },
       credentials: {
         backend: this.tokens.storeBackend(),
         entries: [...this.credentialEntries],
@@ -1247,19 +1273,30 @@ export class Supervisor {
     };
   }
 
-  async refreshIdentity(): Promise<void> {
+  // Automatic refresh (boot, after every reload) only ever updates ADC,
+  // user, and project metadata — cheap, local checks. Probing every
+  // configured service account is comparatively expensive (a real token
+  // fetch per identity, each with its own timeout) and only happens when
+  // opts.probeServiceAccounts is explicitly set: an "auth_refresh" request
+  // or a doctor inspection, never an automatic pass. A service starting
+  // under a service-account identity for the first time also updates the
+  // cache for that one identity — see startOne.
+  async refreshIdentity(opts?: { probeServiceAccounts?: boolean }): Promise<void> {
     try {
       const st = await this.detectGoogleFn(this.cfg.google.project_id);
-      const accounts: Record<string, boolean> = {};
-      for (const email of configuredServiceAccounts(this.cfg)) {
-        accounts[email] = await this.probeServiceAccount(email);
+      if (opts?.probeServiceAccounts) {
+        for (const email of configuredServiceAccounts(this.cfg)) {
+          await this.probeServiceAccount(email);
+        }
       }
+      const { service_accounts, service_account_status } = this.serviceAccountSnapshot();
       this.identityCache = {
         user: st.userEmail,
         project: st.projectID || this.cfg.google.project_id,
         project_source: st.projectSource || (this.cfg.google.project_id ? "configuration" : ""),
         adc: st.adcAvailable,
-        service_accounts: accounts,
+        service_accounts,
+        service_account_status,
         iap: this.cfg.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap"),
       };
       this.credentialEntries = (await this.tokens.listStatus()).map((entry) => ({
@@ -1276,13 +1313,33 @@ export class Supervisor {
     }
   }
 
-  private async probeServiceAccount(email: string): Promise<boolean> {
+  // Builds the two service-account views the snapshot exposes from the
+  // cache alone — never a fresh probe — against the currently configured
+  // set of identities, so a reload that adds or removes one is reflected
+  // immediately even though nothing has probed the new one yet.
+  private serviceAccountSnapshot(): { service_accounts: Record<string, boolean>; service_account_status: Record<string, ServiceAccountStatus> } {
+    const service_accounts: Record<string, boolean> = {};
+    const service_account_status: Record<string, ServiceAccountStatus> = {};
+    for (const email of configuredServiceAccounts(this.cfg)) {
+      const status = this.serviceAccountStatus.get(email) ?? "unknown";
+      service_account_status[email] = status;
+      if (status !== "unknown") {
+        service_accounts[email] = status === "available";
+      }
+    }
+    return { service_accounts, service_account_status };
+  }
+
+  private async probeServiceAccount(email: string): Promise<ServiceAccountStatus> {
+    let status: ServiceAccountStatus;
     try {
       await withTimeout(this.tokens.get(`sa:${email}`, "", []), IDENTITY_PROBE_MS);
-      return true;
+      status = "available";
     } catch {
-      return false;
+      status = "unavailable";
     }
+    this.serviceAccountStatus.set(email, status);
+    return status;
   }
 
   queryLogs(req: LogsRequest): { events: LogEvent[] } {
@@ -1842,7 +1899,10 @@ function emptyIdentitySnapshot(cfg?: DevctlConfig): IdentitySnapshot {
     project: cfg?.google.project_id ?? "",
     project_source: cfg?.google.project_id ? "configuration" : "",
     adc: false,
-    service_accounts: Object.fromEntries(cfg ? configuredServiceAccounts(cfg).map((email) => [email, false]) : []),
+    // Nothing has been probed yet — omitted here, not defaulted to false;
+    // see service_account_status for the "not probed yet" state itself.
+    service_accounts: {},
+    service_account_status: Object.fromEntries(cfg ? configuredServiceAccounts(cfg).map((email) => [email, "unknown" as const]) : []),
     iap: cfg?.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap") ?? false,
   };
 }

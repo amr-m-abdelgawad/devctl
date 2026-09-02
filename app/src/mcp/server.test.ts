@@ -14,7 +14,7 @@ function host(): McpHost {
     profile: "",
     services: { api: emptyRuntime("api") },
     proxy: { running: false },
-    identity: { user: "", project: "", project_source: "", adc: false, service_accounts: {}, iap: false },
+    identity: { user: "", project: "", project_source: "", adc: false, service_accounts: {}, service_account_status: {}, iap: false },
     logs: { total: 0, errors: 0, counts: {} },
     system: { platform: "test", cpuCount: 1, loadAvg1: 0, loadAvg5: 0, loadAvg15: 0, memTotalKB: 0, memFreeKB: 0, memAvailableKB: 0, hostUptimeSec: 0 },
   };

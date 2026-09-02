@@ -55,12 +55,19 @@ export type McpSnapshot = {
   token?: string;
 };
 
+export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
+
 export type IdentitySnapshot = {
   user: string;
   project: string;
   project_source: string;
   adc: boolean;
+  // Boolean compatibility map: present only for identities that have
+  // actually been probed (never defaulted to false) — see
+  // service_account_status for the full unknown/available/unavailable
+  // picture, including identities nothing has probed yet.
   service_accounts: Record<string, boolean>;
+  service_account_status: Record<string, ServiceAccountStatus>;
   iap: boolean;
 };
 
