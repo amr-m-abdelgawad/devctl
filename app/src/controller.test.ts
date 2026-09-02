@@ -1,10 +1,47 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, ensureSupervisor, openAttach, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, dial, ensureSupervisor, openAttach, supervisorSpawnCommand } from "./controller.ts";
 import { KindGeneral } from "./errors.ts";
-import { bootstrapLogPath } from "./storage.ts";
+import { bootstrapLogPath, socketPath } from "./storage.ts";
+import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
+
+function tmp(): string {
+  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-handshake-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  mkdirSync(dir, { recursive: true });
+  process.env.DEVCTL_HOME = join(dir, "home");
+  return dir;
+}
+
+// A minimal fake supervisor that answers "ping" with a fixed payload and
+// nothing else — enough to test how the client interprets a handshake
+// response without spinning up a real Supervisor.
+function fakePingServer(repoRoot: string, pingResult: unknown): { close: () => Promise<void> } {
+  const path = socketPath(repoRoot);
+  const server = createServer((conn: Socket) => {
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk.toString("utf8");
+      const lines = buf.split("\n");
+      buf = lines.pop() ?? "";
+      for (const line of lines) {
+        if (line.trim() === "") {
+          continue;
+        }
+        const env = JSON.parse(line) as { id?: string; method?: string };
+        if (env.method === "ping") {
+          conn.write(`${JSON.stringify({ id: env.id, result: pingResult })}\n`);
+        }
+      }
+    });
+  });
+  server.listen(path);
+  return {
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  };
+}
 
 describe("RPC client", () => {
   test("closing the socket rejects pending calls instead of keeping the process alive", async () => {
@@ -66,6 +103,91 @@ describe("ensureSupervisor bootstrap failure", () => {
       expect(readFileSync(bootstrapLogPath(dir), "utf8").length).toBeGreaterThan(0);
     } finally {
       process.argv[1] = originalArgv1;
+    }
+  }, 15_000);
+});
+
+describe("daemon compatibility handshake", () => {
+  test("dial marks a same-protocol daemon compatible and captures its session/version", async () => {
+    const dir = tmp();
+    const fake = fakePingServer(dir, { session: "sess-123", version: "9.9.9", protocol: RPC_PROTOCOL_VERSION });
+    try {
+      const client = await dial(dir, 2_000);
+      expect(client.compat).toEqual({ compatible: true, legacy: false, daemonVersion: "9.9.9", daemonProtocol: RPC_PROTOCOL_VERSION });
+      expect(client.session).toBe("sess-123");
+      client.close();
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("dial marks a pre-handshake (legacy) daemon incompatible", async () => {
+    const dir = tmp();
+    // No `protocol` field at all — exactly what a Release 1 daemon's ping
+    // response looks like.
+    const fake = fakePingServer(dir, { session: "sess-legacy" });
+    try {
+      const client = await dial(dir, 2_000);
+      expect(client.compat).toEqual({ compatible: false, legacy: true, daemonVersion: undefined });
+      client.close();
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("dial marks a mismatched-protocol daemon incompatible without calling it legacy", async () => {
+    const dir = tmp();
+    const fake = fakePingServer(dir, { session: "sess-future", version: "9.9.9", protocol: RPC_PROTOCOL_VERSION + 1 });
+    try {
+      const client = await dial(dir, 2_000);
+      expect(client.compat).toEqual({
+        compatible: false,
+        legacy: false,
+        daemonVersion: "9.9.9",
+        daemonProtocol: RPC_PROTOCOL_VERSION + 1,
+      });
+      client.close();
+    } finally {
+      await fake.close();
+    }
+  });
+
+  test("Controller.call blocks ordinary methods but not logs against an incompatible daemon", async () => {
+    const calls: string[] = [];
+    const fakeClient = {
+      compat: { compatible: false, legacy: true },
+      call: async (method: string) => {
+        calls.push(method);
+        return { events: [] };
+      },
+      close: () => undefined,
+    };
+    const ctrl = new Controller({ shutdown: {} } as never);
+    ctrl.client = fakeClient as unknown as Client;
+
+    await expect(ctrl.stop([])).rejects.toMatchObject({ kind: KindGeneral });
+    await expect(ctrl.logs({})).resolves.toEqual([]);
+    expect(calls).toEqual(["logs"]);
+  });
+
+  test("a real supervisor's ping reports the current binary version and protocol", async () => {
+    const dir = tmp();
+    const cfg = (await import("./config/types.ts")).defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const { Supervisor } = await import("./supervisor.ts");
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run({ autoStartProxy: false });
+      const client = await dial(dir, 2_000);
+      expect(client.compat.compatible).toBe(true);
+      expect(client.compat.daemonProtocol).toBe(RPC_PROTOCOL_VERSION);
+      expect(client.compat.daemonVersion).toBe(VERSION);
+      client.close();
+    } finally {
+      await sup.shutdown(false);
     }
   }, 15_000);
 });

@@ -20,6 +20,7 @@ import {
   AuthenticationChanged,
   Bus,
   ConfigurationChanged,
+  ConfigurationReloadFailed,
   ServiceFailed,
   ServiceHealthChanged,
   ServiceStarted,
@@ -70,6 +71,7 @@ import {
 import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
 import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
+import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
 const HEALTH_POLL_MS = 100;
@@ -310,7 +312,7 @@ export class Supervisor {
     const rec = isRecord(params) ? params : {};
     switch (method) {
       case "ping":
-        return { session: this.sessionID };
+        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION };
       case "start":
         return this.start({
           services: asStringArray(rec.services),
@@ -354,6 +356,13 @@ export class Supervisor {
         return null;
       case "reload":
         return this.reload();
+      case "config_snapshot":
+        // Local RPC only — never exposed through MCP. Returns the last-
+        // known-good in-memory config with real values intact (not
+        // redacted): the TUI is the one deciding whether to display them,
+        // via the same Detector-based redaction it already applies
+        // elsewhere unless the user has explicitly turned on /reveal.
+        return this.cfg;
       case "logs_clear":
         this.logs.clear();
         return null;
@@ -822,7 +831,19 @@ export class Supervisor {
   }
 
   async reload(): Promise<ReloadResult> {
-    const next = load(this.cfg.repoRoot, this.cfg.configPath);
+    let next: DevctlConfig;
+    try {
+      next = load(this.cfg.repoRoot, this.cfg.configPath);
+    } catch (err) {
+      // this.cfg is untouched at this point, so the daemon keeps running on
+      // its last-known-good config — but an already-attached client (which
+      // didn't necessarily initiate this reload; e.g. the config-file
+      // watcher did) has no other way to learn the reload it's about to see
+      // reflected in config_snapshot silently failed, so publish it.
+      this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
+      this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
+      throw err;
+    }
     const result = diffReload(this.cfg, next);
     const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
     const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);

@@ -1,8 +1,10 @@
 import { createServer } from "node:net";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
-import { SessionRecovered } from "./events.ts";
+import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
+import { MCP_TOOLS } from "./mcp/tools.ts";
 import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
@@ -458,6 +460,55 @@ describe("supervisor snapshot", () => {
       }
     }
   }, 15_000);
+
+  test("config_snapshot returns the current in-memory config and is never exposed to MCP", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.project.name = "snapshot-test";
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const snap = (await sup.dispatch("config_snapshot", null)) as { project: { name: string } };
+    expect(snap.project.name).toBe("snapshot-test");
+    expect(MCP_TOOLS.some((tool) => tool.name.includes("config_snapshot"))).toBe(false);
+  });
+
+  test("a failed reload publishes ConfigurationReloadFailed and keeps the previous config", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeFileSync(
+      configPath,
+      `version: 1
+project:
+  name: before-reload
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const seen: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    sup.subscribe((ev) => seen.push({ type: ev.type, payload: ev.payload }));
+
+    // Break the file on disk without going through the supervisor.
+    writeFileSync(configPath, "version: [\n");
+    await expect(sup.reload()).rejects.toThrow();
+
+    const failure = seen.find((ev) => ev.type === ConfigurationReloadFailed);
+    expect(failure).toBeDefined();
+    expect(String(failure?.payload?.error ?? "")).toMatch(/invalid YAML/);
+
+    const snap = (await sup.dispatch("config_snapshot", null)) as { project: { name: string } };
+    expect(snap.project.name).toBe("before-reload");
+  });
 
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();

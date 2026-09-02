@@ -8,11 +8,46 @@ import { type Plan } from "./services.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { Supervisor } from "./supervisor.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
+import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const DIAL_RETRY_MS = 50;
 const DIAL_TIMEOUT_MS = 8_000;
 const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
+// RPC methods a client must still be able to send to an incompatible
+// daemon: removing it (`down` → the "shutdown" call, made directly on
+// Client rather than through Controller.call) and reading its logs so the
+// user has something to look at before deciding to run `down`.
+const ALWAYS_ALLOWED_METHODS = new Set(["logs"]);
+
+export type DaemonCompat = {
+  compatible: boolean;
+  // No `protocol` field on the ping response at all — a daemon from before
+  // this handshake existed, not merely a different protocol version.
+  legacy: boolean;
+  daemonVersion?: string;
+  daemonProtocol?: number;
+};
+
+// A daemon that answers ping but is otherwise incompatible still needs a
+// clear reason, since "attached daemon speaks a different RPC protocol" and
+// "attached daemon predates version negotiation entirely" call for the same
+// remedy (`devctl down`) but are worth distinguishing in the message.
+export function describeIncompatibility(compat: DaemonCompat): string {
+  if (compat.legacy) {
+    return "attached daemon predates the client/daemon compatibility handshake";
+  }
+  return `attached daemon speaks RPC protocol ${compat.daemonProtocol ?? "unknown"}; this client speaks ${RPC_PROTOCOL_VERSION}`;
+}
+
+// Same protocol, different binary build — not blocking, just worth telling
+// the user so a stale detached daemon doesn't go unnoticed indefinitely.
+export function compatWarning(compat: DaemonCompat): string | undefined {
+  if (compat.compatible && compat.daemonVersion !== undefined && compat.daemonVersion !== VERSION) {
+    return `attached daemon is devctl ${compat.daemonVersion}; this client is ${VERSION} (run \`devctl down\` then start again to update it)`;
+  }
+  return undefined;
+}
 
 export class Client {
   private readonly socket: Socket;
@@ -20,6 +55,10 @@ export class Client {
   private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly listeners: Array<(ev: BusEvent) => void> = [];
   private nextID = 0;
+  // Populated by dial() before it resolves — every Client a caller ever
+  // sees already has a real handshake result, not the optimistic default.
+  compat: DaemonCompat = { compatible: true, legacy: false };
+  session = "";
 
   constructor(socket: Socket) {
     this.socket = socket;
@@ -107,7 +146,10 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
   return new Promise((resolve, reject) => {
     const tryOnce = (): void => {
       const socket = createConnection(path);
-      socket.once("connect", () => resolve(new Client(socket)));
+      socket.once("connect", () => {
+        const client = new Client(socket);
+        void handshake(client).finally(() => resolve(client));
+      });
       socket.once("error", (err) => {
         socket.destroy();
         if (Date.now() >= deadline) {
@@ -120,6 +162,35 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
     };
     tryOnce();
   });
+}
+
+// Runs once per dial, before the caller ever sees the Client, so
+// Client.compat and Client.session are always real by the time any RPC
+// beyond ping is attempted. A ping failure leaves the optimistic default in
+// place — whatever RPC the caller actually wanted will surface the real
+// connection error on its own.
+async function handshake(client: Client): Promise<void> {
+  let raw: unknown;
+  try {
+    raw = await client.call("ping", null, DIAL_TIMEOUT_MS);
+  } catch {
+    return;
+  }
+  const rec = isRecord(raw) ? raw : {};
+  if (typeof rec.session === "string") {
+    client.session = rec.session;
+  }
+  const protocol = typeof rec.protocol === "number" ? rec.protocol : undefined;
+  const version = typeof rec.version === "string" ? rec.version : undefined;
+  if (protocol === undefined) {
+    client.compat = { compatible: false, legacy: true, daemonVersion: version };
+    return;
+  }
+  client.compat = { compatible: protocol === RPC_PROTOCOL_VERSION, legacy: false, daemonVersion: version, daemonProtocol: protocol };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export async function tryDial(repoRoot: string): Promise<Client | undefined> {
@@ -199,6 +270,15 @@ export class Controller {
     return (await this.call("status", null)) as StatusSnapshot;
   }
 
+  // The daemon's last-known-good in-memory configuration, with real values
+  // intact — local RPC only (dispatch() never exposes it through MCP). This
+  // is the only correct source of "effective config" once attached: a
+  // locally parsed file can already disagree with what the attached daemon
+  // is actually running.
+  async configSnapshot(): Promise<DevctlConfig> {
+    return (await this.call("config_snapshot", null)) as DevctlConfig;
+  }
+
   async logs(req: LogsRequest): Promise<LogEvent[]> {
     const raw = (await this.call("logs", req)) as { events?: LogEvent[] };
     return raw.events ?? [];
@@ -267,7 +347,19 @@ export class Controller {
     if (!this.client) {
       throw wrapError(KindGeneral, "supervisor is not running", new Error("no client"));
     }
+    if (!this.client.compat.compatible && !ALWAYS_ALLOWED_METHODS.has(method)) {
+      throw hintError(KindGeneral, describeIncompatibility(this.client.compat), "run `devctl down` to stop it, then start again");
+    }
     return this.client.call(method, params);
+  }
+}
+
+// Same protocol, different build — never blocking, just worth surfacing so
+// a stale detached daemon doesn't go unnoticed indefinitely.
+function warnIfVersionMismatch(client: Client | undefined): void {
+  const warning = client && compatWarning(client.compat);
+  if (warning) {
+    process.stderr.write(`warning: ${warning}\n`);
   }
 }
 
@@ -276,9 +368,11 @@ export async function openController(startDir: string, configPath: string, start
   const ctrl = new Controller(cfg);
   if (!startSupervisor) {
     ctrl.client = await tryDial(cfg.repoRoot);
+    warnIfVersionMismatch(ctrl.client);
     return ctrl;
   }
   ctrl.client = await ensureSupervisor(cfg.repoRoot, cfg.configPath);
+  warnIfVersionMismatch(ctrl.client);
   return ctrl;
 }
 
@@ -290,6 +384,7 @@ export async function openAttach(startDir: string, configPath: string): Promise<
     throw hintError(KindGeneral, "supervisor is not running", "run `devctl start --detach` before `devctl attach`");
   }
   ctrl.client = existing;
+  warnIfVersionMismatch(ctrl.client);
   return ctrl;
 }
 
