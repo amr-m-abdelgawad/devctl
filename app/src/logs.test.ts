@@ -234,6 +234,76 @@ describe("LogManager facets", () => {
   });
 });
 
+describe("LogManager at scale", () => {
+  // The plan's named acceptance scenario: cfg.logs.max_memory_events and
+  // LogManager's own DEFAULT_MAX_EVENTS both default to 50,000, so this is
+  // the largest buffer the TUI is expected to hold. queryPage()/queryFacets()
+  // scan the whole ring buffer every call (there's no secondary index) to
+  // compute hasNext/hasPrev/facet counts correctly, so this exists to prove
+  // that scan stays fast enough in practice that the TUI never visibly
+  // stalls at the cap, not just that it's correct at a handful of events.
+  function filled(count: number): LogManager {
+    const mgr = new LogManager(count, undefined, new Detector([], []), false, tmp(), "scale", 0, 0);
+    const services = ["api", "worker", "auth"];
+    for (let i = 0; i < count; i += 1) {
+      mgr.append({
+        timestamp: new Date(2026, 7, 30, 0, 0, 0, i).toISOString(),
+        service: services[i % services.length]!,
+        source: "stdout",
+        level: i % 97 === 0 ? "ERROR" : "INFO",
+        message: `line ${i}`,
+        pid: 1,
+      });
+    }
+    return mgr;
+  }
+
+  test("queryPage returns a tightly bounded page fast at a full 50,000-event buffer", () => {
+    const mgr = filled(50_000);
+    const started = performance.now();
+    const page = mgr.queryPage({}, { limit: 500 });
+    const elapsed = performance.now() - started;
+    expect(page.events).toHaveLength(500);
+    expect(page.events[0]?.message).toBe("line 49500");
+    expect(page.events[499]?.message).toBe("line 49999");
+    expect(page.hasPrev).toBe(true);
+    expect(page.hasNext).toBe(false);
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("queryFacets stays correct and fast at a full 50,000-event buffer", () => {
+    const mgr = filled(50_000);
+    const started = performance.now();
+    const facets = mgr.queryFacets({});
+    const elapsed = performance.now() - started;
+    expect(facets.total).toBe(50_000);
+    expect(facets.byService.api).toBe(mgr.query({ services: ["api"] }).length);
+    expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("paging backward through the entire 50,000-event history visits every event exactly once", () => {
+    const mgr = filled(50_000);
+    let cursor: string | undefined;
+    const seen = new Set<number>();
+    let hasPrev = true;
+    let pages = 0;
+    while (hasPrev) {
+      const page = mgr.queryPage({}, { cursor, direction: "backward", limit: 5000 });
+      for (const ev of page.events) {
+        const n = Number(ev.message.replace("line ", ""));
+        expect(seen.has(n)).toBe(false);
+        seen.add(n);
+      }
+      hasPrev = page.hasPrev;
+      cursor = page.prevCursor;
+      pages += 1;
+      // Sanity bound so a boundary bug fails fast instead of looping.
+      expect(pages).toBeLessThan(20);
+    }
+    expect(seen.size).toBe(50_000);
+  });
+});
+
 describe("log export paths", () => {
   test("defaultExportPath writes under DEVCTL_HOME/exports", () => {
     const home = tmp();

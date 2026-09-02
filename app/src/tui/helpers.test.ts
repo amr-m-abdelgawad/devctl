@@ -149,6 +149,31 @@ describe("TUI helpers", () => {
     expect(catalog.map((row) => row.count)).toEqual([5, 2, 2, 1]);
   });
 
+  test("filterLogs and logViewWindow stay fast over a 50,000-event client buffer", () => {
+    // cfg.logs.max_memory_events defaults to 50,000 — even with bounded
+    // paging, a long-running TUI session that never clears its view can
+    // still accumulate that many events client-side via live streaming, and
+    // filterLogs/logViewWindow re-run on every relevant render.
+    const services = ["api", "worker", "auth"];
+    const events = Array.from({ length: 50_000 }, (_, i) => ({
+      timestamp: new Date(2026, 7, 30, 0, 0, 0, i).toISOString(),
+      service: services[i % services.length]!,
+      source: "stdout",
+      level: i % 97 === 0 ? "ERROR" : "INFO",
+      message: `line ${i}`,
+      pid: 1,
+      seq: i + 1,
+    }));
+    const started = performance.now();
+    const filtered = filterLogs(events, { service: "api", search: "line 4" });
+    const window = logViewWindow(filtered, false, 0);
+    const elapsed = performance.now() - started;
+    expect(filtered.length).toBeGreaterThan(0);
+    expect(filtered.every((ev) => ev.service === "api" && ev.message.includes("4"))).toBe(true);
+    expect(window.items.length).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(2000);
+  });
+
   test("incremental start keeps already-running services out of new waves", () => {
     const plan = { profile: "backend", steps: [], waves: [["auth"], ["api"], ["worker"]] };
     const snap = {
