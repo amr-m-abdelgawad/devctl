@@ -132,8 +132,19 @@ export function resolveTuiOverridePath(startDir = ""): string | undefined {
   return undefined;
 }
 
-export function loadTuiConfig(startDir: string): TuiConfig {
-  const cfg = defaultTuiConfig();
+// config.yaml's ui.keymap is a project-wide, checked-in default — applied
+// below every tui.json layer (env override, repo-local, user-home) so any
+// of those can still override a specific binding, but it still overrides
+// the hardcoded DEFAULT_KEYBINDS for anyone who hasn't set their own.
+function applyYamlKeymap(base: TuiConfig, yamlKeymap?: TuiKeybinds): TuiConfig {
+  if (!yamlKeymap || Object.keys(yamlKeymap).length === 0) {
+    return base;
+  }
+  return { ...base, keybinds: { ...base.keybinds, ...yamlKeymap } };
+}
+
+export function loadTuiConfig(startDir: string, yamlKeymap?: TuiKeybinds): TuiConfig {
+  const cfg = applyYamlKeymap(defaultTuiConfig(), yamlKeymap);
   const overridePath = resolveTuiOverridePath(startDir);
   if (overridePath) {
     return mergeTuiConfig(cfg, parseJsonc(readFileSync(overridePath, "utf8")), overridePath);

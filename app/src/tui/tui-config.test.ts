@@ -117,4 +117,36 @@ describe("tui.json", () => {
       }
     }
   });
+
+  test("a YAML ui.keymap applies on top of the hardcoded defaults", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-yaml-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
+    expect(cfg.keybinds.leader).toBe("ctrl+z");
+    expect(cfg.keybinds.quit).toBe("x");
+    // Untouched bindings still come from the hardcoded defaults.
+    expect(cfg.keybinds.command_list).toBe("ctrl+p");
+  });
+
+  test("tui.json still wins over a YAML ui.keymap for the same binding", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-yaml-precedence-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    try {
+      writeFileSync(userTuiConfigPath(), JSON.stringify({ keybinds: { leader: "ctrl+y" } }));
+      // The YAML keymap sets both leader and quit; tui.json only overrides
+      // leader, so quit must still come from the YAML layer underneath it —
+      // this is a per-key merge, not tui.json wholesale replacing it.
+      const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
+      expect(cfg.keybinds.leader).toBe("ctrl+y");
+      expect(cfg.keybinds.quit).toBe("x");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
 });

@@ -8,7 +8,7 @@ import { holdStderrForTui, silenceGcpMetadataWarnings } from "../warnings.ts";
 import { loadTuiConfig } from "./tui-config.ts";
 
 export async function runTuiWithController(controller: Controller): Promise<void> {
-  const tui = loadTuiConfig(controller.cfg.repoRoot);
+  const tui = loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);
   await renderApp(controller, tui);
 }
 
@@ -22,13 +22,13 @@ export async function runTui(configPath: string): Promise<void> {
     bootError = humanMessage(err);
     bootErrorMissing = isKind(err, KindConfigurationMissing);
   }
-  const tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd());
+  const tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap);
   await renderApp(controller, tui, bootError, bootErrorMissing);
 }
 
 export async function renderApp(
   controller: Controller | undefined,
-  tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd()),
+  tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap),
   bootError?: string,
   bootErrorMissing = false,
 ): Promise<void> {
@@ -81,5 +81,5 @@ export async function renderApp(
 }
 
 export function tuiConfigFor(cfg: DevctlConfig) {
-  return loadTuiConfig(cfg.repoRoot);
+  return loadTuiConfig(cfg.repoRoot, cfg.ui.keymap);
 }

@@ -478,7 +478,7 @@ function addMcp(root: Command): void {
           await ctrl.mcpStart({ port: portOpt });
         }
         const snap = ctrl.client ? await ctrl.status() : undefined;
-        const tui = loadTuiConfig(ctrl.cfg.repoRoot);
+        const tui = loadTuiConfig(ctrl.cfg.repoRoot, ctrl.cfg.ui.keymap);
         const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot);
         const url = snap?.mcp?.address ?? mcpUrl(port);
         const token = snap?.mcp?.token ?? "";
