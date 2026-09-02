@@ -15,7 +15,7 @@ flowchart LR
 |--------|----------------|
 | `process` | The env of whichever CLI/TUI client most recently started or restarted this service (forwarded over the RPC as `client_env`), falling back to the supervisor's own environment if no client has done so yet — see below |
 | `profile` | `profiles.<name>.environment` |
-| `dotenv` | Repo-root then service working-dir: `.env`, `.env.local`, `.env.development`, `.env.<profile>` |
+| `dotenv` | Repo-root then service working-dir: `.env`, `.env.development`, `.env.local`, `.env.<profile>` |
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API |

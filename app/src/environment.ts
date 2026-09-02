@@ -256,7 +256,11 @@ async function loadSecretManagerEnv(ctx: EnvSourceContext, fetchSecret?: (name: 
 
 function loadDotenvFamily(dir: string, profile: string): Record<string, string> {
   const out: Record<string, string> = {};
-  const names = [".env", ".env.local", ".env.development"];
+  // Later entries win. .env.local is the developer's personal, gitignored
+  // override and must outrank a checked-in .env.development; the active
+  // devctl profile is the most specific selection for this run, so its own
+  // file wins over everything else in the family.
+  const names = [".env", ".env.development", ".env.local"];
   if (profile !== "") {
     names.push(`.env.${profile}`);
   }

@@ -26,6 +26,42 @@ describe("environment precedence", () => {
     expect(env.SERVICE_PORT).toBe("9000");
   });
 
+  test("dotenv: .env.local wins over .env.development, not the reverse", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-dotenv-local-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    // .env.local is the developer's personal, gitignored override; a
+    // checked-in .env.development must not be able to outrank it.
+    writeFileSync(join(dir, ".env.development"), "LEVEL=development\n");
+    writeFileSync(join(dir, ".env.local"), "LEVEL=local\n");
+    const svc = emptyService();
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+    });
+    expect(env.LEVEL).toBe("local");
+  });
+
+  test("dotenv: a profile-specific .env.<profile> wins over .env.local", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-dotenv-profile-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env.local"), "LEVEL=local\n");
+    writeFileSync(join(dir, ".env.backend"), "LEVEL=profile\n");
+    const svc = emptyService();
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "backend",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+    });
+    expect(env.LEVEL).toBe("profile");
+  });
+
   test("resolves profile environment refs", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-ref-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
