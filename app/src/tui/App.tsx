@@ -196,7 +196,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [lifecycle, setLifecycle] = useState<LifecycleKind>("start");
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>("quit");
   const [mcpPort, setMcpPort] = useState(() => tui.mcp_port ?? derivedMcpPort(controller?.cfg.repoRoot ?? process.cwd()));
-  const mcpStarted = useRef(false);
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
 
@@ -601,19 +600,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   useEffect(() => {
     void refresh().then(() => refreshLogs());
   }, [refresh, refreshLogs]);
-
-  useEffect(() => {
-    if (!controller || !tui.mcp_enabled || mcpStarted.current) {
-      return;
-    }
-    mcpStarted.current = true;
-    void controller
-      .mcpStart({ port: tui.mcp_port ?? mcpPort })
-      .then(() => refresh())
-      .catch((err: unknown) => {
-        setStatus(humanMessage(err));
-      });
-  }, [controller, mcpPort, refresh, tui.mcp_enabled, tui.mcp_port]);
 
   useEffect(() => {
     if (!controller) {

@@ -7,6 +7,7 @@ import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
 import { MCP_TOOLS } from "./mcp/tools.ts";
 import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
+import { saveTuiPreferences } from "./tui/tui-config.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
 
 function tmp(): string {
@@ -550,6 +551,45 @@ services:
       expect(sup.snapshot().proxy.running).toBe(true);
     } finally {
       await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("a saved mcp_enabled preference starts MCP at daemon boot, independent of which client spawned it", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    // Written directly to the user's tui.json, exactly as the TUI's own
+    // "toggle MCP" persists it — nothing here is CLI- or TUI-specific,
+    // proving the daemon applies it on its own at boot.
+    saveTuiPreferences({ mcp_enabled: true, mcp_port: port });
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      const snap = sup.snapshot();
+      expect(snap.mcp?.running).toBe(true);
+      expect(snap.mcp?.port).toBe(port);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("no saved mcp preference leaves MCP off at boot", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      expect(sup.snapshot().mcp?.running).toBe(false);
+    } finally {
       await sup.shutdown(false);
     }
   }, 15_000);

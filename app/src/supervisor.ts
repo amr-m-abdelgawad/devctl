@@ -42,6 +42,7 @@ import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameP
 import { McpHttpServer } from "./mcp/server.ts";
 import { type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
+import { loadTuiConfig } from "./tui/tui-config.ts";
 import { runDoctor } from "./doctor.ts";
 import { ProxyServer, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "./secrets.ts";
@@ -207,6 +208,13 @@ export class Supervisor {
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
     this.resourceTimer = setInterval(() => void this.pollResourceUsage(), RESOURCE_POLL_MS);
+    // MCP boot must not depend on which client happens to spawn or first
+    // attach to this daemon (CLI vs TUI): read the user's saved preference
+    // directly here rather than relying on a client to apply it.
+    const tuiPrefs = loadTuiConfig(this.cfg.repoRoot);
+    if (tuiPrefs.mcp_enabled) {
+      await this.startMcp(tuiPrefs.mcp_port).catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
+    }
     // Lazy, sticky proxy policy: startup never binds it. The first start()
     // call auto-starts it (see start() below) unless the user has
     // explicitly suppressed it with `proxy stop`.
