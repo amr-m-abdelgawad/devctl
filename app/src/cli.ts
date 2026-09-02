@@ -12,6 +12,7 @@ import { TokenManager, googleTokenProviders } from "./token.ts";
 import { displayState } from "./services.ts";
 import { runSetup } from "./setup.ts";
 import { formatPlan, Supervisor } from "./supervisor.ts";
+import { resolveExportPath } from "./logs.ts";
 import { derivedMcpPort } from "./mcp/port.ts";
 import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "./mcp/snippets.ts";
 import { loadTuiConfig } from "./tui/tui-config.ts";
@@ -26,7 +27,14 @@ export function newRoot(): Command {
     .name("devctl")
     .description("Local development orchestrator")
     .version(versionLine(), "-V, --version", "print version")
-    .option("--config <path>", "path to config file or .devctl directory");
+    .option("--config <path>", "path to config file or .devctl directory")
+    // Global options (--config) must precede the subcommand so that a
+    // subcommand can reuse an option name of its own — like logs export's
+    // --output, distinct from plain logs' own optional --output — without
+    // this level's parser greedily consuming it first. Every subcommand
+    // group with its own subcommands (logs -> export) needs this set too;
+    // it does not propagate down the tree on its own.
+    .enablePositionalOptions();
   root.command("version").description("print version").action(() => {
     writeOut(`${versionLine()}\n`);
   });
@@ -238,7 +246,11 @@ async function shutdownTimeoutFor(client: { call: (method: string, params: unkno
 }
 
 function addLogs(root: Command): void {
-  const logs = root.command("logs").argument("[services...]");
+  // Needed alongside root's own enablePositionalOptions(): logs and its
+  // export subcommand both declare --output, and without this, logs' own
+  // parser consumes --output before export's turn even begins, leaving
+  // export's copy permanently unset.
+  const logs = root.command("logs").argument("[services...]").enablePositionalOptions();
   logs
     .option("--level <level>", "minimum level")
     .option("--search <text>", "substring or regex search")
@@ -251,6 +263,10 @@ function addLogs(root: Command): void {
     .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean }) => {
       const ctrl = await openController("", configFlag(root), true);
       try {
+        // Resolved against this process's own cwd before it crosses the RPC
+        // boundary: the daemon may be a long-running background process with
+        // an unrelated cwd, so a relative path must not be resolved there.
+        const exportPath = opts.output ? resolveExportPath(opts.output) : undefined;
         const events = await ctrl.logs({
           services,
           level: opts.level,
@@ -259,10 +275,10 @@ function addLogs(root: Command): void {
           source: opts.source,
           since: opts.since,
           until: opts.until,
-          export: opts.output,
+          export: exportPath,
         });
-        if (opts.output) {
-          writeOut(`exported ${opts.output}\n`);
+        if (exportPath) {
+          writeOut(`exported ${exportPath}\n`);
           return;
         }
         if (opts.json) {
@@ -287,15 +303,16 @@ function addLogs(root: Command): void {
     .action(async (services: string[], opts: { output: string; level?: string; search?: string; regex?: boolean; source?: string }) => {
       const ctrl = await openController("", configFlag(root), true);
       try {
+        const exportPath = resolveExportPath(opts.output);
         await ctrl.logs({
           services,
           level: opts.level,
           search: opts.search,
           regex: opts.regex,
           source: opts.source,
-          export: opts.output,
+          export: exportPath,
         });
-        writeOut(`exported ${opts.output}\n`);
+        writeOut(`exported ${exportPath}\n`);
       } finally {
         await ctrl.close();
       }

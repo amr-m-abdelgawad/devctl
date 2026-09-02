@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { newRoot } from "./cli.ts";
@@ -172,6 +172,47 @@ services:
       expect(withoutDetach.output()).not.toContain("deprecated");
       await run(["down", "--repo", dir]);
     } finally {
+      process.argv[1] = originalArgv1;
+    }
+  }, 20_000);
+});
+
+describe("devctl logs export", () => {
+  test("resolves a relative --output path against the CLI's own cwd, not the long-running daemon's", async () => {
+    const dir = tmp();
+    writeFileSync(
+      configFile(dir),
+      `version: 1
+shutdown:
+  grace_seconds: 1
+services:
+  api:
+    command: [${JSON.stringify(process.execPath)}, "-e", "setInterval(() => {}, 1000)"]
+`,
+    );
+    const originalArgv1 = process.argv[1] ?? "";
+    const originalCwd = process.cwd();
+    process.argv[1] = join(import.meta.dir, "bin.ts");
+    const workDir = join(dir, "workdir");
+    mkdirSync(workDir, { recursive: true });
+    try {
+      // The daemon is spawned while cwd is still the repo dir, so its own
+      // cwd is fixed there for its whole lifetime.
+      process.chdir(dir);
+      await run(["--config", configFile(dir), "start", "api", "--detach"]);
+
+      // A relative --output given after moving elsewhere must land next to
+      // where the command was actually run, not wherever the daemon's cwd
+      // happened to be frozen at spawn time.
+      process.chdir(workDir);
+      await run(["--config", configFile(dir), "logs", "export", "--output", "relative.log"]);
+
+      expect(existsSync(join(workDir, "relative.log"))).toBe(true);
+      expect(existsSync(join(dir, "relative.log"))).toBe(false);
+
+      await run(["--config", configFile(dir), "down"]);
+    } finally {
+      process.chdir(originalCwd);
       process.argv[1] = originalArgv1;
     }
   }, 20_000);

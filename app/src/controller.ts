@@ -227,12 +227,15 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
     return existing;
   }
   const bootstrapLog = bootstrapLogPath(repoRoot);
+  // --config is root's own global option, so with root's positional-options
+  // parsing it must precede the _supervisor subcommand name; --repo belongs
+  // to _supervisor itself and can stay after it.
   const cmd = supervisorSpawnCommand(process.execPath, process.argv[1] ?? "", Bun.isStandaloneExecutable === true, [
+    "--config",
+    configPath,
     "_supervisor",
     "--repo",
     repoRoot,
-    "--config",
-    configPath,
   ]);
   const child = spawn({
     cmd,
