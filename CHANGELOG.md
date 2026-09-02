@@ -71,6 +71,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The TUI could fail to open at all when the on-disk configuration was invalid or deleted, even with a live daemon still attachable. It now attaches independent of local configuration validity, falling back to local parsing — to spawn a daemon, open setup, or report a real error — only when no daemon is reachable.
 - `Bun.spawn()`'s default environment is a snapshot of this process's own `process.env` taken at its own launch, not a live view of it; the supervisor spawned for `start`/`attach` now receives the caller's live environment explicitly, so runtime env changes (e.g. Google Cloud metadata-server detection overrides) reach it correctly.
 
+### Added
+
+- `restart --cascade` (and MCP `restart_services`' `cascade` argument) also restarts a service's transitive dependents; a plain restart touches only the service named.
+- Reload reconciles running services against the new configuration: a newly added service appears immediately as stopped; an already-stopped removed service is forgotten; a still-running removed service is marked orphaned — stoppable by name, but no longer restartable or reachable by a cascade. A reload referencing a health or identity plugin type nothing provides is rejected outright, the same as an unparseable config file.
+- `Runtime` reports non-secret per-service launch context: `profile`, `env_source` (`client` or `daemon`), and `orphaned`.
+- Identity status gains `service_account_status` (`unknown` / `available` / `unavailable`) per configured service account, alongside the existing boolean compatibility map (which now omits identities nothing has probed yet, rather than defaulting them to unavailable).
+
+### Changed
+
+- **Breaking:** `devctl stop x` (and a cascading `restart x --cascade`) now stops `x` and its transitive **dependents** — never its dependencies, which other running services may still need. Previously it stopped `x`'s dependencies instead, which was backwards.
+- Service-account probing is lazy and cached, not automatic: a real token fetch per configured identity now only happens on first use (a service actually starting under it), an explicit `auth_refresh`, or a doctor inspection — never on the daemon's own boot or after a reload, which only ever refresh ADC/user/project metadata.
+
+### Fixed
+
+- A slow health check still in flight when its service crashed and restarted under a new pid could land on and corrupt the newer process's state instead of being recognized as stale.
+- A port-assignment conflict discovered while assigning a later service in the list could mark an unrelated, earlier-pending service failed instead of the service the conflict actually named.
+- A service's restart count stayed maxed out across a manual stop/start (or the stop/start half of a client-requested restart), so the very next crash could fail it outright instead of getting a fresh retry budget; it now also resets after the service has run healthily for long enough. An automatic, health-triggered restart still preserves the count across its own stop/start cycle, so `max_retries` remains an actual limit.
+- Supervisor state was persisted only once, at the very end of a whole start or stop plan: an earlier wave's successfully spawned processes, and a crash-restart's respawn (which never goes through the batched path at all), could be lost to a daemon crash instead of being adoptable on the next boot. State is now persisted right after each spawn, adoption, exit, and failure.
+- Adopting an already-listening service via its configured port stamped its start time as "now" instead of the real, already-verified persisted start time, understating its uptime and poisoning the record a future adoption would check identity against.
+- Starting a different service under a different profile could silently change what environment an unrelated, already-running service's next crash-restart resolved with, since both read the same daemon-wide fallback; each service now keeps its own last-used profile and environment.
+- An adopted process's command-type health check ran with a completely empty environment, unable to even resolve `PATH` to find its own executable; it's now reconstructed from the same configured, reproducible sources (profile, dotenv, defaults/vars, secrets, runtime) a fresh start would use.
+- An unhandled error on an accepted RPC client socket (an abrupt disconnect — killed, crashed, a network blip) crashed the whole daemon; it's now logged and handled like an ordinary disconnect.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added
