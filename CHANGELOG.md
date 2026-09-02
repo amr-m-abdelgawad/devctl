@@ -32,9 +32,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Windows attach is documented as a named pipe (`\\.\pipe\devctl-<repoID>`). Unix still uses `devctl.sock`.
 - Removed leftover Go `.goreleaser.yaml`.
 
+### Added
+
+- `devctl setup --force` overwrites an existing configuration; without it, setup prints the existing path and writes nothing instead of re-prompting for answers it would discard. `setup` now honors `--config`.
+- CI and the release workflow run an end-to-end supervisor smoke test (`start` / `status` / `stop`) against the compiled Linux binary.
+
 ### Fixed
 
 - Release (and CI compile smoke) install OpenTUI native packages for every OS/CPU before `bun build --compile`, so Darwin and Windows targets resolve `@opentui/core-<platform>`.
+- Compiled-binary installs: the supervisor daemon spawned by `start`/`attach` now starts correctly instead of the compiled executable mistaking its own first CLI argument for a Bun script path. Its bootstrap stderr is captured to a repo-specific log, whose path is reported if it fails to come up.
+- A losing concurrent `devctl start` for the same repo could delete a still-live peer's supervisor socket before discovering the lock was already held; the lock is now acquired first.
+- A crash- or unhealthy-triggered restart scheduled just before a service was stopped, or right as it failed outright, could still fire afterward and resurrect it; those timers are now cancelled on stop, fail, and shutdown.
+- A service that failed its startup health check could be resurrected by the crash-restart handler reacting to the kill `fail()` itself performed.
+- A health check whose command failed to spawn, or whose plugin check rejected, could crash the check loop instead of reporting unhealthy.
+- Proxy: the client's `Host` header no longer leaks to the upstream request; responses compressed with an encoding devctl negotiated (gzip, deflate, br) are decompressed correctly instead of the client receiving a body that no longer matches the forwarded `Content-Encoding`/`Content-Length`. `X-Forwarded-For/Host/Proto` are now set.
+- The TUI config buffer's validate/save path now runs unsaved edits through the real modular/overlay/template pipeline instead of a simplified reimplementation that could pass or fail differently than an actual save.
+- The TUI's "no configuration found" setup prompt no longer offers to run setup — silently overwriting the file — when the real problem is an existing-but-invalid configuration; it shows the real error instead.
+- Quitting a locally-run (non-daemon) session with detach now reliably persists the running services' state before exiting, so they're adoptable by a later `devctl start`/`status`, and the process exits promptly instead of hanging on the detached services' inherited log pipes.
 
 ## [0.1.0] - 2026-08-30
 

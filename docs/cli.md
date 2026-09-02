@@ -13,7 +13,7 @@ devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--unti
 devctl logs export --output FILE
 devctl reload
 devctl doctor [--json]
-devctl setup
+devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--json]
@@ -37,6 +37,10 @@ devctl update [--json]
 - `status` also prints proxy and MCP listen lines when a supervisor is up.
 
 `devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start --detach` first.
+
+## Setup
+
+`devctl setup` honors `--config` (the repo/path to set up, not just the one to read). It never overwrites a configuration that already exists there — it prints the existing path and writes nothing. Pass `--force` to overwrite it instead; without a config on disk yet, setup runs its interactive wizard as usual.
 
 RPC errors include `{ error, kind, hint }` so the CLI maps kinds to the table below.
 
