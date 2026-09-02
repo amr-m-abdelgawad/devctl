@@ -88,6 +88,9 @@ jobs:
           DEVCTL_VERSION: 0.0.0-ci
           OUTDIR: /tmp/devctl-dist
         run: bash ../.github/scripts/compile-binaries.sh
+      - name: end-to-end supervisor smoke test (compiled binary)
+        run: bash .github/scripts/smoke-test-binary.sh /tmp/devctl-dist/devctl-linux-x64
+
 
   windows-tests:
     name: Windows tests
