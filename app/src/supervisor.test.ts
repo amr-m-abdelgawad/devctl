@@ -675,6 +675,158 @@ describe("client_env forwarding", () => {
   }, 15_000);
 });
 
+describe("restart-count bookkeeping", () => {
+  test("a manual stop resets the service's restart count", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"] });
+      (sup as unknown as { bumpRestartCount: (name: string, n: number) => void }).bumpRestartCount("api", 4);
+      expect(sup.snapshot().services.api?.restarts).toBe(4);
+
+      await sup.stop(["api"]);
+
+      expect(sup.snapshot().services.api?.restarts).toBe(0);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("a manual start resets the service's restart count", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"] });
+      await sup.stop(["api"]);
+      // stop() already resets the count on its own (previous test) — bump it
+      // again here so this test attributes the reset specifically to the
+      // next start(), not to the stop() that preceded it.
+      (sup as unknown as { bumpRestartCount: (name: string, n: number) => void }).bumpRestartCount("api", 4);
+      expect(sup.snapshot().services.api?.restarts).toBe(4);
+
+      await sup.start({ services: ["api"] });
+
+      expect(sup.snapshot().services.api?.restarts).toBe(0);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("an automatic (health-triggered) restart preserves the restart count instead of resetting it", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"] });
+      (sup as unknown as { bumpRestartCount: (name: string, n: number) => void }).bumpRestartCount("api", 2);
+
+      // Same shape maybeRestartUnhealthy/armRestart use for their own
+      // internal restart — never a real client's.
+      await sup.restart(["api"], { auto: true });
+
+      expect(sup.snapshot().services.api?.restarts).toBe(2);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("organically triggered health restarts accumulate to max_retries without the count getting wiped mid-cycle", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      restart: { policy: "on_failure", max_retries: 2, backoff_seconds: 0.02 },
+      health: {
+        ...emptyHealth(),
+        type: "command",
+        command: { args: [process.execPath, "-e", "process.exit(1)"], shell: false },
+        interval_seconds: 0.03,
+        timeout_seconds: 1,
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      void sup.start({ services: ["api"] }).catch(() => {});
+
+      await waitFor(() => (sup.snapshot().services.api?.restarts ?? -1) === 2, 10_000);
+      // If maybeRestartUnhealthy's real call site ever dropped the auto
+      // flag, that restart's own start() would immediately erase the count
+      // it just bumped, and it would never be observed holding at the limit
+      // — it would instead keep oscillating back toward 0.
+      await sleep(300);
+      expect(sup.snapshot().services.api?.restarts).toBe(2);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 15_000);
+
+  test("sustained healthy operation forgives a service's past restarts", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      health: {
+        ...emptyHealth(),
+        type: "command",
+        command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },
+        interval_seconds: 0.02,
+        timeout_seconds: 1,
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"] });
+      (sup as unknown as { bumpRestartCount: (name: string, n: number) => void }).bumpRestartCount("api", 3);
+      expect(sup.snapshot().services.api?.restarts).toBe(3);
+
+      await waitFor(() => (sup.snapshot().services.api?.restarts ?? -1) === 0, 5000);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+});
+
 describe("lifecycle generations", () => {
   test("a slow health check for a superseded generation cannot corrupt the newer process's state", async () => {
     const dir = tmp();

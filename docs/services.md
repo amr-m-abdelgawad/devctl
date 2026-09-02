@@ -84,6 +84,8 @@ Stopping `identity` also stops `invoices-api` and `invoices-worker` (both depend
 
 `devctl restart x` restarts only `x` — never its dependents. Pass `--cascade` to also restart everything that depends on `x` (the same set a `stop x` would affect). Either way, a restarted service's own dependencies are started first if they aren't already running, exactly like a plain `start` would. Waves run left to right on start; stop and cascading restart run them right to left, restricted to whichever services are actually in scope.
 
+A service's restart count (against `max_retries`) resets to zero on a manual `stop` or `start` — including the stop/start half of a `restart` a client asks for — and also forgives itself once the service has run healthily for long enough. Only an automatic, health-triggered restart preserves the count across its own stop/start cycle; that's what makes `max_retries` actually a limit instead of resetting itself every cycle.
+
 `devctl start` with **no** profile and **no** service names starts the active session profile, or the first configured profile — the same contract as MCP `start_services`. Use `--profile` or explicit names. With no profiles, start fails closed.
 
 Default TUI profile (empty dashboard `enter`) is the first profile name **alphabetically**.

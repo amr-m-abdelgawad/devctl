@@ -84,6 +84,11 @@ const DEFAULT_BACKOFF_SECONDS = 2;
 const DEFAULT_HEALTH_INTERVAL_MS = 2000;
 const WATCH_DEBOUNCE_MS = 200;
 const HEALTH_RESTART_STREAK = 3;
+// Consecutive healthy checks that count a service as stable enough to
+// forgive its past crashes/unhealthy spells — otherwise a service that has
+// run fine for hours could still hit max_retries and fail outright on its
+// next stumble, purely because of failures long in its past.
+const HEALTH_RESET_STREAK = 10;
 const RESOURCE_POLL_MS = 3_000;
 
 export class Supervisor {
@@ -143,6 +148,7 @@ export class Supervisor {
   private configWatcher?: FSWatcher;
   private watchTimer?: ReturnType<typeof setTimeout>;
   private readonly unhealthyStreak = new Map<string, number>();
+  private readonly healthyStreak = new Map<string, number>();
   private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
@@ -439,6 +445,15 @@ export class Supervisor {
     if (req.client_env) {
       for (const name of resolved.services) {
         this.clientEnv.set(name, req.client_env);
+      }
+    }
+    // A real start request forgives past restarts for everything it names —
+    // see resetRestartCount. `auto` marks a start restart() issued for its
+    // own automatic (health-triggered) relaunch, which must preserve the
+    // count armRestart's caller just bumped rather than immediately erase it.
+    if (req.auto !== true) {
+      for (const name of resolved.services) {
+        this.resetRestartCount(name);
       }
     }
     const plan = startupPlan(this.cfg, resolved.services, resolved.profile);
@@ -806,7 +821,10 @@ export class Supervisor {
     if (selected.length === 0) {
       return;
     }
-    await this.runStopPlan(shutdownPlan(this.cfg, selected));
+    // A user-initiated stop always forgives past restarts — see
+    // resetRestartCount — for every service the plan touches, including
+    // dependents pulled in by the cascade, not just the named service(s).
+    await this.runStopPlan(shutdownPlan(this.cfg, selected), { resetRestartCounts: true });
   }
 
   // Plain restart touches only the named services — never their
@@ -814,15 +832,22 @@ export class Supervisor {
   // restart is a minimal, targeted action unless the caller explicitly
   // opts into the wider blast radius of `cascade`, which restarts the same
   // dependents shutdownPlan/stop would have stopped.
-  async restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string> }): Promise<void> {
+  //
+  // `auto` marks a restart the supervisor scheduled itself (a health-check
+  // failure via maybeRestartUnhealthy) rather than one a real client asked
+  // for. Only a real client's restart forgives past restarts; an automatic
+  // one must preserve the count armRestart's caller just bumped, or the
+  // max_retries budget it exists to enforce would reset itself every cycle.
+  async restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string>; auto?: boolean }): Promise<void> {
     const cascade = opts?.cascade === true;
     const targets = cascade ? dependentsClosure(this.cfg, names) : names;
     const plan = cascade ? shutdownPlan(this.cfg, names) : shutdownPlanExact(this.cfg, names);
-    await this.runStopPlan(plan);
-    await this.start({ services: targets, profile: this.profile, client_env: opts?.clientEnv });
+    const manual = opts?.auto !== true;
+    await this.runStopPlan(plan, { resetRestartCounts: manual });
+    await this.start({ services: targets, profile: this.profile, client_env: opts?.clientEnv, auto: opts?.auto });
   }
 
-  private async runStopPlan(plan: Plan): Promise<void> {
+  private async runStopPlan(plan: Plan, opts?: { resetRestartCounts?: boolean }): Promise<void> {
     // A crash or unhealthy restart scheduled just before this call must not
     // go on to revive a service the caller explicitly asked to stop —
     // startOne() only checks "is it already active", which a stopped
@@ -834,6 +859,9 @@ export class Supervisor {
     for (const name of plan.waves.flat()) {
       this.clearRestartTimer(name);
       this.bumpGeneration(name);
+      if (opts?.resetRestartCounts) {
+        this.resetRestartCount(name);
+      }
     }
     const grace = graceSeconds(this.cfg.shutdown) * 1000;
     for (const wave of plan.waves) {
@@ -1144,6 +1172,15 @@ export class Supervisor {
     }
   }
 
+  // A manual stop or start is the caller taking explicit control of this
+  // service; whatever crash history it had stops mattering from here — it
+  // gets a fresh restart budget rather than staying close to max_retries
+  // because of failures from before this intervention.
+  private resetRestartCount(name: string): void {
+    this.healthyStreak.set(name, 0);
+    this.bumpRestartCount(name, 0);
+  }
+
   // Ends the current lifecycle epoch for a service: any exit, health-check,
   // or scheduled-restart callback still holding an older generation number
   // is now stale and must recognize that via isCurrentGeneration() rather
@@ -1151,6 +1188,11 @@ export class Supervisor {
   private bumpGeneration(name: string): number {
     const next = (this.generation.get(name) ?? 0) + 1;
     this.generation.set(name, next);
+    // A new epoch starts its own healthy streak from zero — otherwise a
+    // streak built up before a crash could carry over and forgive that very
+    // crash's restart-count bump on the next tick, without the service ever
+    // actually proving itself stable again under the new process.
+    this.healthyStreak.set(name, 0);
     return next;
   }
 
@@ -1240,8 +1282,12 @@ export class Supervisor {
   private maybeRestartUnhealthy(name: string, svc: ServiceConfig, health: ServiceHealth, gen: number): void {
     if (health !== HealthUnhealthy) {
       this.unhealthyStreak.set(name, 0);
+      if (health === HealthHealthy) {
+        this.maybeForgiveRestarts(name);
+      }
       return;
     }
+    this.healthyStreak.set(name, 0);
     const policy = svc.restart.policy || (svc.restart.enabled ? "on_failure" : "never");
     if (policy !== "on_failure" && policy !== "always") {
       return;
@@ -1264,8 +1310,20 @@ export class Supervisor {
     this.bumpRestartCount(name, n + 1);
     this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks (attempt ${n + 1}/${max})`);
     this.armRestart(name, svc, gen, n, () => {
-      void this.restart([name]).catch((err) => this.log(name, "ERROR", humanMessage(err)));
+      void this.restart([name], { auto: true }).catch((err) => this.log(name, "ERROR", humanMessage(err)));
     });
+  }
+
+  // Forgives past restarts once a service proves itself stable, so a long
+  // healthy run doesn't leave it one stumble away from max_retries because
+  // of crashes/unhealthy spells long in its past.
+  private maybeForgiveRestarts(name: string): void {
+    const streak = (this.healthyStreak.get(name) ?? 0) + 1;
+    this.healthyStreak.set(name, streak);
+    if (streak >= HEALTH_RESET_STREAK && (this.restarts.get(name) ?? 0) > 0) {
+      this.log(name, "INFO", `restart count reset after ${streak} consecutive healthy checks`);
+      this.bumpRestartCount(name, 0);
+    }
   }
 
   private applyRegistry(): void {

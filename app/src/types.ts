@@ -9,6 +9,11 @@ export type StartRequest = {
   // resolve each started service's env from whichever client most recently
   // started/restarted it, rather than the daemon's own stale process.env.
   client_env?: Record<string, string>;
+  // Internal only: marks a start the supervisor issued for its own
+  // automatic (health-triggered) restart, as opposed to one a real client
+  // asked for. A real caller should never set this — it suppresses the
+  // restart-count reset a genuine start/restart request would otherwise get.
+  auto?: boolean;
 };
 
 export type StopRequest = {
