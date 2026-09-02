@@ -894,6 +894,49 @@ describe("persisted state durability", () => {
       await sup.stop(["flaky"]).catch(() => {});
     }
   }, 10_000);
+
+  test("adopting an already-listening service via its fixed port preserves the persisted start time, not \"now\"", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    const svcCfg = {
+      ...emptyService(),
+      command: bunServe(port),
+      ports: [{ name: "http", value: port, auto: false }],
+    };
+    const cfg1 = defaultConfig();
+    cfg1.repoRoot = dir;
+    cfg1.logs.persistence.enabled = false;
+    cfg1.shutdown.grace_seconds = 0.2;
+    cfg1.services.api = svcCfg;
+    const cfg2 = defaultConfig();
+    cfg2.repoRoot = dir;
+    cfg2.logs.persistence.enabled = false;
+    cfg2.shutdown.grace_seconds = 0.2;
+    cfg2.services.api = svcCfg;
+    const stub = { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) };
+    const sup1 = new Supervisor(cfg1, stub);
+    // A second supervisor instance stands in for a fresh daemon adopting a
+    // service a previous one left running — claimIfAlreadyUp, not
+    // recoverSession (which already preserved this correctly).
+    const sup2 = new Supervisor(cfg2, stub);
+    try {
+      await sup1.start({ services: ["api"] });
+      const originalStart = sup1.snapshot().services.api?.startTime;
+      expect(originalStart).toBeTruthy();
+
+      // Let real time move on so an adoption that (bug) stamps "now" instead
+      // of the persisted start time is clearly distinguishable from one that
+      // correctly preserves it.
+      await sleep(1500);
+
+      await sup2.start({ services: ["api"] });
+
+      expect(sup2.snapshot().services.api?.startTime).toBe(originalStart);
+    } finally {
+      await sup2.stop(["api"]).catch(() => {});
+      await sup1.stop(["api"]).catch(() => {});
+    }
+  }, 15_000);
 });
 
 describe("lifecycle generations", () => {

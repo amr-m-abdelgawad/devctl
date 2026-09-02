@@ -593,7 +593,13 @@ export class Supervisor {
         );
       if (identityOk) {
         this.ports.set(name, occupied);
-        const gen = this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date()) ?? this.bumpGeneration(name);
+        // Use the persisted start time, not "now" — this process has been
+        // running since persistedRec.startTime (that's exactly what
+        // sameProcess() above just verified); reporting "now" would both
+        // show a bogus near-zero uptime and, once this adoption is itself
+        // persisted, poison the record a future adoption verifies identity
+        // against.
+        const gen = this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? this.bumpGeneration(name);
         this.setState(name, StateRunning, HealthUnknown, pid, "");
         this.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
         this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), {}, gen);
