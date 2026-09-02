@@ -523,15 +523,42 @@ function addAuth(root: Command): void {
     .command("refresh")
     .option("--json", "machine-readable output")
     .action(async (opts: { json?: boolean }) => {
-      const cfg = load("", configFlag(root));
-      const tokens = new TokenManager(refreshThreshold(cfg.auth) * 1000, googleTokenProviders());
-      tokens.invalidate();
-      const tok = await tokens.get("user", "", []);
-      if (opts.json) {
-        writeOut(JSON.stringify({ identity: tok.identity, expires_at: tok.expiresAt.toISOString() }, null, 2) + "\n");
-        return;
+      // Keep the standalone user-token refresh working when no daemon is
+      // running, but also ask an attached daemon to re-mint and probe
+      // configured service accounts. Previously these were two disconnected
+      // paths, so the command printed "refreshed" while the Identity screen
+      // remained permanently "NOT PROBED".
+      const ctrl = await openController("", configFlag(root), false);
+      try {
+        const tokens = new TokenManager(refreshThreshold(ctrl.cfg.auth) * 1000, googleTokenProviders());
+        // tokens.refresh(), not invalidate()+get() — invalidate() clears
+        // every credential in the shared store, not just this one; refresh()
+        // forces a fresh mint of only the user identity being checked here.
+        const tok = await tokens.refresh("user", "", []);
+        const daemonIdentity = ctrl.client ? await ctrl.refreshAuth() : undefined;
+        if (opts.json) {
+          writeOut(
+            JSON.stringify(
+              {
+                identity: tok.identity,
+                expires_at: tok.expiresAt.toISOString(),
+                service_account_status: daemonIdentity?.service_account_status ?? {},
+              },
+              null,
+              2,
+            ) + "\n",
+          );
+          return;
+        }
+        writeOut(`refreshed credentials expire ${tok.expiresAt.toISOString()}\n`);
+        if (daemonIdentity) {
+          for (const [email, status] of Object.entries(daemonIdentity.service_account_status).sort(([a], [b]) => a.localeCompare(b))) {
+            writeOut(`service account ${email}: ${status}\n`);
+          }
+        }
+      } finally {
+        await ctrl.close();
       }
-      writeOut(`refreshed credentials expire ${tok.expiresAt.toISOString()}\n`);
     });
 }
 

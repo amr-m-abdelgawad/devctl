@@ -10,7 +10,7 @@ import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 function tmp(): string {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-handshake-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-handshake-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   process.env.DEVCTL_HOME = join(dir, "home");
   return dir;
@@ -57,6 +57,31 @@ describe("RPC client", () => {
     );
     client.close();
     expect(await outcome).toContain("supervisor connection closed");
+  });
+
+  test("Controller.refreshAuth calls the daemon probe rather than refreshing only local CLI state", async () => {
+    const calls: string[] = [];
+    const identity = {
+      user: "dev@example.com",
+      project: "demo",
+      project_source: "configuration",
+      adc: true,
+      service_accounts: { "worker@example.com": true },
+      service_account_status: { "worker@example.com": "available" as const },
+      iap: true,
+    };
+    const ctrl = new Controller({ shutdown: {} } as never);
+    ctrl.client = {
+      compat: { compatible: true, legacy: false },
+      call: async (method: string) => {
+        calls.push(method);
+        return identity;
+      },
+      close: () => undefined,
+    } as unknown as Client;
+
+    expect(await ctrl.refreshAuth()).toEqual(identity);
+    expect(calls).toEqual(["auth_refresh"]);
   });
 });
 

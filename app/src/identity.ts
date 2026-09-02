@@ -80,20 +80,46 @@ export function emptyIdentity(partial: Partial<Identity> = {}): Identity {
   };
 }
 
-export function configuredServiceAccounts(cfg: DevctlConfig): string[] {
-  const found = new Set<string>();
+export type DeclaredServiceAccount = {
+  email: string;
+  // False means the address is present in configuration but cannot be used
+  // by the declaration that contains it (currently, a route with auth:none).
+  // Keeping that distinction lets the UI explain what it found without
+  // turning a stale/inactive declaration into a probe or startup requirement.
+  active: boolean;
+};
+
+export function declaredServiceAccounts(cfg: DevctlConfig): DeclaredServiceAccount[] {
+  const found = new Map<string, boolean>();
+  const add = (email: string, active: boolean): void => {
+    if (email !== "") {
+      found.set(email, (found.get(email) ?? false) || active);
+    }
+  };
   for (const svc of Object.values(cfg.services)) {
     if (isServiceAccountIdentity(svc.identity) && svc.identity.service_account !== "") {
-      found.add(svc.identity.service_account);
+      add(svc.identity.service_account, true);
     }
   }
   for (const route of cfg.proxy.routes) {
-    const ident = fromRoute(route.auth);
-    if (ident.kind === KindServiceAccount && ident.serviceAccount !== "") {
-      found.add(ident.serviceAccount);
+    const authType = route.auth.type.toLowerCase();
+    const identityType = route.auth.identity.type.toLowerCase();
+    const serviceAccount = route.auth.identity.service_account || route.auth.service_account;
+    const declaresServiceAccount =
+      identityType === "service" || identityType === "service_account" || authType === "service_account";
+    if (declaresServiceAccount) {
+      add(serviceAccount, authType !== "none");
     }
   }
-  return [...found].sort();
+  return [...found.entries()]
+    .map(([email, active]) => ({ email, active }))
+    .sort((a, b) => a.email.localeCompare(b.email));
+}
+
+export function configuredServiceAccounts(cfg: DevctlConfig): string[] {
+  return declaredServiceAccounts(cfg)
+    .filter((account) => account.active)
+    .map((account) => account.email);
 }
 
 export type IdentityBlocker = {

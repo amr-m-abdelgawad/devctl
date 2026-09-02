@@ -6,7 +6,7 @@ import { type LogEvent, type LogPage } from "./logs.ts";
 import { processAlive, readPersistedState } from "./storage.ts";
 
 function tmp(): string {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-cli-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-cli-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(join(dir, ".devctl"), { recursive: true });
   process.env.DEVCTL_HOME = join(dir, "home");
   return dir;

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
@@ -21,7 +21,13 @@ export function ensureDir(path: string): void {
 }
 
 export function repoID(repoRoot: string): string {
-  const sum = createHash("sha256").update(repoRoot).digest("hex");
+  // Every caller that names the same repository must land in the same state
+  // directory, even when one spelling contains redundant separators or is
+  // relative. Otherwise the daemon can bind one socket while its client dials
+  // another (macOS TMPDIR commonly ends in a separator, which exposed this).
+  const canonical = resolve(repoRoot);
+  const normalized = process.platform === "win32" ? canonical.toLowerCase() : canonical;
+  const sum = createHash("sha256").update(normalized).digest("hex");
   return sum.slice(0, REPO_ID_LENGTH);
 }
 

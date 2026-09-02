@@ -9,6 +9,14 @@ ports:
   http: 18002
 environment:
   API_URL: http://127.0.0.1:${services.invoices-api.ports.http}
+  # Pulled by main.py's token-watch loop from devctl's token endpoint
+  # (proxy.token_endpoint in config.yaml) — the outbound half of credential
+  # refresh, where a service holds a URL instead of a token. Matches the
+  # placeholder impersonated account used by the invoices-worker-* proxy
+  # routes; substitute your own real service account/audience alongside
+  # google.project_id in config.yaml to exercise this against real GCP.
+  TOKEN_WATCH_IDENTITY: sa:invoices-worker-dev@company-dev.iam.gserviceaccount.com
+  TOKEN_WATCH_AUDIENCE: https://invoices-worker.local
   required:
     - API_URL
 health:

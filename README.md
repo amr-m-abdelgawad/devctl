@@ -44,7 +44,7 @@ Nothing in the app knows your services by name. Add YAML, not code.
 | **Proxy** | Loopback routes that inject Google / IAP tokens — bind `127.0.0.1` only |
 | **Doctor** | Ports, tools, ADC, impersonation — reported, never auto-enabled |
 
-Google Cloud is optional. The [demo platform](examples/demo-platform/README.md) is local-only.
+Google Cloud is optional. The [demo platform](examples/demo-platform/README.md) starts locally without it and includes one opt-in route for testing service-account impersonation and IAP token minting.
 
 ---
 

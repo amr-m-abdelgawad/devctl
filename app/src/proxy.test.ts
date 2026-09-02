@@ -1,13 +1,44 @@
 import { createServer } from "node:http";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig } from "./config/types.ts";
+import { defaultConfig, type RouteAuthConfig } from "./config/types.ts";
 import { startMockIapServer } from "./testdata/mock-iap-server.ts";
+import { type CredentialRecord, type CredentialStore } from "./credentials.ts";
 import { KindProxy } from "./errors.ts";
+import { Bus, TokenRefreshFailed, TokenRefreshed } from "./events.ts";
 import { LogManager } from "./logs.ts";
-import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
+import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "./secrets.ts";
 import { TokenManager, type AccessToken } from "./token.ts";
+
+// TokenManager defaults to the real OS keychain/file store when none is
+// given. Several cases below deliberately reuse the same identity+audience
+// to test caching/refresh, so without an isolated store they'd read back
+// whatever an earlier test (or an earlier run) already cached there —
+// exactly the kind of stale-cache confusion this whole session started
+// from. Give each such test its own throwaway in-memory store instead.
+function memoryStore(): CredentialStore {
+  const records = new Map<string, CredentialRecord>();
+  return {
+    backend: "file",
+    get: async (key) => records.get(key),
+    set: async (key, record) => {
+      records.set(key, record);
+    },
+    delete: async (key) => {
+      records.delete(key);
+    },
+    list: async () =>
+      [...records.entries()].map(([key, rec]) => ({
+        key,
+        identity: rec.identity,
+        audience: rec.audience,
+        scopes: rec.scopes,
+        expires_at: rec.expiresAt,
+        valid: Date.parse(rec.expiresAt) - Date.now() > 0,
+      })),
+  };
+}
 
 function token(partial: Partial<AccessToken> = {}): AccessToken {
   return {
@@ -21,7 +52,12 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
   };
 }
 
-async function setupProxy(handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void) {
+const NONE_AUTH: RouteAuthConfig = { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" };
+
+async function setupProxy(
+  handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
+  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus } = {},
+) {
   const upstream = createServer(handler);
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
   const upAddr = upstream.address();
@@ -37,18 +73,40 @@ async function setupProxy(handler: (req: import("node:http").IncomingMessage, re
     name: "route",
     match: { host: "", path: "" },
     upstream: { url: `http://127.0.0.1:${upPort}` },
-    auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+    auth: opts.auth ?? NONE_AUTH,
   });
-  const server = new ProxyServer(cfg);
+  const server = new ProxyServer(cfg, opts.tokens, opts.logs, opts.bus);
   await server.start();
   return {
     upPort,
     proxyPort,
+    server,
     close: async (): Promise<void> => {
       await server.stop();
       await new Promise<void>((resolve) => upstream.close(() => resolve()));
     },
   };
+}
+
+// Captures every header the upstream actually receives, plus the request
+// method/URL — the thing worth asserting on is what a request really
+// carried, not just that the proxy returned some status code.
+async function setupHeaderCapture(auth: RouteAuthConfig, tokens?: TokenManager, respond: (res: import("node:http").ServerResponse) => void = (res) => res.end("ok")) {
+  const seen: { headers: Record<string, string>; method: string; url: string } = { headers: {}, method: "", url: "" };
+  const { proxyPort, close, server } = await setupProxy(
+    (req, res) => {
+      seen.method = req.method ?? "";
+      seen.url = req.url ?? "";
+      for (const [key, value] of Object.entries(req.headers)) {
+        if (typeof value === "string") {
+          seen.headers[key] = value;
+        }
+      }
+      respond(res);
+    },
+    { auth, tokens },
+  );
+  return { proxyPort, close, server, seen };
 }
 
 describe("proxy", () => {
@@ -118,6 +176,42 @@ describe("proxy", () => {
     const body = await ok.json();
     expect(body.access_token).toBe("secret-token");
     expect(body.token_type).toBe("Bearer");
+    await ep.stop();
+  });
+
+  // The gap the demo-platform token-watch loop (invoices-worker/main.py)
+  // depends on: the identity/audience query params it sends are URL-encoded
+  // (a "sa:...@...iam.gserviceaccount.com" identity and a "https://..."
+  // audience both contain characters that need percent-encoding), and
+  // nothing previously proved TokenEndpoint.serve() decodes them back to the
+  // exact strings a real caller sent rather than a truncated or mangled one.
+  test("token endpoint decodes identity/audience query params and forwards them exactly", async () => {
+    const calls: { identity: string; audience: string }[] = [];
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async (identity, audience) => {
+            calls.push({ identity, audience });
+            return token({ identity, audience });
+          },
+        },
+      ],
+      undefined,
+      memoryStore(),
+    );
+    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens);
+    await ep.start();
+    const port = ep.listenPort();
+    const identity = "sa:test-389@company-dev.iam.gserviceaccount.com";
+    const audience = "https://invoices-worker.local";
+    const query = new URLSearchParams({ identity, audience }).toString();
+    const resp = await fetch(`http://127.0.0.1:${port}/token?${query}`, { headers: { [INTERNAL_TOKEN_HEADER]: "s3cret" } });
+    expect(resp.status).toBe(200);
+    const body = await resp.json();
+    expect(body.identity).toBe(identity);
+    expect(calls).toEqual([{ identity, audience }]);
     await ep.stop();
   });
 
@@ -298,4 +392,212 @@ describe("proxy", () => {
     expect(seen.ae).toBe("gzip, deflate, br");
     await close();
   }, 10_000);
+});
+
+describe("proxy identity and token wiring", () => {
+  test("a plain service_account route (no IAP) mints with the sa: identity and an empty audience", async () => {
+    const calls: { identity: string; audience: string }[] = [];
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async (identity, audience) => {
+            calls.push({ identity, audience });
+            return token({ accessToken: `tok-${identity}`, identity, audience });
+          },
+        },
+      ],
+      undefined,
+      memoryStore(),
+    );
+    const auth: RouteAuthConfig = {
+      type: "service_account",
+      identity: { type: "service_account", service_account: "worker@example.com" },
+      audience: "",
+      service_account: "",
+    };
+    const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/api`);
+    expect(resp.status).toBe(200);
+    expect(seen.headers.authorization).toBe("Bearer tok-sa:worker@example.com");
+    expect(calls).toEqual([{ identity: "sa:worker@example.com", audience: "" }]);
+    await close();
+  });
+
+  // The gap this session found: no existing test exercised IAP with a
+  // service_account identity — the user's actual demo-platform route shape
+  // (auth.type: iap, identity.type: service_account). This proves the
+  // request that reaches the upstream carries a Bearer token minted for the
+  // impersonated sa: identity against the route's real IAP audience, not
+  // some other (identity, audience) pair.
+  test("an IAP route with a service_account identity mints the impersonated identity against the route's real audience", async () => {
+    const calls: { identity: string; audience: string }[] = [];
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async (identity, audience) => {
+            calls.push({ identity, audience });
+            return token({ accessToken: `tok-${identity}-${audience}`, identity, audience });
+          },
+        },
+      ],
+      undefined,
+      memoryStore(),
+    );
+    const auth: RouteAuthConfig = {
+      type: "iap",
+      identity: { type: "service_account", service_account: "test-389@example.com" },
+      audience: "https://invoices-worker.local",
+      service_account: "",
+    };
+    const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/invoices`);
+    expect(resp.status).toBe(200);
+    expect(seen.headers.authorization).toBe("Bearer tok-sa:test-389@example.com-https://invoices-worker.local");
+    expect(calls).toEqual([{ identity: "sa:test-389@example.com", audience: "https://invoices-worker.local" }]);
+    await close();
+  });
+
+  test("repeated requests within the token's validity window reuse the cached token", async () => {
+    let calls = 0;
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async (identity, audience) => {
+            calls += 1;
+            return token({ accessToken: `tok-${calls}`, identity, audience, expiresAt: new Date(Date.now() + 10 * 60_000) });
+          },
+        },
+      ],
+      undefined,
+      memoryStore(),
+    );
+    const auth: RouteAuthConfig = {
+      type: "iap",
+      identity: { type: "service_account", service_account: "worker@example.com" },
+      audience: "https://worker.local",
+      service_account: "",
+    };
+    const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
+    const first = await fetch(`http://127.0.0.1:${proxyPort}/one`);
+    const firstAuth = seen.headers.authorization;
+    const second = await fetch(`http://127.0.0.1:${proxyPort}/two`);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(seen.headers.authorization).toBe(firstAuth);
+    expect(calls).toBe(1);
+    await close();
+  });
+
+  test("a token within the refresh threshold is re-minted on the next request", async () => {
+    let calls = 0;
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async (identity, audience) => {
+            calls += 1;
+            // 30s of real life left is inside the 60s threshold above, so the
+            // very next .get() must treat this as due for refresh.
+            return token({ accessToken: `tok-${calls}`, identity, audience, expiresAt: new Date(Date.now() + 30_000) });
+          },
+        },
+      ],
+      undefined,
+      memoryStore(),
+    );
+    const auth: RouteAuthConfig = {
+      type: "iap",
+      identity: { type: "service_account", service_account: "worker@example.com" },
+      audience: "https://worker.local",
+      service_account: "",
+    };
+    const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
+    await fetch(`http://127.0.0.1:${proxyPort}/one`);
+    const firstAuth = seen.headers.authorization;
+    await fetch(`http://127.0.0.1:${proxyPort}/two`);
+    expect(seen.headers.authorization).not.toBe(firstAuth);
+    expect(calls).toBe(2);
+    await close();
+  });
+
+  test("a failed mint returns a generic 502 and publishes TokenRefreshFailed, never the underlying error text", async () => {
+    const bus = new Bus(64);
+    const seenEvents: string[] = [];
+    bus.subscribe((ev) => seenEvents.push(ev.type), [TokenRefreshFailed, TokenRefreshed]);
+    // TokenManager only publishes to the bus it was constructed with — a
+    // ProxyServer given a different bus reference wouldn't see these events,
+    // so this has to be the same object passed to setupProxy below.
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async () => {
+            throw new Error("permission denied: caller lacks roles/iam.serviceAccountTokenCreator");
+          },
+        },
+      ],
+      bus,
+      memoryStore(),
+    );
+    const auth: RouteAuthConfig = {
+      type: "iap",
+      identity: { type: "service_account", service_account: "worker@example.com" },
+      audience: "https://worker.local",
+      service_account: "",
+    };
+    const { proxyPort, close } = await setupProxy((_req, res) => res.end("unreachable"), { auth, tokens, bus });
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/secure`);
+    expect(resp.status).toBe(502);
+    expect(await resp.text()).toBe("proxy error");
+    expect(seenEvents).toEqual([TokenRefreshFailed]);
+    await close();
+  });
+
+  test("echoes X-Devctl-Request-Id back to the caller, generating one when absent", async () => {
+    const { proxyPort, close } = await setupProxy((_req, res) => res.end("ok"));
+    const withId = await fetch(`http://127.0.0.1:${proxyPort}/a`, { headers: { [REQUEST_ID_HEADER]: "caller-supplied-id" } });
+    expect(withId.headers.get(REQUEST_ID_HEADER)).toBe("caller-supplied-id");
+    const withoutId = await fetch(`http://127.0.0.1:${proxyPort}/b`);
+    expect(withoutId.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
+    expect(withoutId.headers.get(REQUEST_ID_HEADER)).not.toBe("caller-supplied-id");
+    await close();
+  });
+
+  test("stats() holds recent requests newest-first, including ones with no matching route", async () => {
+    const { proxyPort, close, server } = await setupProxy((_req, res) => res.end("ok"));
+    await fetch(`http://127.0.0.1:${proxyPort}/first`);
+    await fetch(`http://127.0.0.1:${proxyPort}/second`);
+    const stats = server.stats();
+    expect(stats.total).toBe(2);
+    expect(stats.errors).toBe(0);
+    expect(stats.recent[0]?.path).toBe("/second");
+    expect(stats.recent[1]?.path).toBe("/first");
+    await close();
+
+    const cfg = defaultConfig().proxy;
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", () => resolve()));
+    const reservedAddr = reserved.address();
+    const noRoutePort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    cfg.listen = { host: "127.0.0.1", port: noRoutePort };
+    const noRouteServer = new ProxyServer(cfg);
+    await noRouteServer.start();
+    const resp = await fetch(`http://127.0.0.1:${noRoutePort}/nowhere`);
+    expect(resp.status).toBe(404);
+    const noRouteStats = noRouteServer.stats();
+    expect(noRouteStats.total).toBe(1);
+    expect(noRouteStats.errors).toBe(1);
+    expect(noRouteStats.recent[0]?.route).toBe("");
+    expect(noRouteStats.recent[0]?.status).toBe(404);
+    await noRouteServer.stop();
+  });
 });

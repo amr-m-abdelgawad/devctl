@@ -29,14 +29,47 @@ export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity |
     return undefined;
   }
   const command = await capture(["ps", "-p", String(pid), "-o", "command="]);
-  const start = await capture(["ps", "-p", String(pid), "-o", "lstart="]);
+  // BSD/Linux `ps lstart` has no timezone suffix. Date.parse therefore
+  // interprets it in the JS process's TZ, which may differ from the host TZ
+  // used by ps (for example a daemon launched with TZ=UTC on a Cairo host).
+  // `etime` is an elapsed duration and is timezone-independent.
+  const sampledAt = Date.now();
+  const elapsed = parseElapsedMillis(await capture(["ps", "-p", String(pid), "-o", "etime="]));
   const cwd = await cwdOf(pid);
   return {
     pid,
     command: command.trim(),
     cwd,
-    startTime: start.trim() === "" ? undefined : start.trim(),
+    startTime: elapsed === undefined ? undefined : new Date(sampledAt - elapsed).toISOString(),
   };
+}
+
+// ps etime formats: MM:SS, HH:MM:SS, or DD-HH:MM:SS.
+export function parseElapsedMillis(text: string): number | undefined {
+  const value = text.trim();
+  if (value === "") {
+    return undefined;
+  }
+  const dash = value.indexOf("-");
+  const daysText = dash >= 0 ? value.slice(0, dash) : "0";
+  const clock = dash >= 0 ? value.slice(dash + 1) : value;
+  const parts = clock.split(":");
+  if (parts.length !== 2 && parts.length !== 3) {
+    return undefined;
+  }
+  const days = Number(daysText);
+  const hours = parts.length === 3 ? Number(parts[0]) : 0;
+  const minutes = Number(parts.length === 3 ? parts[1] : parts[0]);
+  const seconds = Number(parts.at(-1));
+  if (
+    !Number.isInteger(days) || days < 0 ||
+    !Number.isInteger(hours) || hours < 0 || hours > 23 ||
+    !Number.isInteger(minutes) || minutes < 0 || minutes > 59 ||
+    !Number.isInteger(seconds) || seconds < 0 || seconds > 59
+  ) {
+    return undefined;
+  }
+  return (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
 }
 
 async function cwdOf(pid: number): Promise<string> {

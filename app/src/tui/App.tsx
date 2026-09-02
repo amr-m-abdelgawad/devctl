@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { validateConfigText, type DevctlConfig } from "../config/index.ts";
+import { loadPath, validateConfigText, type DevctlConfig } from "../config/index.ts";
 import { type Controller } from "../controller.ts";
 import { runDoctor, type DoctorProgress, type Report } from "../doctor.ts";
 import { freePort, type PortHolder } from "../ports.ts";
@@ -19,7 +19,7 @@ import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, 
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
+import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
   isClearLogsKey,
@@ -45,6 +45,7 @@ import { HELP_SCROLL_PAGE, HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { PaletteOverlay } from "./overlays/Palette.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
+import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
 import { SlashOverlay } from "./overlays/Slash.tsx";
 import { ThemesOverlay } from "./overlays/Themes.tsx";
 import { AuthScreen } from "./screens/Auth.tsx";
@@ -54,7 +55,7 @@ import { Dashboard } from "./screens/Dashboard.tsx";
 import { DoctorScreen } from "./screens/Doctor.tsx";
 import { LogsScreen } from "./screens/Logs.tsx";
 import { ProfilesScreen } from "./screens/Profiles.tsx";
-import { ProxyScreen } from "./screens/Proxy.tsx";
+import { ProxyScreen, type RouteDetailInfo } from "./screens/Proxy.tsx";
 import { ServiceDetail } from "./screens/ServiceDetail.tsx";
 import { ServicesScreen } from "./screens/Services.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
@@ -154,7 +155,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [doctorError, setDoctorError] = useState("");
   const [doctorTick, setDoctorTick] = useState(0);
   const [doctorProgress, setDoctorProgress] = useState<DoctorProgress>({ active: "Preparing diagnostics", checks: [] });
-  const doctorRunKey = useRef<{ cfg: unknown; tick: number; sessionID: string } | undefined>(undefined);
+  const doctorRunKey = useRef<{ cfg: unknown; tick: number; sessionID: string; reloadError?: string } | undefined>(undefined);
   const doctorRunGeneration = useRef(0);
   const [confirmDetail, setConfirmDetail] = useState<ConfirmDetail>({});
   const [portTarget, setPortTarget] = useState<PortHolder | undefined>();
@@ -170,11 +171,12 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const logServices = NO_LOG_SERVICES;
   const [logShowTimestamps, setLogShowTimestamps] = useState(tui.log_timestamps !== false);
   const [logShowMeta, setLogShowMeta] = useState(tui.log_metadata !== false);
-  const [extraLogSources, setExtraLogSources] = useState<string[]>([]);
+  const [extraLogSources, setExtraLogSources] = useState<string[]>(() => [...INTERNAL_LOG_SERVICES]);
   const [logLevel] = useState("");
   const [logSource] = useState("");
   const [logRegex, setLogRegex] = useState(false);
   const [logDetail, setLogDetail] = useState<LogEvent | undefined>();
+  const [routeDetail, setRouteDetail] = useState<RouteDetailInfo | undefined>();
   const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
   const [logPinned, setLogPinned] = useState(false);
   const [logSelected, setLogSelected] = useState(LOG_LIST_TAIL - 1);
@@ -189,6 +191,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const helpScrollRef = useRef<ScrollBoxRenderable>(null);
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
   const logDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
+  const routeDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
   const planScrollRef = useRef<ScrollBoxRenderable>(null);
   const configEditRef = useRef<TextareaRenderable>(null);
   const [configEditText, setConfigEditText] = useState("");
@@ -198,6 +201,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [logViewStart, setLogViewStart] = useState(0);
   const [mcpPortDraft, setMcpPortDraft] = useState("");
   const [plan, setPlan] = useState<Plan | undefined>();
+  const [planInitiallyRunning, setPlanInitiallyRunning] = useState<string[]>([]);
   const [planBusy, setPlanBusy] = useState(false);
   const [lifecycle, setLifecycle] = useState<LifecycleKind>("start");
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>("quit");
@@ -493,6 +497,28 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     }
   }, [controller, profile]);
 
+  const refreshAuth = useCallback(async () => {
+    if (!controller) {
+      setStatus("Supervisor is not running");
+      return;
+    }
+    setStatus("Probing configured identities…");
+    try {
+      const identity = await controller.refreshAuth();
+      setSnap((current) => (current ? { ...current, identity } : current));
+      const statuses = Object.values(identity.service_account_status);
+      const available = statuses.filter((value) => value === "available").length;
+      const unavailable = statuses.filter((value) => value === "unavailable").length;
+      setStatus(
+        statuses.length === 0
+          ? "Identity refreshed — no service accounts configured"
+          : `Identity refreshed — ${available} available${unavailable > 0 ? `, ${unavailable} unavailable` : ""}`,
+      );
+    } catch (err) {
+      setStatus(humanMessage(err));
+    }
+  }, [controller]);
+
   const persistMcpPort = useCallback(
     (next: number) => {
       const port = clampMcpPort(next);
@@ -751,14 +777,23 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     }
     const previous = doctorRunKey.current;
     const sessionID = snap?.session_id ?? "";
-    if (previous?.cfg === cfg && previous.tick === doctorTick && previous.sessionID === sessionID) {
+    if (previous?.cfg === cfg && previous.tick === doctorTick && previous.sessionID === sessionID && previous.reloadError === configReloadError) {
       return;
     }
-    doctorRunKey.current = { cfg, tick: doctorTick, sessionID };
+    doctorRunKey.current = { cfg, tick: doctorTick, sessionID, reloadError: configReloadError };
     const generation = ++doctorRunGeneration.current;
     setDoctorLoading(true);
     setDoctorError("");
     setDoctorProgress({ active: "Preparing diagnostics", checks: [] });
+    let repositoryConfigError: string | undefined;
+    if (cfg.configPath !== "") {
+      repositoryConfigError = "";
+      try {
+        loadPath(cfg.repoRoot, cfg.configPath);
+      } catch (err) {
+        repositoryConfigError = humanMessage(err);
+      }
+    }
     void runDoctor(
       cfg,
       undefined,
@@ -767,7 +802,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           setDoctorProgress(progress);
         }
       },
-      { services: snap?.services, proxyRunning: snap?.proxy.running },
+      { services: snap?.services, proxyRunning: snap?.proxy.running, repositoryConfigError },
     )
       .then((report) => {
         if (generation !== doctorRunGeneration.current) {
@@ -786,7 +821,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           setDoctorLoading(false);
         }
       });
-  }, [screen, cfg, doctorTick, snap?.session_id]);
+  }, [screen, cfg, doctorTick, snap?.session_id, configReloadError]);
 
   const openDetail = useCallback((name: string) => {
     setDetailName(name);
@@ -803,12 +838,10 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         const resolved = resolveStartRequest(cfg, { services: targets, profile: profileName });
         const nextPlan = startupPlan(cfg, resolved.services, resolved.profile);
         setLifecycle("start");
+        setPlanInitiallyRunning(nextPlan.waves.flat().filter((name) => isActiveRuntime(snap?.services[name])));
         setPlan(nextPlan);
         setOverlay("plan");
         setPlanBusy(true);
-        if (noneStarted(snap)) {
-          setLogSince(new Date().toISOString());
-        }
         const needed = resolved.services.filter((name) => !isActiveRuntime(snap?.services[name]));
         const result = await controller.start({
           services: needed.length > 0 ? needed : resolved.services,
@@ -845,6 +878,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       try {
         const nextPlan = shutdownPlan(cfg, selected);
         setLifecycle("stop");
+        setPlanInitiallyRunning([]);
         setPlan(nextPlan);
         setOverlay("plan");
         setPlanBusy(true);
@@ -871,6 +905,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         const planned = planServices(cfg, targets, profileName);
         const nextPlan = startupPlan(cfg, planned.services, planned.profile);
         setLifecycle("restart");
+        setPlanInitiallyRunning([]);
         setPlan(nextPlan);
         setOverlay("plan");
         setPlanBusy(true);
@@ -1001,6 +1036,13 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             setLogsFullscreen((current) => (screen === "logs" ? !current : true));
             return;
           case "auth":
+            if (args[0]?.toLowerCase() === "refresh") {
+              setScreen("auth");
+              await refreshAuth();
+              return;
+            }
+            setScreen("auth");
+            return;
           case "credentials":
           case "proxy":
           case "mcp":
@@ -1038,6 +1080,10 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             await beginRestart(targets, profile);
             return;
           case "refresh":
+            if (screen === "auth") {
+              await refreshAuth();
+              return;
+            }
             await refresh();
             setStatus("Refreshed status and logs");
             return;
@@ -1150,7 +1196,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, persistTheme, profile, refresh, refreshAuth, reveal, screen, themeName, toggleSystemLogs],
   );
 
   const openExportsFolder = useCallback(() => {
@@ -1378,6 +1424,21 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       }
       if (isPageUpKey(key)) {
         scrollBoxBy(logDetailsScrollRef.current, -pageScrollAmount(height));
+        return;
+      }
+      return;
+    }
+    if (overlay === "route-details") {
+      if (name === "escape" || name === "return") {
+        closeOverlay();
+        return;
+      }
+      if (name === "down" || name === "j") {
+        scrollBoxBy(routeDetailsScrollRef.current, tui.scroll_speed);
+        return;
+      }
+      if (name === "up" || name === "k") {
+        scrollBoxBy(routeDetailsScrollRef.current, -tui.scroll_speed);
         return;
       }
       return;
@@ -1633,6 +1694,10 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     if ((screen === "dashboard" || screen === "services") && name === "r") {
       void refresh();
       setStatus("Refreshed");
+      return;
+    }
+    if (screen === "auth" && name === "r") {
+      void refreshAuth();
       return;
     }
     if (screen === "logs" && name === "t") {
@@ -2069,7 +2134,18 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         ) : null}
         {screen === "auth" ? <AuthScreen palette={palette} cfg={cfg} google={google} identity={snap?.identity} /> : null}
         {screen === "credentials" ? <CredentialsScreen palette={palette} credentials={snap?.credentials} /> : null}
-        {screen === "proxy" ? <ProxyScreen palette={palette} cfg={cfg} snap={snap} /> : null}
+        {screen === "proxy" ? (
+          <ProxyScreen
+            palette={palette}
+            cfg={cfg}
+            snap={snap}
+            width={width}
+            onSelectRoute={(route) => {
+              setRouteDetail(route);
+              setOverlay("route-details");
+            }}
+          />
+        ) : null}
         {screen === "mcp" ? (
           <McpScreen
             palette={palette}
@@ -2162,6 +2238,9 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       {overlay === "log-details" ? (
         <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} />
       ) : null}
+      {overlay === "route-details" ? (
+        <RouteDetailsOverlay palette={palette} route={routeDetail} termW={width} termH={height} scrollRef={routeDetailsScrollRef} />
+      ) : null}
       {overlay === "config-edit" && cfg ? (
         <ConfigEditOverlay
           palette={palette}
@@ -2184,6 +2263,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           termW={width}
           termH={height}
           scrollRef={planScrollRef}
+          initiallyRunning={planInitiallyRunning}
           onDismiss={closeOverlay}
         />
       ) : null}

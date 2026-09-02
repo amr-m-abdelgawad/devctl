@@ -3,9 +3,12 @@ import { LoadingState } from "../chrome.tsx";
 import { googleProjectDisplay } from "../helpers.ts";
 import { Chip, FieldRow, ScreenFrame } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
-import { type DevctlConfig, isServiceAccountIdentity } from "../../config/index.ts";
+import { type DevctlConfig } from "../../config/index.ts";
 import { type GoogleStatus } from "../../google.ts";
 import { type IdentitySnapshot } from "../../types.ts";
+import { declaredServiceAccounts } from "../../identity.ts";
+
+type ServiceAccountRow = { email: string; ok?: boolean; inactive?: boolean };
 
 function Section(props: { palette: Palette; title: string; tone?: "success" | "warning" | "error" | "muted"; children: ReactNode }) {
   const { palette, title, tone = "muted", children } = props;
@@ -39,7 +42,18 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
   const { project, source } = googleProjectDisplay(cfg, identity, google);
   const adc = identity?.adc ?? google?.adcAvailable === true;
   const iap = identity?.iap ?? (cfg?.proxy.routes ?? []).some((r) => r.auth.type.toLowerCase() === "iap");
-  const impersonationAvailable = accounts.some((row) => row.ok === true);
+  const activeAccounts = accounts.filter((row) => row.inactive !== true);
+  const impersonationAvailable = activeAccounts.some((row) => row.ok === true);
+  const impersonationUnavailable = activeAccounts.some((row) => row.ok === false);
+  const impersonation = impersonationAvailable
+    ? "AVAILABLE"
+    : impersonationUnavailable
+      ? "UNAVAILABLE"
+      : activeAccounts.length > 0
+        ? "NOT PROBED"
+        : accounts.length > 0
+          ? "not required"
+          : "not configured";
 
   return (
     <ScreenFrame palette={palette} title="identity" scroll>
@@ -59,7 +73,7 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
       <Section
         palette={palette}
         title={`Service accounts (${accounts.length})`}
-        tone={accounts.length === 0 ? "muted" : impersonationAvailable ? "success" : "warning"}
+        tone={activeAccounts.length === 0 ? "muted" : impersonationAvailable ? "success" : "warning"}
       >
         {accounts.length === 0 ? (
           <text fg={palette.muted} wrapMode="word">
@@ -67,8 +81,12 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
           </text>
         ) : (
           accounts.map((row) => (
-            <text key={row.email} fg={row.ok === true ? palette.success : row.ok === false ? palette.error : palette.text} wrapMode="none">
-              {`${row.ok === true ? "✓" : row.ok === false ? "✗" : "○"} ${row.email}`}
+            <text
+              key={row.email}
+              fg={row.inactive ? palette.muted : row.ok === true ? palette.success : row.ok === false ? palette.error : palette.text}
+              wrapMode="none"
+            >
+              {`${row.inactive ? "–" : row.ok === true ? "✓" : row.ok === false ? "✗" : "○"} ${row.email}${row.inactive ? " — inactive (route auth is none)" : ""}`}
             </text>
           ))
         )}
@@ -76,8 +94,8 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
         <FieldRow
           palette={palette}
           label="impersonation"
-          value={impersonationAvailable ? "AVAILABLE" : accounts.length > 0 ? "UNAVAILABLE" : "not configured"}
-          tone={impersonationAvailable ? "success" : accounts.length > 0 ? "warning" : "muted"}
+          value={impersonation}
+          tone={impersonationAvailable ? "success" : activeAccounts.length > 0 ? "warning" : "muted"}
         />
       </Section>
 
@@ -111,22 +129,19 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
 // yet, which would otherwise silently drop them from this list the moment
 // any other identity had been probed, rather than showing them as "not
 // probed yet" (ok: undefined) alongside the ones that have.
-function serviceAccountRows(cfg?: DevctlConfig, identity?: IdentitySnapshot): { email: string; ok?: boolean }[] {
-  if (identity && Object.keys(identity.service_account_status).length > 0) {
-    return Object.entries(identity.service_account_status)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([email, status]) => ({ email, ok: status === "unknown" ? undefined : status === "available" }));
-  }
-  const seen = new Set<string>();
-  const rows: { email: string; ok?: boolean }[] = [];
-  for (const svc of Object.values(cfg?.services ?? {})) {
-    if (isServiceAccountIdentity(svc.identity)) {
-      const sa = svc.identity.service_account;
-      if (sa !== "" && !seen.has(sa)) {
-        seen.add(sa);
-        rows.push({ email: sa });
-      }
-    }
-  }
-  return rows;
+export function serviceAccountRows(cfg?: DevctlConfig, identity?: IdentitySnapshot): ServiceAccountRow[] {
+  const declarations = new Map((cfg ? declaredServiceAccounts(cfg) : []).map((account) => [account.email, account.active]));
+  const statuses = identity?.service_account_status ?? {};
+  const emails = new Set([...declarations.keys(), ...Object.keys(statuses)]);
+  return [...emails]
+    .sort((a, b) => a.localeCompare(b))
+    .map((email) => {
+      const status = statuses[email] ?? "unknown";
+      const inactive = declarations.get(email) === false;
+      return {
+        email,
+        inactive,
+        ok: inactive || status === "unknown" ? undefined : status === "available",
+      };
+    });
 }

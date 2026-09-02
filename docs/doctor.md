@@ -19,7 +19,6 @@ The TUI **doctor** tab re-runs on every visit (`r` also refreshes). `j`/`k` move
 - IAP audiences (including SA impersonation)
 - Configured `doctor.tools` binaries (demo: `python3`, `bun`)
 - Ports declared in config
-- Capabilities vs identity
 - Repository configuration validity
 
 Doctor probes IAP / service-account identity when any route or service declares them, even if the rest of the repo looks local-only.

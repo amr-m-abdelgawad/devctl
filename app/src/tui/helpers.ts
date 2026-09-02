@@ -1079,14 +1079,19 @@ export function focusedServices(checked: string[], focused: string): string[] {
 
 const SYSTEM_LOG_SOURCES = new Set(["auth", "devctl", "proxy"]);
 
+// These are virtual services emitted by the supervisor rather than entries
+// in cfg.services. Keep them in the filter catalog even before (or after) a
+// bounded log page happens to contain one of their events.
+export const INTERNAL_LOG_SERVICES = ["devctl", "mcp", "auth"] as const;
+
 export function isSystemLogSource(source: string): boolean {
   return SYSTEM_LOG_SOURCES.has(source);
 }
 
 // Log history is a per-process in-memory buffer (never re-populated from disk on launch), so there
-// is no stale cross-session data to protect against here — only `since` (the log-view boundary,
-// reset by starting after a full stop, or by an explicit clear) should ever hide events. Stopping
-// services on its own must not clear the view; see the `clear` command / Clear button for that.
+// is no stale cross-session data to protect against here — only `since` (the log-view boundary set
+// by an explicit clear or filter command) should ever hide events. Starting or stopping services
+// must not clear the view; see the `clear` command / Clear button for that.
 export function visibleLogs(events: LogEvent[], since?: string): LogEvent[] {
   return since ? events.filter((ev) => ev.timestamp >= since) : events;
 }
@@ -1388,6 +1393,9 @@ export function planRowNote(name: string, plan: Plan, snap?: StatusSnapshot, kin
   if (state === "RUNNING") {
     return "up, waiting for health";
   }
+  if (state === "UNHEALTHY") {
+    return "unhealthy — retrying health check";
+  }
   if (state === "STOPPING") {
     return "stopping first";
   }
@@ -1422,7 +1430,7 @@ export function planNextAction(busy: boolean, failed: string, kind: LifecycleKin
   return "Finished.  enter or esc  back to dashboard";
 }
 
-export type WaveStatus = "completed" | "active" | "failed" | "queued";
+export type WaveStatus = "completed" | "active" | "unhealthy" | "failed" | "queued";
 
 export function waveStatus(wave: string[], snap?: StatusSnapshot, kind: LifecycleKind = "start"): WaveStatus {
   if (wave.length === 0) {
@@ -1445,6 +1453,9 @@ export function waveStatus(wave: string[], snap?: StatusSnapshot, kind: Lifecycl
     Boolean(rt && (rt.state === "HEALTHY" || rt.health === "HEALTHY" || (rt.state === "RUNNING" && rt.health !== "UNHEALTHY")));
   if (runtimes.every(isHealthy)) {
     return "completed";
+  }
+  if (runtimes.some((rt) => rt?.state === "UNHEALTHY" || rt?.health === "UNHEALTHY")) {
+    return "unhealthy";
   }
   if (runtimes.some((rt) => rt?.state === "STARTING" || rt?.state === "RUNNING" || rt?.state === "RESTARTING")) {
     return "active";
@@ -1475,7 +1486,7 @@ export function planProgress(plan: Plan, snap?: StatusSnapshot, kind: LifecycleK
   for (let i = 0; i < plan.waves.length; i++) {
     const wave = plan.waves[i] ?? [];
     const st = waveStatus(wave, snap, kind);
-    if (st === "active" || st === "failed") {
+    if (st === "active" || st === "unhealthy" || st === "failed") {
       currentWaveIndex = i;
     } else if (st === "completed" && currentWaveIndex === i && i < plan.waves.length - 1) {
       currentWaveIndex = i + 1;
@@ -1490,7 +1501,14 @@ export function planProgress(plan: Plan, snap?: StatusSnapshot, kind: LifecycleK
         ready++;
       } else if (rt?.state === "FAILED") {
         failed++;
-      } else if (rt?.state === "STARTING" || rt?.state === "RUNNING" || rt?.state === "STOPPING" || rt?.state === "RESTARTING") {
+      } else if (
+        rt?.state === "STARTING" ||
+        rt?.state === "RUNNING" ||
+        rt?.state === "UNHEALTHY" ||
+        rt?.health === "UNHEALTHY" ||
+        rt?.state === "STOPPING" ||
+        rt?.state === "RESTARTING"
+      ) {
         active++;
       }
     }
@@ -1517,7 +1535,15 @@ export function planProgress(plan: Plan, snap?: StatusSnapshot, kind: LifecycleK
 
 export function waveCardTitle(kind: LifecycleKind, waveIdx: number, st: WaveStatus): string {
   const statusLabel =
-    st === "completed" ? "✓ Completed" : st === "failed" ? "✗ Failed" : st === "active" ? "⏳ In Progress" : "○ Queued";
+    st === "completed"
+      ? "✓ Completed"
+      : st === "failed"
+        ? "✗ Failed"
+        : st === "unhealthy"
+          ? "⚠ Unhealthy"
+          : st === "active"
+            ? "⏳ In Progress"
+            : "○ Queued";
   const orderLabel =
     kind === "stop"
       ? waveIdx === 0
@@ -1744,6 +1770,8 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
       return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back or exit" }, ...common];
     case "doctor":
       return [{ key: "r", label: "run doctor again" }, { key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, ...common];
+    case "auth":
+      return [{ key: "r", label: "probe identities" }, { key: "/auth refresh", label: "probe" }, ...common];
     case "settings":
       return [
         { key: "j/k", label: "move" },

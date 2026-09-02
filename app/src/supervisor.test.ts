@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from "node:http";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -12,13 +13,13 @@ import { saveTuiPreferences } from "./tui/tui-config.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
 
 function tmp(): string {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-sup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-sup-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   process.env.DEVCTL_HOME = dir;
   return dir;
 }
 
-function token(): AccessToken {
+function token(partial: Partial<AccessToken> = {}): AccessToken {
   return {
     accessToken: "tok",
     tokenType: "Bearer",
@@ -26,6 +27,7 @@ function token(): AccessToken {
     audience: "",
     identity: "sa:worker-dev@example.com",
     scopes: [],
+    ...partial,
   };
 }
 
@@ -102,6 +104,110 @@ describe("supervisor snapshot", () => {
       await sup.stop(["ping"]);
     }
   }, 15_000);
+
+  test("a token refresh outside refreshIdentity() still updates the credentials snapshot", async () => {
+    // Regression: a proxied request (or the token endpoint) refreshes a
+    // token via TokenManager.get() directly, entirely outside the
+    // boot/reload/auth_refresh schedule that refreshIdentity() runs on. The
+    // supervisor's TokenRefreshed subscriber must pick that up so the
+    // Credentials/Auth screens don't keep showing a pre-refresh snapshot.
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.google.project_id = "company-dev";
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (identity) => {
+        if (!identity.startsWith("sa:")) {
+          throw new Error("not sa");
+        }
+        return token();
+      },
+    };
+    // deps.tokens is constructed before the Supervisor (and its own Bus)
+    // exists, so a TokenManager passed in that way can never carry the
+    // supervisor's real bus reference — it would publish TokenRefreshed
+    // nowhere. Let the supervisor build its own default TokenManager (wired
+    // to its own bus, exactly like production) and swap in the stub
+    // provider afterward via the same replaceProviders() plugins use.
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({
+        gcloudInstalled: true,
+        adcAvailable: true,
+        userEmail: "dev@example.com",
+        projectID: "company-dev",
+        projectSource: "configuration",
+      }),
+    });
+    await sup.refreshIdentity();
+    expect(sup.snapshot().credentials?.entries).toEqual([]);
+
+    const tokens = (sup as unknown as { tokens: TokenManager }).tokens;
+    tokens.replaceProviders([provider]);
+    await tokens.get("sa:worker-dev@example.com", "", []);
+
+    await waitFor(() => (sup.snapshot().credentials?.entries.length ?? 0) > 0);
+    const entries = sup.snapshot().credentials?.entries ?? [];
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.identity).toBe("sa:worker-dev@example.com");
+    expect(entries[0]?.valid).toBe(true);
+  });
+
+  test("auth_refresh (pressing r on the Auth screen) does not wipe credentials it never touches", async () => {
+    // Regression: the auth_refresh RPC used to call tokens.invalidate() with
+    // no key first — that deletes every credential in the store, not just
+    // the ones this refresh is about to re-probe. probeServiceAccount() only
+    // ever mints the plain (audience-less) impersonation check, so anything
+    // else cached — the user token, or a route's IAP-audience-specific
+    // credential — got wiped and never re-minted, and the Credentials screen
+    // went from several entries down to just the one thing auth_refresh
+    // happened to touch.
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.google.project_id = "company-dev";
+    cfg.services.worker = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1e6)"], shell: false },
+      identity: { type: "service_account", mode: "", service_account: "worker-dev@example.com" },
+    };
+    let calls = 0;
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (identity, audience) => {
+        calls += 1;
+        return token({ accessToken: `tok-${calls}`, identity, audience });
+      },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({
+        gcloudInstalled: true,
+        adcAvailable: true,
+        userEmail: "dev@example.com",
+        projectID: "company-dev",
+        projectSource: "configuration",
+      }),
+    });
+    const tokens = (sup as unknown as { tokens: TokenManager }).tokens;
+    tokens.replaceProviders([provider]);
+
+    // Pre-populate two credentials that auth_refresh never re-mints: the
+    // user token, and this service account's IAP-audience-specific one (as
+    // opposed to the plain, audience-less impersonation check auth_refresh
+    // actually performs).
+    await tokens.get("user", "", []);
+    await tokens.get("sa:worker-dev@example.com", "https://worker.local", []);
+    await sup.refreshIdentity();
+    expect(sup.snapshot().credentials?.entries).toHaveLength(2);
+
+    await sup.dispatch("auth_refresh", null);
+
+    const entries = sup.snapshot().credentials?.entries ?? [];
+    const keys = entries.map((e) => `${e.identity}|${e.audience}`).sort();
+    expect(keys).toEqual(["sa:worker-dev@example.com|", "sa:worker-dev@example.com|https://worker.local", "user|"]);
+  });
 
   test("starts a dependent service while another is already running", async () => {
     const dir = tmp();
@@ -563,6 +669,59 @@ services:
       await sup.shutdown(false);
     }
   }, 15_000);
+
+  test("a request through the live proxy shows up in the status snapshot without any explicit refresh", async () => {
+    // Not just stats() in isolation: this exercises the full path a TUI
+    // client actually rides — request hits the real ProxyServer, the daemon
+    // is asked for a snapshot exactly as the TUI would ask, and it must
+    // reflect the new request without an "r"-equivalent action in between.
+    const upstream = createHttpServer((_req, res) => res.end("ok"));
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: await freePort() };
+    cfg.proxy.routes.push({
+      name: "stub",
+      match: { host: "", path: "" },
+      upstream: { url: `http://127.0.0.1:${upPort}` },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+    });
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      // Proxy startup is lazy (see the "lazy, sticky proxy" test above) — an
+      // explicit proxy_start is the same action the TUI's "n" key sends.
+      await sup.dispatch("proxy_start", null);
+      expect(sup.snapshot().proxy.running).toBe(true);
+      expect(sup.snapshot().proxy.recentRequests).toEqual([]);
+
+      const proxyAddr = sup.snapshot().proxy.address ?? "";
+      const resp = await fetch(`http://${proxyAddr}/hello`);
+      expect(resp.status).toBe(200);
+      const echoedId = resp.headers.get("x-devctl-request-id") ?? "";
+      expect(echoedId).not.toBe("");
+
+      const snap = sup.snapshot();
+      expect(snap.proxy.requestTotal).toBe(1);
+      expect(snap.proxy.requestErrors).toBe(0);
+      expect(snap.proxy.recentRequests).toHaveLength(1);
+      expect(snap.proxy.recentRequests?.[0]?.path).toBe("/hello");
+      expect(snap.proxy.recentRequests?.[0]?.route).toBe("stub");
+      expect(snap.proxy.recentRequests?.[0]?.status).toBe(200);
+      expect(snap.proxy.recentRequests?.[0]?.requestId).toBe(echoedId);
+    } finally {
+      await sup.shutdown(false);
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
 
   test("a saved mcp_enabled preference starts MCP at daemon boot, independent of which client spawned it", async () => {
     const dir = tmp();
@@ -1868,7 +2027,7 @@ async function waitForFileContent(path: string, expected: string, timeoutMs = 30
 
 function bunServe(port: number): { args: string[]; shell: boolean } {
   return {
-    args: [process.execPath, "-e", `Bun.serve({port:${port},fetch(){return new Response("ok")}})`],
+    args: [process.execPath, "-e", `Bun.serve({hostname:"127.0.0.1",port:${port},fetch(){return new Response("ok")}})`],
     shell: false,
   };
 }

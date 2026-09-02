@@ -221,6 +221,14 @@ export class Supervisor {
         message,
         pid: 0,
       });
+      if (ev.type === TokenRefreshed || ev.type === TokenRefreshFailed) {
+        // A proxied request or the token endpoint can mint a fresh token at
+        // any time, entirely outside refreshIdentity()'s boot/reload/manual
+        // schedule. Without this, the credential store already has the new
+        // expiry but the Credentials/Auth screens keep showing whatever
+        // refreshIdentity() last cached until the user explicitly refreshes.
+        void this.syncCredentialEntries();
+      }
     }, [TokenRefreshed, TokenRefreshFailed, AuthenticationChanged]);
     this.identityCache = emptyIdentitySnapshot(cfg);
     for (const name of Object.keys(cfg.services)) {
@@ -389,7 +397,14 @@ export class Supervisor {
         await this.restart(asStringArray(rec.services), { cascade: rec.cascade === true, clientEnv: asStringRecord(rec.client_env) });
         return null;
       case "auth_refresh":
-        this.tokens.invalidate();
+        // Not tokens.invalidate() — that clears the whole store (every
+        // identity and audience, including ones this refresh never
+        // touches, like a route's IAP-specific credential). probeServiceAccount
+        // already forces a fresh mint per identity via tokens.refresh();
+        // wiping the store first only destroyed unrelated credentials that
+        // nothing here was going to re-mint, so the Credentials screen went
+        // from several entries to whatever this one refresh happened to
+        // touch.
         await this.refreshIdentity({ probeServiceAccounts: true });
         return this.snapshot().identity;
       case "status":
@@ -1273,6 +1288,12 @@ export class Supervisor {
         env_source: this.clientEnv.has(name) ? "client" : "daemon",
       };
     }
+    const proxyStatsRaw = this.proxy?.stats();
+    const proxyStats = {
+      requestTotal: proxyStatsRaw?.total ?? 0,
+      requestErrors: proxyStatsRaw?.errors ?? 0,
+      recentRequests: proxyStatsRaw?.recent ?? [],
+    };
     return {
       session_id: this.sessionID,
       repo_root: this.cfg.repoRoot,
@@ -1287,6 +1308,7 @@ export class Supervisor {
           upstream: r.upstream.url,
           auth: r.auth.type,
         })),
+        ...proxyStats,
       },
       mcp: {
         running: this.mcp?.isRunning() ?? false,
@@ -1308,6 +1330,19 @@ export class Supervisor {
       restart_required: [...this.restartRequired],
       system: systemSnapshot(),
     };
+  }
+
+  // Cheap local read of the credential store (keychain/file) — reflects
+  // whatever TokenManager already minted and cached, never triggers a new
+  // network fetch itself. Safe to call every time a token actually
+  // refreshes, not just on the boot/reload/manual-refresh schedule below.
+  private async syncCredentialEntries(): Promise<void> {
+    this.credentialEntries = (await this.tokens.listStatus()).map((entry) => ({
+      identity: entry.identity,
+      audience: entry.audience,
+      expires_at: entry.expires_at,
+      valid: entry.valid,
+    }));
   }
 
   // Automatic refresh (boot, after every reload) only ever updates ADC,
@@ -1336,12 +1371,7 @@ export class Supervisor {
         service_account_status,
         iap: this.cfg.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap"),
       };
-      this.credentialEntries = (await this.tokens.listStatus()).map((entry) => ({
-        identity: entry.identity,
-        audience: entry.audience,
-        expires_at: entry.expires_at,
-        valid: entry.valid,
-      }));
+      await this.syncCredentialEntries();
       this.bus.publish(newEvent(AuthenticationChanged, "", { user: this.identityCache.user, adc: this.identityCache.adc }));
       this.log("auth", "INFO", `authentication changed user=${this.identityCache.user || "(unknown)"} adc=${this.identityCache.adc}`);
       this.persistState();
@@ -1367,10 +1397,17 @@ export class Supervisor {
     return { service_accounts, service_account_status };
   }
 
+  // Always mints fresh (never serves a cached-still-valid token) — this is
+  // an explicit "confirm impersonation actually works right now" check
+  // (auth_refresh or doctor), not a routine fetch, so a token that's merely
+  // unexpired isn't good enough evidence. tokens.refresh() achieves that by
+  // overwriting just this one cache entry; the caller must never reach for
+  // tokens.invalidate() to force the same thing — that clears every
+  // credential in the store, including ones this probe never touches.
   private async probeServiceAccount(email: string): Promise<ServiceAccountStatus> {
     let status: ServiceAccountStatus;
     try {
-      await withTimeout(this.tokens.get(`sa:${email}`, "", []), IDENTITY_PROBE_MS);
+      await withTimeout(this.tokens.refresh(`sa:${email}`, "", []), IDENTITY_PROBE_MS);
       status = "available";
     } catch {
       status = "unavailable";

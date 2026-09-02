@@ -8,7 +8,7 @@ import { type BusEvent } from "./events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { type Plan } from "./services.ts";
 import { bootstrapLogPath, rotateBootstrapLog, socketPath } from "./storage.ts";
-import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
+import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const DIAL_RETRY_MS = 50;
@@ -283,6 +283,10 @@ export class Controller {
 
   async status(): Promise<StatusSnapshot> {
     return (await this.call("status", null)) as StatusSnapshot;
+  }
+
+  async refreshAuth(): Promise<IdentitySnapshot> {
+    return (await this.call("auth_refresh", null)) as IdentitySnapshot;
   }
 
   // The daemon's last-known-good in-memory configuration, with real values

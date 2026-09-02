@@ -35,6 +35,11 @@ export type DoctorProgress = {
 export type DoctorRuntimeContext = {
   services?: Record<string, { pid: number; ports: Record<string, number> }>;
   proxyRunning?: boolean;
+  // An attached TUI operates on the daemon's last-known-good config snapshot,
+  // but this one check must describe the file currently on disk. Supplying an
+  // empty string means the local file parsed successfully; a non-empty value
+  // is the local parse error. Other doctor checks still use cfg/the snapshot.
+  repositoryConfigError?: string;
 };
 
 const LIVE_PROBE_MS = 4_000;
@@ -159,15 +164,23 @@ export async function runDoctor(
     }
   }
   checking("Repository configuration");
-  try {
-    const issues = validate(cfg);
-    if (issues.length > 0) {
-      add({ name: "Repository configuration", severity: "error", message: issues.join("; ") });
-    } else {
+  if (runtime?.repositoryConfigError !== undefined) {
+    if (runtime.repositoryConfigError === "") {
       add({ name: "Repository configuration", severity: "ok", message: "valid" });
+    } else {
+      add({ name: "Repository configuration", severity: "error", message: runtime.repositoryConfigError });
     }
-  } catch (err) {
-    add({ name: "Repository configuration", severity: "error", message: humanMessage(err) });
+  } else {
+    try {
+      const issues = validate(cfg);
+      if (issues.length > 0) {
+        add({ name: "Repository configuration", severity: "error", message: issues.join("; ") });
+      } else {
+        add({ name: "Repository configuration", severity: "ok", message: "valid" });
+      }
+    } catch (err) {
+      add({ name: "Repository configuration", severity: "error", message: humanMessage(err) });
+    }
   }
   const seenPorts: Record<number, string> = {};
   for (const [name, svc] of Object.entries(cfg.services)) {

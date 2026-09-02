@@ -50,6 +50,17 @@ describe("doctor", () => {
     expect(updates.at(-1)).toEqual({ active: "Diagnostics complete", completed: report.checks.length });
   });
 
+  test("an attached TUI can report a broken local file while all other checks use the daemon snapshot", async () => {
+    const report = await runDoctor(localCfg(), offlineHost(), undefined, {
+      repositoryConfigError: "invalid YAML in .devctl/config.yaml",
+    });
+    expect(report.checks.find((check) => check.name === "Repository configuration")).toEqual({
+      name: "Repository configuration",
+      severity: "error",
+      message: "invalid YAML in .devctl/config.yaml",
+    });
+  });
+
   test("treats a configured port owned by its running service as healthy", async () => {
     const cfg = localCfg();
     const host = offlineHost();

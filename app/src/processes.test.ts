@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { available } from "./ports.ts";
 import { ProcessManager, sameProcess, sampleResourceUsage } from "./processes.ts";
+import { parseElapsedMillis } from "./processes/unix.ts";
 
 function listenPort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -53,6 +54,15 @@ describe("sameProcess", () => {
         { pid: 1, command: "python main.py", cwd: "/repo", startTime: now.toISOString() },
       ),
     ).toBe(true);
+  });
+});
+
+describe("Unix elapsed process time", () => {
+  test("parses ps etime without depending on a timezone", () => {
+    expect(parseElapsedMillis("  04:05 ")).toBe((4 * 60 + 5) * 1000);
+    expect(parseElapsedMillis("02:03:04")).toBe(((2 * 60 + 3) * 60 + 4) * 1000);
+    expect(parseElapsedMillis("3-02:03:04")).toBe((((3 * 24 + 2) * 60 + 3) * 60 + 4) * 1000);
+    expect(parseElapsedMillis("not-a-duration")).toBeUndefined();
   });
 });
 

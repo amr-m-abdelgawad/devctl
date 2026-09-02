@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { Bus, TokenRefreshed, TokenRefreshFailed } from "./events.ts";
-import { TokenManager, isValidToken, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
+import { TokenManager, googleTokenProviders, isValidToken, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
 
 function tok(partial: Partial<AccessToken> = {}): AccessToken {
   return {
@@ -153,5 +153,29 @@ describe("TokenManager", () => {
     ], bus);
     await expect(mgr.get("sa:test@example.iam.gserviceaccount.com", "some-audience", [])).rejects.toThrow();
     expect(events).toEqual([{ identity: "sa:test@example.iam.gserviceaccount.com", audience: "some-audience", error: "permission denied" }]);
+  });
+});
+
+// A stub TokenProvider proves the proxy threads (identity, audience)
+// through to whatever provider accepts it — it can't prove which real
+// provider that would be, since googleTokenProviders()'s own fetch bodies
+// call real Google APIs. accepts() itself is pure and network-free, so it's
+// the piece that can actually be checked here: does a service-account
+// identity with a non-empty audience (the demo-platform IAP route's exact
+// shape — impersonation, but reached over IAP) get routed to the IAP/id-token
+// provider rather than the plain access-token one?
+describe("googleTokenProviders", () => {
+  test("routes each (identity, audience) shape to exactly one provider", () => {
+    const providers = googleTokenProviders();
+    const cases: Array<{ identity: string; audience: string; expected: string }> = [
+      { identity: "user", audience: "", expected: "user" },
+      { identity: "sa:worker@example.com", audience: "", expected: "service_account" },
+      { identity: "user", audience: "https://iap.example.com", expected: "iap" },
+      { identity: "sa:test-389@example.com", audience: "https://invoices-worker.local", expected: "iap" },
+    ];
+    for (const { identity, audience, expected } of cases) {
+      const accepting = providers.filter((p) => !p.accepts || p.accepts(identity, audience, []));
+      expect(accepting.map((p) => p.name)).toEqual([expected]);
+    }
   });
 });

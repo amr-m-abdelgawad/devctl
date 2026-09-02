@@ -57,7 +57,7 @@ Three listeners, same rule:
 | **Token endpoint** | `X-Devctl-Internal-Token` + loopback peer only. Returns `access_token` to that caller |
 | **MCP** | Off by default. Mutating tools need `Authorization: Bearer` (session token). Copied snippets include it; `get_status` does not |
 
-Child processes get `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` — not a raw Google token in the environment.
+Child processes always get `DEVCTL_INTERNAL_TOKEN`. They only get `DEVCTL_TOKEN_URL` when `proxy.token_endpoint.enabled` is turned on (off by default) — never a raw Google token in the environment. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 
 ---
 
@@ -103,7 +103,7 @@ shell: false
 
 ## On disk
 
-Two checkouts do not share a lock. `repoID` is `sha256(repo root)` (16 hex chars).
+Two checkouts do not share a lock. `repoID` is `sha256(canonical repo root)` (16 hex chars).
 
 | Path | Mode / note |
 |------|-------------|
@@ -112,6 +112,8 @@ Two checkouts do not share a lock. `repoID` is `sha256(repo root)` (16 hex chars
 | Stale lock from a dead PID | Replaced |
 | `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | `.devctl/config.local.yaml` | Gitignore-friendly overlay — still do not commit secrets |
+
+On Unix, the owner-only state directory restricts access to the supervisor RPC socket. Bun's networking API does not currently expose named-pipe DACL configuration on Windows, so devctl cannot promise equivalent current-user-only access control for `\\.\pipe\devctl-<repoID>`; this is a documented platform limitation rather than enforced parity.
 
 Override the home directory with `DEVCTL_HOME`.
 

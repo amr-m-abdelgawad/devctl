@@ -13,7 +13,7 @@ export function allCommands(): CommandSpec[] {
     { name: "restart", aliases: [], desc: "Restart selected services", leader: "R", group: "services" },
     { name: "services", aliases: ["s"], desc: "Open the services screen", leader: "s", group: "nav" },
     { name: "logs", aliases: ["l"], desc: "Open the log viewer", leader: "l", group: "nav" },
-    { name: "auth", aliases: ["identity", "a"], desc: "Open identity (no tokens)", leader: "a", group: "nav" },
+    { name: "auth", aliases: ["identity", "a"], desc: "Open identity; add refresh to probe accounts", leader: "a", group: "nav" },
     { name: "credentials", aliases: ["creds"], desc: "Open credential store status", leader: "", group: "nav" },
     { name: "reload", aliases: [], desc: "Reload configuration", leader: "", group: "ui" },
     { name: "proxy", aliases: ["p"], desc: "Open the proxy screen", leader: "p", group: "nav" },

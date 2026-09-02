@@ -75,6 +75,26 @@ describe("tui.json", () => {
     }
   });
 
+  test("DEVCTL_HOME is the only user preference home used for both loading and saving", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-isolated-home-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    try {
+      // No file exists in the isolated home. Preferences from the real
+      // ~/.devctl must not leak into this result.
+      expect(loadTuiConfig(dir).mcp_enabled).toBe(false);
+      saveTuiPreferences({ mcp_enabled: true });
+      expect(loadTuiConfig(dir).mcp_enabled).toBe(true);
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
   test("matches leader and palette keybinds", () => {
     expect(parseKeybind("ctrl+x")[0]?.ctrl).toBe(true);
     expect(parseKeybind("ctrl+x")[0]?.name).toBe("x");

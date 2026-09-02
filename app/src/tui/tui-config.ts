@@ -1,5 +1,4 @@
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { homeDir, writeFileSecure } from "../storage.ts";
 
@@ -217,7 +216,7 @@ export function resolveTuiConfigPath(startDir: string): string | undefined {
   const roots = [
     startDir || process.cwd(),
     join(startDir || process.cwd(), ".devctl"),
-    join(homedir(), ".devctl"),
+    homeDir(),
   ];
   const names = ["tui.json", "tui.jsonc"];
   for (const root of roots) {

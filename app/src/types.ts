@@ -42,10 +42,25 @@ export type RouteSnapshot = {
   auth: string;
 };
 
+export type ProxyRequestSnapshot = {
+  timestamp: string;
+  requestId: string;
+  method: string;
+  path: string;
+  route: string;
+  identity: string;
+  status: number;
+  durationMs: number;
+  error?: string;
+};
+
 export type ProxySnapshot = {
   running: boolean;
   address?: string;
   routes?: RouteSnapshot[];
+  requestTotal?: number;
+  requestErrors?: number;
+  recentRequests?: ProxyRequestSnapshot[];
 };
 
 export type McpSnapshot = {

@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { discover } from "./discover.ts";
 
 function tmp(): string {
-  return `${process.env.TMPDIR ?? "/tmp"}/devctl-discover-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return join(process.env.TMPDIR ?? "/tmp", `devctl-discover-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 }
 
 describe("discover", () => {

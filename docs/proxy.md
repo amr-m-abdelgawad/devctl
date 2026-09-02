@@ -10,9 +10,9 @@ devctl proxy status
 devctl proxy stop
 ```
 
-The TUI **proxy** tab (`p`) shows status and routes. `n` starts, `x` stops. SA email is shown when a route uses one.
+The TUI **proxy** tab (`p`) shows status, routes, and a live log of recent requests. `n` starts, `x` stops. SA email is shown when a route uses one.
 
-Each request gets `X-Devctl-Request-ID` (generated or propagated). Proxy logs never include `Authorization` headers. Bodies are streamed.
+Each request gets `X-Devctl-Request-ID` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include `Authorization` headers. Bodies are streamed.
 
 If `proxy.enabled` is true, `devctl start` also starts the proxy.
 
@@ -67,6 +67,12 @@ Optional `GET /token` (`proxy.token_endpoint`) binds to `127.0.0.1` (never `0.0.
 ```
 
 Managed processes receive `DEVCTL_TOKEN_URL` (rewritten to the bound port after listen) and `DEVCTL_INTERNAL_TOKEN`, not raw tokens in the environment.
+
+## Live request log
+
+The proxy keeps the last 100 requests in memory — method, path, matched route (blank for a request that matched no route, still logged as a 404), identity key used, status, duration, and request id — and reports a running total/error count alongside them. This is part of the regular status snapshot, so it updates the same way everything else in the TUI does: the moment a request refreshes a token or hits a route, the **proxy** tab reflects it without pressing `r` or restarting anything.
+
+Paths are redacted the same way response header values already are, since a query string can carry secrets. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart.
 
 ## Request flow
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
 import { ConfigurationReloadFailed } from "../events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prevScreen, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prevScreen, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -18,7 +18,7 @@ describe("TUI helpers", () => {
     expect(noneStarted(undefined)).toBe(true);
   });
 
-  test("visibleLogs only scopes by the since boundary, never by current run state", () => {
+  test("visibleLogs only scopes by an explicit since boundary, never by service start or stop state", () => {
     const systemEvent = {
       timestamp: "2026-08-30T00:00:00.000Z",
       service: "devctl",
@@ -107,6 +107,10 @@ describe("TUI helpers", () => {
     expect(logFilterCatalog(names, view, ["devctl"]).map((row) => row.name)).toEqual(["", "auth", "api", "devctl"]);
     expect(cycleLogService(["auth", "api", "devctl"], "", 1)).toBe("auth");
     expect(cycleLogService(["auth", "api", "devctl"], "auth", -1)).toBe("");
+  });
+
+  test("built-in log services stay in the catalog when the bounded page has no internal events", () => {
+    expect(logFilterSources(["api"], [], [...INTERNAL_LOG_SERVICES])).toEqual(["api", "devctl", "mcp", "auth"]);
   });
 
   test("mergeLoadedPage keeps the page and only strictly-newer already-held events", () => {
@@ -225,10 +229,15 @@ describe("TUI helpers", () => {
 
     expect(waveStatus(["auth"], { services: { auth: { state: "HEALTHY" } } } as never)).toBe("completed");
     expect(waveStatus(["api"], { services: { api: { state: "STARTING" } } } as never)).toBe("active");
+    expect(waveStatus(["api"], { services: { api: { state: "UNHEALTHY", health: "UNHEALTHY" } } } as never)).toBe("unhealthy");
     expect(waveStatus(["api"], { services: { api: { state: "FAILED" } } } as never)).toBe("failed");
     expect(waveStatus(["api"], { services: { api: { state: "STOPPED" } } } as never)).toBe("queued");
     expect(waveCardTitle("start", 0, "completed")).toContain("Wave 1 (Start First) · ✓ Completed");
     expect(waveCardTitle("stop", 1, "active")).toContain("Wave 2 · ⏳ In Progress");
+    expect(waveCardTitle("start", 1, "unhealthy")).toContain("Wave 2 · ⚠ Unhealthy");
+    expect(planRowNote("api", plan, { services: { api: { state: "UNHEALTHY", health: "UNHEALTHY", last_error: "" } } } as never)).toBe(
+      "unhealthy — retrying health check",
+    );
     expect(planTitle("start", true, "", "backend")).toBe("Starting Pipeline · Profile backend");
     expect(planTitle("stop", false, "")).toBe("Shutdown Complete");
     expect(planActionCopy(true, "").primary).toContain("Working…");
@@ -268,6 +277,7 @@ describe("TUI helpers", () => {
     expect(footerHints("logs", "log-details").some((h) => h.key === defaultCopyKeybind())).toBe(true);
     expect(footerHints("settings", "none").some((h) => h.key === "←→" && h.label === "save")).toBe(true);
     expect(footerHints("mcp", "none").some((h) => h.label === "start or copy")).toBe(true);
+    expect(footerHints("auth", "none").some((h) => h.key === "r" && h.label === "probe identities")).toBe(true);
     expect(footerHints("dashboard", "plan").some((h) => h.label.includes("dashboard"))).toBe(true);
     expect(footerHints("dashboard", "help").some((h) => h.key === "j/k")).toBe(true);
     expect(footerHints("config", "config-edit").some((h) => h.key === "ctrl+s")).toBe(true);

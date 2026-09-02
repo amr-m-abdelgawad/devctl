@@ -62,7 +62,7 @@ class FileCredentialStore implements CredentialStore {
   }
 
   async set(key: string, record: CredentialRecord): Promise<void> {
-    writeFileSecure(credentialFilePath(key), `${JSON.stringify(fileSafeRecord(record))}\n`);
+    writeFileSecure(credentialFilePath(key), `${JSON.stringify({ ...fileSafeRecord(record), key })}\n`);
   }
 
   async delete(key: string): Promise<void> {
@@ -72,6 +72,14 @@ class FileCredentialStore implements CredentialStore {
     }
   }
 
+  // The filename is safeKey(key) — a lossy, one-way sanitization (":" "@"
+  // "|" "/" all collapse to "_"), so it can't be reversed back into the
+  // original key. Each file also carries its own true key (written by set()
+  // above) precisely so list() can report it instead of guessing from the
+  // filename — otherwise a caller that merges this list with another source
+  // keyed by the real key (KeychainCredentialStore, below) never sees the
+  // two rows as the same credential and shows both. Old files written
+  // before this field existed fall back to the lossy guess.
   async list(): Promise<CredentialStatus[]> {
     const dir = credentialsDir();
     if (!existsSync(dir)) {
@@ -82,12 +90,12 @@ class FileCredentialStore implements CredentialStore {
       if (!name.endsWith(FILE_SUFFIX)) {
         continue;
       }
-      const key = name.slice(0, -FILE_SUFFIX.length);
-      const rec = readFileRecord(key);
-      if (!rec) {
+      const filenameKey = name.slice(0, -FILE_SUFFIX.length);
+      const parsed = parseCredentialFile(join(credentialsDir(), name));
+      if (!parsed) {
         continue;
       }
-      out.push(statusOf(key, rec));
+      out.push(statusOf(parsed.key ?? filenameKey, parsed.record));
     }
     return out.sort((a, b) => a.identity.localeCompare(b.identity));
   }
@@ -120,6 +128,7 @@ class KeychainCredentialStore implements CredentialStore {
   async delete(key: string): Promise<void> {
     await keychainDelete(key);
     await this.fallback.delete(key);
+    forgetKey(key);
   }
 
   async list(): Promise<CredentialStatus[]> {
@@ -146,6 +155,18 @@ function rememberKey(key: string): void {
   }
 }
 
+// Symmetric with rememberKey — without this, list()'s second loop (which
+// walks every remembered key and tries to fetch it) keeps a dangling entry
+// forever after delete(), each future list() paying for a lookup that can
+// never succeed.
+function forgetKey(key: string): void {
+  const keys = rememberedKeys();
+  const next = keys.filter((k) => k !== key);
+  if (next.length !== keys.length) {
+    writeFileSecure(join(credentialsDir(), INDEX_FILE), `${JSON.stringify(next)}\n`);
+  }
+}
+
 function rememberedKeys(): string[] {
   const path = join(credentialsDir(), INDEX_FILE);
   if (!existsSync(path)) {
@@ -164,22 +185,28 @@ function fileSafeRecord(record: CredentialRecord): CredentialRecord {
 }
 
 function readFileRecord(key: string): CredentialRecord | undefined {
-  const path = credentialFilePath(key);
+  return parseCredentialFile(credentialFilePath(key))?.record;
+}
+
+function parseCredentialFile(path: string): { key?: string; record: CredentialRecord } | undefined {
   if (!existsSync(path)) {
     return undefined;
   }
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<CredentialRecord>;
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<CredentialRecord> & { key?: unknown };
     if (typeof parsed.identity !== "string") {
       return undefined;
     }
     return {
-      identity: parsed.identity,
-      audience: typeof parsed.audience === "string" ? parsed.audience : "",
-      scopes: Array.isArray(parsed.scopes) ? parsed.scopes.filter((item): item is string => typeof item === "string") : [],
-      accessToken: typeof parsed.accessToken === "string" ? parsed.accessToken : "",
-      tokenType: typeof parsed.tokenType === "string" ? parsed.tokenType : "Bearer",
-      expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : "",
+      key: typeof parsed.key === "string" && parsed.key !== "" ? parsed.key : undefined,
+      record: {
+        identity: parsed.identity,
+        audience: typeof parsed.audience === "string" ? parsed.audience : "",
+        scopes: Array.isArray(parsed.scopes) ? parsed.scopes.filter((item): item is string => typeof item === "string") : [],
+        accessToken: typeof parsed.accessToken === "string" ? parsed.accessToken : "",
+        tokenType: typeof parsed.tokenType === "string" ? parsed.tokenType : "Bearer",
+        expiresAt: typeof parsed.expiresAt === "string" ? parsed.expiresAt : "",
+      },
     };
   } catch {
     return undefined;

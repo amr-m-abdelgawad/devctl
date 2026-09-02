@@ -5,7 +5,7 @@ import { resolveDaemonTarget, scanStateDirsForRepoRoot } from "./daemon.ts";
 import { writePersistedState } from "./storage.ts";
 
 function tmp(): string {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-daemon-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-daemon-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(dir, { recursive: true });
   process.env.DEVCTL_HOME = join(dir, "home");
   return dir;

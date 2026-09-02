@@ -56,6 +56,14 @@ proxy:
   listen:
     host: 127.0.0.1
     port: 18080
+  # Off everywhere else in the codebase's docs by default — on here so
+  # invoices-worker's own token-watch loop (invoices-worker/main.py) has
+  # something to pull from. See docs/proxy.md and docs/security.md for what
+  # this endpoint does and does not expose.
+  token_endpoint:
+    enabled: true
+    host: 127.0.0.1
+    port: 18090
   routes:
     - name: billing-console
       match:
@@ -73,13 +81,46 @@ proxy:
       auth:
         type: none
         identity: user
+    # The next three routes all point at the same upstream (invoices-worker)
+    # and exist purely to contrast auth patterns side by side: curl each
+    # host with the same request and compare the injected Authorization
+    # header. Each needs real Google ADC and permission to impersonate the
+    # configured account — see the README for setup and gotchas.
+    - name: invoices-worker-impersonation
+      match:
+        host: invoices-worker-sa.local
+      upstream:
+        url: http://127.0.0.1:18002
+      auth:
+        # Plain service-account impersonation: a real OAuth access token for
+        # the impersonated account. No IAP involved, no audience needed.
+        type: service_account
+        identity:
+          type: service_account
+          service_account: invoices-worker-dev@company-dev.iam.gserviceaccount.com
+    - name: invoices-worker-iap-user
+      match:
+        host: invoices-worker-user.local
+      upstream:
+        url: http://127.0.0.1:18002
+      auth:
+        # IAP for the developer's own ADC identity — no impersonation.
+        type: iap
+        audience: https://invoices-worker.local
+        identity:
+          type: user
     - name: invoices-worker-api
       match:
         host: invoices-worker.local
       upstream:
         url: http://127.0.0.1:18002
       auth:
-        type: none
+        # IAP on top of impersonation: an IAP identity token minted for the
+        # impersonated account. A local demo audience: replace this with the
+        # real IAP OAuth client ID or resource name when pointing the route
+        # at an IAP backend.
+        type: iap
+        audience: https://invoices-worker.local
         identity:
           type: service_account
           service_account: invoices-worker-dev@company-dev.iam.gserviceaccount.com
@@ -93,7 +134,17 @@ logs:
     max_session_logs: 20
 
 auth:
-  refresh_threshold_seconds: 300
+  # Deliberately high relative to the ~1hr lifetime of an impersonated or
+  # IAP token: once a token is more than 5 minutes old, every subsequent
+  # request falls inside this window and forces a fresh mint. That turns
+  # "does this keep refreshing over a multi-hour session" into something
+  # you can watch happen over the next few requests instead of the next few
+  # hours — hit any invoices-worker-* route a couple of minutes apart, or
+  # just watch the token-watch log lines, and the Credentials screen's
+  # expires_at keeps advancing on its own with no developer intervention.
+  # Turn this back down toward the default (300) once you're done — a real
+  # session doesn't need every single request to re-mint.
+  refresh_threshold_seconds: 3300
 
 shutdown:
   stop_services_on_exit: true

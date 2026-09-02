@@ -11,6 +11,19 @@ import { type TokenManager } from "./token.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
+const RECENT_REQUESTS_CAP = 100;
+
+export type ProxyRequestRecord = {
+  timestamp: string;
+  requestId: string;
+  method: string;
+  path: string;
+  route: string;
+  identity: string;
+  status: number;
+  durationMs: number;
+  error?: string;
+};
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -50,6 +63,10 @@ export class ProxyServer {
   private server?: Server;
   private running = false;
   private addr = "";
+  // Newest-last ring buffer, oldest entries dropped once full — same bound
+  // pattern as LogManager's in-memory event list. stats() reverses it for a
+  // newest-first view.
+  private readonly recentRequests: ProxyRequestRecord[] = [];
 
   constructor(
     cfg: ProxyConfig,
@@ -73,6 +90,21 @@ export class ProxyServer {
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  // Derived from the same bounded buffer every time — no separate lifetime
+  // counters to keep in sync, matching how LogManager.snapshot() reports
+  // totals from whatever it's currently holding rather than an all-time count.
+  stats(): { total: number; errors: number; recent: ProxyRequestRecord[] } {
+    const errors = this.recentRequests.reduce((count, rec) => count + (rec.status >= 400 || rec.error ? 1 : 0), 0);
+    return { total: this.recentRequests.length, errors, recent: [...this.recentRequests].reverse() };
+  }
+
+  private recordRequest(record: ProxyRequestRecord): void {
+    this.recentRequests.push(record);
+    if (this.recentRequests.length > RECENT_REQUESTS_CAP) {
+      this.recentRequests.splice(0, this.recentRequests.length - RECENT_REQUESTS_CAP);
+    }
   }
 
   start(): Promise<void> {
@@ -115,13 +147,32 @@ export class ProxyServer {
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const started = Date.now();
     const requestID = req.headers[REQUEST_ID_HEADER]?.toString() || randomBytes(8).toString("hex");
+    // Echo back so a caller can correlate its own request with the matching
+    // row in stats().recent (and the "auth" log line) without having had to
+    // supply the id itself.
+    res.setHeader(REQUEST_ID_HEADER, requestID);
+    const method = req.method ?? "GET";
+    const path = req.url ?? "/";
+    const recordedPath = this.detector ? this.detector.redactText(path) : path;
     const route = matchRoute(this.cfg.routes, req);
     if (!route) {
       writePlain(res, 404, "no matching proxy route");
+      this.recordRequest({
+        timestamp: new Date().toISOString(),
+        requestId: requestID,
+        method,
+        path: recordedPath,
+        route: "",
+        identity: "",
+        status: 404,
+        durationMs: Date.now() - started,
+      });
       return;
     }
     const ident = fromRoute(route.auth);
     const identityKey = tokenIdentityKey(ident);
+    let status = 0;
+    let errorDetail: string | undefined;
     try {
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
@@ -156,10 +207,10 @@ export class ProxyServer {
       for (const hook of this.middleware) {
         await hook.apply({ route, headers, tokens: this.tokens });
       }
-      const upstream = resolveProxyTarget(route.upstream.url, req.url ?? "/");
-      const body = req.method && req.method !== "GET" && req.method !== "HEAD" ? req : undefined;
+      const upstream = resolveProxyTarget(route.upstream.url, path);
+      const body = method !== "GET" && method !== "HEAD" ? req : undefined;
       const resp = await fetch(upstream, {
-        method: req.method,
+        method,
         headers,
         body: body as unknown as BodyInit | undefined,
         redirect: "manual",
@@ -167,6 +218,7 @@ export class ProxyServer {
         duplex: body ? "half" : undefined,
       });
       res.statusCode = resp.status;
+      status = resp.status;
       // fetch() already decompressed the body if its content-encoding is
       // one of NEGOTIATED_ENCODINGS (see above) — but it leaves the
       // Response's own content-encoding/content-length headers describing
@@ -193,13 +245,12 @@ export class ProxyServer {
       });
       await pipeResponse(resp, res);
       const duration = Date.now() - started;
-      const path = req.url ?? "/";
       this.logs?.append({
         timestamp: new Date().toISOString(),
         service: "proxy",
         source: "proxy",
         level: resp.status >= 400 ? "WARN" : "INFO",
-        message: `${req.method} ${path} route=${route.name} identity=${identityKey} status=${resp.status} duration=${duration}ms`,
+        message: `${method} ${path} route=${route.name} identity=${identityKey} status=${resp.status} duration=${duration}ms`,
         pid: 0,
         request_id: requestID,
         identity: identityKey,
@@ -207,17 +258,31 @@ export class ProxyServer {
       this.bus?.publish(newEvent(ProxyRequest, route.name, { status: resp.status, request_id: requestID, duration, identity: identityKey }));
     } catch (err) {
       const detail = err instanceof Error ? err.message : "proxy error";
+      errorDetail = detail;
+      status = 502;
       this.logs?.append({
         timestamp: new Date().toISOString(),
         service: "proxy",
         source: "proxy",
         level: "ERROR",
-        message: `${req.method} ${req.url ?? "/"} route=${route.name} identity=${identityKey} error=${detail}`,
+        message: `${method} ${path} route=${route.name} identity=${identityKey} error=${detail}`,
         pid: 0,
         request_id: requestID,
         identity: identityKey,
       });
       writePlain(res, 502, "proxy error");
+    } finally {
+      this.recordRequest({
+        timestamp: new Date().toISOString(),
+        requestId: requestID,
+        method,
+        path: recordedPath,
+        route: route.name,
+        identity: identityKey,
+        status,
+        durationMs: Date.now() - started,
+        error: errorDetail,
+      });
     }
   }
 

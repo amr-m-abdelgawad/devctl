@@ -14,7 +14,7 @@ export type Screen =
   | "mcp"
   | "stats";
 
-export type Overlay = "none" | "slash" | "palette" | "themes" | "help" | "confirm" | "plan" | "leader" | "log-details" | "config-edit";
+export type Overlay = "none" | "slash" | "palette" | "themes" | "help" | "confirm" | "plan" | "leader" | "log-details" | "config-edit" | "route-details";
 
 export type LifecycleKind = "start" | "stop" | "restart";
 

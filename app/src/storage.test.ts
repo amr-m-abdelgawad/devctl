@@ -1,9 +1,16 @@
 import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, rotateBootstrapLog, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, repoID, rotateBootstrapLog, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
 
 describe("session storage", () => {
+  test("equivalent repository path spellings share one state identity", () => {
+    expect(repoID(".")).toBe(repoID(process.cwd()));
+    expect(repoID(`${process.cwd()}//`)).toBe(repoID(process.cwd()));
+    expect(repoID(join(process.cwd(), "nested", ".."))).toBe(repoID(process.cwd()));
+  });
+
   test("Windows attach uses a named pipe, Unix uses devctl.sock", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-sock-${Date.now()}`;
     mkdirSync(dir, { recursive: true });

@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 NAME = os.environ.get("DEVCTL_SERVICE_NAME", "invoices-worker")
 PORT = int(os.environ.get("SERVICE_PORT") or os.environ.get("HTTP_PORT") or "18002")
@@ -21,6 +21,15 @@ API_URL = os.environ.get("API_URL", "http://127.0.0.1:18000").rstrip("/")
 PROCESSED = 0
 RETRIES: dict[object, int] = {}
 MAX_RETRIES = 3
+
+# Outbound token pull: devctl only sets DEVCTL_TOKEN_URL when
+# proxy.token_endpoint.enabled is true (config.yaml). Empty here just means
+# that demo is off, not that anything is broken.
+TOKEN_URL = os.environ.get("DEVCTL_TOKEN_URL", "")
+TOKEN_SECRET = os.environ.get("DEVCTL_INTERNAL_TOKEN", "")
+TOKEN_WATCH_IDENTITY = os.environ.get("TOKEN_WATCH_IDENTITY", "")
+TOKEN_WATCH_AUDIENCE = os.environ.get("TOKEN_WATCH_AUDIENCE", "")
+TOKEN_WATCH_INTERVAL = int(os.environ.get("TOKEN_WATCH_INTERVAL_SECONDS", "15"))
 
 
 def log(message: str, level: str = "INFO") -> None:
@@ -108,8 +117,53 @@ def poll() -> None:
                     log(f"retry {attempts}/{MAX_RETRIES} for invoice job {job_id}: {err}", "WARN")
 
 
+def token_watch() -> None:
+    """Poll devctl's token endpoint on a fixed interval instead of minting
+    credentials ourselves — the outbound half of credential refresh: this
+    service holds a URL, not a secret, so whatever devctl does underneath
+    (impersonation, IAP, a refresh triggered by auth.refresh_threshold_seconds)
+    is invisible to us. Never logs the token itself, only enough of it to
+    tell whether the last poll got a cached answer or a freshly minted one.
+    """
+    if not TOKEN_URL or not TOKEN_WATCH_IDENTITY:
+        log("token watch idle: DEVCTL_TOKEN_URL or TOKEN_WATCH_IDENTITY not set")
+        return
+    last_fingerprint = None
+    mints = 0
+    while True:
+        query = urlencode({"identity": TOKEN_WATCH_IDENTITY, "audience": TOKEN_WATCH_AUDIENCE})
+        req = urllib.request.Request(f"{TOKEN_URL}?{query}", headers={"x-devctl-internal-token": TOKEN_SECRET})
+        try:
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                body = json.loads(resp.read().decode())
+        except (urllib.error.URLError, TimeoutError) as err:
+            log(f"token watch: devctl token endpoint unreachable: {err}", "ERROR")
+            time.sleep(TOKEN_WATCH_INTERVAL)
+            continue
+        except json.JSONDecodeError as err:
+            log(f"token watch: malformed response: {err}", "ERROR")
+            time.sleep(TOKEN_WATCH_INTERVAL)
+            continue
+        token = str(body.get("access_token") or "")
+        fingerprint = token[-10:] if token else "(none)"
+        expires_at = body.get("expires_at", "?")
+        if fingerprint != last_fingerprint:
+            mints += 1
+            state = "refreshed" if last_fingerprint is not None else "minted"
+            log(
+                f"token watch: {state} identity={TOKEN_WATCH_IDENTITY} "
+                f"audience={TOKEN_WATCH_AUDIENCE or '(none)'} fingerprint=...{fingerprint} "
+                f"expires_at={expires_at} mints_so_far={mints}"
+            )
+            last_fingerprint = fingerprint
+        else:
+            log(f"token watch: cached identity={TOKEN_WATCH_IDENTITY} fingerprint=...{fingerprint} expires_at={expires_at}")
+        time.sleep(TOKEN_WATCH_INTERVAL)
+
+
 if __name__ == "__main__":
     threading.Thread(target=poll, daemon=True).start()
+    threading.Thread(target=token_watch, daemon=True).start()
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     log(f"listening on {PORT} invoices_api={API_URL}")
     server.serve_forever()

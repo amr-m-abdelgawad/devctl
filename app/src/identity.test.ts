@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
-import { configuredServiceAccounts, identityBlockers, needsCloudFeatures } from "./identity.ts";
+import { configuredServiceAccounts, declaredServiceAccounts, identityBlockers, needsCloudFeatures } from "./identity.ts";
 
 describe("identity helpers", () => {
   test("collects service accounts from services and routes", () => {
@@ -42,7 +42,29 @@ describe("identity helpers", () => {
       },
     });
     expect(configuredServiceAccounts(cfg)).toEqual([]);
+    expect(declaredServiceAccounts(cfg)).toEqual([{ email: "stale-dev@example.com", active: false }]);
     expect(needsCloudFeatures(cfg)).toBe(false);
+  });
+
+  test("an active declaration wins when the same account also appears on an unauthenticated route", () => {
+    const cfg = defaultConfig();
+    cfg.services.worker = {
+      ...emptyService(),
+      identity: { type: "service_account", mode: "", service_account: "shared@example.com" },
+    };
+    cfg.proxy.routes.push({
+      name: "public",
+      match: { host: "", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        type: "none",
+        identity: { type: "service_account", service_account: "shared@example.com" },
+        audience: "",
+        service_account: "",
+      },
+    });
+    expect(declaredServiceAccounts(cfg)).toEqual([{ email: "shared@example.com", active: true }]);
+    expect(configuredServiceAccounts(cfg)).toEqual(["shared@example.com"]);
   });
 
   test("local-only config does not need cloud features", () => {
