@@ -46,6 +46,11 @@ export type Runtime = {
   // resolved environment values themselves, which may hold secrets.
   profile: string;
   env_source: "client" | "daemon";
+  // Set when this service was removed from configuration (by a reload)
+  // while still running. Its dependency graph is gone along with its
+  // config entry, so it can only be stopped directly, never cascaded to or
+  // restarted — devctl has nothing left to relaunch it with.
+  orphaned: boolean;
 };
 
 export function displayState(rt: Runtime): string {
@@ -73,6 +78,7 @@ export function emptyRuntime(name: string): Runtime {
     memoryKB: undefined,
     profile: "",
     env_source: "daemon",
+    orphaned: false,
   };
 }
 

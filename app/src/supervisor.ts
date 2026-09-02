@@ -15,7 +15,7 @@ import {
   unresolvedIdentityTypes,
 } from "./config/index.ts";
 import { envList, resolveEnvironment, runtimeForService, secretManagerFetcher } from "./environment.ts";
-import { DevctlError, KindConfiguration, KindGeneral, KindHealthCheck, KindProcessStart, humanMessage, newError, serializeError } from "./errors.ts";
+import { DevctlError, KindConfiguration, KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError, serializeError } from "./errors.ts";
 import {
   AuthenticationChanged,
   Bus,
@@ -902,10 +902,84 @@ export class Supervisor {
     if (selected.length === 0) {
       return;
     }
-    // A user-initiated stop always forgives past restarts — see
-    // resetRestartCount — for every service the plan touches, including
-    // dependents pulled in by the cascade, not just the named service(s).
-    await this.runStopPlan(shutdownPlan(this.cfg, selected), { resetRestartCounts: true });
+    // An orphaned service (removed from configuration by a reload while
+    // still running — see reconcileServices) has no dependency graph left
+    // to plan against; only a genuinely unknown name should still fail
+    // closed the way shutdownPlan's requireKnown would.
+    const orphaned = selected.filter((name) => !this.cfg.services[name] && this.runtimes.has(name));
+    const trulyUnknown = selected.filter((name) => !this.cfg.services[name] && !this.runtimes.has(name));
+    if (trulyUnknown.length > 0) {
+      throw newError(KindServiceNotFound, `unknown service "${trulyUnknown[0]}"`);
+    }
+    const known = selected.filter((name) => this.cfg.services[name] !== undefined);
+    if (known.length > 0) {
+      // A user-initiated stop always forgives past restarts — see
+      // resetRestartCount — for every service the plan touches, including
+      // dependents pulled in by the cascade, not just the named service(s).
+      await this.runStopPlan(shutdownPlan(this.cfg, known), { resetRestartCounts: true });
+    }
+    if (orphaned.length > 0) {
+      // No config means no dependency graph to cascade through — stop
+      // exactly the orphaned services named, each its own wave, then drop
+      // their tracking entirely: nothing (config or process) is left for
+      // it to describe.
+      await this.runStopPlan({ profile: this.profile, steps: [], waves: orphaned.map((name) => [name]) }, { resetRestartCounts: true });
+      for (const name of orphaned) {
+        this.forgetService(name);
+      }
+    }
+  }
+
+  // Drops every trace of a service that no longer has a configuration
+  // entry and isn't running — called both when a reload removes an
+  // already-stopped service and after an orphaned one is explicitly
+  // stopped. Safe to call on a service that was never tracked at all.
+  private forgetService(name: string): void {
+    const timer = this.healthTimers.get(name);
+    if (timer) {
+      clearInterval(timer);
+      this.healthTimers.delete(name);
+    }
+    this.clearRestartTimer(name);
+    this.runtimes.delete(name);
+    this.ports.delete(name);
+    this.processMeta.delete(name);
+    this.clientEnv.delete(name);
+    this.serviceProfile.delete(name);
+    this.serviceProfileEnv.delete(name);
+    this.restarts.delete(name);
+    this.generation.delete(name);
+    this.unhealthyStreak.delete(name);
+    this.healthyStreak.delete(name);
+  }
+
+  // After a reload, cfg.services no longer necessarily matches what's
+  // actually tracked. A newly added service gets a STOPPED runtime entry
+  // right away instead of silently not existing until first started. A
+  // removed service that's already stopped is forgotten outright; one
+  // still running is marked orphaned (see Runtime.orphaned) and left
+  // alone — stop() can still reach it by name — rather than silently
+  // dropped with no way to stop it short of a full `down`.
+  private reconcileServices(prevServices: Record<string, ServiceConfig>, nextServices: Record<string, ServiceConfig>): void {
+    for (const name of Object.keys(nextServices)) {
+      if (!prevServices[name] && !this.runtimes.has(name)) {
+        this.runtimes.set(name, emptyRuntime(name));
+      }
+    }
+    for (const name of Object.keys(prevServices)) {
+      if (nextServices[name]) {
+        continue;
+      }
+      if (this.serviceIsActive(name)) {
+        const rt = this.runtimes.get(name);
+        if (rt) {
+          rt.orphaned = true;
+        }
+        this.log(name, "WARN", "removed from configuration while still running; now orphaned — stop it explicitly to clean it up");
+        continue;
+      }
+      this.forgetService(name);
+    }
   }
 
   // Plain restart touches only the named services — never their
@@ -1042,10 +1116,25 @@ export class Supervisor {
       this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
       throw err;
     }
+    try {
+      // Revalidate against the candidate config, not this.cfg — a newly
+      // added service (or one whose health/identity type just changed)
+      // referencing a plugin type nothing provides should reject the
+      // reload the same way an unparseable config file does, rather than
+      // silently taking effect and only surfacing once someone starts it.
+      this.checkPluginHealthTypes(next);
+      this.checkPluginIdentityTypes(next);
+    } catch (err) {
+      this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
+      this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
+      throw err;
+    }
     const result = diffReload(this.cfg, next);
     const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
     const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);
+    const prevServices = this.cfg.services;
     Object.assign(this.cfg, next);
+    this.reconcileServices(prevServices, next.services);
     this.restartRequired = result.restart_required;
     // Detector is a cheap, stateless holder of markers/patterns — update it
     // in place so the LogManager/ProxyServer instances that already hold a
@@ -1430,8 +1519,8 @@ export class Supervisor {
   // non-empty, since plugins aren't loaded yet at config-parse time. Now
   // that they are, confirm each such type actually resolved to a registered
   // health check plugin.
-  private checkPluginHealthTypes(): void {
-    const unresolved = unresolvedHealthTypes(this.cfg);
+  private checkPluginHealthTypes(cfg: DevctlConfig = this.cfg): void {
+    const unresolved = unresolvedHealthTypes(cfg);
     if (unresolved.length === 0) {
       return;
     }
@@ -1450,8 +1539,8 @@ export class Supervisor {
   // identity.type through when cfg.plugins is non-empty, since plugins
   // aren't loaded yet at config-parse time. Confirm each such type actually
   // resolved to a registered identity provider now that they are.
-  private checkPluginIdentityTypes(): void {
-    const unresolved = unresolvedIdentityTypes(this.cfg);
+  private checkPluginIdentityTypes(cfg: DevctlConfig = this.cfg): void {
+    const unresolved = unresolvedIdentityTypes(cfg);
     if (unresolved.length === 0) {
       return;
     }
@@ -1461,7 +1550,7 @@ export class Supervisor {
     // than the two builtins counts as actually resolving a custom type.
     const pluginProviders = (this.registry?.identityProviders ?? []).filter((provider) => provider.name !== "user" && provider.name !== "service_account");
     const stillUnknown = unresolved.filter(({ service }) => {
-      const svc = this.cfg.services[service];
+      const svc = cfg.services[service];
       return !svc || !pluginProviders.some((provider) => provider.accepts(svc.identity));
     });
     if (stillUnknown.length > 0) {

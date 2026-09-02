@@ -1113,6 +1113,218 @@ describe("adopted service health environments", () => {
   }, 15_000);
 });
 
+describe("reload reconciliation", () => {
+  function writeConfig(configPath: string, yaml: string): void {
+    writeFileSync(configPath, yaml);
+  }
+
+  test("a service added by reload appears immediately, stopped", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      expect(sup.snapshot().services.worker).toBeUndefined();
+
+      writeConfig(
+        configPath,
+        `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+  worker:
+    command: [echo, ok]
+`,
+      );
+      await sup.reload();
+
+      expect(sup.snapshot().services.worker?.state).toBe("STOPPED");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("reload forgets an already-stopped service once it's removed from configuration", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+  worker:
+    command:
+      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["worker"] });
+      await sup.stop(["worker"]);
+      expect(sup.snapshot().services.worker?.state).toBe("STOPPED");
+
+      writeConfig(
+        configPath,
+        `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+`,
+      );
+      await sup.reload();
+
+      expect(sup.snapshot().services.worker).toBeUndefined();
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("reload orphans a running service removed from configuration, and stop() can still reach it", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+  flaky:
+    command:
+      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["flaky"] });
+      const pidBefore = sup.snapshot().services.flaky?.pid ?? 0;
+      expect(pidBefore).toBeGreaterThan(0);
+
+      writeConfig(
+        configPath,
+        `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+`,
+      );
+      await sup.reload();
+
+      // Still tracked and still running — just orphaned, not silently
+      // dropped with no way to stop it short of a full `down`.
+      expect(sup.snapshot().services.flaky?.orphaned).toBe(true);
+      expect(sup.snapshot().services.flaky?.pid).toBe(pidBefore);
+
+      // No config entry left for it, but stop() must still reach it by
+      // name instead of throwing "unknown service".
+      await sup.stop(["flaky"]);
+
+      expect(sup.snapshot().services.flaky).toBeUndefined();
+      expect(processAlive(pidBefore)).toBe(false);
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("reload rejects a candidate config with an unresolvable plugin health type, keeping the previous config", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: reload-test
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const seen: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    sup.subscribe((ev) => seen.push({ type: ev.type, payload: ev.payload }));
+    try {
+      // plugins non-empty lets an unrecognized health.type through config
+      // validation (plugins load after parsing) — but this supervisor never
+      // loaded one, so its registry has no "custom_unknown_type" check.
+      writeConfig(
+        configPath,
+        `version: 1
+project:
+  name: reload-test
+plugins:
+  - path: ./devctl-plugin.ts
+services:
+  api:
+    command: [echo, ok]
+  worker:
+    command: [echo, ok]
+    health:
+      type: custom_unknown_type
+`,
+      );
+
+      await expect(sup.reload()).rejects.toThrow(/unknown health check type/);
+
+      const failure = seen.find((ev) => ev.type === ConfigurationReloadFailed);
+      expect(failure).toBeDefined();
+      expect(sup.snapshot().services.worker).toBeUndefined();
+      const snap = (await sup.dispatch("config_snapshot", null)) as { services: Record<string, unknown> };
+      expect(snap.services.worker).toBeUndefined();
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+});
+
 describe("lifecycle generations", () => {
   test("a slow health check for a superseded generation cannot corrupt the newer process's state", async () => {
     const dir = tmp();
