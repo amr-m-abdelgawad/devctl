@@ -416,9 +416,16 @@ export class Supervisor {
         this.proxySuppressed = true;
         await this.stopProxy();
         return null;
-      case "mcp_start":
-        await this.startMcp(typeof rec.port === "number" ? rec.port : undefined);
+      case "mcp_start": {
+        // A caller that names a port explicitly wins outright; otherwise
+        // fall back to the user's saved preference, the same as daemon boot
+        // does above — not straight past it to the bare derived default,
+        // which would silently forget a previously chosen port whenever a
+        // client starts MCP on demand instead of at boot.
+        const explicitPort = typeof rec.port === "number" ? rec.port : undefined;
+        await this.startMcp(explicitPort ?? loadTuiConfig(this.cfg.repoRoot).mcp_port);
         return null;
+      }
       case "mcp_stop":
         await this.stopMcp();
         return null;

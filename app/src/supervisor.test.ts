@@ -603,6 +603,32 @@ services:
     }
   }, 15_000);
 
+  test("mcp_start with no explicit port falls back to the saved preference, not straight to the derived default", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    // mcp_enabled left unset, so MCP does not auto-start at boot (already
+    // covered above) — this is specifically about a client asking for MCP
+    // on demand, like `devctl mcp --on` with no --port, or the RPC the TUI's
+    // own toggle sends when its local state was never overridden.
+    saveTuiPreferences({ mcp_port: port });
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      expect(sup.snapshot().mcp?.running).toBe(false);
+      await sup.dispatch("mcp_start", null);
+      const snap = sup.snapshot();
+      expect(snap.mcp?.running).toBe(true);
+      expect(snap.mcp?.port).toBe(port);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();
     const cfg = defaultConfig();
