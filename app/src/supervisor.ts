@@ -617,7 +617,9 @@ export class Supervisor {
         const gen = this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? this.bumpGeneration(name);
         this.setState(name, StateRunning, HealthUnknown, pid, "");
         this.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
-        this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), {}, gen);
+        const workDir = this.serviceWorkDir(svc);
+        const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, occupied);
+        this.startHealth(name, svc, pid, occupied, workDir, healthEnv, gen);
         return true;
       }
       this.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
@@ -719,6 +721,48 @@ export class Supervisor {
         await this.fail(name, err);
         throw err;
       }
+    }
+  }
+
+  // Reconstructs a reproducible environment for an adopted process's health
+  // checks. recoverSession()/claimIfAlreadyUp() adopt a process devctl
+  // itself never spawned this session — its real launch environment isn't
+  // persisted (and for a leftover from a previous daemon, no longer exists
+  // to read back) — so a command-type health check given no environment at
+  // all can't even resolve PATH to find its own executable. This recomputes
+  // one from the same configured, reproducible sources a fresh start would
+  // use (profile, dotenv, defaults/vars, secrets, runtime) with no
+  // client_env of course, falling back to just the daemon's own
+  // environment — a usable baseline PATH at minimum — if resolution itself
+  // fails, e.g. a required var only a now-vanished client ever supplied.
+  private async resolveAdoptedHealthEnv(name: string, svc: ServiceConfig, assigned: Record<string, number>): Promise<Record<string, string>> {
+    let proxyURL = "";
+    if (this.proxy?.isRunning()) {
+      proxyURL = `http://${this.proxy.address()}`;
+    } else if (this.cfg.proxy.enabled) {
+      proxyURL = `http://${listenAddress(this.cfg.proxy.listen)}`;
+    }
+    const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, this.cfg.project.name);
+    runtimeEnv.DEVCTL_INTERNAL_TOKEN = this.internalTok;
+    if (this.cfg.proxy.token_endpoint.enabled) {
+      runtimeEnv.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
+    }
+    try {
+      const env = await resolveEnvironment(this.cfg.repoRoot, {
+        service: name,
+        profile: this.serviceProfile.get(name) ?? this.profile,
+        serviceCfg: svc,
+        profileEnv: this.serviceProfileEnv.get(name) ?? this.profileEnv,
+        assignedPorts: assigned,
+        runtime: runtimeEnv,
+        cfg: this.cfg,
+        fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
+        pluginSources: this.registry?.environmentSources,
+      });
+      return envList(env);
+    } catch (err) {
+      this.log(name, "WARN", `could not fully reconstruct environment for adopted service's health check (${humanMessage(err)}); using a baseline environment`);
+      return envList(runtimeEnv);
     }
   }
 
@@ -1614,7 +1658,9 @@ export class Supervisor {
       this.setState(rec.name, StateRunning, HealthUnknown, rec.pid, "");
       const svc = this.cfg.services[rec.name];
       if (svc) {
-        this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), {}, gen);
+        const workDir = rec.cwd || this.serviceWorkDir(svc);
+        const healthEnv = await this.resolveAdoptedHealthEnv(rec.name, svc, rec.ports);
+        this.startHealth(rec.name, svc, rec.pid, rec.ports, workDir, healthEnv, gen);
       }
       this.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
       adopted.push(rec.name);

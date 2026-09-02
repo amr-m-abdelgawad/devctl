@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
 import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
 import { MCP_TOOLS } from "./mcp/tools.ts";
+import { available } from "./ports.ts";
 import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { saveTuiPreferences } from "./tui/tui-config.ts";
@@ -1014,6 +1015,104 @@ describe("per-service launch context", () => {
   }, 15_000);
 });
 
+describe("adopted service health environments", () => {
+  test("recoverSession gives an adopted process's command health check a usable environment, not an empty one", async () => {
+    const dir = tmp();
+    const outFile = join(dir, "health-env.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: ["python", "main.py"], shell: false },
+      health: {
+        ...emptyHealth(),
+        type: "command",
+        command: {
+          args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(outFile)}, process.env.PATH ?? '');`],
+          shell: false,
+        },
+        interval_seconds: 0.05,
+        timeout_seconds: 2,
+      },
+    };
+    const leftover = { pid: 4242, command: "python main.py", cwd: "" };
+    writePersistedState(dir, {
+      session_id: "2026-08-30T00-00-00Z-abc123",
+      repo_root: dir,
+      profile: "backend",
+      processes: [{ name: "api", pid: leftover.pid, command: ["python", "main.py"], cwd: leftover.cwd, startTime: "", ports: {} }],
+    });
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      processAlive: (pid) => pid === leftover.pid,
+      inspectProcess: async (pid) => (pid === leftover.pid ? leftover : undefined),
+    });
+    try {
+      await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
+
+      await waitFor(() => existsSync(outFile) && readFileSync(outFile, "utf8").length > 0);
+      expect(readFileSync(outFile, "utf8").length).toBeGreaterThan(0);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("claimIfAlreadyUp gives a claimed process's command health check a usable environment, not an empty one", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    const outFile = join(dir, "health-env.txt");
+    const commandSpec = bunServe(port);
+    const portsSpec = [{ name: "http", value: port, auto: false }];
+    const cfg1 = defaultConfig();
+    cfg1.repoRoot = dir;
+    cfg1.logs.persistence.enabled = false;
+    cfg1.shutdown.grace_seconds = 0.2;
+    // sup1 has no health check of its own — the only thing that can write
+    // outFile is whatever health check sup2 starts for the process it
+    // claims, isolating the assertion to sup2's adoption path specifically.
+    cfg1.services.api = { ...emptyService(), command: commandSpec, ports: portsSpec };
+    const cfg2 = defaultConfig();
+    cfg2.repoRoot = dir;
+    cfg2.logs.persistence.enabled = false;
+    cfg2.shutdown.grace_seconds = 0.2;
+    cfg2.services.api = {
+      ...emptyService(),
+      command: commandSpec,
+      ports: portsSpec,
+      health: {
+        ...emptyHealth(),
+        type: "command",
+        command: {
+          args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(outFile)}, process.env.PATH ?? '');`],
+          shell: false,
+        },
+        interval_seconds: 0.05,
+        timeout_seconds: 2,
+      },
+    };
+    const stub = { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) };
+    const sup1 = new Supervisor(cfg1, stub);
+    const sup2 = new Supervisor(cfg2, stub);
+    try {
+      await sup1.start({ services: ["api"] });
+      // sup1.start() only waits for the child to spawn, not for its async
+      // Bun.serve() to actually bind — give it a moment so sup2 reliably
+      // observes the port as occupied instead of racing to bind it too.
+      await waitFor(async () => !(await available(port)), 3000);
+
+      await sup2.start({ services: ["api"] });
+
+      await waitFor(() => existsSync(outFile) && readFileSync(outFile, "utf8").length > 0);
+      expect(readFileSync(outFile, "utf8").length).toBeGreaterThan(0);
+    } finally {
+      await sup2.stop(["api"]).catch(() => {});
+      await sup1.stop(["api"]).catch(() => {});
+    }
+  }, 15_000);
+});
+
 describe("lifecycle generations", () => {
   test("a slow health check for a superseded generation cannot corrupt the newer process's state", async () => {
     const dir = tmp();
@@ -1202,10 +1301,10 @@ function pidsOf(sup: Supervisor, names: string[]): Record<string, number> {
   return out;
 }
 
-async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (predicate()) {
+    if (await predicate()) {
       return;
     }
     await sleep(25);
