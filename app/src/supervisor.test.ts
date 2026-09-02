@@ -1,4 +1,4 @@
-import { createServer } from "node:net";
+import { connect, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -6,7 +6,7 @@ import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
 import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
 import { MCP_TOOLS } from "./mcp/tools.ts";
 import { available } from "./ports.ts";
-import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
+import { processAlive, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { saveTuiPreferences } from "./tui/tui-config.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
@@ -1674,6 +1674,50 @@ describe("port-assignment error attribution", () => {
       await sup.shutdown(false);
     }
   }, 15_000);
+});
+
+describe("supervisor socket error handling", () => {
+  test("an error on an accepted client socket is handled, not thrown", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    let client: Socket | undefined;
+    try {
+      await sup.run();
+      const server = (sup as unknown as { server?: Server }).server;
+      expect(server).toBeDefined();
+
+      // The server's own "connection" listener fires with the identical
+      // Socket instance handleConn() wraps — capture it to poke the same
+      // object devctl's own error listener (or its absence) would see.
+      let captured: Socket | undefined;
+      server?.on("connection", (s) => {
+        captured = s;
+      });
+
+      client = connect(socketPath(dir));
+      await new Promise<void>((resolve, reject) => {
+        client?.once("connect", () => resolve());
+        client?.once("error", reject);
+      });
+      await waitFor(() => captured !== undefined);
+
+      // EventEmitter's special-cased "error" handling throws synchronously
+      // from emit() itself when nothing is listening — exactly the failure
+      // mode an ECONNRESET from an abruptly disconnected client would hit
+      // without a listener. Not throwing here is the same thing as the
+      // daemon surviving a real disconnect.
+      expect(() => captured?.emit("error", new Error("ECONNRESET (simulated)"))).not.toThrow();
+    } finally {
+      client?.destroy();
+      await sup.shutdown(false);
+    }
+  }, 10_000);
 });
 
 function pidsOf(sup: Supervisor, names: string[]): Record<string, number> {

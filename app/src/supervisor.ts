@@ -329,6 +329,16 @@ export class Supervisor {
       }
     };
     const unsub = this.bus.subscribe((event) => write({ event }));
+    // Without a listener here, Node's default behavior for an unhandled
+    // socket 'error' (ECONNRESET/EPIPE from a client that disconnected
+    // abruptly — killed, crashed, network blip — mid-write) is to throw,
+    // crashing the whole daemon and every other attached client and
+    // running service along with it. This is an ordinary disconnect, not a
+    // supervisor fault: log it and let the "close" handler below do its
+    // usual cleanup.
+    socketConn.on("error", (err) => {
+      this.log("devctl", "WARN", `client connection error: ${humanMessage(err)}`);
+    });
     socketConn.on("data", (chunk) => {
       buf += chunk.toString("utf8");
       const lines = buf.split("\n");
