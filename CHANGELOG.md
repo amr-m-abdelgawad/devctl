@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-03
+
 ### Changed
 
 - `tui.json`'s `cursor`, `scroll_acceleration`, `diff_style`, and `attention` fields are no longer documented or included in the starter file — none of them were ever wired up to anything the TUI reads. Parsing them is unchanged, so a `tui.json` that already sets any of them keeps loading cleanly.
@@ -133,5 +135,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/amr-m-abdelgawad/devctl/releases/tag/v0.1.0
