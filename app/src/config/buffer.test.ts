@@ -51,4 +51,29 @@ describe("config buffer", () => {
     const candidate = "version: 1\nprofiles:\n  backend:\n    services: [ghost]\n";
     expect(validateConfigText(dir, configPath, candidate)).toEqual([expect.stringMatching(/unknown service "ghost"/)]);
   });
+
+  test("resolves template inheritance through the real presence-aware merge, not a simplified one", () => {
+    const dir = tmp();
+    const configPath = join(dir, ".devctl", "config.yaml");
+    // api only re-states health.type, not health.url. Nested sections merge
+    // field by field through the template chain, so url should still come
+    // from the template. A buffer path that fell back to whole-object
+    // replacement would silently drop it and validate() would wrongly
+    // report health.url missing.
+    const candidate = `
+version: 1
+templates:
+  base:
+    health:
+      type: http
+      url: http://127.0.0.1:8000/health
+services:
+  api:
+    extends: base
+    command: echo hi
+    health:
+      type: http
+`;
+    expect(validateConfigText(dir, configPath, candidate)).toEqual([]);
+  });
 });
