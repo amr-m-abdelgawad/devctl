@@ -2,7 +2,7 @@ import { createServer } from "node:net";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "./config/types.ts";
+import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
 import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
 import { MCP_TOOLS } from "./mcp/tools.ts";
 import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
@@ -674,6 +674,94 @@ describe("client_env forwarding", () => {
     }
   }, 15_000);
 });
+
+describe("lifecycle generations", () => {
+  test("a slow health check for a superseded generation cannot corrupt the newer process's state", async () => {
+    const dir = tmp();
+    // A real plugin file, loaded the normal way (cfg.plugins), so the
+    // "gate" health type already exists by the time run()'s
+    // checkPluginHealthTypes() validates it — a plugin pushed onto the
+    // registry after run() would be too late for that check. It reaches
+    // back into the test via a well-known globalThis slot: the dynamically
+    // imported module and this test file share the same process, so that's
+    // the only channel available across that boundary.
+    const gateState = { calls: 0, resolveFirst: undefined as ((res: { status: string; message: string }) => void) | undefined };
+    (globalThis as Record<string, unknown>).__testHealthGate = gateState;
+    const pluginPath = join(dir, "health-gate-plugin.ts");
+    writeFileSync(
+      pluginPath,
+      `export const healthChecks = [{
+  name: "gate",
+  check: () => new Promise((resolve) => {
+    const state = (globalThis as Record<string, { calls: number; resolveFirst?: (res: unknown) => void }>).__testHealthGate;
+    state.calls += 1;
+    if (state.calls === 1) {
+      state.resolveFirst = resolve;
+      return;
+    }
+    resolve({ status: "HEALTHY", message: "current" });
+  }),
+}];
+`,
+    );
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.plugins = [{ path: pluginPath }];
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      // interval_seconds is generous on purpose: within this test's window,
+      // each generation's startHealth() should only ever see its own single
+      // immediate tick, not a second one racing in from the same instance.
+      health: { ...emptyHealth(), type: "gate", interval_seconds: 30, timeout_seconds: 30 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      // Not awaited: start()'s wave loop awaits health before returning, and
+      // generation 1's check is held open on purpose — awaiting it directly
+      // would hang until the health-wait timeout. It resolves on its own
+      // once generation 2 (below) makes the service healthy.
+      void sup.start({ services: ["api"] }).catch(() => {});
+      await waitFor(() => gateState.calls >= 1);
+
+      // Generation 2: a real restart, spawning a new process under a new
+      // generation while generation 1's check above is still pending.
+      await sup.restart(["api"]);
+      await waitFor(() => sup.snapshot().services.api?.health === "HEALTHY");
+
+      // Generation 1's stale check finally resolves — unhealthy. Without the
+      // generation guard in startHealth()'s tick(), this would flip the
+      // service (now on generation 2, and genuinely healthy) to UNHEALTHY.
+      gateState.resolveFirst?.({ status: "UNHEALTHY", message: "stale" });
+      await sleep(50);
+      expect(sup.snapshot().services.api?.health).toBe("HEALTHY");
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+      delete (globalThis as Record<string, unknown>).__testHealthGate;
+    }
+  }, 15_000);
+});
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await sleep(25);
+  }
+  throw new Error("timed out waiting for condition");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function waitForFileContent(path: string, expected: string, timeoutMs = 3000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

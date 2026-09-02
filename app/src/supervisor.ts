@@ -111,6 +111,13 @@ export class Supervisor {
   // intentionally never persisted: it does not survive a daemon replacement,
   // which must be restarted by a real client to pick up fresh env again.
   private readonly clientEnv = new Map<string, Record<string, string>>();
+  // Bumped on every event that ends a service's current lifecycle epoch —
+  // a fresh spawn, an adopted process, an explicit stop, or a terminal
+  // failure — so an exit, health-check, or scheduled-restart callback
+  // captured under an older epoch can recognize it's stale (something newer
+  // already superseded it) and become a no-op instead of acting on state
+  // that belongs to a different process than the one it was scheduled for.
+  private readonly generation = new Map<string, number>();
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private readonly healthTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -562,10 +569,10 @@ export class Supervisor {
         );
       if (identityOk) {
         this.ports.set(name, occupied);
-        this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date());
+        const gen = this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date()) ?? this.bumpGeneration(name);
         this.setState(name, StateRunning, HealthUnknown, pid, "");
         this.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
-        this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), {});
+        this.startHealth(name, svc, pid, occupied, this.serviceWorkDir(svc), {}, gen);
         return true;
       }
       this.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
@@ -582,6 +589,7 @@ export class Supervisor {
       throw newError(KindGeneral, `unknown service ${name}`);
     }
     this.setState(name, StateStarting, HealthUnknown, 0, "");
+    const gen = this.bumpGeneration(name);
     let ident = fromConfig(svc.identity);
     if (requiresCloud(ident)) {
       try {
@@ -646,13 +654,13 @@ export class Supervisor {
         });
       },
       onExit: (code, err) => {
-        this.onExit(name, code, err);
+        this.onExit(name, gen, code, err);
       },
     });
     this.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
     this.setState(name, StateRunning, HealthUnknown, handle.pid, "");
     this.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));
-    this.startHealth(name, svc, handle.pid, assigned, workDir, envList(env));
+    this.startHealth(name, svc, handle.pid, assigned, workDir, envList(env), gen);
     if (svc.startup.wait_for_healthy) {
       const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
       try {
@@ -695,7 +703,13 @@ export class Supervisor {
     throw newError(KindHealthCheck, `service ${name} did not become healthy in time`);
   }
 
-  private onExit(name: string, code: number, waitErr?: Error): void {
+  private onExit(name: string, gen: number, code: number, waitErr?: Error): void {
+    // This exit belongs to a process from an epoch stop()/fail()/a newer
+    // start already ended — whatever it implies about restart policy no
+    // longer applies to whatever (if anything) currently holds this name.
+    if (!this.isCurrentGeneration(name, gen)) {
+      return;
+    }
     const rt = this.runtimes.get(name);
     if (rt?.state === StateFailed) {
       // fail() already set this state and is in the middle of killing the
@@ -714,11 +728,10 @@ export class Supervisor {
     const should = policy === "always" || (policy === "on_failure" && code !== 0);
     const n = this.restarts.get(name) ?? 0;
     const max = svc && svc.restart.max_retries > 0 ? svc.restart.max_retries : DEFAULT_MAX_RETRIES;
-    if (should && n < max) {
+    if (should && svc && n < max) {
       this.setState(name, StateRestarting, HealthUnknown, 0, msg);
-      const backoff = svc && svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
       this.bumpRestartCount(name, n + 1);
-      this.scheduleRestart(name, backoff * (2 ** n) * 1000, () => {
+      this.armRestart(name, svc, gen, n, () => {
         void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
       });
       return;
@@ -733,6 +746,7 @@ export class Supervisor {
     assigned: Record<string, number>,
     workDir: string,
     env: Record<string, string>,
+    gen: number,
   ): void {
     const prev = this.healthTimers.get(name);
     if (prev) {
@@ -747,6 +761,13 @@ export class Supervisor {
       void checkHealth(svc.health, pid, assigned, workDir, env, this.registry?.healthChecks)
         .catch((err: unknown) => ({ status: HealthUnhealthy, message: humanMessage(err) }) as const)
         .then((res) => {
+          // A slow check (e.g. an HTTP request against a hung endpoint) can
+          // still be in flight when this service crashes and restarts under
+          // a new pid; without this guard its stale result would land on
+          // whatever process now holds this service's name instead.
+          if (!this.isCurrentGeneration(name, gen)) {
+            return;
+          }
           this.setHealth(name, res.status, res.message);
           this.logs.append({
             timestamp: new Date().toISOString(),
@@ -756,7 +777,7 @@ export class Supervisor {
             message: `health ${res.status} ${res.message}`,
             pid,
           });
-          this.maybeRestartUnhealthy(name, svc, res.status);
+          this.maybeRestartUnhealthy(name, svc, res.status, gen);
         });
     };
     tick();
@@ -776,9 +797,12 @@ export class Supervisor {
     // A crash or unhealthy restart scheduled just before this stop() call
     // must not go on to revive a service the caller explicitly asked to
     // stop — startOne() only checks "is it already active", which a stopped
-    // service is not.
+    // service is not. Bumping the generation is belt-and-suspenders for the
+    // same reason: it also invalidates any exit/health callback still in
+    // flight from the process this call is about to kill.
     for (const name of selected) {
       this.clearRestartTimer(name);
+      this.bumpGeneration(name);
     }
     const plan = shutdownPlan(this.cfg, selected);
     const grace = graceSeconds(this.cfg.shutdown) * 1000;
@@ -1095,6 +1119,20 @@ export class Supervisor {
     }
   }
 
+  // Ends the current lifecycle epoch for a service: any exit, health-check,
+  // or scheduled-restart callback still holding an older generation number
+  // is now stale and must recognize that via isCurrentGeneration() rather
+  // than act on state that belongs to a different process.
+  private bumpGeneration(name: string): number {
+    const next = (this.generation.get(name) ?? 0) + 1;
+    this.generation.set(name, next);
+    return next;
+  }
+
+  private isCurrentGeneration(name: string, gen: number): boolean {
+    return this.generation.get(name) === gen;
+  }
+
   // Crash restarts (onExit) and unhealthy restarts (maybeRestartUnhealthy)
   // both schedule a delayed respawn via setTimeout. Tracking the handle lets
   // stop/fail/shutdown cancel it — otherwise a restart scheduled moments
@@ -1107,6 +1145,21 @@ export class Supervisor {
       action();
     }, delayMs);
     this.restartTimers.set(name, timer);
+  }
+
+  // Shared by crash-triggered (onExit) and health-triggered
+  // (maybeRestartUnhealthy) restarts: computes backoff from the pre-bump
+  // attempt count and arms the timer, guarding the eventual fire against a
+  // generation that has since moved on — a manual stop/start/restart, or a
+  // fail(), already happened for this service — so a stale scheduled
+  // restart from a superseded epoch never fires.
+  private armRestart(name: string, svc: ServiceConfig, gen: number, attempt: number, action: () => void): void {
+    const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
+    this.scheduleRestart(name, backoff * (2 ** attempt) * 1000, () => {
+      if (this.isCurrentGeneration(name, gen)) {
+        action();
+      }
+    });
   }
 
   private clearRestartTimer(name: string): void {
@@ -1159,7 +1212,7 @@ export class Supervisor {
     this.bus.publish(newEvent(ServiceHealthChanged, name, { health, message }));
   }
 
-  private maybeRestartUnhealthy(name: string, svc: ServiceConfig, health: ServiceHealth): void {
+  private maybeRestartUnhealthy(name: string, svc: ServiceConfig, health: ServiceHealth, gen: number): void {
     if (health !== HealthUnhealthy) {
       this.unhealthyStreak.set(name, 0);
       return;
@@ -1183,10 +1236,9 @@ export class Supervisor {
       this.log(name, "WARN", `unhealthy after ${streak} consecutive checks but the restart limit (${max}) has already been reached; not restarting`);
       return;
     }
-    const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
     this.bumpRestartCount(name, n + 1);
     this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks (attempt ${n + 1}/${max})`);
-    this.scheduleRestart(name, backoff * (2 ** n) * 1000, () => {
+    this.armRestart(name, svc, gen, n, () => {
       void this.restart([name]).catch((err) => this.log(name, "ERROR", humanMessage(err)));
     });
   }
@@ -1313,11 +1365,14 @@ export class Supervisor {
       this.healthTimers.delete(name);
     }
     this.clearRestartTimer(name);
+    this.bumpGeneration(name);
     // Set FAILED before killing the process, not after: procs.stop() awaits
     // the same exit promise that drives onExit(), and onExit() runs (as part
     // of resolving that promise) before this await returns — so onExit()
     // must already see FAILED at that point to know this exit was ours and
-    // skip scheduling a restart for it.
+    // skip scheduling a restart for it. (The generation bump above already
+    // makes that exit a no-op on its own; the FAILED check stays as a second,
+    // independent guard.)
     this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
     try {
       await this.procs.stop(name, graceSeconds(this.cfg.shutdown) * 1000);
@@ -1360,13 +1415,20 @@ export class Supervisor {
     });
   }
 
-  private attachProcess(name: string, pid: number, args: string[], workDir: string, startTime: Date): void {
+  // Returns the generation this adoption was recorded under, or undefined
+  // if nothing was adopted (already tracked and alive, or the pid isn't a
+  // live process devctl can attach to) — callers pass whichever they get
+  // (bumping their own fallback generation otherwise) through to
+  // startHealth() so its tick and this process's onExit agree on the same
+  // epoch.
+  private attachProcess(name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
     if (this.procs.get(name) && this.processAliveFn(this.procs.get(name)?.pid ?? 0)) {
-      return;
+      return undefined;
     }
     if (!this.processAliveFn(pid) || pid === process.pid) {
-      return;
+      return undefined;
     }
+    const gen = this.bumpGeneration(name);
     try {
       this.procs.adopt({
         name,
@@ -1375,7 +1437,7 @@ export class Supervisor {
         workDir,
         startTime,
         onExit: (code, err) => {
-          this.onExit(name, code, err);
+          this.onExit(name, gen, code, err);
         },
       });
     } catch (err) {
@@ -1383,6 +1445,7 @@ export class Supervisor {
       this.log(name, "WARN", `adopt pid ${pid} failed (${detail}); tracking leftover in snapshot only`);
     }
     this.processMeta.set(name, { command: args, cwd: workDir, startTime });
+    return gen;
   }
 
   private async recoverSession(): Promise<void> {
@@ -1413,14 +1476,14 @@ export class Supervisor {
         }
         continue;
       }
-      this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || Date.now()));
+      const gen = this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || Date.now())) ?? this.bumpGeneration(rec.name);
       if (Object.keys(rec.ports).length > 0) {
         this.ports.set(rec.name, rec.ports);
       }
       this.setState(rec.name, StateRunning, HealthUnknown, rec.pid, "");
       const svc = this.cfg.services[rec.name];
       if (svc) {
-        this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), {});
+        this.startHealth(rec.name, svc, rec.pid, rec.ports, rec.cwd || this.serviceWorkDir(svc), {}, gen);
       }
       this.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
       adopted.push(rec.name);
