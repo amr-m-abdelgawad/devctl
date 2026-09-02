@@ -36,7 +36,7 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `cursor`, `scroll_speed`, `scroll_acceleration`, `diff_style`, `attention`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`.
+Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`.
 
 Search order:
 
