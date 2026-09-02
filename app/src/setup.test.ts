@@ -1,10 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { createStarterConfig, resolveSetupTarget, runSetup } from "./setup.ts";
 
+// join() (not string interpolation) for correct separators, and
+// pre-resolved (drive-qualified on win32) so it already matches what
+// resolveSetupTarget's own resolve(explicitConfig) call returns for the
+// explicit-config tests below.
 function tmp(): string {
-  const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-setup-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const dir = resolve(join(process.env.TMPDIR ?? "/tmp", `devctl-setup-${Date.now()}-${Math.random().toString(16).slice(2)}`));
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -63,7 +67,11 @@ describe("setup", () => {
   });
 
   test("resolveSetupTarget falls back to cwd-derived .devctl/config.yaml when --config is not given", () => {
-    expect(resolveSetupTarget("/some/repo", "")).toEqual({ repo: "/some/repo", cfgPath: "/some/repo/.devctl/config.yaml" });
+    // No --config means resolveSetupTarget never calls resolve() — repo
+    // comes back exactly as passed in, and cfgPath is a plain join() of it
+    // (separator-normalized, not drive-qualified), so the expected cfgPath
+    // must be built with join() too rather than a hardcoded POSIX literal.
+    expect(resolveSetupTarget("/some/repo", "")).toEqual({ repo: "/some/repo", cfgPath: join("/some/repo", ".devctl", "config.yaml") });
   });
 
   test("runSetup does not prompt or write when a config already exists and --force is not set", async () => {

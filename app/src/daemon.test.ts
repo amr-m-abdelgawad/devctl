@@ -1,14 +1,25 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { resolveDaemonTarget, scanStateDirsForRepoRoot } from "./daemon.ts";
 import { writePersistedState } from "./storage.ts";
 
 function tmp(): string {
-  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-daemon-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const dir = resolve(join(process.env.TMPDIR ?? "/tmp", `devctl-daemon-${Date.now()}-${Math.random().toString(16).slice(2)}`));
   mkdirSync(dir, { recursive: true });
   process.env.DEVCTL_HOME = join(dir, "home");
   return dir;
+}
+
+// Fixtures like "/fake/repo/a" are POSIX-only literals — they never touch
+// disk, so they only need to survive the same normalization daemon.ts
+// applies before comparing paths, not be real. scanStateDirsForRepoRoot
+// resolves AND lowercases (its own normalize(), win32 only, for
+// case-insensitive comparison); resolveDaemonTarget's explicit-repo branch
+// only resolves. Mirror each exactly rather than guessing one shared shape.
+function resolvedScan(path: string): string {
+  const r = resolve(path);
+  return process.platform === "win32" ? r.toLowerCase() : r;
 }
 
 function fixtureState(repoRoot: string) {
@@ -19,15 +30,15 @@ describe("scanStateDirsForRepoRoot", () => {
   test("finds a repo_root that is an ancestor of the target directory", () => {
     tmp();
     writePersistedState("/fake/repo/a", fixtureState("/fake/repo/a"));
-    expect(scanStateDirsForRepoRoot("/fake/repo/a/nested/deep")).toBe("/fake/repo/a");
-    expect(scanStateDirsForRepoRoot("/fake/repo/a")).toBe("/fake/repo/a");
+    expect(scanStateDirsForRepoRoot("/fake/repo/a/nested/deep")).toBe(resolvedScan("/fake/repo/a"));
+    expect(scanStateDirsForRepoRoot("/fake/repo/a")).toBe(resolvedScan("/fake/repo/a"));
   });
 
   test("prefers the longest (most specific) matching repo_root", () => {
     tmp();
     writePersistedState("/fake/repo", fixtureState("/fake/repo"));
     writePersistedState("/fake/repo/nested", fixtureState("/fake/repo/nested"));
-    expect(scanStateDirsForRepoRoot("/fake/repo/nested/deep")).toBe("/fake/repo/nested");
+    expect(scanStateDirsForRepoRoot("/fake/repo/nested/deep")).toBe(resolvedScan("/fake/repo/nested"));
   });
 
   test("does not match an unrelated directory or a sibling with a shared prefix", () => {
@@ -45,7 +56,7 @@ describe("scanStateDirsForRepoRoot", () => {
     mkdirSync(join(stateRoot, "garbage"), { recursive: true });
     writeFileSync(join(stateRoot, "garbage", "state.json"), "{ not valid json");
     writePersistedState("/fake/repo/a", fixtureState("/fake/repo/a"));
-    expect(scanStateDirsForRepoRoot("/fake/repo/a")).toBe("/fake/repo/a");
+    expect(scanStateDirsForRepoRoot("/fake/repo/a")).toBe(resolvedScan("/fake/repo/a"));
   });
 
   test("returns undefined when no state directory exists at all", () => {
@@ -57,7 +68,7 @@ describe("scanStateDirsForRepoRoot", () => {
 describe("resolveDaemonTarget", () => {
   test("an explicit --repo wins outright, without touching discovery", () => {
     tmp();
-    expect(resolveDaemonTarget("", "/explicit/path")).toEqual({ repoRoot: "/explicit/path", source: "explicit" });
+    expect(resolveDaemonTarget("", "/explicit/path")).toEqual({ repoRoot: resolve("/explicit/path"), source: "explicit" });
   });
 
   test("prefers normal .devctl discovery when it succeeds", () => {
@@ -72,7 +83,7 @@ describe("resolveDaemonTarget", () => {
     // No .devctl here at all — simulates a deleted configuration — but a
     // daemon's persisted state for this exact directory still exists.
     writePersistedState(dir, fixtureState(dir));
-    expect(resolveDaemonTarget(dir, "")).toEqual({ repoRoot: dir, source: "state-scan" });
+    expect(resolveDaemonTarget(dir, "")).toEqual({ repoRoot: resolvedScan(dir), source: "state-scan" });
   });
 
   test("returns undefined when neither discovery nor the scan finds anything", () => {

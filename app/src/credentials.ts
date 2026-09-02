@@ -292,9 +292,15 @@ async function runKeychainRead(key: string): Promise<string | undefined> {
   return undefined;
 }
 
+// A local OS keychain call (security/secret-tool/powershell) should never
+// take long — bounding it means a slow or wedged helper process degrades to
+// "this credential op failed" instead of hanging the daemon (or a test)
+// indefinitely.
+const KEYCHAIN_TIMEOUT_MS = 3000;
+
 async function run(cmd: string[]): Promise<number> {
   try {
-    const proc = spawn({ cmd, stdout: "ignore", stderr: "ignore" });
+    const proc = spawn({ cmd, stdout: "ignore", stderr: "ignore", timeout: KEYCHAIN_TIMEOUT_MS });
     return await proc.exited;
   } catch {
     return 1;
@@ -303,7 +309,7 @@ async function run(cmd: string[]): Promise<number> {
 
 async function runWithStdin(cmd: string[], input: string): Promise<number> {
   try {
-    const proc = spawn({ cmd, stdin: new TextEncoder().encode(input), stdout: "ignore", stderr: "ignore" });
+    const proc = spawn({ cmd, stdin: new TextEncoder().encode(input), stdout: "ignore", stderr: "ignore", timeout: KEYCHAIN_TIMEOUT_MS });
     return await proc.exited;
   } catch {
     return 1;
@@ -312,7 +318,7 @@ async function runWithStdin(cmd: string[], input: string): Promise<number> {
 
 async function runCapture(cmd: string[]): Promise<{ code: number; stdout: string }> {
   try {
-    const proc = spawn({ cmd, stdout: "pipe", stderr: "ignore" });
+    const proc = spawn({ cmd, stdout: "pipe", stderr: "ignore", timeout: KEYCHAIN_TIMEOUT_MS });
     const text = proc.stdout ? await new Response(proc.stdout).text() : "";
     const code = await proc.exited;
     return { code, stdout: text.trim() };

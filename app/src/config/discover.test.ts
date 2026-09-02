@@ -1,10 +1,14 @@
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { discover } from "./discover.ts";
 
+// Pre-resolved (drive-qualified on win32) so every join()'d path built from
+// it already matches what discoverExplicit()'s own resolve(explicit) call
+// returns — resolve() on an already-resolved path is a no-op, so the test
+// bodies below can compare directly against these fixtures.
 function tmp(): string {
-  return join(process.env.TMPDIR ?? "/tmp", `devctl-discover-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  return resolve(join(process.env.TMPDIR ?? "/tmp", `devctl-discover-${Date.now()}-${Math.random().toString(16).slice(2)}`));
 }
 
 describe("discover", () => {

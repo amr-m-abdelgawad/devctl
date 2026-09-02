@@ -435,7 +435,11 @@ describe("supervisor snapshot", () => {
     try {
       await sup.run();
       expect(events[0]).toBe("lock");
-      expect(events.slice(1)).toEqual(["check", "unlink", "check", "unlink"]);
+      // Windows named pipes vanish with their owning process — existsSync/
+      // unlinkSync don't apply there, so removeStaleSocket() returns before
+      // ever calling these mocks on win32 (see supervisor.ts).
+      const expectedCleanup = process.platform === "win32" ? [] : ["check", "unlink", "check", "unlink"];
+      expect(events.slice(1)).toEqual(expectedCleanup);
     } finally {
       await sup.shutdown(false);
     }

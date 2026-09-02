@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, openTui, supervisorSpawnCommand } from "./controller.ts";
@@ -10,10 +10,17 @@ import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 function tmp(): string {
-  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-handshake-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  const dir = resolve(join(process.env.TMPDIR ?? "/tmp", `devctl-handshake-${Date.now()}-${Math.random().toString(16).slice(2)}`));
   mkdirSync(dir, { recursive: true });
   process.env.DEVCTL_HOME = join(dir, "home");
   return dir;
+}
+
+// scanStateDirsForRepoRoot (daemon.ts) resolves AND lowercases on win32 for
+// case-insensitive comparison — mirror that when a test's expected repoRoot
+// went through the state-scan fallback (findDaemon after .devctl is gone).
+function resolvedScan(path: string): string {
+  return process.platform === "win32" ? resolve(path).toLowerCase() : resolve(path);
 }
 
 // A minimal fake supervisor that answers "ping" with a fixed payload and
@@ -236,7 +243,7 @@ describe("findDaemon", () => {
       // longer exists, yet the daemon itself is still running.
       rmSync(join(dir, ".devctl"), { recursive: true, force: true });
       const { repoRoot, client } = await findDaemon(dir, "");
-      expect(repoRoot).toBe(dir);
+      expect(repoRoot).toBe(resolvedScan(dir));
       expect(client).toBeDefined();
       client?.close();
     } finally {
