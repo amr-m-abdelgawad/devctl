@@ -24,7 +24,8 @@ Start services, watch logs, check identity, and drive the proxy — from a keybo
   <a href="docs/mcp.md">MCP</a>
 </p>
 
-<img width="1470" height="851" alt="devctl TUI — dashboard with services, identity, proxy, and live logs" src="https://github.com/user-attachments/assets/66b958e8-6b59-4940-a443-ce2f91801cf5" />
+<img width="1470" height="851" alt="devctl TUI — dashboard with services, identity, proxy, and live logs" src="https://github.com/user-attachments/assets/60824954-8d8e-46de-8377-8c250aee555b" />
+
 
 </div>
 
