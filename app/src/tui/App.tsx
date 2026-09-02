@@ -809,10 +809,12 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   );
 
   const copyVisibleLogs = useCallback(async (note = "") => {
+    // filteredLogs is the exact set the list itself renders from — reusing
+    // it (rather than reconstructing the filter here) is what guarantees
+    // this matches every currently active filter, not just the ones this
+    // callback happens to remember to pass along.
     const text =
-      overlay === "log-details" && logDetail
-        ? formatLogDetails(logDetail)
-        : formatLogsForClipboard(filterLogs(logs, { service: logService, errorOnly, search: logSearch }));
+      overlay === "log-details" && logDetail ? formatLogDetails(logDetail) : formatLogsForClipboard(filteredLogs);
     const suffix = note === "" ? "" : ` · ${note}`;
     if (text.trim() === "") {
       setStatus(`No logs to copy${suffix}`);
@@ -826,7 +828,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     } catch (err) {
       setStatus(humanMessage(err));
     }
-  }, [errorOnly, logDetail, logSearch, logService, logs, overlay]);
+  }, [filteredLogs, logDetail, overlay]);
 
   const openConfigBuffer = useCallback(() => {
     if (!cfg) {
@@ -1002,7 +1004,10 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
                 source: logSource,
               });
             } else {
-              writeLogExport(dest, filterLogs(logs, { service: logService, errorOnly, search: logSearch, regex: logRegex, source: logSource }));
+              // Same reasoning as copyVisibleLogs: reuse the already-filtered
+              // list instead of reconstructing the filter, so a local-only
+              // export (no daemon attached) matches every active filter too.
+              writeLogExport(dest, filteredLogs);
             }
             lastExportPath.current = dest;
             setStatus(`Exported ${dest}`);
@@ -1066,7 +1071,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSource, logs, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, persistTheme, profile, refresh, reveal, screen, themeName, toggleSystemLogs],
   );
 
   const openExportsFolder = useCallback(() => {
