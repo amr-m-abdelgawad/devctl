@@ -33,6 +33,13 @@ export function fromConfig(cfg: IdentityConfig): Identity {
 }
 
 export function fromRoute(auth: RouteAuthConfig): Identity {
+  // auth.type: "none" means the route needs no auth at all — any leftover
+  // identity (from a template, or a route that used to require auth) must
+  // not leak into service-account bookkeeping or preflight checks, matching
+  // how the proxy's own request handling already treats "none" (proxy.ts).
+  if (auth.type.toLowerCase() === "none") {
+    return emptyIdentity({ kind: KindNone });
+  }
   const t = auth.identity.type.toLowerCase();
   const sa = auth.identity.service_account || auth.service_account;
   if (t === "service" || t === "service_account" || auth.type === "service_account") {

@@ -24,6 +24,27 @@ describe("identity helpers", () => {
     expect(needsCloudFeatures(cfg)).toBe(true);
   });
 
+  test("ignores a route's identity when auth.type is none", () => {
+    const cfg = defaultConfig();
+    cfg.proxy.routes.push({
+      name: "public",
+      match: { host: "", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        type: "none",
+        // Leftover from when this route required auth, or copied from a
+        // template — must not leak into service-account bookkeeping now
+        // that the route itself needs no auth at all, matching how the
+        // proxy's own request handling already treats "none" (proxy.ts).
+        identity: { type: "service_account", service_account: "stale-dev@example.com" },
+        audience: "",
+        service_account: "",
+      },
+    });
+    expect(configuredServiceAccounts(cfg)).toEqual([]);
+    expect(needsCloudFeatures(cfg)).toBe(false);
+  });
+
   test("local-only config does not need cloud features", () => {
     const cfg = defaultConfig();
     cfg.services.api = { ...emptyService(), command: { args: ["true"], shell: false } };
