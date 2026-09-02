@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, type DevctlConfig } from "./config/types.ts";
-import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, startupPlan } from "./services.ts";
+import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan } from "./services.ts";
 
 function cfg(deps: Record<string, string[]>): DevctlConfig {
   const c = defaultConfig();
@@ -35,9 +35,22 @@ describe("startup plan", () => {
     expect(plan.profile).toBe("backend");
   });
 
-  test("shutdown reverses waves", () => {
-    const plan = shutdownPlan(cfg({ auth: [], api: ["auth"] }), ["api"]);
-    expect(plan.waves).toEqual([["api"], ["auth"]]);
+  test("shutdown cascades to dependents, never to dependencies", () => {
+    const c = cfg({ auth: [], api: ["auth"], worker: ["api"] });
+    // Stopping a leaf dependency must cascade forward to everything that
+    // (transitively) depends on it — api and worker both need auth.
+    expect(shutdownPlan(c, ["auth"]).waves).toEqual([["worker"], ["api"], ["auth"]]);
+    // Stopping something in the middle of the chain must not also stop its
+    // own dependency (auth may still be needed by other services).
+    expect(shutdownPlan(c, ["api"]).waves).toEqual([["worker"], ["api"]]);
+    // Stopping a leaf dependent touches only itself.
+    expect(shutdownPlan(c, ["worker"]).waves).toEqual([["worker"]]);
+  });
+
+  test("shutdownPlanExact stops only the named services, in dependency order", () => {
+    const c = cfg({ auth: [], api: ["auth"], worker: ["api"] });
+    expect(shutdownPlanExact(c, ["auth", "api"]).waves).toEqual([["api"], ["auth"]]);
+    expect(shutdownPlanExact(c, ["api"]).waves).toEqual([["api"]]);
   });
 });
 

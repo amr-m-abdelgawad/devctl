@@ -58,11 +58,13 @@ import {
   StateStarting,
   StateStopped,
   StateStopping,
+  dependentsClosure,
   displayState,
   emptyRuntime,
   formatPlan,
   resolveStartRequest,
   shutdownPlan,
+  shutdownPlanExact,
   startupPlan,
   type Plan,
   type Runtime,
@@ -352,7 +354,7 @@ export class Supervisor {
         await this.stop(asStringArray(rec.services));
         return null;
       case "restart":
-        await this.restart(asStringArray(rec.services), asStringRecord(rec.client_env));
+        await this.restart(asStringArray(rec.services), { cascade: rec.cascade === true, clientEnv: asStringRecord(rec.client_env) });
         return null;
       case "auth_refresh":
         this.tokens.invalidate();
@@ -784,6 +786,9 @@ export class Supervisor {
     this.healthTimers.set(name, setInterval(tick, interval));
   }
 
+  // stop x also stops everything that (transitively) depends on x, never
+  // x's own dependencies — see shutdownPlan. Empty names stops every
+  // currently-active service but leaves the daemon itself running.
   async stop(names: string[]): Promise<void> {
     let selected = names;
     if (selected.length === 0) {
@@ -794,17 +799,35 @@ export class Supervisor {
     if (selected.length === 0) {
       return;
     }
-    // A crash or unhealthy restart scheduled just before this stop() call
-    // must not go on to revive a service the caller explicitly asked to
-    // stop — startOne() only checks "is it already active", which a stopped
+    await this.runStopPlan(shutdownPlan(this.cfg, selected));
+  }
+
+  // Plain restart touches only the named services — never their
+  // dependents — matching stop's "never dependencies" rule in spirit: a
+  // restart is a minimal, targeted action unless the caller explicitly
+  // opts into the wider blast radius of `cascade`, which restarts the same
+  // dependents shutdownPlan/stop would have stopped.
+  async restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string> }): Promise<void> {
+    const cascade = opts?.cascade === true;
+    const targets = cascade ? dependentsClosure(this.cfg, names) : names;
+    const plan = cascade ? shutdownPlan(this.cfg, names) : shutdownPlanExact(this.cfg, names);
+    await this.runStopPlan(plan);
+    await this.start({ services: targets, profile: this.profile, client_env: opts?.clientEnv });
+  }
+
+  private async runStopPlan(plan: Plan): Promise<void> {
+    // A crash or unhealthy restart scheduled just before this call must not
+    // go on to revive a service the caller explicitly asked to stop —
+    // startOne() only checks "is it already active", which a stopped
     // service is not. Bumping the generation is belt-and-suspenders for the
     // same reason: it also invalidates any exit/health callback still in
-    // flight from the process this call is about to kill.
-    for (const name of selected) {
+    // flight from the process this call is about to kill. This covers
+    // every service the plan actually touches, including dependents pulled
+    // in by a cascade — not just whatever the caller explicitly named.
+    for (const name of plan.waves.flat()) {
       this.clearRestartTimer(name);
       this.bumpGeneration(name);
     }
-    const plan = shutdownPlan(this.cfg, selected);
     const grace = graceSeconds(this.cfg.shutdown) * 1000;
     for (const wave of plan.waves) {
       await Promise.all(
@@ -823,11 +846,6 @@ export class Supervisor {
       );
     }
     this.persistState();
-  }
-
-  async restart(names: string[], clientEnv?: Record<string, string>): Promise<void> {
-    await this.stop(names);
-    await this.start({ services: names, profile: this.profile, client_env: clientEnv });
   }
 
   async startProxy(): Promise<void> {
@@ -884,7 +902,7 @@ export class Supervisor {
       config: () => this.cfg,
       start: (req) => this.start(req),
       stop: (names) => this.stop(names),
-      restart: (names) => this.restart(names),
+      restart: (names, cascade) => this.restart(names, { cascade }),
       reload: () => this.reload(),
       doctor: () => runDoctor(this.cfg),
     };

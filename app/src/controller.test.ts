@@ -415,7 +415,7 @@ describe("client_env forwarding", () => {
 
     expect(calls).toEqual([
       { method: "start", params: { services: ["api"], client_env: osEnviron() } },
-      { method: "restart", params: { services: ["api"], client_env: osEnviron() } },
+      { method: "restart", params: { services: ["api"], cascade: false, client_env: osEnviron() } },
     ]);
   });
 });

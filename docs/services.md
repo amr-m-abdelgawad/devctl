@@ -71,14 +71,18 @@ Independent services in the same wave start and stop in parallel. Dependents wai
 
 ## Start, stop, restart
 
-Named start expands **up** the dependency graph (`startupPlan`). Stop is that plan reversed (`shutdownPlan`), so stopping a leaf also stops the dependencies it pulled in. Restart is stop then start.
+Named start expands **up** the dependency graph (`startupPlan`): starting `invoices-worker` also starts `identity` and `invoices-api`, in that order.
+
+> **Breaking change:** stop no longer mirrors start. `devctl stop x` stops `x` and everything that (transitively) **depends on** `x` — never `x`'s own dependencies, which other running services may still need (`shutdownPlan`). Previously, stopping a leaf also stopped the dependencies it had pulled in; that direction was backwards and is not preserved.
 
 ```mermaid
 flowchart LR
   identity --> api["invoices-api"] --> worker["invoices-worker"]
 ```
 
-Starting or restarting `invoices-worker` therefore includes `identity` and `invoices-api`. Waves run left to right on start, right to left on stop.
+Stopping `identity` also stops `invoices-api` and `invoices-worker` (both depend on it, transitively). Stopping `invoices-api` also stops `invoices-worker`, but leaves `identity` running — it's `invoices-api`'s dependency, not its dependent. Empty `stop` stops every started service but leaves the daemon itself running.
+
+`devctl restart x` restarts only `x` — never its dependents. Pass `--cascade` to also restart everything that depends on `x` (the same set a `stop x` would affect). Either way, a restarted service's own dependencies are started first if they aren't already running, exactly like a plain `start` would. Waves run left to right on start; stop and cascading restart run them right to left, restricted to whichever services are actually in scope.
 
 `devctl start` with **no** profile and **no** service names starts the active session profile, or the first configured profile — the same contract as MCP `start_services`. Use `--profile` or explicit names. With no profiles, start fails closed.
 

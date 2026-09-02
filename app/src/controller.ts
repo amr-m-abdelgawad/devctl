@@ -273,8 +273,8 @@ export class Controller {
     await this.call("stop", { services });
   }
 
-  async restart(services: string[]): Promise<void> {
-    await this.call("restart", { services, client_env: osEnviron() });
+  async restart(services: string[], cascade?: boolean): Promise<void> {
+    await this.call("restart", { services, cascade: cascade === true, client_env: osEnviron() });
   }
 
   async status(): Promise<StatusSnapshot> {

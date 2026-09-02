@@ -651,7 +651,7 @@ describe("client_env forwarding", () => {
       await waitForFileContent(outFile, "daemon-own-env");
 
       // A real client's restart replaces the fallback for this service.
-      await sup.restart(["api"], { DEVCTL_TEST_MARKER: "client-one" });
+      await sup.restart(["api"], { clientEnv: { DEVCTL_TEST_MARKER: "client-one" } });
       await waitForFileContent(outFile, "client-one");
 
       // A crash/health-triggered restart has no client attached and passes
@@ -661,7 +661,7 @@ describe("client_env forwarding", () => {
       await waitForFileContent(outFile, "client-one");
 
       // A second, later client's env replaces the stored one again.
-      await sup.restart(["api"], { DEVCTL_TEST_MARKER: "client-two" });
+      await sup.restart(["api"], { clientEnv: { DEVCTL_TEST_MARKER: "client-two" } });
       await waitForFileContent(outFile, "client-two");
     } finally {
       await sup.stop(["api"]).catch(() => {});
@@ -747,6 +747,93 @@ describe("lifecycle generations", () => {
     }
   }, 15_000);
 });
+
+describe("stop/restart graph direction", () => {
+  test("stop cascades to dependents; plain restart touches only the named service; restart --cascade also restarts dependents", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    const longRunning = { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false };
+    // auth <- api <- worker (api depends on auth, worker depends on api).
+    cfg.services.auth = { ...emptyService(), command: longRunning };
+    cfg.services.api = { ...emptyService(), command: longRunning, dependencies: ["auth"] };
+    cfg.services.worker = { ...emptyService(), command: longRunning, dependencies: ["api"] };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["worker"] });
+      expect(Object.values(pidsOf(sup, ["auth", "api", "worker"])).every((pid) => pid > 0)).toBe(true);
+
+      // Stopping the root dependency (auth) must cascade forward to
+      // everything that depends on it — leaving api or worker running
+      // against a dead auth would be worse than stopping them too.
+      await sup.stop(["auth"]);
+      const afterStop = sup.snapshot().services;
+      expect(afterStop.auth?.state).toBe("STOPPED");
+      expect(afterStop.api?.state).toBe("STOPPED");
+      expect(afterStop.worker?.state).toBe("STOPPED");
+
+      await sup.start({ services: ["worker"] });
+      const running = pidsOf(sup, ["auth", "api", "worker"]);
+
+      // A plain restart of api must touch only api: auth (api's own
+      // dependency) and worker (api's dependent) keep their pids.
+      await sup.restart(["api"]);
+      const afterPlain = pidsOf(sup, ["auth", "api", "worker"]);
+      expect(afterPlain.auth).toBe(running.auth);
+      expect(afterPlain.api).not.toBe(running.api);
+      expect(afterPlain.worker).toBe(running.worker);
+
+      // restart --cascade also restarts api's dependent (worker), but still
+      // never touches api's own dependency (auth).
+      await sup.restart(["api"], { cascade: true });
+      const afterCascade = pidsOf(sup, ["auth", "api", "worker"]);
+      expect(afterCascade.auth).toBe(afterPlain.auth);
+      expect(afterCascade.api).not.toBe(afterPlain.api);
+      expect(afterCascade.worker).not.toBe(afterPlain.worker);
+    } finally {
+      await sup.stop([]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 20_000);
+
+  test("dispatch(\"restart\") reads cascade from the wire params", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    const longRunning = { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false };
+    cfg.services.api = { ...emptyService(), command: longRunning };
+    cfg.services.worker = { ...emptyService(), command: longRunning, dependencies: ["api"] };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["worker"] });
+      const before = pidsOf(sup, ["api", "worker"]);
+      await sup.dispatch("restart", { services: ["api"], cascade: true });
+      const after = pidsOf(sup, ["api", "worker"]);
+      expect(after.api).not.toBe(before.api);
+      expect(after.worker).not.toBe(before.worker);
+    } finally {
+      await sup.stop([]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+});
+
+function pidsOf(sup: Supervisor, names: string[]): Record<string, number> {
+  const snap = sup.snapshot().services;
+  const out: Record<string, number> = {};
+  for (const name of names) {
+    out[name] = snap[name]?.pid ?? 0;
+  }
+  return out;
+}
 
 async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

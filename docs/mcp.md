@@ -50,8 +50,8 @@ devctl mcp --json
 | `get_config` | Merged summary: project, services, routes, proxy paths |
 | `run_doctor` | Doctor report |
 | `start_services` | Named list, or a `profile`. Omitted names use `profile`, then the active session profile, then the first configured profile — never every service. No profile and no names fails closed |
-| `stop_services` | Named list, or all started services when omitted |
-| `restart_services` | Stop then start; start still expands dependencies |
+| `stop_services` | Named list, or all started services when omitted. Also stops every transitive dependent of a named service — never its dependencies |
+| `restart_services` | Named list; touches only those services, not dependents, unless `cascade: true`. Start still expands dependencies |
 | `reload_config` | Reload `.devctl` |
 
 Resources (always-fresh reads): `devctl://status`, `devctl://services`, `devctl://logs`, `devctl://config`, `devctl://doctor`.

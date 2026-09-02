@@ -22,7 +22,7 @@ export type McpHost = {
   config(): DevctlConfig;
   start(req: StartRequest): Promise<unknown>;
   stop(names: string[]): Promise<void>;
-  restart(names: string[]): Promise<void>;
+  restart(names: string[], cascade?: boolean): Promise<void>;
   reload(): Promise<ReloadResult>;
   doctor(): Promise<Report>;
 };
@@ -98,7 +98,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "stop_services",
-    description: "Stop named services, or all started services when names are omitted",
+    description:
+      "Stop named services, or all started services when names are omitted. Also stops every service that transitively depends on a named one (never a named service's own dependencies, which other running services may still need).",
     inputSchema: {
       type: "object",
       properties: { services: { type: "array", items: { type: "string" } } },
@@ -107,10 +108,14 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "restart_services",
-    description: "Restart named services",
+    description:
+      "Restart named services. By default this touches only the named services, not anything that depends on them. Pass cascade=true to also restart their transitive dependents (the same set stop_services would affect).",
     inputSchema: {
       type: "object",
-      properties: { services: { type: "array", items: { type: "string" } } },
+      properties: {
+        services: { type: "array", items: { type: "string" } },
+        cascade: { type: "boolean", description: "Also restart transitive dependents; default false restarts only the named services" },
+      },
       additionalProperties: false,
     },
   },
@@ -278,7 +283,7 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       await host.stop(stringList(args.services));
       return { ok: true };
     case "restart_services":
-      await host.restart(stringList(args.services));
+      await host.restart(stringList(args.services), args.cascade === true);
       return { ok: true };
     case "reload_config":
       return host.reload();

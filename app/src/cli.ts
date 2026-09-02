@@ -111,13 +111,14 @@ function addRestart(root: Command): void {
   root
     .command("restart")
     .argument("[services...]")
+    .option("--cascade", "also restart transitive dependents (default: only the named services)")
     .option("--json", "machine-readable output")
-    .action(async (services: string[], opts: { json?: boolean }) => {
+    .action(async (services: string[], opts: { cascade?: boolean; json?: boolean }) => {
       const ctrl = await openController("", configFlag(root), true);
       try {
-        await ctrl.restart(services);
+        await ctrl.restart(services, opts.cascade === true);
         if (opts.json) {
-          writeOut(JSON.stringify({ restarted: services }, null, 2) + "\n");
+          writeOut(JSON.stringify({ restarted: services, cascade: opts.cascade === true }, null, 2) + "\n");
         }
       } finally {
         await ctrl.close();
