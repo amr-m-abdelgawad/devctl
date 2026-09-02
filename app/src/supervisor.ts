@@ -685,6 +685,11 @@ export class Supervisor {
     this.setState(name, StateRunning, HealthUnknown, handle.pid, "");
     this.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));
     this.startHealth(name, svc, handle.pid, assigned, workDir, envList(env), gen);
+    // Persist right after a successful spawn — not batched at the end of
+    // start()'s whole plan — so a crash-restart's respawn (which never goes
+    // through start() at all) and an earlier wave's processes both survive
+    // a daemon crash even when a later wave or health wait goes on to fail.
+    this.persistState();
     if (svc.startup.wait_for_healthy) {
       const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
       try {
@@ -755,6 +760,11 @@ export class Supervisor {
     if (should && svc && n < max) {
       this.setState(name, StateRestarting, HealthUnknown, 0, msg);
       this.bumpRestartCount(name, n + 1);
+      // The process that just exited is already gone from procs.all() (the
+      // ProcessManager removes it before invoking this callback), so this
+      // promptly clears its now-dead pid from disk instead of leaving a
+      // stale record there until some unrelated later event persists again.
+      this.persistState();
       this.armRestart(name, svc, gen, n, () => {
         void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
       });
@@ -1464,6 +1474,7 @@ export class Supervisor {
     }
     this.bus.publish(newEvent(ServiceFailed, name, { error: humanMessage(err) }));
     this.log(name, "ERROR", humanMessage(err));
+    this.persistState();
   }
 
   private log(service: string, level: string, message: string): void {
@@ -1528,6 +1539,7 @@ export class Supervisor {
       this.log(name, "WARN", `adopt pid ${pid} failed (${detail}); tracking leftover in snapshot only`);
     }
     this.processMeta.set(name, { command: args, cwd: workDir, startTime });
+    this.persistState();
     return gen;
   }
 

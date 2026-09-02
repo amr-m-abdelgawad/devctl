@@ -827,6 +827,75 @@ describe("restart-count bookkeeping", () => {
   }, 10_000);
 });
 
+describe("persisted state durability", () => {
+  test("a crash-restarted service's new pid is persisted, not just held in memory", async () => {
+    const dir = tmp();
+    const marker = join(dir, "crashed-once.marker");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.flaky = {
+      ...emptyService(),
+      environment: { vars: { CRASH_MARKER: marker }, required: [], defaults: {} },
+      command: {
+        args: [
+          process.execPath,
+          "-e",
+          "const fs=require('fs'); const m=process.env.CRASH_MARKER; if(!fs.existsSync(m)){fs.writeFileSync(m,'1'); process.exit(1);} setInterval(()=>{},1000);",
+        ],
+        shell: false,
+      },
+      restart: { policy: "always", max_retries: 5, backoff_seconds: 0.05 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      void sup.start({ services: ["flaky"] }).catch(() => {});
+
+      // Crash-restart's respawn never goes through start() (which used to be
+      // the only place that persisted) — it calls startOne() directly, so
+      // without startOne() persisting its own successful spawn the new pid
+      // would never make it to disk at all.
+      await waitFor(() => (sup.snapshot().services.flaky?.restarts ?? 0) > 0 && (sup.snapshot().services.flaky?.pid ?? 0) > 0);
+      const pid = sup.snapshot().services.flaky?.pid ?? 0;
+      expect(pid).toBeGreaterThan(0);
+
+      const persisted = readPersistedState(dir);
+      expect(persisted?.processes.find((p) => p.name === "flaky")?.pid).toBe(pid);
+    } finally {
+      await sup.stop(["flaky"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("a service that fails is promptly removed from persisted state", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.flaky = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "process.exit(1)"], shell: false },
+      restart: { policy: "never", max_retries: 0, backoff_seconds: 0 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["flaky"] });
+
+      await waitFor(() => sup.snapshot().services.flaky?.state === "FAILED");
+
+      const persisted = readPersistedState(dir);
+      expect(persisted?.processes.find((p) => p.name === "flaky")).toBeUndefined();
+    } finally {
+      await sup.stop(["flaky"]).catch(() => {});
+    }
+  }, 10_000);
+});
+
 describe("lifecycle generations", () => {
   test("a slow health check for a superseded generation cannot corrupt the newer process's state", async () => {
     const dir = tmp();
