@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, supervisorSpawnCommand } from "./controller.ts";
+import { osEnviron } from "./environment.ts";
 import { KindGeneral } from "./errors.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
@@ -278,5 +279,28 @@ describe("controller close", () => {
       await ctrl.close(opts);
       expect(calls).toEqual([]);
     }
+  });
+});
+
+describe("client_env forwarding", () => {
+  test("Controller.start and Controller.restart forward the calling client's own process.env", async () => {
+    const calls: Array<{ method: string; params: unknown }> = [];
+    const ctrl = new Controller({ shutdown: {} } as never);
+    ctrl.client = {
+      compat: { compatible: true, legacy: false },
+      call: async (method: string, params: unknown) => {
+        calls.push({ method, params });
+        return null;
+      },
+      close: () => undefined,
+    } as never;
+
+    await ctrl.start({ services: ["api"] });
+    await ctrl.restart(["api"]);
+
+    expect(calls).toEqual([
+      { method: "start", params: { services: ["api"], client_env: osEnviron() } },
+      { method: "restart", params: { services: ["api"], client_env: osEnviron() } },
+    ]);
   });
 });

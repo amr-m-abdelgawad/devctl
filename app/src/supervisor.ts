@@ -103,6 +103,14 @@ export class Supervisor {
   private readonly mcpToken: string;
   private tokenEP?: TokenEndpoint;
   private profile = "";
+  // Per-service: the OS environment of whichever client (CLI/TUI) most
+  // recently started/restarted it, in memory only. A service that has never
+  // been started/restarted by a real client this way — an MCP-initiated
+  // start, or a process adopted by recoverSession() — has no entry, and
+  // resolveEnvironment() falls back to the daemon's own environment. This is
+  // intentionally never persisted: it does not survive a daemon replacement,
+  // which must be restarted by a real client to pick up fresh env again.
+  private readonly clientEnv = new Map<string, Record<string, string>>();
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private readonly healthTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -331,12 +339,13 @@ export class Supervisor {
           services: asStringArray(rec.services),
           profile: typeof rec.profile === "string" ? rec.profile : "",
           detach: rec.detach === true,
+          client_env: asStringRecord(rec.client_env),
         });
       case "stop":
         await this.stop(asStringArray(rec.services));
         return null;
       case "restart":
-        await this.restart(asStringArray(rec.services));
+        await this.restart(asStringArray(rec.services), asStringRecord(rec.client_env));
         return null;
       case "auth_refresh":
         this.tokens.invalidate();
@@ -415,6 +424,14 @@ export class Supervisor {
       this.profile = resolved.profile;
     }
     this.profileEnv = resolved.env;
+    // Only a request that actually carries a client_env replaces the stored
+    // fallback for these services — an MCP-initiated or internally-triggered
+    // start (never a real client) must not blank out an earlier real one.
+    if (req.client_env) {
+      for (const name of resolved.services) {
+        this.clientEnv.set(name, req.client_env);
+      }
+    }
     const plan = startupPlan(this.cfg, resolved.services, resolved.profile);
     const google = await this.detectGoogleFn(this.cfg.google.project_id);
     plan.blockers = identityBlockers(this.cfg, plan.waves.flat(), google.adcAvailable);
@@ -602,6 +619,7 @@ export class Supervisor {
       cfg: this.cfg,
       fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
       pluginSources: this.registry?.environmentSources,
+      clientEnv: this.clientEnv.get(name),
     });
     let workDir = svc.working_dir;
     if (workDir !== "" && !isAbsolute(workDir)) {
@@ -783,9 +801,9 @@ export class Supervisor {
     this.persistState();
   }
 
-  async restart(names: string[]): Promise<void> {
+  async restart(names: string[], clientEnv?: Record<string, string>): Promise<void> {
     await this.stop(names);
-    await this.start({ services: names, profile: this.profile });
+    await this.start({ services: names, profile: this.profile, client_env: clientEnv });
   }
 
   async startProxy(): Promise<void> {
@@ -1545,6 +1563,19 @@ function asStringArray(value: unknown): string[] {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof val === "string") {
+      out[key] = val;
+    }
+  }
+  return out;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -16,6 +16,14 @@ export type EnvRequest = {
   sourceValues?: Partial<Record<string, Record<string, string>>>;
   fetchSecret?: (resource: string) => string | Promise<string>;
   pluginSources?: EnvironmentSource[];
+  // The OS environment of whichever client (CLI/TUI) most recently issued a
+  // start/restart for this service, captured at the daemon's RPC boundary —
+  // never the daemon's own process.env, which is a stale snapshot fixed at
+  // whenever the daemon itself was first spawned. Falls back to the
+  // daemon's own environment (osEnviron()) when no client has ever supplied
+  // one for this service, e.g. an MCP-initiated start or a session-recovered
+  // process.
+  clientEnv?: Record<string, string>;
 };
 
 export type EnvSourceContext = {
@@ -141,7 +149,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
   };
   const assignedAll = collectAssigned(req);
   const layers: Record<string, Record<string, string>> = {
-    process: osEnviron(),
+    process: req.clientEnv ?? osEnviron(),
     profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll),
     dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll),
     generated: {},
@@ -267,7 +275,7 @@ function loadDotenvFamily(dir: string, profile: string): Record<string, string> 
   return out;
 }
 
-function osEnviron(): Record<string, string> {
+export function osEnviron(): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) {

@@ -2,6 +2,7 @@ import { createConnection, type Socket } from "node:net";
 import { spawn } from "bun";
 import { type DevctlConfig, load, stopOnExit } from "./config/index.ts";
 import { resolveDaemonTarget } from "./daemon.ts";
+import { osEnviron } from "./environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
 import { type LogEvent } from "./logs.ts";
@@ -271,7 +272,7 @@ export class Controller {
       this.local = undefined;
       this.client = await ensureSupervisor(this.cfg.repoRoot, this.cfg.configPath);
     }
-    const raw = await this.call("start", req);
+    const raw = await this.call("start", { ...req, client_env: osEnviron() });
     return raw as Plan;
   }
 
@@ -280,7 +281,7 @@ export class Controller {
   }
 
   async restart(services: string[]): Promise<void> {
-    await this.call("restart", { services });
+    await this.call("restart", { services, client_env: osEnviron() });
   }
 
   async status(): Promise<StatusSnapshot> {

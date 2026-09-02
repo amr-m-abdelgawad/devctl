@@ -5,6 +5,10 @@ export type StartRequest = {
   services?: string[];
   profile?: string;
   detach?: boolean;
+  // The calling client's own OS environment, forwarded so the daemon can
+  // resolve each started service's env from whichever client most recently
+  // started/restarted it, rather than the daemon's own stale process.env.
+  client_env?: Record<string, string>;
 };
 
 export type StopRequest = {

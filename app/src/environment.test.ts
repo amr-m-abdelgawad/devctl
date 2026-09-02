@@ -62,6 +62,42 @@ describe("environment precedence", () => {
     expect(env.DB_PASS).toBe("s3cret");
   });
 
+  test("the process layer prefers a supplied clientEnv over the real process.env", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-client-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const svc = emptyService();
+    const originalMarker = process.env.DEVCTL_TEST_CLIENT_ENV_MARKER;
+    process.env.DEVCTL_TEST_CLIENT_ENV_MARKER = "from-real-process-env";
+    try {
+      const withClientEnv = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: svc,
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        clientEnv: { DEVCTL_TEST_CLIENT_ENV_MARKER: "from-client" },
+      });
+      expect(withClientEnv.DEVCTL_TEST_CLIENT_ENV_MARKER).toBe("from-client");
+
+      const withoutClientEnv = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: svc,
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+      });
+      expect(withoutClientEnv.DEVCTL_TEST_CLIENT_ENV_MARKER).toBe("from-real-process-env");
+    } finally {
+      if (originalMarker === undefined) {
+        delete process.env.DEVCTL_TEST_CLIENT_ENV_MARKER;
+      } else {
+        process.env.DEVCTL_TEST_CLIENT_ENV_MARKER = originalMarker;
+      }
+    }
+  });
+
   test("runtimeForService sets SERVICE_PORT from http", () => {
     const env = runtimeForService("api", "127.0.0.1", { http: 8080, grpc: 9090 }, "http://127.0.0.1:18080", "dev");
     expect(env.SERVICE_PORT).toBe("8080");

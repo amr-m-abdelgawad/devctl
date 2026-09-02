@@ -1,5 +1,5 @@
 import { createServer } from "node:net";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
@@ -617,6 +617,78 @@ services:
     }
   }, 15000);
 });
+
+describe("client_env forwarding", () => {
+  test("a client's env applies on start, stays sticky through a client_env-less restart, and a fresh client's env replaces it", async () => {
+    const dir = tmp();
+    const outFile = join(dir, "marker.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.api = {
+      ...emptyService(),
+      environment: { vars: { OUT_FILE: outFile }, required: [], defaults: {} },
+      command: {
+        args: [
+          process.execPath,
+          "-e",
+          "require('fs').writeFileSync(process.env.OUT_FILE, process.env.DEVCTL_TEST_MARKER ?? 'unset'); setInterval(() => {}, 1000);",
+        ],
+        shell: false,
+      },
+    };
+    const originalMarker = process.env.DEVCTL_TEST_MARKER;
+    // Simulates the daemon's own (stale) process.env — the fallback a
+    // service must use when no real client has ever supplied one for it.
+    process.env.DEVCTL_TEST_MARKER = "daemon-own-env";
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      // An MCP-style start (no client_env) falls back to the daemon's env.
+      await sup.start({ services: ["api"] });
+      await waitForFileContent(outFile, "daemon-own-env");
+
+      // A real client's restart replaces the fallback for this service.
+      await sup.restart(["api"], { DEVCTL_TEST_MARKER: "client-one" });
+      await waitForFileContent(outFile, "client-one");
+
+      // A crash/health-triggered restart has no client attached and passes
+      // no client_env — it must reuse the last real client's env, not fall
+      // back to the daemon's own.
+      await sup.restart(["api"]);
+      await waitForFileContent(outFile, "client-one");
+
+      // A second, later client's env replaces the stored one again.
+      await sup.restart(["api"], { DEVCTL_TEST_MARKER: "client-two" });
+      await waitForFileContent(outFile, "client-two");
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+      if (originalMarker === undefined) {
+        delete process.env.DEVCTL_TEST_MARKER;
+      } else {
+        process.env.DEVCTL_TEST_MARKER = originalMarker;
+      }
+    }
+  }, 15_000);
+});
+
+async function waitForFileContent(path: string, expected: string, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    if (existsSync(path)) {
+      last = readFileSync(path, "utf8");
+      if (last === expected) {
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`timed out waiting for ${path} to contain ${JSON.stringify(expected)}; last saw ${JSON.stringify(last)}`);
+}
 
 function bunServe(port: number): { args: string[]; shell: boolean } {
   return {
