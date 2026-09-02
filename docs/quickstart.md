@@ -26,15 +26,16 @@ See [TUI](tui.md) for every screen and key.
 ## CLI equivalent
 
 ```bash
-devctl start --profile backend --detach
+devctl start --profile backend
 devctl status
 devctl logs invoices-api
 devctl attach
+devctl down
 ```
 
-`devctl start` with no profile and no service names starts the active session profile, or the first configured profile. Pass `--profile` or explicit names to stay narrower. With no profiles, start fails instead of launching every service.
+`devctl start` with no profile and no service names starts the active session profile, or the first configured profile. Pass `--profile` or explicit names to stay narrower. With no profiles, start fails instead of launching every service. It always leaves the daemon running after it exits — `--detach` is deprecated and no longer needed for that.
 
-`devctl attach` only dials an existing supervisor. If nothing is listening, start with `--detach` first.
+`devctl attach` only dials an existing supervisor. If nothing is listening, start with `devctl start` first. `devctl down` stops the daemon when you are done (add `--keep-services` to leave services running).
 
 ## Try the demo
 

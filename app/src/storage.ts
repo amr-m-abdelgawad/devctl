@@ -138,13 +138,19 @@ export type PersistedState = {
 };
 
 export function readPersistedState(repoRoot: string): PersistedState | undefined {
-  const path = statePath(repoRoot);
+  return readPersistedStateFile(statePath(repoRoot));
+}
+
+// Shared with daemon.ts's state-directory scan, which reads state.json
+// files by their on-disk path directly rather than deriving it from a
+// repo_root it doesn't have yet — that's the whole point of the scan.
+export function readPersistedStateFile(path: string): PersistedState | undefined {
   if (!existsSync(path)) {
     return undefined;
   }
   try {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as PersistedState & { services?: Record<string, unknown> };
-    if (Array.isArray(parsed.processes)) {
+    if (Array.isArray(parsed.processes) && typeof parsed.repo_root === "string") {
       return parsed;
     }
     return undefined;

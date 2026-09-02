@@ -1,10 +1,13 @@
 import { createServer } from "node:net";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
-import { SessionRecovered } from "./events.ts";
+import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
+import { MCP_TOOLS } from "./mcp/tools.ts";
 import { processAlive, readPersistedState, writePersistedState } from "./storage.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
+import { saveTuiPreferences } from "./tui/tui-config.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
 
 function tmp(): string {
@@ -315,7 +318,7 @@ describe("supervisor snapshot", () => {
       },
     });
     try {
-      await sup.run({ autoStartProxy: false });
+      await sup.run();
       expect(events[0]).toBe("lock");
       expect(events.slice(1)).toEqual(["check", "unlink", "check", "unlink"]);
     } finally {
@@ -459,6 +462,138 @@ describe("supervisor snapshot", () => {
     }
   }, 15_000);
 
+  test("config_snapshot returns the current in-memory config and is never exposed to MCP", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.project.name = "snapshot-test";
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const snap = (await sup.dispatch("config_snapshot", null)) as { project: { name: string } };
+    expect(snap.project.name).toBe("snapshot-test");
+    expect(MCP_TOOLS.some((tool) => tool.name.includes("config_snapshot"))).toBe(false);
+  });
+
+  test("a failed reload publishes ConfigurationReloadFailed and keeps the previous config", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeFileSync(
+      configPath,
+      `version: 1
+project:
+  name: before-reload
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const seen: Array<{ type: string; payload?: Record<string, unknown> }> = [];
+    sup.subscribe((ev) => seen.push({ type: ev.type, payload: ev.payload }));
+
+    // Break the file on disk without going through the supervisor.
+    writeFileSync(configPath, "version: [\n");
+    await expect(sup.reload()).rejects.toThrow();
+
+    const failure = seen.find((ev) => ev.type === ConfigurationReloadFailed);
+    expect(failure).toBeDefined();
+    expect(String(failure?.payload?.error ?? "")).toMatch(/invalid YAML/);
+
+    const snap = (await sup.dispatch("config_snapshot", null)) as { project: { name: string } };
+    expect(snap.project.name).toBe("before-reload");
+  });
+
+  test("lazy, sticky proxy: startup never binds it, the first start does, and explicit stop sticks across further starts", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: await freePort() };
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // The first start() auto-starts it.
+      await sup.start({ services: ["api"] });
+      expect(sup.snapshot().proxy.running).toBe(true);
+
+      // Explicit proxy_stop suppresses it — not just for now, but for every
+      // subsequent start() until an explicit proxy_start.
+      await sup.dispatch("proxy_stop", null);
+      expect(sup.snapshot().proxy.running).toBe(false);
+      await sup.stop(["api"]);
+      await sup.start({ services: ["api"] });
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // reload() must not clear that suppression on its own.
+      await sup.reload().catch(() => undefined);
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // Only an explicit proxy_start clears it.
+      await sup.dispatch("proxy_start", null);
+      expect(sup.snapshot().proxy.running).toBe(true);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("a saved mcp_enabled preference starts MCP at daemon boot, independent of which client spawned it", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    // Written directly to the user's tui.json, exactly as the TUI's own
+    // "toggle MCP" persists it — nothing here is CLI- or TUI-specific,
+    // proving the daemon applies it on its own at boot.
+    saveTuiPreferences({ mcp_enabled: true, mcp_port: port });
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      const snap = sup.snapshot();
+      expect(snap.mcp?.running).toBe(true);
+      expect(snap.mcp?.port).toBe(port);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("no saved mcp preference leaves MCP off at boot", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      expect(sup.snapshot().mcp?.running).toBe(false);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();
     const cfg = defaultConfig();
@@ -482,6 +617,78 @@ describe("supervisor snapshot", () => {
     }
   }, 15000);
 });
+
+describe("client_env forwarding", () => {
+  test("a client's env applies on start, stays sticky through a client_env-less restart, and a fresh client's env replaces it", async () => {
+    const dir = tmp();
+    const outFile = join(dir, "marker.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.api = {
+      ...emptyService(),
+      environment: { vars: { OUT_FILE: outFile }, required: [], defaults: {} },
+      command: {
+        args: [
+          process.execPath,
+          "-e",
+          "require('fs').writeFileSync(process.env.OUT_FILE, process.env.DEVCTL_TEST_MARKER ?? 'unset'); setInterval(() => {}, 1000);",
+        ],
+        shell: false,
+      },
+    };
+    const originalMarker = process.env.DEVCTL_TEST_MARKER;
+    // Simulates the daemon's own (stale) process.env — the fallback a
+    // service must use when no real client has ever supplied one for it.
+    process.env.DEVCTL_TEST_MARKER = "daemon-own-env";
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      // An MCP-style start (no client_env) falls back to the daemon's env.
+      await sup.start({ services: ["api"] });
+      await waitForFileContent(outFile, "daemon-own-env");
+
+      // A real client's restart replaces the fallback for this service.
+      await sup.restart(["api"], { DEVCTL_TEST_MARKER: "client-one" });
+      await waitForFileContent(outFile, "client-one");
+
+      // A crash/health-triggered restart has no client attached and passes
+      // no client_env — it must reuse the last real client's env, not fall
+      // back to the daemon's own.
+      await sup.restart(["api"]);
+      await waitForFileContent(outFile, "client-one");
+
+      // A second, later client's env replaces the stored one again.
+      await sup.restart(["api"], { DEVCTL_TEST_MARKER: "client-two" });
+      await waitForFileContent(outFile, "client-two");
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+      if (originalMarker === undefined) {
+        delete process.env.DEVCTL_TEST_MARKER;
+      } else {
+        process.env.DEVCTL_TEST_MARKER = originalMarker;
+      }
+    }
+  }, 15_000);
+});
+
+async function waitForFileContent(path: string, expected: string, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  let last = "";
+  while (Date.now() < deadline) {
+    if (existsSync(path)) {
+      last = readFileSync(path, "utf8");
+      if (last === expected) {
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`timed out waiting for ${path} to contain ${JSON.stringify(expected)}; last saw ${JSON.stringify(last)}`);
+}
 
 function bunServe(port: number): { args: string[]; shell: boolean } {
   return {

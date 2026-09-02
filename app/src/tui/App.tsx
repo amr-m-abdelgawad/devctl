@@ -2,13 +2,13 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import { validateConfigText } from "../config/index.ts";
+import { validateConfigText, type DevctlConfig } from "../config/index.ts";
 import { type Controller } from "../controller.ts";
 import { runDoctor, type DoctorProgress, type Report } from "../doctor.ts";
 import { freePort, type PortHolder } from "../ports.ts";
 import { detectGoogle, type GoogleStatus } from "../google.ts";
 import { humanMessage } from "../errors.ts";
-import { LogReceived, type BusEvent } from "../events.ts";
+import { ConfigurationChanged, ConfigurationReloadFailed, LogReceived, type BusEvent } from "../events.ts";
 import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent } from "../logs.ts";
 import { exportsDir } from "../storage.ts";
 import { resolveStartRequest, shutdownPlan, startupPlan, type Plan } from "../services.ts";
@@ -19,7 +19,7 @@ import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, 
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
+import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, navItemForDigit, nextLogWrapMode, nextScreen, noneStarted, pageScrollAmount, paletteOptions, pickLogService, planServices, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, visibleLogs, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
   isClearLogsKey,
@@ -196,11 +196,14 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [lifecycle, setLifecycle] = useState<LifecycleKind>("start");
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>("quit");
   const [mcpPort, setMcpPort] = useState(() => tui.mcp_port ?? derivedMcpPort(controller?.cfg.repoRoot ?? process.cwd()));
-  const mcpStarted = useRef(false);
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
 
-  const cfg = controller?.cfg;
+  const [cfg, setCfg] = useState<DevctlConfig | undefined>(controller?.cfg);
+  // Persists across reloads until the next successful one supersedes it —
+  // unlike `status`, which is a transient one-line message for the last
+  // action, this is state the user needs to keep seeing.
+  const [configReloadError, setConfigReloadError] = useState<string | undefined>(undefined);
   const copyKey = tui.keybinds.copy ?? defaultCopyKeybind();
   const names = useMemo(() => Object.keys(cfg?.services ?? {}).sort(), [cfg]);
   const logSources = useMemo(() => logFilterSources(names, logs, extraLogSources), [names, logs, extraLogSources]);
@@ -488,14 +491,14 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     (next: number) => {
       const port = clampMcpPort(next);
       setMcpPort(port);
-      const root = controller?.cfg.repoRoot ?? process.cwd();
+      const root = cfg?.repoRoot ?? process.cwd();
       if (isDerivedMcpPort(root, port)) {
         persistPrefs({ mcp_port: null }, `MCP port ${port} (default)`);
         return;
       }
       persistPrefs({ mcp_port: port }, `MCP port ${port}`);
     },
-    [controller, persistPrefs],
+    [cfg, persistPrefs],
   );
 
   const applyMcpPortDraft = useCallback(() => {
@@ -603,26 +606,13 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   }, [refresh, refreshLogs]);
 
   useEffect(() => {
-    if (!controller || !tui.mcp_enabled || mcpStarted.current) {
-      return;
-    }
-    mcpStarted.current = true;
-    void controller
-      .mcpStart({ port: tui.mcp_port ?? mcpPort })
-      .then(() => refresh())
-      .catch((err: unknown) => {
-        setStatus(humanMessage(err));
-      });
-  }, [controller, mcpPort, refresh, tui.mcp_enabled, tui.mcp_port]);
-
-  useEffect(() => {
     if (!controller) {
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     let statusDirty = false;
     const pendingLogs: LogEvent[] = [];
-    const cap = controller.cfg.logs.max_memory_events > 0 ? controller.cfg.logs.max_memory_events : 50_000;
+    const cap = cfg && cfg.logs.max_memory_events > 0 ? cfg.logs.max_memory_events : 50_000;
     const flush = (): void => {
       timer = undefined;
       if (pendingLogs.length > 0) {
@@ -644,6 +634,14 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           timer = setTimeout(flush, 30);
         }
         return;
+      }
+      if (ev.type === ConfigurationReloadFailed) {
+        setConfigReloadError(reloadFailureMessage(ev));
+        return;
+      }
+      if (ev.type === ConfigurationChanged) {
+        setConfigReloadError(undefined);
+        void controller.configSnapshot().then(setCfg).catch((err: unknown) => setStatus(humanMessage(err)));
       }
       statusDirty = true;
       if (!timer) {
@@ -1868,6 +1866,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         <>
           <Header palette={palette} cfg={cfg} snap={snap} google={google} profile={profile} reveal={reveal} width={width} />
           <NavStrip palette={palette} screen={screen} width={width} onSelect={setScreen} />
+          {configReloadError ? (
+            <box height={1} paddingLeft={1} backgroundColor={palette.panel} overflow="hidden">
+              <text fg={palette.error} wrapMode="none">{`⚠ configuration reload failed: ${configReloadError}`}</text>
+            </box>
+          ) : null}
         </>
       )}
       <box flexGrow={1} overflow="hidden">

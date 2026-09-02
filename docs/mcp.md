@@ -4,7 +4,7 @@
 
 The listener lives on the **supervisor** (the same process that owns services and the proxy). The TUI only toggles it and copies config. Agents need a URL; a stdio child of the TUI would die when the TUI exits.
 
-Default is **off** (`mcp_enabled` in `~/.devctl/tui.json`).
+Default is **off** (`mcp_enabled` in `~/.devctl/tui.json`). Once on, the supervisor applies that preference itself at startup — whether it was spawned by the TUI or by a plain CLI command — so the listener comes back on the next `devctl start` too, not only while the TUI is attached.
 
 ## Enable it
 

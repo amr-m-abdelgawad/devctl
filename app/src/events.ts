@@ -11,6 +11,7 @@ export const ProxyStarted = "ProxyStarted";
 export const ProxyStopped = "ProxyStopped";
 export const ProxyRequest = "ProxyRequest";
 export const ConfigurationChanged = "ConfigurationChanged";
+export const ConfigurationReloadFailed = "ConfigurationReloadFailed";
 export const SessionRecovered = "SessionRecovered";
 
 export type EventType =
@@ -27,6 +28,7 @@ export type EventType =
   | typeof ProxyStopped
   | typeof ProxyRequest
   | typeof ConfigurationChanged
+  | typeof ConfigurationReloadFailed
   | typeof SessionRecovered
   | string;
 

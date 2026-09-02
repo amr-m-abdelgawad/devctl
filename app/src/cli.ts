@@ -1,8 +1,9 @@
 import { Command } from "commander";
 import { stringify } from "yaml";
 import { defaultConfig, load, stopOnExit, validate } from "./config/index.ts";
-import { openAttach, openController } from "./controller.ts";
+import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "./controller.ts";
 import { readPersistedState } from "./storage.ts";
+import type { StatusSnapshot } from "./types.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { ExitSuccess, humanMessage, exitCode } from "./errors.ts";
 import { detectGoogle, loginGoogle, logoutGoogle } from "./google.ts";
@@ -37,6 +38,7 @@ export function newRoot(): Command {
   addStop(root);
   addRestart(root);
   addStatus(root);
+  addDown(root);
   addLogs(root);
   addDoctor(root);
   addSetup(root);
@@ -62,9 +64,14 @@ function addStart(root: Command): void {
     .command("start")
     .argument("[services...]", "services to start")
     .option("--profile <name>", "profile to start")
-    .option("--detach", "leave supervisor running after the command exits")
+    .option("--detach", "deprecated, no longer changes behavior: the daemon already outlives this command; use `devctl down` to stop it")
     .option("--json", "machine-readable output")
     .action(async (services: string[], opts: { profile?: string; detach?: boolean; json?: boolean }) => {
+      if (opts.detach) {
+        process.stderr.write(
+          "warning: --detach is deprecated and no longer changes behavior — the daemon already keeps running after `start` exits; use `devctl down` to stop it\n",
+        );
+      }
       const ctrl = await openController("", configFlag(root), true);
       try {
         const plan = await ctrl.start({ services, profile: opts.profile, detach: opts.detach === true });
@@ -121,12 +128,17 @@ function addRestart(root: Command): void {
 function addStatus(root: Command): void {
   root
     .command("status")
+    .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--json", "machine-readable output")
-    .action(async (opts: { json?: boolean }) => {
-      const ctrl = await openController("", configFlag(root), false);
+    .action(async (opts: { repo?: string; json?: boolean }) => {
+      // Deliberately not openController(): status only needs a repo root to
+      // dial, not a parsed config, so a deleted .devctl must not prevent it
+      // from finding a still-live daemon (findDaemon's discovery-then-
+      // state-scan fallback handles that).
+      const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
       try {
-        if (!ctrl.client && !ctrl.local) {
-          const persisted = readPersistedState(ctrl.cfg.repoRoot);
+        if (!client) {
+          const persisted = readPersistedState(repoRoot);
           if (opts.json) {
             writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
             return;
@@ -140,7 +152,8 @@ function addStatus(root: Command): void {
           }
           return;
         }
-        const snap = await ctrl.status();
+        assertMethodAllowed(client, "status");
+        const snap = (await client.call("status", null)) as StatusSnapshot;
         if (opts.json) {
           writeOut(JSON.stringify(snap, null, 2) + "\n");
           return;
@@ -154,9 +167,73 @@ function addStatus(root: Command): void {
         writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
         writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
       } finally {
-        await ctrl.close();
+        client?.close();
       }
     });
+}
+
+function addDown(root: Command): void {
+  root
+    .command("down")
+    .description("stop the daemon (and, by default, its services)")
+    .option("--repo <path>", "target a repository directly, even without a loadable configuration")
+    .option("--keep-services", "stop only the daemon; its services keep running, detached")
+    .action(async (opts: { repo?: string; keepServices?: boolean }) => {
+      const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
+      if (!client) {
+        writeOut(`no supervisor is running for ${repoRoot}\n`);
+        return;
+      }
+      const timeout = await shutdownTimeoutFor(client);
+      try {
+        const stopServices = opts.keepServices !== true;
+        // shutdown must work even against an incompatible daemon — it's
+        // the one command that removes it — so this deliberately skips
+        // assertMethodAllowed.
+        await client.call("shutdown", { stop_services: stopServices }, timeout);
+      } finally {
+        client.close();
+      }
+      // The RPC response above only means the daemon *accepted* the
+      // request — dispatch("shutdown") replies immediately and does the
+      // actual work shortly after (so the reply can flush before its own
+      // socket goes away). down's job is to leave the daemon actually
+      // gone, so wait for it to stop answering before reporting success.
+      await waitUntilUnreachable(repoRoot, timeout);
+      writeOut(
+        opts.keepServices !== true
+          ? `stopped services and the supervisor for ${repoRoot}\n`
+          : `stopped the supervisor for ${repoRoot}; its services keep running\n`,
+      );
+    });
+}
+
+async function waitUntilUnreachable(repoRoot: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const probe = await tryDial(repoRoot);
+    if (!probe) {
+      return;
+    }
+    probe.close();
+  }
+}
+
+// down works even without a loadable local config, so it can't rely on
+// cfg.shutdown.grace_seconds the way Controller.close() does. The daemon's
+// own last-known-good config (available even after .devctl is deleted) is
+// the more accurate source when it's reachable; fall back to a generous
+// fixed timeout otherwise — the shutdown itself still completes
+// server-side even if this client stops waiting for the response.
+async function shutdownTimeoutFor(client: { call: (method: string, params: unknown) => Promise<unknown> }): Promise<number> {
+  const fallback = 30_000;
+  try {
+    const cfg = (await client.call("config_snapshot", null)) as { shutdown?: { grace_seconds?: number } };
+    const grace = typeof cfg.shutdown?.grace_seconds === "number" ? cfg.shutdown.grace_seconds : 0;
+    return Math.max(5_000, grace * 1_000 + 2_000);
+  } catch {
+    return fallback;
+  }
 }
 
 function addLogs(root: Command): void {
@@ -327,7 +404,7 @@ function addProxy(root: Command): void {
     .action(async (opts: { json?: boolean }) => {
       const ctrl = await openController("", configFlag(root), false);
       try {
-        if (!ctrl.client && !ctrl.local) {
+        if (!ctrl.client) {
           writeOut("PROXY  STOPPED\n");
           return;
         }
@@ -377,12 +454,12 @@ function addMcp(root: Command): void {
       }
       const ctrl = await openController("", configFlag(root), opts.on === true);
       try {
-        if (opts.off === true && (ctrl.client || ctrl.local)) {
+        if (opts.off === true && ctrl.client) {
           await ctrl.mcpStop();
         } else if (opts.on === true) {
           await ctrl.mcpStart({ port: portOpt });
         }
-        const snap = ctrl.client || ctrl.local ? await ctrl.status() : undefined;
+        const snap = ctrl.client ? await ctrl.status() : undefined;
         const tui = loadTuiConfig(ctrl.cfg.repoRoot);
         const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot);
         const url = snap?.mcp?.address ?? mcpUrl(port);

@@ -20,6 +20,7 @@ import {
   AuthenticationChanged,
   Bus,
   ConfigurationChanged,
+  ConfigurationReloadFailed,
   ServiceFailed,
   ServiceHealthChanged,
   ServiceStarted,
@@ -41,6 +42,7 @@ import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameP
 import { McpHttpServer } from "./mcp/server.ts";
 import { type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
+import { loadTuiConfig } from "./tui/tui-config.ts";
 import { runDoctor } from "./doctor.ts";
 import { ProxyServer, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "./secrets.ts";
@@ -70,6 +72,7 @@ import {
 import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
 import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
+import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
 const HEALTH_POLL_MS = 100;
@@ -91,10 +94,23 @@ export class Supervisor {
   private readonly tokens: TokenManager;
   private readonly detector: Detector;
   private proxy?: ProxyServer;
+  // Set only by an explicit "proxy_stop" RPC, cleared only by an explicit
+  // "proxy_start" one — never by reload() or an internal stopProxy() call
+  // (config change, shutdown) — so a user who deliberately stopped the
+  // proxy doesn't have it silently come back on the next service start.
+  private proxySuppressed = false;
   private mcp?: McpHttpServer;
   private readonly mcpToken: string;
   private tokenEP?: TokenEndpoint;
   private profile = "";
+  // Per-service: the OS environment of whichever client (CLI/TUI) most
+  // recently started/restarted it, in memory only. A service that has never
+  // been started/restarted by a real client this way — an MCP-initiated
+  // start, or a process adopted by recoverSession() — has no entry, and
+  // resolveEnvironment() falls back to the daemon's own environment. This is
+  // intentionally never persisted: it does not survive a daemon replacement,
+  // which must be restarted by a real client to pick up fresh env again.
+  private readonly clientEnv = new Map<string, Record<string, string>>();
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private readonly healthTimers = new Map<string, ReturnType<typeof setInterval>>();
@@ -181,7 +197,7 @@ export class Supervisor {
     }
   }
 
-  async run(opts?: { autoStartProxy?: boolean }): Promise<void> {
+  async run(): Promise<void> {
     const socket = socketPath(this.cfg.repoRoot);
     // Acquire the lock BEFORE touching the socket file. acquireLock() is what
     // proves no live supervisor already owns this repo; deleting the socket
@@ -200,9 +216,16 @@ export class Supervisor {
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
     this.resourceTimer = setInterval(() => void this.pollResourceUsage(), RESOURCE_POLL_MS);
-    if (this.cfg.proxy.enabled && opts?.autoStartProxy !== false) {
-      await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
+    // MCP boot must not depend on which client happens to spawn or first
+    // attach to this daemon (CLI vs TUI): read the user's saved preference
+    // directly here rather than relying on a client to apply it.
+    const tuiPrefs = loadTuiConfig(this.cfg.repoRoot);
+    if (tuiPrefs.mcp_enabled) {
+      await this.startMcp(tuiPrefs.mcp_port).catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
+    // Lazy, sticky proxy policy: startup never binds it. The first start()
+    // call auto-starts it (see start() below) unless the user has
+    // explicitly suppressed it with `proxy stop`.
     // Recheck immediately before binding: still holding the lock acquired
     // above, so anything now at this path is necessarily stale (nothing else
     // can have won the lock in the meantime) — but the plugin/session work
@@ -310,18 +333,19 @@ export class Supervisor {
     const rec = isRecord(params) ? params : {};
     switch (method) {
       case "ping":
-        return { session: this.sessionID };
+        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION };
       case "start":
         return this.start({
           services: asStringArray(rec.services),
           profile: typeof rec.profile === "string" ? rec.profile : "",
           detach: rec.detach === true,
+          client_env: asStringRecord(rec.client_env),
         });
       case "stop":
         await this.stop(asStringArray(rec.services));
         return null;
       case "restart":
-        await this.restart(asStringArray(rec.services));
+        await this.restart(asStringArray(rec.services), asStringRecord(rec.client_env));
         return null;
       case "auth_refresh":
         this.tokens.invalidate();
@@ -341,9 +365,14 @@ export class Supervisor {
           export: typeof rec.export === "string" ? rec.export : "",
         });
       case "proxy_start":
+        // Only an explicit proxy_start clears suppression — startProxy()
+        // itself is also called from start() and reload(), which must not
+        // have this side effect.
+        this.proxySuppressed = false;
         await this.startProxy();
         return null;
       case "proxy_stop":
+        this.proxySuppressed = true;
         await this.stopProxy();
         return null;
       case "mcp_start":
@@ -354,6 +383,13 @@ export class Supervisor {
         return null;
       case "reload":
         return this.reload();
+      case "config_snapshot":
+        // Local RPC only — never exposed through MCP. Returns the last-
+        // known-good in-memory config with real values intact (not
+        // redacted): the TUI is the one deciding whether to display them,
+        // via the same Detector-based redaction it already applies
+        // elsewhere unless the user has explicitly turned on /reveal.
+        return this.cfg;
       case "logs_clear":
         this.logs.clear();
         return null;
@@ -388,6 +424,14 @@ export class Supervisor {
       this.profile = resolved.profile;
     }
     this.profileEnv = resolved.env;
+    // Only a request that actually carries a client_env replaces the stored
+    // fallback for these services — an MCP-initiated or internally-triggered
+    // start (never a real client) must not blank out an earlier real one.
+    if (req.client_env) {
+      for (const name of resolved.services) {
+        this.clientEnv.set(name, req.client_env);
+      }
+    }
     const plan = startupPlan(this.cfg, resolved.services, resolved.profile);
     const google = await this.detectGoogleFn(this.cfg.google.project_id);
     plan.blockers = identityBlockers(this.cfg, plan.waves.flat(), google.adcAvailable);
@@ -395,7 +439,7 @@ export class Supervisor {
     for (const blocker of plan.blockers) {
       await this.fail(blocker.name, newError(KindProcessStart, blocker.message));
     }
-    if (this.cfg.proxy.enabled) {
+    if (this.cfg.proxy.enabled && !this.proxySuppressed) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
     const pending: string[] = [];
@@ -575,6 +619,7 @@ export class Supervisor {
       cfg: this.cfg,
       fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
       pluginSources: this.registry?.environmentSources,
+      clientEnv: this.clientEnv.get(name),
     });
     let workDir = svc.working_dir;
     if (workDir !== "" && !isAbsolute(workDir)) {
@@ -756,9 +801,9 @@ export class Supervisor {
     this.persistState();
   }
 
-  async restart(names: string[]): Promise<void> {
+  async restart(names: string[], clientEnv?: Record<string, string>): Promise<void> {
     await this.stop(names);
-    await this.start({ services: names, profile: this.profile });
+    await this.start({ services: names, profile: this.profile, client_env: clientEnv });
   }
 
   async startProxy(): Promise<void> {
@@ -822,7 +867,19 @@ export class Supervisor {
   }
 
   async reload(): Promise<ReloadResult> {
-    const next = load(this.cfg.repoRoot, this.cfg.configPath);
+    let next: DevctlConfig;
+    try {
+      next = load(this.cfg.repoRoot, this.cfg.configPath);
+    } catch (err) {
+      // this.cfg is untouched at this point, so the daemon keeps running on
+      // its last-known-good config — but an already-attached client (which
+      // didn't necessarily initiate this reload; e.g. the config-file
+      // watcher did) has no other way to learn the reload it's about to see
+      // reflected in config_snapshot silently failed, so publish it.
+      this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
+      this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
+      throw err;
+    }
     const result = diffReload(this.cfg, next);
     const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
     const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);
@@ -1506,6 +1563,19 @@ function asStringArray(value: unknown): string[] {
     return [];
   }
   return value.filter((item): item is string => typeof item === "string");
+}
+
+function asStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof val === "string") {
+      out[key] = val;
+    }
+  }
+  return out;
 }
 
 function sleep(ms: number): Promise<void> {

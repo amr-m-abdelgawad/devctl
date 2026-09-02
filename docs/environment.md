@@ -13,7 +13,7 @@ flowchart LR
 
 | Source | What it loads |
 |--------|----------------|
-| `process` | The supervisor’s own environment |
+| `process` | The env of whichever CLI/TUI client most recently started or restarted this service (forwarded over the RPC as `client_env`), falling back to the supervisor's own environment if no client has done so yet — see below |
 | `profile` | `profiles.<name>.environment` |
 | `dotenv` | Repo-root then service working-dir: `.env`, `.env.local`, `.env.development`, `.env.<profile>` |
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
@@ -24,6 +24,12 @@ flowchart LR
 | `runtime` | Values `devctl` injects at start |
 
 `keychain` and `secret_manager` throw only when that source is listed and fetch fails.
+
+### `process` and the daemon-replacement limitation
+
+The daemon remembers each service's `client_env` only in memory, per service, never on disk. A crash/health-triggered auto-restart or an MCP-initiated `start`/`restart` reuses the last one a real client supplied; a service that has never been started/restarted by a real client this daemon's lifetime — e.g. one adopted from a prior session by `recoverSession()` — has none, and falls back to the daemon's own (possibly stale) environment.
+
+This memory does not survive the daemon process itself being replaced (upgrade, crash, `devctl down` then a fresh start): a new daemon starts with no client history at all, so anything it restarts before a client issues a fresh `start`/`restart` runs on whatever environment that new daemon process itself inherited at spawn. If a service depends on env that changed since the daemon last started, restart it explicitly (`devctl restart <service>` or the TUI) rather than relying on an automatic restart to pick it up.
 
 ## Runtime-generated variables
 

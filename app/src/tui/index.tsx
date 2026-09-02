@@ -1,7 +1,7 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { type DevctlConfig } from "../config/index.ts";
-import { openLocal, type Controller } from "../controller.ts";
+import { openTui, type Controller } from "../controller.ts";
 import { humanMessage, isKind, KindConfigurationMissing } from "../errors.ts";
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../warnings.ts";
@@ -17,7 +17,7 @@ export async function runTui(configPath: string): Promise<void> {
   let bootError: string | undefined;
   let bootErrorMissing = false;
   try {
-    controller = await openLocal("", configPath);
+    controller = await openTui("", configPath);
   } catch (err) {
     bootError = humanMessage(err);
     bootErrorMissing = isKind(err, KindConfigurationMissing);
@@ -54,12 +54,11 @@ export async function renderApp(
         restoreStderr();
         renderer.destroy();
         resolve();
-        // A detached local supervisor keeps its services' stdout/stderr
-        // piped into this same process for log capture, so those pipes stay
-        // open (by design — the services do too) and the event loop never
-        // drains on its own. controller.close() has already finished all
-        // async cleanup by this point, so exiting explicitly is safe and is
-        // what actually lets a detach-quit return control to the terminal.
+        // The renderer/stdin listening keeps the event loop alive on its
+        // own, so it never drains after unmount. controller.close() has
+        // already finished all async cleanup by this point, so exiting
+        // explicitly is safe and is what actually returns control to the
+        // terminal.
         process.exit(0);
       };
       if (!controller) {

@@ -16,13 +16,14 @@
 | Token audience incorrect | Set `auth.audience` on the IAP route; Doctor flags missing audiences |
 | IAP used a user token for an SA route | Confirm the route identity is `service_account`; Doctor probes impersonated IAP separately |
 | Leftover process after crash | Reopen `devctl` — adopt only when pid + command + cwd + startTime match `~/.devctl/state/<hash>/state.json`. A port-only leftover is never attached |
-| `devctl attach` fails | No supervisor. Use `devctl start --detach` first; attach never starts one |
+| `devctl attach` fails | No supervisor. Use `devctl start` first; attach never starts one |
 | `devctl status` looks empty | If the socket is down, status prints persisted state and exits 0 when nothing is running |
 | Start exits 5 or 6 | 5 = spawn failed; 6 = health never passed. Doctor then Logs |
 | `start` brought up extra services | Empty start uses the active or first profile, plus dependencies. Pass `--profile` or explicit names to stay narrower |
 | TUI stale / not updating | TUI follows the event bus (20–50ms batch). Quit and let a new supervisor start if an old one is still listening |
 | Reload needs a restart | `devctl reload` and `/reload` list services whose command, env, ports, or identity changed |
 | Configuration invalid | `devctl config validate` — unknown fields, cycles, and missing refs fail closed. TUI `v` / `/buffer` validates before write |
+| Config on disk is broken but the TUI still opens fine | Expected: it attached to an already-running daemon and is showing its `config_snapshot` (last-known-good), not a fresh reparse of the broken file. Fix the file and `/reload` |
 | `devctl update` says unavailable | GitHub Releases API could not be reached. Install from a [Release](https://github.com/amr-m-abdelgawad/devctl/releases) or the [Homebrew formula](installation.md) |
 | MCP agent cannot connect | Listener is off by default. `/mcp` or `devctl mcp --on`. URL is loopback only; snippets include the bearer token |
 | `devctl: command not found` | Install a [Release](https://github.com/amr-m-abdelgawad/devctl/releases) binary, or from `app/`: `bun install` then `bun link`. See [Installation](installation.md) |

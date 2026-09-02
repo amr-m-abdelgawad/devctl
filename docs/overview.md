@@ -32,13 +32,15 @@ The supervisor is the long-lived process. It:
 
 `repoID` is the first 16 hex characters of `sha256(absolute repo root)`. Two checkouts get two state directories. A leftover `~/.devctl/sessions/<id>/` is migrated once.
 
-`devctl start --detach` leaves the supervisor running. `devctl` (no args) and `devctl attach` dial the session socket: `devctl.sock` on macOS/Linux, `\\.\pipe\devctl-<repoID>` on Windows. Attach never starts a supervisor; the default TUI may.
+`devctl start` always ensures a daemon and leaves it running after the command exits (`--detach` is deprecated and no longer changes that). `devctl` (no args) and `devctl attach` dial the session socket: `devctl.sock` on macOS/Linux, `\\.\pipe\devctl-<repoID>` on Windows. Attach never starts a supervisor; the default TUI may. `devctl down` stops the daemon (and, unless `--keep-services`, its services).
 
 Override the home directory with `DEVCTL_HOME` (default `~/.devctl`).
 
 ## TUI
 
 The TUI is an OpenTUI React app. It attaches to a supervisor and paints status, logs, identity, doctor, config, and settings. It does not own child processes. Closing the TUI can stop services or detach, depending on `shutdown.stop_services_on_exit` — see [TUI](tui.md).
+
+Startup locates and attaches to an already-running daemon first, independent of whether the on-disk config still parses — an attached daemon's `config_snapshot` (its own last-known-good in-memory config) is always the effective config, never a local reparse. Local parsing only comes into play when no daemon is reachable: a valid config spawns a fresh one, a missing config opens **setup**, and anything else (invalid YAML, a schema violation) is a real boot error with nothing started. Once attached, a `/reload` (or an external edit picked up by the config-file watcher) refetches the snapshot on success; a failed reload leaves a banner up under the nav bar until the next one succeeds.
 
 ## CLI
 
@@ -66,7 +68,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 flowchart LR
   setup[".devctl/config.yaml<br/>or devctl setup"] --> validate["devctl config validate"]
   validate --> doctor["devctl doctor"]
-  doctor --> run["devctl<br/>or start --detach"]
+  doctor --> run["devctl<br/>or devctl start"]
   run --> logs["Logs"]
   logs -.-> auth["Auth only if Google is required"]
 ```

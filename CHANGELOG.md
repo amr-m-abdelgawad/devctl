@@ -50,6 +50,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The TUI's "no configuration found" setup prompt no longer offers to run setup — silently overwriting the file — when the real problem is an existing-but-invalid configuration; it shows the real error instead.
 - Quitting a locally-run (non-daemon) session with detach now reliably persists the running services' state before exiting, so they're adoptable by a later `devctl start`/`status`, and the process exits promptly instead of hanging on the detached services' inherited log pipes.
 
+### Added
+
+- Client/daemon handshake: `ping` reports `{session, version, protocol}`; an incompatible daemon blocks ordinary RPCs (except `logs`) with a hint to run `devctl down` and start again.
+- `config_snapshot` RPC returns the daemon's real in-memory configuration (local RPC only; never exposed through MCP).
+- Daemon discovery falls back to a state-directory scan when `.devctl` has been deleted but a daemon is still running, so a deleted config directory can no longer orphan a live daemon. `devctl status --repo <path>` targets a repository directly, even without a loadable configuration there.
+- `devctl down` (and `devctl down --keep-services`) stops the daemon, and by default its services; `--keep-services` stops only the daemon.
+- MCP now boots from the saved `mcp_enabled`/`mcp_port` preference at daemon startup itself, regardless of whether the daemon was spawned by the CLI or the TUI.
+- `start`/`restart` forward the calling CLI/TUI's own environment to the daemon as `client_env`. The daemon remembers it per service, in memory, so a later crash- or health-triggered restart reuses it instead of the daemon's own environment (which is otherwise a stale snapshot fixed at whenever the daemon was first spawned).
+
+### Changed
+
+- The proxy no longer binds at daemon startup. The first `start()` binds it if enabled; an explicit `proxy stop` suppresses that auto-start (sticky across further starts) until an explicit `proxy start`.
+- `devctl start --detach` is deprecated: the daemon already outlives the command regardless of the flag, so passing it now only prints a deprecation warning. Docs point to plain `devctl start` and `devctl down` instead.
+- The TUI no longer runs an in-process supervisor as a fallback. It always locates and attaches to a real daemon first, spawning a fresh one only when none is reachable, and its effective configuration is always the attached daemon's `config_snapshot` — refetched on `ConfigurationChanged`. A failed reload shows a persistent banner under the nav bar instead of a transient status line.
+
+### Fixed
+
+- `devctl status` and `devctl down` silently ignored the global `--config` flag (only `--repo` worked); both now honor `--config` the same as every other command.
+- The TUI could fail to open at all when the on-disk configuration was invalid or deleted, even with a live daemon still attachable. It now attaches independent of local configuration validity, falling back to local parsing — to spawn a daemon, open setup, or report a real error — only when no daemon is reachable.
+- `Bun.spawn()`'s default environment is a snapshot of this process's own `process.env` taken at its own launch, not a live view of it; the supervisor spawned for `start`/`attach` now receives the caller's live environment explicitly, so runtime env changes (e.g. Google Cloud metadata-server detection overrides) reach it correctly.
+
 ## [0.1.0] - 2026-08-30
 
 ### Added
