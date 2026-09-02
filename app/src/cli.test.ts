@@ -176,3 +176,34 @@ services:
     }
   }, 20_000);
 });
+
+describe("devctl status/down honor the global --config flag", () => {
+  test("--config alone (no --repo) resolves the daemon, matching every other command", async () => {
+    const dir = tmp();
+    writeFileSync(
+      configFile(dir),
+      `version: 1
+shutdown:
+  grace_seconds: 1
+services:
+  api:
+    command: [${JSON.stringify(process.execPath)}, "-e", "setInterval(() => {}, 1000)"]
+`,
+    );
+    const originalArgv1 = process.argv[1] ?? "";
+    process.argv[1] = join(import.meta.dir, "bin.ts");
+    try {
+      await run(["--config", configFile(dir), "start", "api", "--detach"]);
+
+      const statusOut = await run(["--config", configFile(dir), "status"]);
+      expect(statusOut).not.toContain("no devctl configuration found");
+      expect(statusOut).not.toContain("supervisor is not running");
+      expect(statusOut).toContain("api");
+
+      const downOut = await run(["--config", configFile(dir), "down"]);
+      expect(downOut).toContain("stopped services and the supervisor");
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
+  }, 20_000);
+});

@@ -3,9 +3,9 @@ import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, openTui, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "./environment.ts";
-import { KindGeneral } from "./errors.ts";
+import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "./errors.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
@@ -225,6 +225,87 @@ describe("findDaemon", () => {
   });
 });
 
+describe("openTui", () => {
+  test("attaches to a live daemon even when the on-disk config is now invalid", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(
+      join(dir, ".devctl", "config.yaml"),
+      `version: 1
+project:
+  name: was-valid
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const { Supervisor } = await import("./supervisor.ts");
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      // The file is still there (discovery still finds it), but its
+      // contents are now garbage — a plain load() would throw. The daemon
+      // started from the last-good version of it is still live, and must
+      // still be fully attachable, sourcing its config from the snapshot.
+      writeFileSync(join(dir, ".devctl", "config.yaml"), "version: [\n");
+      const ctrl = await openTui(dir, "");
+      try {
+        expect(ctrl.client).toBeDefined();
+        expect(ctrl.cfg.project.name).toBe("was-valid");
+      } finally {
+        ctrl.client?.close();
+      }
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("throws KindConfigurationMissing when there is no daemon and no config anywhere", async () => {
+    const dir = tmp();
+    await expect(openTui(dir, "")).rejects.toMatchObject({ kind: KindConfigurationMissing });
+  });
+
+  test("throws a real configuration error, not KindConfigurationMissing, when there is no daemon and the config is invalid", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(join(dir, ".devctl", "config.yaml"), "version: [\n");
+    await expect(openTui(dir, "")).rejects.toMatchObject({ kind: KindConfiguration });
+  });
+
+  test("spawns a fresh daemon when none exists and the config is valid, sourcing cfg from its snapshot", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(
+      join(dir, ".devctl", "config.yaml"),
+      `version: 1
+project:
+  name: fresh-daemon
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const originalArgv1 = process.argv[1] ?? "";
+    process.argv[1] = join(import.meta.dir, "bin.ts");
+    try {
+      const ctrl = await openTui(dir, "");
+      try {
+        expect(ctrl.client).toBeDefined();
+        expect(ctrl.cfg.project.name).toBe("fresh-daemon");
+      } finally {
+        await ctrl.close({ shutdownSupervisor: true });
+      }
+    } finally {
+      process.argv[1] = originalArgv1;
+    }
+  }, 15_000);
+});
+
 describe("attach", () => {
   test("openAttach does not spawn a supervisor when none is running", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-attach-${Date.now()}`;
@@ -242,6 +323,40 @@ services:
     );
     await expect(openAttach(dir, "")).rejects.toMatchObject({ kind: KindGeneral });
   });
+
+  test("openAttach attaches even when the on-disk config is now invalid, sourcing cfg from the daemon's snapshot", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(
+      join(dir, ".devctl", "config.yaml"),
+      `version: 1
+project:
+  name: attach-was-valid
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    const { load } = await import("./config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const { Supervisor } = await import("./supervisor.ts");
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      writeFileSync(join(dir, ".devctl", "config.yaml"), "version: [\n");
+      const ctrl = await openAttach(dir, "");
+      try {
+        expect(ctrl.cfg.project.name).toBe("attach-was-valid");
+      } finally {
+        ctrl.client?.close();
+      }
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
 });
 
 describe("controller close", () => {

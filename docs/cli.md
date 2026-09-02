@@ -3,7 +3,7 @@
 The CLI and the TUI share one supervisor. Global flag: `--config <path>` (file or `.devctl` directory).
 
 ```text
-devctl                         # TUI (may start a local supervisor)
+devctl                         # TUI (attaches to a daemon, spawning one if none is running)
 devctl version
 devctl start [svc…] [--profile] [--detach] [--json]
 devctl stop [svc…] [--json]
@@ -35,7 +35,8 @@ devctl update [--json]
 - `start` exits **5** when a requested service fails to spawn, **6** when it starts but never becomes healthy.
 - `stop` with no names stops every started service.
 - `restart` is stop then start; start still expands dependencies.
-- `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there.
+- `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
+- `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - `status` also prints proxy and MCP listen lines when a supervisor is up.
 

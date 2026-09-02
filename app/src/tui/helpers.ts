@@ -1,4 +1,5 @@
 import { type DevctlConfig, type ServiceConfig } from "../config/index.ts";
+import { type BusEvent } from "../events.ts";
 import { compileLogSearch, type LogEvent } from "../logs.ts";
 import { Detector } from "../secrets.ts";
 import { displayState, type Plan, type Runtime } from "../services.ts";
@@ -1924,4 +1925,13 @@ export function statusStripChips(
     { label: userLabel, tone: "idle" },
     { label: logsText, tone: "muted" },
   ];
+}
+
+// The message a ConfigurationReloadFailed event's persistent banner shows.
+// Falls back for a missing or malformed payload rather than rendering
+// "undefined" — an ordinary bus event still guarantees a type, not a
+// well-formed payload.
+export function reloadFailureMessage(ev: BusEvent): string {
+  const message = ev.payload?.error;
+  return typeof message === "string" && message !== "" ? message : "configuration reload failed";
 }

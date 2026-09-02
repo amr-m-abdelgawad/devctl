@@ -43,19 +43,27 @@ export type DaemonTarget = {
 };
 
 // The single resolution path attach, status, daemon-log access, and `down`
-// all share: an explicit --repo wins outright; otherwise prefer normal
-// .devctl discovery (it also confirms a config file actually exists there);
-// only fall back to the state-directory scan when that fails, since a live
-// daemon can outlive the config that started it.
-export function resolveDaemonTarget(startDir: string, explicitRepo: string): DaemonTarget | undefined {
+// all share: an explicit --repo wins outright over everything, including an
+// explicit --config; otherwise prefer config-file discovery — the global
+// --config override if one was given, else normal upward discovery from
+// startDir (either way this only confirms a config file exists, never that
+// it parses); only fall back to the state-directory scan when that fails
+// and no explicit --config was given (an explicit override that resolves to
+// nothing is a direct, real error, not license to guess at some unrelated
+// daemon found by scanning), since a live daemon can outlive the config
+// that started it.
+export function resolveDaemonTarget(startDir: string, explicitRepo: string, explicitConfig = ""): DaemonTarget | undefined {
   if (explicitRepo !== "") {
     return { repoRoot: resolve(explicitRepo), source: "explicit" };
   }
   const cwd = startDir === "" ? process.cwd() : startDir;
   try {
-    const { repoRoot } = discover(cwd, "");
+    const { repoRoot } = discover(cwd, explicitConfig);
     return { repoRoot, source: "config" };
   } catch {
+    if (explicitConfig !== "") {
+      return undefined;
+    }
     // fall through to the state-directory scan below
   }
   const scanned = scanStateDirsForRepoRoot(cwd);

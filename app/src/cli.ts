@@ -135,7 +135,7 @@ function addStatus(root: Command): void {
       // dial, not a parsed config, so a deleted .devctl must not prevent it
       // from finding a still-live daemon (findDaemon's discovery-then-
       // state-scan fallback handles that).
-      const { repoRoot, client } = await findDaemon("", opts.repo ?? "");
+      const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
       try {
         if (!client) {
           const persisted = readPersistedState(repoRoot);
@@ -179,7 +179,7 @@ function addDown(root: Command): void {
     .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--keep-services", "stop only the daemon; its services keep running, detached")
     .action(async (opts: { repo?: string; keepServices?: boolean }) => {
-      const { repoRoot, client } = await findDaemon("", opts.repo ?? "");
+      const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
       if (!client) {
         writeOut(`no supervisor is running for ${repoRoot}\n`);
         return;
@@ -404,7 +404,7 @@ function addProxy(root: Command): void {
     .action(async (opts: { json?: boolean }) => {
       const ctrl = await openController("", configFlag(root), false);
       try {
-        if (!ctrl.client && !ctrl.local) {
+        if (!ctrl.client) {
           writeOut("PROXY  STOPPED\n");
           return;
         }
@@ -454,12 +454,12 @@ function addMcp(root: Command): void {
       }
       const ctrl = await openController("", configFlag(root), opts.on === true);
       try {
-        if (opts.off === true && (ctrl.client || ctrl.local)) {
+        if (opts.off === true && ctrl.client) {
           await ctrl.mcpStop();
         } else if (opts.on === true) {
           await ctrl.mcpStart({ port: portOpt });
         }
-        const snap = ctrl.client || ctrl.local ? await ctrl.status() : undefined;
+        const snap = ctrl.client ? await ctrl.status() : undefined;
         const tui = loadTuiConfig(ctrl.cfg.repoRoot);
         const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot);
         const url = snap?.mcp?.address ?? mcpUrl(port);

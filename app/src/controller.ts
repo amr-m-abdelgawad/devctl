@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from "node:net";
 import { spawn } from "bun";
-import { type DevctlConfig, load, stopOnExit } from "./config/index.ts";
+import { type DevctlConfig, defaultConfig, load } from "./config/index.ts";
 import { resolveDaemonTarget } from "./daemon.ts";
 import { osEnviron } from "./environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
@@ -8,7 +8,6 @@ import { type BusEvent } from "./events.ts";
 import { type LogEvent } from "./logs.ts";
 import { type Plan } from "./services.ts";
 import { bootstrapLogPath, socketPath } from "./storage.ts";
-import { Supervisor } from "./supervisor.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
@@ -260,18 +259,12 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
 export class Controller {
   cfg: DevctlConfig;
   client?: Client;
-  local?: Supervisor;
 
   constructor(cfg: DevctlConfig) {
     this.cfg = cfg;
   }
 
   async start(req: StartRequest): Promise<Plan> {
-    if (this.local && req.detach === true) {
-      await this.local.shutdown(false);
-      this.local = undefined;
-      this.client = await ensureSupervisor(this.cfg.repoRoot, this.cfg.configPath);
-    }
     const raw = await this.call("start", { ...req, client_env: osEnviron() });
     return raw as Plan;
   }
@@ -331,9 +324,6 @@ export class Controller {
   }
 
   onEvent(handler: (ev: BusEvent) => void): () => void {
-    if (this.local) {
-      return this.local.subscribe(handler);
-    }
     if (this.client) {
       return this.client.onEvent(handler);
     }
@@ -341,27 +331,20 @@ export class Controller {
   }
 
   async close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void> {
-    if (this.client) {
-      try {
-        if (opts?.shutdownSupervisor === true && opts.detach !== true) {
-          const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
-          await this.client.call("shutdown", { stop_services: true }, shutdownTimeout);
-        }
-      } finally {
-        this.client.close();
-      }
+    if (!this.client) {
+      return;
     }
-    if (this.local) {
-      const detach = opts?.detach === true || this.local.isDetached();
-      const stop = detach ? false : stopOnExit(this.cfg.shutdown);
-      await this.local.shutdown(stop);
+    try {
+      if (opts?.shutdownSupervisor === true && opts.detach !== true) {
+        const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
+        await this.client.call("shutdown", { stop_services: true }, shutdownTimeout);
+      }
+    } finally {
+      this.client.close();
     }
   }
 
   private async call(method: string, params: unknown): Promise<unknown> {
-    if (this.local) {
-      return this.local.dispatch(method, params);
-    }
     if (!this.client) {
       throw wrapError(KindGeneral, "supervisor is not running", new Error("no client"));
     }
@@ -385,8 +368,8 @@ function warnIfVersionMismatch(client: Client | undefined): void {
 // is deliberately independent of local config parsing, via
 // resolveDaemonTarget's discovery-then-state-scan fallback, so a deleted
 // .devctl directory can never make a still-live daemon unreachable.
-export async function findDaemon(startDir: string, explicitRepo: string): Promise<{ repoRoot: string; client?: Client }> {
-  const target = resolveDaemonTarget(startDir, explicitRepo);
+export async function findDaemon(startDir: string, explicitRepo: string, explicitConfig = ""): Promise<{ repoRoot: string; client?: Client }> {
+  const target = resolveDaemonTarget(startDir, explicitRepo, explicitConfig);
   if (!target) {
     throw hintError(
       KindGeneral,
@@ -412,27 +395,45 @@ export async function openController(startDir: string, configPath: string, start
   return ctrl;
 }
 
-export async function openAttach(startDir: string, configPath: string): Promise<Controller> {
-  const cfg = load(startDir, configPath);
-  const ctrl = new Controller(cfg);
-  const existing = await tryDial(cfg.repoRoot);
-  if (!existing) {
-    throw hintError(KindGeneral, "supervisor is not running", "run `devctl start` before `devctl attach`");
-  }
-  ctrl.client = existing;
+// The daemon's config_snapshot is the only correct source of "effective
+// config" once attached — see Controller.configSnapshot(). The placeholder
+// passed to `new Controller()` here is discarded the instant the real
+// snapshot comes back; nothing reads it in between.
+async function attachAndSnapshot(client: Client): Promise<Controller> {
+  const ctrl = new Controller(defaultConfig());
+  ctrl.client = client;
   warnIfVersionMismatch(ctrl.client);
+  ctrl.cfg = await ctrl.configSnapshot();
   return ctrl;
 }
 
-export async function openLocal(startDir: string, configPath: string): Promise<Controller> {
+export async function openAttach(startDir: string, configPath: string): Promise<Controller> {
+  const target = resolveDaemonTarget(startDir, "", configPath);
+  const existing = target ? await tryDial(target.repoRoot) : undefined;
+  if (!existing) {
+    throw hintError(KindGeneral, "supervisor is not running", "run `devctl start` before `devctl attach`");
+  }
+  return attachAndSnapshot(existing);
+}
+
+// The TUI's own bootstrap: locate and attach to an existing daemon first,
+// independent of local config parsing, so an already-broken or since-deleted
+// config file can never make an otherwise-healthy attached daemon
+// unreachable (config_snapshot is the effective config either way). Local
+// config parsing only comes into play — and only then decides what happens
+// next — when no daemon is reachable: a valid config spawns a fresh daemon,
+// a missing one lets KindConfigurationMissing propagate so the TUI opens
+// setup, and anything else is a real error with nothing started.
+export async function openTui(startDir: string, configPath: string): Promise<Controller> {
+  const target = resolveDaemonTarget(startDir, "", configPath);
+  const existing = target ? await tryDial(target.repoRoot) : undefined;
+  if (existing) {
+    return attachAndSnapshot(existing);
+  }
   const cfg = load(startDir, configPath);
   const ctrl = new Controller(cfg);
-  const existing = await tryDial(cfg.repoRoot);
-  if (existing) {
-    ctrl.client = existing;
-    return ctrl;
-  }
-  ctrl.local = new Supervisor(cfg);
-  await ctrl.local.run();
+  ctrl.client = await ensureSupervisor(cfg.repoRoot, cfg.configPath);
+  warnIfVersionMismatch(ctrl.client);
+  ctrl.cfg = await ctrl.configSnapshot();
   return ctrl;
 }
