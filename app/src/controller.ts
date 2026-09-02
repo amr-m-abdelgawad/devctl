@@ -5,7 +5,7 @@ import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
 import { type LogEvent } from "./logs.ts";
 import { type Plan } from "./services.ts";
-import { socketPath } from "./storage.ts";
+import { bootstrapLogPath, socketPath } from "./storage.ts";
 import { Supervisor } from "./supervisor.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
 
@@ -130,22 +130,42 @@ export async function tryDial(repoRoot: string): Promise<Client | undefined> {
   }
 }
 
+// A `bun run script.ts` process needs the script path as argv[1] so the Bun
+// runtime knows what to execute; a `bun build --compile` binary already *is*
+// the program, so passing that same argv[1] (whatever subcommand the calling
+// process was invoked with, e.g. "status") makes it mistake that word for a
+// second subcommand. Bun.isStandaloneExecutable tells them apart; isolated
+// as a pure function so tests can force both branches without compiling.
+export function supervisorSpawnCommand(execPath: string, scriptArg: string, isStandalone: boolean, args: string[]): string[] {
+  return isStandalone ? [execPath, ...args] : [execPath, scriptArg, ...args];
+}
+
 export async function ensureSupervisor(repoRoot: string, configPath: string): Promise<Client> {
   const existing = await tryDial(repoRoot);
   if (existing) {
     return existing;
   }
-  const exe = process.execPath;
-  const script = process.argv[1] ?? "";
+  const bootstrapLog = bootstrapLogPath(repoRoot);
+  const cmd = supervisorSpawnCommand(process.execPath, process.argv[1] ?? "", Bun.isStandaloneExecutable === true, [
+    "_supervisor",
+    "--repo",
+    repoRoot,
+    "--config",
+    configPath,
+  ]);
   const child = spawn({
-    cmd: [exe, script, "_supervisor", "--repo", repoRoot, "--config", configPath],
+    cmd,
     stdout: "ignore",
-    stderr: "ignore",
+    stderr: Bun.file(bootstrapLog),
     stdin: "ignore",
     detached: true,
   });
   child.unref();
-  return dial(repoRoot, DIAL_TIMEOUT_MS);
+  try {
+    return await dial(repoRoot, DIAL_TIMEOUT_MS);
+  } catch {
+    throw hintError(KindGeneral, "supervisor failed to start", `see ${bootstrapLog} for details`);
+  }
 }
 
 export class Controller {

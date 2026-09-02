@@ -268,6 +268,160 @@ describe("supervisor snapshot", () => {
     }
   }, 15000);
 
+  test("a losing supervisor never deletes a live peer's bound socket", async () => {
+    // Regression for the startup race: two `devctl start` invocations for the
+    // same repo used to check "does a socket file exist" before checking
+    // "is the lock already held" — so a losing process could unlink a
+    // still-live peer's socket on its way to discovering it had lost.
+    // Injected primitives force the interleaving deterministically instead
+    // of relying on real concurrent processes.
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    let unlinkCalled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      acquireLock: () => {
+        throw new Error("supervisor already running (pid 4242)");
+      },
+      socketExists: () => true,
+      unlinkSocket: () => {
+        unlinkCalled = true;
+      },
+    });
+    await expect(sup.run()).rejects.toThrow(/already running/);
+    expect(unlinkCalled).toBe(false);
+  });
+
+  test("removes a stale socket only after winning the lock, never before", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const events: string[] = [];
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      acquireLock: () => {
+        events.push("lock");
+        return { release: () => events.push("release") };
+      },
+      socketExists: () => {
+        events.push("check");
+        return true;
+      },
+      unlinkSocket: () => {
+        events.push("unlink");
+      },
+    });
+    try {
+      await sup.run({ autoStartProxy: false });
+      expect(events[0]).toBe("lock");
+      expect(events.slice(1)).toEqual(["check", "unlink", "check", "unlink"]);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("stop cancels a pending crash-restart timer instead of the service coming back", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.flaky = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },
+      restart: { policy: "always", max_retries: 5, backoff_seconds: 3 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      void sup.start({ services: ["flaky"] }).catch(() => {});
+      // Let the first crash happen so onExit() schedules its 3s backoff restart.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(sup.snapshot().services.flaky?.state).toBe("RESTARTING");
+      await sup.stop(["flaky"]);
+      expect(sup.snapshot().services.flaky?.state).toBe("STOPPED");
+      // Wait past the 3s window the cancelled timer would have fired in.
+      await new Promise((resolve) => setTimeout(resolve, 3200));
+      expect(sup.snapshot().services.flaky?.state).toBe("STOPPED");
+      expect(sup.snapshot().services.flaky?.pid ?? 0).toBe(0);
+    } finally {
+      await sup.stop(["flaky"]).catch(() => {});
+    }
+  }, 15_000);
+
+  test("fail and shutdown cancel pending restart timers immediately", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    const internals = sup as unknown as {
+      restartTimers: Map<string, ReturnType<typeof setTimeout>>;
+      scheduleRestart: (name: string, delayMs: number, action: () => void) => void;
+      fail: (name: string, err: unknown) => Promise<void>;
+    };
+    let fired = false;
+    internals.scheduleRestart("ghost", 60_000, () => {
+      fired = true;
+    });
+    expect(internals.restartTimers.size).toBe(1);
+    await internals.fail("ghost", new Error("boom"));
+    expect(internals.restartTimers.size).toBe(0);
+
+    internals.scheduleRestart("ghost2", 60_000, () => {
+      fired = true;
+    });
+    expect(internals.restartTimers.size).toBe(1);
+    await sup.shutdown(false);
+    expect(internals.restartTimers.size).toBe(0);
+    expect(fired).toBe(false);
+  });
+
+  test("a startup health-check failure is not resurrected by its own kill", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.neverhealthy = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      // Nothing listens on port 1, so this always fails fast (ECONNREFUSED).
+      health: { ...emptyService().health, type: "tcp", address: "127.0.0.1:1", interval_seconds: 1, timeout_seconds: 1 },
+      startup: { wait_for_healthy: true, timeout_seconds: 1 },
+      restart: { policy: "always", max_retries: 5, backoff_seconds: 1 },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await expect(sup.start({ services: ["neverhealthy"] })).rejects.toThrow();
+      expect(sup.snapshot().services.neverhealthy?.state).toBe("FAILED");
+      // Poll for a few seconds rather than checking once at a fixed delay: a
+      // still-buggy version doesn't get stuck RESTARTING, it oscillates
+      // (restart -> fails health again -> restart...), so a single snapshot
+      // at an arbitrary later time can land on a FAILED tick between cycles
+      // and miss the bug. A nonzero pid at any point proves a new process
+      // was spawned, i.e. the kill in fail() was treated as a crash to
+      // restart from.
+      const deadline = Date.now() + 3000;
+      while (Date.now() < deadline) {
+        const rt = sup.snapshot().services.neverhealthy;
+        expect(rt?.pid ?? 0).toBe(0);
+        expect(rt?.state).toBe("FAILED");
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    } finally {
+      await sup.stop(["neverhealthy"]).catch(() => {});
+    }
+  }, 15_000);
+
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

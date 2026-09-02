@@ -107,6 +107,9 @@ export class Supervisor {
   private readonly detectGoogleFn: (project: string) => Promise<GoogleStatus>;
   private readonly inspectProcessFn: (pid: number) => Promise<ProcessIdentity | undefined>;
   private readonly processAliveFn: (pid: number) => boolean;
+  private readonly acquireLockFn: (repoRoot: string, socket: string) => { release: () => void };
+  private readonly socketExistsFn: (socket: string) => boolean;
+  private readonly unlinkSocketFn: (socket: string) => void;
   private registry?: Registry;
   private restartRequired: string[] = [];
   private readonly processMeta = new Map<string, { command: string[]; cwd: string; startTime: Date }>();
@@ -115,6 +118,7 @@ export class Supervisor {
   private configWatcher?: FSWatcher;
   private watchTimer?: ReturnType<typeof setTimeout>;
   private readonly unhealthyStreak = new Map<string, number>();
+  private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
 
@@ -125,6 +129,9 @@ export class Supervisor {
       tokens?: TokenManager;
       inspectProcess?: (pid: number) => Promise<ProcessIdentity | undefined>;
       processAlive?: (pid: number) => boolean;
+      acquireLock?: (repoRoot: string, socket: string) => { release: () => void };
+      socketExists?: (socket: string) => boolean;
+      unlinkSocket?: (socket: string) => void;
     },
   ) {
     this.cfg = cfg;
@@ -135,6 +142,9 @@ export class Supervisor {
     this.detectGoogleFn = deps?.detectGoogle ?? detectGoogle;
     this.inspectProcessFn = deps?.inspectProcess ?? inspectProcess;
     this.processAliveFn = deps?.processAlive ?? processAlive;
+    this.acquireLockFn = deps?.acquireLock ?? acquireLock;
+    this.socketExistsFn = deps?.socketExists ?? existsSync;
+    this.unlinkSocketFn = deps?.unlinkSocket ?? unlinkSync;
     this.detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
     this.logs = new LogManager(
       cfg.logs.max_memory_events,
@@ -173,16 +183,13 @@ export class Supervisor {
 
   async run(opts?: { autoStartProxy?: boolean }): Promise<void> {
     const socket = socketPath(this.cfg.repoRoot);
-    // Windows named pipes are not filesystem entries and vanish with the
-    // process that held them; existsSync/unlinkSync do not apply.
-    if (process.platform !== "win32" && existsSync(socket)) {
-      try {
-        unlinkSync(socket);
-      } catch {
-        this.log("devctl", "WARN", "unable to remove stale socket");
-      }
-    }
-    this.lock = acquireLock(this.cfg.repoRoot, socket);
+    // Acquire the lock BEFORE touching the socket file. acquireLock() is what
+    // proves no live supervisor already owns this repo; deleting the socket
+    // first (the old order) let a losing second process unlink a *live*
+    // peer's bound socket before discovering — via the lock — that it had
+    // lost the race, leaving the winner still running but unreachable.
+    this.lock = this.acquireLockFn(this.cfg.repoRoot, socket);
+    this.removeStaleSocket(socket);
     this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path));
     this.applyRegistry();
     this.checkPluginHealthTypes();
@@ -196,6 +203,12 @@ export class Supervisor {
     if (this.cfg.proxy.enabled && opts?.autoStartProxy !== false) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
+    // Recheck immediately before binding: still holding the lock acquired
+    // above, so anything now at this path is necessarily stale (nothing else
+    // can have won the lock in the meantime) — but the plugin/session work
+    // above this point had await points, so re-verify rather than trust the
+    // check from before them.
+    this.removeStaleSocket(socket);
     await new Promise<void>((resolve, reject) => {
       this.server = createServer((socketConn) => {
         this.handleConn(socketConn);
@@ -203,6 +216,21 @@ export class Supervisor {
       this.server.on("error", reject);
       this.server.listen(socket, () => resolve());
     });
+  }
+
+  private removeStaleSocket(socket: string): void {
+    // Windows named pipes are not filesystem entries and vanish with the
+    // process that held them; existsSync/unlinkSync do not apply.
+    if (process.platform === "win32") {
+      return;
+    }
+    if (this.socketExistsFn(socket)) {
+      try {
+        this.unlinkSocketFn(socket);
+      } catch {
+        this.log("devctl", "WARN", "unable to remove stale socket");
+      }
+    }
   }
 
   private handleConn(socketConn: import("node:net").Socket): void {
@@ -624,6 +652,12 @@ export class Supervisor {
 
   private onExit(name: string, code: number, waitErr?: Error): void {
     const rt = this.runtimes.get(name);
+    if (rt?.state === StateFailed) {
+      // fail() already set this state and is in the middle of killing the
+      // process on purpose (e.g. a startup health-check timeout); the exit
+      // that kill produces must not be treated as a crash to restart from.
+      return;
+    }
     if (rt && (rt.state === StateStopping || rt.state === StateStopped)) {
       this.setState(name, StateStopped, HealthUnknown, 0, "");
       this.bus.publish(newEvent(ServiceStopped, name, { code }));
@@ -639,9 +673,9 @@ export class Supervisor {
       this.setState(name, StateRestarting, HealthUnknown, 0, msg);
       const backoff = svc && svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
       this.bumpRestartCount(name, n + 1);
-      setTimeout(() => {
+      this.scheduleRestart(name, backoff * (2 ** n) * 1000, () => {
         void this.startOne(name, this.profileEnv).catch((err) => this.log(name, "ERROR", humanMessage(err)));
-      }, backoff * (2 ** n) * 1000);
+      });
       return;
     }
     void this.fail(name, newError("process_start", msg));
@@ -665,18 +699,20 @@ export class Supervisor {
     }
     const interval = healthIntervalMs(svc.health) || DEFAULT_HEALTH_INTERVAL_MS;
     const tick = (): void => {
-      void checkHealth(svc.health, pid, assigned, workDir, env, this.registry?.healthChecks).then((res) => {
-        this.setHealth(name, res.status, res.message);
-        this.logs.append({
-          timestamp: new Date().toISOString(),
-          service: name,
-          source: "health",
-          level: healthLevel(res.status),
-          message: `health ${res.status} ${res.message}`,
-          pid,
+      void checkHealth(svc.health, pid, assigned, workDir, env, this.registry?.healthChecks)
+        .catch((err: unknown) => ({ status: HealthUnhealthy, message: humanMessage(err) }) as const)
+        .then((res) => {
+          this.setHealth(name, res.status, res.message);
+          this.logs.append({
+            timestamp: new Date().toISOString(),
+            service: name,
+            source: "health",
+            level: healthLevel(res.status),
+            message: `health ${res.status} ${res.message}`,
+            pid,
+          });
+          this.maybeRestartUnhealthy(name, svc, res.status);
         });
-        this.maybeRestartUnhealthy(name, svc, res.status);
-      });
     };
     tick();
     this.healthTimers.set(name, setInterval(tick, interval));
@@ -691,6 +727,13 @@ export class Supervisor {
     }
     if (selected.length === 0) {
       return;
+    }
+    // A crash or unhealthy restart scheduled just before this stop() call
+    // must not go on to revive a service the caller explicitly asked to
+    // stop — startOne() only checks "is it already active", which a stopped
+    // service is not.
+    for (const name of selected) {
+      this.clearRestartTimer(name);
     }
     const plan = shutdownPlan(this.cfg, selected);
     const grace = graceSeconds(this.cfg.shutdown) * 1000;
@@ -831,6 +874,7 @@ export class Supervisor {
     if (stopServices) {
       await this.stop([]);
     }
+    this.clearAllRestartTimers();
     await this.stopProxy();
     await this.stopMcp();
     this.configWatcher?.close();
@@ -987,6 +1031,35 @@ export class Supervisor {
     }
   }
 
+  // Crash restarts (onExit) and unhealthy restarts (maybeRestartUnhealthy)
+  // both schedule a delayed respawn via setTimeout. Tracking the handle lets
+  // stop/fail/shutdown cancel it — otherwise a restart scheduled moments
+  // before the service is deliberately stopped or fails outright can still
+  // fire afterward and resurrect a process the caller just asked to end.
+  private scheduleRestart(name: string, delayMs: number, action: () => void): void {
+    this.clearRestartTimer(name);
+    const timer = setTimeout(() => {
+      this.restartTimers.delete(name);
+      action();
+    }, delayMs);
+    this.restartTimers.set(name, timer);
+  }
+
+  private clearRestartTimer(name: string): void {
+    const timer = this.restartTimers.get(name);
+    if (timer) {
+      clearTimeout(timer);
+      this.restartTimers.delete(name);
+    }
+  }
+
+  private clearAllRestartTimers(): void {
+    for (const timer of this.restartTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.restartTimers.clear();
+  }
+
   // Runtimes only carry a pid; CPU/memory are sampled out-of-band via `ps`
   // on an interval rather than tracked per state transition, since they
   // change continuously while a process runs.
@@ -1049,9 +1122,9 @@ export class Supervisor {
     const backoff = svc.restart.backoff_seconds > 0 ? svc.restart.backoff_seconds : DEFAULT_BACKOFF_SECONDS;
     this.bumpRestartCount(name, n + 1);
     this.log(name, "WARN", `restarting after ${streak} consecutive unhealthy checks (attempt ${n + 1}/${max})`);
-    setTimeout(() => {
+    this.scheduleRestart(name, backoff * (2 ** n) * 1000, () => {
       void this.restart([name]).catch((err) => this.log(name, "ERROR", humanMessage(err)));
-    }, backoff * (2 ** n) * 1000);
+    });
   }
 
   private applyRegistry(): void {
@@ -1175,12 +1248,18 @@ export class Supervisor {
       clearInterval(timer);
       this.healthTimers.delete(name);
     }
+    this.clearRestartTimer(name);
+    // Set FAILED before killing the process, not after: procs.stop() awaits
+    // the same exit promise that drives onExit(), and onExit() runs (as part
+    // of resolving that promise) before this await returns — so onExit()
+    // must already see FAILED at that point to know this exit was ours and
+    // skip scheduling a restart for it.
+    this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
     try {
       await this.procs.stop(name, graceSeconds(this.cfg.shutdown) * 1000);
     } catch (stopErr) {
       this.log(name, "WARN", humanMessage(stopErr));
     }
-    this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
     this.bus.publish(newEvent(ServiceFailed, name, { error: humanMessage(err) }));
     this.log(name, "ERROR", humanMessage(err));
   }

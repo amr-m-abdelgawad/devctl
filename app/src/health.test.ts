@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { describe, expect, test } from "bun:test";
 import { emptyHealth } from "./config/types.ts";
-import { checkHealth } from "./health.ts";
+import { checkHealth, type HealthPlugin } from "./health.ts";
 
 describe("health checks", () => {
   test("process type is healthy when pid is alive", async () => {
@@ -49,5 +49,29 @@ describe("health checks", () => {
     cfg.command = { args: ["true"], shell: false };
     const result = await checkHealth(cfg, 0, {}, process.cwd(), { ...process.env } as Record<string, string>);
     expect(result.status).toBe("HEALTHY");
+  });
+
+  test("command type is unhealthy instead of throwing when the spawn itself fails", async () => {
+    const cfg = emptyHealth();
+    cfg.type = "command";
+    cfg.command = { args: ["true"], shell: false };
+    // A nonexistent cwd makes Bun.spawn throw synchronously rather than
+    // merely producing a nonzero exit — checkHealth must catch that too.
+    const result = await checkHealth(cfg, 0, {}, "/definitely/does/not/exist/xyz", { ...process.env } as Record<string, string>);
+    expect(result.status).toBe("UNHEALTHY");
+  });
+
+  test("a throwing plugin check is treated as unhealthy, not a rejection", async () => {
+    const cfg = emptyHealth();
+    cfg.type = "custom";
+    const plugin: HealthPlugin = {
+      name: "custom",
+      check: async () => {
+        throw new Error("plugin exploded");
+      },
+    };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {}, [plugin]);
+    expect(result.status).toBe("UNHEALTHY");
+    expect(result.message).toContain("plugin exploded");
   });
 });

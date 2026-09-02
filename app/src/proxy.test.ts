@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig } from "./config/types.ts";
 import { startMockIapServer } from "./testdata/mock-iap-server.ts";
@@ -17,6 +18,36 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
     identity: "user",
     scopes: [],
     ...partial,
+  };
+}
+
+async function setupProxy(handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void) {
+  const upstream = createServer(handler);
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+  const upAddr = upstream.address();
+  const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+  const reserved = createServer();
+  await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", () => resolve()));
+  const reservedAddr = reserved.address();
+  const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+  await new Promise<void>((resolve) => reserved.close(() => resolve()));
+  const cfg = defaultConfig().proxy;
+  cfg.listen = { host: "127.0.0.1", port: proxyPort };
+  cfg.routes.push({
+    name: "route",
+    match: { host: "", path: "" },
+    upstream: { url: `http://127.0.0.1:${upPort}` },
+    auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+  });
+  const server = new ProxyServer(cfg);
+  await server.start();
+  return {
+    upPort,
+    proxyPort,
+    close: async (): Promise<void> => {
+      await server.stop();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    },
   };
 }
 
@@ -197,4 +228,74 @@ describe("proxy", () => {
     await server.stop();
     await new Promise<void>((resolve) => mock.server.close(() => resolve()));
   });
+
+  test("a negotiated gzip response is decompressed and its compressed-length headers stripped", async () => {
+    const plaintext = "hello from a gzip-compressed upstream response, repeated to make compression worthwhile";
+    const compressed = gzipSync(Buffer.from(plaintext));
+    const { proxyPort, close } = await setupProxy((_req, res) => {
+      // Mixed case on purpose: content-encoding must be parsed case-insensitively.
+      res.setHeader("content-encoding", "GZIP");
+      res.setHeader("content-length", String(compressed.length));
+      res.end(compressed);
+    });
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/gz`);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("content-encoding")).toBeNull();
+    expect(resp.headers.get("content-length")).toBeNull();
+    expect(await resp.text()).toBe(plaintext);
+    await close();
+  }, 10_000);
+
+  test("a negotiated brotli response is decompressed and its compressed-length headers stripped", async () => {
+    const plaintext = "hello from a brotli-compressed upstream response, repeated to make compression worthwhile";
+    const compressed = brotliCompressSync(Buffer.from(plaintext));
+    const { proxyPort, close } = await setupProxy((_req, res) => {
+      res.setHeader("content-encoding", "br");
+      res.setHeader("content-length", String(compressed.length));
+      res.end(compressed);
+    });
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/br`);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("content-encoding")).toBeNull();
+    expect(resp.headers.get("content-length")).toBeNull();
+    expect(await resp.text()).toBe(plaintext);
+    await close();
+  }, 10_000);
+
+  test("an unexpected content-encoding is forwarded unchanged, headers and bytes alike", async () => {
+    const raw = Buffer.from("not actually compressed, just labeled that way");
+    const { proxyPort, close } = await setupProxy((_req, res) => {
+      res.setHeader("content-encoding", "x-custom");
+      res.setHeader("content-length", String(raw.length));
+      res.end(raw);
+    });
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/x`);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get("content-encoding")).toBe("x-custom");
+    expect(resp.headers.get("content-length")).toBe(String(raw.length));
+    expect(await resp.text()).toBe(raw.toString());
+    await close();
+  }, 10_000);
+
+  test("forwards a clean Host, pins accept-encoding, and adds X-Forwarded-* headers", async () => {
+    const seen: Record<string, string> = {};
+    const { upPort, proxyPort, close } = await setupProxy((req, res) => {
+      seen.host = String(req.headers.host ?? "");
+      seen.xff = String(req.headers["x-forwarded-for"] ?? "");
+      seen.xfh = String(req.headers["x-forwarded-host"] ?? "");
+      seen.xfp = String(req.headers["x-forwarded-proto"] ?? "");
+      seen.ae = String(req.headers["accept-encoding"] ?? "");
+      res.end("ok");
+    });
+    // The client deliberately sends something other than what we negotiate,
+    // to prove the proxy overrides it rather than forwarding it verbatim.
+    const resp = await fetch(`http://127.0.0.1:${proxyPort}/hdr`, { headers: { "accept-encoding": "identity" } });
+    expect(resp.status).toBe(200);
+    expect(seen.host).toBe(`127.0.0.1:${upPort}`);
+    expect(seen.xff).toMatch(/127\.0\.0\.1/);
+    expect(seen.xfh).toBe(`127.0.0.1:${proxyPort}`);
+    expect(seen.xfp).toBe("http");
+    expect(seen.ae).toBe("gzip, deflate, br");
+    await close();
+  }, 10_000);
 });
