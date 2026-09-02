@@ -432,6 +432,6 @@ export async function openLocal(startDir: string, configPath: string): Promise<C
     return ctrl;
   }
   ctrl.local = new Supervisor(cfg);
-  await ctrl.local.run({ autoStartProxy: false });
+  await ctrl.local.run();
   return ctrl;
 }

@@ -317,7 +317,7 @@ describe("supervisor snapshot", () => {
       },
     });
     try {
-      await sup.run({ autoStartProxy: false });
+      await sup.run();
       expect(events[0]).toBe("lock");
       expect(events.slice(1)).toEqual(["check", "unlink", "check", "unlink"]);
     } finally {
@@ -509,6 +509,50 @@ services:
     const snap = (await sup.dispatch("config_snapshot", null)) as { project: { name: string } };
     expect(snap.project.name).toBe("before-reload");
   });
+
+  test("lazy, sticky proxy: startup never binds it, the first start does, and explicit stop sticks across further starts", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: await freePort() };
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // The first start() auto-starts it.
+      await sup.start({ services: ["api"] });
+      expect(sup.snapshot().proxy.running).toBe(true);
+
+      // Explicit proxy_stop suppresses it — not just for now, but for every
+      // subsequent start() until an explicit proxy_start.
+      await sup.dispatch("proxy_stop", null);
+      expect(sup.snapshot().proxy.running).toBe(false);
+      await sup.stop(["api"]);
+      await sup.start({ services: ["api"] });
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // reload() must not clear that suppression on its own.
+      await sup.reload().catch(() => undefined);
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // Only an explicit proxy_start clears it.
+      await sup.dispatch("proxy_start", null);
+      expect(sup.snapshot().proxy.running).toBe(true);
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 15_000);
 
   test("crash restarts are reflected in Runtime.restarts", async () => {
     const dir = tmp();

@@ -180,7 +180,7 @@ describe("daemon compatibility handshake", () => {
       detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
     });
     try {
-      await sup.run({ autoStartProxy: false });
+      await sup.run();
       const client = await dial(dir, 2_000);
       expect(client.compat.compatible).toBe(true);
       expect(client.compat.daemonProtocol).toBe(RPC_PROTOCOL_VERSION);
@@ -205,7 +205,7 @@ describe("findDaemon", () => {
       detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
     });
     try {
-      await sup.run({ autoStartProxy: false });
+      await sup.run();
       // The whole point: the configuration this daemon was started with no
       // longer exists, yet the daemon itself is still running.
       rmSync(join(dir, ".devctl"), { recursive: true, force: true });

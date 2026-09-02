@@ -93,6 +93,11 @@ export class Supervisor {
   private readonly tokens: TokenManager;
   private readonly detector: Detector;
   private proxy?: ProxyServer;
+  // Set only by an explicit "proxy_stop" RPC, cleared only by an explicit
+  // "proxy_start" one — never by reload() or an internal stopProxy() call
+  // (config change, shutdown) — so a user who deliberately stopped the
+  // proxy doesn't have it silently come back on the next service start.
+  private proxySuppressed = false;
   private mcp?: McpHttpServer;
   private readonly mcpToken: string;
   private tokenEP?: TokenEndpoint;
@@ -183,7 +188,7 @@ export class Supervisor {
     }
   }
 
-  async run(opts?: { autoStartProxy?: boolean }): Promise<void> {
+  async run(): Promise<void> {
     const socket = socketPath(this.cfg.repoRoot);
     // Acquire the lock BEFORE touching the socket file. acquireLock() is what
     // proves no live supervisor already owns this repo; deleting the socket
@@ -202,9 +207,9 @@ export class Supervisor {
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
     this.resourceTimer = setInterval(() => void this.pollResourceUsage(), RESOURCE_POLL_MS);
-    if (this.cfg.proxy.enabled && opts?.autoStartProxy !== false) {
-      await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
-    }
+    // Lazy, sticky proxy policy: startup never binds it. The first start()
+    // call auto-starts it (see start() below) unless the user has
+    // explicitly suppressed it with `proxy stop`.
     // Recheck immediately before binding: still holding the lock acquired
     // above, so anything now at this path is necessarily stale (nothing else
     // can have won the lock in the meantime) — but the plugin/session work
@@ -343,9 +348,14 @@ export class Supervisor {
           export: typeof rec.export === "string" ? rec.export : "",
         });
       case "proxy_start":
+        // Only an explicit proxy_start clears suppression — startProxy()
+        // itself is also called from start() and reload(), which must not
+        // have this side effect.
+        this.proxySuppressed = false;
         await this.startProxy();
         return null;
       case "proxy_stop":
+        this.proxySuppressed = true;
         await this.stopProxy();
         return null;
       case "mcp_start":
@@ -404,7 +414,7 @@ export class Supervisor {
     for (const blocker of plan.blockers) {
       await this.fail(blocker.name, newError(KindProcessStart, blocker.message));
     }
-    if (this.cfg.proxy.enabled) {
+    if (this.cfg.proxy.enabled && !this.proxySuppressed) {
       await this.startProxy().catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
     const pending: string[] = [];
