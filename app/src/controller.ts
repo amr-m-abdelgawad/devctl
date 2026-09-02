@@ -7,7 +7,7 @@ import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { type Plan } from "./services.ts";
-import { bootstrapLogPath, socketPath } from "./storage.ts";
+import { bootstrapLogPath, rotateBootstrapLog, socketPath } from "./storage.ts";
 import type { Envelope, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
@@ -226,6 +226,7 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
   if (existing) {
     return existing;
   }
+  rotateBootstrapLog(repoRoot);
   const bootstrapLog = bootstrapLogPath(repoRoot);
   // --config is root's own global option, so with root's positional-options
   // parsing it must precede the _supervisor subcommand name; --repo belongs
