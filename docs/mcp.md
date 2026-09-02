@@ -45,7 +45,7 @@ devctl mcp --json
 | `list_services` | Name, state, health, ports, pid, last error |
 | `get_service` | One service plus command/cwd/ports (env redacted or left as `${…}` refs) |
 | `get_status` | Profile, session, identity flags, proxy, log counts, MCP listen |
-| `get_logs` | Filtered logs, capped at 200 events, secrets redacted. Pass `since` from the previous `next_since` to read only newer lines |
+| `get_logs` | Filtered logs, capped at 200 events per page, secrets redacted. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
 | `list_profiles` | Config profiles and members |
 | `get_config` | Merged summary: project, services, routes, proxy paths |
 | `run_doctor` | Doctor report |

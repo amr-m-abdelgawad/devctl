@@ -1143,7 +1143,7 @@ export class Supervisor {
   private asMcpHost(): McpHost {
     return {
       status: () => this.snapshot(),
-      logs: (req) => this.queryLogs(req).events,
+      logsPage: (req) => this.queryLogsPage(req),
       config: () => this.cfg,
       start: (req) => this.start(req),
       stop: (names) => this.stop(names),

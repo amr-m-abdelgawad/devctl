@@ -20,7 +20,7 @@ function host(): McpHost {
   };
   return {
     status: () => snap,
-    logs: () => [],
+    logsPage: () => ({ events: [], nextCursor: "", prevCursor: "", hasNext: false, hasPrev: false, sessionChanged: false }),
     config: () => cfg,
     start: async () => null,
     stop: async () => undefined,
