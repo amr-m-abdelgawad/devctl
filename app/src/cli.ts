@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { stringify } from "yaml";
 import { defaultConfig, load, stopOnExit, validate } from "./config/index.ts";
-import { assertMethodAllowed, findDaemon, openAttach, openController } from "./controller.ts";
+import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "./controller.ts";
 import { readPersistedState } from "./storage.ts";
 import type { StatusSnapshot } from "./types.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
@@ -38,6 +38,7 @@ export function newRoot(): Command {
   addStop(root);
   addRestart(root);
   addStatus(root);
+  addDown(root);
   addLogs(root);
   addDoctor(root);
   addSetup(root);
@@ -164,6 +165,70 @@ function addStatus(root: Command): void {
         client?.close();
       }
     });
+}
+
+function addDown(root: Command): void {
+  root
+    .command("down")
+    .description("stop the daemon (and, by default, its services)")
+    .option("--repo <path>", "target a repository directly, even without a loadable configuration")
+    .option("--keep-services", "stop only the daemon; its services keep running, detached")
+    .action(async (opts: { repo?: string; keepServices?: boolean }) => {
+      const { repoRoot, client } = await findDaemon("", opts.repo ?? "");
+      if (!client) {
+        writeOut(`no supervisor is running for ${repoRoot}\n`);
+        return;
+      }
+      const timeout = await shutdownTimeoutFor(client);
+      try {
+        const stopServices = opts.keepServices !== true;
+        // shutdown must work even against an incompatible daemon — it's
+        // the one command that removes it — so this deliberately skips
+        // assertMethodAllowed.
+        await client.call("shutdown", { stop_services: stopServices }, timeout);
+      } finally {
+        client.close();
+      }
+      // The RPC response above only means the daemon *accepted* the
+      // request — dispatch("shutdown") replies immediately and does the
+      // actual work shortly after (so the reply can flush before its own
+      // socket goes away). down's job is to leave the daemon actually
+      // gone, so wait for it to stop answering before reporting success.
+      await waitUntilUnreachable(repoRoot, timeout);
+      writeOut(
+        opts.keepServices !== true
+          ? `stopped services and the supervisor for ${repoRoot}\n`
+          : `stopped the supervisor for ${repoRoot}; its services keep running\n`,
+      );
+    });
+}
+
+async function waitUntilUnreachable(repoRoot: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const probe = await tryDial(repoRoot);
+    if (!probe) {
+      return;
+    }
+    probe.close();
+  }
+}
+
+// down works even without a loadable local config, so it can't rely on
+// cfg.shutdown.grace_seconds the way Controller.close() does. The daemon's
+// own last-known-good config (available even after .devctl is deleted) is
+// the more accurate source when it's reachable; fall back to a generous
+// fixed timeout otherwise — the shutdown itself still completes
+// server-side even if this client stops waiting for the response.
+async function shutdownTimeoutFor(client: { call: (method: string, params: unknown) => Promise<unknown> }): Promise<number> {
+  const fallback = 30_000;
+  try {
+    const cfg = (await client.call("config_snapshot", null)) as { shutdown?: { grace_seconds?: number } };
+    const grace = typeof cfg.shutdown?.grace_seconds === "number" ? cfg.shutdown.grace_seconds : 0;
+    return Math.max(5_000, grace * 1_000 + 2_000);
+  } catch {
+    return fallback;
+  }
 }
 
 function addLogs(root: Command): void {

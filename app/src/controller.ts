@@ -236,6 +236,13 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
   ]);
   const child = spawn({
     cmd,
+    // Bun.spawn()'s default env is a snapshot of process.env from when
+    // *this* process launched, not a live view of it — so without this,
+    // anything this process set on its own process.env at runtime (e.g.
+    // gcp-env.ts's METADATA_SERVER_DETECTION/GCE_METADATA_TIMEOUT, always
+    // set before the CLI even parses args) would silently not reach the
+    // supervisor it spawns.
+    env: process.env,
     stdout: "ignore",
     stderr: Bun.file(bootstrapLog),
     stdin: "ignore",
