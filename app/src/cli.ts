@@ -1,8 +1,10 @@
 import { Command } from "commander";
+import { setTimeout as delay } from "node:timers/promises";
 import { stringify } from "yaml";
-import { defaultConfig, load, stopOnExit, validate } from "./config/index.ts";
+import { defaultConfig, discover, load, stopOnExit, validate } from "./config/index.ts";
 import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "./controller.ts";
-import { readPersistedState } from "./storage.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { bootstrapLogPath, readPersistedState } from "./storage.ts";
 import type { StatusSnapshot } from "./types.ts";
 import { formatDoctor, runDoctor } from "./doctor.ts";
 import { ExitSuccess, humanMessage, exitCode } from "./errors.ts";
@@ -12,7 +14,7 @@ import { TokenManager, googleTokenProviders } from "./token.ts";
 import { displayState } from "./services.ts";
 import { runSetup } from "./setup.ts";
 import { formatPlan, Supervisor } from "./supervisor.ts";
-import { resolveExportPath } from "./logs.ts";
+import { resolveExportPath, type LogEvent, type LogPage } from "./logs.ts";
 import { derivedMcpPort } from "./mcp/port.ts";
 import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "./mcp/snippets.ts";
 import { loadTuiConfig } from "./tui/tui-config.ts";
@@ -48,6 +50,7 @@ export function newRoot(): Command {
   addStatus(root);
   addDown(root);
   addLogs(root);
+  addDaemon(root);
   addDoctor(root);
   addSetup(root);
   addAuth(root);
@@ -134,49 +137,78 @@ function addRestart(root: Command): void {
     });
 }
 
+async function renderStatusOnce(root: Command, opts: { repo?: string; json?: boolean }): Promise<void> {
+  // Deliberately not openController(): status only needs a repo root to
+  // dial, not a parsed config, so a deleted .devctl must not prevent it
+  // from finding a still-live daemon (findDaemon's discovery-then-
+  // state-scan fallback handles that).
+  const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
+  try {
+    if (!client) {
+      const persisted = readPersistedState(repoRoot);
+      if (opts.json) {
+        writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
+        return;
+      }
+      writeOut("supervisor is not running\n");
+      if (persisted && persisted.processes.length > 0) {
+        writeOut(`last session ${persisted.session_id}  profile ${persisted.profile || "(none)"}\n`);
+        for (const proc of persisted.processes) {
+          writeOut(`${proc.name}\tstopped\tUNKNOWN\t${proc.pid}\n`);
+        }
+      }
+      return;
+    }
+    assertMethodAllowed(client, "status");
+    const snap = (await client.call("status", null)) as StatusSnapshot;
+    if (opts.json) {
+      writeOut(JSON.stringify(snap, null, 2) + "\n");
+      return;
+    }
+    writeOut(`PROFILE: ${snap.profile || "(none)"}\n\nSERVICE\tSTATUS\tHEALTH\tPID\n`);
+    for (const [name, rt] of Object.entries(snap.services)) {
+      writeOut(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.pid}\n`);
+    }
+    writeOut(`\nPROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}\n`);
+    writeOut(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}\n`);
+    writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
+    writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
+  } finally {
+    client?.close();
+  }
+}
+
+const WATCH_POLL_MS = 2000;
+
 function addStatus(root: Command): void {
   root
     .command("status")
     .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--json", "machine-readable output")
-    .action(async (opts: { repo?: string; json?: boolean }) => {
-      // Deliberately not openController(): status only needs a repo root to
-      // dial, not a parsed config, so a deleted .devctl must not prevent it
-      // from finding a still-live daemon (findDaemon's discovery-then-
-      // state-scan fallback handles that).
-      const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
+    .option("--watch", "keep refreshing until interrupted")
+    .action(async (opts: { repo?: string; json?: boolean; watch?: boolean }) => {
+      if (!opts.watch) {
+        await renderStatusOnce(root, opts);
+        return;
+      }
+      const abort = new AbortController();
+      const onSignal = (): void => abort.abort();
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
       try {
-        if (!client) {
-          const persisted = readPersistedState(repoRoot);
-          if (opts.json) {
-            writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
-            return;
+        while (!abort.signal.aborted) {
+          writeOut(`--- ${new Date().toISOString()} ---\n`);
+          await renderStatusOnce(root, opts);
+          writeOut("\n");
+          try {
+            await delay(WATCH_POLL_MS, undefined, { signal: abort.signal });
+          } catch {
+            break;
           }
-          writeOut("supervisor is not running\n");
-          if (persisted && persisted.processes.length > 0) {
-            writeOut(`last session ${persisted.session_id}  profile ${persisted.profile || "(none)"}\n`);
-            for (const proc of persisted.processes) {
-              writeOut(`${proc.name}\tstopped\tUNKNOWN\t${proc.pid}\n`);
-            }
-          }
-          return;
         }
-        assertMethodAllowed(client, "status");
-        const snap = (await client.call("status", null)) as StatusSnapshot;
-        if (opts.json) {
-          writeOut(JSON.stringify(snap, null, 2) + "\n");
-          return;
-        }
-        writeOut(`PROFILE: ${snap.profile || "(none)"}\n\nSERVICE\tSTATUS\tHEALTH\tPID\n`);
-        for (const [name, rt] of Object.entries(snap.services)) {
-          writeOut(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.pid}\n`);
-        }
-        writeOut(`\nPROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}\n`);
-        writeOut(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}\n`);
-        writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
-        writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
       } finally {
-        client?.close();
+        process.off("SIGINT", onSignal);
+        process.off("SIGTERM", onSignal);
       }
     });
 }
@@ -245,6 +277,35 @@ async function shutdownTimeoutFor(client: { call: (method: string, params: unkno
   }
 }
 
+function formatLogLineForCli(ev: LogEvent): string {
+  return `${ev.timestamp.slice(11, 19)} ${ev.service.padEnd(10)} ${String(ev.level).padEnd(6)} ${ev.message}\n`;
+}
+
+// Prints the latest page once, then keeps polling forward from where it
+// left off until signal fires. Exported so the loop itself — cursor
+// advancing correctly, no duplicate or dropped events across polls, and
+// clean termination on abort — is unit-testable without a real daemon.
+export async function followLogs(
+  fetchPage: (cursor?: string) => Promise<LogPage>,
+  onEvent: (ev: LogEvent) => void,
+  signal: AbortSignal,
+  pollMs = 1000,
+): Promise<void> {
+  let page = await fetchPage(undefined);
+  page.events.forEach(onEvent);
+  let cursor = page.nextCursor;
+  while (!signal.aborted) {
+    try {
+      await delay(pollMs, undefined, { signal });
+    } catch {
+      return;
+    }
+    page = await fetchPage(cursor);
+    page.events.forEach(onEvent);
+    cursor = page.nextCursor;
+  }
+}
+
 function addLogs(root: Command): void {
   // Needed alongside root's own enablePositionalOptions(): logs and its
   // export subcommand both declare --output, and without this, logs' own
@@ -260,13 +321,42 @@ function addLogs(root: Command): void {
     .option("--until <timestamp>", "only events at or before this ISO timestamp")
     .option("--output <path>", "export path")
     .option("--json", "machine-readable output")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean }) => {
+    .option("-f, --follow", "keep printing new matching events until interrupted")
+    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean }) => {
       const ctrl = await openController("", configFlag(root), true);
       try {
         // Resolved against this process's own cwd before it crosses the RPC
         // boundary: the daemon may be a long-running background process with
         // an unrelated cwd, so a relative path must not be resolved there.
         const exportPath = opts.output ? resolveExportPath(opts.output) : undefined;
+        if (opts.follow && !exportPath) {
+          const abort = new AbortController();
+          const onSignal = (): void => abort.abort();
+          process.on("SIGINT", onSignal);
+          process.on("SIGTERM", onSignal);
+          try {
+            await followLogs(
+              (cursor) =>
+                ctrl.logsPage({
+                  services,
+                  level: opts.level,
+                  search: opts.search,
+                  regex: opts.regex,
+                  source: opts.source,
+                  since: opts.since,
+                  until: opts.until,
+                  cursor,
+                  direction: "forward",
+                }),
+              (ev) => writeOut(opts.json ? JSON.stringify(ev) + "\n" : formatLogLineForCli(ev)),
+              abort.signal,
+            );
+          } finally {
+            process.off("SIGINT", onSignal);
+            process.off("SIGTERM", onSignal);
+          }
+          return;
+        }
         const events = await ctrl.logs({
           services,
           level: opts.level,
@@ -286,7 +376,7 @@ function addLogs(root: Command): void {
           return;
         }
         for (const ev of events) {
-          writeOut(`${ev.timestamp.slice(11, 19)} ${ev.service.padEnd(10)} ${String(ev.level).padEnd(6)} ${ev.message}\n`);
+          writeOut(formatLogLineForCli(ev));
         }
       } finally {
         await ctrl.close();
@@ -315,6 +405,58 @@ function addLogs(root: Command): void {
         writeOut(`exported ${exportPath}\n`);
       } finally {
         await ctrl.close();
+      }
+    });
+}
+
+// The daemon's own bootstrap stderr (captured by ensureSupervisor() so a
+// failed `start`/`attach` has a path to point at) was previously only
+// reachable by manually opening that file. discover() only needs to find
+// the repo, not load a valid config, since the config is often exactly
+// what's broken when this log is worth reading.
+function addDaemon(root: Command): void {
+  root
+    .command("daemon")
+    .command("logs")
+    .option("-f, --follow", "keep printing new lines until interrupted")
+    .action(async (opts: { follow?: boolean }) => {
+      const { repoRoot } = discover("", configFlag(root));
+      const path = bootstrapLogPath(repoRoot);
+      let printed = 0;
+      const printNew = (): void => {
+        if (!existsSync(path)) {
+          return;
+        }
+        const text = readFileSync(path, "utf8");
+        if (text.length > printed) {
+          writeOut(text.slice(printed));
+          printed = text.length;
+        }
+      };
+      if (!existsSync(path)) {
+        writeOut("no daemon bootstrap log yet for this repository\n");
+      } else {
+        printNew();
+      }
+      if (!opts.follow) {
+        return;
+      }
+      const abort = new AbortController();
+      const onSignal = (): void => abort.abort();
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
+      try {
+        while (!abort.signal.aborted) {
+          try {
+            await delay(500, undefined, { signal: abort.signal });
+          } catch {
+            break;
+          }
+          printNew();
+        }
+      } finally {
+        process.off("SIGINT", onSignal);
+        process.off("SIGTERM", onSignal);
       }
     });
 }

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { newRoot } from "./cli.ts";
+import { followLogs, newRoot } from "./cli.ts";
+import { type LogEvent, type LogPage } from "./logs.ts";
 import { processAlive, readPersistedState } from "./storage.ts";
 
 function tmp(): string {
@@ -247,4 +248,68 @@ services:
       process.argv[1] = originalArgv1;
     }
   }, 20_000);
+});
+
+function fakeLogEvent(message: string): LogEvent {
+  return { timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message, pid: 1, seq: 1 };
+}
+
+function fakePage(events: LogEvent[], nextCursor: string, prevCursor = ""): LogPage {
+  return { events, nextCursor, prevCursor, hasNext: false, hasPrev: false, sessionChanged: false };
+}
+
+describe("followLogs", () => {
+  test("prints the first page, then advances the cursor on each subsequent poll without repeating events", async () => {
+    const abort = new AbortController();
+    let call = 0;
+    const printed: string[] = [];
+    const fetchPage = async (cursor?: string): Promise<LogPage> => {
+      call += 1;
+      if (call === 1) {
+        expect(cursor).toBeUndefined();
+        return fakePage([fakeLogEvent("one")], "c1");
+      }
+      if (call === 2) {
+        expect(cursor).toBe("c1");
+        return fakePage([fakeLogEvent("two")], "c2");
+      }
+      if (call === 3) {
+        // Requires the cursor to have advanced a *second* time (from this
+        // call's own predecessor's nextCursor, not just the very first
+        // page's) — a cursor that only ever updates once would still pass
+        // call 2's assertion but fail here.
+        expect(cursor).toBe("c2");
+        // The abort fires from inside this fetch (simulating "the user hit
+        // ctrl+C while a poll was in flight") rather than from a real timer,
+        // so the test has no wall-clock dependency: the event this call
+        // returns must still be printed before the loop notices and stops,
+        // but no 4th fetch should ever happen.
+        abort.abort();
+        return fakePage([fakeLogEvent("three")], "c3");
+      }
+      throw new Error(`fetchPage should not be called a 4th time (cursor=${cursor})`);
+    };
+    await followLogs(fetchPage, (ev) => printed.push(ev.message), abort.signal, 1);
+    expect(printed).toEqual(["one", "two", "three"]);
+    expect(call).toBe(3);
+  });
+
+  test("stops promptly when aborted mid-poll-wait, not at the next full interval", async () => {
+    const abort = new AbortController();
+    const fetchPage = async (): Promise<LogPage> => fakePage([], "c");
+    const started = Date.now();
+    const promise = followLogs(fetchPage, () => {}, abort.signal, 10_000);
+    setTimeout(() => abort.abort(), 20);
+    await promise;
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
+
+describe("devctl daemon logs", () => {
+  test("reports no bootstrap log yet for a repo whose daemon has never been spawned", async () => {
+    const dir = tmp();
+    writeFileSync(configFile(dir), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const out = await run(["--config", configFile(dir), "daemon", "logs"]);
+    expect(out).toContain("no daemon bootstrap log yet");
+  });
 });
