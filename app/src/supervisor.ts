@@ -1176,7 +1176,14 @@ export class Supervisor {
   // showing up in status as a tool that does not exist.
   setMcpDisabledTools(names: readonly string[]): void {
     const known = names.filter((name) => isKnownToolName(name));
+    const before = this.mcpDisabledTools.join(",");
     this.mcpDisabledTools = [...new Set(known)].sort();
+    // Only when it actually changes, and never the boring "nothing is
+    // disabled" case at boot: this runs on every daemon start, and an
+    // unconditional line here is pure noise in every session's log.
+    if (this.mcpDisabledTools.join(",") === before) {
+      return;
+    }
     this.log("devctl", "INFO", this.mcpDisabledTools.length === 0
       ? "all MCP tools enabled"
       : `MCP tools disabled: ${this.mcpDisabledTools.join(", ")}`);

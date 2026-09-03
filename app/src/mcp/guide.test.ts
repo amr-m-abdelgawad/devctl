@@ -20,11 +20,16 @@ describe("setup guide", () => {
   // cannot be read from skills/ at runtime and is compiled in instead. That
   // makes a second copy of the same knowledge, and copies drift. This is the
   // guard: edit skills/, run `bun run sync-guide`, and this passes again.
-  test.each(SOURCES)("the embedded %s section matches its skill file byte for byte", (key, file) => {
+  test.each(SOURCES)("the embedded %s section matches its skill file", (key, file) => {
+    // Line endings are normalized on the disk side because they cannot be
+    // compared meaningfully: JavaScript normalizes line terminators inside
+    // template literals, so on a CRLF checkout (Windows, core.autocrlf=true)
+    // the embedded value is LF while the file on disk is CRLF. Content is
+    // what this guards; sync-guide.ts normalizes on write for the same reason.
     // The `as string` widens GUIDE_SECTIONS' literal type: without it the
     // comparison is against a string *literal* type the size of the whole
     // guide, which no overload of toBe accepts.
-    expect(GUIDE_SECTIONS[key] as string).toBe(readFileSync(file, "utf8"));
+    expect(GUIDE_SECTIONS[key] as string).toBe(readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
   });
 
   test("every section round-trips through the tool", () => {
