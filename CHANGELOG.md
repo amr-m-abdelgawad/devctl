@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-03
+
+### Added
+
+- Agent skill for onboarding a repository to devctl (`skills/devctl-onboard`): a procedure for surveying what a repo actually runs — docker-compose, Procfile, per-language project files, Terraform, Kubernetes manifests, `.env` files — and authoring a `.devctl` for it, plus two reference files covering the signal-to-service mapping and the rules the config loader rejects on that the JSON Schema does not state. Installable for Claude Code, Cursor, Codex, and Kilo Code; `skills/README.md` has the per-agent setup.
+- MCP `get_setup_guide` serves that same guide (sections `procedure`, `authoring`, `discovery`) directly from the binary, so an agent connected to devctl's MCP server can onboard a repository with nothing installed.
+- MCP `validate_config` returns the exact issues the loader would report. With no arguments it validates what is on disk; passing `text` validates a candidate `config.yaml` through the real load pipeline — modular services and profiles, overlays, templates — before it is written. Validation was previously reachable only through the CLI.
+- **Setup mode.** `devctl mcp --on` now works in a repository that has no `.devctl` at all: the daemon boots without a configuration so an agent can be pointed at the MCP server and asked to create one. Nothing is validated and no service can start until a configuration exists; `get_status` reports `setup_mode: true` so an agent can tell that state apart from a daemon that failed to start anything. Setup mode clears on the reload that finds a valid configuration, and `.devctl/` starts being watched from then on. A configuration that exists but is invalid still fails loudly, so a broken config is never silently replaced with an empty one. Every other command still fails closed with "no devctl configuration found."
+- MCP tools can be enabled and disabled individually. The TUI's MCP page lists them grouped by purpose (inspect, logs, diagnostics, control, setup), each marked `read` or `write`, and `space` toggles the highlighted one — the common case being turning off the whole `control` group so an agent can read status and logs but not start or stop anything. Everything is on by default. A disabled tool is left out of `tools/list` and refused if called anyway, since an agent may still hold a tool list from before it was turned off; the refusal names the tool rather than reporting it as unknown. The setting is a deny-list (`mcp_disabled_tools` in `tui.json`), so a tool added by a later version is available without editing anything, and the daemon applies it at boot the same way it applies `mcp_enabled`. An agent cannot change it: `mcp_set_tools` is a local RPC and is deliberately absent from the MCP host surface.
+
+### Fixed
+
+- The reload warning for settings a running daemon cannot pick up (log capacity and persistence, auth refresh threshold, plugin paths) advised `devctl stop && devctl start`, which cannot work: `stop` deliberately leaves the daemon running and only `down` ends it, so following that advice restarted the services and left the daemon holding the stale settings. Both the daemon's log line and `devctl reload`'s note now say `devctl down && devctl start`, and share one formatter so they cannot drift apart again.
+- `docs/configuration.md`'s overlay precedence diagram was drawn in the opposite direction to its own "later sources win" caption, and showed `~/.devctl/config.local.yaml` overriding the repository's own `.devctl/config.local.yaml`. The loader does the reverse — the repo-local overlay gets the last word.
+- The compiled-binary CI smoke test removed its temporary directory immediately after signalling the supervisor, racing the daemon's own state and log flush and failing with "Directory not empty" after the test itself had passed. It now asks the daemon to stop, waits for it, and preserves the script's real exit status so a cleanup problem cannot redden a passing build or hide a failing one.
+- The Windows CI job failed the setup-guide drift check on every section. JavaScript normalizes line terminators inside template literals, so on a CRLF checkout the text compiled into the binary was LF while the file on disk was CRLF. Line endings are now normalized when the guide is generated — keeping that generated file byte-identical whichever platform runs the script — and when it is compared.
+
+### Changed
+
+- The TUI's MCP page puts the tool list directly under Server, above **Copy agent config**, grouping the things you tune and leaving the copy block at the bottom.
+
 ## [0.1.1] - 2026-09-03
 
 ### Changed
@@ -135,6 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.1...v0.1.3
 [0.1.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/amr-m-abdelgawad/devctl/releases/tag/v0.1.0

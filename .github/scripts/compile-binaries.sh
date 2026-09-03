@@ -6,7 +6,7 @@ set -euo pipefail
 #   bun install --frozen-lockfile --os="*" --cpu="*"
 #
 # Usage (from app/):
-#   DEVCTL_VERSION=0.1.1 OUTDIR=../dist bash ../.github/scripts/compile-binaries.sh
+#   DEVCTL_VERSION=0.1.3 OUTDIR=../dist bash ../.github/scripts/compile-binaries.sh
 
 VERSION="${DEVCTL_VERSION:?DEVCTL_VERSION is required}"
 OUTDIR="${OUTDIR:-../dist}"
