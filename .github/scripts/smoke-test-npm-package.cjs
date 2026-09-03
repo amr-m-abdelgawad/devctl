@@ -111,6 +111,23 @@ function packageRoot() {
   return join(root, "node_modules", "@amr-m-abdelgawad", "devctl");
 }
 
+function removeTemporaryRoot() {
+  const retryable = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      rmSync(root, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!retryable.has(error?.code)) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 250);
+    }
+  }
+  // Windows runners can retain a short-lived scanner or pipe handle after
+  // the supervisor exits. The runner workspace is ephemeral, and cleanup
+  // must not turn an otherwise successful end-to-end test into a failure.
+  console.warn(`could not remove temporary smoke directory: ${root}`);
+}
+
 try {
   installPackage();
   if (mode !== "npx") {
@@ -167,5 +184,5 @@ try {
       // Preserve the original test failure; the CI workspace is ephemeral.
     }
   }
-  rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  removeTemporaryRoot();
 }
