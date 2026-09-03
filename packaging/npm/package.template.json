@@ -1,0 +1,44 @@
+{
+  "name": "@amr-m-abdelgawad/devctl",
+  "version": "0.0.0-development",
+  "description": "Local development orchestrator",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "devctl": "bin/devctl.cjs"
+  },
+  "files": [
+    "bin/devctl.cjs",
+    "dist/devctl.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/amr-m-abdelgawad/devctl.git"
+  },
+  "homepage": "https://github.com/amr-m-abdelgawad/devctl",
+  "bugs": {
+    "url": "https://github.com/amr-m-abdelgawad/devctl/issues"
+  },
+  "keywords": [
+    "development",
+    "orchestrator",
+    "tui",
+    "cli",
+    "mcp",
+    "bun"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

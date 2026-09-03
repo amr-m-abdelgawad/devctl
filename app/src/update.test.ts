@@ -14,7 +14,7 @@ describe("update", () => {
     expect(result.current).toBe(VERSION);
     expect(result.latest).toBe("9.9.9");
     expect(result.newer).toBe(true);
-    expect(result.hint).toContain("brew install");
+    expect(result.hint).toStartWith("npm install --global @amr-m-abdelgawad/devctl@latest");
   });
 
   test("checkUpdate stays quiet when the API is unavailable", async () => {

@@ -2,7 +2,7 @@ import { VERSION } from "./version.ts";
 
 const RELEASES_URL = "https://api.github.com/repos/amr-m-abdelgawad/devctl/releases/latest";
 const INSTALL_HINT =
-  "brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/homebrew/devctl.rb  # or download the GitHub Release binary — see docs/installation.md";
+  "npm install --global @amr-m-abdelgawad/devctl@latest  # alternatives: Homebrew or the unsigned GitHub Release binaries — see docs/installation.md";
 
 export type UpdateCheck = {
   current: string;

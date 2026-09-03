@@ -91,6 +91,87 @@ jobs:
       - name: end-to-end supervisor smoke test (compiled binary)
         run: bash .github/scripts/smoke-test-binary.sh /tmp/devctl-dist/devctl-linux-x64
 
+  npm-package-build:
+    name: npm package build
+    needs: setup
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - working-directory: app
+        run: bun install --frozen-lockfile --os="*" --cpu="*"
+      - name: Read package version
+        id: version
+        shell: bash
+        run: echo "version=$(node -p "require('./app/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Test Node launcher
+        working-directory: app
+        run: bun run test:npm-launcher
+      - name: Build and inspect npm package
+        shell: bash
+        run: |
+          bun app/scripts/build-npm-package.ts "${{ steps.version.outputs.version }}"
+          packed="$(npm pack ./dist/npm --pack-destination ./dist --silent)"
+          mv "dist/$packed" dist/devctl-npm-package.tgz
+          npm pack ./dist/npm --dry-run --json > dist/npm-pack-dry-run.json
+          node .github/scripts/verify-npm-pack.cjs dist/npm-pack-dry-run.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: devctl-npm-ci-${{ steps.version.outputs.version }}
+          if-no-files-found: error
+          retention-days: 3
+          path: |
+            dist/devctl-npm-package.tgz
+            dist/npm-pack-dry-run.json
+
+  npm-package-smoke:
+    name: npm smoke (${{ matrix.os }})
+    needs: npm-package-build
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v5
+        with:
+          name: devctl-npm-ci-${{ needs.npm-package-build.outputs.version }}
+          path: dist
+      - name: Test local npm installation
+        env:
+          DEVCTL_TEST_TUI: ${{ matrix.os != 'windows-latest' && '1' || '0' }}
+        run: node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.npm-package-build.outputs.version }}" local
+      - name: Test npx cache installation
+        run: node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.npm-package-build.outputs.version }}" npx
+      - name: Test global npm installation
+        if: matrix.os == 'ubuntu-24.04'
+        run: node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.npm-package-build.outputs.version }}" global
+      - name: Test Alpine/musl installation
+        if: startsWith(matrix.os, 'ubuntu-')
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            node:22-alpine \
+            node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.npm-package-build.outputs.version }}" local
+
 
   windows-tests:
     name: Windows tests
@@ -148,7 +229,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, demo-config, compile-smoke, windows-tests, audit, codeql, dependency-review]
+    needs: [tests, typecheck, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -158,6 +239,8 @@ jobs:
           TYPECHECK: ${{ needs.typecheck.result }}
           DEMO: ${{ needs.demo-config.result }}
           COMPILE: ${{ needs.compile-smoke.result }}
+          NPM_BUILD: ${{ needs.npm-package-build.result }}
+          NPM_SMOKE: ${{ needs.npm-package-smoke.result }}
           WINDOWS: ${{ needs.windows-tests.result }}
           AUDIT: ${{ needs.audit.result }}
           CODEQL: ${{ needs.codeql.result }}
@@ -167,6 +250,8 @@ jobs:
           test "$TYPECHECK" = success
           test "$DEMO" = success
           test "$COMPILE" = success
+          test "$NPM_BUILD" = success
+          test "$NPM_SMOKE" = success
           test "$WINDOWS" = success
           test "$AUDIT" = success
           test "$CODEQL" = success

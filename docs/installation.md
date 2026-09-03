@@ -1,12 +1,29 @@
 # Installation
 
-`devctl` is TypeScript. You run it with [Bun](https://bun.sh) **1.4.0** or later, or you install a tagged binary from GitHub Releases.
+The recommended installation is the public npm package. It includes an official Bun runtime, so Node.js 18 or later is the only prerequisite.
 
-`devctl version` prints `devctl <semver>`. Tagged binaries bake that version in at compile time.
+## From npm (recommended)
 
-## From a GitHub Release
+Install the command for regular use:
 
-After a `v*` tag, the [Release](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/release.yml) workflow installs OpenTUI native packages for every OS/CPU (`bun install --os="*" --cpu="*"`), then publishes compile artifacts:
+```bash
+npm install --global @amr-m-abdelgawad/devctl
+devctl version
+```
+
+Or try the latest version without a global installation:
+
+```bash
+npx @amr-m-abdelgawad/devctl@latest
+```
+
+The npm package contains bundled JavaScript, not a compiled devctl executable. Its small Node launcher invokes the package-local official Bun runtime and forwards the terminal, arguments, current directory, environment, signals, and exit status. npm provenance links public releases to this repository's release workflow.
+
+Do not install with `--ignore-scripts`: Bun's npm package uses its installation script to select the runtime for the current operating system and CPU.
+
+## From a GitHub Release (unsigned alternative)
+
+After a `v*` tag, the [Release](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/release.yml) workflow publishes these standalone artifacts:
 
 | Asset | Platform |
 |-------|----------|
@@ -17,26 +34,28 @@ After a `v*` tag, the [Release](https://github.com/amr-m-abdelgawad/devctl/actio
 | `devctl-windows-x64.exe` | Windows x64 |
 
 ```bash
-# example — pick the asset for your OS
+# Example only: download the asset and SHA256SUMS from the same release,
+# verify its hash, then install it.
+grep ' devctl-darwin-arm64$' SHA256SUMS | shasum -a 256 -c -
 chmod +x devctl-darwin-arm64
 sudo mv devctl-darwin-arm64 /usr/local/bin/devctl
 devctl version
 ```
 
-There is no npm package. A Homebrew formula lives in this repo (not Homebrew-core):
+These binaries are not signed with Apple Developer ID or Windows Authenticode. Checksums and GitHub build attestations prove integrity and build origin, but they do not make the operating system display devctl as a verified publisher.
+
+A Homebrew formula lives in this repository rather than Homebrew-core:
 
 ```bash
 brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/homebrew/devctl.rb
 ```
 
-`devctl update` reports whether a newer GitHub Release exists and prints that install hint. It does not overwrite the running binary.
+`devctl update` reports whether a newer GitHub Release exists and recommends the npm update command first. It never overwrites the running installation.
 
-The published artifact is the GitHub Release binary.
-
-## From this repository
+## From source
 
 ```bash
-# https://bun.sh — then make sure the binary is on PATH
+# Source development requires Bun 1.4.0 or later.
 export PATH="$HOME/.bun/bin:$PATH"
 
 git clone https://github.com/amr-m-abdelgawad/devctl.git
@@ -76,11 +95,12 @@ Install `gcloud` only if you use user identity, impersonation, or IAP. Local-onl
 
 ## Cross-platform
 
-macOS, Linux, and Windows. Process-group handling is OS-specific (`app/src/processes/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows.
+The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (`app/src/processes/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows.
 
 ## Related
 
 - [Quick start](quickstart.md)
 - [Building from source](typescript.md)
+- [npm publishing (maintainers)](npm-publishing.md)
 - [How it fits together](overview.md)
 - [Changelog](../CHANGELOG.md)

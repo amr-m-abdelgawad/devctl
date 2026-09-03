@@ -1,6 +1,6 @@
 {
   "name": "devctl",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Local development orchestrator",
   "license": "MIT",
   "module": "src/bin.ts",
@@ -21,7 +21,10 @@
     "dev": "bun run src/bin.ts",
     "start": "bun run src/bin.ts",
     "test": "bun test",
+    "test:npm-launcher": "node --test ../packaging/npm/devctl.test.cjs",
     "typecheck": "bunx tsc --noEmit",
+    "build:npm": "bun run scripts/build-npm-package.ts",
+    "update:homebrew": "bun run scripts/update-homebrew-formula.ts",
     "sync-guide": "bun run scripts/sync-guide.ts"
   },
   "devDependencies": {

@@ -7,43 +7,268 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
+  pull-requests: write
 
 jobs:
-  release:
-    name: Compile and publish
+  build:
+    name: Build release artifacts
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.0
-      - name: Install
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Validate release version
+        id: version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./app/package.json').version")"
+          if [ "$version" != "$package_version" ]; then
+            echo "Tag version $version does not match app/package.json version $package_version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
         working-directory: app
-        # Host bun install skips other OS/CPU optional packages. OpenTUI
-        # resolves @opentui/core-<platform> at compile time, so every target
-        # native package must be on disk before bun build --compile.
         run: bun install --frozen-lockfile --os="*" --cpu="*"
-      - name: Compile binaries
+
+      - name: Build native binaries
         working-directory: app
         env:
-          DEVCTL_VERSION: ${{ github.ref_name }}
+          DEVCTL_VERSION: ${{ steps.version.outputs.version }}
           OUTDIR: ../dist
+        run: bash ../.github/scripts/compile-binaries.sh
+
+      - name: Build npm package
+        working-directory: app
+        run: bun run build:npm "${{ steps.version.outputs.version }}"
+
+      - name: Pack npm tarball
+        shell: bash
         run: |
-          set -euo pipefail
-          export DEVCTL_VERSION="${DEVCTL_VERSION#v}"
-          bash ../.github/scripts/compile-binaries.sh
+          packed="$(npm pack ./dist/npm --pack-destination ./dist --silent)"
+          mv "dist/$packed" dist/devctl-npm-package.tgz
+          npm pack ./dist/npm --dry-run --json > dist/npm-pack-dry-run.json
+          node .github/scripts/verify-npm-pack.cjs dist/npm-pack-dry-run.json
+
       - name: End-to-end supervisor smoke test (compiled binary)
         run: bash .github/scripts/smoke-test-binary.sh dist/devctl-linux-x64
 
-      - name: Publish GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate checksums
+        working-directory: dist
+        shell: bash
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --title "${{ github.ref_name }}" \
-            --generate-notes \
-            dist/devctl-darwin-arm64 \
-            dist/devctl-darwin-x64 \
-            dist/devctl-linux-x64 \
-            dist/devctl-linux-arm64 \
+          sha256sum \
+            devctl-linux-x64 \
+            devctl-linux-arm64 \
+            devctl-darwin-x64 \
+            devctl-darwin-arm64 \
+            devctl-windows-x64.exe \
+            devctl-npm-package.tgz > SHA256SUMS
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: devctl-release-${{ steps.version.outputs.version }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/devctl-linux-x64
+            dist/devctl-linux-arm64
+            dist/devctl-darwin-x64
+            dist/devctl-darwin-arm64
             dist/devctl-windows-x64.exe
+            dist/devctl-npm-package.tgz
+            dist/SHA256SUMS
+            dist/npm-pack-dry-run.json
+
+  npm-smoke:
+    name: npm smoke (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+          - macos-15
+          - macos-15-intel
+          - windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Download exact release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: devctl-release-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Test local npm installation
+        env:
+          DEVCTL_TEST_TUI: ${{ matrix.os != 'windows-latest' && '1' || '0' }}
+        run: node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.build.outputs.version }}" local
+
+      - name: Test npx cache installation
+        run: node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.build.outputs.version }}" npx
+
+      - name: Test global npm installation
+        if: matrix.os == 'ubuntu-24.04'
+        run: node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.build.outputs.version }}" global
+
+      - name: Test Alpine/musl installation
+        if: startsWith(matrix.os, 'ubuntu-')
+        shell: bash
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            node:22-alpine \
+            node .github/scripts/smoke-test-npm-package.cjs dist/devctl-npm-package.tgz "${{ needs.build.outputs.version }}" local
+
+  publish:
+    name: Publish npm and GitHub release
+    needs:
+      - build
+      - npm-smoke
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install Trusted Publishing-compatible npm
+        run: npm install --global npm@11.5.1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
+      - name: Download tested release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          name: devctl-release-${{ needs.build.outputs.version }}
+          path: dist
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-path: |
+            dist/devctl-linux-x64
+            dist/devctl-linux-arm64
+            dist/devctl-darwin-x64
+            dist/devctl-darwin-arm64
+            dist/devctl-windows-x64.exe
+            dist/devctl-npm-package.tgz
+            dist/SHA256SUMS
+
+      - name: Create or refresh draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          notice="Trust notice: the standalone macOS, Linux, and Windows binaries are unsigned. Verify SHA256SUMS and the GitHub build-provenance attestations. The npm package is published separately with npm provenance."
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            body="$(gh release view "$TAG" --json body --jq .body)"
+            if [[ "$body" != *"Trust notice:"* ]]; then
+              combined_notes="$notice"$'\n\n'"$body"
+              gh release edit "$TAG" --notes "$combined_notes"
+            fi
+            gh release upload "$TAG" \
+              dist/devctl-linux-x64 \
+              dist/devctl-linux-arm64 \
+              dist/devctl-darwin-x64 \
+              dist/devctl-darwin-arm64 \
+              dist/devctl-windows-x64.exe \
+              dist/devctl-npm-package.tgz \
+              dist/SHA256SUMS \
+              --clobber
+          else
+            gh release create "$TAG" \
+              dist/devctl-linux-x64 \
+              dist/devctl-linux-arm64 \
+              dist/devctl-darwin-x64 \
+              dist/devctl-darwin-arm64 \
+              dist/devctl-windows-x64.exe \
+              dist/devctl-npm-package.tgz \
+              dist/SHA256SUMS \
+              --draft \
+              --generate-notes \
+              --notes "$notice" \
+              --title "$TAG"
+          fi
+
+      - name: Check whether npm version already exists
+        id: npm-status
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        shell: bash
+        run: |
+          if npm view "@amr-m-abdelgawad/devctl@$VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish npm package with provenance
+        if: steps.npm-status.outputs.published != 'true'
+        run: npm publish dist/devctl-npm-package.tgz --access public --provenance
+
+      - name: Finalize GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release edit "$TAG" --draft=false --latest
+
+      - name: Open Homebrew checksum update PR
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          branch="automation/homebrew-$TAG"
+          git fetch origin "refs/heads/main:refs/remotes/origin/main"
+          git fetch origin "refs/heads/$branch:refs/remotes/origin/$branch" || true
+          git switch --force-create "$branch" origin/main
+          bun app/scripts/update-homebrew-formula.ts "$VERSION" dist/SHA256SUMS
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add homebrew/devctl.rb
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "chore: update Homebrew checksums for $TAG"
+          git push --force-with-lease origin "$branch"
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create \
+              --base main \
+              --head "$branch" \
+              --title "chore: update Homebrew checksums for $TAG" \
+              --body "Replaces Homebrew checksum placeholders with the hashes from the attested $TAG release artifacts."
+          fi

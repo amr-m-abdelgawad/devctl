@@ -52,13 +52,12 @@ Google Cloud is optional. The [demo platform](examples/demo-platform/README.md) 
 
 ## Try it
 
-`python3` and [Bun](https://bun.sh) on PATH. No `gcloud`.
+Node.js 18 or later. The npm package installs its own Bun runtime; no `gcloud` is needed for the local demo.
 
 ```bash
 git clone https://github.com/amr-m-abdelgawad/devctl.git
-cd devctl/app && bun install
-cd ../examples/demo-platform
-bun run ../../app/src/bin.ts
+cd devctl/examples/demo-platform
+npx @amr-m-abdelgawad/devctl@latest
 ```
 
 In the TUI: `enter` starts a profile · `n` / `x` start or stop a row · `l` logs · `?` help · `q` quit.
@@ -69,24 +68,22 @@ Profiles: `minimal` · `backend` · `full` (includes the React console on [local
 
 ## Install
 
-Tagged builds from [GitHub Releases](https://github.com/amr-m-abdelgawad/devctl/releases) (`devctl version` matches the tag). Until a tag exists, install from source:
+For regular use, install the public npm package globally. Node.js is the only prerequisite; devctl installs an official Bun runtime inside its package.
 
 ```bash
-export PATH="$HOME/.bun/bin:$PATH"
-git clone https://github.com/amr-m-abdelgawad/devctl.git
-cd devctl/app
-bun install
-bun link          # optional: `devctl` on PATH
+npm install --global @amr-m-abdelgawad/devctl
 devctl version
 ```
 
-Or run from the repo root without linking:
+Try it without a global install:
 
 ```bash
-bun run app/src/bin.ts --help
+npx @amr-m-abdelgawad/devctl@latest
 ```
 
-`gcloud` only if a service or route needs user identity, impersonation, or IAP. Details: [Installation](docs/installation.md).
+Unsigned standalone binaries and the repository's Homebrew formula remain available as alternative installation paths. Verify their published SHA-256 checksums; Apple and Microsoft do not identify those optional binaries as a verified publisher. Source installation still requires Bun. See [Installation](docs/installation.md).
+
+`gcloud` is needed only if a service or route uses user identity, impersonation, or IAP.
 
 ---
 
