@@ -236,7 +236,7 @@ jobs:
 
       - name: Publish npm package with provenance
         if: steps.npm-status.outputs.published != 'true'
-        run: npm publish dist/devctl-npm-package.tgz --access public --provenance
+        run: npm publish ./dist/devctl-npm-package.tgz --access public --provenance
 
       - name: Finalize GitHub release
         env:

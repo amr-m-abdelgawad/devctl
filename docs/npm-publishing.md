@@ -35,8 +35,8 @@ Before tagging, update both version sources and confirm all CI checks pass:
 
 ```bash
 # app/package.json and app/src/version.ts must contain the same version
-git tag v0.1.3
-git push origin v0.1.3
+git tag v0.1.4
+git push origin v0.1.4
 ```
 
 The release workflow then:
