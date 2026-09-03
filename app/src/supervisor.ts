@@ -40,7 +40,7 @@ import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./por
 import { loadPluginPaths, type Registry } from "./plugins.ts";
 import { ProcessManager, handleStillRunning, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "./processes.ts";
 import { McpHttpServer } from "./mcp/server.ts";
-import { type McpHost } from "./mcp/tools.ts";
+import { isKnownToolName, type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
 import { loadTuiConfig } from "./tui/tui-config.ts";
 import { runDoctor } from "./doctor.ts";
@@ -66,6 +66,7 @@ import {
   shutdownPlan,
   shutdownPlanExact,
   startupPlan,
+  supervisorRestartAdvice,
   type Plan,
   type Runtime,
   type ServiceHealth,
@@ -166,6 +167,13 @@ export class Supervisor {
   private readonly unhealthyStreak = new Map<string, number>();
   private readonly healthyStreak = new Map<string, number>();
   private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // No configuration on disk yet — see StatusSnapshot.setup_mode. Cleared by
+  // the first reload that successfully loads one.
+  private setupMode: boolean;
+  // Which MCP tools are turned off. Owned here rather than captured by the
+  // MCP server, which reads it through a getter on every request — so a TUI
+  // toggle takes effect at once without restarting the listener.
+  private mcpDisabledTools: string[] = [];
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
 
@@ -230,6 +238,7 @@ export class Supervisor {
         void this.syncCredentialEntries();
       }
     }, [TokenRefreshed, TokenRefreshFailed, AuthenticationChanged]);
+    this.setupMode = !existsSync(cfg.configPath);
     this.identityCache = emptyIdentitySnapshot(cfg);
     for (const name of Object.keys(cfg.services)) {
       this.runtimes.set(name, emptyRuntime(name));
@@ -259,6 +268,10 @@ export class Supervisor {
     // attach to this daemon (CLI vs TUI): read the user's saved preference
     // directly here rather than relying on a client to apply it.
     const tuiPrefs = loadTuiConfig(this.cfg.repoRoot);
+    // Same reasoning as mcp_enabled/mcp_port: the deny-list is a saved user
+    // preference, so the daemon applies it itself at boot whether a CLI or
+    // TUI client spawned it, rather than waiting for a client to push it.
+    this.setMcpDisabledTools(tuiPrefs.mcp_disabled_tools ?? []);
     if (tuiPrefs.mcp_enabled) {
       await this.startMcp(tuiPrefs.mcp_port).catch((err) => this.log("devctl", "ERROR", humanMessage(err)));
     }
@@ -467,6 +480,14 @@ export class Supervisor {
       case "mcp_stop":
         await this.stopMcp();
         return null;
+      case "mcp_set_tools": {
+        // The client sends the whole deny-list, not a delta: it already
+        // renders the full set, and a delta would need conflict rules for two
+        // clients toggling at once for no benefit.
+        const names = Array.isArray(rec.disabled) ? rec.disabled.filter((n): n is string => typeof n === "string") : [];
+        this.setMcpDisabledTools(names);
+        return { disabled_tools: [...this.mcpDisabledTools] };
+      }
       case "reload":
         return this.reload();
       case "config_snapshot":
@@ -1144,9 +1165,21 @@ export class Supervisor {
       token: this.mcpToken,
       hostApi: this.asMcpHost(),
       onEvent: (level, message) => this.log("mcp", level, `mcp ${message}`),
+      disabledTools: () => this.mcpDisabledTools,
     });
     await this.mcp.start();
     this.persistState();
+  }
+
+  // Unknown names are dropped rather than stored: a stale name from an older
+  // version would otherwise sit in the list forever, disabling nothing and
+  // showing up in status as a tool that does not exist.
+  setMcpDisabledTools(names: readonly string[]): void {
+    const known = names.filter((name) => isKnownToolName(name));
+    this.mcpDisabledTools = [...new Set(known)].sort();
+    this.log("devctl", "INFO", this.mcpDisabledTools.length === 0
+      ? "all MCP tools enabled"
+      : `MCP tools disabled: ${this.mcpDisabledTools.join(", ")}`);
   }
 
   async stopMcp(): Promise<void> {
@@ -1203,6 +1236,17 @@ export class Supervisor {
       this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
       throw err;
     }
+    if (this.setupMode) {
+      this.setupMode = false;
+      this.log("devctl", "INFO", `configuration created at ${this.cfg.configPath}; leaving setup mode`);
+      // watchConfig() returned early at boot because .devctl did not exist
+      // yet. Now that it does, start watching it — otherwise a repository
+      // onboarded through setup mode would silently never pick up later
+      // edits, unlike every other repository.
+      if (!this.configWatcher) {
+        this.watchConfig();
+      }
+    }
     const result = diffReload(this.cfg, next);
     const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
     const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);
@@ -1237,11 +1281,7 @@ export class Supervisor {
     );
     this.log("devctl", "INFO", result.restart_required.length === 0 ? "configuration reloaded" : `configuration reloaded; restart required: ${result.restart_required.join(", ")}`);
     if (result.supervisor_restart_required) {
-      this.log(
-        "devctl",
-        "WARN",
-        `configuration changed in ${result.supervisor_restart_required.join(", ")} — these only take effect after a full \`devctl stop && devctl start\`, not a reload`,
-      );
+      this.log("devctl", "WARN", supervisorRestartAdvice(result.supervisor_restart_required));
     }
     this.persistState();
     void this.refreshIdentity();
@@ -1315,6 +1355,7 @@ export class Supervisor {
         address: this.mcp?.isRunning() ? `http://${this.mcp.address()}/mcp` : undefined,
         port: this.mcp?.isRunning() ? this.mcp.listenPort() : undefined,
         token: this.mcpToken,
+        disabled_tools: [...this.mcpDisabledTools],
       },
       // service_accounts/service_account_status come from the live cache,
       // not identityCache's snapshot — a first-use probe (startOne) or a
@@ -1326,6 +1367,7 @@ export class Supervisor {
         entries: [...this.credentialEntries],
       },
       detached: this.detached,
+      setup_mode: this.setupMode ? true : undefined,
       logs: this.logs.snapshot(),
       restart_required: [...this.restartRequired],
       system: systemSnapshot(),

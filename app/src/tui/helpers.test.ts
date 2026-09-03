@@ -621,7 +621,10 @@ describe("TUI helpers", () => {
     expect(screenListCount("services", counts)).toBe(3);
     expect(screenListCount("logs", counts)).toBe(0);
     expect(screenListCount("logs", { ...counts, logs: 12 })).toBe(12);
-    expect(screenListCount("mcp", counts)).toBe(6);
+    // The mcp screen's length depends on how many MCP tools exist, so only
+    // its caller knows it; screenListCount has no fallback of its own.
+    expect(screenListCount("mcp", counts)).toBe(0);
+    expect(screenListCount("mcp", { ...counts, mcp: 19 })).toBe(19);
     expect(screenListCount("setup", counts)).toBe(9);
   });
 

@@ -21,7 +21,8 @@
     "dev": "bun run src/bin.ts",
     "start": "bun run src/bin.ts",
     "test": "bun test",
-    "typecheck": "bunx tsc --noEmit"
+    "typecheck": "bunx tsc --noEmit",
+    "sync-guide": "bun run scripts/sync-guide.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",

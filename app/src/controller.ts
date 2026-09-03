@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from "node:net";
 import { spawn } from "bun";
-import { type DevctlConfig, defaultConfig, load } from "./config/index.ts";
+import { type DevctlConfig, defaultConfig, load, loadOrEmpty } from "./config/index.ts";
 import { resolveDaemonTarget } from "./daemon.ts";
 import { osEnviron } from "./environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
@@ -330,6 +330,13 @@ export class Controller {
     await this.call("mcp_stop", null);
   }
 
+  // Local RPC only, deliberately: this is not reachable through McpHost, so a
+  // connected agent cannot re-enable a tool its operator turned off.
+  async mcpSetTools(disabled: readonly string[]): Promise<string[]> {
+    const res = (await this.call("mcp_set_tools", { disabled: [...disabled] })) as { disabled_tools?: string[] };
+    return res.disabled_tools ?? [];
+  }
+
   async reload(): Promise<ReloadResult> {
     return (await this.call("reload", null)) as ReloadResult;
   }
@@ -397,8 +404,18 @@ export async function findDaemon(startDir: string, explicitRepo: string, explici
   return { repoRoot: target.repoRoot, client };
 }
 
-export async function openController(startDir: string, configPath: string, startSupervisor: boolean): Promise<Controller> {
-  const cfg = load(startDir, configPath);
+// allowMissingConfig is opt-in and belongs to exactly one caller: `devctl mcp
+// --on`, which must be able to bring a daemon up in a repository that has no
+// .devctl yet so an agent can be pointed at the MCP server and asked to
+// create one. Every other command should still fail closed with "no devctl
+// configuration found" rather than quietly operating on an empty config.
+export async function openController(
+  startDir: string,
+  configPath: string,
+  startSupervisor: boolean,
+  opts?: { allowMissingConfig?: boolean },
+): Promise<Controller> {
+  const cfg = opts?.allowMissingConfig === true ? loadOrEmpty(startDir, configPath) : load(startDir, configPath);
   const ctrl = new Controller(cfg);
   if (!startSupervisor) {
     ctrl.client = await tryDial(cfg.repoRoot);

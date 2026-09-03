@@ -68,6 +68,9 @@ export type McpSnapshot = {
   address?: string;
   port?: number;
   token?: string;
+  // Names of tools currently turned off. A deny-list, so an empty array means
+  // every tool is available — see tui.json's mcp_disabled_tools.
+  disabled_tools?: string[];
 };
 
 export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
@@ -109,8 +112,9 @@ export type ReloadResult = {
   changes: Record<string, string[]>;
   // Fields the running supervisor process itself cannot pick up from a
   // config reload (log capacity/persistence, auth refresh threshold, plugin
-  // paths) — these need `devctl stop && devctl start`, not a service
-  // restart, so they're reported separately from restart_required.
+  // paths) — these need the daemon itself replaced (`devctl down && devctl
+  // start`; plain `stop` leaves it running), not a service restart, so
+  // they're reported separately from restart_required.
   supervisor_restart_required?: string[];
 };
 
@@ -136,6 +140,12 @@ export type StatusSnapshot = {
   identity: IdentitySnapshot;
   credentials?: CredentialsSnapshot;
   detached?: boolean;
+  // True while the daemon is running without any configuration on disk — the
+  // bootstrap state `devctl mcp --on` creates so an agent can be pointed at
+  // the MCP server and asked to author a .devctl. It is not "a daemon with an
+  // empty config": nothing was validated, and no service can start until a
+  // real configuration is written and reloaded.
+  setup_mode?: boolean;
   logs: LogSnapshot;
   plan?: string[];
   restart_required?: string[];

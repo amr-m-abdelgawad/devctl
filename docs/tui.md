@@ -81,7 +81,7 @@ The status bar only lists keys that work **on the current screen**. On a termina
 - **Profiles** — members; `enter` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
 - **Settings** — grouped prefs: theme, display size, mouse, leader timeout, **MCP settings page**, about, reset. `←`/`→` writes the highlighted cycle or toggles mouse. Reset asks before restoring defaults. Saves to `~/.devctl/tui.json` unless `DEVCTL_TUI_CONFIG` is set
-- **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**. Off by default. See [MCP](mcp.md)
+- **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked `read` or `write`; `space` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
 `/reveal` toggles secret env values for this session only. The header shows `secrets shown`.
 

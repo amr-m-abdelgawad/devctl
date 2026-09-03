@@ -42,16 +42,21 @@ Service and profile filenames become keys (`identity.yaml` → service `identity
 
 ## Overlays and precedence
 
-Local overlays merge after the repo config. Later sources win:
+Local overlays merge after the repo config. Each stage overrides the one before
+it, so the rightmost source wins:
 
 ```mermaid
 flowchart LR
-  flags["CLI --config"] --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
-  env --> repoLocal[".devctl/config.local.yaml"]
-  repoLocal --> homeLocal["~/.devctl/config.local.yaml"]
-  homeLocal --> repo["Repository .devctl"]
-  repo --> defaults["Built-in defaults"]
+  defaults["Built-in defaults"] --> repo["Repository .devctl"]
+  repo --> homeLocal["~/.devctl/config.local.yaml"]
+  homeLocal --> repoLocal[".devctl/config.local.yaml"]
+  repoLocal --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
+  env --> flags["CLI --config"]
 ```
+
+The repository's own `config.local.yaml` overrides the one in your home
+directory, not the other way round: overlays are applied home-first so the
+repo-specific file gets the last word.
 
 TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in `tui.json` — see [Building from source](typescript.md) and [TUI](tui.md).
 

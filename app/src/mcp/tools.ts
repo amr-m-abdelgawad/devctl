@@ -1,8 +1,10 @@
-import { type DevctlConfig } from "../config/index.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { validateConfigText, type DevctlConfig } from "../config/index.ts";
 import { type Report } from "../doctor.ts";
 import { type LogFilter, type LogPage, type LogPageRequest } from "../logs.ts";
 import { Detector } from "../secrets.ts";
 import { type ReloadResult, type StartRequest, type StatusSnapshot } from "../types.ts";
+import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
 
@@ -27,8 +29,23 @@ export type McpHost = {
   doctor(): Promise<Report>;
 };
 
+// Ordered so the TUI renders groups in a stable, sensible sequence rather
+// than whatever order the tool list happens to be in.
+export const MCP_TOOL_CATEGORIES = ["inspect", "logs", "diagnostics", "control", "setup"] as const;
+
+export type McpToolCategory = (typeof MCP_TOOL_CATEGORIES)[number];
+
 export type McpToolDef = {
   readonly name: string;
+  // Human-facing name for the TUI. `description` stays the agent-facing text:
+  // one string cannot serve both without being wrong for one of them.
+  readonly label: string;
+  readonly summary: string;
+  readonly category: McpToolCategory;
+  // Changes the state of the daemon or its services. Surfaced in the TUI
+  // because "let an agent look but not touch" is the main reason to disable
+  // anything here.
+  readonly mutates?: boolean;
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
 };
@@ -36,11 +53,17 @@ export type McpToolDef = {
 export const MCP_TOOLS: readonly McpToolDef[] = [
   {
     name: "list_services",
+    label: "List services",
+    summary: "Name, state, health, ports, pid",
+    category: "inspect",
     description: "List services with state, health, ports, pid, and last error",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "get_service",
+    label: "Service detail",
+    summary: "One service with command, cwd, ports",
+    category: "inspect",
     description: "One service plus command, cwd, and ports. Environment values are redacted.",
     inputSchema: {
       type: "object",
@@ -51,11 +74,17 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "get_status",
+    label: "Status",
+    summary: "Profile, identity, proxy, log counts",
+    category: "inspect",
     description: "Profile, session, identity flags (no tokens), proxy, and log counts",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "get_logs",
+    label: "Read logs",
+    summary: "Filtered log pages, secrets redacted",
+    category: "logs",
     description:
       "Recent log lines, optionally filtered. Capped at 200 events per page. Secrets are redacted. Pass cursor=next_cursor to page forward with no duplicate or same-millisecond-lost events; since/until are plain timestamp filters for a fresh query, not a follow cursor.",
     inputSchema: {
@@ -74,21 +103,34 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "list_profiles",
+    label: "List profiles",
+    summary: "Configured profiles and their members",
+    category: "inspect",
     description: "Configured profiles and their member services",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "get_config",
+    label: "Read config",
+    summary: "Merged project summary, no secret values",
+    category: "inspect",
     description: "Merged project summary: services, routes, and proxy listen paths. No secret env values.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "run_doctor",
+    label: "Run doctor",
+    summary: "Environment diagnostics",
+    category: "diagnostics",
     description: "Run environment diagnostics",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
     name: "start_services",
+    label: "Start services",
+    summary: "Start named services or a profile",
+    category: "control",
+    mutates: true,
     description: "Start named services, or a profile when names are omitted. Empty start uses profile, then the active session profile, then the first configured profile — never every service.",
     inputSchema: {
       type: "object",
@@ -101,6 +143,10 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "stop_services",
+    label: "Stop services",
+    summary: "Stop services and their dependents",
+    category: "control",
+    mutates: true,
     description:
       "Stop named services, or all started services when names are omitted. Also stops every service that transitively depends on a named one (never a named service's own dependencies, which other running services may still need).",
     inputSchema: {
@@ -111,6 +157,10 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "restart_services",
+    label: "Restart services",
+    summary: "Restart services, optionally cascading",
+    category: "control",
+    mutates: true,
     description:
       "Restart named services. By default this touches only the named services, not anything that depends on them. Pass cascade=true to also restart their transitive dependents (the same set stop_services would affect).",
     inputSchema: {
@@ -124,10 +174,66 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
   {
     name: "reload_config",
+    label: "Reload config",
+    summary: "Re-read .devctl configuration",
+    category: "control",
+    mutates: true,
     description: "Reload .devctl configuration",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
+  {
+    name: "get_setup_guide",
+    label: "Setup guide",
+    summary: "How to author a .devctl for this repo",
+    category: "setup",
+    description:
+      "The devctl onboarding guide: how to survey a repository and author a .devctl configuration for it. Read section=procedure first; read section=authoring BEFORE writing any YAML (it carries the rules the loader rejects on, which the JSON Schema does not state); read section=discovery for mapping compose/package.json/pyproject/Terraform/k8s/.env to services. Write the files with your own editing tools — this server does not write them — then check your work with validate_config.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: {
+          type: "string",
+          enum: ["procedure", "authoring", "discovery"],
+          description: "Which part of the guide to return; defaults to procedure",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "validate_config",
+    label: "Validate config",
+    summary: "Check configuration or a draft for errors",
+    category: "setup",
+    description:
+      "Validate devctl configuration and return the exact issues the loader would report. With no arguments, validates what is on disk. Pass text to validate a candidate config.yaml before writing it — the candidate is run through the real load pipeline (modular services/profiles, overlays, templates), so it works even when no configuration exists yet. This is the only way to validate over MCP; there is no CLI round-trip needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description: "Candidate config.yaml contents to validate instead of the file on disk",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
 ];
+
+// A deny-list, deliberately: everything is on unless it was explicitly turned
+// off, so a tool added in a later version is available to existing users
+// instead of silently missing because their saved list predates it.
+export function toolEnabled(name: string, disabled: readonly string[] | undefined): boolean {
+  return !(disabled ?? []).includes(name);
+}
+
+export function enabledTools(disabled: readonly string[] | undefined): readonly McpToolDef[] {
+  return MCP_TOOLS.filter((tool) => toolEnabled(tool.name, disabled));
+}
+
+export function isKnownToolName(name: string): boolean {
+  return MCP_TOOLS.some((tool) => tool.name === name);
+}
 
 export function detectorFor(cfg: DevctlConfig): Detector {
   return new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
@@ -171,6 +277,10 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
     session_id: snap.session_id,
     repo_root: snap.repo_root,
     profile: snap.profile,
+    // Present only when the daemon booted with no configuration on disk. An
+    // agent seeing this should call get_setup_guide and author one; no
+    // service can start until it does.
+    setup_mode: snap.setup_mode === true ? true : undefined,
     identity: {
       user: snap.identity.user,
       project: snap.identity.project,
@@ -305,9 +415,44 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return { ok: true };
     case "reload_config":
       return host.reload();
+    case "get_setup_guide":
+      return getSetupGuide(args);
+    case "validate_config":
+      return validateConfig(host, args);
     default:
       throw new Error(`unknown tool ${name}`);
   }
+}
+
+export function getSetupGuide(args: Record<string, unknown>): unknown {
+  const requested = typeof args.section === "string" ? args.section : "procedure";
+  const section = requested in GUIDE_SECTIONS ? (requested as GuideSection) : "procedure";
+  return { section, text: GUIDE_SECTIONS[section], sections: Object.keys(GUIDE_SECTIONS) };
+}
+
+// Runs in the supervisor process, so it has the repository on disk: with no
+// `text` it validates what is actually written there, and with `text` it
+// substitutes that candidate at the main-file read step and runs the rest of
+// the real pipeline over it. The candidate path works before any
+// configuration exists — which is the whole point in setup mode, where an
+// agent needs to check a draft it has not written yet.
+export function validateConfig(host: McpHost, args: Record<string, unknown>): unknown {
+  const cfg = host.config();
+  if (typeof args.text === "string") {
+    const issues = validateConfigText(cfg.repoRoot, cfg.configPath, args.text);
+    return { valid: issues.length === 0, issues, source: "candidate", config_path: cfg.configPath };
+  }
+  if (!existsSync(cfg.configPath)) {
+    return {
+      valid: false,
+      issues: [`no configuration at ${cfg.configPath}`],
+      source: "disk",
+      config_path: cfg.configPath,
+      setup_mode: true,
+    };
+  }
+  const issues = validateConfigText(cfg.repoRoot, cfg.configPath, readFileSync(cfg.configPath, "utf8"));
+  return { valid: issues.length === 0, issues, source: "disk", config_path: cfg.configPath };
 }
 
 export function isMcpResourceUri(uri: string): uri is McpResourceUri {

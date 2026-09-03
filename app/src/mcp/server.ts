@@ -3,10 +3,12 @@ import { KindGeneral, newError, wrapError } from "../errors.ts";
 import { VERSION } from "../version.ts";
 import {
   callMcpTool,
+  enabledTools,
+  isKnownToolName,
   isMcpResourceUri,
   MCP_RESOURCE_URIS,
-  MCP_TOOLS,
   readMcpResource,
+  toolEnabled,
   type McpHost,
 } from "./tools.ts";
 
@@ -40,6 +42,10 @@ export type McpListenOptions = {
   token: string;
   hostApi: McpHost;
   onEvent?: (level: McpLogLevel, message: string) => void;
+  // Read on every request rather than captured once, so toggling a tool in
+  // the TUI takes effect immediately instead of after a listener restart.
+  // The supervisor owns the value; this is only a window onto it.
+  disabledTools?: () => readonly string[];
 };
 
 export class McpHttpServer {
@@ -51,6 +57,10 @@ export class McpHttpServer {
 
   constructor(opts: McpListenOptions) {
     this.opts = opts;
+  }
+
+  private disabled(): readonly string[] {
+    return this.opts.disabledTools?.() ?? [];
   }
 
   address(): string {
@@ -222,7 +232,7 @@ export class McpHttpServer {
         return {};
       case "tools/list":
         return {
-          tools: MCP_TOOLS.map((tool) => ({
+          tools: enabledTools(this.disabled()).map((tool) => ({
             name: tool.name,
             description: tool.description,
             inputSchema: tool.inputSchema,
@@ -249,6 +259,14 @@ export class McpHttpServer {
     const name = typeof params.name === "string" ? params.name : "";
     if (name === "") {
       throw new McpRpcError(INVALID_PARAMS, "tool name is required");
+    }
+    // Filtering tools/list is only discovery: an agent holding a tool list
+    // from before the tool was disabled will still call it. Refuse here too,
+    // and say *why* — "unknown tool" would send it hunting for a typo.
+    if (isKnownToolName(name) && !toolEnabled(name, this.disabled())) {
+      const message = `tool ${name} is disabled in devctl's MCP settings`;
+      this.emit("WARN", `tool call rejected name=${name}: disabled`);
+      return { content: [{ type: "text", text: message }], isError: true };
     }
     const args = isRecord(params.arguments) ? params.arguments : {};
     const started = Date.now();

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { stringify } from "yaml";
-import { defaultConfig, discover, load, stopOnExit, validate } from "./config/index.ts";
+import { defaultConfig, discover, load, loadOrEmpty, stopOnExit, validate } from "./config/index.ts";
 import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "./controller.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { bootstrapLogPath, readPersistedState } from "./storage.ts";
@@ -11,7 +11,7 @@ import { ExitSuccess, humanMessage, exitCode } from "./errors.ts";
 import { detectGoogle, loginGoogle, logoutGoogle } from "./google.ts";
 import { refreshThreshold } from "./config/index.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
-import { displayState } from "./services.ts";
+import { displayState, supervisorRestartAdvice } from "./services.ts";
 import { runSetup } from "./setup.ts";
 import { formatPlan, Supervisor } from "./supervisor.ts";
 import { resolveExportPath, type LogEvent, type LogPage } from "./logs.ts";
@@ -573,9 +573,7 @@ function addReload(root: Command): void {
         writeOut(`configuration reloaded; restart required: ${result.restart_required.join(", ")}\n`);
       }
       if (result.supervisor_restart_required && result.supervisor_restart_required.length > 0) {
-        writeOut(
-          `note: ${result.supervisor_restart_required.join(", ")} changed and only take effect after \`devctl stop && devctl start\`\n`,
-        );
+        writeOut(`note: ${supervisorRestartAdvice(result.supervisor_restart_required)}\n`);
       }
     } finally {
       await ctrl.close();
@@ -639,7 +637,7 @@ function addMcp(root: Command): void {
       if (opts.port !== undefined && (!Number.isInteger(portOpt) || (portOpt ?? 0) <= 0)) {
         throw new Error(`invalid --port ${opts.port}`);
       }
-      const ctrl = await openController("", configFlag(root), opts.on === true);
+      const ctrl = await openController("", configFlag(root), opts.on === true, { allowMissingConfig: true });
       try {
         if (opts.off === true && ctrl.client) {
           await ctrl.mcpStop();
@@ -656,6 +654,7 @@ function addMcp(root: Command): void {
             JSON.stringify(
               {
                 running: snap?.mcp?.running === true,
+                setup_mode: snap?.setup_mode === true,
                 url,
                 port,
                 snippets: {
@@ -672,6 +671,15 @@ function addMcp(root: Command): void {
           return;
         }
         writeOut(`MCP  ${snap?.mcp?.running ? "RUNNING" : "STOPPED"}  ${url}\n\n`);
+        if (snap?.setup_mode === true) {
+          // The whole point of allowing a config-less daemon: say plainly
+          // what state this is and what the next step looks like, so the
+          // human knows the empty service list is expected rather than a
+          // sign that something failed.
+          writeOut(`This repository has no .devctl yet, so the daemon is in setup mode.\n`);
+          writeOut(`Connect an agent with the config below and ask it to set devctl up for this repository.\n`);
+          writeOut(`It can call get_setup_guide and validate_config; nothing will run until a configuration exists.\n\n`);
+        }
         writeOut(formatMcpSnippets(url, token));
       } finally {
         await ctrl.close();
@@ -775,7 +783,11 @@ function addSupervisor(root: Command): void {
     .command("_supervisor")
     .option("--repo <path>", "repository root")
     .action(async (opts: { repo?: string }) => {
-      const cfg = load(opts.repo ?? "", configFlag(root));
+      // loadOrEmpty, not load: a daemon is only ever spawned because a client
+      // already decided one should exist, so a missing configuration here means
+      // setup mode (see `devctl mcp --on`), not an error worth dying over. An
+      // invalid configuration still throws.
+      const cfg = loadOrEmpty(opts.repo ?? "", configFlag(root));
       const sup = new Supervisor(cfg);
       // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
       // but it can also receive a signal directly (system shutdown, an

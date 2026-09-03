@@ -4,6 +4,7 @@ import { KindGeneral } from "../errors.ts";
 import { emptyRuntime } from "../services.ts";
 import { type StatusSnapshot } from "../types.ts";
 import { isLoopbackHost, McpHttpServer } from "./server.ts";
+import { MCP_TOOLS } from "./tools.ts";
 import { type McpHost } from "./tools.ts";
 
 function host(): McpHost {
@@ -102,5 +103,53 @@ describe("mcp server", () => {
     expect(events.some((ev) => ev.level === "INFO" && ev.message.includes("client connected") && ev.message.includes("claude 1.0"))).toBe(true);
     expect(events.some((ev) => ev.level === "INFO" && ev.message.includes("tool call name=list_services"))).toBe(true);
     expect(events.some((ev) => ev.level === "INFO" && ev.message === "stopped")).toBe(true);
+  });
+});
+
+describe("disabled tools", () => {
+  function serverWith(disabled: string[]): { srv: McpHttpServer; call: (m: string, p?: unknown) => Promise<Record<string, unknown>> } {
+    const srv = new McpHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      token: "",
+      hostApi: { config: () => defaultConfig() } as never,
+      disabledTools: () => disabled,
+    });
+    const call = (method: string, params?: unknown): Promise<Record<string, unknown>> =>
+      (srv as unknown as { handleMethod: (m: string, p: Record<string, unknown>, a: string) => Promise<Record<string, unknown>> })
+        .handleMethod(method, (params ?? {}) as Record<string, unknown>, "127.0.0.1");
+    return { srv, call };
+  }
+
+  test("tools/list advertises everything when nothing is disabled", async () => {
+    const { call } = serverWith([]);
+    const listed = ((await call("tools/list")).tools as Array<{ name: string }>).map((t) => t.name);
+    expect(listed).toHaveLength(MCP_TOOLS.length);
+  });
+
+  test("tools/list hides a disabled tool", async () => {
+    const { call } = serverWith(["get_logs"]);
+    const listed = ((await call("tools/list")).tools as Array<{ name: string }>).map((t) => t.name);
+    expect(listed).not.toContain("get_logs");
+    expect(listed).toContain("list_services");
+  });
+
+  // Filtering the list is only discovery — an agent holding a stale tool list
+  // will still call it, so the call itself has to be refused.
+  test("tools/call refuses a disabled tool, and says why", async () => {
+    const { call } = serverWith(["get_logs"]);
+    const res = await call("tools/call", { name: "get_logs", arguments: {} });
+    expect(res.isError).toBe(true);
+    const text = (res.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(text).toContain("get_logs");
+    expect(text).toContain("disabled");
+    // Not "unknown tool" — that would send an agent hunting for a typo.
+    expect(text).not.toContain("unknown tool");
+  });
+
+  test("a tool that is not disabled still dispatches", async () => {
+    const { call } = serverWith(["get_logs"]);
+    const res = await call("tools/call", { name: "list_profiles", arguments: {} });
+    expect(res.isError).toBeUndefined();
   });
 });

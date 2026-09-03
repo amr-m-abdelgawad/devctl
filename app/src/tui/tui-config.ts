@@ -56,6 +56,9 @@ export type TuiConfig = {
   log_metadata: boolean;
   mcp_enabled: boolean;
   mcp_port?: number;
+  // Deny-list: names of MCP tools turned off. Absent or empty means every
+  // tool is available, so a tool added in a later version is on by default.
+  mcp_disabled_tools?: string[];
   path?: string;
 };
 
@@ -166,6 +169,7 @@ export type TuiPreferencePatch = {
   log_metadata?: boolean;
   mcp_enabled?: boolean;
   mcp_port?: number | null;
+  mcp_disabled_tools?: string[];
 };
 
 export function saveTuiPreferences(partial: TuiPreferencePatch): string {
@@ -203,6 +207,11 @@ export function saveTuiPreferences(partial: TuiPreferencePatch): string {
     delete next.mcp_port;
   } else if (partial.mcp_port !== undefined) {
     next.mcp_port = partial.mcp_port;
+  }
+  if (partial.mcp_disabled_tools !== undefined) {
+    // Written even when empty: an explicit [] is how "I turned everything
+    // back on" is distinguished from "I never touched this".
+    next.mcp_disabled_tools = partial.mcp_disabled_tools;
   }
   writeFileSecure(path, `${JSON.stringify(next, null, 2)}\n`);
   return path;
@@ -293,6 +302,9 @@ export function mergeTuiConfig(base: TuiConfig, raw: unknown, path: string): Tui
     log_metadata: typeof rec.log_metadata === "boolean" ? rec.log_metadata : base.log_metadata,
     mcp_enabled: typeof rec.mcp_enabled === "boolean" ? rec.mcp_enabled : base.mcp_enabled,
     mcp_port: typeof rec.mcp_port === "number" && Number.isInteger(rec.mcp_port) ? rec.mcp_port : base.mcp_port,
+    mcp_disabled_tools: Array.isArray(rec.mcp_disabled_tools)
+      ? rec.mcp_disabled_tools.filter((name): name is string => typeof name === "string")
+      : base.mcp_disabled_tools,
     path,
   };
 }

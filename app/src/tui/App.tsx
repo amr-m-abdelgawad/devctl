@@ -19,7 +19,7 @@ import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, 
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, MCP_FOCUS_COUNT, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
+import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
 import {
   isBound,
   isClearLogsKey,
@@ -61,7 +61,8 @@ import { ServicesScreen } from "./screens/Services.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
 import { StatsScreen } from "./screens/Stats.tsx";
 import { SetupScreen } from "./screens/Setup.tsx";
-import { McpScreen } from "./screens/Mcp.tsx";
+import { McpScreen, mcpRowCount, mcpSnippetIndexAtRow, mcpToolAtRow } from "./screens/Mcp.tsx";
+import { toolEnabled, type McpToolDef } from "../mcp/tools.ts";
 import { DensityContext } from "./density.tsx";
 import {
   cycleFontSize,
@@ -270,7 +271,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     profiles: Object.keys(cfg?.profiles ?? {}).length,
     services: names.length,
     logs: logSlice.length,
-    mcp: MCP_FOCUS_COUNT,
+    mcp: mcpRowCount(),
   });
   const cursorState = screen === "logs" ? logSelected : selected;
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
@@ -555,6 +556,26 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     [controller, refresh, snap?.mcp?.running],
   );
 
+  // The whole deny-list is sent, not a delta — the daemon is authoritative
+  // for what it ends up with (it drops unknown names), and its reply is what
+  // gets persisted, so tui.json can never disagree with the running server.
+  const toggleMcpTool = useCallback(async (tool: McpToolDef) => {
+    if (!controller) {
+      setStatus("Supervisor is not running");
+      return;
+    }
+    const current = snap?.mcp?.disabled_tools ?? [];
+    const turningOff = toolEnabled(tool.name, current);
+    const next = turningOff ? [...current, tool.name] : current.filter((name) => name !== tool.name);
+    try {
+      const applied = await controller.mcpSetTools(next);
+      persistPrefs({ mcp_disabled_tools: applied }, `${tool.label} ${turningOff ? "disabled" : "enabled"}`);
+      await refresh();
+    } catch (err) {
+      setStatus(humanMessage(err));
+    }
+  }, [controller, persistPrefs, refresh, snap]);
+
   const toggleMcp = useCallback(async () => {
     if (!controller) {
       setStatus("Supervisor is not running");
@@ -591,11 +612,14 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
 
   const copyFocusedMcpSnippet = useCallback(
     (index: number) => {
-      if (index < 2) {
+      // Snippet rows now sit below the tool list, so their offset depends on
+      // how many tools exist — never hardcode it.
+      const snippetIndex = mcpSnippetIndexAtRow(index);
+      if (snippetIndex === undefined) {
         return false;
       }
       const url = snap?.mcp?.address ?? mcpUrl(snap?.mcp?.port ?? mcpPort);
-      const snippet = mcpSnippets(url, snap?.mcp?.token ?? "")[index - 2];
+      const snippet = mcpSnippets(url, snap?.mcp?.token ?? "")[snippetIndex];
       if (!snippet) {
         return false;
       }
@@ -1332,6 +1356,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         applyMcpPortDraft();
         return;
       }
+      const tool = mcpToolAtRow(listCursor);
+      if (tool) {
+        void toggleMcpTool(tool);
+        return;
+      }
       copyFocusedMcpSnippet(listCursor);
       return;
     }
@@ -1876,6 +1905,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           void toggleMcp();
           return;
         }
+        const tool = mcpToolAtRow(listCursor);
+        if (tool) {
+          void toggleMcpTool(tool);
+          return;
+        }
         copyFocusedMcpSnippet(listCursor);
         return;
       }
@@ -2158,6 +2192,9 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
               void toggleMcp();
             }}
             onCopy={copyMcpSnippet}
+            onToggleTool={(tool) => {
+              void toggleMcpTool(tool);
+            }}
           />
         ) : null}
         {screen === "doctor" ? (

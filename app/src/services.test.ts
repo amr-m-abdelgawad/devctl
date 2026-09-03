@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, type DevctlConfig } from "./config/types.ts";
-import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan } from "./services.ts";
+import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan, supervisorRestartAdvice } from "./services.ts";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 function cfg(deps: Record<string, string[]>): DevctlConfig {
   const c = defaultConfig();
@@ -87,5 +89,44 @@ describe("emptyRuntime", () => {
     expect(rt.state).toBe("STOPPED");
     expect(rt.restarts).toBe(0);
     expect(rt.startTime).toBeUndefined();
+  });
+});
+
+describe("supervisorRestartAdvice", () => {
+  test("names `devctl down`, the only command that actually ends the daemon", () => {
+    const advice = supervisorRestartAdvice(["logs", "plugins"]);
+    expect(advice).toContain("logs, plugins");
+    expect(advice).toContain("`devctl down && devctl start`");
+  });
+
+  // The regression this guards: `stop` was redefined to leave the daemon
+  // running (only `down` ends it), but the two hand-written copies of this
+  // advice — the daemon's reload log line and the CLI's reload note — kept
+  // telling users to run `devctl stop && devctl start`, which restarts the
+  // services and leaves the daemon holding the stale settings. Scanning the
+  // sources catches a future copy that bypasses supervisorRestartAdvice()
+  // the same way, which a unit test on the helper alone cannot.
+  test("no source file advises the `devctl stop && devctl start` that cannot work", () => {
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir)) {
+        if (entry === "node_modules" || entry === "testdata") {
+          continue;
+        }
+        const path = join(dir, entry);
+        if (statSync(path).isDirectory()) {
+          walk(path);
+          continue;
+        }
+        if (!/\.tsx?$/.test(entry) || entry.includes(".test.")) {
+          continue;
+        }
+        if (readFileSync(path, "utf8").includes("devctl stop && devctl start")) {
+          offenders.push(path);
+        }
+      }
+    };
+    walk(import.meta.dir);
+    expect(offenders, "these files hand-write daemon-restart advice; call supervisorRestartAdvice() instead").toEqual([]);
   });
 });

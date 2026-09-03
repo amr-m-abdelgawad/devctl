@@ -520,7 +520,9 @@ export function planServices(
   return { services: Object.keys(cfg.services), profile: "" };
 }
 
-export const MCP_FOCUS_COUNT = 6;
+// No fallback constant here on purpose: the mcp screen's row count now
+// depends on how many tools exist, which only screens/Mcp.tsx knows. A
+// hardcoded duplicate would silently go stale the next time a tool is added.
 
 export function screenListCount(
   screen: Screen,
@@ -542,7 +544,7 @@ export function screenListCount(
     return counts.logs ?? 0;
   }
   if (screen === "mcp") {
-    return counts.mcp ?? MCP_FOCUS_COUNT;
+    return counts.mcp ?? 0;
   }
   if (screen === "setup") {
     return SETUP_STEP_COUNT;

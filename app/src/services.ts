@@ -262,6 +262,18 @@ export function formatPlan(plan: Plan): string {
   return out;
 }
 
+// Advice for the settings a running daemon reads once at boot (log
+// capacity/persistence, auth refresh threshold, plugin paths) and therefore
+// cannot pick up from a reload. It has to name `devctl down`: `stop`
+// deliberately leaves the daemon running (it only stops services), so the
+// stop-then-start pair this used to advise would restart the services and
+// leave the very daemon holding the stale settings untouched. Shared by the
+// daemon's own log line and the CLI's reload note so the two can't drift
+// apart again.
+export function supervisorRestartAdvice(fields: string[]): string {
+  return `${fields.join(", ")} changed and only take effect after a full \`devctl down && devctl start\`, not a reload`;
+}
+
 // Empty name and empty extra still means every service. Start paths must use resolveStartRequest.
 export function resolveProfile(
   cfg: DevctlConfig,

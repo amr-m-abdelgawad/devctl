@@ -121,11 +121,16 @@ describe("ensureSupervisor bootstrap failure", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-bootstrap-fail-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
     process.env.DEVCTL_HOME = join(dir, "home");
-    // No .devctl/config.yaml exists at this path, so the real spawned
-    // `_supervisor` process fails to load configuration and exits almost
-    // immediately instead of ever binding a socket — exercising the real
-    // dial-timeout-then-report path end to end, not a mocked one.
+    // An *invalid* configuration, not a missing one: the spawned
+    // `_supervisor` uses loadOrEmpty(), so a missing config is now setup mode
+    // and the daemon comes up fine (see mcp/setup.test.ts). A config that
+    // exists and is broken still kills it, which is what this needs — the
+    // real spawned process exits almost immediately instead of ever binding a
+    // socket, exercising the dial-timeout-then-report path end to end rather
+    // than a mocked one.
     const configPath = join(dir, ".devctl", "config.yaml");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(configPath, "version: 1\nservices: {}\n");
     const originalArgv1 = process.argv[1] ?? "";
     process.argv[1] = join(import.meta.dir, "bin.ts");
     try {

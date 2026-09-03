@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, extname, join } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 import { parse } from "yaml";
-import { DevctlError, KindConfiguration, newError, wrapError } from "../errors.ts";
+import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newError, wrapError } from "../errors.ts";
 import { homeDir } from "../storage.ts";
 import { decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
-import { ConfigDirName, discover, fileExists } from "./discover.ts";
+import { ConfigDirName, ConfigFileName, discover, fileExists } from "./discover.ts";
 import { applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, type ConfigPresence } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
@@ -41,6 +41,33 @@ export function validateConfigText(repoRoot: string, configPath: string, text: s
 export function load(startDir: string, explicit: string): DevctlConfig {
   const { repoRoot, configPath } = discover(startDir, explicit);
   return loadPath(repoRoot, configPath);
+}
+
+// load(), except that "there is no configuration yet" yields an empty config
+// rooted where one would go, instead of throwing. This is what lets a
+// supervisor boot in setup mode so an agent can be pointed at the MCP server
+// *before* the repository has a .devctl at all — the bootstrap case that
+// `devctl mcp --on` needs and every other command deliberately does not.
+//
+// Only KindConfigurationMissing is swallowed. A configuration that exists but
+// is invalid still throws: silently replacing a broken config with an empty
+// one would hide the user's real error and invite an agent to overwrite it.
+export function loadOrEmpty(startDir: string, explicit: string): DevctlConfig {
+  try {
+    return load(startDir, explicit);
+  } catch (err) {
+    if (!isKind(err, KindConfigurationMissing)) {
+      throw err;
+    }
+    const repoRoot = startDir === "" ? process.cwd() : resolve(startDir);
+    const cfg = defaultConfig();
+    cfg.repoRoot = repoRoot;
+    // The path a config *would* live at. validateConfigText() substitutes
+    // candidate text at the main-file read step and never stats this path,
+    // so buffer validation works against it before anything is written.
+    cfg.configPath = join(repoRoot, ConfigDirName, ConfigFileName);
+    return cfg;
+  }
 }
 
 export function loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig {
