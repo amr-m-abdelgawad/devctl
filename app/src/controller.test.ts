@@ -142,7 +142,13 @@ describe("ensureSupervisor bootstrap failure", () => {
     } finally {
       process.argv[1] = originalArgv1;
     }
-  }, 15_000);
+    // Generous on purpose. This test's runtime has a hard floor of
+    // controller.ts's DIAL_TIMEOUT_MS (8s) — it waits out the full dial before
+    // reporting failure — plus a real child process spawn. A 15s limit left
+    // only ~6s of headroom, which a loaded runner (and Windows, where spawns
+    // are slower) can exhaust; it timed out under CPU contention locally.
+    // Raise this alongside DIAL_TIMEOUT_MS if that constant ever grows.
+  }, 40_000);
 });
 
 describe("daemon compatibility handshake", () => {
