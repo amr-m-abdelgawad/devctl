@@ -65,13 +65,13 @@ export function ProfilesScreen(props: {
                     {envCount > 0 ? <span fg={palette.muted}>{`  ·  ${envCount} env var${envCount === 1 ? "" : "s"}`}</span> : null}
                   </text>
                 </box>
-                <box height={1} flexDirection="row" overflow="hidden" flexShrink={0}>
+                <box flexDirection="row" overflow="hidden" flexShrink={0}>
                   {services.length === 0 ? (
                     <text fg={palette.muted} wrapMode="none">
                       (no services)
                     </text>
                   ) : (
-                    <text wrapMode="none">
+                    <text wrapMode="word">
                       {services.map((svcName, svcIndex) => {
                         const state = serviceLineState(snap?.services[svcName]);
                         return (
