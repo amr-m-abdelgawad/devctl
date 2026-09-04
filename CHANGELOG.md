@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-09-04
+
 ### Added
 
 - Structured (JSON-per-line) logs from pino, bunyan, zap, logrus, and similar loggers are parsed instead of shown as a raw blob: `message`/`msg`/`text`, `level`/`severity` (including pino's numeric levels), and `request_id`/`trace_id`-style fields populate the normal log columns. The full JSON stays available — pretty-printed in the log details overlay (`enter`), searchable, and unabbreviated in persisted session files and log exports.
@@ -242,7 +244,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.5...v0.2.0
