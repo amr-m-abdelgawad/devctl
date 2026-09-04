@@ -18,7 +18,7 @@ npx @amr-m-abdelgawad/devctl@latest
 ```
 
 [![npm](https://img.shields.io/npm/v/%40amr-m-abdelgawad%2Fdevctl?style=flat-square&logo=npm&color=cb3837&label=npm)](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)
-[![Socket Badge](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.2.0)](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.2.0)
+[![Socket Badge](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.2.1)](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.2.1)
 [![CI](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml/badge.svg)](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488?style=flat-square)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f59e0b?style=flat-square)](https://bun.sh)

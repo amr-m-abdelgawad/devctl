@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-04
+
 ### Added
 
 - TUI `/run <task>` and `/exec <service> -- <command…>`. Task and exec output go to Logs (`task:<name>` / `<service>:exec`). `/exec <service> --print-env` loads the same resolved environment as the CLI (dotenv, profile, secrets, plugins, runtime ports), redacted unless `/reveal` or `--reveal`.
@@ -214,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.3...v0.1.4
