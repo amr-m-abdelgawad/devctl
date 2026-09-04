@@ -281,6 +281,10 @@ export class Controller {
     await this.call("restart", { services, cascade: cascade === true, client_env: osEnviron() });
   }
 
+  async runTask(name: string): Promise<{ task: string; code: number; stdout: string; stderr: string }> {
+    return (await this.call("run_task", { name, client_env: osEnviron() })) as { task: string; code: number; stdout: string; stderr: string };
+  }
+
   async status(): Promise<StatusSnapshot> {
     return (await this.call("status", null)) as StatusSnapshot;
   }

@@ -10,6 +10,7 @@ import {
   decodeProfile,
   decodeRoute,
   decodeService,
+  decodeTask,
   decodeServiceProxy,
   isRecord,
   presentKeys,
@@ -27,6 +28,7 @@ import {
   type ServiceConfig,
   type ServiceLogConfig,
   type StartupConfig,
+  type TaskConfig,
 } from "./types.ts";
 
 // Field names ever explicitly set, per service or template name, by any
@@ -63,7 +65,7 @@ export function recordProvenance(provenance: ConfigProvenance, raw: unknown, sou
 // Service fields that are themselves merged field-by-field rather than
 // replaced wholesale — so presence needs to be tracked one level deeper
 // than just "was this key present" for each of them too.
-const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity", "container"] as const;
+const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity", "container", "hooks"] as const;
 
 export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown): void {
   const keys = presentKeys(raw);
@@ -128,6 +130,9 @@ export function applyRoot(
       cfg.services[name] = existing ? mergeService(existing, value) : decodeService(value);
       recordPresence(presence.services, name, value);
     }
+  }
+  if (isRecord(raw.tasks)) {
+    for (const [name, value] of Object.entries(raw.tasks)) cfg.tasks[name] = cfg.tasks[name] ? mergeTask(cfg.tasks[name]!, value) : decodeTask(value);
   }
   if (isRecord(raw.proxy)) {
     applyProxy(cfg.proxy, raw.proxy);
@@ -237,6 +242,17 @@ function mergeProfile(base: ProfileConfig, raw: unknown): ProfileConfig {
   };
 }
 
+function mergeTask(base: TaskConfig, raw: unknown): TaskConfig {
+  if (!isRecord(raw)) return base;
+  return {
+    command: raw.command !== undefined ? decodeCommand(raw.command) : base.command,
+    shell: raw.shell !== undefined ? asBoolean(raw.shell) : base.shell,
+    working_dir: raw.working_dir !== undefined ? asString(raw.working_dir) : base.working_dir,
+    dependencies: raw.dependencies !== undefined ? asStringArray(raw.dependencies) : base.dependencies,
+    environment: mergeEnv(base.environment, raw.environment),
+  };
+}
+
 export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
   if (!isRecord(raw)) {
     return base;
@@ -251,6 +267,7 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     restart: mergeRestart(base.restart, raw.restart),
     startup: mergeStartup(base.startup, raw.startup),
     container: mergeContainer(base.container, raw.container),
+    hooks: mergeHooks(base.hooks, raw.hooks),
   };
   if (present.has("extends")) {
     out.extends = asString(raw.extends);
@@ -280,6 +297,11 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     out.proxy = decodeServiceProxy(raw.proxy);
   }
   return out;
+}
+
+function mergeHooks(base: ServiceConfig["hooks"], raw: unknown): ServiceConfig["hooks"] {
+  if (!isRecord(raw)) return base;
+  return { pre_start: raw.pre_start !== undefined ? decodeCommand(raw.pre_start) : base.pre_start, post_start: raw.post_start !== undefined ? decodeCommand(raw.post_start) : base.post_start };
 }
 
 function mergeEnv(base: EnvConfig, raw: unknown): EnvConfig {
@@ -479,6 +501,10 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
       volumes: present.has("container.volumes") ? container.volumes : baseContainer.volumes,
     } : (container ?? baseContainer);
   }
+  out.hooks = {
+    pre_start: present.has("hooks.pre_start") ? svc.hooks.pre_start : base.hooks.pre_start,
+    post_start: present.has("hooks.post_start") ? svc.hooks.post_start : base.hooks.post_start,
+  };
   out.health = {
     type: present.has("health.type") ? svc.health.type : base.health.type,
     url: present.has("health.url") ? svc.health.url : base.health.url,

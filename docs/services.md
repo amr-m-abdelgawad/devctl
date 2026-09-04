@@ -38,11 +38,32 @@ services:
     logs:
       stdout: true
       stderr: true
+    hooks:
+      pre_start: [python3, migrate.py]
+      post_start: [python3, warm_cache.py]
 ```
 
 Working directories resolve from the repository root (the directory that contains `.devctl`), not the process cwd.
 
 String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.
+
+## Hooks and one-off tasks
+
+`pre_start` runs to completion before an explicitly started service is spawned. A non-zero exit fails the service and prevents launch. `post_start` runs after a successful spawn; failure stops and marks the service failed. Hooks use the service's resolved environment, working directory, and `shell` setting. They do not run during automatic crash or health restarts.
+
+Top-level tasks are transient commands: they are not retained as services and do not restart. Declared service dependencies are started first, and the task uses the same layered environment resolution as services.
+
+```yaml
+tasks:
+  migrate:
+    command: [python3, migrate.py]
+    working_dir: invoices-api
+    dependencies: [postgres]
+    environment:
+      MODE: development
+```
+
+Run one with `devctl run migrate`. Its exit code determines command success, and its stdout/stderr are also captured in supervisor logs under `task:migrate`.
 
 ## Container services
 

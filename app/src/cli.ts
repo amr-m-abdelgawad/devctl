@@ -47,6 +47,7 @@ export function newRoot(): Command {
   addStart(root);
   addStop(root);
   addRestart(root);
+  addRun(root);
   addStatus(root);
   addDown(root);
   addLogs(root);
@@ -63,6 +64,22 @@ export function newRoot(): Command {
   addUpdate(root);
   addSupervisor(root);
   return root;
+}
+
+function addRun(root: Command): void {
+  root.command("run").argument("<task>", "task to run").option("--json", "machine-readable output").action(async (task: string, opts: { json?: boolean }) => {
+    const ctrl = await openController("", configFlag(root), true);
+    try {
+      const result = await ctrl.runTask(task);
+      if (opts.json) writeOut(JSON.stringify(result, null, 2) + "\n");
+      else {
+        if (result.stdout) writeOut(result.stdout);
+        if (result.stderr) process.stderr.write(result.stderr);
+      }
+    } finally {
+      await ctrl.close();
+    }
+  });
 }
 
 function configFlag(cmd: Command): string {

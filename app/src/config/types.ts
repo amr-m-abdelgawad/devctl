@@ -63,6 +63,9 @@ export type ContainerConfig = {
   volumes: string[];
 };
 
+export type HooksConfig = { pre_start: Command; post_start: Command };
+export type TaskConfig = { command: Command; shell: boolean; working_dir: string; dependencies: string[]; environment: EnvConfig };
+
 export type ServiceConfig = {
   extends: string;
   description: string;
@@ -80,6 +83,7 @@ export type ServiceConfig = {
   capabilities: string[];
   proxy: RouteConfig[];
   container?: ContainerConfig;
+  hooks: HooksConfig;
 };
 
 export type ProfileConfig = {
@@ -205,6 +209,7 @@ export type DevctlConfig = {
   profiles: Record<string, ProfileConfig>;
   templates: Record<string, ServiceConfig>;
   services: Record<string, ServiceConfig>;
+  tasks: Record<string, TaskConfig>;
   proxy: ProxyConfig;
   logs: LogConfig;
   auth: AuthConfig;
@@ -260,6 +265,7 @@ export function emptyService(): ServiceConfig {
     capabilities: [],
     proxy: [],
     container: undefined,
+    hooks: { pre_start: emptyCommand(), post_start: emptyCommand() },
   };
 }
 
@@ -271,6 +277,7 @@ export function defaultConfig(): DevctlConfig {
     profiles: {},
     templates: {},
     services: {},
+    tasks: {},
     proxy: {
       enabled: false,
       listen: { host: LOCALHOST, port: 0 },

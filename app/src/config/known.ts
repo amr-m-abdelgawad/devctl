@@ -5,6 +5,7 @@ export const knownTopLevel = [
   "profiles",
   "templates",
   "services",
+  "tasks",
   "proxy",
   "logs",
   "auth",
@@ -33,6 +34,7 @@ export const knownService = [
   "capabilities",
   "proxy",
   "container",
+  "hooks",
 ];
 
 export const knownHealth = ["type", "url", "address", "command", "interval_seconds", "timeout_seconds"];
@@ -62,6 +64,8 @@ export const knownTokenEndpoint = ["enabled", "host", "port"];
 export const knownPlugin = ["path"];
 export const knownProjectEnvironment = ["sources", "secrets"];
 export const knownContainer = ["image", "runtime", "ports", "env", "volumes"];
+export const knownHooks = ["pre_start", "post_start"];
+export const knownTask = ["command", "shell", "working_dir", "dependencies", "environment"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];
 

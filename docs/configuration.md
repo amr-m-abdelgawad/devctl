@@ -72,6 +72,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `google.project_id` / `region` | Cloud project (optional) |
 | `templates` | Named service bases (`extends`) |
 | `services` | Process definitions |
+| `tasks` | Named transient commands run with `devctl run` |
 | `profiles` | Named service sets + extra env |
 | `proxy` | Listen address, token endpoint, routes |
 | `logs` | In-memory cap and persistence |
@@ -97,6 +98,10 @@ services:
     extends: python-http
     command: [python3, main.py]
 ```
+
+## Tasks
+
+Tasks accept `command`, `shell`, `working_dir`, `dependencies`, and `environment`. Dependencies name services and are made ready before the one-off command runs. Tasks have no ports, health checks, restart policy, or status entry; see [Services](services.md#hooks-and-one-off-tasks) for an example.
 
 ## Validation and reload
 

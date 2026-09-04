@@ -32,6 +32,47 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
 }
 
 describe("supervisor snapshot", () => {
+  test("runs hooks around an explicit service start and runs configured tasks", async () => {
+    const dir = tmp();
+    const marker = join(dir, "order.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'service\\n'); setInterval(()=>{}, 1000)`], shell: false },
+      hooks: {
+        pre_start: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'pre\\n')`], shell: false },
+        post_start: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'post\\n')`], shell: false },
+      },
+    };
+    cfg.tasks.check = { command: { args: [process.execPath, "-e", "console.log(process.env.TASK_VALUE)"], shell: false }, shell: false, working_dir: "", dependencies: [], environment: { vars: { TASK_VALUE: "ready" }, required: [], defaults: {} } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      await sup.start({ services: ["api"] });
+      const result = await sup.runTask("check", {});
+      const order = readFileSync(marker, "utf8").trim().split("\n");
+      expect(order[0]).toBe("pre");
+      expect(order).toContain("service");
+      expect(order).toContain("post");
+      expect(result.stdout).toBe("ready\n");
+    } finally {
+      await sup.stop(["api"]);
+    }
+  });
+
+  test("a failed pre-start hook prevents the service process from launching", async () => {
+    const dir = tmp();
+    const marker = join(dir, "launched.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = { ...emptyService(), command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'yes')`], shell: false }, hooks: { pre_start: { args: [process.execPath, "-e", "process.exit(7)"], shell: false }, post_start: { args: [], shell: false } } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    await expect(sup.start({ services: ["api"] })).rejects.toThrow(/failed to start/);
+    expect(existsSync(marker)).toBe(false);
+    expect(sup.snapshot().services.api?.state).toBe("FAILED");
+  });
   test("explicit shutdown stops services even after a detached start", async () => {
     const cfg = defaultConfig();
     cfg.repoRoot = tmp();

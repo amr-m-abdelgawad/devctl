@@ -52,11 +52,24 @@ export function validate(cfg: DevctlConfig): string[] {
     issues.push("at least one service must be defined");
   }
   issues.push(...validateServices(cfg));
+  issues.push(...validateTasks(cfg));
   issues.push(...validateCycles(cfg));
   issues.push(...validateProfiles(cfg));
   issues.push(...validateProxy(cfg));
   if (cfg.logs.max_memory_events < 0) {
     issues.push("logs.max_memory_events must be >= 0");
+  }
+  return issues;
+}
+
+function validateTasks(cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  for (const [name, task] of Object.entries(cfg.tasks)) {
+    const prefix = `tasks.${name}`;
+    if (commandEmpty(task.command)) issues.push(`${prefix}.command is required`);
+    issues.push(...validateShellCommand(prefix, task.command, task.shell));
+    for (const dep of task.dependencies) if (!cfg.services[dep]) issues.push(`${prefix}.dependencies: unknown service "${dep}"`);
+    issues.push(...validateEnvRefs(`${prefix}.environment`, task.environment, cfg));
   }
   return issues;
 }
@@ -70,6 +83,8 @@ function validateServices(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}.command is required`);
     }
     issues.push(...validateShellCommand(prefix, svc.command, svc.shell));
+    issues.push(...validateShellCommand(`${prefix}.hooks.pre_start`, svc.hooks.pre_start, svc.shell));
+    issues.push(...validateShellCommand(`${prefix}.hooks.post_start`, svc.hooks.post_start, svc.shell));
     issues.push(...validateCapabilities(prefix, svc.capabilities));
     for (const dep of svc.dependencies) {
       if (!cfg.services[dep]) {

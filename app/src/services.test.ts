@@ -23,6 +23,7 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       logs: { stdout: false, stderr: false },
       restart: { policy: "", max_retries: 0, backoff_seconds: 0 },
       startup: { wait_for_healthy: false, timeout_seconds: 0 },
+      hooks: { pre_start: { args: [], shell: false }, post_start: { args: [], shell: false } },
       capabilities: [],
       proxy: [],
     };

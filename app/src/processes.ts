@@ -98,6 +98,26 @@ export class ProcessManager {
     return handle;
   }
 
+  async runOnce(spec: Omit<ProcessSpec, "onExit">): Promise<{ code: number; stdout: string; stderr: string }> {
+    if (spec.args.length === 0) throw newError(KindProcessStart, "empty command");
+    let proc: Subprocess;
+    try {
+      proc = spawn({ cmd: spec.shell ? shellCommand(spec.args) : spec.args, cwd: spec.workDir || undefined, env: spec.env, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+    } catch (err) {
+      throw wrapError(KindProcessStart, `failed to run ${spec.name}`, err);
+    }
+    let stdout = "";
+    let stderr = "";
+    const collect = (stream: Stream, line: string): void => {
+      if (stream === "stdout") stdout += `${line}\n`; else stderr += `${line}\n`;
+      spec.onLine?.(stream, line);
+    };
+    const pumps = [pumpLines(proc.stdout, "stdout", collect), pumpLines(proc.stderr, "stderr", collect)];
+    const code = await proc.exited;
+    await Promise.all(pumps);
+    return { code: typeof code === "number" ? code : 0, stdout, stderr };
+  }
+
   async startContainer(spec: ContainerLaunchSpec): Promise<Handle> {
     const existing = this.running.get(spec.name);
     if (existing && handleStillRunning(existing)) return existing;

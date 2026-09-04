@@ -54,6 +54,11 @@ profiles:
       - invoices-worker
       - billing-console
 
+tasks:
+  migrate:
+    command: [python3, -c, "print('demo migrations applied')"]
+    dependencies: [postgres]
+
 proxy:
   enabled: true
   listen:

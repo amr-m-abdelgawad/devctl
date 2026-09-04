@@ -39,6 +39,10 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/service" }
     },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/task" }
+    },
     "proxy": { "$ref": "#/$defs/proxy" },
     "logs": { "$ref": "#/$defs/logs" },
     "auth": {
@@ -166,6 +170,18 @@
         }
       }
     },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "$ref": "#/$defs/command" },
+        "shell": { "type": "boolean" },
+        "working_dir": { "type": "string" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "environment": { "$ref": "#/$defs/serviceEnvironment" }
+      }
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -249,6 +265,14 @@
             "ports": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
             "volumes": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "hooks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pre_start": { "$ref": "#/$defs/command" },
+            "post_start": { "$ref": "#/$defs/command" }
           }
         }
       }

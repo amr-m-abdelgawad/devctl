@@ -8,6 +8,7 @@ devctl version
 devctl start [svc…] [--profile] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--cascade] [--json]
+devctl run <task> [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
 devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json] [-f|--follow]
@@ -36,6 +37,7 @@ devctl update [--json]
 - `start` exits **5** when a requested service fails to spawn, **6** when it starts but never becomes healthy.
 - `stop` with no names stops every started service; naming one or more services also stops everything that (transitively) depends on them — never their dependencies, which other running services may still need. This is a **breaking change**: stop used to mirror start and pull in dependencies instead.
 - `restart` touches only the named services, not their dependents; `--cascade` also restarts those dependents (the same set `stop` would affect). Either way, start still expands the named services' own dependencies if they aren't already running.
+- `run` starts the task's declared service dependencies, executes the transient command once with the resolved project/task environment, and returns its exit status. `--json` includes captured stdout and stderr.
 - `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
 - `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.

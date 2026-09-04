@@ -16,6 +16,7 @@ import {
   type RouteIdentity,
   type ServiceConfig,
   type StartupConfig,
+  type TaskConfig,
 } from "./types.ts";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -195,7 +196,18 @@ export function decodeService(value: unknown): ServiceConfig {
     capabilities: asStringArray(value.capabilities),
     proxy: decodeServiceProxy(value.proxy),
     container: decodeContainer(value.container),
+    hooks: decodeHooks(value.hooks),
   };
+}
+
+export function decodeHooks(value: unknown): import("./types.ts").HooksConfig {
+  const raw = isRecord(value) ? value : {};
+  return { pre_start: decodeCommand(raw.pre_start), post_start: decodeCommand(raw.post_start) };
+}
+
+export function decodeTask(value: unknown): TaskConfig {
+  const raw = isRecord(value) ? value : {};
+  return { command: decodeCommand(raw.command), shell: asBoolean(raw.shell), working_dir: asString(raw.working_dir), dependencies: asStringArray(raw.dependencies), environment: decodeEnv(raw.environment) };
 }
 
 export function decodeContainer(value: unknown): import("./types.ts").ContainerConfig | undefined {

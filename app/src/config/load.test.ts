@@ -11,6 +11,26 @@ function writeFile(dir: string, rel: string, contents: string): void {
 }
 
 describe("config load", () => {
+  test("decodes service hooks and one-off tasks", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-tasks-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [bun, server.ts]
+    hooks:
+      pre_start: [bun, migrate.ts]
+tasks:
+  migrate:
+    command: [bun, migrate.ts]
+    dependencies: [api]
+    environment: { MODE: local }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.hooks.pre_start.args).toEqual(["bun", "migrate.ts"]);
+    expect(cfg.tasks.migrate?.dependencies).toEqual(["api"]);
+    expect(cfg.tasks.migrate?.environment.vars.MODE).toBe("local");
+  });
   test("decodes and validates a container service", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-container-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `
