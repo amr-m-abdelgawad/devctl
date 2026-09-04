@@ -48,6 +48,29 @@ services:
     expect(cfg.services.api?.health).toMatchObject({ start_period_seconds: 5, unhealthy_threshold: 4, healthy_reset_threshold: 8 });
   });
 
+  test("preserves opaque configuration for plugin identity providers", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-plugin-identity-${Date.now()}`;
+    writeFile(dir, "plugin.ts", "export const sdkVersion = 1;\n");
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+plugins: [{ path: ./plugin.ts }]
+services:
+  api:
+    command: [api]
+    identity:
+      type: oidc
+      config:
+        issuer: https://identity.example.com
+        client_id: local-api
+        nested: { audience: api }
+`);
+    expect(load(dir, "").services.api?.identity.config).toEqual({
+      issuer: "https://identity.example.com",
+      client_id: "local-api",
+      nested: { audience: "api" },
+    });
+  });
+
   test("rejects unknown dependency object fields", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dep-typo-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `version: 1\nservices:\n  db: { command: [db] }\n  api:\n    command: [api]\n    dependencies: [{ service: db, conditon: service_healthy }]\n`);

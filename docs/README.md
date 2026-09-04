@@ -33,6 +33,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Services](services.md) | Commands, ports, health, restart, dependencies |
 | [Profiles](profiles.md) | Named sets, session recovery |
 | [Environment](environment.md) | Source order, `${…}` refs, secrets |
+| [Plugins](plugins.md) | SDK contract, extension points, generic OIDC provider |
 
 ## Identity and proxy
 

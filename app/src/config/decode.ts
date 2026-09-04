@@ -140,6 +140,7 @@ export function decodeIdentity(value: unknown): IdentityConfig {
     type: asString(value.type),
     mode: asString(value.mode),
     service_account: asString(value.service_account),
+    config: isRecord(value.config) ? { ...value.config } : {},
   };
 }
 

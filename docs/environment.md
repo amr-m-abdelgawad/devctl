@@ -58,7 +58,7 @@ flowchart LR
 
 ## File plugins
 
-`plugins[].path` is a JS/TS module imported when the supervisor starts. It may export any of: `environmentSources`, `healthChecks`, `identityProviders`, `tokenProviders`, `logParsers`, `proxyMiddleware`. The built-in `generated` source stays empty unless you register an environment source.
+`plugins[].path` can register additional named environment sources. Unknown configured source names fail after plugins load instead of being silently skipped. See [Plugins](plugins.md) for the SDK contract, failure behavior, and examples. The built-in `generated` source stays empty unless a plugin registers an environment source with that name.
 
 ## Related
 

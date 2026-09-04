@@ -42,6 +42,7 @@ export type IdentityConfig = {
   type: string;
   mode: string;
   service_account: string;
+  config?: Record<string, unknown>;
 };
 
 export type ServiceLogConfig = {
@@ -254,7 +255,7 @@ export function dependencyCondition(dep: Dependency): string { return typeof dep
 export function dependencyLabel(dep: Dependency): string { return dependencyCondition(dep) === "service_healthy" ? `${dependencyName(dep)} (healthy)` : dependencyName(dep); }
 
 export function emptyIdentity(): IdentityConfig {
-  return { type: "", mode: "", service_account: "" };
+  return { type: "", mode: "", service_account: "", config: {} };
 }
 
 export function emptyService(): ServiceConfig {

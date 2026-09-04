@@ -1678,6 +1678,7 @@ services:
       // plugins non-empty lets an unrecognized health.type through config
       // validation (plugins load after parsing) — but this supervisor never
       // loaded one, so its registry has no "custom_unknown_type" check.
+      writeFileSync(join(dir, "devctl-plugin.ts"), "export const sdkVersion = 1;\n");
       writeConfig(
         configPath,
         `version: 1
@@ -1704,6 +1705,26 @@ services:
       expect(snap.services.worker).toBeUndefined();
     } finally {
       await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("boot rejects an environment source that no loaded plugin provides", async () => {
+    const dir = tmp();
+    const pluginPath = join(dir, "empty-plugin.ts");
+    writeFileSync(pluginPath, "export const sdkVersion = 1;\n");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.plugins = [{ path: pluginPath }];
+    cfg.environment.sources = ["missing_source"];
+    cfg.services.api = { ...emptyService(), command: { args: ["echo", "ok"], shell: false } };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await expect(sup.run()).rejects.toThrow(/unknown environment source.*missing_source/);
+    } finally {
+      await sup.shutdown(false);
     }
   });
 });
@@ -1887,7 +1908,8 @@ describe("lifecycle generations", () => {
     const pluginPath = join(dir, "health-gate-plugin.ts");
     writeFileSync(
       pluginPath,
-      `export const healthChecks = [{
+      `export const sdkVersion = 1;
+export const healthChecks = [{
   name: "gate",
   check: () => new Promise((resolve) => {
     const state = (globalThis as Record<string, { calls: number; resolveFirst?: (res: unknown) => void }>).__testHealthGate;

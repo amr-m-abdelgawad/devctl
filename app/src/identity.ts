@@ -11,7 +11,7 @@ export const KindUser = "user";
 export const KindServiceAccount = "service_account";
 export const KindNone = "none";
 
-export type IdentityKind = typeof KindUser | typeof KindServiceAccount | typeof KindNone;
+export type IdentityKind = string;
 
 export type Identity = {
   kind: IdentityKind;
@@ -20,6 +20,8 @@ export type Identity = {
   project: string;
   projectSource: string;
   adcAvailable: boolean;
+  providerConfig: Record<string, unknown>;
+  tokenKey: string;
 };
 
 export function fromConfig(cfg: IdentityConfig): Identity {
@@ -29,6 +31,8 @@ export function fromConfig(cfg: IdentityConfig): Identity {
   if (isUserIdentity(cfg) && (cfg.type !== "" || cfg.mode !== "")) {
     return emptyIdentity({ kind: KindUser });
   }
+  const kind = (cfg.type || cfg.mode).toLowerCase();
+  if (kind !== "") return emptyIdentity({ kind, providerConfig: cfg.config ?? {} });
   return emptyIdentity({ kind: KindNone });
 }
 
@@ -59,6 +63,7 @@ export function requiresCloud(ident: Identity): boolean {
 }
 
 export function tokenIdentityKey(ident: Identity): string {
+  if (ident.tokenKey !== "") return ident.tokenKey;
   if (ident.kind === KindServiceAccount) {
     return `sa:${ident.serviceAccount}`;
   }
@@ -76,6 +81,8 @@ export function emptyIdentity(partial: Partial<Identity> = {}): Identity {
     project: "",
     projectSource: "",
     adcAvailable: false,
+    providerConfig: {},
+    tokenKey: "",
     ...partial,
   };
 }

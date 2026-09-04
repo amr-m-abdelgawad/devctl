@@ -19,7 +19,7 @@ import {
   unresolvedHealthTypes,
   unresolvedIdentityTypes,
 } from "./config/index.ts";
-import { envList, resolveEnvironment, runtimeForService, secretManagerFetcher } from "./environment.ts";
+import { ENV_SOURCE_ORDER, envList, resolveEnvironment, runtimeForService, secretManagerFetcher } from "./environment.ts";
 import { DevctlError, KindConfiguration, KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError, serializeError } from "./errors.ts";
 import {
   AuthenticationChanged,
@@ -39,7 +39,7 @@ import {
 import { detectGoogle, detectIdentity, type GoogleStatus } from "./google.ts";
 import { checkHealth, healthIntervalMs, healthLevel } from "./health.ts";
 import { readHostMemory } from "./host-stats.ts";
-import { configuredServiceAccounts, fromConfig, identityBlockers, requiresCloud, resolveIdentity, tokenIdentityKey } from "./identity.ts";
+import { configuredServiceAccounts, fromConfig, identityBlockers, resolveIdentity, tokenIdentityKey } from "./identity.ts";
 import { LogManager, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "./ports.ts";
 import { loadPluginPaths, type Registry } from "./plugins.ts";
@@ -260,10 +260,12 @@ export class Supervisor {
     // lost the race, leaving the winner still running but unreachable.
     this.lock = this.acquireLockFn(this.cfg.repoRoot, socket);
     this.removeStaleSocket(socket);
-    this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path));
+    this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path), this.cfg.repoRoot);
+    for (const failure of this.registry.loadErrors) this.log("devctl", "ERROR", `plugin ${failure.path} skipped: ${failure.message}`);
     this.applyRegistry();
     this.checkPluginHealthTypes();
     this.checkPluginIdentityTypes();
+    this.checkPluginEnvironmentSources();
     await this.recoverSession();
     this.watchConfig();
     this.persistState();
@@ -786,7 +788,7 @@ export class Supervisor {
     this.setState(name, StateStarting, HealthUnknown, 0, "");
     const gen = this.bumpGeneration(name);
     let ident = fromConfig(svc.identity);
-    if (requiresCloud(ident)) {
+    if (ident.kind !== "none") {
       try {
         ident = await resolveIdentity(svc.identity, () => detectIdentity(this.cfg.google.project_id), this.registry?.identityProviders);
         if (ident.kind === "service_account") {
@@ -800,7 +802,7 @@ export class Supervisor {
         if (ident.kind === "service_account") {
           this.serviceAccountStatus.set(ident.serviceAccount, "unavailable");
         }
-        if (requiresCloudCapability(svc) || ident.kind === "service_account") {
+        if (requiresCloudCapability(svc) || ident.kind === "service_account" || (ident.kind !== "user" && ident.kind !== "none")) {
           await this.fail(name, err);
           throw err;
         }
@@ -1318,6 +1320,7 @@ export class Supervisor {
       // silently taking effect and only surfacing once someone starts it.
       this.checkPluginHealthTypes(next);
       this.checkPluginIdentityTypes(next);
+      this.checkPluginEnvironmentSources(next);
     } catch (err) {
       this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
       this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
@@ -1841,11 +1844,11 @@ export class Supervisor {
     if (unresolved.length === 0) {
       return;
     }
-    // userIdentityProvider() accepts anything that isn't a service account,
-    // so it would silently "resolve" any custom type as a Google user
-    // identity if we checked the full provider list. Only a provider other
-    // than the two builtins counts as actually resolving a custom type.
-    const pluginProviders = (this.registry?.identityProviders ?? []).filter((provider) => provider.name !== "user" && provider.name !== "service_account");
+    // The built-in user provider accepts anything that isn't a service
+    // account, so only providers loaded from plugin modules count here.
+    // Track provenance rather than filtering by name: plugin authors are
+    // free to choose names that happen to match a built-in provider.
+    const pluginProviders = this.registry?.pluginIdentityProviders ?? [];
     const stillUnknown = unresolved.filter(({ service }) => {
       const svc = cfg.services[service];
       return !svc || !pluginProviders.some((provider) => provider.accepts(svc.identity));
@@ -1856,6 +1859,13 @@ export class Supervisor {
         `unknown identity type(s): ${stillUnknown.map((entry) => `${entry.service}.identity.type=${entry.type}`).join(", ")}`,
       );
     }
+  }
+
+  private checkPluginEnvironmentSources(cfg: DevctlConfig = this.cfg): void {
+    const builtin = new Set<string>(ENV_SOURCE_ORDER);
+    const registered = new Set((this.registry?.environmentSources ?? []).map((source) => source.name));
+    const unknown = cfg.environment.sources.filter((name) => !builtin.has(name) && !registered.has(name));
+    if (unknown.length > 0) throw newError(KindConfiguration, `unknown environment source(s): ${unknown.join(", ")}`);
   }
 
   private watchConfig(): void {

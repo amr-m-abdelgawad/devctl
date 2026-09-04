@@ -39,7 +39,7 @@ export const knownService = [
 
 export const knownHealth = ["type", "url", "address", "command", "interval_seconds", "timeout_seconds", "start_period_seconds", "unhealthy_threshold", "healthy_reset_threshold"];
 export const knownDependency = ["service", "condition"];
-export const knownIdentity = ["type", "mode", "service_account"];
+export const knownIdentity = ["type", "mode", "service_account", "config"];
 export const knownRestart = ["enabled", "policy", "max_retries", "backoff_seconds"];
 export const knownStartup = ["wait_for_healthy", "timeout_seconds"];
 export const knownProxy = ["enabled", "listen", "token_endpoint", "routes"];

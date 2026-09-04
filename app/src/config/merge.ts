@@ -354,6 +354,7 @@ function mergeIdentity(base: IdentityConfig, raw: unknown): IdentityConfig {
     type: raw.type !== undefined ? asString(raw.type) : base.type,
     mode: raw.mode !== undefined ? asString(raw.mode) : base.mode,
     service_account: raw.service_account !== undefined ? asString(raw.service_account) : base.service_account,
+    config: raw.config !== undefined && isRecord(raw.config) ? { ...(base.config ?? {}), ...raw.config } : base.config,
   };
 }
 
@@ -524,6 +525,7 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     type: present.has("identity.type") ? svc.identity.type : base.identity.type,
     mode: present.has("identity.mode") ? svc.identity.mode : base.identity.mode,
     service_account: present.has("identity.service_account") ? svc.identity.service_account : base.identity.service_account,
+    config: present.has("identity.config") ? svc.identity.config : base.identity.config,
   };
   out.logs = {
     stdout: present.has("logs.stdout") ? svc.logs.stdout : base.logs.stdout,
