@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Structured (JSON-per-line) logs from pino, bunyan, zap, logrus, and similar loggers are parsed instead of shown as a raw blob: `message`/`msg`/`text`, `level`/`severity` (including pino's numeric levels), and `request_id`/`trace_id`-style fields populate the normal log columns. The full JSON stays available — pretty-printed in the log details overlay (`enter`), searchable, and unabbreviated in persisted session files and log exports.
 - The Services screen's env var list shows the full variable name and value (no more truncation at a fixed column width), sorts variables set directly in that service's own `environment.vars`/`environment.defaults` to the top in a distinct color (ahead of ones supplied by dotenv, a profile, secrets, plugins, or runtime injection), and clicking a variable opens a scrollable panel with its full, wrapped value.
 
+### Changed
+
+- The Logs screen's level column shows `—` instead of `UNKNOWN` for a line with no recognizable severity keyword — the common case for plain stdout/stderr output, not an anomaly worth shouting about.
+
 ### Fixed
 
 - `findPortHolder` no longer crashes with an unhandled "Executable not found in $PATH" error when `lsof` or `fuser` isn't installed (common on minimal containers and some WSL/Linux images). It now degrades to "holder unknown" instead.

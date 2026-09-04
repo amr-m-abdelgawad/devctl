@@ -1,7 +1,7 @@
 import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
-import { prettyPrintLogRaw, stripAnsi } from "../helpers.ts";
+import { displayLogLevel, prettyPrintLogRaw, stripAnsi } from "../helpers.ts";
 import { serviceColor, type Palette } from "../themes.ts";
 import { type LogEvent } from "../../logs.ts";
 
@@ -37,7 +37,7 @@ export function LogDetailsOverlay(props: {
           <text fg={palette.muted}>{`time      ${event.timestamp}`}</text>
           <text fg={serviceColor(event.service, palette)}>{`service   ${event.service}`}</text>
           <text fg={palette.muted}>{`source    ${event.source}${event.stream ? ` / ${event.stream}` : ""}`}</text>
-          <text fg={palette.muted}>{`level     ${event.level}`}</text>
+          <text fg={palette.muted}>{`level     ${displayLogLevel(event.level)}`}</text>
           <text fg={palette.muted}>{`pid       ${event.pid || "—"}`}</text>
           <text fg={palette.muted}>{`request   ${event.request_id || "—"}`}</text>
           <text fg={palette.muted}>{`identity  ${event.identity || "—"}`}</text>

@@ -1,6 +1,6 @@
 import { dependencyCondition, dependencyName, type DevctlConfig, type ServiceConfig } from "../config/index.ts";
 import { type BusEvent } from "../events.ts";
-import { compileLogSearch, type LogEvent, type LogFacets } from "../logs.ts";
+import { compileLogSearch, LevelUnknown, type LogEvent, type LogFacets } from "../logs.ts";
 import { Detector } from "../secrets.ts";
 import { displayState, type Plan, type Runtime } from "../services.ts";
 import { type PersistedState } from "../storage.ts";
@@ -187,6 +187,14 @@ export const LOG_LIST_TAIL = 200;
 const LOG_PANE_BORDER = 2;
 const LOG_SCROLLBAR = 1;
 export const LOG_FOLD_MARK = "▸";
+
+// Most plain stdout/stderr lines carry no level keyword at all, so LevelUnknown
+// is the common case, not an anomaly — showing it as a loud "UNKNOWN" reads as
+// something being wrong. A dash matches how the rest of the UI already shows
+// "no value" (pid —, port —, identity —).
+export function displayLogLevel(level: string): string {
+  return level === LevelUnknown ? "—" : level;
+}
 const LOG_GAPS = 2;
 const LOG_WRAP_BIAS = 0.4;
 

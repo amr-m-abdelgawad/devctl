@@ -3,6 +3,7 @@ import { type ScrollBoxRenderable } from "@opentui/core";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import {
+  displayLogLevel,
   facetFilterCatalog,
   filterLogs,
   foldLogLines,
@@ -521,7 +522,7 @@ function LogRow(props: {
           </box>
           <box width={LOG_LEVEL_COL} flexShrink={0} overflow="hidden">
             <text fg={lineIndex === 0 ? stateColor(palette, event.level) : palette.muted}>
-              {lineIndex === 0 ? String(event.level) : ""}
+              {lineIndex === 0 ? displayLogLevel(String(event.level)) : ""}
             </text>
           </box>
           {showMeta ? (
