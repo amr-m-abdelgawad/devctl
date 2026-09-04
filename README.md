@@ -8,6 +8,11 @@ Start services, watch logs, check identity, and drive the proxy — from a keybo
 
 Published on npm as **[`@amr-m-abdelgawad/devctl`](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)**. Node.js is the only prerequisite — the package brings its own official Bun runtime.
 
+> **Disclaimer:** This project is ~90% vibe-coded, so a large portion of the code was AI-generated rather than written manually by me. 😄
+>
+> Until `devctl` reaches **v1.0.0**, consider it a work in progress. Reaching **v1.0.0** will mean that I have personally reviewed, tested, and validated the codebase and consider the project stable for general use.
+
+
 ```bash
 npx @amr-m-abdelgawad/devctl@latest
 ```
@@ -32,8 +37,6 @@ npx @amr-m-abdelgawad/devctl@latest
 </p>
 
 <img width="1470" height="851" alt="devctl TUI — dashboard with services, identity, proxy, and live logs" src="https://github.com/user-attachments/assets/60824954-8d8e-46de-8377-8c250aee555b" />
-
-Hint: This code is 90% Vibe Coded, Not by me :)
 
 </div>
 
