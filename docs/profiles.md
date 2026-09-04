@@ -4,6 +4,8 @@ A profile is a named list of services plus optional extra environment.
 
 ```yaml
 profiles:
+  data:
+    services: [postgres]
   minimal:
     services: [identity, invoices-api]
   backend:
@@ -20,9 +22,11 @@ devctl start --profile backend
 
 The TUI **profiles** screen (`o` or `/profiles`) lists configured profiles. `enter` selects one and offers start. None are hard-coded.
 
-Empty-dashboard `enter` uses the first profile name **alphabetically** when no session profile is set.
+Empty-dashboard `enter` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is `backend`, not `data`, even though `data` is listed first in the file.
 
 `devctl start` / MCP `start_services` with **no** profile and **no** names starts the active session profile, or the first configured profile (alphabetically). With no profiles it fails closed. Pass `--profile` or explicit names to stay on a subset. It never expands to every service just because the list was empty.
+
+The demo also defines `data` (opt-in Docker/PostgreSQL). It is not a default profile; start it with `--profile data`.
 
 ## Sessions
 

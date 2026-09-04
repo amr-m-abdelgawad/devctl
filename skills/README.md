@@ -9,9 +9,11 @@ Code.
 |---|---|
 | [`devctl-onboard`](devctl-onboard/SKILL.md) | Surveys a repository — services, docker-compose, Terraform, Kubernetes manifests, `.env` files, task runners — and authors a validated `.devctl/` configuration for it. |
 
-`SKILL.md` is the single source of truth. The per-agent setup below points each
-agent at that same file rather than copying it, so the instructions cannot
-drift apart between agents.
+`SKILL.md` is the single source of truth. This repository already points at it
+from [`AGENTS.md`](../AGENTS.md), [`.cursor/rules/devctl-onboard.mdc`](../.cursor/rules/devctl-onboard.mdc),
+and [`.kilocode/rules/devctl-onboard.md`](../.kilocode/rules/devctl-onboard.md).
+The per-agent setup below is for installing the same pointer into **another**
+repo you are onboarding.
 
 ## Claude Code
 
@@ -41,9 +43,8 @@ globs: ".devctl/**,**/*.tf,docker-compose*.yml,.env*"
 alwaysApply: false
 ---
 
-Follow the procedure in `~/.claude/skills/devctl-onboard/SKILL.md`
-(or wherever this checkout keeps `skills/devctl-onboard/SKILL.md`), including
-its `references/discovery.md` and `references/authoring.md`.
+Follow the procedure in `skills/devctl-onboard/SKILL.md` in this
+checkout, including its `references/discovery.md` and `references/authoring.md`.
 
 Do not author `.devctl` YAML from the JSON Schema alone — `references/authoring.md`
 carries the rules the loader rejects on and the schema does not state.

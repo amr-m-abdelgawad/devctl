@@ -36,7 +36,9 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`.
+Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`.
+
+`mcp_disabled_tools` is a deny-list of MCP tool names (empty means every tool is available). See [MCP](mcp.md).
 
 Search order:
 
@@ -63,7 +65,8 @@ Settings writes go to `~/.devctl/tui.json` unless the env override is set (then 
     "command_list": "ctrl+p"
   },
   "mouse": true,
-  "mcp_enabled": false
+  "mcp_enabled": false,
+  "mcp_disabled_tools": []
 }
 ```
 
@@ -80,3 +83,4 @@ Integration tests that need Google stay skipped unless credentials are present.
 - [Installation](installation.md)
 - [TUI](tui.md)
 - [How it fits together](overview.md)
+- [Contributing](../CONTRIBUTING.md)

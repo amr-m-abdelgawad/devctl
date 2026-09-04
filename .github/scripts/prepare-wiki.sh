@@ -44,7 +44,7 @@ for path in dest.glob("*.md"):
     path.write_text(md_link.sub(lambda m: f"[{m.group(1)}]({rewrite(m.group(2))})", text))
 PY
 
-cat > "${dest}/_Sidebar.md" <<'EOF'
+cat > "${dest}/_Sidebar.md" <<EOF
 **[Home](Home)**
 
 **Start**
@@ -52,6 +52,7 @@ cat > "${dest}/_Sidebar.md" <<'EOF'
 * [Installation](installation)
 * [Quick start](quickstart)
 * [Developer setup](developer-setup)
+* [Agent skills](${blob}/skills/README.md)
 
 **Use**
 * [TUI](tui)
@@ -66,6 +67,7 @@ cat > "${dest}/_Sidebar.md" <<'EOF'
 * [Services](services)
 * [Profiles](profiles)
 * [Environment](environment)
+* [Plugins](plugins)
 
 **Identity**
 * [Authentication](authentication)
@@ -77,7 +79,10 @@ cat > "${dest}/_Sidebar.md" <<'EOF'
 
 **Reference**
 * [Building from source](typescript)
+* [npm publishing](npm-publishing)
 * [Architecture spec](devctl-architecture)
+* [Contributing](${blob}/CONTRIBUTING.md)
+* [Security policy](${blob}/SECURITY.md)
 EOF
 
 cat > "${dest}/_Footer.md" <<EOF

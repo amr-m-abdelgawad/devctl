@@ -101,6 +101,7 @@ The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and W
 
 - [Quick start](quickstart.md)
 - [Building from source](typescript.md)
+- [Contributing](../CONTRIBUTING.md)
 - [npm publishing (maintainers)](npm-publishing.md)
 - [How it fits together](overview.md)
 - [Changelog](../CHANGELOG.md)

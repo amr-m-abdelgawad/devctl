@@ -14,6 +14,8 @@ The TUI **proxy** tab (`p`) shows status, routes, and a live log of recent reque
 
 Each request gets `X-Devctl-Request-ID` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include `Authorization` headers. Bodies are streamed.
 
+WebSocket upgrades use the same route matching, identity injection, middleware, request logging, and statistics as ordinary HTTP traffic (HMR and other upgraded connections behind a route). Active upgraded sockets are closed during proxy shutdown so `devctl down` cannot hang.
+
 If `proxy.enabled` is true, `devctl start` also starts the proxy.
 
 ## Routes
@@ -32,8 +34,8 @@ proxy:
       upstream:
         url: http://127.0.0.1:18000
       auth:
-        type: none          # none | iap
-        identity: user      # or service_account + email
+        type: none          # none | iap | service_account
+        identity: user      # or { type: service_account, service_account: email }
 ```
 
 Match is host + optional path prefix.
@@ -87,6 +89,8 @@ flowchart TB
   sa --> auth
   auth -->|iap| iap["IAP ID token for audience"]
   auth -->|none| inject
+  auth -->|service_account| satoken["OAuth access token for the SA"]
+  satoken --> inject
   iap --> inject["Inject Authorization + X-Devctl-Request-ID"]
   inject --> up["Stream to upstream.url"]
 ```

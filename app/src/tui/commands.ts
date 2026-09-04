@@ -11,6 +11,8 @@ export function allCommands(): CommandSpec[] {
     { name: "start", aliases: ["up"], desc: "Start selected services or the current profile", leader: "n", group: "services" },
     { name: "stop", aliases: ["down"], desc: "Stop selected services", leader: "x", group: "services" },
     { name: "restart", aliases: [], desc: "Restart selected services", leader: "R", group: "services" },
+    { name: "run", aliases: ["task"], desc: "Run a one-off task: /run <task>", leader: "", group: "services" },
+    { name: "exec", aliases: [], desc: "Run a command in a service context: /exec <service> -- <command…>", leader: "", group: "services" },
     { name: "services", aliases: ["s"], desc: "Open the services screen", leader: "s", group: "nav" },
     { name: "logs", aliases: ["l"], desc: "Open the log viewer", leader: "l", group: "nav" },
     { name: "auth", aliases: ["identity", "a"], desc: "Open identity; add refresh to probe accounts", leader: "a", group: "nav" },
@@ -74,4 +76,18 @@ export function commandArgs(line: string): string[] {
 export function leaderAction(key: string): string {
   const found = allCommands().find((c) => c.leader === key);
   return found?.name ?? "";
+}
+
+export type ExecSlashArgs = {
+  service: string;
+  printEnv: boolean;
+  reveal: boolean;
+  command: string[];
+};
+
+export function parseExecArgs(args: string[]): ExecSlashArgs {
+  const printEnv = args.includes("--print-env");
+  const reveal = args.includes("--reveal");
+  const rest = args.filter((a) => a !== "--print-env" && a !== "--reveal" && a !== "--");
+  return { service: rest[0] ?? "", printEnv, reveal, command: rest.slice(1) };
 }

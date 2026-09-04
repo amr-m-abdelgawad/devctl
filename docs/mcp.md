@@ -112,4 +112,5 @@ Doctor may report ports “in use” while your own services hold them — that 
 - [TUI](tui.md)
 - [CLI](cli.md)
 - [How it fits together](overview.md)
+- [Agent skills](../skills/README.md)
 - [Security](security.md)

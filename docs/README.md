@@ -12,7 +12,8 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Installation](installation.md) | npm, release binaries, source install, optional `gcloud` |
 | [Quick start](quickstart.md) | First session: setup → doctor → TUI |
 | [Developer setup](developer-setup.md) | Day-to-day loop without admin privileges |
-| [Demo platform](../examples/demo-platform/README.md) | Local invoicing example (no Google Cloud) |
+| [Demo platform](../examples/demo-platform/README.md) | Local invoicing example (no Google Cloud; opt-in Docker `data` profile) |
+| [Agent skills](../skills/README.md) | Onboard a repo: survey what it runs and author `.devctl/` |
 
 ## Using it
 
@@ -51,8 +52,10 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | Page | Side |
 |------|------|
 | [Building from source](typescript.md) | `app/` layout, tests, TUI config file |
+| [Contributing](../CONTRIBUTING.md) | Source loop, tests, and where to edit docs |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
 | [Architecture spec](devctl-architecture.md) | Original implementation specification (historical). Do not treat the `cmd/` tree there as the current repo. |
 | [License](../LICENSE) | MIT |
+| [Security policy](../SECURITY.md) | How to report a vulnerability |
 
 Configuration never hard-codes service names, ports, or service accounts. Those belong in `.devctl/`.

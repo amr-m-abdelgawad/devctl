@@ -15,7 +15,7 @@ import { resolveStartRequest, shutdownPlan, startupPlan, type Plan } from "../se
 import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../mcp/snippets.ts";
 import { type StatusSnapshot } from "../types.ts";
-import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, type CommandSpec } from "./commands.ts";
+import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, parseExecArgs, type CommandSpec } from "./commands.ts";
 import { versionLine } from "../version.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
@@ -1103,6 +1103,58 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           case "restart":
             await beginRestart(targets, profile);
             return;
+          case "run": {
+            const name = args[0] ?? "";
+            if (!controller || !name) {
+              setStatus(name ? "no daemon attached" : "usage: /run <task>");
+              return;
+            }
+            try {
+              const result = await controller.runTask(name);
+              setLogService(`task:${name}`);
+              setScreen("logs");
+              setStatus(`task ${name} exited ${result.code}`);
+            } catch (err) {
+              setLogService(`task:${name}`);
+              setScreen("logs");
+              throw err;
+            }
+            return;
+          }
+          case "exec": {
+            const parsed = parseExecArgs(args);
+            if (!controller || !parsed.service) {
+              setStatus(parsed.service ? "no daemon attached" : "usage: /exec <service> -- <command…>");
+              return;
+            }
+            if (parsed.printEnv) {
+              if (!cfg?.services[parsed.service]) {
+                setStatus(`unknown service ${parsed.service}`);
+                return;
+              }
+              if (parsed.reveal) {
+                setReveal(true);
+              }
+              openDetail(parsed.service);
+              setStatus(`Resolved environment for ${parsed.service}`);
+              return;
+            }
+            if (parsed.command.length === 0) {
+              setStatus("usage: /exec <service> -- <command…>");
+              return;
+            }
+            try {
+              const result = await controller.execService(parsed.service, parsed.command);
+              setLogService(`${parsed.service}:exec`);
+              setScreen("logs");
+              setStatus(`${parsed.service}:exec exited ${result.code}`);
+            } catch (err) {
+              setLogService(`${parsed.service}:exec`);
+              setScreen("logs");
+              throw err;
+            }
+            return;
+          }
           case "refresh":
             if (screen === "auth") {
               await refreshAuth();
@@ -1220,7 +1272,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, persistTheme, profile, refresh, refreshAuth, reveal, screen, themeName, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, reveal, screen, themeName, toggleSystemLogs],
   );
 
   const openExportsFolder = useCallback(() => {

@@ -1,0 +1,9 @@
+---
+description: Author or fix a .devctl configuration for this repository.
+globs: ".devctl/**,examples/**/.devctl/**,**/*.tf,docker-compose*.yml,.env*,schema/devctl.config.schema.json,skills/devctl-onboard/**"
+alwaysApply: false
+---
+
+Follow the procedure in `skills/devctl-onboard/SKILL.md` in this checkout, including its `references/discovery.md` and `references/authoring.md`.
+
+Do not author `.devctl` YAML from the JSON Schema alone — `references/authoring.md` carries the rules the loader rejects on and the schema does not state.

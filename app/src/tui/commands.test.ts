@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { commandArgs, filterCommands, leaderAction, lookupCommand } from "./commands.ts";
+import { commandArgs, filterCommands, leaderAction, lookupCommand, parseExecArgs } from "./commands.ts";
 
 describe("slash commands", () => {
   test("resolves aliases like /q /quit /exit", () => {
@@ -59,5 +59,28 @@ describe("slash commands", () => {
   test("mcp is a first-class command", () => {
     expect(lookupCommand("/mcp")?.name).toBe("mcp");
     expect(lookupCommand("/agent")?.name).toBe("mcp");
+  });
+
+  test("run and exec are first-class commands", () => {
+    expect(lookupCommand("/run")?.name).toBe("run");
+    expect(lookupCommand("/task")?.name).toBe("run");
+    expect(lookupCommand("/exec")?.name).toBe("exec");
+  });
+});
+
+describe("parseExecArgs", () => {
+  test("splits service, flags, and command", () => {
+    expect(parseExecArgs(["api", "--", "python3", "check.py"])).toEqual({
+      service: "api",
+      printEnv: false,
+      reveal: false,
+      command: ["python3", "check.py"],
+    });
+    expect(parseExecArgs(["--print-env", "--reveal", "api"])).toEqual({
+      service: "api",
+      printEnv: true,
+      reveal: true,
+      command: [],
+    });
   });
 });

@@ -18,7 +18,7 @@ npx @amr-m-abdelgawad/devctl@latest
 ```
 
 [![npm](https://img.shields.io/npm/v/%40amr-m-abdelgawad%2Fdevctl?style=flat-square&logo=npm&color=cb3837&label=npm)](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)
-[![Socket Badge](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.1.2-bootstrap.0)](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.1.2-bootstrap.0)
+[![Socket Badge](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.2.0)](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.2.0)
 [![CI](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml/badge.svg)](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488?style=flat-square)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f59e0b?style=flat-square)](https://bun.sh)
@@ -110,9 +110,9 @@ devctl
 ```
 
 1. `setup` writes `.devctl/config.yaml` (or use the TUI setup screen).
-2. `doctor` names what is missing — ports, tools, ADC.
+2. `doctor` names what is missing — ports, tools, ADC, container runtimes.
 3. Empty dashboard: `enter` starts the first profile (alphabetically).
-4. Detach instead of babysitting: `devctl start --profile backend --detach` then `devctl attach`.
+4. Leave the TUI and keep working: `devctl start --profile backend` then `devctl attach`. The daemon already outlives `start`; `--detach` is deprecated and does nothing.
 
 TUI prefs: `~/.devctl/tui.json` or `DEVCTL_TUI_CONFIG`. Built on [OpenTUI](https://opentui.com/docs/).
 
@@ -125,12 +125,12 @@ flowchart LR
   TUI --> Supervisor
   CLI --> Supervisor
   MCP["MCP · 127.0.0.1"] --> Supervisor
-  Supervisor --> Processes
+  Supervisor --> Runtime["Host processes + containers"]
   Supervisor --> Proxy
   Supervisor --> Logs
 ```
 
-The **supervisor** owns processes, the proxy, the log buffer, and `~/.devctl/state/<repo>/`. The TUI is a client. Agents talk HTTP to the same process — a stdio child of the TUI would die on quit. Default MCP is **off**. See [how it fits together](docs/overview.md).
+The **supervisor** owns host processes, optional Docker/Podman containers, the proxy, the log buffer, and `~/.devctl/state/<repo>/`. The TUI is a client. Agents talk HTTP to the same process — a stdio child of the TUI would die on quit. Default MCP is **off**. See [how it fits together](docs/overview.md).
 
 ---
 
@@ -141,7 +141,7 @@ The **supervisor** owns processes, the proxy, the log buffer, and `~/.devctl/sta
 | [Overview](docs/overview.md) | [TUI](docs/tui.md) | [Configuration](docs/configuration.md) | [Auth](docs/authentication.md) |
 | [Install](docs/installation.md) | [CLI](docs/cli.md) | [Services](docs/services.md) | [Impersonation](docs/impersonation.md) |
 | [Quick start](docs/quickstart.md) | [MCP](docs/mcp.md) | [Profiles](docs/profiles.md) | [IAP](docs/iap.md) |
-| [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Doctor](docs/doctor.md) | [Environment](docs/environment.md) · [Plugins](docs/plugins.md) | [Security](docs/security.md) |
+| [Demo](examples/demo-platform/README.md) · [Skills](skills/README.md) | [Logs](docs/logs.md) · [Doctor](docs/doctor.md) · [Troubleshooting](docs/troubleshooting.md) | [Environment](docs/environment.md) · [Plugins](docs/plugins.md) | [Security](docs/security.md) |
 
 ---
 
@@ -157,6 +157,6 @@ The **supervisor** owns processes, the proxy, the log buffer, and `~/.devctl/sta
 
 <div align="center">
 
-[MIT](LICENSE) © 2026 Amr MOUSA
+[MIT](LICENSE) © 2026 Amr MOUSA · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
 </div>

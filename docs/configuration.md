@@ -130,4 +130,5 @@ The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the sam
 - [Services](services.md)
 - [Profiles](profiles.md)
 - [Environment](environment.md)
+- [Plugins](plugins.md)
 - [How it fits together](overview.md)

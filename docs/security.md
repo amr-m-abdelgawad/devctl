@@ -140,3 +140,4 @@ Override the home directory with `DEVCTL_HOME`.
 | [Proxy](proxy.md) | Request flow and token endpoint |
 | [MCP](mcp.md) | Loopback Streamable HTTP |
 | [Environment](environment.md) | Source order, keychain, Secret Manager |
+| [Security policy](../SECURITY.md) | How to report a vulnerability |

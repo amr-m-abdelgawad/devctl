@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- TUI `/run <task>` and `/exec <service> -- <command…>`. Task and exec output go to Logs (`task:<name>` / `<service>:exec`). `/exec <service> --print-env` opens the service env inspector (`--reveal` shows secrets for this session).
+
+### Changed
+
+- Documentation matches 0.2.0: empty start and `--detach`, the demo `data` profile, MCP/skills indexes, proxy auth types and WebSocket upgrades, Doctor container checks, CONTRIBUTING.md, SECURITY.md, GitHub issue/PR templates, and in-repo agent-skill pointers.
+
 ## [0.2.0] - 2026-09-04
 
 ### Added

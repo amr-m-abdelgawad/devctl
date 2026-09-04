@@ -39,16 +39,26 @@ devctl down
 
 ## Try the demo
 
+Node.js 18 or later. From a clone:
+
+```bash
+cd examples/demo-platform
+npx @amr-m-abdelgawad/devctl@latest
+```
+
+From a source checkout (`bun` on PATH):
+
 ```bash
 cd examples/demo-platform
 bun run ../../app/src/bin.ts
 ```
 
-No Google Cloud. Profiles: `minimal`, `backend`, `full`. Details: [demo platform](../examples/demo-platform/README.md).
+No Google Cloud for the host services. Profiles: `minimal`, `backend`, `full`, and opt-in `data` (Docker/PostgreSQL). Empty start is `backend` (first name alphabetically). Details: [demo platform](../examples/demo-platform/README.md).
 
 ## Related
 
 - [Installation](installation.md)
 - [Configuration](configuration.md)
 - [Developer setup](developer-setup.md)
+- [Agent skills](../skills/README.md)
 - [Doctor](doctor.md)

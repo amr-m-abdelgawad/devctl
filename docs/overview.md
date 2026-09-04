@@ -13,19 +13,19 @@ flowchart TB
   tui --> sup
   cli --> sup
   mcp --> sup
-  sup --> procs["Child processes"]
+  sup --> runtime["Host processes + containers"]
   sup --> proxy["Proxy + token endpoint"]
   sup --> logs["Log buffer"]
   sup --> disk
 ```
 
-Nothing in the application knows your services by name. The supervisor reads `.devctl/`, starts argv (or explicit shell) processes, injects resolved env, and reports health.
+Nothing in the application knows your services by name. The supervisor reads `.devctl/`, starts argv (or explicit shell) processes and optional Docker/Podman containers, injects resolved env, and reports health.
 
 ## Supervisor
 
 The supervisor is the long-lived process. It:
 
-- Starts, stops, and restarts services in dependency waves
+- Starts, stops, and restarts host processes and optional Docker/Podman containers in dependency waves
 - Optionally starts the proxy and the MCP listener
 - Ingests stdout/stderr, health, auth, and proxy events into one log buffer
 - Persists session state under `~/.devctl/state/<repoID>/` (`state.json`, `devctl.lock`, and on Unix `devctl.sock`)

@@ -1,6 +1,6 @@
 # demo-platform
 
-A mostly local example, modeled as a small invoicing platform, used by tests and the TUI walkthrough. Starting the services requires no Google Cloud. Three `invoices-worker-*` proxy routes are opt-in credential examples — plain service-account impersonation, IAP for the developer's own identity, and IAP on top of impersonation; calling any of them, probing them with Doctor, or running `invoices-worker`'s own token-watch loop requires Google ADC and permission to impersonate the configured account.
+A mostly local example, modeled as a small invoicing platform, used by tests and the TUI walkthrough. Starting the host services requires no Google Cloud and no Docker. Three `invoices-worker-*` proxy routes are opt-in credential examples — plain service-account impersonation, IAP for the developer's own identity, and IAP on top of impersonation; calling any of them, probing them with Doctor, or running `invoices-worker`'s own token-watch loop requires Google ADC and permission to impersonate the configured account.
 
 | Service | Stack | Port | Role |
 |---|---|---|---|
@@ -8,15 +8,25 @@ A mostly local example, modeled as a small invoicing platform, used by tests and
 | `invoices-api` | Python 3 | 18000 | invoice job queue; calls identity |
 | `invoices-worker` | Python 3 | 18002 | polls invoices-api, finalizes jobs, watches its own token |
 | `billing-console` | React + Vite (Bun) | 18003 | admin console UI |
+| `postgres` | Docker (`postgres:16`) | 18004 | opt-in data profile; not in the default profiles |
 
-Profiles: `minimal` (identity + api), `backend` (+ worker), `full` (+ console). Config is modular under `.devctl/`.
+Profiles: `minimal` (identity + api), `backend` (+ worker), `full` (+ console), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
+
+`postgres` is always in configuration, so Doctor still probes Docker even when you never start `data`. Default profiles do not start it.
 
 ```bash
-# python3 and bun on PATH
+# Node.js 18+ (npm package) or python3 and bun on PATH (from source)
+cd examples/demo-platform
+npx @amr-m-abdelgawad/devctl@latest          # TUI
+```
+
+From a source checkout:
+
+```bash
 cd examples/demo-platform
 bun run ../../app/src/bin.ts                 # TUI
 bun run ../../app/src/bin.ts config validate
-bun run ../../app/src/bin.ts start --profile full --detach
+bun run ../../app/src/bin.ts start --profile full
 bun run ../../app/src/bin.ts status
 # Billing console UI: http://127.0.0.1:18003
 # Proxy: 127.0.0.1:18080
@@ -24,13 +34,15 @@ bun run ../../app/src/bin.ts mcp --on        # optional agent URL
 bun run ../../app/src/bin.ts stop
 ```
 
+`devctl start` with no profile starts **backend** — the first profile name alphabetically (`backend`, `data`, `full`, `minimal`), same as MCP `start_services` with no names. It never starts every service. Pass `--profile full` for the console, `--profile data` for postgres.
+
 ## Credential, IAP, and identity patterns
 
 `invoices-api` and `billing-console` route with `auth: none` — no Google Cloud needed. Everything else lives behind `invoices-worker` (port 18002), reachable through three proxy hosts that each demonstrate a different auth pattern against the *same* upstream, so the only variable between them is the injected header:
 
 | Route | Host | Pattern | What gets minted |
 |---|---|---|---|
-| `invoices-worker-impersonation` | `invoices-worker-sa.local` | plain service-account impersonation | a real OAuth **access token** for the impersonated account, no IAP |
+| `invoices-worker-impersonation` | `invoices-worker-sa.local` | plain service-account impersonation (`auth.type: service_account`) | a real OAuth **access token** for the impersonated account, no IAP |
 | `invoices-worker-iap-user` | `invoices-worker-user.local` | IAP for the developer's own identity | a real IAP **ID token** for the signed-in developer, no impersonation |
 | `invoices-worker-api` | `invoices-worker.local` | IAP on top of impersonation | a real IAP **ID token** for the impersonated account |
 
@@ -61,8 +73,6 @@ bun run ../../app/src/bin.ts status --json | jq '.credentials.entries[] | select
 Or just watch it happen without touching curl at all: `invoices-worker` polls devctl's token endpoint itself every 15s (`TOKEN_WATCH_IDENTITY`/`TOKEN_WATCH_AUDIENCE` in `invoices-worker.yaml`, requires `proxy.token_endpoint.enabled: true`, already on in this config) and logs `token watch: minted …` / `refreshed …` / `cached …` lines — visible in `devctl logs invoices-worker` or the Logs screen. That's the same `DEVCTL_TOKEN_URL` pattern a real service would use for its own outbound calls to Google APIs, rather than relying on the proxy to inject credentials inbound. Turn `refresh_threshold_seconds` back down toward the default (`300`) once you're done; a real session doesn't need every request re-minting.
 
 The first `billing-console` start runs `bun install` in `billing-console/` if `node_modules` is missing.
-
-`devctl start` with no profile starts **all four** services (same as MCP `start_services` with no names). Use `--profile backend` to match the usual three-process set.
 
 Each Python service logs at `INFO`/`WARN`/`ERROR` (session churn, rejected requests, unreachable dependencies, retry/backlog) so the logs and status screens have something realistic to filter.
 
