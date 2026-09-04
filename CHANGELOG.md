@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-04
+
+# Hot Fix
+
+- Improve target detection in the npm packagining.
+
 ## [0.2.1] - 2026-09-04
 
 ### Added
@@ -25,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - `/auth login` suspends the OpenTUI renderer before spawning `gcloud`, so ADC login output no longer overwrites the TUI. The TUI is restored when gcloud exits.
+- npm launcher (`bin/devctl.cjs`) now uses universal CommonJS syntax compatible with Node.js 10+ — eliminates `SyntaxError: Unexpected token '?'` when the script is executed by an older Node distribution (e.g. the system Node bundled with a Windows installer and run from inside WSL). Running `devctl` after installing the Windows npm package from inside WSL now prints an actionable error with clear reinstall instructions instead of failing silently.
+
 
 ## [0.2.0] - 2026-09-04
 
@@ -216,7 +224,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.4...v0.1.5
