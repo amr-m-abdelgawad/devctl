@@ -3,11 +3,12 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
+import { defaultConfig, emptyCommand, emptyHealth, emptyService } from "./config/types.ts";
 import { ConfigurationReloadFailed, SessionRecovered } from "./events.ts";
 import { MCP_TOOLS } from "./mcp/tools.ts";
 import { available } from "./ports.ts";
 import { processAlive, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
+import { ProcessManager } from "./processes.ts";
 import { Supervisor, diffReload } from "./supervisor.ts";
 import { saveTuiPreferences } from "./tui/tui-config.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "./token.ts";
@@ -2045,6 +2046,86 @@ describe("stop/restart graph direction", () => {
       await sup.shutdown(false);
     }
   }, 15_000);
+});
+
+describe("stop robustness", () => {
+  test("a service that fails to stop lands on FAILED, not stranded forever in STOPPING, and later waves still get stopped", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    const longRunning = { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false };
+    // dependency <- dependent: stopping dependency cascades to dependent
+    // first (wave 1), then dependency itself (wave 2) — dependent's stop is
+    // rigged to fail, so this proves wave 2 (dependency) isn't stranded
+    // behind wave 1's failure.
+    cfg.services.dependency = { ...emptyService(), command: longRunning };
+    cfg.services.dependent = { ...emptyService(), command: longRunning, dependencies: ["dependency"] };
+    const procs = new ProcessManager();
+    const realStop = procs.stop.bind(procs);
+    procs.stop = async (name: string, grace: number): Promise<void> => {
+      if (name === "dependent") {
+        throw new Error("kill failed");
+      }
+      return realStop(name, grace);
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      procs,
+    });
+    try {
+      await sup.start({ services: ["dependent"] });
+      expect(Object.values(pidsOf(sup, ["dependency", "dependent"])).every((pid) => pid > 0)).toBe(true);
+
+      await expect(sup.stop(["dependency"])).rejects.toThrow();
+      const after = sup.snapshot().services;
+      // The service whose kill failed lands on an honest terminal state —
+      // never left stuck in STOPPING with no rescue.
+      expect(after.dependent?.state).toBe("FAILED");
+      // Its dependency, in the next wave, was still attempted and actually
+      // stopped — not stranded behind the earlier wave's failure.
+      expect(after.dependency?.state).toBe("STOPPED");
+    } finally {
+      await realStop("dependent", 100).catch(() => {});
+      await sup.stop([]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("stopping a service stuck in a slow pre-spawn phase isn't silently undone once that phase finally finishes", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    cfg.services.flaky = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000)"], shell: false },
+      // A slow pre_start hook keeps startOne() in its pre-spawn phase long
+      // enough to stop() it out from under itself before the real process
+      // ever gets spawned.
+      hooks: { pre_start: { args: [process.execPath, "-e", "setTimeout(() => {}, 300)"], shell: false }, post_start: emptyCommand() },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      const starting = sup.start({ services: ["flaky"] });
+      await waitFor(() => sup.snapshot().services.flaky?.state === "STARTING");
+      await sup.stop(["flaky"]);
+      expect(sup.snapshot().services.flaky?.state).toBe("STOPPED");
+
+      // Let the delayed pre_start hook finish and startOne() reach the point
+      // where it would have spawned the real process.
+      await starting;
+      expect(sup.snapshot().services.flaky?.state).toBe("STOPPED");
+      expect(pidsOf(sup, ["flaky"]).flaky).toBe(0);
+    } finally {
+      await sup.stop([]).catch(() => {});
+      await sup.shutdown(false);
+    }
+  }, 10_000);
 });
 
 describe("port-assignment error attribution", () => {

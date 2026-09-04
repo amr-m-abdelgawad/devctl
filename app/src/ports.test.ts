@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
-import { assignPorts, occupiedFixedPorts, parseLsof, portBusyErrorFromHolder } from "./ports.ts";
+import { assignPorts, findPortHolder, occupiedFixedPorts, parseLsof, portBusyErrorFromHolder } from "./ports.ts";
 
 function listen(port = 0): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve, reject) => {
@@ -43,6 +43,16 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
 
   test("returns nothing when lsof is empty", () => {
     expect(parseLsof("COMMAND   PID USER\n", 18080)).toBeUndefined();
+  });
+
+  test.skipIf(process.platform === "win32")("findPortHolder degrades to undefined when lsof/fuser are missing from $PATH", async () => {
+    const originalPath = process.env.PATH;
+    process.env.PATH = "";
+    try {
+      await expect(findPortHolder(18081)).resolves.toBeUndefined();
+    } finally {
+      process.env.PATH = originalPath;
+    }
   });
 
   test("occupiedFixedPorts reports when every fixed port is taken", async () => {

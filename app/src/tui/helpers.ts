@@ -229,6 +229,15 @@ export function stripAnsi(value: string): string {
   return value.replace(ANSI_CSI, "");
 }
 
+// event.raw holds the original line for a structured (JSON) log event; render it indented for the details overlay.
+export function prettyPrintLogRaw(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
 export function wrapLogMessage(message: string, width: number): string[] {
   const max = Math.max(1, width);
   const paragraphs = stripAnsi(message).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");

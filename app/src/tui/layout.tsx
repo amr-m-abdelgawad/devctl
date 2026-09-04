@@ -334,7 +334,6 @@ export function Banner(props: { palette: Palette; title: string; body: string; h
   const { palette, title, body, hint } = props;
   return (
     <box
-      height={hint ? 5 : 4}
       paddingLeft={1}
       paddingRight={1}
       flexDirection="column"

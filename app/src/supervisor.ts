@@ -193,6 +193,7 @@ export class Supervisor {
       acquireLock?: (repoRoot: string, socket: string) => { release: () => void };
       socketExists?: (socket: string) => boolean;
       unlinkSocket?: (socket: string) => void;
+      procs?: ProcessManager;
     },
   ) {
     this.cfg = cfg;
@@ -217,7 +218,7 @@ export class Supervisor {
       cfg.logs.persistence.retention_days,
       cfg.logs.persistence.max_session_logs,
     );
-    this.procs = new ProcessManager();
+    this.procs = deps?.procs ?? new ProcessManager();
     this.tokens = deps?.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), this.bus);
     this.bus.subscribe((ev) => {
       const payload = ev.payload ?? {};
@@ -844,6 +845,14 @@ export class Supervisor {
         throw err;
       }
     }
+    // Identity resolution, env resolution, and pre_start can each take long
+    // enough for a stop()/restart() to land on this same name in the
+    // meantime — bumping the generation past `gen`. Spawning anyway would
+    // resurrect a service the caller already believes is stopped and
+    // silently undo that call's result, so bail out here instead.
+    if (!this.isCurrentGeneration(name, gen)) {
+      return;
+    }
     const onLine = (stream: "stdout" | "stderr", line: string): void => {
       this.logs.append({
         timestamp: new Date().toISOString(), service: name, source: stream, stream,
@@ -878,6 +887,18 @@ export class Supervisor {
       onLine,
       onExit,
     });
+    if (!this.isCurrentGeneration(name, gen)) {
+      // A stop()/restart() landed on this name in the instant between the
+      // check above and this spawn actually completing. Only clean up if
+      // the handle we just got is still the one on record for this name —
+      // procs.start()/startContainer() hand back an already-running
+      // replacement instead of spawning when a newer call beat this one to
+      // it, and that replacement must be left alone.
+      if (this.procs.get(name) === handle) {
+        await this.procs.stop(name, graceSeconds(this.cfg.shutdown) * 1000).catch(() => {});
+      }
+      return;
+    }
     this.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
     this.setState(name, StateRunning, HealthUnknown, handle.pid, "");
     this.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));
@@ -1216,8 +1237,12 @@ export class Supervisor {
       }
     }
     const grace = graceSeconds(this.cfg.shutdown) * 1000;
+    const failures: string[] = [];
     for (const wave of plan.waves) {
-      await Promise.all(
+      // allSettled, not all: one service that fails to stop must not strand
+      // every later wave untouched (still Running, never even told to stop)
+      // behind it — the whole point of a stop plan is best-effort completeness.
+      const results = await Promise.allSettled(
         wave.map(async (name) => {
           this.setState(name, StateStopping, HealthUnknown, 0, "");
           const timer = this.healthTimers.get(name);
@@ -1225,14 +1250,41 @@ export class Supervisor {
             clearInterval(timer);
             this.healthTimers.delete(name);
           }
-          await this.procs.stop(name, grace);
-          await this.releasePorts(name);
+          try {
+            await this.procs.stop(name, grace);
+          } catch (err) {
+            // The kill may genuinely not have worked (SIGKILL didn't finish
+            // it off). onExit()'s own StateStopping rescue can't reach this
+            // service either — the generation bump above already makes its
+            // exit callback a no-op — so land on an honest terminal state
+            // instead of stranding it in Stopping forever.
+            this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
+            this.bus.publish(newEvent(ServiceFailed, name, { error: humanMessage(err) }));
+            throw err;
+          }
+          try {
+            await this.releasePorts(name);
+          } catch (err) {
+            // Bookkeeping after an already-successful kill; still stopped.
+            this.log(name, "WARN", humanMessage(err));
+          }
           this.setState(name, StateStopped, HealthUnknown, 0, "");
           this.bus.publish(newEvent(ServiceStopped, name, {}));
         }),
       );
+      for (let i = 0; i < results.length; i += 1) {
+        const result = results[i];
+        if (result?.status === "rejected") {
+          const name = wave[i] ?? "";
+          failures.push(name);
+          this.log(name || "devctl", "ERROR", humanMessage(result.reason));
+        }
+      }
     }
     this.persistState();
+    if (failures.length > 0) {
+      throw newError(KindProcessStart, `failed to stop: ${failures.join(", ")}`);
+    }
   }
 
   async startProxy(): Promise<void> {

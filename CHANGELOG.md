@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Structured (JSON-per-line) logs from pino, bunyan, zap, logrus, and similar loggers are parsed instead of shown as a raw blob: `message`/`msg`/`text`, `level`/`severity` (including pino's numeric levels), and `request_id`/`trace_id`-style fields populate the normal log columns. The full JSON stays available — pretty-printed in the log details overlay (`enter`), searchable, and unabbreviated in persisted session files and log exports.
+
+### Fixed
+
+- `findPortHolder` no longer crashes with an unhandled "Executable not found in $PATH" error when `lsof` or `fuser` isn't installed (common on minimal containers and some WSL/Linux images). It now degrades to "holder unknown" instead.
+- The Proxy screen's "No proxy routes" empty state (and every other `Banner`/`EmptyState`, e.g. the Credentials screen's action banner) no longer clips its text mid-sentence in narrow panes. `Banner` had a hardcoded height of 2-3 content rows regardless of how many lines the body/hint actually wrap to; it now sizes to its wrapped content, matching the pattern already used by the proxy "no requests yet" panel next to it.
+- Stopping a service could get permanently stuck showing STOPPING instead of STOPPED, and — because a stop plan stopped dependents wave by wave and one wave's failure aborted the rest — every other service queued behind it in a multi-service stop never got touched at all, still showing RUNNING. A stop plan now attempts every wave regardless of earlier failures, and a service whose kill genuinely fails lands on FAILED (with the error visible) instead of being stranded in STOPPING forever.
+- Stopping a service while it was still in its slow pre-spawn phase (resolving cloud identity, environment, or a `pre_start` hook) had no effect: the state briefly flipped to STOPPED, but the in-flight start wasn't actually cancelled, so it went on to spawn the process anyway and silently flipped the state back to RUNNING once it finished — the stop never stuck.
+
 ## [0.2.2] - 2026-09-04
 
 # Hot Fix

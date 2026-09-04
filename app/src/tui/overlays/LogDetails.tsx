@@ -1,7 +1,7 @@
 import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
-import { stripAnsi } from "../helpers.ts";
+import { prettyPrintLogRaw, stripAnsi } from "../helpers.ts";
 import { serviceColor, type Palette } from "../themes.ts";
 import { type LogEvent } from "../../logs.ts";
 
@@ -16,7 +16,8 @@ export function LogDetailsOverlay(props: {
   if (!event) {
     return null;
   }
-  const tall = event.message.length > 120 || event.message.includes("\n");
+  const pretty = event.raw ? prettyPrintLogRaw(event.raw) : undefined;
+  const tall = event.message.length > 120 || event.message.includes("\n") || pretty !== undefined;
   return (
     <OverlayShell
       palette={palette}
@@ -40,6 +41,14 @@ export function LogDetailsOverlay(props: {
           <text fg={palette.muted}>{`pid       ${event.pid || "—"}`}</text>
           <text fg={palette.muted}>{`request   ${event.request_id || "—"}`}</text>
           <text fg={palette.muted}>{`identity  ${event.identity || "—"}`}</text>
+          {pretty === undefined ? null : (
+            <>
+              <text fg={palette.muted}>{"raw json"}</text>
+              <text fg={palette.text} wrapMode="word">
+                {pretty}
+              </text>
+            </>
+          )}
         </box>
       </scrollbox>
     </OverlayShell>

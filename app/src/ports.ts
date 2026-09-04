@@ -148,24 +148,42 @@ export async function findPortHolder(port: number): Promise<PortHolder | undefin
   if (process.platform === "win32") {
     return findPortHolderWindows(port);
   }
-  const proc = spawn({
-    cmd: ["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN"],
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const text = await new Response(proc.stdout).text();
-  await proc.exited;
-  const holder = parseLsof(text, port);
-  if (holder) {
-    return holder;
+  const lsofHolder = await lsofPortHolder(port);
+  if (lsofHolder) {
+    return lsofHolder;
   }
-  const fuser = spawn({
-    cmd: ["fuser", "-n", "tcp", String(port)],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const fuserText = `${await new Response(fuser.stdout).text()} ${await new Response(fuser.stderr).text()}`;
-  await fuser.exited;
+  return fuserPortHolder(port);
+}
+
+// A missing lsof/fuser binary (minimal container, WSL) degrades to "holder unknown" rather than crashing.
+async function lsofPortHolder(port: number): Promise<PortHolder | undefined> {
+  try {
+    const proc = spawn({
+      cmd: ["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN"],
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    const text = await new Response(proc.stdout).text();
+    await proc.exited;
+    return parseLsof(text, port);
+  } catch {
+    return undefined;
+  }
+}
+
+async function fuserPortHolder(port: number): Promise<PortHolder | undefined> {
+  let fuserText: string;
+  try {
+    const proc = spawn({
+      cmd: ["fuser", "-n", "tcp", String(port)],
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    fuserText = `${await new Response(proc.stdout).text()} ${await new Response(proc.stderr).text()}`;
+    await proc.exited;
+  } catch {
+    return undefined;
+  }
   const match = fuserText.match(/(\d+)/);
   const pid = match ? Number(match[1]) : 0;
   if (!Number.isInteger(pid) || pid <= 0) {

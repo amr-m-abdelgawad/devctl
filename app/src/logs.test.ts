@@ -3,7 +3,20 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Detector } from "./secrets.ts";
-import { clampLogPageSize, compileLogSearch, DEFAULT_LOG_PAGE_SIZE, defaultExportPath, LogManager, MAX_LOG_PAGE_SIZE, matchLog, pruneSessions, resolveExportPath, writeLogExport } from "./logs.ts";
+import {
+  clampLogPageSize,
+  compileLogSearch,
+  DEFAULT_LOG_PAGE_SIZE,
+  defaultExportPath,
+  defaultLogParser,
+  LogManager,
+  MAX_LOG_PAGE_SIZE,
+  matchLog,
+  parseJSONLogLine,
+  pruneSessions,
+  resolveExportPath,
+  writeLogExport,
+} from "./logs.ts";
 import { exportsDir } from "./storage.ts";
 
 function tmp(): string {
@@ -68,6 +81,66 @@ describe("LogManager persistence", () => {
     pruneSessions(dir, 0, 1);
     const left = [oldDir, newDir].filter((path) => existsSync(path));
     expect(left.length).toBe(1);
+  });
+
+  test("structured JSON log lines show the extracted message, not the raw blob", async () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), true, tmp(), "json", 0, 0);
+    mgr.setParsers([defaultLogParser()]);
+    mgr.append({
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      level: "",
+      message: '{"level":"error","msg":"db connection refused","request_id":"req-42"}',
+      pid: 1,
+    });
+    const [ev] = mgr.query({});
+    expect(ev?.message).toBe("db connection refused");
+    expect(ev?.level).toBe("ERROR");
+    expect(ev?.request_id).toBe("req-42");
+    expect(ev?.raw).toBe('{"level":"error","msg":"db connection refused","request_id":"req-42"}');
+
+    // the persisted session file keeps the full raw JSON, not the shortened message
+    await mgr.flush();
+    const body = readFileSync(join(mgr.sessionDir(), "api.log"), "utf8");
+    expect(body).toContain('"msg":"db connection refused"');
+  });
+
+  test("pino's numeric level convention maps to named levels", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "pino", 0, 0);
+    mgr.setParsers([defaultLogParser()]);
+    mgr.append({
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      level: "",
+      message: '{"level":30,"msg":"listening"}',
+      pid: 1,
+    });
+    expect(mgr.query({})[0]?.level).toBe("INFO");
+  });
+
+  test("non-JSON and unrecognized JSON lines pass through unchanged", () => {
+    expect(parseJSONLogLine("plain text line")).toBeUndefined();
+    expect(parseJSONLogLine("[1, 2, 3]")).toBeUndefined();
+    expect(parseJSONLogLine("{not valid json}")).toBeUndefined();
+    expect(parseJSONLogLine('{"foo":"bar"}')).toBeUndefined();
+  });
+
+  test("matchLog searches the raw JSON payload as well as the extracted message", () => {
+    const ev = {
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      level: "ERROR",
+      message: "db connection refused",
+      raw: '{"level":"error","msg":"db connection refused","host":"pg-primary"}',
+      pid: 1,
+      seq: 1,
+    };
+    expect(matchLog({ search: "pg-primary" }, ev)).toBe(true);
+    expect(matchLog({ search: "connection refused" }, ev)).toBe(true);
+    expect(matchLog({ search: "no match here" }, ev)).toBe(false);
   });
 
   test("matchLog filters identity time range and source", () => {

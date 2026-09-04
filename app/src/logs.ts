@@ -45,6 +45,10 @@ export type LogEvent = {
   stream?: string;
   request_id?: string;
   identity?: string;
+  // Original line, set only when `message` was extracted from a structured
+  // (JSON-per-line) log — lets the details view show the full payload even
+  // though the list shows just the human-readable message.
+  raw?: string;
   // Assigned by LogManager.append(), monotonically increasing within one
   // daemon session (never reused, never reassigned on ring-buffer eviction).
   // Cursor-based pagination pages by this instead of by timestamp, since
@@ -60,11 +64,84 @@ export type LogParser = {
 export function defaultLogParser(): LogParser {
   return {
     name: "default",
-    parse: (line) => ({
-      level: parseLevel(line),
-      request_id: parseRequestID(line) || undefined,
-    }),
+    parse: (line) => {
+      const structured = parseJSONLogLine(line);
+      if (structured) {
+        return structured;
+      }
+      return {
+        level: parseLevel(line),
+        request_id: parseRequestID(line) || undefined,
+      };
+    },
   };
+}
+
+// Structured loggers (pino, bunyan, zap, logrus, and similar) emit one JSON
+// object per line; devctl otherwise shows that whole object as the message.
+const JSON_MESSAGE_KEYS = ["message", "msg", "text", "log", "event"];
+const JSON_LEVEL_KEYS = ["level", "severity", "levelname", "loglevel", "lvl"];
+const JSON_REQUEST_ID_KEYS = ["request_id", "requestId", "trace_id", "traceId", "correlation_id", "correlationId"];
+
+// pino's numeric level convention.
+const NUMERIC_LEVELS: Record<number, LogLevel> = {
+  10: LevelTrace,
+  20: LevelDebug,
+  30: LevelInfo,
+  40: LevelWarn,
+  50: LevelError,
+  60: LevelFatal,
+};
+
+function firstStringField(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function jsonLogLevel(obj: Record<string, unknown>): LogLevel | undefined {
+  for (const key of JSON_LEVEL_KEYS) {
+    const value = obj[key];
+    if (typeof value === "number") {
+      const named = NUMERIC_LEVELS[value];
+      if (named) {
+        return named;
+      }
+      continue;
+    }
+    if (typeof value === "string" && value.trim() !== "") {
+      return value.toUpperCase();
+    }
+  }
+  return undefined;
+}
+
+export function parseJSONLogLine(line: string): Partial<LogEvent> | undefined {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return undefined;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(trimmed);
+  } catch {
+    return undefined;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const obj = value as Record<string, unknown>;
+  const message = firstStringField(obj, JSON_MESSAGE_KEYS);
+  const level = jsonLogLevel(obj);
+  const requestId = firstStringField(obj, JSON_REQUEST_ID_KEYS);
+  if (message === undefined && level === undefined && requestId === undefined) {
+    return undefined;
+  }
+  return { message: message ?? trimmed, level, request_id: requestId, raw: trimmed };
 }
 
 export type LogFilter = {
@@ -119,10 +196,11 @@ export function matchLog(filter: LogFilter, ev: LogEvent): boolean {
   if (filter.regex) {
     const re = compileLogSearch(filter.search);
     if (re) {
-      return re.test(ev.message);
+      return re.test(ev.message) || (ev.raw !== undefined && re.test(ev.raw));
     }
   }
-  return ev.message.toLowerCase().includes(filter.search.toLowerCase());
+  const needle = filter.search.toLowerCase();
+  return ev.message.toLowerCase().includes(needle) || (ev.raw !== undefined && ev.raw.toLowerCase().includes(needle));
 }
 
 const MAX_LOG_SEARCH_REGEX = 200;
@@ -474,12 +552,16 @@ export class LogManager {
 
   append(ev: Omit<LogEvent, "seq">): void {
     const parsed = this.parseLine(ev.message);
+    const redact = (text: string) => (this.detector ? this.detector.redactText(text) : text);
+    const structured = parsed.raw !== undefined;
+    const rawText = redact(ev.message);
     const next: LogEvent = {
       ...ev,
       timestamp: ev.timestamp || new Date().toISOString(),
       level: ev.level || parsed.level || parseLevel(ev.message),
       request_id: ev.request_id || parsed.request_id || parseRequestID(ev.message),
-      message: this.detector ? this.detector.redactText(ev.message) : ev.message,
+      message: structured && parsed.message !== undefined ? redact(parsed.message) : rawText,
+      raw: structured ? rawText : undefined,
       seq: this.nextSeq++,
     };
     if (this.events.length < this.max) {
@@ -490,7 +572,7 @@ export class LogManager {
     }
     this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.level }));
     if (this.persist) {
-      const line = `${next.timestamp} ${next.service} ${next.level} ${next.message}\n`;
+      const line = `${next.timestamp} ${next.service} ${next.level} ${next.raw ?? next.message}\n`;
       const key = safeServiceFile(next.service);
       const stream = this.streamFor(key);
       // fs.WriteStream.write() queues the write asynchronously instead of
@@ -681,7 +763,7 @@ export function resolveExportPath(input = ""): string {
 
 export function writeLogExport(path: string, events: LogEvent[]): void {
   ensureDir(dirname(path));
-  const lines = events.map((ev) => `${ev.timestamp} ${ev.service} ${ev.level} ${ev.message}`);
+  const lines = events.map((ev) => `${ev.timestamp} ${ev.service} ${ev.level} ${ev.raw ?? ev.message}`);
   writeFileSync(path, `${lines.join("\n")}\n`, { mode: 0o600 });
 }
 
@@ -726,12 +808,15 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogEve
         continue;
       }
       const parts = line.split(" ");
+      const rawMessage = parts.slice(3).join(" ");
+      const structured = parseJSONLogLine(rawMessage);
       events.push({
         timestamp: parts[0] ?? "",
         service: parts[1] ?? name.replace(/\.log$/, ""),
         source: "history",
         level: parts[2] ?? "INFO",
-        message: parts.slice(3).join(" "),
+        message: structured?.message ?? rawMessage,
+        raw: structured ? rawMessage : undefined,
         pid: 0,
         // A past session's own sequence numbers aren't recoverable from the
         // persisted text format, and these are a read-only historical view,
