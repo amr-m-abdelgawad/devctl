@@ -1,6 +1,6 @@
 import { createServer as createHttpServer } from "node:http";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
@@ -118,7 +118,9 @@ describe("supervisor snapshot", () => {
     cfg.services.api = { ...emptyService(), working_dir: "api", command: { args: ["unused"], shell: false }, environment: { vars: { EXEC_MARKER: "resolved" }, required: [], defaults: {} } };
     const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
     const result = await sup.execService("api", [process.execPath, "-e", "console.log(process.cwd()); console.log(process.env.EXEC_MARKER)"], {});
-    expect(result.stdout.endsWith("/api\nresolved\n")).toBe(true);
+    const [reportedWorkDir, marker] = result.stdout.trim().split("\n");
+    expect(realpathSync(reportedWorkDir ?? "")).toBe(realpathSync(workDir));
+    expect(marker).toBe("resolved");
     expect(sup.snapshot().services.api?.state).toBe("STOPPED");
     const printed = await sup.execService("api", [], { CLIENT_ONLY: "yes" }, true);
     expect(printed.environment?.CLIENT_ONLY).toBe("yes");
