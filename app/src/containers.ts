@@ -41,7 +41,7 @@ export function containerRunArgs(spec: ContainerLaunchSpec): string[] {
   const args = ["run", "--detach", "--name", spec.containerName, "--label", "devctl.managed=true"];
   for (const [name, hostPort] of Object.entries(spec.ports)) {
     const target = spec.targetPorts[name] ?? hostPort;
-    args.push("--publish", `${hostPort}:${target}`);
+    args.push("--publish", `127.0.0.1:${hostPort}:${target}`);
   }
   for (const key of Object.keys(spec.env).sort()) args.push("--env", key);
   for (const volume of spec.volumes) args.push("--volume", volume);

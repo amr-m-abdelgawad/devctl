@@ -653,23 +653,25 @@ export class Supervisor {
     if (!svc) throw newError(KindServiceNotFound, `unknown service ${service}`);
     const profile = this.serviceProfile.get(service) ?? this.profile;
     const profileEnv = this.serviceProfileEnv.get(service) ?? this.profileEnv;
-    const { env, workDir } = await this.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv);
+    const { env, workDir } = await this.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv, !svc.container);
     if (printEnv) return { service, code: 0, stdout: "", stderr: "", environment: env };
     if (command.length === 0) throw newError(KindGeneral, "exec command is required");
     const result = await this.runTransient(`${service}:exec`, { args: command, shell: false }, false, workDir, env);
     return { service, ...result };
   }
 
-  private async resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>): Promise<{ env: Record<string, string>; workDir: string }> {
+  private async resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>, includeProcess = true): Promise<{ env: Record<string, string>; workDir: string }> {
     const assigned = this.ports.get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     const proxyURL = this.proxy?.isRunning() ? `http://${this.proxy.address()}` : this.cfg.proxy.enabled ? `http://${listenAddress(this.cfg.proxy.listen)}` : "";
     const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, this.cfg.project.name);
-    runtime.DEVCTL_INTERNAL_TOKEN = this.internalTok;
-    if (this.cfg.proxy.token_endpoint.enabled) runtime.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
+    if (!svc.container) {
+      runtime.DEVCTL_INTERNAL_TOKEN = this.internalTok;
+      if (this.cfg.proxy.token_endpoint.enabled) runtime.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
+    }
     const resolved = await resolveEnvironment(this.cfg.repoRoot, {
       service: name, profile, serviceCfg: svc, profileEnv, assignedPorts: assigned, runtime, cfg: this.cfg,
       fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
-      pluginSources: this.registry?.environmentSources, clientEnv,
+      pluginSources: this.registry?.environmentSources, clientEnv, includeProcess,
     });
     const workDir = svc.working_dir && !isAbsolute(svc.working_dir) ? join(this.cfg.repoRoot, svc.working_dir) : svc.working_dir;
     return { env: envList(resolved), workDir };
@@ -725,6 +727,29 @@ export class Supervisor {
     }
     if (!svc) {
       return false;
+    }
+    if (svc.container) {
+      const gen = this.bumpGeneration(name);
+      const runtime = svc.container.runtime === "podman" ? "podman" : "docker";
+      const workDir = this.serviceWorkDir(svc);
+      const handle = await this.procs.adoptContainer({
+        name,
+        runtime,
+        containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
+        workDir,
+        onLine: (stream, line) => this.logs.append({ timestamp: new Date().toISOString(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+        onExit: (code, err) => this.onExit(name, gen, code, err),
+      });
+      if (!handle) return false;
+      const assigned = this.ports.get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
+      this.ports.set(name, assigned);
+      this.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
+      this.setState(name, StateRunning, HealthUnknown, 0, "");
+      const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, assigned);
+      this.startHealth(name, svc, 0, assigned, workDir, healthEnv, gen);
+      this.persistState();
+      this.log(name, "INFO", `claimed running ${runtime} container ${handle.container?.id ?? ""}`);
+      return true;
     }
     const occupied = await occupiedFixedPorts(svc);
     if (!occupied) {
@@ -810,7 +835,7 @@ export class Supervisor {
       }
     }
     const assigned = this.ports.get(name) ?? {};
-    const { env, workDir } = await this.resolveServiceExecution(name, svc, profile, profileEnv, this.clientEnv.get(name));
+    const { env, workDir } = await this.resolveServiceExecution(name, svc, profile, profileEnv, this.clientEnv.get(name), !svc.container);
     if (runHooks) {
       try {
         await this.runTransient(`${name}:pre_start`, svc.hooks.pre_start, svc.shell, workDir, env);

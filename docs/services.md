@@ -99,7 +99,11 @@ services:
 Container names are deterministic and scoped to the repository, allowing a
 new devctl daemon to adopt containers left running by its predecessor. Secret
 environment values are supplied through the runtime process environment and
-are not placed in command-line arguments. `devctl down` stops and removes
+are not placed in command-line arguments. Published ports bind to
+`127.0.0.1` by default rather than every network interface. Containers do not
+inherit the caller's entire shell environment; profile, dotenv, keychain,
+secret-manager, defaults, explicit service/container variables, plugin sources,
+and non-secret runtime metadata still apply. `devctl down` stops and removes
 managed containers; container exit codes feed the normal restart policy.
 
 ## Lifecycle

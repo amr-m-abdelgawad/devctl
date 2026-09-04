@@ -687,20 +687,22 @@ copy it:
 | Compose | devctl |
 |---|---|
 | \`services.<name>\` | \`services.<name>\` (same key) |
-| \`command\` / image entrypoint | \`command\` — but see below |
+| \`image\` | \`container.image\` |
+| \`command\` / image entrypoint | \`command\` |
 | \`ports: ["8000:8000"]\` | \`ports: { http: 8000 }\` (the **host** side) |
+| container-side port | \`container.ports: { http: 8000 }\` |
 | \`depends_on\` | \`dependencies\` |
 | \`environment\` | \`environment\` vars / \`defaults\` |
 | \`env_file\` | \`environment.sources: [dotenv]\` at the top level |
 | \`healthcheck.test\` | \`health: { type: command, command: [...] }\`, or better, an \`http\` check if the container exposes one |
 | \`working_dir\` / \`build.context\` | \`working_dir\` (relative to repo root) |
 
-The trap: compose runs **containers**, devctl runs **host processes**. A
-compose service whose only definition is \`image: postgres:16\` has no local
-source and no host command — it is not a devctl service. Either leave it out
-and note that the developer starts it separately, or keep it as an explicit
-container command (\`docker run …\`) if the team genuinely wants devctl to own
-it. Say which you chose.
+For a service with an image and no local host process, use devctl's native
+\`container:\` service specification rather than spelling out \`docker run\` as a
+command. Preserve the host/container port distinction, volumes, environment,
+health check, and dependencies. Keep container-backed services out of the
+default profile when doing so preserves a repository's existing no-Docker
+onboarding path.
 
 ### Procfile
 

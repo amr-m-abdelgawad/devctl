@@ -1,6 +1,4 @@
-import { emptyIdentity, type IdentityProvider } from "../../app/src/identity.ts";
-import type { AccessToken, TokenProvider } from "../../app/src/token.ts";
-import { PLUGIN_SDK_VERSION } from "../../app/src/plugin-sdk.ts";
+import { emptyIdentity, PLUGIN_SDK_VERSION, type AccessToken, type IdentityProvider, type TokenProvider } from "../../app/src/plugin-sdk.ts";
 
 type OidcConfig = { issuer: string; client_id: string; client_secret?: string; client_secret_env?: string; token_endpoint?: string; scopes?: string[] | string; audience?: string };
 const configurations = new Map<string, OidcConfig>();

@@ -9,7 +9,7 @@ flowchart LR
   process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> runtime
 ```
 
-`process`, `defaults`, `vars`, and `runtime` always run. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to that always-on set.
+`process`, `defaults`, `vars`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
 
 | Source | What it loads |
 |--------|----------------|
@@ -39,7 +39,7 @@ Injected when applicable:
 - `DEVCTL_PROXY_URL`
 - `DEVCTL_SERVICE_NAME`
 - `DEVCTL_ENVIRONMENT`
-- `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` (never a raw access token)
+- `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 
 References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values.
 

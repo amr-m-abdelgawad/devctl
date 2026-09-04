@@ -33,7 +33,7 @@ export type DoctorProgress = {
 };
 
 export type DoctorRuntimeContext = {
-  services?: Record<string, { pid: number; ports: Record<string, number> }>;
+  services?: Record<string, { pid: number; ports: Record<string, number>; state?: string }>;
   proxyRunning?: boolean;
   // An attached TUI operates on the daemon's last-known-good config snapshot,
   // but this one check must describe the file currently on disk. Supplying an
@@ -213,7 +213,8 @@ export async function runDoctor(
       } else {
         seenPorts[p.value] = name;
         const owner = runtime?.services?.[name];
-        const ownedByRunningService = Boolean(owner && owner.pid > 0 && Object.values(owner.ports).includes(p.value));
+        const containerIsRunning = Boolean(svc.container && owner && ["STARTING", "RUNNING", "HEALTHY", "UNHEALTHY"].includes(owner.state ?? ""));
+        const ownedByRunningService = Boolean(owner && (owner.pid > 0 || containerIsRunning) && Object.values(owner.ports).includes(p.value));
         if (ownedByRunningService) {
           add({ name: label, severity: "ok", message: `in use by running service ${name}` });
         } else if (await host.portAvailable(p.value)) {

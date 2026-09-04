@@ -13,7 +13,7 @@ describe("container runtime", () => {
     const args = containerRunArgs(spec);
     expect(args).toEqual([
       "run", "--detach", "--name", "devctl-repo-postgres", "--label", "devctl.managed=true",
-      "--publish", "15432:5432", "--env", "POSTGRES_PASSWORD", "--env", "Z_VALUE",
+      "--publish", "127.0.0.1:15432:5432", "--env", "POSTGRES_PASSWORD", "--env", "Z_VALUE",
       "--volume", "pgdata:/var/lib/postgresql/data", "postgres:16",
     ]);
     expect(args.join(" ")).not.toContain("do-not-leak");

@@ -85,6 +85,21 @@ describe("doctor", () => {
     expect(report.checks.find((check) => check.name === "Port 19991")?.severity).toBe("error");
   });
 
+  test("treats a running container's published port as healthy without a host pid", async () => {
+    const cfg = localCfg();
+    cfg.services.api!.container = { image: "postgres:16", runtime: "docker", ports: { http: 19991 }, env: {}, volumes: [] };
+    const host = offlineHost();
+    host.portAvailable = async () => false;
+    const report = await runDoctor(cfg, host, undefined, {
+      services: { api: { pid: 0, state: "RUNNING", ports: { http: 19991 } } },
+    });
+    expect(report.checks.find((check) => check.name === "Port 19991")).toEqual({
+      name: "Port 19991",
+      severity: "ok",
+      message: "in use by running service api",
+    });
+  });
+
   test("flags missing IAP audience without minting a token", async () => {
     const cfg = localCfg();
     cfg.google.project_id = "demo";
