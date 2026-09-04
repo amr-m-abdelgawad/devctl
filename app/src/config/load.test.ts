@@ -11,6 +11,27 @@ function writeFile(dir: string, rel: string, contents: string): void {
 }
 
 describe("config load", () => {
+  test("decodes and validates a container service", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-container-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  postgres:
+    ports: { db: 5432 }
+    container:
+      image: postgres:16
+      runtime: docker
+      ports: { db: 5432 }
+      env: { POSTGRES_PASSWORD: local }
+      volumes: [pgdata:/var/lib/postgresql/data]
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.postgres?.container).toEqual({
+      image: "postgres:16", runtime: "docker", ports: { db: 5432 },
+      env: { POSTGRES_PASSWORD: "local" }, volumes: ["pgdata:/var/lib/postgresql/data"],
+    });
+  });
+
   test("loads modular example with templates and env refs", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-cfg-${Date.now()}`;
     writeFile(

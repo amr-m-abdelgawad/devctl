@@ -66,7 +66,7 @@ function validateServices(cfg: DevctlConfig): string[] {
   const usedPorts: Record<number, string> = {};
   for (const [name, svc] of Object.entries(cfg.services)) {
     const prefix = `services.${name}`;
-    if (commandEmpty(svc.command)) {
+    if (commandEmpty(svc.command) && !svc.container) {
       issues.push(`${prefix}.command is required`);
     }
     issues.push(...validateShellCommand(prefix, svc.command, svc.shell));
@@ -101,6 +101,16 @@ function validateServices(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}.restart.policy must be never, on_failure, or always`);
     }
     issues.push(...validateEnvRefs(`${prefix}.environment`, svc.environment, cfg));
+    if (svc.container) {
+      if (svc.container.image === "") issues.push(`${prefix}.container.image is required`);
+      if (svc.container.runtime !== "" && svc.container.runtime !== "docker" && svc.container.runtime !== "podman") {
+        issues.push(`${prefix}.container.runtime must be docker or podman`);
+      }
+      for (const [portName, target] of Object.entries(svc.container.ports)) {
+        if (!svc.ports.some((port) => port.name === portName)) issues.push(`${prefix}.container.ports.${portName}: no matching service port`);
+        if (target < MIN_PORT || target > MAX_PORT) issues.push(`${prefix}.container.ports.${portName}: invalid container port ${target}`);
+      }
+    }
   }
   return issues;
 }

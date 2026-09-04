@@ -32,6 +32,7 @@ export const knownService = [
   "startup",
   "capabilities",
   "proxy",
+  "container",
 ];
 
 export const knownHealth = ["type", "url", "address", "command", "interval_seconds", "timeout_seconds"];
@@ -60,6 +61,7 @@ export const knownTool = ["name", "command"];
 export const knownTokenEndpoint = ["enabled", "host", "port"];
 export const knownPlugin = ["path"];
 export const knownProjectEnvironment = ["sources", "secrets"];
+export const knownContainer = ["image", "runtime", "ports", "env", "volumes"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];
 

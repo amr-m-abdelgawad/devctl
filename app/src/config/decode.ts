@@ -194,6 +194,22 @@ export function decodeService(value: unknown): ServiceConfig {
     startup: decodeStartup(value.startup),
     capabilities: asStringArray(value.capabilities),
     proxy: decodeServiceProxy(value.proxy),
+    container: decodeContainer(value.container),
+  };
+}
+
+export function decodeContainer(value: unknown): import("./types.ts").ContainerConfig | undefined {
+  if (!isRecord(value)) return undefined;
+  const ports: Record<string, number> = {};
+  if (isRecord(value.ports)) {
+    for (const [name, port] of Object.entries(value.ports)) ports[name] = asNumber(port);
+  }
+  return {
+    image: asString(value.image),
+    runtime: asString(value.runtime),
+    ports,
+    env: asStringMap(value.env),
+    volumes: asStringArray(value.volumes),
   };
 }
 

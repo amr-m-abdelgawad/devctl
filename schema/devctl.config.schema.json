@@ -238,6 +238,18 @@
             { "$ref": "#/$defs/route" },
             { "type": "array", "items": { "$ref": "#/$defs/route" } }
           ]
+        },
+        "container": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image"],
+          "properties": {
+            "image": { "type": "string", "minLength": 1 },
+            "runtime": { "type": "string", "enum": ["docker", "podman"] },
+            "ports": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "volumes": { "type": "array", "items": { "type": "string" } }
+          }
         }
       }
     },

@@ -1,5 +1,6 @@
 import {
   knownAuth,
+  knownContainer,
   knownDoctor,
   knownPlugin,
   knownProjectEnvironment,
@@ -52,6 +53,9 @@ function allowArbitraryKeys(path: string): boolean {
     return true;
   }
   if (path.endsWith(".environment") || path.endsWith(".defaults") || path.endsWith(".keymap")) {
+    return true;
+  }
+  if (path.endsWith(".container.ports") || path.endsWith(".container.env")) {
     return true;
   }
   return path.includes(".environment.") && !path.endsWith(".environment");
@@ -141,6 +145,8 @@ export function servicePathKnown(path: string): string[] {
         return knownEnvStructured;
       case "proxy":
         return serviceProxyPathKnown(parts);
+      case "container":
+        return knownContainer;
       default:
         return [];
     }

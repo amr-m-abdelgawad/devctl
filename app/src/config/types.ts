@@ -55,6 +55,14 @@ export type StartupConfig = {
   timeout_seconds: number;
 };
 
+export type ContainerConfig = {
+  image: string;
+  runtime: string;
+  ports: Record<string, number>;
+  env: Record<string, string>;
+  volumes: string[];
+};
+
 export type ServiceConfig = {
   extends: string;
   description: string;
@@ -71,6 +79,7 @@ export type ServiceConfig = {
   startup: StartupConfig;
   capabilities: string[];
   proxy: RouteConfig[];
+  container?: ContainerConfig;
 };
 
 export type ProfileConfig = {
@@ -250,6 +259,7 @@ export function emptyService(): ServiceConfig {
     startup: { wait_for_healthy: false, timeout_seconds: 0 },
     capabilities: [],
     proxy: [],
+    container: undefined,
   };
 }
 

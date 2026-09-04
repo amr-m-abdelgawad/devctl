@@ -5,6 +5,7 @@ import {
   asStringArray,
   asStringMap,
   decodeCommand,
+  decodeContainer,
   decodePorts,
   decodeProfile,
   decodeRoute,
@@ -62,7 +63,7 @@ export function recordProvenance(provenance: ConfigProvenance, raw: unknown, sou
 // Service fields that are themselves merged field-by-field rather than
 // replaced wholesale — so presence needs to be tracked one level deeper
 // than just "was this key present" for each of them too.
-const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity"] as const;
+const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity", "container"] as const;
 
 export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown): void {
   const keys = presentKeys(raw);
@@ -249,6 +250,7 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     logs: mergeServiceLogs(base.logs, raw.logs),
     restart: mergeRestart(base.restart, raw.restart),
     startup: mergeStartup(base.startup, raw.startup),
+    container: mergeContainer(base.container, raw.container),
   };
   if (present.has("extends")) {
     out.extends = asString(raw.extends);
@@ -361,6 +363,19 @@ function mergeStartup(base: StartupConfig, raw: unknown): StartupConfig {
   };
 }
 
+function mergeContainer(base: ServiceConfig["container"], raw: unknown): ServiceConfig["container"] {
+  if (!isRecord(raw)) return base;
+  const decoded = decodeContainer(raw);
+  if (!decoded) return base;
+  return {
+    image: raw.image !== undefined ? decoded.image : (base?.image ?? ""),
+    runtime: raw.runtime !== undefined ? decoded.runtime : (base?.runtime ?? ""),
+    ports: raw.ports !== undefined ? { ...(base?.ports ?? {}), ...decoded.ports } : (base?.ports ?? {}),
+    env: raw.env !== undefined ? { ...(base?.env ?? {}), ...decoded.env } : (base?.env ?? {}),
+    volumes: raw.volumes !== undefined ? decoded.volumes : (base?.volumes ?? []),
+  };
+}
+
 export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance): void {
   const names = Object.keys(cfg.services).sort();
   for (const name of names) {
@@ -452,6 +467,17 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
   }
   if (present.has("proxy")) {
     out.proxy = svc.proxy;
+  }
+  if (present.has("container")) {
+    const container = svc.container;
+    const baseContainer = base.container;
+    out.container = container && baseContainer ? {
+      image: present.has("container.image") ? container.image : baseContainer.image,
+      runtime: present.has("container.runtime") ? container.runtime : baseContainer.runtime,
+      ports: present.has("container.ports") ? container.ports : baseContainer.ports,
+      env: present.has("container.env") ? container.env : baseContainer.env,
+      volumes: present.has("container.volumes") ? container.volumes : baseContainer.volumes,
+    } : (container ?? baseContainer);
   }
   out.health = {
     type: present.has("health.type") ? svc.health.type : base.health.type,
