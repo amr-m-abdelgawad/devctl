@@ -54,6 +54,7 @@ export type DoctorHost = {
   liveDeadlineMs?: number;
   mintToken?: (identity: string, audience: string) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
+  containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
 };
 
 const defaultHost: DoctorHost = {
@@ -64,6 +65,14 @@ const defaultHost: DoctorHost = {
   adcQuotaProject,
   mintToken: defaultMintToken,
   probeServiceUsage: defaultProbeServiceUsage,
+  containerRuntimeAvailable: async (runtime) => {
+    try {
+      const proc = Bun.spawn({ cmd: [runtime, "info"], stdout: "ignore", stderr: "ignore", stdin: "ignore" });
+      return (await proc.exited) === 0;
+    } catch {
+      return false;
+    }
+  },
 };
 
 export async function runDoctor(
@@ -86,6 +95,15 @@ export async function runDoctor(
     }
     publish();
   };
+  const runtimes = [...new Set(Object.values(cfg.services).flatMap((svc) => svc.container ? [svc.container.runtime || "docker"] : []))];
+  for (const runtimeName of runtimes) {
+    checking(`${runtimeName} container runtime`);
+    const installed = await host.hasCommand(runtimeName);
+    const reachable = installed && await (host.containerRuntimeAvailable ?? defaultHost.containerRuntimeAvailable!)(runtimeName);
+    add(reachable
+      ? { name: `${runtimeName} container runtime`, severity: "ok", message: `${runtimeName} daemon reachable` }
+      : { name: `${runtimeName} container runtime`, severity: "error", message: installed ? `${runtimeName} daemon is not reachable` : `${runtimeName} not found`, hint: `install and start ${runtimeName}` });
+  }
   checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {
     add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });

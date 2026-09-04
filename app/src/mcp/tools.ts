@@ -277,6 +277,7 @@ export function getService(host: McpHost, name: string): unknown {
     cwd: svc.working_dir,
     ports: rt?.ports ?? Object.fromEntries(svc.ports.map((port) => [port.name, port.value])),
     environment: detector.redactMap({ ...svc.environment.defaults, ...svc.environment.vars }),
+    container: svc.container ? { ...svc.container, env: detector.redactMap(svc.container.env) } : undefined,
   };
 }
 
@@ -365,6 +366,7 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     cwd: svc.working_dir,
     ports: svc.ports.map((port) => ({ name: port.name, value: port.auto ? 0 : port.value, auto: port.auto })),
     dependencies: svc.dependencies,
+    container: svc.container ? { image: svc.container.image, runtime: svc.container.runtime || "docker", ports: svc.container.ports, volumes: svc.container.volumes } : undefined,
   }));
   return {
     project: cfg.project.name,

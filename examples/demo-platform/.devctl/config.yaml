@@ -35,6 +35,9 @@ templates:
       backoff_seconds: 1
 
 profiles:
+  data:
+    services:
+      - postgres
   minimal:
     services:
       - identity

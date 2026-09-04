@@ -56,6 +56,23 @@ jobs:
         working-directory: app
         run: bunx tsc --noEmit
 
+  container-tests:
+    name: Container tests
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Docker lifecycle integration
+        working-directory: app
+        env:
+          DEVCTL_CONTAINER_TESTS: "1"
+        run: bun test src/containers.integration.test.ts
+
   demo-config:
     name: Demo config
     needs: setup
@@ -229,7 +246,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
+    needs: [tests, typecheck, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -237,6 +254,7 @@ jobs:
         env:
           TESTS: ${{ needs.tests.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
+          CONTAINERS: ${{ needs.container-tests.result }}
           DEMO: ${{ needs.demo-config.result }}
           COMPILE: ${{ needs.compile-smoke.result }}
           NPM_BUILD: ${{ needs.npm-package-build.result }}
@@ -248,6 +266,7 @@ jobs:
         run: |
           test "$TESTS" = success
           test "$TYPECHECK" = success
+          test "$CONTAINERS" = success
           test "$DEMO" = success
           test "$COMPILE" = success
           test "$NPM_BUILD" = success

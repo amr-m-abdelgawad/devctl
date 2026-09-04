@@ -3,6 +3,7 @@ import { KindProcessStart, newError, wrapError } from "./errors.ts";
 import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./processes/unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./processes/windows.ts";
 import { processAlive } from "./storage.ts";
+import { adoptContainer, startContainer, type ContainerControl, type ContainerLaunchSpec } from "./containers.ts";
 
 const DEFAULT_GRACE_MS = 10_000;
 const KILL_WAIT_MS = 2_000;
@@ -41,6 +42,7 @@ export type Handle = {
   args: string[];
   done: Promise<{ code: number; err?: Error }>;
   proc?: Subprocess;
+  container?: ContainerControl;
 };
 
 export class ProcessManager {
@@ -96,6 +98,32 @@ export class ProcessManager {
     return handle;
   }
 
+  async startContainer(spec: ContainerLaunchSpec): Promise<Handle> {
+    const existing = this.running.get(spec.name);
+    if (existing && handleStillRunning(existing)) return existing;
+    const control = await startContainer(spec);
+    const handle: Handle = {
+      name: spec.name, pid: 0, startTime: new Date(), workDir: spec.workDir,
+      args: [...spec.command], done: control.done, container: control,
+    };
+    control.done.finally(() => {
+      if (this.running.get(spec.name) === handle) this.running.delete(spec.name);
+    });
+    this.running.set(spec.name, handle);
+    return handle;
+  }
+
+  async adoptContainer(spec: Omit<ContainerLaunchSpec, "image" | "command" | "env" | "ports" | "targetPorts" | "volumes">): Promise<Handle | undefined> {
+    const existing = this.running.get(spec.name);
+    if (existing && handleStillRunning(existing)) return existing;
+    const control = await adoptContainer(spec.runtime, spec.containerName, spec.onLine, spec.onExit);
+    if (!control) return undefined;
+    const handle: Handle = { name: spec.name, pid: 0, startTime: new Date(), workDir: spec.workDir, args: [], done: control.done, container: control };
+    control.done.finally(() => { if (this.running.get(spec.name) === handle) this.running.delete(spec.name); });
+    this.running.set(spec.name, handle);
+    return handle;
+  }
+
   adopt(spec: AdoptSpec): Handle {
     const existing = this.running.get(spec.name);
     if (existing && handleStillRunning(existing)) {
@@ -131,6 +159,11 @@ export class ProcessManager {
       return;
     }
     const grace = graceMs > 0 ? graceMs : DEFAULT_GRACE_MS;
+    if (handle.container) {
+      await handle.container.stop(grace);
+      this.running.delete(name);
+      return;
+    }
     await killProcessTree(handle.pid, "SIGTERM");
     const finished = await raceDone(handle.done, grace);
     if (!finished) {
@@ -155,6 +188,7 @@ export class ProcessManager {
 export { processAlive };
 
 export function handleStillRunning(handle: Handle): boolean {
+  if (handle.container) return handle.container.running();
   if (handle.proc) {
     return handle.proc.exitCode === null && !handle.proc.killed;
   }

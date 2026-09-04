@@ -1,5 +1,10 @@
 # Doctor
 
+When one or more services declare `container`, doctor checks that each selected
+Docker or Podman executable is installed and that its daemon is reachable. A
+present CLI with a stopped or inaccessible daemon is reported separately from
+a missing runtime.
+
 ```bash
 devctl doctor
 devctl doctor --json

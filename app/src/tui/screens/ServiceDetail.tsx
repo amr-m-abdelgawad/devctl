@@ -79,6 +79,7 @@ export function ServiceInspector(props: {
     { label: "workdir", value: svc.working_dir || "." },
     { label: "restart", value: serviceRestartText(svc) },
     { label: "caps", value: svc.capabilities.join(", ") || "—" },
+    { label: "runtime", value: svc.container ? `${svc.container.runtime || "docker"} · ${svc.container.image}` : "host" },
   ];
   const rightFacts: FactItem[] = [
     { label: "identity", value: serviceIdentityText(svc, rt) },

@@ -44,6 +44,7 @@ import { isKnownToolName, type McpHost } from "./mcp/tools.ts";
 import { resolveMcpPort } from "./mcp/port.ts";
 import { loadTuiConfig } from "./tui/tui-config.ts";
 import { runDoctor } from "./doctor.ts";
+import { containerEnvironment } from "./containers.ts";
 import { ProxyServer, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "./secrets.ts";
 import {
@@ -72,7 +73,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "./services.ts";
-import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, socketPath, writePersistedState } from "./storage.ts";
+import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, repoID, socketPath, writePersistedState } from "./storage.ts";
 import { TokenManager, googleTokenProviders } from "./token.ts";
 import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
@@ -767,7 +768,29 @@ export class Supervisor {
     if (workDir !== "" && !isAbsolute(workDir)) {
       workDir = join(this.cfg.repoRoot, workDir);
     }
-    const handle = await this.procs.start({
+    const onLine = (stream: "stdout" | "stderr", line: string): void => {
+      this.logs.append({
+        timestamp: new Date().toISOString(), service: name, source: stream, stream,
+        level: "", message: line, pid: handle.pid,
+      });
+    };
+    const onExit = (code: number, err?: Error): void => this.onExit(name, gen, code, err);
+    const handle = svc.container
+      ? await this.procs.startContainer({
+          name,
+          runtime: svc.container.runtime === "podman" ? "podman" : "docker",
+          containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
+          image: svc.container.image,
+          command: [...svc.command.args],
+          env: containerEnvironment({ ...envList(env), ...svc.container.env }),
+          ports: assigned,
+          targetPorts: svc.container.ports,
+          volumes: svc.container.volumes,
+          workDir,
+          onLine,
+          onExit,
+        })
+      : await this.procs.start({
       name,
       args: [...svc.command.args],
       shell: svc.shell || svc.command.shell,
@@ -776,20 +799,8 @@ export class Supervisor {
       graceMs: graceSeconds(this.cfg.shutdown) * 1000,
       captureStdout: captureStdout(svc),
       captureStderr: captureStderr(svc),
-      onLine: (stream, line) => {
-        this.logs.append({
-          timestamp: new Date().toISOString(),
-          service: name,
-          source: stream,
-          stream,
-          level: "",
-          message: line,
-          pid: handle.pid,
-        });
-      },
-      onExit: (code, err) => {
-        this.onExit(name, gen, code, err);
-      },
+      onLine,
+      onExit,
     });
     this.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
     this.setState(name, StateRunning, HealthUnknown, handle.pid, "");
@@ -950,7 +961,12 @@ export class Supervisor {
     }
     const interval = healthIntervalMs(svc.health) || DEFAULT_HEALTH_INTERVAL_MS;
     const tick = (): void => {
-      void checkHealth(svc.health, pid, assigned, workDir, env, this.registry?.healthChecks)
+      const healthResult: Promise<{ status: ServiceHealth; message: string }> = svc.container && svc.health.type.toLowerCase() === "process"
+        ? Promise.resolve(this.procs.get(name) && handleStillRunning(this.procs.get(name)!)
+          ? { status: HealthHealthy, message: "container running" }
+          : { status: HealthUnhealthy, message: "container not running" })
+        : checkHealth(svc.health, pid, assigned, workDir, env, this.registry?.healthChecks);
+      void healthResult
         .catch((err: unknown) => ({ status: HealthUnhealthy, message: humanMessage(err) }) as const)
         .then((res) => {
           // A slow check (e.g. an HTTP request against a hung endpoint) can
@@ -1797,6 +1813,12 @@ export class Supervisor {
       return;
     }
     const svc = this.cfg.services[name];
+    if (svc?.container) {
+      // The runtime owns the host-side publishing proxy; stopping the
+      // container releases it. PID identity checks apply only to host services.
+      this.ports.delete(name);
+      return;
+    }
     const meta = this.processMeta.get(name);
     for (const port of Object.values(ports)) {
       const holder = await findPortHolder(port);
@@ -1925,12 +1947,35 @@ export class Supervisor {
 
   private async recoverSession(): Promise<void> {
     const persisted = readPersistedState(this.cfg.repoRoot);
-    if (!persisted || persisted.processes.length === 0) {
+    if (!persisted) {
       return;
     }
     const adopted: string[] = [];
+    for (const [name, svc] of Object.entries(this.cfg.services)) {
+      if (!svc.container) continue;
+      const rec = persisted.processes.find((item) => item.name === name);
+      const gen = this.bumpGeneration(name);
+      const runtime = svc.container.runtime === "podman" ? "podman" : "docker";
+      const handle = await this.procs.adoptContainer({
+        name,
+        runtime,
+        containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
+        workDir: this.serviceWorkDir(svc),
+        onLine: (stream, line) => this.logs.append({ timestamp: new Date().toISOString(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+        onExit: (code, err) => this.onExit(name, gen, code, err),
+      });
+      if (!handle) continue;
+      const assigned = rec?.ports ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
+      this.ports.set(name, assigned);
+      this.processMeta.set(name, { command: [...svc.command.args], cwd: this.serviceWorkDir(svc), startTime: rec?.startTime ? new Date(rec.startTime) : handle.startTime });
+      this.setState(name, StateRunning, HealthUnknown, 0, "");
+      const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, assigned);
+      this.startHealth(name, svc, 0, assigned, this.serviceWorkDir(svc), healthEnv, gen);
+      this.log(name, "INFO", `adopted ${runtime} container ${handle.container?.id ?? ""}`);
+      adopted.push(name);
+    }
     for (const rec of persisted.processes) {
-      if (!this.cfg.services[rec.name] || rec.pid <= 0 || rec.pid === process.pid || !this.processAliveFn(rec.pid)) {
+      if (!this.cfg.services[rec.name] || this.cfg.services[rec.name]?.container || rec.pid <= 0 || rec.pid === process.pid || !this.processAliveFn(rec.pid)) {
         continue;
       }
       const observed = await this.inspectProcessFn(rec.pid);
@@ -2023,6 +2068,10 @@ export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult
       }
       if (JSON.stringify(before.logs) !== JSON.stringify(after.logs)) {
         fields.push("logs");
+        restart.add(name);
+      }
+      if (JSON.stringify(before.container) !== JSON.stringify(after.container)) {
+        fields.push("container");
         restart.add(name);
       }
     }

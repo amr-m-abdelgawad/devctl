@@ -14,8 +14,11 @@ describe("demo-platform config", () => {
     const root = resolve(import.meta.dir, "../../../examples/demo-platform");
     const cfg = load(root, "");
     expect(cfg.project.name).toBe("demo-platform");
-    expect(Object.keys(cfg.services).sort()).toEqual(["billing-console", "identity", "invoices-api", "invoices-worker"]);
+    expect(Object.keys(cfg.services).sort()).toEqual(["billing-console", "identity", "invoices-api", "invoices-worker", "postgres"]);
     expect(cfg.profiles.backend?.services).toContain("invoices-worker");
+    expect(cfg.profiles.backend?.services).not.toContain("postgres");
+    expect(cfg.profiles.data?.services).toEqual(["postgres"]);
+    expect(cfg.services.postgres?.container?.image).toBe("postgres:16");
     expect(cfg.proxy.listen.port).toBe(18080);
     expect(cfg.proxy.token_endpoint.enabled).toBe(true);
 

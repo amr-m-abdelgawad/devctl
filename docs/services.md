@@ -44,6 +44,38 @@ Working directories resolve from the repository root (the directory that contain
 
 String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.
 
+## Container services
+
+Set `container.image` to let devctl own a Docker or Podman container with the
+same dependency, health, logging, restart, and shutdown lifecycle as a host
+service. `runtime` defaults to Docker. A service `command`, when present,
+overrides the image command.
+
+```yaml
+services:
+  postgres:
+    ports:
+      db: 15432
+    container:
+      image: postgres:16
+      runtime: docker
+      ports:
+        db: 5432       # service port name → port inside the container
+      env:
+        POSTGRES_PASSWORD: local
+      volumes:
+        - pgdata:/var/lib/postgresql/data
+    health:
+      type: tcp
+      address: 127.0.0.1:15432
+```
+
+Container names are deterministic and scoped to the repository, allowing a
+new devctl daemon to adopt containers left running by its predecessor. Secret
+environment values are supplied through the runtime process environment and
+are not placed in command-line arguments. `devctl down` stops and removes
+managed containers; container exit codes feed the normal restart policy.
+
 ## Lifecycle
 
 ```mermaid
