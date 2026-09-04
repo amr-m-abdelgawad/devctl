@@ -6,6 +6,13 @@
 
 Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.
 
+Published on npm as **[`@amr-m-abdelgawad/devctl`](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)**. Node.js is the only prerequisite — the package brings its own official Bun runtime.
+
+```bash
+npx @amr-m-abdelgawad/devctl@latest
+```
+
+[![npm](https://img.shields.io/npm/v/%40amr-m-abdelgawad%2Fdevctl?style=flat-square&logo=npm&color=cb3837&label=npm)](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)
 [![CI](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml/badge.svg)](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488?style=flat-square)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f59e0b?style=flat-square)](https://bun.sh)
@@ -13,9 +20,9 @@ Start services, watch logs, check identity, and drive the proxy — from a keybo
 [![OpenTUI](https://img.shields.io/badge/TUI-OpenTUI-06b6d4?style=flat-square)](https://opentui.com/docs/)
 
 <p>
-  <a href="#try-it"><strong>Try the demo</strong></a>
+  <a href="#install"><strong>Install</strong></a>
   ·
-  <a href="#install">Install</a>
+  <a href="#try-it">Try the demo</a>
   ·
   <a href="docs/README.md">Wiki</a>
   ·
