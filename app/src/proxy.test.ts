@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { connect } from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, type RouteAuthConfig } from "./config/types.ts";
@@ -110,6 +111,81 @@ async function setupHeaderCapture(auth: RouteAuthConfig, tokens?: TokenManager, 
 }
 
 describe("proxy", () => {
+  test("proxies WebSocket upgrades, round-trips bytes, and closes live sockets on stop", async () => {
+    const upstream = createServer();
+    let seenAuthorization = "";
+    upstream.on("upgrade", (req, socket, head) => {
+      seenAuthorization = String(req.headers.authorization ?? "");
+      socket.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+      if (head.length > 0) socket.write(head);
+      socket.on("data", (chunk) => socket.write(chunk));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
+    const reservedAddr = reserved.address();
+    const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({
+      name: "ws",
+      match: { host: "", path: "/socket" },
+      upstream: { url: `http://127.0.0.1:${upPort}` },
+      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "" },
+    });
+    const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token({ accessToken: "ws-token" }) }]);
+    const proxy = new ProxyServer(cfg, tokens);
+    await proxy.start();
+
+    const client = connect(proxyPort, "127.0.0.1");
+    let received = "";
+    await new Promise<void>((resolve, reject) => {
+      client.once("error", reject);
+      client.on("data", (chunk) => {
+        received += chunk.toString();
+        if (received.includes("101 Switching Protocols") && !received.includes("round-trip")) client.write("round-trip");
+        if (received.includes("round-trip")) resolve();
+      });
+      client.write("GET /socket HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+    });
+    expect(received).toContain("101 Switching Protocols");
+    expect(received).toContain("round-trip");
+    expect(seenAuthorization).toBe("Bearer ws-token");
+    expect(proxy.stats().recent[0]?.status).toBe(101);
+
+    const closed = new Promise<void>((resolve) => client.once("close", () => resolve()));
+    await proxy.stop();
+    await closed;
+    await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  });
+
+  test("rejects unmatched WebSocket upgrades without hanging", async () => {
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
+    const addr = reserved.address();
+    const proxyPort = typeof addr === "object" && addr ? addr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    const proxy = new ProxyServer(cfg);
+    await proxy.start();
+    const response = await new Promise<string>((resolve, reject) => {
+      const client = connect(proxyPort, "127.0.0.1");
+      let data = "";
+      client.once("error", reject);
+      client.on("data", (chunk) => (data += chunk.toString()));
+      client.once("close", () => resolve(data));
+      client.write("GET /missing HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+    });
+    expect(response).toContain("404 Not Found");
+    expect(proxy.stats().recent[0]?.status).toBe(404);
+    await proxy.stop();
+  });
+
   test("resolveProxyTarget keeps the configured origin", () => {
     const base = "http://127.0.0.1:8000/api/";
     expect(resolveProxyTarget(base, "/ping").href).toBe("http://127.0.0.1:8000/ping");

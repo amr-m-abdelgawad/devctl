@@ -1,6 +1,6 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, request, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
-import { Readable } from "node:stream";
+import { type Duplex, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, listenAddress } from "./config/index.ts";
 import { KindProxy, newError, wrapError } from "./errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "./events.ts";
@@ -51,6 +51,10 @@ export type ProxyMiddlewareContext = {
   route: RouteConfig;
   headers: Record<string, string>;
   tokens?: TokenManager;
+  req?: IncomingMessage;
+  method?: string;
+  path?: string;
+  upgrade?: boolean;
 };
 
 export class ProxyServer {
@@ -63,6 +67,7 @@ export class ProxyServer {
   private server?: Server;
   private running = false;
   private addr = "";
+  private readonly upgradedSockets = new Set<Duplex>();
   // Newest-last ring buffer, oldest entries dropped once full — same bound
   // pattern as LogManager's in-memory event list. stats() reverses it for a
   // newest-first view.
@@ -120,6 +125,9 @@ export class ProxyServer {
       this.server = createServer((req, res) => {
         void this.serve(req, res);
       });
+      this.server.on("upgrade", (req, socket, head) => {
+        void this.serveUpgrade(req, socket, head);
+      });
       this.server.on("error", (err) => reject(wrapError(KindProxy, `unable to listen on ${host}:${port}`, err)));
       this.server.listen(port, host, () => {
         this.running = true;
@@ -135,6 +143,10 @@ export class ProxyServer {
     if (!server) {
       return Promise.resolve();
     }
+    for (const socket of this.upgradedSockets) {
+      socket.destroy();
+    }
+    this.upgradedSockets.clear();
     return new Promise((resolve) => {
       server.close(() => {
         this.running = false;
@@ -142,6 +154,115 @@ export class ProxyServer {
         resolve();
       });
     });
+  }
+
+  private async serveUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+    const started = Date.now();
+    const requestID = req.headers[REQUEST_ID_HEADER]?.toString() || randomBytes(8).toString("hex");
+    const method = req.method ?? "GET";
+    const path = req.url ?? "/";
+    const recordedPath = this.detector ? this.detector.redactText(path) : path;
+    const route = matchRoute(this.cfg.routes, req);
+    if (!route) {
+      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      this.recordRequest({
+        timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath,
+        route: "", identity: "", status: 404, durationMs: Date.now() - started,
+      });
+      return;
+    }
+
+    const ident = fromRoute(route.auth);
+    const identityKey = tokenIdentityKey(ident);
+    let upstreamSocket: Duplex | undefined;
+    let recorded = false;
+    const finish = (status: number, error?: string): void => {
+      if (recorded) return;
+      recorded = true;
+      const duration = Date.now() - started;
+      this.recordRequest({
+        timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath,
+        route: route.name, identity: identityKey, status, durationMs: duration, error,
+      });
+      this.logs?.append({
+        timestamp: new Date().toISOString(), service: "proxy", source: "proxy",
+        level: status >= 400 || error ? "ERROR" : "INFO",
+        message: `${method} ${path} route=${route.name} identity=${identityKey} status=${status} duration=${duration}ms upgrade=true${error ? ` error=${error}` : ""}`,
+        pid: 0, request_id: requestID, identity: identityKey,
+      });
+      this.bus?.publish(newEvent(ProxyRequest, route.name, { status, request_id: requestID, duration, identity: identityKey }));
+    };
+    const closeBoth = (): void => {
+      socket.destroy();
+      upstreamSocket?.destroy();
+    };
+
+    try {
+      const headers: Record<string, string> = {};
+      for (const [key, value] of Object.entries(req.headers)) {
+        const lower = key.toLowerCase();
+        if (HOP_BY_HOP.has(lower) && lower !== "connection" && lower !== "upgrade") continue;
+        if (typeof value === "string") headers[key] = value;
+        else if (Array.isArray(value)) headers[key] = value.join(",");
+      }
+      const clientAddress = req.socket.remoteAddress ?? "";
+      const originalHost = headers.host ?? "";
+      const forwardedFor = headers["x-forwarded-for"];
+      headers["x-forwarded-for"] = forwardedFor ? `${forwardedFor}, ${clientAddress}` : clientAddress;
+      headers["x-forwarded-host"] = originalHost;
+      headers["x-forwarded-proto"] = "http";
+      delete headers.host;
+      headers[REQUEST_ID_HEADER] = requestID;
+      if (this.middleware.length === 0) await injectIdentityHeaders(route, headers, this.tokens);
+      for (const hook of this.middleware) {
+        await hook.apply({ route, headers, tokens: this.tokens, req, method, path, upgrade: true });
+      }
+
+      const upstream = resolveProxyTarget(route.upstream.url, path);
+      const upstreamReq = request(upstream, { method, headers });
+      upstreamReq.on("upgrade", (upstreamRes, connectedSocket, upstreamHead) => {
+        upstreamSocket = connectedSocket;
+        this.upgradedSockets.add(socket);
+        this.upgradedSockets.add(connectedSocket);
+        const cleanup = (): void => {
+          this.upgradedSockets.delete(socket);
+          this.upgradedSockets.delete(connectedSocket);
+        };
+        socket.once("close", () => {
+          cleanup();
+          connectedSocket.destroy();
+        });
+        connectedSocket.once("close", () => {
+          cleanup();
+          socket.destroy();
+        });
+        socket.once("error", closeBoth);
+        connectedSocket.once("error", closeBoth);
+        const statusLine = `HTTP/${upstreamRes.httpVersion} ${upstreamRes.statusCode ?? 101} ${upstreamRes.statusMessage ?? "Switching Protocols"}\r\n`;
+        const responseHeaders = upstreamRes.rawHeaders.map((value, index) => `${index % 2 === 0 ? value + ":" : " " + value + "\r\n"}`).join("");
+        socket.write(`${statusLine}${responseHeaders}\r\n`);
+        if (head.length > 0) connectedSocket.write(head);
+        if (upstreamHead.length > 0) socket.write(upstreamHead);
+        socket.pipe(connectedSocket).pipe(socket);
+        finish(upstreamRes.statusCode ?? 101);
+      });
+      upstreamReq.on("response", (upstreamRes) => {
+        upstreamRes.resume();
+        const status = upstreamRes.statusCode ?? 502;
+        socket.end(`HTTP/1.1 ${status} ${upstreamRes.statusMessage ?? "Bad Gateway"}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+        finish(status, "upstream refused protocol upgrade");
+      });
+      upstreamReq.on("error", (err) => {
+        finish(502, err.message);
+        socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      });
+      socket.once("error", () => upstreamReq.destroy());
+      upstreamReq.end();
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "proxy upgrade error";
+      finish(502, detail);
+      socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+    }
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
