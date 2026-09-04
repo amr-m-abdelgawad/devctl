@@ -1869,13 +1869,11 @@ export type ServiceEnvEntry = {
   key: string;
   value: string;
   required: boolean;
+  // Set directly in this service's own `environment.vars`/`environment.defaults`
+  // — as opposed to dotenv, profile, secrets, plugin, or runtime-injected — so
+  // the UI can call out what the user actually wrote in config.
+  fromConfig: boolean;
 };
-
-const ENV_KEY_MIN = 10;
-const ENV_KEY_MAX = 28;
-const ENV_KEY_SHARE = 0.42;
-const ENV_PANE_GUTTER = 2;
-const ENV_PANE_MIN = 20;
 
 export function serviceEnvEntries(
   svc: ServiceConfig,
@@ -1884,14 +1882,18 @@ export function serviceEnvEntries(
   extraPatterns: string[],
   resolved?: Record<string, string>,
 ): ServiceEnvEntry[] {
-  const merged = resolved ?? { ...svc.environment.defaults, ...svc.environment.vars };
+  const configured = { ...svc.environment.defaults, ...svc.environment.vars };
+  const merged = resolved ?? configured;
   const redacted = redactEnv(merged, reveal, extraMarkers, extraPatterns);
   const keys = new Set([...Object.keys(redacted), ...svc.environment.required]);
-  return [...keys].sort().map((key) => ({
-    key,
-    value: redacted[key] ?? "",
-    required: svc.environment.required.includes(key),
-  }));
+  return [...keys]
+    .map((key) => ({
+      key,
+      value: redacted[key] ?? "",
+      required: svc.environment.required.includes(key),
+      fromConfig: Object.prototype.hasOwnProperty.call(configured, key),
+    }))
+    .sort((a, b) => (a.fromConfig === b.fromConfig ? a.key.localeCompare(b.key) : a.fromConfig ? -1 : 1));
 }
 
 export function previousSessionNote(leftover?: PersistedState, currentSession?: string): PersistedState | undefined {
@@ -1902,11 +1904,6 @@ export function previousSessionNote(leftover?: PersistedState, currentSession?: 
     return undefined;
   }
   return leftover;
-}
-
-export function envKeyColumnWidth(paneWidth: number): number {
-  const inner = Math.max(ENV_PANE_MIN, paneWidth - ENV_PANE_GUTTER);
-  return Math.min(ENV_KEY_MAX, Math.max(ENV_KEY_MIN, Math.floor(inner * ENV_KEY_SHARE)));
 }
 
 export function firstPort(rt?: Runtime): string {

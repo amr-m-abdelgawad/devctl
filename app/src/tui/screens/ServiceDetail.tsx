@@ -2,7 +2,6 @@ import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
 import {
   clipText,
-  envKeyColumnWidth,
   firstPort,
   padClip,
   serviceCommandText,
@@ -36,6 +35,7 @@ export function ServiceDetail(props: {
   resolvedEnv?: Record<string, string>;
   envStatus?: "resolved" | "config" | "loading" | "error";
   envError?: string;
+  onSelectEnv?: (entry: ServiceEnvEntry) => void;
 }) {
   const { palette, name } = props;
   return (
@@ -67,6 +67,7 @@ export function ServiceInspector(props: {
   resolvedEnv?: Record<string, string>;
   envStatus?: "resolved" | "config" | "loading" | "error";
   envError?: string;
+  onSelectEnv?: (entry: ServiceEnvEntry) => void;
 }) {
   const { palette, cfg, snap, name, reveal, width, compact = true, envScrollRef } = props;
   const scale = useDensity();
@@ -145,6 +146,7 @@ export function ServiceInspector(props: {
         source={envLabel}
         sourceTone={envTone}
         error={props.envError}
+        onSelect={props.onSelectEnv}
       />
       {compact ? null : (
         <KeyHints
@@ -232,10 +234,9 @@ function EnvPane(props: {
   source: string;
   sourceTone: ChipTone;
   error?: string;
+  onSelect?: (entry: ServiceEnvEntry) => void;
 }) {
-  const { palette, entries, reveal, width, focused, scrollRef, source, sourceTone, error } = props;
-  const keyWidth = envKeyColumnWidth(width);
-  const valueWidth = Math.max(8, width - keyWidth - 4);
+  const { palette, entries, reveal, width, focused, scrollRef, source, sourceTone, error, onSelect } = props;
   return (
     <box flexGrow={1} flexDirection="column" overflow="hidden">
       <MetaBar
@@ -258,6 +259,11 @@ function EnvPane(props: {
         <text fg={palette.muted}>no service env overrides</text>
       ) : (
         <box flexGrow={1} height="100%" overflow="hidden">
+          {onSelect ? (
+            <text fg={palette.muted} wrapMode="word">
+              click a variable for its full value
+            </text>
+          ) : null}
           <scrollbox
             ref={scrollRef}
             focused={focused}
@@ -273,20 +279,18 @@ function EnvPane(props: {
             }}
           >
             <box flexDirection="column" overflow="hidden">
-              {entries.map((entry) => (
-                <box key={entry.key} height={1} flexDirection="row" overflow="hidden">
-                  <box width={keyWidth} flexShrink={0} overflow="hidden">
-                    <text fg={entry.required ? palette.warning : palette.muted} wrapMode="none">
-                      {padClip(entry.required ? `${entry.key}*` : entry.key, keyWidth)}
+              {entries.map((entry) => {
+                const keyFg = entry.required ? palette.warning : entry.fromConfig ? palette.accent : palette.muted;
+                const valueText = entry.value === "" && entry.required ? "(required)" : entry.value;
+                return (
+                  <box key={entry.key} flexDirection="row" overflow="hidden" onMouseDown={onSelect ? () => onSelect(entry) : undefined}>
+                    <text wrapMode="word">
+                      <span fg={keyFg}>{entry.required ? `${entry.key}*` : entry.key}</span>
+                      <span fg={entry.value === "" ? palette.muted : palette.text}>{` ${valueText}`}</span>
                     </text>
                   </box>
-                  <box width={valueWidth} flexShrink={0} overflow="hidden">
-                    <text fg={entry.value === "" ? palette.muted : palette.text} wrapMode="none">
-                      {padClip(entry.value === "" && entry.required ? "(required)" : entry.value, valueWidth)}
-                    </text>
-                  </box>
-                </box>
-              ))}
+                );
+              })}
             </box>
           </scrollbox>
         </box>

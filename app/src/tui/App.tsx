@@ -21,7 +21,7 @@ import { checkUpdate, formatUpdateStatus } from "../update.ts";
 import { formatConfigDiffText } from "./config-view.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
+import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode, type ServiceEnvEntry } from "./helpers.ts";
 import {
   isBound,
   isClearLogsKey,
@@ -866,6 +866,12 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const openDetail = useCallback((name: string) => {
     setDetailName(name);
     setScreen("detail");
+  }, []);
+
+  const openEnvDetail = useCallback((entry: ServiceEnvEntry) => {
+    const body = entry.value !== "" ? entry.value : entry.required ? "(required, not set)" : "(empty)";
+    setScrollText({ title: entry.key, body });
+    setOverlay("scroll-text");
   }, []);
 
   useEffect(() => {
@@ -2307,6 +2313,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             resolvedEnv={inspectorEnv}
             envStatus={inspectorEnvStatus}
             envError={inspectorEnvError}
+            onSelectEnv={openEnvDetail}
           />
         ) : null}
         {screen === "detail" ? (
@@ -2321,6 +2328,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             resolvedEnv={inspectorEnv}
             envStatus={inspectorEnvStatus}
             envError={inspectorEnvError}
+            onSelectEnv={openEnvDetail}
           />
         ) : null}
         {screen === "logs" ? (

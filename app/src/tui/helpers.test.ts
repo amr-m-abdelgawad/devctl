@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
 import { ConfigurationReloadFailed } from "../events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -528,7 +528,7 @@ describe("TUI helpers", () => {
     expect(servicePortsText(emptyService())).toBe("—");
   });
 
-  test("service env entries merge defaults required and stay sorted", () => {
+  test("service env entries merge defaults required, sorting config-defined vars to the top", () => {
     const svc = emptyService();
     svc.environment = {
       vars: { ZED: "9", TOKEN: "secret" },
@@ -536,14 +536,25 @@ describe("TUI helpers", () => {
       required: ["TOKEN", "MISSING"],
     };
     const entries = serviceEnvEntries(svc, false, ["TOKEN"], []);
-    expect(entries.map((row) => row.key)).toEqual(["MISSING", "REGION", "TOKEN", "ZED"]);
+    // Config-defined vars (REGION, TOKEN, ZED) sort alphabetically ahead of
+    // MISSING, which is only named in `required` and never actually set here.
+    expect(entries.map((row) => row.key)).toEqual(["REGION", "TOKEN", "ZED", "MISSING"]);
     expect(entries.find((row) => row.key === "TOKEN")?.value).not.toContain("secret");
     expect(entries.find((row) => row.key === "MISSING")?.required).toBe(true);
-    expect(envKeyColumnWidth(80)).toBeGreaterThan(envKeyColumnWidth(24));
-    expect(envKeyColumnWidth(200)).toBeLessThanOrEqual(28);
+    // ZED/TOKEN (vars) and REGION (defaults) are set directly on this
+    // service; MISSING is only named in `required`, never actually set here.
+    expect(entries.find((row) => row.key === "ZED")?.fromConfig).toBe(true);
+    expect(entries.find((row) => row.key === "TOKEN")?.fromConfig).toBe(true);
+    expect(entries.find((row) => row.key === "REGION")?.fromConfig).toBe(true);
+    expect(entries.find((row) => row.key === "MISSING")?.fromConfig).toBe(false);
     const resolved = serviceEnvEntries(svc, true, ["TOKEN"], [], { TOKEN: "secret", PORT: "18001", REGION: "us" });
     expect(resolved.find((row) => row.key === "PORT")?.value).toBe("18001");
     expect(resolved.find((row) => row.key === "TOKEN")?.value).toBe("secret");
+    // fromConfig reflects this service's own vars/defaults regardless of
+    // which map (config-only or fully resolved) supplied the displayed value
+    // — PORT only exists in the resolved environment, never in config.
+    expect(resolved.find((row) => row.key === "TOKEN")?.fromConfig).toBe(true);
+    expect(resolved.find((row) => row.key === "PORT")?.fromConfig).toBe(false);
   });
 
   test("tab window keeps the active item visible when the strip overflows", () => {

@@ -1,5 +1,5 @@
 import { EmptyState } from "../chrome.tsx";
-import { canStartAll, NARROW_WIDTH, SERVICE_LIST_MIN, serviceListInnerWidth, serviceListPaneWidth } from "../helpers.ts";
+import { canStartAll, NARROW_WIDTH, SERVICE_LIST_MIN, serviceListInnerWidth, serviceListPaneWidth, type ServiceEnvEntry } from "../helpers.ts";
 import { serviceColor, type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../config/index.ts";
 import { type StatusSnapshot } from "../../types.ts";
@@ -24,8 +24,9 @@ export function ServicesScreen(props: {
   resolvedEnv?: Record<string, string>;
   envStatus?: "resolved" | "config" | "loading" | "error";
   envError?: string;
+  onSelectEnv?: (entry: ServiceEnvEntry) => void;
 }) {
-  const { palette, cfg, names, snap, selected, checked, width, reveal, onOpen, onSelectIndex, onToggle, resolvedEnv, envStatus, envError } = props;
+  const { palette, cfg, names, snap, selected, checked, width, reveal, onOpen, onSelectIndex, onToggle, resolvedEnv, envStatus, envError, onSelectEnv } = props;
   if (names.length === 0) {
     return <EmptyState palette={palette} title="No services" body="This configuration does not define any services." />;
   }
@@ -88,6 +89,7 @@ export function ServicesScreen(props: {
           resolvedEnv={resolvedEnv}
           envStatus={envStatus}
           envError={envError}
+          onSelectEnv={onSelectEnv}
         />
       </box>
     </box>
