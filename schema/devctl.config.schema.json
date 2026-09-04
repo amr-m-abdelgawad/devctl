@@ -39,6 +39,10 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/service" }
     },
+    "tasks": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/task" }
+    },
     "proxy": { "$ref": "#/$defs/proxy" },
     "logs": { "$ref": "#/$defs/logs" },
     "auth": {
@@ -101,6 +105,7 @@
         "properties": {
           "path": {
             "type": "string",
+            "minLength": 1,
             "description": "JS/TS module loaded when the supervisor starts"
           }
         }
@@ -166,6 +171,18 @@
         }
       }
     },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command"],
+      "properties": {
+        "command": { "$ref": "#/$defs/command" },
+        "shell": { "type": "boolean" },
+        "working_dir": { "type": "string" },
+        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "environment": { "$ref": "#/$defs/serviceEnvironment" }
+      }
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -175,7 +192,15 @@
         "command": { "$ref": "#/$defs/command" },
         "shell": { "type": "boolean" },
         "working_dir": { "type": "string" },
-        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              { "$ref": "#/$defs/dependency" }
+            ]
+          }
+        },
         "ports": { "$ref": "#/$defs/ports" },
         "environment": { "$ref": "#/$defs/serviceEnvironment" },
         "health": {
@@ -190,16 +215,20 @@
             "address": { "type": "string" },
             "command": { "$ref": "#/$defs/command" },
             "interval_seconds": { "type": "number", "minimum": 0 },
-            "timeout_seconds": { "type": "number", "minimum": 0 }
+            "timeout_seconds": { "type": "number", "minimum": 0 },
+            "start_period_seconds": { "type": "number", "minimum": 0 },
+            "unhealthy_threshold": { "type": "integer", "minimum": 1 },
+            "healthy_reset_threshold": { "type": "integer", "minimum": 1 }
           }
         },
         "identity": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "type": { "type": "string", "description": "user | service | service_account" },
+            "type": { "type": "string", "description": "Built-in user/service_account identity or a type registered by a plugin" },
             "mode": { "type": "string", "description": "Alias of type" },
-            "service_account": { "type": "string" }
+            "service_account": { "type": "string" },
+            "config": { "type": "object", "additionalProperties": true }
           }
         },
         "logs": {
@@ -238,7 +267,36 @@
             { "$ref": "#/$defs/route" },
             { "type": "array", "items": { "$ref": "#/$defs/route" } }
           ]
+        },
+        "container": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["image"],
+          "properties": {
+            "image": { "type": "string", "minLength": 1 },
+            "runtime": { "type": "string", "enum": ["docker", "podman"] },
+            "ports": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 } },
+            "env": { "type": "object", "additionalProperties": { "type": "string" } },
+            "volumes": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "hooks": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pre_start": { "$ref": "#/$defs/command" },
+            "post_start": { "$ref": "#/$defs/command" }
+          }
         }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 },
+        "condition": { "type": "string", "enum": ["service_started", "service_healthy"] }
       }
     },
     "proxy": {

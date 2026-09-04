@@ -39,6 +39,9 @@ flowchart TB
 ```
 
 Service and profile filenames become keys (`identity.yaml` → service `identity`).
+Files within each modular directory are loaded in sorted filename order, making
+overrides deterministic even when both `.yaml` and `.yml` fragments resolve to
+the same key.
 
 ## Overlays and precedence
 
@@ -69,6 +72,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `google.project_id` / `region` | Cloud project (optional) |
 | `templates` | Named service bases (`extends`) |
 | `services` | Process definitions |
+| `tasks` | Named transient commands run with `devctl run` |
 | `profiles` | Named service sets + extra env |
 | `proxy` | Listen address, token endpoint, routes |
 | `logs` | In-memory cap and persistence |
@@ -95,16 +99,27 @@ services:
     command: [python3, main.py]
 ```
 
+## Tasks
+
+Tasks accept `command`, `shell`, `working_dir`, `dependencies`, and `environment`. Dependencies name services and are made ready before the one-off command runs. Tasks have no ports, health checks, restart policy, or status entry; see [Services](services.md#hooks-and-one-off-tasks) for an example.
+
 ## Validation and reload
 
 ```bash
 devctl config validate
 devctl config validate --json
 devctl config show
+devctl config diff
 devctl reload
 ```
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency cycles, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
+`config diff` explains the resolved result instead of merely printing it. Each
+entry includes the winning source file and layer (`main`, `modular_service`,
+`modular_profile`, `modular_proxy`, `home_local`, `repo_local`, or
+`synthesized`) and the ordered sources it shadowed. Use `--json` for structured
+output.
+
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
 
 The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
 

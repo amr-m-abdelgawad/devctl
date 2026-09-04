@@ -15,6 +15,7 @@ const DIAL_RETRY_MS = 50;
 const DIAL_TIMEOUT_MS = 8_000;
 const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
+const COMMAND_RPC_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 // RPC methods a client must still be able to send to an incompatible
 // daemon: removing it (`down` → the "shutdown" call, made directly on
 // Client rather than through Controller.call) and reading its logs so the
@@ -281,6 +282,14 @@ export class Controller {
     await this.call("restart", { services, cascade: cascade === true, client_env: osEnviron() });
   }
 
+  async runTask(name: string): Promise<{ task: string; code: number; stdout: string; stderr: string }> {
+    return (await this.call("run_task", { name, client_env: osEnviron() }, COMMAND_RPC_TIMEOUT_MS)) as { task: string; code: number; stdout: string; stderr: string };
+  }
+
+  async execService(service: string, command: string[], printEnv = false): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }> {
+    return (await this.call("exec", { service, command, print_env: printEnv, client_env: osEnviron() }, COMMAND_RPC_TIMEOUT_MS)) as { service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> };
+  }
+
   async status(): Promise<StatusSnapshot> {
     return (await this.call("status", null)) as StatusSnapshot;
   }
@@ -366,12 +375,12 @@ export class Controller {
     }
   }
 
-  private async call(method: string, params: unknown): Promise<unknown> {
+  private async call(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
     if (!this.client) {
       throw wrapError(KindGeneral, "supervisor is not running", new Error("no client"));
     }
     assertMethodAllowed(this.client, method);
-    return this.client.call(method, params);
+    return this.client.call(method, params, timeoutMs);
   }
 }
 

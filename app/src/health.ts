@@ -101,7 +101,14 @@ function checkTCP(address: string, timeout: number): Promise<HealthResult> {
       resolve({ status: HealthUnhealthy, message: "no tcp address" });
       return;
     }
-    const socket = connect(address, () => {
+    const separator = address.lastIndexOf(":");
+    const port = Number.parseInt(address.slice(separator + 1), 10);
+    const host = address.slice(0, separator).replace(/^\[|\]$/g, "");
+    if (separator < 1 || !Number.isFinite(port)) {
+      resolve({ status: HealthUnhealthy, message: `invalid tcp address ${address}` });
+      return;
+    }
+    const socket = connect({ host, port }, () => {
       socket.end();
       resolve({ status: HealthHealthy, message: "connected" });
     });

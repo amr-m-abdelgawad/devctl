@@ -9,7 +9,7 @@ flowchart LR
   process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> runtime
 ```
 
-`process`, `defaults`, `vars`, and `runtime` always run. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to that always-on set.
+`process`, `defaults`, `vars`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
 
 | Source | What it loads |
 |--------|----------------|
@@ -39,7 +39,7 @@ Injected when applicable:
 - `DEVCTL_PROXY_URL`
 - `DEVCTL_SERVICE_NAME`
 - `DEVCTL_ENVIRONMENT`
-- `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` (never a raw access token)
+- `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 
 References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values.
 
@@ -58,7 +58,7 @@ flowchart LR
 
 ## File plugins
 
-`plugins[].path` is a JS/TS module imported when the supervisor starts. It may export any of: `environmentSources`, `healthChecks`, `identityProviders`, `tokenProviders`, `logParsers`, `proxyMiddleware`. The built-in `generated` source stays empty unless you register an environment source.
+`plugins[].path` can register additional named environment sources. Unknown configured source names fail after plugins load instead of being silently skipped. See [Plugins](plugins.md) for the SDK contract, failure behavior, and examples. The built-in `generated` source stays empty unless a plugin registers an environment source with that name.
 
 ## Related
 

@@ -69,11 +69,13 @@ devctl mcp --json
 | `get_logs` | logs | Filtered logs, capped at 200 events per page, secrets redacted. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
 | `list_profiles` | inspect | Config profiles and members |
 | `get_config` | inspect | Merged summary: project, services, routes, proxy paths |
+| `get_config_sources` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |
 | `run_doctor` | diagnostics | Doctor report |
 | `start_services` | control | Named list, or a `profile`. Omitted names use `profile`, then the active session profile, then the first configured profile — never every service. No profile and no names fails closed |
 | `stop_services` | control | Named list, or all started services when omitted. Also stops every transitive dependent of a named service — never its dependencies |
 | `restart_services` | control | Named list; touches only those services, not dependents, unless `cascade: true`. Start still expands dependencies |
 | `reload_config` | control | Reload `.devctl` |
+| `exec_service` | control | Run an arbitrary command in a service's resolved environment/cwd, or inspect its redacted environment with `print_env` |
 | `get_setup_guide` | setup | The onboarding guide for authoring a `.devctl`. `section`: `procedure` (default), `authoring`, `discovery`. Same text as [`skills/devctl-onboard`](../skills/devctl-onboard/SKILL.md), compiled into the binary so no skill install is needed |
 | `validate_config` | setup | Validate configuration and return the loader's exact issues. No arguments validates what is on disk; `text` validates a candidate `config.yaml` through the real load pipeline before it is written |
 
@@ -84,7 +86,7 @@ No tool writes files. An agent authors `.devctl` with its own editing tools and 
 Every tool is on by default. The TUI's **MCP** page lists them grouped by the
 `Group` column above, each marked `read` or `write`, and `space` toggles the
 highlighted one. The common case is turning off the whole `control` group —
-`start_services`, `stop_services`, `restart_services`, `reload_config` — so an
+`start_services`, `stop_services`, `restart_services`, `reload_config`, `exec_service` — so an
 agent can read status and logs but not start or stop anything.
 
 A disabled tool is left out of `tools/list` **and** refused if called anyway,

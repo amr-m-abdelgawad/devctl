@@ -1,4 +1,4 @@
-import { type DevctlConfig, type ServiceConfig } from "../config/index.ts";
+import { dependencyCondition, dependencyName, type DevctlConfig, type ServiceConfig } from "../config/index.ts";
 import { type BusEvent } from "../events.ts";
 import { compileLogSearch, type LogEvent, type LogFacets } from "../logs.ts";
 import { Detector } from "../secrets.ts";
@@ -1406,9 +1406,11 @@ export function planRowNote(name: string, plan: Plan, snap?: StatusSnapshot, kin
   }
   const step = plan.steps.find((s) => s.name === name);
   const pending = (step?.dependencies ?? []).filter((dep) => {
-    const depState = serviceLineState(snap?.services[dep]);
-    return depState !== "HEALTHY";
-  });
+    const depState = serviceLineState(snap?.services[dependencyName(dep)]);
+    return dependencyCondition(dep) === "service_healthy"
+      ? depState !== "HEALTHY"
+      : depState === "STOPPED" || depState === "FAILED";
+  }).map(dependencyName);
   if (pending.length > 0) {
     return `waits for ${pending.join(", ")}`;
   }

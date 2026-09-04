@@ -5,10 +5,13 @@ import {
   asStringArray,
   asStringMap,
   decodeCommand,
+  decodeDependencies,
+  decodeContainer,
   decodePorts,
   decodeProfile,
   decodeRoute,
   decodeService,
+  decodeTask,
   decodeServiceProxy,
   isRecord,
   presentKeys,
@@ -16,6 +19,7 @@ import {
 import {
   emptyService,
   type DevctlConfig,
+  type ConfigProvenance,
   type EnvConfig,
   type HealthCheckConfig,
   type IdentityConfig,
@@ -25,6 +29,7 @@ import {
   type ServiceConfig,
   type ServiceLogConfig,
   type StartupConfig,
+  type TaskConfig,
 } from "./types.ts";
 
 // Field names ever explicitly set, per service or template name, by any
@@ -40,16 +45,28 @@ export type FieldPresenceMap = Record<string, Set<string>>;
 export type ConfigPresence = {
   services: FieldPresenceMap;
   templates: FieldPresenceMap;
+  provenance: ConfigProvenance;
 };
 
 export function newConfigPresence(): ConfigPresence {
-  return { services: {}, templates: {} };
+  return { services: {}, templates: {}, provenance: {} };
+}
+
+export function recordProvenance(provenance: ConfigProvenance, raw: unknown, source: string, layer: string, prefix = ""): void {
+  if (isRecord(raw) && Object.keys(raw).length > 0) {
+    for (const [key, value] of Object.entries(raw)) {
+      recordProvenance(provenance, value, source, layer, prefix === "" ? key : `${prefix}.${key}`);
+    }
+    return;
+  }
+  if (prefix === "") return;
+  (provenance[prefix] ??= []).push({ source, layer });
 }
 
 // Service fields that are themselves merged field-by-field rather than
 // replaced wholesale — so presence needs to be tracked one level deeper
 // than just "was this key present" for each of them too.
-const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity"] as const;
+const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity", "container", "hooks"] as const;
 
 export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown): void {
   const keys = presentKeys(raw);
@@ -74,7 +91,13 @@ export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown
 // overlay already set. The first call (decoding the main file into a fresh
 // defaultConfig()) behaves exactly as a plain decode would, since nothing
 // is "existing" yet for services/profiles/templates to merge against.
-export function applyRoot(cfg: DevctlConfig, raw: Record<string, unknown>, presence: ConfigPresence = newConfigPresence()): void {
+export function applyRoot(
+  cfg: DevctlConfig,
+  raw: Record<string, unknown>,
+  presence: ConfigPresence = newConfigPresence(),
+  origin: { source: string; layer: string } = { source: "unknown", layer: "unknown" },
+): void {
+  recordProvenance(presence.provenance, raw, origin.source, origin.layer);
   if (raw.version !== undefined) {
     cfg.version = asNumber(raw.version);
   }
@@ -108,6 +131,9 @@ export function applyRoot(cfg: DevctlConfig, raw: Record<string, unknown>, prese
       cfg.services[name] = existing ? mergeService(existing, value) : decodeService(value);
       recordPresence(presence.services, name, value);
     }
+  }
+  if (isRecord(raw.tasks)) {
+    for (const [name, value] of Object.entries(raw.tasks)) cfg.tasks[name] = cfg.tasks[name] ? mergeTask(cfg.tasks[name]!, value) : decodeTask(value);
   }
   if (isRecord(raw.proxy)) {
     applyProxy(cfg.proxy, raw.proxy);
@@ -217,6 +243,17 @@ function mergeProfile(base: ProfileConfig, raw: unknown): ProfileConfig {
   };
 }
 
+function mergeTask(base: TaskConfig, raw: unknown): TaskConfig {
+  if (!isRecord(raw)) return base;
+  return {
+    command: raw.command !== undefined ? decodeCommand(raw.command) : base.command,
+    shell: raw.shell !== undefined ? asBoolean(raw.shell) : base.shell,
+    working_dir: raw.working_dir !== undefined ? asString(raw.working_dir) : base.working_dir,
+    dependencies: raw.dependencies !== undefined ? asStringArray(raw.dependencies) : base.dependencies,
+    environment: mergeEnv(base.environment, raw.environment),
+  };
+}
+
 export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
   if (!isRecord(raw)) {
     return base;
@@ -230,6 +267,8 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     logs: mergeServiceLogs(base.logs, raw.logs),
     restart: mergeRestart(base.restart, raw.restart),
     startup: mergeStartup(base.startup, raw.startup),
+    container: mergeContainer(base.container, raw.container),
+    hooks: mergeHooks(base.hooks, raw.hooks),
   };
   if (present.has("extends")) {
     out.extends = asString(raw.extends);
@@ -247,7 +286,7 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     out.working_dir = asString(raw.working_dir);
   }
   if (present.has("dependencies")) {
-    out.dependencies = asStringArray(raw.dependencies);
+    out.dependencies = decodeDependencies(raw.dependencies);
   }
   if (present.has("ports")) {
     out.ports = decodePorts(raw.ports);
@@ -259,6 +298,11 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     out.proxy = decodeServiceProxy(raw.proxy);
   }
   return out;
+}
+
+function mergeHooks(base: ServiceConfig["hooks"], raw: unknown): ServiceConfig["hooks"] {
+  if (!isRecord(raw)) return base;
+  return { pre_start: raw.pre_start !== undefined ? decodeCommand(raw.pre_start) : base.pre_start, post_start: raw.post_start !== undefined ? decodeCommand(raw.post_start) : base.post_start };
 }
 
 function mergeEnv(base: EnvConfig, raw: unknown): EnvConfig {
@@ -296,6 +340,9 @@ function mergeHealth(base: HealthCheckConfig, raw: unknown): HealthCheckConfig {
     command: raw.command !== undefined ? decodeCommand(raw.command) : base.command,
     interval_seconds: raw.interval_seconds !== undefined ? asNumber(raw.interval_seconds) : base.interval_seconds,
     timeout_seconds: raw.timeout_seconds !== undefined ? asNumber(raw.timeout_seconds) : base.timeout_seconds,
+    start_period_seconds: raw.start_period_seconds !== undefined ? asNumber(raw.start_period_seconds) : base.start_period_seconds,
+    unhealthy_threshold: raw.unhealthy_threshold !== undefined ? asNumber(raw.unhealthy_threshold) : base.unhealthy_threshold,
+    healthy_reset_threshold: raw.healthy_reset_threshold !== undefined ? asNumber(raw.healthy_reset_threshold) : base.healthy_reset_threshold,
   };
 }
 
@@ -307,6 +354,7 @@ function mergeIdentity(base: IdentityConfig, raw: unknown): IdentityConfig {
     type: raw.type !== undefined ? asString(raw.type) : base.type,
     mode: raw.mode !== undefined ? asString(raw.mode) : base.mode,
     service_account: raw.service_account !== undefined ? asString(raw.service_account) : base.service_account,
+    config: raw.config !== undefined && isRecord(raw.config) ? { ...(base.config ?? {}), ...raw.config } : base.config,
   };
 }
 
@@ -342,7 +390,20 @@ function mergeStartup(base: StartupConfig, raw: unknown): StartupConfig {
   };
 }
 
-export function mergeServiceProxyRoutes(cfg: DevctlConfig): void {
+function mergeContainer(base: ServiceConfig["container"], raw: unknown): ServiceConfig["container"] {
+  if (!isRecord(raw)) return base;
+  const decoded = decodeContainer(raw);
+  if (!decoded) return base;
+  return {
+    image: raw.image !== undefined ? decoded.image : (base?.image ?? ""),
+    runtime: raw.runtime !== undefined ? decoded.runtime : (base?.runtime ?? ""),
+    ports: raw.ports !== undefined ? { ...(base?.ports ?? {}), ...decoded.ports } : (base?.ports ?? {}),
+    env: raw.env !== undefined ? { ...(base?.env ?? {}), ...decoded.env } : (base?.env ?? {}),
+    volumes: raw.volumes !== undefined ? decoded.volumes : (base?.volumes ?? []),
+  };
+}
+
+export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance): void {
   const names = Object.keys(cfg.services).sort();
   for (const name of names) {
     const fragments = cfg.services[name]?.proxy ?? [];
@@ -351,12 +412,17 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig): void {
     }
     fragments.forEach((frag, i) => {
       const routeName = fragments.length === 1 ? name : `${name}-${i + 1}`;
-      cfg.proxy.routes.push({
+      const route = {
         name: routeName,
         match: frag.match,
         upstream: frag.upstream,
         auth: frag.auth,
-      });
+      };
+      const index = cfg.proxy.routes.length;
+      cfg.proxy.routes.push(route);
+      if (provenance) {
+        recordProvenance(provenance, route, `synthesized from services.${name}.proxy`, "synthesized", `proxy.routes.${index}`);
+      }
     });
   }
 }
@@ -429,6 +495,21 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
   if (present.has("proxy")) {
     out.proxy = svc.proxy;
   }
+  if (present.has("container")) {
+    const container = svc.container;
+    const baseContainer = base.container;
+    out.container = container && baseContainer ? {
+      image: present.has("container.image") ? container.image : baseContainer.image,
+      runtime: present.has("container.runtime") ? container.runtime : baseContainer.runtime,
+      ports: present.has("container.ports") ? container.ports : baseContainer.ports,
+      env: present.has("container.env") ? container.env : baseContainer.env,
+      volumes: present.has("container.volumes") ? container.volumes : baseContainer.volumes,
+    } : (container ?? baseContainer);
+  }
+  out.hooks = {
+    pre_start: present.has("hooks.pre_start") ? svc.hooks.pre_start : base.hooks.pre_start,
+    post_start: present.has("hooks.post_start") ? svc.hooks.post_start : base.hooks.post_start,
+  };
   out.health = {
     type: present.has("health.type") ? svc.health.type : base.health.type,
     url: present.has("health.url") ? svc.health.url : base.health.url,
@@ -436,11 +517,15 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     command: present.has("health.command") ? svc.health.command : base.health.command,
     interval_seconds: present.has("health.interval_seconds") ? svc.health.interval_seconds : base.health.interval_seconds,
     timeout_seconds: present.has("health.timeout_seconds") ? svc.health.timeout_seconds : base.health.timeout_seconds,
+    start_period_seconds: present.has("health.start_period_seconds") ? svc.health.start_period_seconds : base.health.start_period_seconds,
+    unhealthy_threshold: present.has("health.unhealthy_threshold") ? svc.health.unhealthy_threshold : base.health.unhealthy_threshold,
+    healthy_reset_threshold: present.has("health.healthy_reset_threshold") ? svc.health.healthy_reset_threshold : base.health.healthy_reset_threshold,
   };
   out.identity = {
     type: present.has("identity.type") ? svc.identity.type : base.identity.type,
     mode: present.has("identity.mode") ? svc.identity.mode : base.identity.mode,
     service_account: present.has("identity.service_account") ? svc.identity.service_account : base.identity.service_account,
+    config: present.has("identity.config") ? svc.identity.config : base.identity.config,
   };
   out.logs = {
     stdout: present.has("logs.stdout") ? svc.logs.stdout : base.logs.stdout,

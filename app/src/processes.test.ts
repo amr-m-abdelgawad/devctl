@@ -151,3 +151,10 @@ describe("sampleResourceUsage", () => {
     expect(samples.size).toBe(0);
   });
 });
+
+test("runOnce captures output without registering a managed process", async () => {
+  const mgr = new ProcessManager();
+  const result = await mgr.runOnce({ name: "once", args: [process.execPath, "-e", "console.log('out'); console.error('err')"], shell: false, workDir: "", env: process.env as Record<string, string>, graceMs: 1000 });
+  expect(result).toEqual({ code: 0, stdout: "out\n", stderr: "err\n" });
+  expect(mgr.all()).toHaveLength(0);
+});

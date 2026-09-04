@@ -1,4 +1,4 @@
-import { emptyService, listenAddress, refreshThreshold, type DevctlConfig, type RouteConfig, type ServiceConfig } from "../config/index.ts";
+import { dependencyLabel, emptyService, listenAddress, refreshThreshold, type DevctlConfig, type RouteConfig, type ServiceConfig } from "../config/index.ts";
 import { serviceCommandText, serviceHealthText, serviceIdentityText, servicePortsText, serviceRestartText } from "./helpers.ts";
 
 export type ConfigChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle";
@@ -116,7 +116,7 @@ export function configServiceRows(cfg: DevctlConfig): ConfigServiceRow[] {
         ports: servicePortsText(svc),
         identity: serviceIdentityText(svc),
         health: serviceHealthText(svc),
-        depends: svc.dependencies.join(", ") || "—",
+        depends: svc.dependencies.map(dependencyLabel).join(", ") || "—",
         restart: serviceRestartText(svc),
       };
     });
@@ -232,4 +232,3 @@ function templateSummary(svc: ServiceConfig | undefined): string {
   }
   return parts.join(" · ") || "empty";
 }
-

@@ -1,6 +1,6 @@
 import { createServer as createHttpServer } from "node:http";
 import { connect, createServer, type Server, type Socket } from "node:net";
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyHealth, emptyService } from "./config/types.ts";
@@ -32,6 +32,112 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
 }
 
 describe("supervisor snapshot", () => {
+  test("health start period ignores early failures before applying the configured threshold", async () => {
+    const cfg = defaultConfig();
+    cfg.repoRoot = tmp();
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(()=>{}, 1000)"], shell: false },
+      health: { ...emptyHealth(), type: "command", command: { args: [process.execPath, "-e", "process.exit(1)"], shell: false }, interval_seconds: 0.02, start_period_seconds: 0.15, unhealthy_threshold: 1 },
+      restart: { policy: "on_failure", max_retries: 2, backoff_seconds: 1 },
+    };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      await sup.start({ services: ["api"] });
+      await sleep(100);
+      expect(sup.snapshot().services.api?.health).toBe("UNKNOWN");
+      expect(sup.snapshot().services.api?.restarts).toBe(0);
+      await sleep(160);
+      expect(sup.snapshot().services.api?.restarts).toBe(1);
+    } finally {
+      await sup.stop(["api"]);
+    }
+  });
+
+  test("service_healthy dependency conditions delay the dependent launch", async () => {
+    const dir = tmp();
+    const ready = join(dir, "ready");
+    const launched = join(dir, "launched");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.db = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", `setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(ready)}, '1'), 120); setInterval(()=>{}, 1000)`], shell: false },
+      health: { ...emptyHealth(), type: "command", command: { args: [process.execPath, "-e", `process.exit(require('fs').existsSync(${JSON.stringify(ready)}) ? 0 : 1)`], shell: false }, interval_seconds: 0.02 },
+    };
+    cfg.services.api = { ...emptyService(), dependencies: [{ service: "db", condition: "service_healthy" }], command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(launched)}, '1'); setInterval(()=>{}, 1000)`], shell: false } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      const started = Date.now();
+      await sup.start({ services: ["api"] });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+      await sleep(30);
+      expect(existsSync(launched)).toBe(true);
+    } finally {
+      await sup.stop([]);
+    }
+  });
+  test("runs hooks around an explicit service start and runs configured tasks", async () => {
+    const dir = tmp();
+    const marker = join(dir, "order.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'service\\n'); setInterval(()=>{}, 1000)`], shell: false },
+      hooks: {
+        pre_start: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'pre\\n')`], shell: false },
+        post_start: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'post\\n')`], shell: false },
+      },
+    };
+    cfg.tasks.check = { command: { args: [process.execPath, "-e", "console.log(process.env.TASK_VALUE)"], shell: false }, shell: false, working_dir: "", dependencies: [], environment: { vars: { TASK_VALUE: "ready" }, required: [], defaults: {} } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      await sup.start({ services: ["api"] });
+      const result = await sup.runTask("check", {});
+      const order = readFileSync(marker, "utf8").trim().split("\n");
+      expect(order[0]).toBe("pre");
+      expect(order).toContain("service");
+      expect(order).toContain("post");
+      expect(result.stdout).toBe("ready\n");
+    } finally {
+      await sup.stop(["api"]);
+    }
+  });
+
+  test("exec uses a stopped service's resolved environment and working directory", async () => {
+    const dir = tmp();
+    const workDir = join(dir, "api");
+    mkdirSync(workDir, { recursive: true });
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = { ...emptyService(), working_dir: "api", command: { args: ["unused"], shell: false }, environment: { vars: { EXEC_MARKER: "resolved" }, required: [], defaults: {} } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    const result = await sup.execService("api", [process.execPath, "-e", "console.log(process.cwd()); console.log(process.env.EXEC_MARKER)"], {});
+    const [reportedWorkDir, marker] = result.stdout.trim().split("\n");
+    expect(realpathSync(reportedWorkDir ?? "")).toBe(realpathSync(workDir));
+    expect(marker).toBe("resolved");
+    expect(sup.snapshot().services.api?.state).toBe("STOPPED");
+    const printed = await sup.execService("api", [], { CLIENT_ONLY: "yes" }, true);
+    expect(printed.environment?.CLIENT_ONLY).toBe("yes");
+  });
+
+  test("a failed pre-start hook prevents the service process from launching", async () => {
+    const dir = tmp();
+    const marker = join(dir, "launched.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = { ...emptyService(), command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'yes')`], shell: false }, hooks: { pre_start: { args: [process.execPath, "-e", "process.exit(7)"], shell: false }, post_start: { args: [], shell: false } } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    await expect(sup.start({ services: ["api"] })).rejects.toThrow(/failed to start/);
+    expect(existsSync(marker)).toBe(false);
+    expect(sup.snapshot().services.api?.state).toBe("FAILED");
+  });
   test("explicit shutdown stops services even after a detached start", async () => {
     const cfg = defaultConfig();
     cfg.repoRoot = tmp();
@@ -1089,6 +1195,7 @@ describe("restart-count bookkeeping", () => {
         command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },
         interval_seconds: 0.02,
         timeout_seconds: 1,
+        healthy_reset_threshold: 2,
       },
     };
     const sup = new Supervisor(cfg, {
@@ -1573,6 +1680,7 @@ services:
       // plugins non-empty lets an unrecognized health.type through config
       // validation (plugins load after parsing) — but this supervisor never
       // loaded one, so its registry has no "custom_unknown_type" check.
+      writeFileSync(join(dir, "devctl-plugin.ts"), "export const sdkVersion = 1;\n");
       writeConfig(
         configPath,
         `version: 1
@@ -1599,6 +1707,26 @@ services:
       expect(snap.services.worker).toBeUndefined();
     } finally {
       await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("boot rejects an environment source that no loaded plugin provides", async () => {
+    const dir = tmp();
+    const pluginPath = join(dir, "empty-plugin.ts");
+    writeFileSync(pluginPath, "export const sdkVersion = 1;\n");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.plugins = [{ path: pluginPath }];
+    cfg.environment.sources = ["missing_source"];
+    cfg.services.api = { ...emptyService(), command: { args: ["echo", "ok"], shell: false } };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await expect(sup.run()).rejects.toThrow(/unknown environment source.*missing_source/);
+    } finally {
+      await sup.shutdown(false);
     }
   });
 });
@@ -1782,7 +1910,8 @@ describe("lifecycle generations", () => {
     const pluginPath = join(dir, "health-gate-plugin.ts");
     writeFileSync(
       pluginPath,
-      `export const healthChecks = [{
+      `export const sdkVersion = 1;
+export const healthChecks = [{
   name: "gate",
   check: () => new Promise((resolve) => {
     const state = (globalThis as Record<string, { calls: number; resolveFirst?: (res: unknown) => void }>).__testHealthGate;

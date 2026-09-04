@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-04
+
+### Added
+
+- Native Docker and Podman services with image, container-port, environment, volume, log, health, restart, shutdown, and adoption support. Published ports bind to loopback, container exit codes feed restart policy, and the demo's opt-in `data` profile includes PostgreSQL without adding Docker to its default profiles.
+- Service `pre_start` and `post_start` hooks plus named one-off tasks through `devctl run`. Hooks use the service's resolved execution context and do not rerun during automatic recovery.
+- `devctl exec` and the `exec_service` MCP tool for commands or redacted environment inspection in a service's exact working directory and resolved environment.
+- Realistic health startup controls (`start_period_seconds`, `unhealthy_threshold`, `healthy_reset_threshold`) and per-dependency `service_started` / `service_healthy` conditions.
+- Configuration provenance across main, modular, home-local, repository-local, and synthesized layers. `devctl config diff` and `get_config_sources` explain the winning value and everything it shadowed.
+- A versioned, validated plugin SDK covering environment, health, identity, tokens, logs, and proxy middleware. Custom identities carry provider-owned configuration and token keys; the included generic OIDC plugin supports discovery and client-credentials tokens.
+
+### Changed
+
+- Modular service and profile files load in deterministic filename order, and schema/strict-loader parity is enforced by tests.
+- The demo platform exercises containers, tasks, hooks, and health-gated dependencies while preserving its existing container-free onboarding path.
+- Containers receive declared profile, dotenv, keychain/secret-manager, service/container, plugin, and safe runtime environment layers without copying the developer's complete shell or devctl's internal token into inspectable container metadata.
+
+### Fixed
+
+- Doctor recognizes ports owned by running container services and never offers to terminate the Docker or Podman host process as a remedy.
+- Completion now includes every public top-level command and the `config diff` subcommand, with a test binding completions to the CLI declaration.
+
 ## [0.1.5] - 2026-09-04
 
 ### Fixed
@@ -175,7 +197,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.1.2...v0.1.3

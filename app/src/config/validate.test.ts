@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { emptyService, defaultConfig } from "./types.ts";
 import { validate } from "./validate.ts";
 
@@ -58,5 +60,17 @@ describe("config validate", () => {
     const cfg = withService("api");
     cfg.proxy.token_endpoint = { enabled: true, host: "0.0.0.0", port: 0 };
     expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
+  });
+
+  test("validates plugin paths relative to the repository root", () => {
+    const root = join(process.env.TMPDIR ?? "/tmp", `devctl-validate-${Date.now()}-${Math.random()}`);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "plugin.ts"), "export const sdkVersion = 1;\n");
+    const cfg = withService("api");
+    cfg.repoRoot = root;
+    cfg.plugins = [{ path: "./plugin.ts" }];
+    expect(validate(cfg).some((issue) => issue.includes("plugins.0.path"))).toBe(false);
+    cfg.plugins = [{ path: "./missing.ts" }];
+    expect(validate(cfg)).toContain("plugins.0.path does not exist: ./missing.ts");
   });
 });

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { stringify } from "yaml";
-import { defaultConfig, discover, load, loadOrEmpty, stopOnExit, validate } from "./config/index.ts";
+import { configDiff, defaultConfig, discover, load, loadOrEmpty, stopOnExit, validate } from "./config/index.ts";
 import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "./controller.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { bootstrapLogPath, readPersistedState } from "./storage.ts";
@@ -22,6 +22,7 @@ import { runTui } from "./tui/index.tsx";
 import { completeLine, completionScript } from "./complete.ts";
 import { checkUpdate } from "./update.ts";
 import { versionLine } from "./version.ts";
+import { Detector } from "./secrets.ts";
 
 export function newRoot(): Command {
   const root = new Command();
@@ -47,6 +48,8 @@ export function newRoot(): Command {
   addStart(root);
   addStop(root);
   addRestart(root);
+  addRun(root);
+  addExec(root);
   addStatus(root);
   addDown(root);
   addLogs(root);
@@ -63,6 +66,49 @@ export function newRoot(): Command {
   addUpdate(root);
   addSupervisor(root);
   return root;
+}
+
+function addExec(root: Command): void {
+  root.command("exec")
+    .argument("<service>", "service whose execution context to use")
+    .argument("[command...]", "command and arguments")
+    .option("--print-env", "print the resolved environment instead of running a command")
+    .option("--reveal", "show secret values with --print-env")
+    .option("--json", "machine-readable output")
+    .action(async (service: string, command: string[], opts: { printEnv?: boolean; reveal?: boolean; json?: boolean }) => {
+      if (!opts.printEnv && command.length === 0) throw new Error("exec command is required (or use --print-env)");
+      const ctrl = await openController("", configFlag(root), true);
+      try {
+        const result = await ctrl.execService(service, command, opts.printEnv === true);
+        if (result.environment) {
+          const env = opts.reveal ? result.environment : new Detector(ctrl.cfg.secrets.extra_markers, ctrl.cfg.secrets.extra_patterns).redactMap(result.environment);
+          if (opts.json) writeOut(JSON.stringify({ ...result, environment: env }, null, 2) + "\n");
+          else for (const key of Object.keys(env).sort()) writeOut(`${key}=${env[key]}\n`);
+        } else if (opts.json) writeOut(JSON.stringify(result, null, 2) + "\n");
+        else {
+          if (result.stdout) writeOut(result.stdout);
+          if (result.stderr) process.stderr.write(result.stderr);
+        }
+      } finally {
+        await ctrl.close();
+      }
+    });
+}
+
+function addRun(root: Command): void {
+  root.command("run").argument("<task>", "task to run").option("--json", "machine-readable output").action(async (task: string, opts: { json?: boolean }) => {
+    const ctrl = await openController("", configFlag(root), true);
+    try {
+      const result = await ctrl.runTask(task);
+      if (opts.json) writeOut(JSON.stringify(result, null, 2) + "\n");
+      else {
+        if (result.stdout) writeOut(result.stdout);
+        if (result.stderr) process.stderr.write(result.stderr);
+      }
+    } finally {
+      await ctrl.close();
+    }
+  });
 }
 
 function configFlag(cmd: Command): string {
@@ -710,6 +756,23 @@ function addConfig(root: Command): void {
           return;
         }
         throw err;
+      }
+    });
+  cfg
+    .command("diff")
+    .description("show where effective configuration values came from")
+    .option("--json")
+    .action((opts: { json?: boolean }) => {
+      const loaded = load("", configFlag(root));
+      const entries = configDiff(loaded);
+      if (opts.json) {
+        writeOut(JSON.stringify({ entries }, null, 2) + "\n");
+        return;
+      }
+      for (const entry of entries) {
+        writeOut(`${entry.path} = ${JSON.stringify(entry.value)}\n`);
+        writeOut(`  winner: ${entry.layer} (${entry.source})\n`);
+        for (const origin of entry.shadowed) writeOut(`  shadowed: ${origin.layer} (${origin.source})\n`);
       }
     });
   cfg

@@ -22,6 +22,9 @@ services:
       url: http://127.0.0.1:8000/health
       interval_seconds: 2
       timeout_seconds: 1
+      start_period_seconds: 10  # early failures remain STARTING
+      unhealthy_threshold: 3   # consecutive failures before restart
+      healthy_reset_threshold: 10 # healthy checks before retry budget resets
     identity:
       type: user                 # or service_account
     proxy:                       # optional; merged into the global proxy at load
@@ -38,11 +41,70 @@ services:
     logs:
       stdout: true
       stderr: true
+    hooks:
+      pre_start: [python3, migrate.py]
+      post_start: [python3, warm_cache.py]
 ```
 
 Working directories resolve from the repository root (the directory that contains `.devctl`), not the process cwd.
 
 String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.
+
+## Hooks and one-off tasks
+
+`pre_start` runs to completion before an explicitly started service is spawned. A non-zero exit fails the service and prevents launch. `post_start` runs after a successful spawn; failure stops and marks the service failed. Hooks use the service's resolved environment, working directory, and `shell` setting. They do not run during automatic crash or health restarts.
+
+Top-level tasks are transient commands: they are not retained as services and do not restart. Declared service dependencies are started first, and the task uses the same layered environment resolution as services.
+
+```yaml
+tasks:
+  migrate:
+    command: [python3, migrate.py]
+    working_dir: invoices-api
+    dependencies: [postgres]
+    environment:
+      MODE: development
+```
+
+Run one with `devctl run migrate`. Its exit code determines command success, and its stdout/stderr are also captured in supervisor logs under `task:migrate`.
+
+Use `devctl exec api -- python3 check.py` to run an ad-hoc command in a service's same resolved context without starting it. `devctl exec api --print-env` inspects that context with secrets redacted by default.
+
+## Container services
+
+Set `container.image` to let devctl own a Docker or Podman container with the
+same dependency, health, logging, restart, and shutdown lifecycle as a host
+service. `runtime` defaults to Docker. A service `command`, when present,
+overrides the image command.
+
+```yaml
+services:
+  postgres:
+    ports:
+      db: 15432
+    container:
+      image: postgres:16
+      runtime: docker
+      ports:
+        db: 5432       # service port name → port inside the container
+      env:
+        POSTGRES_PASSWORD: local
+      volumes:
+        - pgdata:/var/lib/postgresql/data
+    health:
+      type: tcp
+      address: 127.0.0.1:15432
+```
+
+Container names are deterministic and scoped to the repository, allowing a
+new devctl daemon to adopt containers left running by its predecessor. Secret
+environment values are supplied through the runtime process environment and
+are not placed in command-line arguments. Published ports bind to
+`127.0.0.1` by default rather than every network interface. Containers do not
+inherit the caller's entire shell environment; profile, dotenv, keychain,
+secret-manager, defaults, explicit service/container variables, plugin sources,
+and non-secret runtime metadata still apply. `devctl down` stops and removes
+managed containers; container exit codes feed the normal restart policy.
 
 ## Lifecycle
 
@@ -68,6 +130,17 @@ stateDiagram-v2
 The TUI and CLI display `HEALTHY` / `UNHEALTHY` when the process is running and the health probe has an answer.
 
 Independent services in the same wave start and stop in parallel. Dependents wait. Cycles are configuration errors.
+
+Dependencies accept either the original string form or a condition:
+
+```yaml
+dependencies:
+  - identity
+  - service: postgres
+    condition: service_healthy
+```
+
+`service_started` is the default and allows the dependent to launch once its dependency process has spawned. `service_healthy` waits for the dependency's health check. A dependency using `service_healthy` must define a health check; startup fails on its normal startup timeout if it never becomes healthy.
 
 ## Start, stop, restart
 
@@ -98,6 +171,8 @@ Default TUI profile (empty dashboard `enter`) is the first profile name **alphab
 | `tcp` | Connect to `address` or a named port |
 | `command` | Run `health.command`; exit 0 is healthy |
 | `process` or empty | PID still alive |
+
+During `health.start_period_seconds`, failing probes leave the service in its startup state and do not contribute to restart streaks. Afterward, `health.unhealthy_threshold` consecutive failures trigger the configured restart policy (default 3). `health.healthy_reset_threshold` consecutive successes forgive prior restart attempts (default 10).
 
 `devctl` watches `.devctl/` and offers reload. It does not restart a service when its source files change. Put `air`, `bun --watch`, or your language’s reloader in the service `command`.
 

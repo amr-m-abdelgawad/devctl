@@ -48,10 +48,12 @@ Nothing in the app knows your services by name. Add YAML, not code.
 | You get | What that means |
 |---------|-----------------|
 | **TUI** | Dashboard, services, logs, identity, credentials, proxy, doctor, settings |
-| **CLI** | `start` / `stop` / `status` / `logs` / `doctor` / `attach` for scripts |
+| **CLI** | Start/stop, tasks, service-context exec, logs, Doctor, config provenance |
 | **MCP** | Localhost URL so Claude, Cursor, Codex, or Kilo can operate the stack |
 | **Proxy** | Loopback routes that inject Google / IAP tokens — bind `127.0.0.1` only |
-| **Doctor** | Ports, tools, ADC, impersonation — reported, never auto-enabled |
+| **Runtime** | Host processes plus opt-in Docker/Podman services, hooks, and health-gated dependencies |
+| **Plugins** | Versioned SDK and a generic OIDC client-credentials reference provider |
+| **Doctor** | Ports, containers, tools, ADC, impersonation — reported, never auto-enabled |
 
 Google Cloud is optional. The [demo platform](examples/demo-platform/README.md) starts locally without it and includes one opt-in route for testing service-account impersonation and IAP token minting.
 
@@ -69,7 +71,7 @@ npx @amr-m-abdelgawad/devctl@latest
 
 In the TUI: `enter` starts a profile · `n` / `x` start or stop a row · `l` logs · `?` help · `q` quit.
 
-Profiles: `minimal` · `backend` · `full` (includes the React console on [localhost:18003](http://127.0.0.1:18003)).
+Profiles: `minimal` · `backend` · `full` (includes the React console on [localhost:18003](http://127.0.0.1:18003)) · `data` (opt-in Docker/PostgreSQL).
 
 ---
 
@@ -135,7 +137,7 @@ The **supervisor** owns processes, the proxy, the log buffer, and `~/.devctl/sta
 | [Overview](docs/overview.md) | [TUI](docs/tui.md) | [Configuration](docs/configuration.md) | [Auth](docs/authentication.md) |
 | [Install](docs/installation.md) | [CLI](docs/cli.md) | [Services](docs/services.md) | [Impersonation](docs/impersonation.md) |
 | [Quick start](docs/quickstart.md) | [MCP](docs/mcp.md) | [Profiles](docs/profiles.md) | [IAP](docs/iap.md) |
-| [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Doctor](docs/doctor.md) | [Environment](docs/environment.md) | [Security](docs/security.md) |
+| [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Doctor](docs/doctor.md) | [Environment](docs/environment.md) · [Plugins](docs/plugins.md) | [Security](docs/security.md) |
 
 ---
 

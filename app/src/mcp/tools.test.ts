@@ -74,6 +74,10 @@ function stubHost(): McpHost {
   svc.working_dir = "api";
   svc.environment.vars = { API_TOKEN: "super-secret", NAME: "ok" };
   cfg.services.api = svc;
+  cfg.provenance["services.api.environment.API_TOKEN"] = [
+    { source: "/repo/.devctl/config.yaml", layer: "main" },
+    { source: "/repo/.devctl/config.local.yaml", layer: "repo_local" },
+  ];
   const logs = [
     { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 },
     { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 },
@@ -88,10 +92,24 @@ function stubHost(): McpHost {
     restart: async () => undefined,
     reload: async () => ({ restart_required: [], changes: {} }),
     doctor: async () => ({ checks: [{ name: "ok", severity: "ok", message: "fine" }], issues: 0 }),
+    exec: async (service, command, printEnv) => ({ service, code: 0, stdout: command.join(" ") + " Bearer secret-token", stderr: "", environment: printEnv ? { API_TOKEN: "secret-token", NAME: "ok" } : undefined }),
   };
 }
 
 describe("mcp tools", () => {
+  test("exec_service is mutating and redacts output and resolved environment", async () => {
+    const result = (await callMcpTool(stubHost(), "exec_service", { service: "api", command: ["echo", "ok"], print_env: true })) as { stdout: string; environment: Record<string, string> };
+    expect(result.stdout).not.toContain("secret-token");
+    expect(result.environment.API_TOKEN).toBe(REDACTED_VALUE);
+    expect(result.environment.NAME).toBe("ok");
+  });
+  test("get_config_sources returns provenance while redacting secret values", async () => {
+    const result = (await callMcpTool(stubHost(), "get_config_sources", {})) as { entries: Array<{ value: string; layer: string; shadowed: unknown[] }> };
+    expect(result.entries[0]?.value).toBe(REDACTED_VALUE);
+    expect(result.entries[0]?.layer).toBe("repo_local");
+    expect(result.entries[0]?.shadowed).toHaveLength(1);
+  });
+
   test("list_services returns runtime fields", async () => {
     const listed = (await callMcpTool(stubHost(), "list_services", {})) as Array<{
       name: string;

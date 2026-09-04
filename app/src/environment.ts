@@ -24,6 +24,9 @@ export type EnvRequest = {
   // one for this service, e.g. an MCP-initiated start or a session-recovered
   // process.
   clientEnv?: Record<string, string>;
+  // Containers should not copy the caller's entire shell into inspectable
+  // container metadata. All explicitly configured environment layers remain.
+  includeProcess?: boolean;
 };
 
 export type EnvSourceContext = {
@@ -149,7 +152,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
   };
   const assignedAll = collectAssigned(req);
   const layers: Record<string, Record<string, string>> = {
-    process: req.clientEnv ?? osEnviron(),
+    process: req.includeProcess === false ? {} : (req.clientEnv ?? osEnviron()),
     profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll),
     dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll),
     generated: {},
@@ -319,5 +322,9 @@ export function runtimeForService(
 }
 
 export function envList(env: Record<string, string>): Record<string, string> {
-  return { ...process.env, ...env } as Record<string, string>;
+  // resolveEnvironment already includes the calling client's complete OS
+  // environment as its lowest-precedence layer. Adding the daemon's own
+  // process.env here would reintroduce stale values the client intentionally
+  // replaced or omitted, and would make --print-env disagree with execution.
+  return { ...env };
 }

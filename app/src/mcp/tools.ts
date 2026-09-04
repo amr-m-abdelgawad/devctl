@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { validateConfigText, type DevctlConfig } from "../config/index.ts";
+import { configDiff, validateConfigText, type DevctlConfig } from "../config/index.ts";
 import { type Report } from "../doctor.ts";
 import { type LogFilter, type LogPage, type LogPageRequest } from "../logs.ts";
 import { Detector } from "../secrets.ts";
@@ -27,6 +27,7 @@ export type McpHost = {
   restart(names: string[], cascade?: boolean): Promise<void>;
   reload(): Promise<ReloadResult>;
   doctor(): Promise<Report>;
+  exec?(service: string, command: string[], printEnv?: boolean): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }>;
 };
 
 // Ordered so the TUI renders groups in a stable, sensible sequence rather
@@ -118,6 +119,14 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "get_config_sources",
+    label: "Config sources",
+    summary: "Winning and shadowed config sources",
+    category: "inspect",
+    description: "List effective configuration values with their winning source/layer and any shadowed sources. Secret-like values are redacted.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "run_doctor",
     label: "Run doctor",
     summary: "Environment diagnostics",
@@ -180,6 +189,24 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     mutates: true,
     description: "Reload .devctl configuration",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "exec_service",
+    label: "Execute in service",
+    summary: "Run a command in a resolved service context",
+    category: "control",
+    mutates: true,
+    description: "Run an arbitrary command with a service's fully resolved environment and working directory, whether or not it is running. Output and print_env values are redacted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        command: { type: "array", items: { type: "string" } },
+        print_env: { type: "boolean", description: "Return the resolved environment without executing a command" },
+      },
+      required: ["service"],
+      additionalProperties: false,
+    },
   },
   {
     name: "get_setup_guide",
@@ -269,6 +296,7 @@ export function getService(host: McpHost, name: string): unknown {
     cwd: svc.working_dir,
     ports: rt?.ports ?? Object.fromEntries(svc.ports.map((port) => [port.name, port.value])),
     environment: detector.redactMap({ ...svc.environment.defaults, ...svc.environment.vars }),
+    container: svc.container ? { ...svc.container, env: detector.redactMap(svc.container.env) } : undefined,
   };
 }
 
@@ -357,6 +385,7 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     cwd: svc.working_dir,
     ports: svc.ports.map((port) => ({ name: port.name, value: port.auto ? 0 : port.value, auto: port.auto })),
     dependencies: svc.dependencies,
+    container: svc.container ? { image: svc.container.image, runtime: svc.container.runtime || "docker", ports: svc.container.ports, volumes: svc.container.volumes } : undefined,
   }));
   return {
     project: cfg.project.name,
@@ -373,6 +402,16 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
         auth: route.auth.type,
       })),
     },
+  };
+}
+
+export function getConfigSources(cfg: DevctlConfig): unknown {
+  const detector = detectorFor(cfg);
+  return {
+    entries: configDiff(cfg).map((entry) => {
+      const serialized = typeof entry.value === "string" ? entry.value : JSON.stringify(entry.value);
+      return { ...entry, value: detector.redactMap({ [entry.path]: serialized })[entry.path] };
+    }),
   };
 }
 
@@ -400,6 +439,8 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return listProfiles(host.config());
     case "get_config":
       return getConfigSummary(host.config());
+    case "get_config_sources":
+      return getConfigSources(host.config());
     case "run_doctor":
       return host.doctor();
     case "start_services":
@@ -415,6 +456,18 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return { ok: true };
     case "reload_config":
       return host.reload();
+    case "exec_service": {
+      if (typeof args.service !== "string" || args.service === "") throw new Error("service is required");
+      if (!host.exec) throw new Error("exec is unavailable");
+      const result = await host.exec(args.service, stringList(args.command), args.print_env === true);
+      const detector = detectorFor(host.config());
+      return {
+        ...result,
+        stdout: detector.redactText(result.stdout),
+        stderr: detector.redactText(result.stderr),
+        environment: result.environment ? detector.redactMap(result.environment) : undefined,
+      };
+    }
     case "get_setup_guide":
       return getSetupGuide(args);
     case "validate_config":

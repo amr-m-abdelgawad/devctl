@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { load } from "./load.ts";
+import { configDiff } from "./provenance.ts";
 
 function writeFile(dir: string, rel: string, contents: string): void {
   const path = join(dir, rel);
@@ -10,6 +11,92 @@ function writeFile(dir: string, rel: string, contents: string): void {
 }
 
 describe("config load", () => {
+  test("decodes service hooks and one-off tasks", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-tasks-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [bun, server.ts]
+    hooks:
+      pre_start: [bun, migrate.ts]
+tasks:
+  migrate:
+    command: [bun, migrate.ts]
+    dependencies: [api]
+    environment: { MODE: local }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.hooks.pre_start.args).toEqual(["bun", "migrate.ts"]);
+    expect(cfg.tasks.migrate?.dependencies).toEqual(["api"]);
+    expect(cfg.tasks.migrate?.environment.vars.MODE).toBe("local");
+  });
+
+  test("decodes dependency conditions and health startup thresholds", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-health-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  db: { command: [db], health: { type: process } }
+  api:
+    command: [api]
+    dependencies: [{ service: db, condition: service_healthy }]
+    health: { type: process, start_period_seconds: 5, unhealthy_threshold: 4, healthy_reset_threshold: 8 }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.dependencies).toEqual([{ service: "db", condition: "service_healthy" }]);
+    expect(cfg.services.api?.health).toMatchObject({ start_period_seconds: 5, unhealthy_threshold: 4, healthy_reset_threshold: 8 });
+  });
+
+  test("preserves opaque configuration for plugin identity providers", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-plugin-identity-${Date.now()}`;
+    writeFile(dir, "plugin.ts", "export const sdkVersion = 1;\n");
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+plugins: [{ path: ./plugin.ts }]
+services:
+  api:
+    command: [api]
+    identity:
+      type: oidc
+      config:
+        issuer: https://identity.example.com
+        client_id: local-api
+        nested: { audience: api }
+`);
+    expect(load(dir, "").services.api?.identity.config).toEqual({
+      issuer: "https://identity.example.com",
+      client_id: "local-api",
+      nested: { audience: "api" },
+    });
+  });
+
+  test("rejects unknown dependency object fields", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dep-typo-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `version: 1\nservices:\n  db: { command: [db] }\n  api:\n    command: [api]\n    dependencies: [{ service: db, conditon: service_healthy }]\n`);
+    expect(() => load(dir, "")).toThrow(/dependencies\.0\.conditon/);
+  });
+  test("decodes and validates a container service", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-container-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  postgres:
+    ports: { db: 5432 }
+    container:
+      image: postgres:16
+      runtime: docker
+      ports: { db: 5432 }
+      env: { POSTGRES_PASSWORD: local }
+      volumes: [pgdata:/var/lib/postgresql/data]
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.postgres?.container).toEqual({
+      image: "postgres:16", runtime: "docker", ports: { db: 5432 },
+      env: { POSTGRES_PASSWORD: "local" }, volumes: ["pgdata:/var/lib/postgresql/data"],
+    });
+  });
+
   test("loads modular example with templates and env refs", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-cfg-${Date.now()}`;
     writeFile(
@@ -151,6 +238,39 @@ services:
     expect(cfg.proxy.routes.map((route) => route.name)).toEqual(["api-1", "api-2", "worker"]);
     expect(cfg.proxy.routes[0]?.upstream.url).toBe("http://127.0.0.1:8000");
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
+  });
+
+  test("loads modular YAML in deterministic filename order", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-order-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", "version: 1\n");
+    writeFile(dir, ".devctl/services/api.yml", "command: [echo, from-yml]\n");
+    writeFile(dir, ".devctl/services/api.yaml", "command: [echo, from-yaml]\n");
+    const cfg = load(dir, "");
+    // api.yaml sorts before api.yml, so the latter is the deterministic winner.
+    expect(cfg.services.api?.command.args).toEqual(["echo", "from-yml"]);
+    const command = configDiff(cfg).find((entry) => entry.path === "services.api.command");
+    expect(command?.source.endsWith("api.yml")).toBe(true);
+    expect(command?.shadowed[0]?.source.endsWith("api.yaml")).toBe(true);
+  });
+
+  test("keeps provenance history across main, home, and repository-local layers", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-provenance-${Date.now()}`;
+    const devctlHome = `${dir}/home`;
+    const previousHome = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = devctlHome;
+    try {
+      writeFile(dir, ".devctl/config.yaml", "version: 1\nproject:\n  name: main\nservices:\n  api:\n    command: [echo, ok]\n");
+      writeFile(devctlHome, "config.local.yaml", "project:\n  name: home\n");
+      writeFile(dir, ".devctl/config.local.yaml", "project:\n  name: repo\n");
+      const cfg = load(dir, "");
+      const entry = configDiff(cfg).find((item) => item.path === "project.name");
+      expect(entry?.value).toBe("repo");
+      expect(entry?.layer).toBe("repo_local");
+      expect(entry?.shadowed.map((item) => item.layer)).toEqual(["main", "home_local"]);
+    } finally {
+      if (previousHome === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previousHome;
+    }
   });
 });
 

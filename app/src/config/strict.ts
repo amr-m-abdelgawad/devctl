@@ -1,11 +1,14 @@
 import {
   knownAuth,
+  knownContainer,
   knownDoctor,
+  knownDependency,
   knownPlugin,
   knownProjectEnvironment,
   knownEnvStructured,
   knownGoogle,
   knownHealth,
+  knownHooks,
   knownIdentity,
   knownListen,
   knownLogs,
@@ -25,6 +28,7 @@ import {
   knownTokenEndpoint,
   knownTool,
   knownTopLevel,
+  knownTask,
   knownUI,
   knownUpstream,
 } from "./known.ts";
@@ -32,6 +36,7 @@ import {
 const ROUTE_DOT_COUNT = 2;
 
 export function collectUnknownFields(value: unknown, path: string): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => collectUnknownFields(item, joinPath(path, String(index))));
   if (!isRecord(value)) {
     return [];
   }
@@ -48,12 +53,16 @@ export function collectUnknownFields(value: unknown, path: string): string[] {
 }
 
 function allowArbitraryKeys(path: string): boolean {
-  if (path === "services" || path === "profiles" || path === "templates") {
+  if (path === "services" || path === "profiles" || path === "templates" || path === "tasks") {
     return true;
   }
   if (path.endsWith(".environment") || path.endsWith(".defaults") || path.endsWith(".keymap")) {
     return true;
   }
+  if (path.endsWith(".container.ports") || path.endsWith(".container.env")) {
+    return true;
+  }
+  if (path.endsWith(".identity.config") || path.includes(".identity.config.")) return true;
   return path.includes(".environment.") && !path.endsWith(".environment");
 }
 
@@ -93,10 +102,11 @@ function knownForPath(path: string): string[] {
 }
 
 function nestedKnown(path: string): string[] {
-  if (path === "services" || path === "profiles" || path === "templates") {
+  if (path === "services" || path === "profiles" || path === "templates" || path === "tasks") {
     return [];
   }
   if (path.startsWith("services.") || path.startsWith("templates.")) {
+    if (path.includes(".dependencies.")) return knownDependency;
     return servicePathKnown(path);
   }
   if (path.startsWith("profiles.")) {
@@ -104,6 +114,11 @@ function nestedKnown(path: string): string[] {
     if (parts.length === 2) {
       return knownProfile;
     }
+  }
+  if (path.startsWith("tasks.")) {
+    const parts = path.split(".");
+    if (parts.length === 2) return knownTask;
+    if (parts[2] === "environment") return knownEnvStructured;
   }
   if (path.includes("routes")) {
     return routePathKnown(path);
@@ -120,7 +135,7 @@ function nestedKnown(path: string): string[] {
   return [];
 }
 
-function servicePathKnown(path: string): string[] {
+export function servicePathKnown(path: string): string[] {
   const parts = path.split(".");
   if (parts.length === 2) {
     return knownService;
@@ -141,6 +156,10 @@ function servicePathKnown(path: string): string[] {
         return knownEnvStructured;
       case "proxy":
         return serviceProxyPathKnown(parts);
+      case "container":
+        return knownContainer;
+      case "hooks":
+        return knownHooks;
       default:
         return [];
     }

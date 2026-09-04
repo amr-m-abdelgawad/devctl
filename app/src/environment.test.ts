@@ -5,6 +5,24 @@ import { defaultConfig, emptyService } from "./config/types.ts";
 import { resolveEnvironment, runtimeForService } from "./environment.ts";
 
 describe("environment precedence", () => {
+  test("can omit the implicit process layer while retaining declared layers", async () => {
+    const svc = emptyService();
+    svc.environment.vars = { DECLARED: "yes" };
+    const env = await resolveEnvironment("/tmp", {
+      service: "container",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: { SERVICE_HOST: "127.0.0.1" },
+      clientEnv: { GITHUB_TOKEN: "must-not-cross" },
+      includeProcess: false,
+    });
+    expect(env.GITHUB_TOKEN).toBeUndefined();
+    expect(env.DECLARED).toBe("yes");
+    expect(env.SERVICE_HOST).toBe("127.0.0.1");
+  });
+
   test("runtime overrides dotenv and service defaults", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-${Date.now()}`;
     mkdirSync(dir, { recursive: true });

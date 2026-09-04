@@ -18,11 +18,12 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       dependencies,
       ports: [],
       environment: { vars: {}, required: [], defaults: {} },
-      health: { type: "", url: "", address: "", command: { args: [], shell: false }, interval_seconds: 0, timeout_seconds: 0 },
+      health: { type: "", url: "", address: "", command: { args: [], shell: false }, interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 },
       identity: { type: "", mode: "", service_account: "" },
       logs: { stdout: false, stderr: false },
       restart: { policy: "", max_retries: 0, backoff_seconds: 0 },
       startup: { wait_for_healthy: false, timeout_seconds: 0 },
+      hooks: { pre_start: { args: [], shell: false }, post_start: { args: [], shell: false } },
       capabilities: [],
       proxy: [],
     };
@@ -35,6 +36,12 @@ describe("startup plan", () => {
     const plan = startupPlan(cfg({ auth: [], api: ["auth"], worker: ["api"] }), ["worker"], "backend");
     expect(plan.waves).toEqual([["auth"], ["api"], ["worker"]]);
     expect(plan.profile).toBe("backend");
+  });
+
+  test("object dependency conditions preserve graph ordering", () => {
+    const c = cfg({ db: [], api: [] });
+    c.services.api!.dependencies = [{ service: "db", condition: "service_healthy" }];
+    expect(startupPlan(c, ["api"], "").waves).toEqual([["db"], ["api"]]);
   });
 
   test("shutdown cascades to dependents, never to dependencies", () => {

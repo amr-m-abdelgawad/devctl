@@ -1,4 +1,7 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
+import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { findRefs, refResolvable } from "./refs.ts";
 import {
   commandEmpty,
@@ -14,6 +17,8 @@ import {
   type DevctlConfig,
   type EnvConfig,
   type IdentityConfig,
+  dependencyName,
+  dependencyCondition,
 } from "./types.ts";
 
 const MAX_PORT = 65535;
@@ -52,11 +57,35 @@ export function validate(cfg: DevctlConfig): string[] {
     issues.push("at least one service must be defined");
   }
   issues.push(...validateServices(cfg));
+  issues.push(...validateTasks(cfg));
   issues.push(...validateCycles(cfg));
   issues.push(...validateProfiles(cfg));
   issues.push(...validateProxy(cfg));
+  for (const [index, plugin] of cfg.plugins.entries()) {
+    if (plugin.path === "") issues.push(`plugins.${index}.path is required`);
+    else {
+      try {
+        const path = plugin.path.startsWith("file:") ? fileURLToPath(plugin.path) : (isAbsolute(plugin.path) ? plugin.path : resolve(cfg.repoRoot, plugin.path));
+        if (!existsSync(path)) issues.push(`plugins.${index}.path does not exist: ${plugin.path}`);
+      } catch {
+        issues.push(`plugins.${index}.path is invalid: ${plugin.path}`);
+      }
+    }
+  }
   if (cfg.logs.max_memory_events < 0) {
     issues.push("logs.max_memory_events must be >= 0");
+  }
+  return issues;
+}
+
+function validateTasks(cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  for (const [name, task] of Object.entries(cfg.tasks)) {
+    const prefix = `tasks.${name}`;
+    if (commandEmpty(task.command)) issues.push(`${prefix}.command is required`);
+    issues.push(...validateShellCommand(prefix, task.command, task.shell));
+    for (const dep of task.dependencies) if (!cfg.services[dep]) issues.push(`${prefix}.dependencies: unknown service "${dep}"`);
+    issues.push(...validateEnvRefs(`${prefix}.environment`, task.environment, cfg));
   }
   return issues;
 }
@@ -66,18 +95,23 @@ function validateServices(cfg: DevctlConfig): string[] {
   const usedPorts: Record<number, string> = {};
   for (const [name, svc] of Object.entries(cfg.services)) {
     const prefix = `services.${name}`;
-    if (commandEmpty(svc.command)) {
+    if (commandEmpty(svc.command) && !svc.container) {
       issues.push(`${prefix}.command is required`);
     }
     issues.push(...validateShellCommand(prefix, svc.command, svc.shell));
+    issues.push(...validateShellCommand(`${prefix}.hooks.pre_start`, svc.hooks.pre_start, svc.shell));
+    issues.push(...validateShellCommand(`${prefix}.hooks.post_start`, svc.hooks.post_start, svc.shell));
     issues.push(...validateCapabilities(prefix, svc.capabilities));
-    for (const dep of svc.dependencies) {
+    for (const dependency of svc.dependencies) {
+      const dep = dependencyName(dependency);
       if (!cfg.services[dep]) {
         issues.push(`${prefix}.dependencies: unknown service "${dep}"`);
       }
       if (dep === name) {
         issues.push(`${prefix}.dependencies: service cannot depend on itself`);
       }
+      if (!['service_started', 'service_healthy'].includes(dependencyCondition(dependency))) issues.push(`${prefix}.dependencies: condition must be service_started or service_healthy`);
+      if (dependencyCondition(dependency) === "service_healthy" && cfg.services[dep]?.health.type === "") issues.push(`${prefix}.dependencies: service_healthy requires ${dep} to define a health check`);
     }
     if (svc.extends !== "" && !cfg.templates[svc.extends]) {
       issues.push(`${prefix}.extends: unknown template "${svc.extends}"`);
@@ -96,11 +130,24 @@ function validateServices(cfg: DevctlConfig): string[] {
       issues.push(identErr);
     }
     issues.push(...validateHealth(prefix, svc, cfg.plugins.length > 0));
+    if (svc.health.start_period_seconds < 0) issues.push(`${prefix}.health.start_period_seconds must be >= 0`);
+    if (svc.health.unhealthy_threshold < 1) issues.push(`${prefix}.health.unhealthy_threshold must be >= 1`);
+    if (svc.health.healthy_reset_threshold < 1) issues.push(`${prefix}.health.healthy_reset_threshold must be >= 1`);
     const policy = effectiveRestartPolicy(svc.restart);
     if (policy !== RestartNever && policy !== RestartOnFailure && policy !== RestartAlways) {
       issues.push(`${prefix}.restart.policy must be never, on_failure, or always`);
     }
     issues.push(...validateEnvRefs(`${prefix}.environment`, svc.environment, cfg));
+    if (svc.container) {
+      if (svc.container.image === "") issues.push(`${prefix}.container.image is required`);
+      if (svc.container.runtime !== "" && svc.container.runtime !== "docker" && svc.container.runtime !== "podman") {
+        issues.push(`${prefix}.container.runtime must be docker or podman`);
+      }
+      for (const [portName, target] of Object.entries(svc.container.ports)) {
+        if (!svc.ports.some((port) => port.name === portName)) issues.push(`${prefix}.container.ports.${portName}: no matching service port`);
+        if (target < MIN_PORT || target > MAX_PORT) issues.push(`${prefix}.container.ports.${portName}: invalid container port ${target}`);
+      }
+    }
   }
   return issues;
 }
@@ -189,7 +236,8 @@ function validateCycles(cfg: DevctlConfig): string[] {
     stack.push(name);
     const svc = cfg.services[name];
     if (svc) {
-      for (const dep of svc.dependencies) {
+      for (const dependency of svc.dependencies) {
+        const dep = dependencyName(dependency);
         if (cfg.services[dep]) {
           visit(dep);
         }

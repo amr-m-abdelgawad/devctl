@@ -33,7 +33,7 @@ export type DoctorProgress = {
 };
 
 export type DoctorRuntimeContext = {
-  services?: Record<string, { pid: number; ports: Record<string, number> }>;
+  services?: Record<string, { pid: number; ports: Record<string, number>; state?: string }>;
   proxyRunning?: boolean;
   // An attached TUI operates on the daemon's last-known-good config snapshot,
   // but this one check must describe the file currently on disk. Supplying an
@@ -54,6 +54,7 @@ export type DoctorHost = {
   liveDeadlineMs?: number;
   mintToken?: (identity: string, audience: string) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
+  containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
 };
 
 const defaultHost: DoctorHost = {
@@ -64,6 +65,14 @@ const defaultHost: DoctorHost = {
   adcQuotaProject,
   mintToken: defaultMintToken,
   probeServiceUsage: defaultProbeServiceUsage,
+  containerRuntimeAvailable: async (runtime) => {
+    try {
+      const proc = Bun.spawn({ cmd: [runtime, "info"], stdout: "ignore", stderr: "ignore", stdin: "ignore" });
+      return (await proc.exited) === 0;
+    } catch {
+      return false;
+    }
+  },
 };
 
 export async function runDoctor(
@@ -86,6 +95,15 @@ export async function runDoctor(
     }
     publish();
   };
+  const runtimes = [...new Set(Object.values(cfg.services).flatMap((svc) => svc.container ? [svc.container.runtime || "docker"] : []))];
+  for (const runtimeName of runtimes) {
+    checking(`${runtimeName} container runtime`);
+    const installed = await host.hasCommand(runtimeName);
+    const reachable = installed && await (host.containerRuntimeAvailable ?? defaultHost.containerRuntimeAvailable!)(runtimeName);
+    add(reachable
+      ? { name: `${runtimeName} container runtime`, severity: "ok", message: `${runtimeName} daemon reachable` }
+      : { name: `${runtimeName} container runtime`, severity: "error", message: installed ? `${runtimeName} daemon is not reachable` : `${runtimeName} not found`, hint: `install and start ${runtimeName}` });
+  }
   checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {
     add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });
@@ -195,7 +213,8 @@ export async function runDoctor(
       } else {
         seenPorts[p.value] = name;
         const owner = runtime?.services?.[name];
-        const ownedByRunningService = Boolean(owner && owner.pid > 0 && Object.values(owner.ports).includes(p.value));
+        const containerIsRunning = Boolean(svc.container && owner && ["STARTING", "RUNNING", "HEALTHY", "UNHEALTHY"].includes(owner.state ?? ""));
+        const ownedByRunningService = Boolean(owner && (owner.pid > 0 || containerIsRunning) && Object.values(owner.ports).includes(p.value));
         if (ownedByRunningService) {
           add({ name: label, severity: "ok", message: `in use by running service ${name}` });
         } else if (await host.portAvailable(p.value)) {

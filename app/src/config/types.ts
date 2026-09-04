@@ -30,12 +30,19 @@ export type HealthCheckConfig = {
   command: Command;
   interval_seconds: number;
   timeout_seconds: number;
+  start_period_seconds: number;
+  unhealthy_threshold: number;
+  healthy_reset_threshold: number;
 };
+
+export type DependencyConfig = { service: string; condition: string };
+export type Dependency = string | DependencyConfig;
 
 export type IdentityConfig = {
   type: string;
   mode: string;
   service_account: string;
+  config?: Record<string, unknown>;
 };
 
 export type ServiceLogConfig = {
@@ -55,13 +62,24 @@ export type StartupConfig = {
   timeout_seconds: number;
 };
 
+export type ContainerConfig = {
+  image: string;
+  runtime: string;
+  ports: Record<string, number>;
+  env: Record<string, string>;
+  volumes: string[];
+};
+
+export type HooksConfig = { pre_start: Command; post_start: Command };
+export type TaskConfig = { command: Command; shell: boolean; working_dir: string; dependencies: string[]; environment: EnvConfig };
+
 export type ServiceConfig = {
   extends: string;
   description: string;
   command: Command;
   shell: boolean;
   working_dir: string;
-  dependencies: string[];
+  dependencies: Dependency[];
   ports: PortSpec[];
   environment: EnvConfig;
   health: HealthCheckConfig;
@@ -71,6 +89,8 @@ export type ServiceConfig = {
   startup: StartupConfig;
   capabilities: string[];
   proxy: RouteConfig[];
+  container?: ContainerConfig;
+  hooks: HooksConfig;
 };
 
 export type ProfileConfig = {
@@ -182,6 +202,13 @@ export type ProjectEnvironmentConfig = {
   secrets: Record<string, string>;
 };
 
+export type ConfigOrigin = {
+  source: string;
+  layer: string;
+};
+
+export type ConfigProvenance = Record<string, ConfigOrigin[]>;
+
 export type DevctlConfig = {
   version: number;
   project: ProjectConfig;
@@ -189,6 +216,7 @@ export type DevctlConfig = {
   profiles: Record<string, ProfileConfig>;
   templates: Record<string, ServiceConfig>;
   services: Record<string, ServiceConfig>;
+  tasks: Record<string, TaskConfig>;
   proxy: ProxyConfig;
   logs: LogConfig;
   auth: AuthConfig;
@@ -198,6 +226,7 @@ export type DevctlConfig = {
   doctor: DoctorConfig;
   plugins: PluginConfig[];
   environment: ProjectEnvironmentConfig;
+  provenance: ConfigProvenance;
   repoRoot: string;
   configPath: string;
 };
@@ -218,11 +247,15 @@ export function emptyEnv(): EnvConfig {
 }
 
 export function emptyHealth(): HealthCheckConfig {
-  return { type: "", url: "", address: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0 };
+  return { type: "", url: "", address: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
 }
 
+export function dependencyName(dep: Dependency): string { return typeof dep === "string" ? dep : dep.service; }
+export function dependencyCondition(dep: Dependency): string { return typeof dep === "string" ? "service_started" : (dep.condition || "service_started"); }
+export function dependencyLabel(dep: Dependency): string { return dependencyCondition(dep) === "service_healthy" ? `${dependencyName(dep)} (healthy)` : dependencyName(dep); }
+
 export function emptyIdentity(): IdentityConfig {
-  return { type: "", mode: "", service_account: "" };
+  return { type: "", mode: "", service_account: "", config: {} };
 }
 
 export function emptyService(): ServiceConfig {
@@ -242,6 +275,8 @@ export function emptyService(): ServiceConfig {
     startup: { wait_for_healthy: false, timeout_seconds: 0 },
     capabilities: [],
     proxy: [],
+    container: undefined,
+    hooks: { pre_start: emptyCommand(), post_start: emptyCommand() },
   };
 }
 
@@ -253,6 +288,7 @@ export function defaultConfig(): DevctlConfig {
     profiles: {},
     templates: {},
     services: {},
+    tasks: {},
     proxy: {
       enabled: false,
       listen: { host: LOCALHOST, port: 0 },
@@ -275,6 +311,7 @@ export function defaultConfig(): DevctlConfig {
     doctor: { tools: [] },
     plugins: [],
     environment: { sources: [], secrets: {} },
+    provenance: {},
     repoRoot: "",
     configPath: "",
   };

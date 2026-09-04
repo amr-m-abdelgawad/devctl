@@ -6,6 +6,7 @@ import {
   emptyService,
   type Command,
   type EnvConfig,
+  type Dependency,
   type HealthCheckConfig,
   type IdentityConfig,
   type PortSpec,
@@ -16,6 +17,7 @@ import {
   type RouteIdentity,
   type ServiceConfig,
   type StartupConfig,
+  type TaskConfig,
 } from "./types.ts";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,6 +62,11 @@ export function asStringArray(value: unknown): string[] {
     return [];
   }
   return value.map((item) => asString(item));
+}
+
+export function decodeDependencies(value: unknown): Dependency[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => isRecord(item) ? { service: asString(item.service), condition: asString(item.condition) || "service_started" } : asString(item));
 }
 
 export function asStringMap(value: unknown): Record<string, string> {
@@ -133,6 +140,7 @@ export function decodeIdentity(value: unknown): IdentityConfig {
     type: asString(value.type),
     mode: asString(value.mode),
     service_account: asString(value.service_account),
+    config: isRecord(value.config) ? { ...value.config } : {},
   };
 }
 
@@ -147,6 +155,9 @@ export function decodeHealth(value: unknown): HealthCheckConfig {
     command: decodeCommand(value.command),
     interval_seconds: asNumber(value.interval_seconds),
     timeout_seconds: asNumber(value.timeout_seconds),
+    start_period_seconds: asNumber(value.start_period_seconds),
+    unhealthy_threshold: value.unhealthy_threshold === undefined ? 3 : asNumber(value.unhealthy_threshold),
+    healthy_reset_threshold: value.healthy_reset_threshold === undefined ? 10 : asNumber(value.healthy_reset_threshold),
   };
 }
 
@@ -184,7 +195,7 @@ export function decodeService(value: unknown): ServiceConfig {
     command: decodeCommand(value.command),
     shell: asBoolean(value.shell),
     working_dir: asString(value.working_dir),
-    dependencies: asStringArray(value.dependencies),
+    dependencies: decodeDependencies(value.dependencies),
     ports: decodePorts(value.ports),
     environment: decodeEnv(value.environment),
     health: decodeHealth(value.health),
@@ -194,6 +205,33 @@ export function decodeService(value: unknown): ServiceConfig {
     startup: decodeStartup(value.startup),
     capabilities: asStringArray(value.capabilities),
     proxy: decodeServiceProxy(value.proxy),
+    container: decodeContainer(value.container),
+    hooks: decodeHooks(value.hooks),
+  };
+}
+
+export function decodeHooks(value: unknown): import("./types.ts").HooksConfig {
+  const raw = isRecord(value) ? value : {};
+  return { pre_start: decodeCommand(raw.pre_start), post_start: decodeCommand(raw.post_start) };
+}
+
+export function decodeTask(value: unknown): TaskConfig {
+  const raw = isRecord(value) ? value : {};
+  return { command: decodeCommand(raw.command), shell: asBoolean(raw.shell), working_dir: asString(raw.working_dir), dependencies: asStringArray(raw.dependencies), environment: decodeEnv(raw.environment) };
+}
+
+export function decodeContainer(value: unknown): import("./types.ts").ContainerConfig | undefined {
+  if (!isRecord(value)) return undefined;
+  const ports: Record<string, number> = {};
+  if (isRecord(value.ports)) {
+    for (const [name, port] of Object.entries(value.ports)) ports[name] = asNumber(port);
+  }
+  return {
+    image: asString(value.image),
+    runtime: asString(value.runtime),
+    ports,
+    env: asStringMap(value.env),
+    volumes: asStringArray(value.volumes),
   };
 }
 

@@ -3,6 +3,8 @@ command:
   - python3
   - main.py
 working_dir: invoices-api
+hooks:
+  pre_start: [python3, -c, "print('preparing invoices API')"]
 dependencies:
   - identity
 ports:

@@ -4,7 +4,8 @@ command:
   - main.py
 working_dir: invoices-worker
 dependencies:
-  - invoices-api
+  - service: invoices-api
+    condition: service_healthy
 ports:
   http: 18002
 environment:
