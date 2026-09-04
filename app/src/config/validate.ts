@@ -14,6 +14,8 @@ import {
   type DevctlConfig,
   type EnvConfig,
   type IdentityConfig,
+  dependencyName,
+  dependencyCondition,
 } from "./types.ts";
 
 const MAX_PORT = 65535;
@@ -86,13 +88,16 @@ function validateServices(cfg: DevctlConfig): string[] {
     issues.push(...validateShellCommand(`${prefix}.hooks.pre_start`, svc.hooks.pre_start, svc.shell));
     issues.push(...validateShellCommand(`${prefix}.hooks.post_start`, svc.hooks.post_start, svc.shell));
     issues.push(...validateCapabilities(prefix, svc.capabilities));
-    for (const dep of svc.dependencies) {
+    for (const dependency of svc.dependencies) {
+      const dep = dependencyName(dependency);
       if (!cfg.services[dep]) {
         issues.push(`${prefix}.dependencies: unknown service "${dep}"`);
       }
       if (dep === name) {
         issues.push(`${prefix}.dependencies: service cannot depend on itself`);
       }
+      if (!['service_started', 'service_healthy'].includes(dependencyCondition(dependency))) issues.push(`${prefix}.dependencies: condition must be service_started or service_healthy`);
+      if (dependencyCondition(dependency) === "service_healthy" && cfg.services[dep]?.health.type === "") issues.push(`${prefix}.dependencies: service_healthy requires ${dep} to define a health check`);
     }
     if (svc.extends !== "" && !cfg.templates[svc.extends]) {
       issues.push(`${prefix}.extends: unknown template "${svc.extends}"`);
@@ -111,6 +116,9 @@ function validateServices(cfg: DevctlConfig): string[] {
       issues.push(identErr);
     }
     issues.push(...validateHealth(prefix, svc, cfg.plugins.length > 0));
+    if (svc.health.start_period_seconds < 0) issues.push(`${prefix}.health.start_period_seconds must be >= 0`);
+    if (svc.health.unhealthy_threshold < 1) issues.push(`${prefix}.health.unhealthy_threshold must be >= 1`);
+    if (svc.health.healthy_reset_threshold < 1) issues.push(`${prefix}.health.healthy_reset_threshold must be >= 1`);
     const policy = effectiveRestartPolicy(svc.restart);
     if (policy !== RestartNever && policy !== RestartOnFailure && policy !== RestartAlways) {
       issues.push(`${prefix}.restart.policy must be never, on_failure, or always`);
@@ -214,7 +222,8 @@ function validateCycles(cfg: DevctlConfig): string[] {
     stack.push(name);
     const svc = cfg.services[name];
     if (svc) {
-      for (const dep of svc.dependencies) {
+      for (const dependency of svc.dependencies) {
+        const dep = dependencyName(dependency);
         if (cfg.services[dep]) {
           visit(dep);
         }

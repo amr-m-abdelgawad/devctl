@@ -1,4 +1,4 @@
-import { type DevctlConfig } from "./config/index.ts";
+import { dependencyName, type Dependency, type DevctlConfig } from "./config/index.ts";
 import { KindConfiguration, KindDependency, KindServiceNotFound, newError } from "./errors.ts";
 
 export const StateUnknown = "UNKNOWN";
@@ -85,7 +85,7 @@ export function emptyRuntime(name: string): Runtime {
 export type PlanStep = {
   name: string;
   wave: number;
-  dependencies: string[];
+  dependencies: Dependency[];
 };
 
 export type PlanBlocker = {
@@ -113,7 +113,8 @@ function wavesForSet(cfg: DevctlConfig, needed: Record<string, boolean>): string
   }
   for (const name of Object.keys(needed)) {
     const deps = cfg.services[name]?.dependencies ?? [];
-    for (const dep of deps) {
+    for (const dependency of deps) {
+      const dep = dependencyName(dependency);
       if (!needed[dep]) {
         continue;
       }
@@ -159,7 +160,7 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
     requireKnown(cfg, name);
     needed[name] = true;
     for (const dep of cfg.services[name]?.dependencies ?? []) {
-      visit(dep);
+      visit(dependencyName(dep));
     }
   };
   for (const name of selected) {
@@ -186,7 +187,8 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
 export function dependentsClosure(cfg: DevctlConfig, selected: string[]): string[] {
   const dependents: Record<string, string[]> = {};
   for (const [name, svc] of Object.entries(cfg.services)) {
-    for (const dep of svc.dependencies) {
+    for (const dependency of svc.dependencies) {
+      const dep = dependencyName(dependency);
       dependents[dep] = [...(dependents[dep] ?? []), name];
     }
   }
@@ -212,7 +214,7 @@ function reversedPlanForSet(cfg: DevctlConfig, needed: Record<string, boolean>):
   const steps: PlanStep[] = [];
   waves.forEach((wave, i) => {
     for (const name of wave) {
-      steps.push({ name, wave: i + 1, dependencies: cfg.services[name]?.dependencies ?? [] });
+      steps.push({ name, wave: i + 1, dependencies: [...(cfg.services[name]?.dependencies ?? [])] });
     }
   });
   return { steps, waves, profile: "", blockers: [] };

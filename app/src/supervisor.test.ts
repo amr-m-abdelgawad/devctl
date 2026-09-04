@@ -32,6 +32,53 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
 }
 
 describe("supervisor snapshot", () => {
+  test("health start period ignores early failures before applying the configured threshold", async () => {
+    const cfg = defaultConfig();
+    cfg.repoRoot = tmp();
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "setInterval(()=>{}, 1000)"], shell: false },
+      health: { ...emptyHealth(), type: "command", command: { args: [process.execPath, "-e", "process.exit(1)"], shell: false }, interval_seconds: 0.02, start_period_seconds: 0.15, unhealthy_threshold: 1 },
+      restart: { policy: "on_failure", max_retries: 2, backoff_seconds: 1 },
+    };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      await sup.start({ services: ["api"] });
+      await sleep(100);
+      expect(sup.snapshot().services.api?.health).toBe("UNKNOWN");
+      expect(sup.snapshot().services.api?.restarts).toBe(0);
+      await sleep(160);
+      expect(sup.snapshot().services.api?.restarts).toBe(1);
+    } finally {
+      await sup.stop(["api"]);
+    }
+  });
+
+  test("service_healthy dependency conditions delay the dependent launch", async () => {
+    const dir = tmp();
+    const ready = join(dir, "ready");
+    const launched = join(dir, "launched");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.db = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", `setTimeout(()=>require('fs').writeFileSync(${JSON.stringify(ready)}, '1'), 120); setInterval(()=>{}, 1000)`], shell: false },
+      health: { ...emptyHealth(), type: "command", command: { args: [process.execPath, "-e", `process.exit(require('fs').existsSync(${JSON.stringify(ready)}) ? 0 : 1)`], shell: false }, interval_seconds: 0.02 },
+    };
+    cfg.services.api = { ...emptyService(), dependencies: [{ service: "db", condition: "service_healthy" }], command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(launched)}, '1'); setInterval(()=>{}, 1000)`], shell: false } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      const started = Date.now();
+      await sup.start({ services: ["api"] });
+      expect(Date.now() - started).toBeGreaterThanOrEqual(100);
+      await sleep(30);
+      expect(existsSync(launched)).toBe(true);
+    } finally {
+      await sup.stop([]);
+    }
+  });
   test("runs hooks around an explicit service start and runs configured tasks", async () => {
     const dir = tmp();
     const marker = join(dir, "order.txt");
@@ -1146,6 +1193,7 @@ describe("restart-count bookkeeping", () => {
         command: { args: [process.execPath, "-e", "process.exit(0)"], shell: false },
         interval_seconds: 0.02,
         timeout_seconds: 1,
+        healthy_reset_threshold: 2,
       },
     };
     const sup = new Supervisor(cfg, {

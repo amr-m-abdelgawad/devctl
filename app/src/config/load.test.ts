@@ -31,6 +31,28 @@ tasks:
     expect(cfg.tasks.migrate?.dependencies).toEqual(["api"]);
     expect(cfg.tasks.migrate?.environment.vars.MODE).toBe("local");
   });
+
+  test("decodes dependency conditions and health startup thresholds", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-health-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  db: { command: [db], health: { type: process } }
+  api:
+    command: [api]
+    dependencies: [{ service: db, condition: service_healthy }]
+    health: { type: process, start_period_seconds: 5, unhealthy_threshold: 4, healthy_reset_threshold: 8 }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.dependencies).toEqual([{ service: "db", condition: "service_healthy" }]);
+    expect(cfg.services.api?.health).toMatchObject({ start_period_seconds: 5, unhealthy_threshold: 4, healthy_reset_threshold: 8 });
+  });
+
+  test("rejects unknown dependency object fields", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dep-typo-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `version: 1\nservices:\n  db: { command: [db] }\n  api:\n    command: [api]\n    dependencies: [{ service: db, conditon: service_healthy }]\n`);
+    expect(() => load(dir, "")).toThrow(/dependencies\.0\.conditon/);
+  });
   test("decodes and validates a container service", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-container-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `

@@ -8,6 +8,8 @@ import {
   type Command,
   emptyService,
   commandEmpty,
+  dependencyName,
+  dependencyCondition,
   captureStderr,
   captureStdout,
   graceSeconds,
@@ -615,7 +617,7 @@ export class Supervisor {
         }
       }
       try {
-        await this.awaitWaveHealth(wave);
+        await this.awaitWaveHealth(wave, plan.waves.flat());
       } catch (err) {
         this.log("devctl", "ERROR", humanMessage(err));
         throw err;
@@ -919,10 +921,11 @@ export class Supervisor {
     }
   }
 
-  private async awaitWaveHealth(wave: string[]): Promise<void> {
+  private async awaitWaveHealth(wave: string[], planned: string[]): Promise<void> {
     for (const name of wave) {
       const svc = this.cfg.services[name];
-      if (!svc || svc.health.type === "") {
+      const requiredHealthy = planned.some((dependent) => (this.cfg.services[dependent]?.dependencies ?? []).some((dep) => dependencyName(dep) === name && dependencyCondition(dep) === "service_healthy"));
+      if (!svc || svc.health.type === "" || !requiredHealthy) {
         continue;
       }
       const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
@@ -1015,6 +1018,7 @@ export class Supervisor {
       return;
     }
     const interval = healthIntervalMs(svc.health) || DEFAULT_HEALTH_INTERVAL_MS;
+    const startedAt = Date.parse(this.runtimes.get(name)?.startTime ?? "") || Date.now();
     const tick = (): void => {
       const healthResult: Promise<{ status: ServiceHealth; message: string }> = svc.container && svc.health.type.toLowerCase() === "process"
         ? Promise.resolve(this.procs.get(name) && handleStillRunning(this.procs.get(name)!)
@@ -1029,6 +1033,10 @@ export class Supervisor {
           // a new pid; without this guard its stale result would land on
           // whatever process now holds this service's name instead.
           if (!this.isCurrentGeneration(name, gen)) {
+            return;
+          }
+          if (res.status === HealthUnhealthy && Date.now() - startedAt < svc.health.start_period_seconds * 1000) {
+            this.logs.append({ timestamp: new Date().toISOString(), service: name, source: "health", level: "INFO", message: `health check still in start period: ${res.message}`, pid });
             return;
           }
           this.setHealth(name, res.status, res.message);
@@ -1745,7 +1753,7 @@ export class Supervisor {
     if (health !== HealthUnhealthy) {
       this.unhealthyStreak.set(name, 0);
       if (health === HealthHealthy) {
-        this.maybeForgiveRestarts(name);
+        this.maybeForgiveRestarts(name, svc);
       }
       return;
     }
@@ -1754,9 +1762,14 @@ export class Supervisor {
     if (policy !== "on_failure" && policy !== "always") {
       return;
     }
+    // A restart is already committed and waiting for its backoff. Further
+    // probes from the same process must not consume more retry budget or
+    // continually push that timer back.
+    if (this.restartTimers.has(name)) return;
     const streak = (this.unhealthyStreak.get(name) ?? 0) + 1;
     this.unhealthyStreak.set(name, streak);
-    if (streak < HEALTH_RESTART_STREAK) {
+    const threshold = svc.health.unhealthy_threshold > 0 ? svc.health.unhealthy_threshold : HEALTH_RESTART_STREAK;
+    if (streak < threshold) {
       return;
     }
     this.unhealthyStreak.set(name, 0);
@@ -1779,10 +1792,11 @@ export class Supervisor {
   // Forgives past restarts once a service proves itself stable, so a long
   // healthy run doesn't leave it one stumble away from max_retries because
   // of crashes/unhealthy spells long in its past.
-  private maybeForgiveRestarts(name: string): void {
+  private maybeForgiveRestarts(name: string, svc: ServiceConfig): void {
     const streak = (this.healthyStreak.get(name) ?? 0) + 1;
     this.healthyStreak.set(name, streak);
-    if (streak >= HEALTH_RESET_STREAK && (this.restarts.get(name) ?? 0) > 0) {
+    const threshold = svc.health.healthy_reset_threshold > 0 ? svc.health.healthy_reset_threshold : HEALTH_RESET_STREAK;
+    if (streak >= threshold && (this.restarts.get(name) ?? 0) > 0) {
       this.log(name, "INFO", `restart count reset after ${streak} consecutive healthy checks`);
       this.bumpRestartCount(name, 0);
     }

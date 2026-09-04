@@ -6,6 +6,7 @@ import {
   emptyService,
   type Command,
   type EnvConfig,
+  type Dependency,
   type HealthCheckConfig,
   type IdentityConfig,
   type PortSpec,
@@ -61,6 +62,11 @@ export function asStringArray(value: unknown): string[] {
     return [];
   }
   return value.map((item) => asString(item));
+}
+
+export function decodeDependencies(value: unknown): Dependency[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => isRecord(item) ? { service: asString(item.service), condition: asString(item.condition) || "service_started" } : asString(item));
 }
 
 export function asStringMap(value: unknown): Record<string, string> {
@@ -148,6 +154,9 @@ export function decodeHealth(value: unknown): HealthCheckConfig {
     command: decodeCommand(value.command),
     interval_seconds: asNumber(value.interval_seconds),
     timeout_seconds: asNumber(value.timeout_seconds),
+    start_period_seconds: asNumber(value.start_period_seconds),
+    unhealthy_threshold: value.unhealthy_threshold === undefined ? 3 : asNumber(value.unhealthy_threshold),
+    healthy_reset_threshold: value.healthy_reset_threshold === undefined ? 10 : asNumber(value.healthy_reset_threshold),
   };
 }
 
@@ -185,7 +194,7 @@ export function decodeService(value: unknown): ServiceConfig {
     command: decodeCommand(value.command),
     shell: asBoolean(value.shell),
     working_dir: asString(value.working_dir),
-    dependencies: asStringArray(value.dependencies),
+    dependencies: decodeDependencies(value.dependencies),
     ports: decodePorts(value.ports),
     environment: decodeEnv(value.environment),
     health: decodeHealth(value.health),

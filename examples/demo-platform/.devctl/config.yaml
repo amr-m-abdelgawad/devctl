@@ -14,6 +14,9 @@ templates:
       type: http
       interval_seconds: 2
       timeout_seconds: 1
+      start_period_seconds: 3
+      unhealthy_threshold: 3
+      healthy_reset_threshold: 10
     logs:
       stdout: true
       stderr: true

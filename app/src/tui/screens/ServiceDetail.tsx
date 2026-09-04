@@ -18,7 +18,7 @@ import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { KeyHints, MetaBar, type ChipTone } from "../layout.tsx";
 import { serviceColor, type Palette } from "../themes.ts";
-import { type DevctlConfig } from "../../config/index.ts";
+import { dependencyLabel, type DevctlConfig } from "../../config/index.ts";
 import { type StatusSnapshot } from "../../types.ts";
 
 const ERROR_PREVIEW = 72;
@@ -83,7 +83,7 @@ export function ServiceInspector(props: {
   ];
   const rightFacts: FactItem[] = [
     { label: "identity", value: serviceIdentityText(svc, rt) },
-    { label: "depends", value: svc.dependencies.join(", ") || "—" },
+    { label: "depends", value: svc.dependencies.map(dependencyLabel).join(", ") || "—" },
     { label: "ports", value: servicePortsText(svc, rt) },
     { label: "tries", value: String(rt?.restarts ?? 0), tone: rt?.restarts ? "warning" : "muted" },
   ];

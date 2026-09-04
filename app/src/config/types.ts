@@ -30,7 +30,13 @@ export type HealthCheckConfig = {
   command: Command;
   interval_seconds: number;
   timeout_seconds: number;
+  start_period_seconds: number;
+  unhealthy_threshold: number;
+  healthy_reset_threshold: number;
 };
+
+export type DependencyConfig = { service: string; condition: string };
+export type Dependency = string | DependencyConfig;
 
 export type IdentityConfig = {
   type: string;
@@ -72,7 +78,7 @@ export type ServiceConfig = {
   command: Command;
   shell: boolean;
   working_dir: string;
-  dependencies: string[];
+  dependencies: Dependency[];
   ports: PortSpec[];
   environment: EnvConfig;
   health: HealthCheckConfig;
@@ -240,8 +246,12 @@ export function emptyEnv(): EnvConfig {
 }
 
 export function emptyHealth(): HealthCheckConfig {
-  return { type: "", url: "", address: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0 };
+  return { type: "", url: "", address: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
 }
+
+export function dependencyName(dep: Dependency): string { return typeof dep === "string" ? dep : dep.service; }
+export function dependencyCondition(dep: Dependency): string { return typeof dep === "string" ? "service_started" : (dep.condition || "service_started"); }
+export function dependencyLabel(dep: Dependency): string { return dependencyCondition(dep) === "service_healthy" ? `${dependencyName(dep)} (healthy)` : dependencyName(dep); }
 
 export function emptyIdentity(): IdentityConfig {
   return { type: "", mode: "", service_account: "" };

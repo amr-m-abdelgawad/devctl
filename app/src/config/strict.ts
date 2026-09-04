@@ -2,6 +2,7 @@ import {
   knownAuth,
   knownContainer,
   knownDoctor,
+  knownDependency,
   knownPlugin,
   knownProjectEnvironment,
   knownEnvStructured,
@@ -35,6 +36,7 @@ import {
 const ROUTE_DOT_COUNT = 2;
 
 export function collectUnknownFields(value: unknown, path: string): string[] {
+  if (Array.isArray(value)) return value.flatMap((item, index) => collectUnknownFields(item, joinPath(path, String(index))));
   if (!isRecord(value)) {
     return [];
   }
@@ -103,6 +105,7 @@ function nestedKnown(path: string): string[] {
     return [];
   }
   if (path.startsWith("services.") || path.startsWith("templates.")) {
+    if (path.includes(".dependencies.")) return knownDependency;
     return servicePathKnown(path);
   }
   if (path.startsWith("profiles.")) {

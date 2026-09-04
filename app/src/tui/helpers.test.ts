@@ -485,7 +485,7 @@ describe("TUI helpers", () => {
     const svc = emptyService();
     svc.command = { args: ["uvicorn", "auth:app"], shell: false };
     svc.ports = [{ name: "http", value: 18000, auto: false }];
-    svc.health = { type: "http", url: "/healthz", address: "", command: { args: [], shell: false }, interval_seconds: 0, timeout_seconds: 0 };
+    svc.health = { type: "http", url: "/healthz", address: "", command: { args: [], shell: false }, interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
     svc.identity = { type: "user", mode: "", service_account: "" };
     svc.restart = { policy: "on_failure", max_retries: 3, backoff_seconds: 1 };
     expect(serviceCommandText(svc)).toBe("uvicorn auth:app");

@@ -191,7 +191,15 @@
         "command": { "$ref": "#/$defs/command" },
         "shell": { "type": "boolean" },
         "working_dir": { "type": "string" },
-        "dependencies": { "type": "array", "items": { "type": "string" } },
+        "dependencies": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              { "type": "string" },
+              { "$ref": "#/$defs/dependency" }
+            ]
+          }
+        },
         "ports": { "$ref": "#/$defs/ports" },
         "environment": { "$ref": "#/$defs/serviceEnvironment" },
         "health": {
@@ -206,7 +214,10 @@
             "address": { "type": "string" },
             "command": { "$ref": "#/$defs/command" },
             "interval_seconds": { "type": "number", "minimum": 0 },
-            "timeout_seconds": { "type": "number", "minimum": 0 }
+            "timeout_seconds": { "type": "number", "minimum": 0 },
+            "start_period_seconds": { "type": "number", "minimum": 0 },
+            "unhealthy_threshold": { "type": "integer", "minimum": 1 },
+            "healthy_reset_threshold": { "type": "integer", "minimum": 1 }
           }
         },
         "identity": {
@@ -275,6 +286,15 @@
             "post_start": { "$ref": "#/$defs/command" }
           }
         }
+      }
+    },
+    "dependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["service"],
+      "properties": {
+        "service": { "type": "string", "minLength": 1 },
+        "condition": { "type": "string", "enum": ["service_started", "service_healthy"] }
       }
     },
     "proxy": {

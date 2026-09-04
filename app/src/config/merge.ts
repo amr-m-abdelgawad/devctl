@@ -5,6 +5,7 @@ import {
   asStringArray,
   asStringMap,
   decodeCommand,
+  decodeDependencies,
   decodeContainer,
   decodePorts,
   decodeProfile,
@@ -285,7 +286,7 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     out.working_dir = asString(raw.working_dir);
   }
   if (present.has("dependencies")) {
-    out.dependencies = asStringArray(raw.dependencies);
+    out.dependencies = decodeDependencies(raw.dependencies);
   }
   if (present.has("ports")) {
     out.ports = decodePorts(raw.ports);
@@ -339,6 +340,9 @@ function mergeHealth(base: HealthCheckConfig, raw: unknown): HealthCheckConfig {
     command: raw.command !== undefined ? decodeCommand(raw.command) : base.command,
     interval_seconds: raw.interval_seconds !== undefined ? asNumber(raw.interval_seconds) : base.interval_seconds,
     timeout_seconds: raw.timeout_seconds !== undefined ? asNumber(raw.timeout_seconds) : base.timeout_seconds,
+    start_period_seconds: raw.start_period_seconds !== undefined ? asNumber(raw.start_period_seconds) : base.start_period_seconds,
+    unhealthy_threshold: raw.unhealthy_threshold !== undefined ? asNumber(raw.unhealthy_threshold) : base.unhealthy_threshold,
+    healthy_reset_threshold: raw.healthy_reset_threshold !== undefined ? asNumber(raw.healthy_reset_threshold) : base.healthy_reset_threshold,
   };
 }
 
@@ -512,6 +516,9 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     command: present.has("health.command") ? svc.health.command : base.health.command,
     interval_seconds: present.has("health.interval_seconds") ? svc.health.interval_seconds : base.health.interval_seconds,
     timeout_seconds: present.has("health.timeout_seconds") ? svc.health.timeout_seconds : base.health.timeout_seconds,
+    start_period_seconds: present.has("health.start_period_seconds") ? svc.health.start_period_seconds : base.health.start_period_seconds,
+    unhealthy_threshold: present.has("health.unhealthy_threshold") ? svc.health.unhealthy_threshold : base.health.unhealthy_threshold,
+    healthy_reset_threshold: present.has("health.healthy_reset_threshold") ? svc.health.healthy_reset_threshold : base.health.healthy_reset_threshold,
   };
   out.identity = {
     type: present.has("identity.type") ? svc.identity.type : base.identity.type,

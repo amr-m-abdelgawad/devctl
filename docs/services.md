@@ -22,6 +22,9 @@ services:
       url: http://127.0.0.1:8000/health
       interval_seconds: 2
       timeout_seconds: 1
+      start_period_seconds: 10  # early failures remain STARTING
+      unhealthy_threshold: 3   # consecutive failures before restart
+      healthy_reset_threshold: 10 # healthy checks before retry budget resets
     identity:
       type: user                 # or service_account
     proxy:                       # optional; merged into the global proxy at load
@@ -124,6 +127,17 @@ The TUI and CLI display `HEALTHY` / `UNHEALTHY` when the process is running and 
 
 Independent services in the same wave start and stop in parallel. Dependents wait. Cycles are configuration errors.
 
+Dependencies accept either the original string form or a condition:
+
+```yaml
+dependencies:
+  - identity
+  - service: postgres
+    condition: service_healthy
+```
+
+`service_started` is the default and allows the dependent to launch once its dependency process has spawned. `service_healthy` waits for the dependency's health check. A dependency using `service_healthy` must define a health check; startup fails on its normal startup timeout if it never becomes healthy.
+
 ## Start, stop, restart
 
 Named start expands **up** the dependency graph (`startupPlan`): starting `invoices-worker` also starts `identity` and `invoices-api`, in that order.
@@ -153,6 +167,8 @@ Default TUI profile (empty dashboard `enter`) is the first profile name **alphab
 | `tcp` | Connect to `address` or a named port |
 | `command` | Run `health.command`; exit 0 is healthy |
 | `process` or empty | PID still alive |
+
+During `health.start_period_seconds`, failing probes leave the service in its startup state and do not contribute to restart streaks. Afterward, `health.unhealthy_threshold` consecutive failures trigger the configured restart policy (default 3). `health.healthy_reset_threshold` consecutive successes forgive prior restart attempts (default 10).
 
 `devctl` watches `.devctl/` and offers reload. It does not restart a service when its source files change. Put `air`, `bun --watch`, or your language’s reloader in the service `command`.
 

@@ -119,7 +119,7 @@ entry includes the winning source file and layer (`main`, `modular_service`,
 `synthesized`) and the ordered sources it shadowed. Use `--json` for structured
 output.
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency cycles, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
 
 The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
 

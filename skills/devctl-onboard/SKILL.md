@@ -104,7 +104,9 @@ Guidance that shapes a good first config:
 - **Templates over repetition.** Two services sharing a language or runner
   should `extends` a template that holds `health` cadence, `logs`, `restart`.
 - **Dependencies are start-order, not networking.** Declare `dependencies` only
-  where one service genuinely cannot start usefully before another.
+  where one service genuinely cannot start usefully before another. Use the
+  object form with `condition: service_healthy` only when launch truly requires
+  a dependency's health check to pass; strings mean `service_started`.
 - **Cross-service URLs use references**, not hard-coded ports:
   `API_URL: http://127.0.0.1:${services.invoices-api.ports.http}`. This keeps
   working when a port changes or is `auto`.

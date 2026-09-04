@@ -109,7 +109,9 @@ Guidance that shapes a good first config:
 - **Templates over repetition.** Two services sharing a language or runner
   should \`extends\` a template that holds \`health\` cadence, \`logs\`, \`restart\`.
 - **Dependencies are start-order, not networking.** Declare \`dependencies\` only
-  where one service genuinely cannot start usefully before another.
+  where one service genuinely cannot start usefully before another. Use the
+  object form with \`condition: service_healthy\` only when launch truly requires
+  a dependency's health check to pass; strings mean \`service_started\`.
 - **Cross-service URLs use references**, not hard-coded ports:
   \`API_URL: http://127.0.0.1:\${services.invoices-api.ports.http}\`. This keeps
   working when a port changes or is \`auto\`.
@@ -325,19 +327,22 @@ Not warned about — rejected, with the offending path named. These are the
 complete allowlists.
 
 **Top level:** \`version\` \`project\` \`google\` \`profiles\` \`templates\` \`services\`
-\`proxy\` \`logs\` \`auth\` \`shutdown\` \`ui\` \`secrets\` \`doctor\` \`plugins\`
+\`tasks\` \`proxy\` \`logs\` \`auth\` \`shutdown\` \`ui\` \`secrets\` \`doctor\` \`plugins\`
 \`environment\`
 
 **Service** (and \`templates.<name>\`, same shape): \`extends\` \`description\`
 \`command\` \`shell\` \`working_dir\` \`dependencies\` \`ports\` \`environment\` \`health\`
-\`identity\` \`logs\` \`restart\` \`startup\` \`capabilities\` \`proxy\`
+\`identity\` \`logs\` \`restart\` \`startup\` \`capabilities\` \`proxy\` \`container\` \`hooks\`
 
 | Section | Allowed keys |
 |---|---|
 | \`project\` | \`name\` |
 | \`google\` | \`project_id\` \`region\` |
 | \`profiles.<name>\` | \`services\` \`environment\` |
-| \`service.health\` | \`type\` \`url\` \`address\` \`command\` \`interval_seconds\` \`timeout_seconds\` |
+| \`service.health\` | \`type\` \`url\` \`address\` \`command\` \`interval_seconds\` \`timeout_seconds\` \`start_period_seconds\` \`unhealthy_threshold\` \`healthy_reset_threshold\` |
+| \`service.hooks\` | \`pre_start\` \`post_start\` |
+| \`service.container\` | \`image\` \`runtime\` \`ports\` \`env\` \`volumes\` |
+| \`tasks.<name>\` | \`command\` \`shell\` \`working_dir\` \`dependencies\` \`environment\` |
 | \`service.identity\` | \`type\` \`mode\` \`service_account\` |
 | \`service.restart\` | \`enabled\` \`policy\` \`max_retries\` \`backoff_seconds\` |
 | \`service.startup\` | \`wait_for_healthy\` \`timeout_seconds\` |
@@ -360,9 +365,8 @@ complete allowlists.
 | \`plugins[]\` | \`path\` |
 | \`environment\` | \`sources\` \`secrets\` |
 
-There is no \`depends_on\`, no \`image\`, no \`build\`, no \`volumes\`, no \`replicas\`,
-no \`env_file\` — those are compose/k8s spellings and will be rejected. Translate
-them.
+There is no \`depends_on\`, \`build\`, \`replicas\`, or \`env_file\`. Container fields
+belong under \`service.container\`, not directly on the service.
 
 ---
 
@@ -373,7 +377,7 @@ them.
 - **At least one service.** An empty or missing \`services\` map fails with *at
   least one service must be defined* — so a proxy-only or profiles-only config
   is not valid.
-- Every service needs a non-empty \`command\`.
+- Every host service needs a non-empty \`command\`; a container service may rely on its image command.
 
 ---
 
@@ -415,6 +419,8 @@ supported forms. Anything else — \`\${env.FOO}\`, \`\${project.name}\` — thr
 - Direction: \`dependencies\` means "start these first". \`start x\` walks **up**
   and starts x's dependencies; \`stop x\` walks **down** and stops x's
   *dependents*, never its dependencies.
+- A string dependency uses \`service_started\`. Use \`{ service: db, condition:
+  service_healthy }\` to wait for the dependency's configured health check.
 
 ## Commands and \`shell\`
 
@@ -459,7 +465,9 @@ at reload. A custom type no plugin provides fails as a *reload rejection*, not
 a config error, which is much harder to diagnose. Only use a custom type when
 you can point at the plugin that registers it.
 
-Defaults when omitted: interval 2s, timeout 2s.
+Defaults when omitted: interval 2s, timeout 2s, start period 0s, unhealthy
+threshold 3, healthy reset threshold 10. Failures during the start period do
+not mark the service unhealthy or consume restart budget.
 
 ## Identity
 
