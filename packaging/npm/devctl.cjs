@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 "use strict";
 
-const { closeSync, openSync, readSync } = require("node:fs");
-const { resolve } = require("node:path");
-const { spawn } = require("node:child_process");
+const { closeSync, openSync, readSync } = require("fs");
+const { resolve } = require("path");
+const { spawn } = require("child_process");
 
 const SUPPORTED_TARGETS = new Set([
   "darwin-arm64",
@@ -13,12 +13,16 @@ const SUPPORTED_TARGETS = new Set([
   "win32-x64",
 ]);
 
-function targetFor(platform = process.platform, arch = process.arch) {
-  return `${platform}-${arch}`;
+function targetFor(platform, arch) {
+  const p = platform !== undefined ? platform : process.platform;
+  const a = arch !== undefined ? arch : process.arch;
+  return `${p}-${a}`;
 }
 
-function assertSupportedTarget(platform = process.platform, arch = process.arch) {
-  const target = targetFor(platform, arch);
+function assertSupportedTarget(platform, arch) {
+  const p = platform !== undefined ? platform : process.platform;
+  const a = arch !== undefined ? arch : process.arch;
+  const target = targetFor(p, a);
   if (!SUPPORTED_TARGETS.has(target)) {
     throw new Error(
       `devctl does not currently support ${target}. Supported targets: ${Array.from(SUPPORTED_TARGETS).join(", ")}.`,
@@ -27,13 +31,13 @@ function assertSupportedTarget(platform = process.platform, arch = process.arch)
   return target;
 }
 
-function resolveBunExecutable(resolveModule = require.resolve) {
+function resolveBunExecutable(resolveModule) {
+  const res = resolveModule !== undefined ? resolveModule : require.resolve;
   try {
-    return resolveModule("bun/bin/bun.exe", { paths: [__dirname] });
+    return res("bun/bin/bun.exe", { paths: [__dirname] });
   } catch (cause) {
     throw new Error(
       "The bundled Bun runtime is missing. Reinstall @amr-m-abdelgawad/devctl without --ignore-scripts and try again.",
-      { cause },
     );
   }
 }
@@ -43,36 +47,52 @@ function readFilePrefix(filePath) {
   try {
     const prefix = Buffer.alloc(512);
     const bytesRead = readSync(descriptor, prefix, 0, prefix.length, 0);
-    return prefix.subarray(0, bytesRead);
+    return prefix.slice(0, bytesRead);
   } finally {
     closeSync(descriptor);
   }
 }
 
-function assertInstalledBun(bunPath, readFile = readFilePrefix) {
-  const prefix = readFile(bunPath).toString("utf8");
-  if (prefix.includes("Bun's postinstall script was not run")) {
+function assertInstalledBun(bunPath, readFile, platform) {
+  const read = readFile !== undefined ? readFile : readFilePrefix;
+  const targetPlatform = platform !== undefined ? platform : process.platform;
+  let prefix;
+  try {
+    prefix = read(bunPath);
+  } catch (_) {
+    return;
+  }
+  const text = prefix.toString("utf8");
+  if (text.includes("Bun's postinstall script was not run")) {
     throw new Error(
       "The bundled Bun runtime was not installed because npm lifecycle scripts were disabled. " +
         "Reinstall without --ignore-scripts, then run devctl again.",
     );
   }
+  if (targetPlatform !== "win32" && prefix.length >= 2 && prefix[0] === 0x4d && prefix[1] === 0x5a) {
+    throw new Error(
+      `devctl was installed for Windows (detected Windows binary at ${bunPath}), but is running inside ${targetPlatform}.\n` +
+        "When running inside WSL or Linux, install Node.js natively in WSL and run: npm install --global @amr-m-abdelgawad/devctl\n" +
+        "To run devctl in Windows, use PowerShell or Command Prompt instead.",
+    );
+  }
 }
 
-function launch(options = {}) {
-  const platform = options.platform ?? process.platform;
-  const arch = options.arch ?? process.arch;
-  const argv = options.argv ?? process.argv.slice(2);
-  const env = options.env ?? process.env;
-  const cwd = options.cwd ?? process.cwd();
-  const spawnChild = options.spawnChild ?? spawn;
-  const resolveModule = options.resolveModule ?? require.resolve;
-  const readFile = options.readFile ?? readFilePrefix;
-  const entrypoint = options.entrypoint ?? resolve(__dirname, "../dist/devctl.js");
+function launch(options) {
+  const opts = options !== undefined ? options : {};
+  const platform = opts.platform !== undefined ? opts.platform : process.platform;
+  const arch = opts.arch !== undefined ? opts.arch : process.arch;
+  const argv = opts.argv !== undefined ? opts.argv : process.argv.slice(2);
+  const env = opts.env !== undefined ? opts.env : process.env;
+  const cwd = opts.cwd !== undefined ? opts.cwd : process.cwd();
+  const spawnChild = opts.spawnChild !== undefined ? opts.spawnChild : spawn;
+  const resolveModule = opts.resolveModule !== undefined ? opts.resolveModule : require.resolve;
+  const readFile = opts.readFile !== undefined ? opts.readFile : readFilePrefix;
+  const entrypoint = opts.entrypoint !== undefined ? opts.entrypoint : resolve(__dirname, "../dist/devctl.js");
 
   assertSupportedTarget(platform, arch);
   const bunPath = resolveBunExecutable(resolveModule);
-  assertInstalledBun(bunPath, readFile);
+  assertInstalledBun(bunPath, readFile, platform);
 
   return spawnChild(bunPath, [entrypoint, ...argv], {
     cwd,

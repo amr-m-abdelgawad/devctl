@@ -47,6 +47,13 @@ test("disabled lifecycle scripts produce an actionable error", () => {
   );
 });
 
+test("cross-environment execution (Windows binary on Linux) produces an actionable error", () => {
+  assert.throws(
+    () => assertInstalledBun("/fake/bun.exe", () => Buffer.from([0x4d, 0x5a, 0x90, 0x00]), "linux"),
+    /devctl was installed for Windows.*running inside linux/i,
+  );
+});
+
 test("launch forwards arguments, cwd, environment, and terminal streams without a shell", () => {
   const child = new EventEmitter();
   const calls = [];
