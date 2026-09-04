@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { validateConfigText, type DevctlConfig } from "../config/index.ts";
+import { configDiff, validateConfigText, type DevctlConfig } from "../config/index.ts";
 import { type Report } from "../doctor.ts";
 import { type LogFilter, type LogPage, type LogPageRequest } from "../logs.ts";
 import { Detector } from "../secrets.ts";
@@ -115,6 +115,14 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Merged project summary, no secret values",
     category: "inspect",
     description: "Merged project summary: services, routes, and proxy listen paths. No secret env values.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_config_sources",
+    label: "Config sources",
+    summary: "Winning and shadowed config sources",
+    category: "inspect",
+    description: "List effective configuration values with their winning source/layer and any shadowed sources. Secret-like values are redacted.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -376,6 +384,16 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
   };
 }
 
+export function getConfigSources(cfg: DevctlConfig): unknown {
+  const detector = detectorFor(cfg);
+  return {
+    entries: configDiff(cfg).map((entry) => {
+      const serialized = typeof entry.value === "string" ? entry.value : JSON.stringify(entry.value);
+      return { ...entry, value: detector.redactMap({ [entry.path]: serialized })[entry.path] };
+    }),
+  };
+}
+
 function stringList(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -400,6 +418,8 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return listProfiles(host.config());
     case "get_config":
       return getConfigSummary(host.config());
+    case "get_config_sources":
+      return getConfigSources(host.config());
     case "run_doctor":
       return host.doctor();
     case "start_services":

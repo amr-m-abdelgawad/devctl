@@ -19,7 +19,7 @@ devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--json]
-devctl config validate|show [--json]
+devctl config validate|show|diff [--json]
 devctl attach
 devctl completion zsh|bash|fish
 devctl update [--json]
@@ -68,6 +68,10 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 ```
 
 `__complete` is an internal helper. It loads configuration the same way the CLI does.
+
+## Configuration provenance
+
+`devctl config diff` lists every explicitly configured effective value, the file and merge layer that won, and any earlier sources it shadowed. `--json` returns the same information as `{ "entries": [...] }` for automation.
 
 ## Update
 

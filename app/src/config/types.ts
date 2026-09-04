@@ -182,6 +182,13 @@ export type ProjectEnvironmentConfig = {
   secrets: Record<string, string>;
 };
 
+export type ConfigOrigin = {
+  source: string;
+  layer: string;
+};
+
+export type ConfigProvenance = Record<string, ConfigOrigin[]>;
+
 export type DevctlConfig = {
   version: number;
   project: ProjectConfig;
@@ -198,6 +205,7 @@ export type DevctlConfig = {
   doctor: DoctorConfig;
   plugins: PluginConfig[];
   environment: ProjectEnvironmentConfig;
+  provenance: ConfigProvenance;
   repoRoot: string;
   configPath: string;
 };
@@ -275,6 +283,7 @@ export function defaultConfig(): DevctlConfig {
     doctor: { tools: [] },
     plugins: [],
     environment: { sources: [], secrets: {} },
+    provenance: {},
     repoRoot: "",
     configPath: "",
   };

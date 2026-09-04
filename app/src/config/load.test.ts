@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { load } from "./load.ts";
+import { configDiff } from "./provenance.ts";
 
 function writeFile(dir: string, rel: string, contents: string): void {
   const path = join(dir, rel);
@@ -151,6 +152,39 @@ services:
     expect(cfg.proxy.routes.map((route) => route.name)).toEqual(["api-1", "api-2", "worker"]);
     expect(cfg.proxy.routes[0]?.upstream.url).toBe("http://127.0.0.1:8000");
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
+  });
+
+  test("loads modular YAML in deterministic filename order", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-order-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", "version: 1\n");
+    writeFile(dir, ".devctl/services/api.yml", "command: [echo, from-yml]\n");
+    writeFile(dir, ".devctl/services/api.yaml", "command: [echo, from-yaml]\n");
+    const cfg = load(dir, "");
+    // api.yaml sorts before api.yml, so the latter is the deterministic winner.
+    expect(cfg.services.api?.command.args).toEqual(["echo", "from-yml"]);
+    const command = configDiff(cfg).find((entry) => entry.path === "services.api.command");
+    expect(command?.source.endsWith("api.yml")).toBe(true);
+    expect(command?.shadowed[0]?.source.endsWith("api.yaml")).toBe(true);
+  });
+
+  test("keeps provenance history across main, home, and repository-local layers", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-provenance-${Date.now()}`;
+    const devctlHome = `${dir}/home`;
+    const previousHome = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = devctlHome;
+    try {
+      writeFile(dir, ".devctl/config.yaml", "version: 1\nproject:\n  name: main\nservices:\n  api:\n    command: [echo, ok]\n");
+      writeFile(devctlHome, "config.local.yaml", "project:\n  name: home\n");
+      writeFile(dir, ".devctl/config.local.yaml", "project:\n  name: repo\n");
+      const cfg = load(dir, "");
+      const entry = configDiff(cfg).find((item) => item.path === "project.name");
+      expect(entry?.value).toBe("repo");
+      expect(entry?.layer).toBe("repo_local");
+      expect(entry?.shadowed.map((item) => item.layer)).toEqual(["main", "home_local"]);
+    } finally {
+      if (previousHome === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previousHome;
+    }
   });
 });
 

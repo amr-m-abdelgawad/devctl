@@ -5,7 +5,7 @@ import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newEr
 import { homeDir } from "../storage.ts";
 import { decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
 import { ConfigDirName, ConfigFileName, discover, fileExists } from "./discover.ts";
-import { applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, type ConfigPresence } from "./merge.ts";
+import { applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "./types.ts";
@@ -73,7 +73,7 @@ export function loadOrEmpty(startDir: string, explicit: string): DevctlConfig {
 export function loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig {
   let cfg = defaultConfig();
   const presence = newConfigPresence();
-  decodeFile(configPath, cfg, presence, opts?.candidateText);
+  decodeFile(configPath, cfg, presence, opts?.candidateText, "main");
   cfg.repoRoot = repoRoot;
   cfg.configPath = configPath;
   const dir = dirname(configPath);
@@ -87,7 +87,8 @@ export function loadPath(repoRoot: string, configPath: string, opts?: { candidat
   } catch (err) {
     throw wrapError(KindConfiguration, "template merge failed", err);
   }
-  mergeServiceProxyRoutes(cfg);
+  mergeServiceProxyRoutes(cfg, presence.provenance);
+  cfg.provenance = presence.provenance;
   const issues = validate(cfg);
   if (issues.length > 0) {
     throw newError(KindConfiguration, issues.join("\n"));
@@ -105,22 +106,22 @@ function applyLocalOverlays(cfg: DevctlConfig, repoRoot: string, configPath: str
     // Applied directly onto the accumulating cfg (not a fresh defaultConfig()
     // merged in afterward) so presence-aware field-by-field merging sees what
     // the main file and any modular files have already contributed.
-    decodeFile(path, cfg, presence);
+    decodeFile(path, cfg, presence, undefined, path === homeLocal ? "home_local" : "repo_local");
   }
   return cfg;
 }
 
-function decodeFile(path: string, cfg: DevctlConfig, presence: ConfigPresence, candidateText?: string): void {
+function decodeFile(path: string, cfg: DevctlConfig, presence: ConfigPresence, candidateText?: string, layer = "main"): void {
   const raw = candidateText !== undefined ? parseYamlText(candidateText, path) : parseYamlFile(path);
   const unknown = collectUnknownFields(raw, "");
   if (unknown.length > 0) {
     throw newError(KindConfiguration, formatUnknown(unknown));
   }
-  applyRoot(cfg, raw, presence);
+  applyRoot(cfg, raw, presence, { source: path, layer });
 }
 
 function loadModular(dir: string, cfg: DevctlConfig, presence: ConfigPresence): void {
-  loadYAMLDir(join(dir, "services"), (name, node) => {
+  loadYAMLDir(join(dir, "services"), (name, node, source) => {
     const unknown = collectUnknownFields(node, `services.${name}`);
     if (unknown.length > 0) {
       throw newError(KindConfiguration, formatUnknown(unknown));
@@ -128,22 +129,30 @@ function loadModular(dir: string, cfg: DevctlConfig, presence: ConfigPresence): 
     const existing = cfg.services[name];
     cfg.services[name] = existing ? mergeService(existing, node) : decodeService(node);
     recordPresence(presence.services, name, node);
+    recordProvenance(presence.provenance, node, source, "modular_service", `services.${name}`);
   });
-  loadYAMLDir(join(dir, "profiles"), (name, node) => {
+  loadYAMLDir(join(dir, "profiles"), (name, node, source) => {
     const unknown = collectUnknownFields(node, `profiles.${name}`);
     if (unknown.length > 0) {
       throw newError(KindConfiguration, formatUnknown(unknown));
     }
     cfg.profiles[name] = decodeProfile(node);
+    recordProvenance(presence.provenance, node, source, "modular_profile", `profiles.${name}`);
   });
   const routesPath = join(dir, "proxy", "routes.yaml");
   if (fileExists(routesPath)) {
-    applyRoutesFile(routesPath, cfg);
+    applyRoutesFile(routesPath, cfg, presence);
   }
 }
 
-function applyRoutesFile(routesPath: string, cfg: DevctlConfig): void {
+function applyRoutesFile(routesPath: string, cfg: DevctlConfig, presence: ConfigPresence): void {
   const wrap = parseYamlFile(routesPath);
+  if (isRecord(wrap.proxy)) {
+    recordProvenance(presence.provenance, wrap.proxy, routesPath, "modular_proxy", "proxy");
+  }
+  if (Array.isArray(wrap.routes)) {
+    recordProvenance(presence.provenance, wrap.routes, routesPath, "modular_proxy", "proxy.routes");
+  }
   if (isRecord(wrap.proxy)) {
     const unknown = collectUnknownFields({ proxy: wrap.proxy }, "");
     if (unknown.length > 0) {
@@ -176,7 +185,7 @@ function applyRoutesFile(routesPath: string, cfg: DevctlConfig): void {
   }
 }
 
-function loadYAMLDir(dir: string, fn: (name: string, node: unknown) => void): void {
+function loadYAMLDir(dir: string, fn: (name: string, node: unknown, source: string) => void): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
@@ -186,14 +195,14 @@ function loadYAMLDir(dir: string, fn: (name: string, node: unknown) => void): vo
     }
     throw err;
   }
-  for (const entry of entries) {
+  for (const entry of entries.sort()) {
     const ext = extname(entry);
     if (ext !== ".yaml" && ext !== ".yml") {
       continue;
     }
     const path = join(dir, entry);
     const node = parseYamlFile(path);
-    fn(basename(entry, ext), node);
+    fn(basename(entry, ext), node, path);
   }
 }
 

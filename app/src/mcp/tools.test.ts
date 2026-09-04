@@ -74,6 +74,10 @@ function stubHost(): McpHost {
   svc.working_dir = "api";
   svc.environment.vars = { API_TOKEN: "super-secret", NAME: "ok" };
   cfg.services.api = svc;
+  cfg.provenance["services.api.environment.API_TOKEN"] = [
+    { source: "/repo/.devctl/config.yaml", layer: "main" },
+    { source: "/repo/.devctl/config.local.yaml", layer: "repo_local" },
+  ];
   const logs = [
     { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 },
     { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 },
@@ -92,6 +96,13 @@ function stubHost(): McpHost {
 }
 
 describe("mcp tools", () => {
+  test("get_config_sources returns provenance while redacting secret values", async () => {
+    const result = (await callMcpTool(stubHost(), "get_config_sources", {})) as { entries: Array<{ value: string; layer: string; shadowed: unknown[] }> };
+    expect(result.entries[0]?.value).toBe(REDACTED_VALUE);
+    expect(result.entries[0]?.layer).toBe("repo_local");
+    expect(result.entries[0]?.shadowed).toHaveLength(1);
+  });
+
   test("list_services returns runtime fields", async () => {
     const listed = (await callMcpTool(stubHost(), "list_services", {})) as Array<{
       name: string;

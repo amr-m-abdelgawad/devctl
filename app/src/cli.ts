@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { stringify } from "yaml";
-import { defaultConfig, discover, load, loadOrEmpty, stopOnExit, validate } from "./config/index.ts";
+import { configDiff, defaultConfig, discover, load, loadOrEmpty, stopOnExit, validate } from "./config/index.ts";
 import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "./controller.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { bootstrapLogPath, readPersistedState } from "./storage.ts";
@@ -710,6 +710,23 @@ function addConfig(root: Command): void {
           return;
         }
         throw err;
+      }
+    });
+  cfg
+    .command("diff")
+    .description("show where effective configuration values came from")
+    .option("--json")
+    .action((opts: { json?: boolean }) => {
+      const loaded = load("", configFlag(root));
+      const entries = configDiff(loaded);
+      if (opts.json) {
+        writeOut(JSON.stringify({ entries }, null, 2) + "\n");
+        return;
+      }
+      for (const entry of entries) {
+        writeOut(`${entry.path} = ${JSON.stringify(entry.value)}\n`);
+        writeOut(`  winner: ${entry.layer} (${entry.source})\n`);
+        for (const origin of entry.shadowed) writeOut(`  shadowed: ${origin.layer} (${origin.source})\n`);
       }
     });
   cfg

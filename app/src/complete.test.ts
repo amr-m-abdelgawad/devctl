@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "./config/types.ts";
 import { completeLine, completionScript } from "./complete.ts";
+import { newRoot } from "./cli.ts";
 
 describe("completions", () => {
   test("suggests commands and service names from config", () => {
@@ -15,5 +16,11 @@ describe("completions", () => {
 
   test("prints a zsh script", () => {
     expect(completionScript("zsh")).toContain("compdef");
+  });
+
+  test("top-level completion commands stay bound to the CLI surface", () => {
+    const actual = completeLine("devctl ", defaultConfig()).slice().sort();
+    const declared = newRoot().commands.map((command) => command.name()).filter((name) => !name.startsWith("_")).sort();
+    expect(actual).toEqual(declared);
   });
 });

@@ -16,6 +16,7 @@ import {
 import {
   emptyService,
   type DevctlConfig,
+  type ConfigProvenance,
   type EnvConfig,
   type HealthCheckConfig,
   type IdentityConfig,
@@ -40,10 +41,22 @@ export type FieldPresenceMap = Record<string, Set<string>>;
 export type ConfigPresence = {
   services: FieldPresenceMap;
   templates: FieldPresenceMap;
+  provenance: ConfigProvenance;
 };
 
 export function newConfigPresence(): ConfigPresence {
-  return { services: {}, templates: {} };
+  return { services: {}, templates: {}, provenance: {} };
+}
+
+export function recordProvenance(provenance: ConfigProvenance, raw: unknown, source: string, layer: string, prefix = ""): void {
+  if (isRecord(raw) && Object.keys(raw).length > 0) {
+    for (const [key, value] of Object.entries(raw)) {
+      recordProvenance(provenance, value, source, layer, prefix === "" ? key : `${prefix}.${key}`);
+    }
+    return;
+  }
+  if (prefix === "") return;
+  (provenance[prefix] ??= []).push({ source, layer });
 }
 
 // Service fields that are themselves merged field-by-field rather than
@@ -74,7 +87,13 @@ export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown
 // overlay already set. The first call (decoding the main file into a fresh
 // defaultConfig()) behaves exactly as a plain decode would, since nothing
 // is "existing" yet for services/profiles/templates to merge against.
-export function applyRoot(cfg: DevctlConfig, raw: Record<string, unknown>, presence: ConfigPresence = newConfigPresence()): void {
+export function applyRoot(
+  cfg: DevctlConfig,
+  raw: Record<string, unknown>,
+  presence: ConfigPresence = newConfigPresence(),
+  origin: { source: string; layer: string } = { source: "unknown", layer: "unknown" },
+): void {
+  recordProvenance(presence.provenance, raw, origin.source, origin.layer);
   if (raw.version !== undefined) {
     cfg.version = asNumber(raw.version);
   }
@@ -342,7 +361,7 @@ function mergeStartup(base: StartupConfig, raw: unknown): StartupConfig {
   };
 }
 
-export function mergeServiceProxyRoutes(cfg: DevctlConfig): void {
+export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance): void {
   const names = Object.keys(cfg.services).sort();
   for (const name of names) {
     const fragments = cfg.services[name]?.proxy ?? [];
@@ -351,12 +370,17 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig): void {
     }
     fragments.forEach((frag, i) => {
       const routeName = fragments.length === 1 ? name : `${name}-${i + 1}`;
-      cfg.proxy.routes.push({
+      const route = {
         name: routeName,
         match: frag.match,
         upstream: frag.upstream,
         auth: frag.auth,
-      });
+      };
+      const index = cfg.proxy.routes.length;
+      cfg.proxy.routes.push(route);
+      if (provenance) {
+        recordProvenance(provenance, route, `synthesized from services.${name}.proxy`, "synthesized", `proxy.routes.${index}`);
+      }
     });
   }
 }

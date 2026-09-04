@@ -120,7 +120,7 @@ function nestedKnown(path: string): string[] {
   return [];
 }
 
-function servicePathKnown(path: string): string[] {
+export function servicePathKnown(path: string): string[] {
   const parts = path.split(".");
   if (parts.length === 2) {
     return knownService;

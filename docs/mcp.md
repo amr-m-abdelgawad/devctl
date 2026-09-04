@@ -69,6 +69,7 @@ devctl mcp --json
 | `get_logs` | logs | Filtered logs, capped at 200 events per page, secrets redacted. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
 | `list_profiles` | inspect | Config profiles and members |
 | `get_config` | inspect | Merged summary: project, services, routes, proxy paths |
+| `get_config_sources` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |
 | `run_doctor` | diagnostics | Doctor report |
 | `start_services` | control | Named list, or a `profile`. Omitted names use `profile`, then the active session profile, then the first configured profile — never every service. No profile and no names fails closed |
 | `stop_services` | control | Named list, or all started services when omitted. Also stops every transitive dependent of a named service — never its dependencies |

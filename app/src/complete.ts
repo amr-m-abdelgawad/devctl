@@ -44,6 +44,8 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
   const profiles = Object.keys(cfg.profiles).sort();
   const commands = [
     "start",
+    "down",
+    "daemon",
     "stop",
     "restart",
     "status",
@@ -76,7 +78,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     return filterPrefix(["status", "login", "logout", "refresh"], tail);
   }
   if (cmd === "config") {
-    return filterPrefix(["validate", "show"], tail);
+    return filterPrefix(["validate", "show", "diff"], tail);
   }
   if (cmd === "proxy") {
     return filterPrefix(["status", "start", "stop"], tail);

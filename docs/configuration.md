@@ -39,6 +39,9 @@ flowchart TB
 ```
 
 Service and profile filenames become keys (`identity.yaml` → service `identity`).
+Files within each modular directory are loaded in sorted filename order, making
+overrides deterministic even when both `.yaml` and `.yml` fragments resolve to
+the same key.
 
 ## Overlays and precedence
 
@@ -101,8 +104,15 @@ services:
 devctl config validate
 devctl config validate --json
 devctl config show
+devctl config diff
 devctl reload
 ```
+
+`config diff` explains the resolved result instead of merely printing it. Each
+entry includes the winning source file and layer (`main`, `modular_service`,
+`modular_profile`, `modular_proxy`, `home_local`, `repo_local`, or
+`synthesized`) and the ordered sources it shadowed. Use `--json` for structured
+output.
 
 Checks: YAML syntax, required fields, unknown fields, service references, dependency cycles, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
 
