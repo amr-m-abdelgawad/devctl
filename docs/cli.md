@@ -40,14 +40,14 @@ devctl update [--json]
 - `stop` with no names stops every started service; naming one or more services also stops everything that (transitively) depends on them — never their dependencies, which other running services may still need. This is a **breaking change**: stop used to mirror start and pull in dependencies instead.
 - `restart` touches only the named services, not their dependents; `--cascade` also restarts those dependents (the same set `stop` would affect). Either way, start still expands the named services' own dependencies if they aren't already running.
 - `run` starts the task's declared service dependencies, executes the transient command once with the resolved project/task environment, and returns its exit status. `--json` includes captured stdout and stderr. The TUI equivalent is `/run <task>` (output lands in Logs under `task:<name>`).
-- `exec` runs once in a service's resolved environment and working directory, even when that service is stopped. `--print-env` prints the exact environment without running a command; secret-like values are redacted unless `--reveal` is explicitly supplied. The TUI equivalents are `/exec <service> -- <command…>` and `/exec <service> --print-env`.
+- `exec` runs once in a service's resolved environment and working directory, even when that service is stopped. `--print-env` prints the exact environment without running a command; secret-like values are redacted unless `--reveal` is explicitly supplied. The TUI equivalents are `/exec <service> -- <command…>` and `/exec <service> --print-env` (the env inspector shows the same resolved map, not config-only `vars`/`defaults`).
 - `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
 - `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - `status` also prints proxy and MCP listen lines when a supervisor is up.
 - `status --watch` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (`ctrl+c`).
 - `logs -f` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details.
-- `devctl daemon logs [-f]` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when `start`/`attach` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. `-f` follows it live the same way `logs -f` does.
+- `devctl daemon logs [-f]` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when `start`/`attach` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. `-f` follows it live the same way `logs -f` does. The TUI equivalent is `/daemon`.
 
 `devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start` first.
 
@@ -76,11 +76,11 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Configuration provenance
 
-`devctl config diff` lists every explicitly configured effective value, the file and merge layer that won, and any earlier sources it shadowed. `--json` returns the same information as `{ "entries": [...] }` for automation.
+`devctl config diff` lists every explicitly configured effective value, the file and merge layer that won, and any earlier sources it shadowed. `--json` returns the same information as `{ "entries": [...] }` for automation. The TUI equivalent is `/diff` (secret-like values stay redacted unless `/reveal` is on).
 
 ## Update
 
-`devctl update` checks the latest GitHub Release and prints the current version, latest tag, and an install hint. It does **not** overwrite the running binary.
+`devctl update` checks the latest GitHub Release and prints the current version, latest tag, and an install hint. It does **not** overwrite the running binary. `/update` and `/version` in the TUI run the same check.
 
 ## Exit codes
 

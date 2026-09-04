@@ -1,4 +1,5 @@
-import { dependencyLabel, emptyService, listenAddress, refreshThreshold, type DevctlConfig, type RouteConfig, type ServiceConfig } from "../config/index.ts";
+import { configDiff, dependencyLabel, emptyService, listenAddress, refreshThreshold, type DevctlConfig, type RouteConfig, type ServiceConfig } from "../config/index.ts";
+import { Detector } from "../secrets.ts";
 import { serviceCommandText, serviceHealthText, serviceIdentityText, servicePortsText, serviceRestartText } from "./helpers.ts";
 
 export type ConfigChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle";
@@ -48,6 +49,7 @@ export function configHeaderChips(cfg: DevctlConfig): ConfigChip[] {
   const services = Object.keys(cfg.services).length;
   const profiles = Object.keys(cfg.profiles).length;
   const routes = cfg.proxy.routes.length;
+  const tasks = Object.keys(cfg.tasks).length;
   const chips: ConfigChip[] = [
     { text: cfg.project.name || "unnamed", tone: "primary" },
     { text: `schema ${cfg.version}`, tone: "muted" },
@@ -57,6 +59,9 @@ export function configHeaderChips(cfg: DevctlConfig): ConfigChip[] {
   ];
   if (routes > 0) {
     chips.push({ text: `${routes} route${routes === 1 ? "" : "s"}`, tone: "info" });
+  }
+  if (tasks > 0) {
+    chips.push({ text: `${tasks} task${tasks === 1 ? "" : "s"}`, tone: "info" });
   }
   return chips;
 }
@@ -153,6 +158,36 @@ export function configTemplateRows(cfg: DevctlConfig): ConfigNamedSummary[] {
       name,
       summary: templateSummary(cfg.templates[name]),
     }));
+}
+
+export function configTaskRows(cfg: DevctlConfig): ConfigNamedSummary[] {
+  return Object.keys(cfg.tasks)
+    .sort()
+    .map((name) => {
+      const task = cfg.tasks[name];
+      const command = task?.command.args.join(" ") || "—";
+      const depends = task?.dependencies.join(", ");
+      return { name, summary: depends ? `${command}  depends ${depends}` : command };
+    });
+}
+
+export function formatConfigDiffText(cfg: DevctlConfig, reveal: boolean): string {
+  const entries = configDiff(cfg);
+  if (entries.length === 0) {
+    return "No provenance recorded for this configuration.";
+  }
+  const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
+  return entries
+    .map((entry) => {
+      const serialized = typeof entry.value === "string" ? entry.value : JSON.stringify(entry.value);
+      const value = reveal ? serialized : detector.redactMap({ [entry.path]: serialized })[entry.path];
+      const shadowed =
+        entry.shadowed.length === 0
+          ? ""
+          : `\n  shadowed  ${entry.shadowed.map((item) => `${item.layer} · ${item.source}`).join("; ")}`;
+      return `${entry.path}\n  ${entry.layer} · ${entry.source}\n  ${value ?? ""}${shadowed}`;
+    })
+    .join("\n\n");
 }
 
 export function configExtraFacts(cfg: DevctlConfig): ConfigFact[] {

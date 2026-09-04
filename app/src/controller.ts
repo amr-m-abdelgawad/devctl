@@ -7,7 +7,7 @@ import { KindGeneral, hintError, parseError, wrapError } from "./errors.ts";
 import { type BusEvent } from "./events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "./logs.ts";
 import { type Plan } from "./services.ts";
-import { bootstrapLogPath, rotateBootstrapLog, socketPath } from "./storage.ts";
+import { bootstrapLogPath, rotateBootstrapLog, socketPath, type PersistedState, readPersistedState } from "./storage.ts";
 import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "./types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
@@ -264,6 +264,7 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
 export class Controller {
   cfg: DevctlConfig;
   client?: Client;
+  previousPersisted?: PersistedState;
 
   constructor(cfg: DevctlConfig) {
     this.cfg = cfg;
@@ -473,8 +474,12 @@ export async function openTui(startDir: string, configPath: string): Promise<Con
   }
   const cfg = load(startDir, configPath);
   const ctrl = new Controller(cfg);
+  const leftover = readPersistedState(cfg.repoRoot);
   ctrl.client = await ensureSupervisor(cfg.repoRoot, cfg.configPath);
   warnIfVersionMismatch(ctrl.client);
   ctrl.cfg = await ctrl.configSnapshot();
+  if (leftover && leftover.processes.length > 0) {
+    ctrl.previousPersisted = leftover;
+  }
   return ctrl;
 }

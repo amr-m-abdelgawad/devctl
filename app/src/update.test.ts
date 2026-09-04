@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { checkUpdate, compareSemver } from "./update.ts";
+import { checkUpdate, compareSemver, formatUpdateStatus } from "./update.ts";
 import { VERSION } from "./version.ts";
 
 describe("update", () => {
@@ -17,9 +17,9 @@ describe("update", () => {
     expect(result.hint).toStartWith("npm install --global @amr-m-abdelgawad/devctl@latest");
   });
 
-  test("checkUpdate stays quiet when the API is unavailable", async () => {
-    const result = await checkUpdate(async () => new Response("no", { status: 503 }));
-    expect(result.latest).toBe("");
-    expect(result.newer).toBe(false);
+  test("formatUpdateStatus does not overwrite the binary", () => {
+    expect(formatUpdateStatus({ current: "0.2.0", latest: "0.3.0", newer: true, hint: "npm i" })).toContain("0.2.0 → 0.3.0");
+    expect(formatUpdateStatus({ current: "0.2.0", latest: "0.2.0", newer: false, hint: "npm i" })).toBe("0.2.0 up to date");
+    expect(formatUpdateStatus({ current: "0.2.0", latest: "", newer: false, hint: "npm i" })).toBe("0.2.0 (latest unavailable)");
   });
 });

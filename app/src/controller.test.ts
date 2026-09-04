@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, openTui, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "./environment.ts";
 import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "./errors.ts";
-import { bootstrapLogPath, socketPath } from "./storage.ts";
+import { bootstrapLogPath, socketPath, writePersistedState } from "./storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 function tmp(): string {
@@ -335,11 +335,19 @@ services:
     );
     const originalArgv1 = process.argv[1] ?? "";
     process.argv[1] = join(import.meta.dir, "bin.ts");
+    writePersistedState(dir, {
+      session_id: "old-session",
+      repo_root: dir,
+      profile: "backend",
+      processes: [{ name: "api", pid: 4242, command: ["echo"], cwd: dir, startTime: "", ports: {} }],
+    });
     try {
       const ctrl = await openTui(dir, "");
       try {
         expect(ctrl.client).toBeDefined();
         expect(ctrl.cfg.project.name).toBe("fresh-daemon");
+        expect(ctrl.previousPersisted?.session_id).toBe("old-session");
+        expect(ctrl.previousPersisted?.processes[0]?.pid).toBe(4242);
       } finally {
         await ctrl.close({ shutdownSupervisor: true });
       }

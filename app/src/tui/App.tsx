@@ -1,22 +1,24 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
 import { loadPath, validateConfigText, type DevctlConfig } from "../config/index.ts";
 import { type Controller } from "../controller.ts";
 import { runDoctor, type DoctorProgress, type Report } from "../doctor.ts";
 import { freePort, type PortHolder } from "../ports.ts";
-import { detectGoogle, type GoogleStatus } from "../google.ts";
+import { detectGoogle, loginGoogle, logoutGoogle, type GoogleStatus } from "../google.ts";
 import { humanMessage } from "../errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogReceived, type BusEvent } from "../events.ts";
 import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent, type LogFacets } from "../logs.ts";
-import { exportsDir } from "../storage.ts";
+import { bootstrapLogPath, exportsDir } from "../storage.ts";
 import { resolveStartRequest, shutdownPlan, startupPlan, type Plan } from "../services.ts";
 import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../mcp/snippets.ts";
 import { type StatusSnapshot } from "../types.ts";
 import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, parseExecArgs, type CommandSpec } from "./commands.ts";
 import { versionLine } from "../version.ts";
+import { checkUpdate, formatUpdateStatus } from "../update.ts";
+import { formatConfigDiffText } from "./config-view.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
 import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode } from "./helpers.ts";
@@ -46,6 +48,7 @@ import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { PaletteOverlay } from "./overlays/Palette.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
 import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
+import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
 import { SlashOverlay } from "./overlays/Slash.tsx";
 import { ThemesOverlay } from "./overlays/Themes.tsx";
 import { AuthScreen } from "./screens/Auth.tsx";
@@ -81,6 +84,7 @@ import {
 import { isDarkTerminalBackground, paletteFor, resolveThemeName, THEME_NAMES } from "./themes.ts";
 import { type ConfirmDetail, type ConfirmKind, type LifecycleKind, type Overlay, type Screen } from "./types.ts";
 import { defaultCopyKeybind, saveTuiPreferences, type TuiConfig, type TuiPreferencePatch } from "./tui-config.ts";
+import { withSuspendedRenderer } from "./suspend.ts";
 
 const COMMAND_LOCK_MS = 50;
 const NO_LOG_SERVICES: string[] = [];
@@ -96,6 +100,7 @@ type AppProps = {
 };
 
 export function App({ controller, tui, onQuit, bootError, bootErrorMissing = false, terminalBackground }: AppProps) {
+  const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [themeName, setThemeName] = useState(tui.theme || controller?.cfg.ui.theme || "devctl");
   const committedTheme = useRef(themeName);
@@ -178,6 +183,10 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [logRegex, setLogRegex] = useState(false);
   const [logDetail, setLogDetail] = useState<LogEvent | undefined>();
   const [routeDetail, setRouteDetail] = useState<RouteDetailInfo | undefined>();
+  const [scrollText, setScrollText] = useState<{ title: string; body: string } | undefined>();
+  const [resolvedEnvCache, setResolvedEnvCache] = useState<{ name: string; env: Record<string, string> } | undefined>();
+  const [resolvedEnvLoading, setResolvedEnvLoading] = useState(false);
+  const [resolvedEnvError, setResolvedEnvError] = useState("");
   const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
   const [logPinned, setLogPinned] = useState(false);
   const [logSelected, setLogSelected] = useState(LOG_LIST_TAIL - 1);
@@ -193,6 +202,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
   const logDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
   const routeDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
+  const scrollTextScrollRef = useRef<ScrollBoxRenderable>(null);
   const planScrollRef = useRef<ScrollBoxRenderable>(null);
   const configEditRef = useRef<TextareaRenderable>(null);
   const [configEditText, setConfigEditText] = useState("");
@@ -211,6 +221,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const interruptArmedAt = useRef(0);
 
   const [cfg, setCfg] = useState<DevctlConfig | undefined>(controller?.cfg);
+  const leftover = controller?.previousPersisted;
   // Persists across reloads until the next successful one supersedes it —
   // unlike `status`, which is a transient one-line message for the last
   // action, this is state the user needs to keep seeing.
@@ -275,6 +286,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   });
   const cursorState = screen === "logs" ? logSelected : selected;
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
+  const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
+  const envMatches = resolvedEnvCache?.name === envService;
+  const inspectorEnv = envMatches ? resolvedEnvCache?.env : undefined;
+  const inspectorEnvStatus = envService === "" ? "config" : resolvedEnvLoading && !envMatches ? "loading" : envMatches ? "resolved" : resolvedEnvError !== "" ? "error" : "config";
+  const inspectorEnvError = envMatches || envService === "" ? "" : resolvedEnvError;
 
   useEffect(() => {
     setDashboardLogCursor(-1);
@@ -852,6 +868,44 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     setScreen("detail");
   }, []);
 
+  useEffect(() => {
+    setResolvedEnvCache(undefined);
+    setResolvedEnvError("");
+  }, [cfg]);
+
+  useEffect(() => {
+    if (!controller || envService === "" || !cfg?.services[envService]) {
+      return;
+    }
+    if (resolvedEnvCache?.name === envService) {
+      return;
+    }
+    let cancelled = false;
+    setResolvedEnvLoading(true);
+    setResolvedEnvError("");
+    void controller
+      .execService(envService, [], true)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setResolvedEnvCache({ name: envService, env: result.environment ?? {} });
+        setResolvedEnvError("");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setResolvedEnvError(humanMessage(err));
+      })
+      .finally(() => {
+        setResolvedEnvLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cfg, controller, envService, resolvedEnvCache?.name]);
+
   const beginStart = useCallback(
     async (targets: string[], profileName: string) => {
       if (!controller || !cfg) {
@@ -952,7 +1006,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     // this matches every currently active filter, not just the ones this
     // callback happens to remember to pass along.
     const text =
-      overlay === "log-details" && logDetail ? formatLogDetails(logDetail) : formatLogsForClipboard(filteredLogs);
+      overlay === "log-details" && logDetail
+        ? formatLogDetails(logDetail)
+        : overlay === "scroll-text" && scrollText
+          ? scrollText.body
+          : formatLogsForClipboard(filteredLogs);
     const suffix = note === "" ? "" : ` · ${note}`;
     if (text.trim() === "") {
       setStatus(`No logs to copy${suffix}`);
@@ -961,12 +1019,12 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     try {
       await writeClipboard(text);
       const lines = text.split("\n").length;
-      const copied = overlay === "log-details" ? "Copied log event" : `Copied ${lines} log lines`;
+      const copied = overlay === "log-details" ? "Copied log event" : overlay === "scroll-text" ? "Copied overlay text" : `Copied ${lines} log lines`;
       setStatus(`${copied}${suffix}`);
     } catch (err) {
       setStatus(humanMessage(err));
     }
-  }, [filteredLogs, logDetail, overlay]);
+  }, [filteredLogs, logDetail, overlay, scrollText]);
 
   const openConfigBuffer = useCallback(() => {
     if (!cfg) {
@@ -1031,6 +1089,15 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             return;
           case "version":
             setStatus(versionLine());
+            void checkUpdate()
+              .then((result) => setStatus(formatUpdateStatus(result)))
+              .catch((err: unknown) => setStatus(humanMessage(err)));
+            return;
+          case "update":
+            setStatus("checking for update…");
+            void checkUpdate()
+              .then((result) => setStatus(formatUpdateStatus(result)))
+              .catch((err: unknown) => setStatus(humanMessage(err)));
             return;
           case "themes":
             if (args[0]) {
@@ -1059,14 +1126,42 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             setScreen("logs");
             setLogsFullscreen((current) => (screen === "logs" ? !current : true));
             return;
-          case "auth":
-            if (args[0]?.toLowerCase() === "refresh") {
+          case "auth": {
+            const action = (args[0] ?? "").toLowerCase();
+            if (action === "refresh") {
               setScreen("auth");
               await refreshAuth();
               return;
             }
+            if (action === "login") {
+              setScreen("auth");
+              setStatus("starting gcloud ADC login…");
+              try {
+                await withSuspendedRenderer(renderer, () => loginGoogle());
+                setGoogle(await detectGoogle(cfg?.google.project_id ?? ""));
+                await refreshAuth();
+                setStatus("ADC login complete");
+              } catch (err) {
+                setStatus(humanMessage(err));
+              }
+              return;
+            }
+            if (action === "logout") {
+              setScreen("auth");
+              setStatus("revoking ADC…");
+              try {
+                await logoutGoogle();
+                setGoogle(await detectGoogle(cfg?.google.project_id ?? ""));
+                await refreshAuth();
+                setStatus("ADC revoked");
+              } catch (err) {
+                setStatus(humanMessage(err));
+              }
+              return;
+            }
             setScreen("auth");
             return;
+          }
           case "credentials":
           case "proxy":
           case "mcp":
@@ -1075,6 +1170,29 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           case "setup":
             setScreen(spec.name);
             return;
+          case "diff":
+            if (!cfg) {
+              setStatus("no configuration loaded");
+              return;
+            }
+            setScrollText({ title: "config sources", body: formatConfigDiffText(cfg, reveal) });
+            setOverlay("scroll-text");
+            return;
+          case "daemon": {
+            const root = cfg?.repoRoot;
+            if (!root) {
+              setStatus("no repository");
+              return;
+            }
+            const path = bootstrapLogPath(root);
+            if (!existsSync(path)) {
+              setStatus("no daemon bootstrap log yet for this repository");
+              return;
+            }
+            setScrollText({ title: "daemon bootstrap", body: readFileSync(path, "utf8") });
+            setOverlay("scroll-text");
+            return;
+          }
           case "reload":
             if (!controller) {
               return;
@@ -1135,8 +1253,18 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
               if (parsed.reveal) {
                 setReveal(true);
               }
-              openDetail(parsed.service);
-              setStatus(`Resolved environment for ${parsed.service}`);
+              setStatus(`Resolving environment for ${parsed.service}…`);
+              try {
+                const result = await controller.execService(parsed.service, [], true);
+                setResolvedEnvCache({ name: parsed.service, env: result.environment ?? {} });
+                setResolvedEnvError("");
+                openDetail(parsed.service);
+                setStatus(`Resolved environment for ${parsed.service}`);
+              } catch (err) {
+                setResolvedEnvError(humanMessage(err));
+                openDetail(parsed.service);
+                setStatus(humanMessage(err));
+              }
               return;
             }
             if (parsed.command.length === 0) {
@@ -1272,7 +1400,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, reveal, screen, themeName, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, themeName, toggleSystemLogs],
   );
 
   const openExportsFolder = useCallback(() => {
@@ -1486,25 +1614,26 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       }
       return;
     }
-    if (overlay === "log-details") {
+    if (overlay === "log-details" || overlay === "scroll-text") {
       if (name === "escape") {
         closeOverlay();
         return;
       }
+      const box = overlay === "log-details" ? logDetailsScrollRef.current : scrollTextScrollRef.current;
       if (name === "down" || name === "j") {
-        scrollBoxBy(logDetailsScrollRef.current, tui.scroll_speed);
+        scrollBoxBy(box, tui.scroll_speed);
         return;
       }
       if (name === "up" || name === "k") {
-        scrollBoxBy(logDetailsScrollRef.current, -tui.scroll_speed);
+        scrollBoxBy(box, -tui.scroll_speed);
         return;
       }
       if (isPageDownKey(key)) {
-        scrollBoxBy(logDetailsScrollRef.current, pageScrollAmount(height));
+        scrollBoxBy(box, pageScrollAmount(height));
         return;
       }
       if (isPageUpKey(key)) {
-        scrollBoxBy(logDetailsScrollRef.current, -pageScrollAmount(height));
+        scrollBoxBy(box, -pageScrollAmount(height));
         return;
       }
       return;
@@ -2159,6 +2288,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             newer={logWindow.newer}
             onJumpLatest={jumpToLatestLogs}
             facets={logFacets}
+            leftover={leftover}
           />
         ) : null}
         {screen === "services" ? (
@@ -2174,10 +2304,24 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             onOpen={openDetail}
             onSelectIndex={setSelected}
             onToggle={toggleChecked}
+            resolvedEnv={inspectorEnv}
+            envStatus={inspectorEnvStatus}
+            envError={inspectorEnvError}
           />
         ) : null}
         {screen === "detail" ? (
-          <ServiceDetail palette={palette} cfg={cfg} snap={snap} name={detailName} reveal={reveal} width={width} envScrollRef={detailScrollRef} />
+          <ServiceDetail
+            palette={palette}
+            cfg={cfg}
+            snap={snap}
+            name={detailName}
+            reveal={reveal}
+            width={width}
+            envScrollRef={detailScrollRef}
+            resolvedEnv={inspectorEnv}
+            envStatus={inspectorEnvStatus}
+            envError={inspectorEnvError}
+          />
         ) : null}
         {screen === "logs" ? (
           <LogsScreen
@@ -2329,6 +2473,16 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       ) : null}
       {overlay === "route-details" ? (
         <RouteDetailsOverlay palette={palette} route={routeDetail} termW={width} termH={height} scrollRef={routeDetailsScrollRef} />
+      ) : null}
+      {overlay === "scroll-text" && scrollText ? (
+        <ScrollTextOverlay
+          palette={palette}
+          title={scrollText.title}
+          body={scrollText.body}
+          termW={width}
+          termH={height}
+          scrollRef={scrollTextScrollRef}
+        />
       ) : null}
       {overlay === "config-edit" && cfg ? (
         <ConfigEditOverlay

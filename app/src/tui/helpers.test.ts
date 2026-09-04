@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../config/types.ts";
 import { ConfigurationReloadFailed } from "../events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prevScreen, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, envKeyColumnWidth, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -277,7 +277,9 @@ describe("TUI helpers", () => {
     expect(footerHints("logs", "log-details").some((h) => h.key === defaultCopyKeybind())).toBe(true);
     expect(footerHints("settings", "none").some((h) => h.key === "←→" && h.label === "save")).toBe(true);
     expect(footerHints("mcp", "none").some((h) => h.label === "start or copy")).toBe(true);
-    expect(footerHints("auth", "none").some((h) => h.key === "r" && h.label === "probe identities")).toBe(true);
+    expect(footerHints("auth", "none").some((h) => h.key === "/auth login")).toBe(true);
+    expect(footerHints("config", "none").some((h) => h.key === "/diff")).toBe(true);
+    expect(footerHints("dashboard", "scroll-text").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("dashboard", "plan").some((h) => h.label.includes("dashboard"))).toBe(true);
     expect(footerHints("dashboard", "help").some((h) => h.key === "j/k")).toBe(true);
     expect(footerHints("config", "config-edit").some((h) => h.key === "ctrl+s")).toBe(true);
@@ -355,6 +357,28 @@ describe("TUI helpers", () => {
     expect(nextLogWrapMode("focus")).toBe("all");
     expect(nextLogWrapMode("all")).toBe("clip");
     expect(logWrapLabel("focus")).toBe("wrap selected");
+  });
+
+  test("log wrap and spans strip ANSI so CSI does not consume width", () => {
+    const csi = "\x1b[31mERROR\x1b[0m ready";
+    expect(stripAnsi(csi)).toBe("ERROR ready");
+    expect(wrapLogMessage(csi, 40)).toEqual(["ERROR ready"]);
+    expect(wrapLogMessage(`\x1b[1;32m${"x".repeat(30)}\x1b[0m`, 10).every((line) => line.length <= 10)).toBe(true);
+    expect(logMessageSpans(csi).every((span) => !span.text.includes("\x1b"))).toBe(true);
+    expect(logMessageSpans(csi).map((span) => span.kind)).toContain("keyword");
+    expect(formatLogLine({ timestamp: "t", service: "api", source: "api", level: "INFO", message: csi, pid: 1, request_id: "", identity: "", seq: 1 })).not.toContain("\x1b");
+  });
+
+  test("previous session leftover is hidden when it is the live session", () => {
+    const leftover = {
+      session_id: "sess-1",
+      repo_root: "/repo",
+      profile: "backend",
+      processes: [{ name: "api", pid: 42, command: ["echo"], cwd: ".", startTime: "", ports: {} }],
+    };
+    expect(previousSessionNote(leftover, "sess-1")).toBeUndefined();
+    expect(previousSessionNote(leftover, "sess-2")?.processes[0]?.pid).toBe(42);
+    expect(previousSessionNote({ ...leftover, processes: [] }, "sess-2")).toBeUndefined();
   });
 
   test("log pane width reserves borders padding and scrollbar", () => {
@@ -512,6 +536,9 @@ describe("TUI helpers", () => {
     expect(entries.find((row) => row.key === "MISSING")?.required).toBe(true);
     expect(envKeyColumnWidth(80)).toBeGreaterThan(envKeyColumnWidth(24));
     expect(envKeyColumnWidth(200)).toBeLessThanOrEqual(28);
+    const resolved = serviceEnvEntries(svc, true, ["TOKEN"], [], { TOKEN: "secret", PORT: "18001", REGION: "us" });
+    expect(resolved.find((row) => row.key === "PORT")?.value).toBe("18001");
+    expect(resolved.find((row) => row.key === "TOKEN")?.value).toBe("secret");
   });
 
   test("tab window keeps the active item visible when the strip overflows", () => {

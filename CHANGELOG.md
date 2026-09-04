@@ -9,11 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- TUI `/run <task>` and `/exec <service> -- <command…>`. Task and exec output go to Logs (`task:<name>` / `<service>:exec`). `/exec <service> --print-env` opens the service env inspector (`--reveal` shows secrets for this session).
+- TUI `/run <task>` and `/exec <service> -- <command…>`. Task and exec output go to Logs (`task:<name>` / `<service>:exec`). `/exec <service> --print-env` loads the same resolved environment as the CLI (dotenv, profile, secrets, plugins, runtime ports), redacted unless `/reveal` or `--reveal`.
+- TUI `/diff` (config provenance), `/daemon` (supervisor bootstrap stderr), `/auth login` and `/auth logout`, `/update` (GitHub Releases check; does not overwrite the binary). `/version` runs that same check after printing the current version.
 
 ### Changed
 
 - Documentation matches 0.2.0: empty start and `--detach`, the demo `data` profile, MCP/skills indexes, proxy auth types and WebSocket upgrades, Doctor container checks, CONTRIBUTING.md, SECURITY.md, GitHub issue/PR templates, and in-repo agent-skill pointers.
+- TUI log wrap and copy strip ANSI so CSI sequences do not consume width or appear in the clipboard.
+- Proxy route list wraps match and upstream instead of clipping them; `devctl proxy status` prints the host/path match.
+- Idle dashboard shows leftover PIDs from the previous supervisor session (the same persisted state `devctl status` prints when the socket is down) without skipping TUI auto-spawn.
+- Config screen lists named tasks.
+
+### Fixed
+
+- `/auth login` suspends the OpenTUI renderer before spawning `gcloud`, so ADC login output no longer overwrites the TUI. The TUI is restored when gcloud exits.
 
 ## [0.2.0] - 2026-09-04
 

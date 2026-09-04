@@ -3,6 +3,7 @@ import { type BusEvent } from "../events.ts";
 import { compileLogSearch, type LogEvent, type LogFacets } from "../logs.ts";
 import { Detector } from "../secrets.ts";
 import { displayState, type Plan, type Runtime } from "../services.ts";
+import { type PersistedState } from "../storage.ts";
 import { type StatusSnapshot } from "../types.ts";
 import { allCommands, type CommandSpec } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
@@ -222,9 +223,15 @@ function logSpanKind(token: string): LogSpanKind {
   return "keyword";
 }
 
+const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
+
+export function stripAnsi(value: string): string {
+  return value.replace(ANSI_CSI, "");
+}
+
 export function wrapLogMessage(message: string, width: number): string[] {
   const max = Math.max(1, width);
-  const paragraphs = message.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const paragraphs = stripAnsi(message).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const lines: string[] = [];
   for (const paragraph of paragraphs) {
     if (paragraph.length <= max) {
@@ -344,24 +351,25 @@ function wrapBreakAt(window: string): number {
 }
 
 export function logMessageSpans(message: string): LogSpan[] {
+  const plain = stripAnsi(message);
   const spans: LogSpan[] = [];
   const re = new RegExp(LOG_TOKEN.source, "gi");
   let last = 0;
-  let match = re.exec(message);
+  let match = re.exec(plain);
   while (match) {
     const token = match[0] ?? "";
     if (match.index > last) {
-      spans.push({ text: message.slice(last, match.index), kind: "text" });
+      spans.push({ text: plain.slice(last, match.index), kind: "text" });
     }
     spans.push({ text: token, kind: logSpanKind(token) });
     last = match.index + token.length;
-    match = re.exec(message);
+    match = re.exec(plain);
   }
-  if (last < message.length) {
-    spans.push({ text: message.slice(last), kind: "text" });
+  if (last < plain.length) {
+    spans.push({ text: plain.slice(last), kind: "text" });
   }
   if (spans.length === 0) {
-    return [{ text: message, kind: "text" }];
+    return [{ text: plain, kind: "text" }];
   }
   return spans;
 }
@@ -1146,12 +1154,12 @@ export function visibleLogErrorCount(events: readonly LogEvent[]): number {
 }
 
 export function formatLogLine(ev: LogEvent): string {
-  return `${ev.timestamp} ${ev.service} ${ev.level} ${ev.message}`;
+  return `${ev.timestamp} ${ev.service} ${ev.level} ${stripAnsi(ev.message)}`;
 }
 
 export function formatLogDetails(ev: LogEvent): string {
   return [
-    ev.message,
+    stripAnsi(ev.message),
     `time      ${ev.timestamp}`,
     `service   ${ev.service}`,
     `source    ${ev.source}${ev.stream ? ` / ${ev.stream}` : ""}`,
@@ -1654,7 +1662,7 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
       { key: "esc", label: "close" },
     ];
   }
-  if (overlay === "log-details") {
+  if (overlay === "log-details" || overlay === "scroll-text") {
     return [
       { key: "j/k", label: "scroll" },
       { key: copyKey, label: "copy" },
@@ -1769,13 +1777,19 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         ...common,
       ];
     case "config":
-      return [{ key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
+      return [{ key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/diff", label: "sources" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
     case "setup":
       return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back or exit" }, ...common];
     case "doctor":
       return [{ key: "r", label: "run doctor again" }, { key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, ...common];
     case "auth":
-      return [{ key: "r", label: "probe identities" }, { key: "/auth refresh", label: "probe" }, ...common];
+      return [
+        { key: "r", label: "probe identities" },
+        { key: "/auth login", label: "ADC login" },
+        { key: "/auth logout", label: "revoke ADC" },
+        { key: "/auth refresh", label: "probe" },
+        ...common,
+      ];
     case "settings":
       return [
         { key: "j/k", label: "move" },
@@ -1859,8 +1873,9 @@ export function serviceEnvEntries(
   reveal: boolean,
   extraMarkers: string[],
   extraPatterns: string[],
+  resolved?: Record<string, string>,
 ): ServiceEnvEntry[] {
-  const merged = { ...svc.environment.defaults, ...svc.environment.vars };
+  const merged = resolved ?? { ...svc.environment.defaults, ...svc.environment.vars };
   const redacted = redactEnv(merged, reveal, extraMarkers, extraPatterns);
   const keys = new Set([...Object.keys(redacted), ...svc.environment.required]);
   return [...keys].sort().map((key) => ({
@@ -1868,6 +1883,16 @@ export function serviceEnvEntries(
     value: redacted[key] ?? "",
     required: svc.environment.required.includes(key),
   }));
+}
+
+export function previousSessionNote(leftover?: PersistedState, currentSession?: string): PersistedState | undefined {
+  if (!leftover || leftover.processes.length === 0) {
+    return undefined;
+  }
+  if (currentSession !== undefined && currentSession !== "" && leftover.session_id === currentSession) {
+    return undefined;
+  }
+  return leftover;
 }
 
 export function envKeyColumnWidth(paneWidth: number): number {

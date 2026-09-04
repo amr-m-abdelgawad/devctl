@@ -21,8 +21,11 @@ export function ServicesScreen(props: {
   onOpen: (name: string) => void;
   onSelectIndex: (index: number) => void;
   onToggle: (name: string) => void;
+  resolvedEnv?: Record<string, string>;
+  envStatus?: "resolved" | "config" | "loading" | "error";
+  envError?: string;
 }) {
-  const { palette, cfg, names, snap, selected, checked, width, reveal, onOpen, onSelectIndex, onToggle } = props;
+  const { palette, cfg, names, snap, selected, checked, width, reveal, onOpen, onSelectIndex, onToggle, resolvedEnv, envStatus, envError } = props;
   if (names.length === 0) {
     return <EmptyState palette={palette} title="No services" body="This configuration does not define any services." />;
   }
@@ -82,6 +85,9 @@ export function ServicesScreen(props: {
           name={selectedName}
           reveal={reveal}
           width={detailWidth}
+          resolvedEnv={resolvedEnv}
+          envStatus={envStatus}
+          envError={envError}
         />
       </box>
     </box>

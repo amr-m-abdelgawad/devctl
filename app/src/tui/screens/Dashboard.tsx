@@ -1,4 +1,4 @@
-import { canStartAll, clipText, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, isSystemLogSource, NARROW_WIDTH, padClip, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, serviceLineState, statusStripChips, visibleHints, visibleLogErrorCount, type LogWrapMode } from "../helpers.ts";
+import { canStartAll, clipText, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, isSystemLogSource, NARROW_WIDTH, padClip, previousSessionNote, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, serviceLineState, statusStripChips, visibleHints, visibleLogErrorCount, type LogWrapMode } from "../helpers.ts";
 import { useDensity } from "../density.tsx";
 import { Chip, KeyHints, MetaBar, Toolbar } from "../layout.tsx";
 import { EmptyState } from "../chrome.tsx";
@@ -7,7 +7,7 @@ import { type DevctlConfig } from "../../config/index.ts";
 import { type GoogleStatus } from "../../google.ts";
 import { type LogEvent, type LogFacets } from "../../logs.ts";
 import { HealthUnhealthy, StateFailed, StateRestarting, type Runtime } from "../../services.ts";
-import { sessionStartedAt } from "../../storage.ts";
+import { sessionStartedAt, type PersistedState } from "../../storage.ts";
 import { type StatusSnapshot } from "../../types.ts";
 import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
 import { JumpLatestPrompt, LogFilterBar, LogHistoryBar, LogList } from "./Logs.tsx";
@@ -48,6 +48,7 @@ export function Dashboard(props: {
   newer?: number;
   onJumpLatest?: () => void;
   facets?: LogFacets;
+  leftover?: PersistedState;
 }) {
   const {
     palette,
@@ -85,6 +86,7 @@ export function Dashboard(props: {
     newer = 0,
     onJumpLatest,
     facets,
+    leftover,
   } = props;
   const scale = useDensity();
   if (!cfg || names.length === 0) {
@@ -106,6 +108,7 @@ export function Dashboard(props: {
   const logErrors = visibleLogErrorCount(logs);
   const profileName = profile || defaultProfileName(cfg);
   const members = profileMembers(cfg, profileName);
+  const lastSession = idle ? previousSessionNote(leftover, snap?.session_id) : undefined;
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
   const filterBarLogs = showSystemLogs ? logs : logs.filter((ev) => !isSystemLogSource(ev.source));
@@ -157,6 +160,7 @@ export function Dashboard(props: {
           />
         </box>
         <IssuesPanel palette={palette} names={names} snap={snap} width={listWidth} onOpen={onOpen} />
+        {lastSession ? <LastSessionPanel palette={palette} leftover={lastSession} width={listWidth} /> : null}
         <StatusStrip palette={palette} cfg={cfg} snap={snap} google={google} width={listWidth} />
       </box>
       <box
@@ -331,6 +335,53 @@ function IssuesPanel(props: { palette: Palette; names: string[]; snap?: StatusSn
       {hidden > 0 ? (
         <text fg={palette.muted} wrapMode="none">
           {`+${hidden} more — open a service to see details`}
+        </text>
+      ) : null}
+    </box>
+  );
+}
+
+const LAST_SESSION_MAX_ROWS = 4;
+const LAST_SESSION_NAME_COL = 14;
+
+function LastSessionPanel(props: { palette: Palette; leftover: PersistedState; width: number }) {
+  const { palette, leftover, width } = props;
+  const shown = leftover.processes.slice(0, LAST_SESSION_MAX_ROWS);
+  const hidden = leftover.processes.length - shown.length;
+  const pidWidth = Math.max(8, width - LAST_SESSION_NAME_COL - 4);
+  return (
+    <box
+      border
+      borderStyle="rounded"
+      borderColor={palette.warning}
+      title="last session"
+      titleColor={palette.warning}
+      flexDirection="column"
+      flexShrink={0}
+      paddingLeft={1}
+      paddingRight={1}
+      overflow="hidden"
+    >
+      <text fg={palette.muted} wrapMode="none">
+        {clipText(`${leftover.session_id}  ${leftover.profile || "(none)"}`, Math.max(8, width - 4))}
+      </text>
+      {shown.map((proc) => (
+        <box key={`${proc.name}-${proc.pid}`} height={1} flexDirection="row" overflow="hidden">
+          <box width={LAST_SESSION_NAME_COL} flexShrink={0} overflow="hidden">
+            <text fg={palette.text} wrapMode="none">
+              {padClip(proc.name, LAST_SESSION_NAME_COL)}
+            </text>
+          </box>
+          <box width={pidWidth} flexShrink={0} overflow="hidden">
+            <text fg={palette.muted} wrapMode="none">
+              {clipText(`pid ${proc.pid}  leftover`, pidWidth)}
+            </text>
+          </box>
+        </box>
+      ))}
+      {hidden > 0 ? (
+        <text fg={palette.muted} wrapMode="none">
+          {`+${hidden} more leftover pids`}
         </text>
       ) : null}
     </box>

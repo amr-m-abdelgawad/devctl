@@ -11,6 +11,16 @@ export type UpdateCheck = {
   hint: string;
 };
 
+export function formatUpdateStatus(result: UpdateCheck): string {
+  if (result.newer) {
+    return `update available ${result.current} → ${result.latest}  ${result.hint}`;
+  }
+  if (result.latest !== "") {
+    return `${result.current} up to date`;
+  }
+  return `${result.current} (latest unavailable)`;
+}
+
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 export async function checkUpdate(fetchFn: FetchLike = fetch): Promise<UpdateCheck> {

@@ -33,6 +33,9 @@ export function ServiceDetail(props: {
   reveal: boolean;
   width: number;
   envScrollRef?: Ref<ScrollBoxRenderable>;
+  resolvedEnv?: Record<string, string>;
+  envStatus?: "resolved" | "config" | "loading" | "error";
+  envError?: string;
 }) {
   const { palette, name } = props;
   return (
@@ -61,6 +64,9 @@ export function ServiceInspector(props: {
   width: number;
   compact?: boolean;
   envScrollRef?: Ref<ScrollBoxRenderable>;
+  resolvedEnv?: Record<string, string>;
+  envStatus?: "resolved" | "config" | "loading" | "error";
+  envError?: string;
 }) {
   const { palette, cfg, snap, name, reveal, width, compact = true, envScrollRef } = props;
   const scale = useDensity();
@@ -72,7 +78,16 @@ export function ServiceInspector(props: {
   const state = serviceLineState(rt);
   const health = rt?.health ?? "UNKNOWN";
   const port = firstPort(rt) || servicePortsText(svc, rt);
-  const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? []);
+  const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? [], props.resolvedEnv);
+  const envTone = props.envStatus === "error" ? "error" : props.envStatus === "resolved" ? "success" : props.envStatus === "loading" ? "info" : "muted";
+  const envLabel =
+    props.envStatus === "resolved"
+      ? "resolved"
+      : props.envStatus === "loading"
+        ? "resolving"
+        : props.envStatus === "error"
+          ? "config fallback"
+          : "config";
   const wide = width >= TWO_COL_MIN;
   const leftFacts: FactItem[] = [
     { label: "health", value: serviceHealthText(svc) },
@@ -120,7 +135,17 @@ export function ServiceInspector(props: {
         valueWidth={Math.max(8, innerWidth - FACT_LABEL)}
       />
       <FactGrid palette={palette} left={leftFacts} right={rightFacts} wide={wide} colWidth={colWidth} />
-      <EnvPane palette={palette} entries={entries} reveal={reveal} width={width} focused={!compact} scrollRef={envScrollRef} />
+      <EnvPane
+        palette={palette}
+        entries={entries}
+        reveal={reveal}
+        width={width}
+        focused={!compact}
+        scrollRef={envScrollRef}
+        source={envLabel}
+        sourceTone={envTone}
+        error={props.envError}
+      />
       {compact ? null : (
         <KeyHints
           palette={palette}
@@ -204,8 +229,11 @@ function EnvPane(props: {
   width: number;
   focused: boolean;
   scrollRef?: Ref<ScrollBoxRenderable>;
+  source: string;
+  sourceTone: ChipTone;
+  error?: string;
 }) {
-  const { palette, entries, reveal, width, focused, scrollRef } = props;
+  const { palette, entries, reveal, width, focused, scrollRef, source, sourceTone, error } = props;
   const keyWidth = envKeyColumnWidth(width);
   const valueWidth = Math.max(8, width - keyWidth - 4);
   return (
@@ -214,10 +242,18 @@ function EnvPane(props: {
         palette={palette}
         items={[
           { text: `env ${entries.length}`, tone: entries.length > 0 ? "info" : "idle" },
+          { text: source, tone: sourceTone },
           { text: reveal ? "secrets shown" : "redacted", tone: reveal ? "warning" : "muted" },
         ]}
         hints={focused ? [{ key: "j/k", label: "scroll" }] : [{ key: "/reveal", label: "secrets" }]}
       />
+      {error ? (
+        <box height={1} overflow="hidden">
+          <text fg={palette.warning} wrapMode="none">
+            {clipText(error, Math.max(8, width - 4))}
+          </text>
+        </box>
+      ) : null}
       {entries.length === 0 ? (
         <text fg={palette.muted}>no service env overrides</text>
       ) : (

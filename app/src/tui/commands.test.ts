@@ -66,6 +66,14 @@ describe("slash commands", () => {
     expect(lookupCommand("/task")?.name).toBe("run");
     expect(lookupCommand("/exec")?.name).toBe("exec");
   });
+
+  test("update and daemon and provenance are first-class commands", () => {
+    expect(lookupCommand("/update")?.name).toBe("update");
+    expect(lookupCommand("/daemon")?.name).toBe("daemon");
+    expect(lookupCommand("/bootstrap")?.name).toBe("daemon");
+    expect(lookupCommand("/diff")?.name).toBe("diff");
+    expect(lookupCommand("/provenance")?.name).toBe("diff");
+  });
 });
 
 describe("parseExecArgs", () => {

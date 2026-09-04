@@ -40,6 +40,7 @@ export type RouteSnapshot = {
   identity: string;
   upstream: string;
   auth: string;
+  match?: string;
 };
 
 export type ProxyRequestSnapshot = {

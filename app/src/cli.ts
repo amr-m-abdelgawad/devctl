@@ -646,7 +646,8 @@ function addProxy(root: Command): void {
         }
         writeOut(`PROXY  ${snap.proxy.running ? "RUNNING" : "STOPPED"}  ${snap.proxy.address ?? ""}\n`);
         for (const r of snap.proxy.routes ?? []) {
-          writeOut(`  ${r.name.padEnd(16)} identity=${r.identity}  ${r.upstream}\n`);
+          const match = r.match ? `  match=${r.match}` : "";
+          writeOut(`  ${r.name.padEnd(16)} identity=${r.identity}${match}  ${r.upstream}\n`);
         }
       } finally {
         await ctrl.close();

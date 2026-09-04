@@ -15,6 +15,7 @@ import {
   configRuntimeFacts,
   configServiceNameWidth,
   configServiceRows,
+  configTaskRows,
   configTemplateRows,
   type ConfigFact,
   type ConfigNamedSummary,
@@ -45,6 +46,7 @@ export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; widt
   const routes = configRouteRows(cfg);
   const profiles = configProfileRows(cfg);
   const templates = configTemplateRows(cfg);
+  const tasks = configTaskRows(cfg);
   return (
     <ScreenFrame palette={palette} title={`config  ${cfg.project.name || "unnamed"}`}>
       <MetaBar palette={palette} items={configHeaderChips(cfg)} />
@@ -90,6 +92,9 @@ export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; widt
             <Section palette={palette} title={`services  ${services.length}`}>
               <ServiceList palette={palette} rows={services} width={inner} />
             </Section>
+            <Section palette={palette} title={`tasks  ${tasks.length}`}>
+              <SummaryList palette={palette} rows={tasks} empty="no tasks" width={inner} />
+            </Section>
             <ColumnPair
               wide={wide}
               left={
@@ -115,6 +120,7 @@ export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; widt
           hints={[
             { key: "v", label: "validate/save buffer" },
             { key: "e", label: "open in $EDITOR" },
+            { key: "/diff", label: "config sources" },
             { key: "/reload", label: "re-read .devctl after editing" },
             { key: "j/k", label: "scroll" },
           ]}

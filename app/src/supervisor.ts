@@ -1457,12 +1457,18 @@ export class Supervisor {
       proxy: {
         running: this.proxy?.isRunning() ?? false,
         address: this.proxy?.address(),
-        routes: this.cfg.proxy.routes.map((r) => ({
-          name: r.name,
-          identity: r.auth.identity.service_account || r.auth.identity.type || r.auth.type,
-          upstream: r.upstream.url,
-          auth: r.auth.type,
-        })),
+        routes: this.cfg.proxy.routes.map((r) => {
+          const host = r.match.host || "*";
+          const path = r.match.path;
+          const match = path === "" ? host : `${host}${path.startsWith("/") ? path : `/${path}`}`;
+          return {
+            name: r.name,
+            identity: r.auth.identity.service_account || r.auth.identity.type || r.auth.type,
+            upstream: r.upstream.url,
+            auth: r.auth.type,
+            match,
+          };
+        }),
         ...proxyStats,
       },
       mcp: {

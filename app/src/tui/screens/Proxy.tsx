@@ -5,10 +5,8 @@ import { type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../config/index.ts";
 import { type ProxyRequestSnapshot, type StatusSnapshot } from "../../types.ts";
 
-// The routes panel is narrow by design (see ROUTES_PANE_MAX below), so the
-// upstream URL, a long service-account email, or a long match host/path
-// routinely get clipped there. This is everything RouteRow could show if it
-// had the room, for the click-through detail overlay App.tsx opens.
+// Routes pane still has a max width, but match/upstream wrap instead of
+// clipping. Click-through RouteDetailsOverlay remains the full record.
 export type RouteDetailInfo = {
   name: string;
   authType: string;
@@ -175,11 +173,11 @@ function RouteRow(props: {
         {identity ? <Chip palette={palette} label={identity} tone="idle" /> : null}
       </box>
       {match ? (
-        <text fg={palette.muted} wrapMode="none">
+        <text fg={palette.muted} wrapMode="word">
           {`match: ${match}`}
         </text>
       ) : null}
-      <text fg={palette.muted} wrapMode="none">
+      <text fg={palette.muted} wrapMode="word">
         {`→ ${upstream}`}
       </text>
     </box>
@@ -191,7 +189,7 @@ function RouteRow(props: {
 // never visually run into each other, matching how the services screen
 // splits list + detail. Narrow terminals stack them instead.
 const ROUTES_PANE_MIN = 26;
-const ROUTES_PANE_MAX = 42;
+const ROUTES_PANE_MAX = 56;
 const PANE_GUTTER = 2;
 const REQ_SHOW_METHOD_AT = 46;
 const REQ_SHOW_DUR_AT = 54;

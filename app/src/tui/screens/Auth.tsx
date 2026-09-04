@@ -116,7 +116,7 @@ export function AuthScreen(props: { palette: Palette; cfg?: DevctlConfig; google
             Local services still start. Cloud identity, impersonation, and IAP need ADC.
           </text>
           <text fg={palette.muted} wrapMode="word">
-            run `gcloud auth application-default login`   or  /auth
+            /auth login suspends this screen and runs gcloud ADC login, then restores the TUI
           </text>
         </Section>
       ) : null}

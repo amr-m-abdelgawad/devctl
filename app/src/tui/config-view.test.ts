@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../config/types.ts";
+import { defaultConfig, emptyEnv, emptyService } from "../config/types.ts";
 import {
   configExitText,
   configExtraFacts,
@@ -13,7 +13,9 @@ import {
   configRuntimeFacts,
   configServiceNameWidth,
   configServiceRows,
+  configTaskRows,
   configTemplateRows,
+  formatConfigDiffText,
 } from "./config-view.ts";
 
 function sampleConfig() {
@@ -86,6 +88,21 @@ describe("config view", () => {
     expect(configTemplateRows(cfg)[0]?.summary).toContain("health http");
     expect(configExtraFacts(cfg).find((fact) => fact.label === "doctor")?.value).toBe("python3");
     expect(configServiceNameWidth(configServiceRows(cfg))).toBeGreaterThanOrEqual(8);
+  });
+
+  test("task rows and provenance overlay include winning sources", () => {
+    const cfg = sampleConfig();
+    cfg.tasks.seed = { command: { args: ["bun", "run", "seed"], shell: false }, shell: false, working_dir: ".", dependencies: ["identity"], environment: emptyEnv() };
+    expect(configHeaderChips(cfg).map((chip) => chip.text)).toContain("1 task");
+    expect(configTaskRows(cfg)[0]).toEqual({ name: "seed", summary: "bun run seed  depends identity" });
+    cfg.provenance["google.project_id"] = [
+      { source: "/home/.devctl/config.yaml", layer: "home" },
+      { source: "/repo/.devctl/config.yaml", layer: "main" },
+    ];
+    const text = formatConfigDiffText(cfg, false);
+    expect(text).toContain("google.project_id");
+    expect(text).toContain("main");
+    expect(text).toContain("shadowed");
   });
 
   test("exit text covers ask stop and detach", () => {

@@ -31,3 +31,6 @@ examples/**/node_modules/
 .devctl-user/
 *.log
 .env.local
+
+# Cache / build artifacts
+Library/

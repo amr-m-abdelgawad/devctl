@@ -66,6 +66,7 @@ export const HELP_COMMANDS: readonly Binding[] = [
   { key: "ctrl+x", label: "leader chord" },
   { key: "/settings", label: "preferences · MCP page" },
   { key: "/themes", label: "preview themes" },
+  { key: "/diff", label: "config sources" },
   { key: "/mcp", label: "agent MCP server" },
 ];
 

@@ -76,15 +76,15 @@ The status bar only lists keys that work **on the current screen**. On a termina
 
 ## Screens
 
-- **Dashboard** — services, identity, proxy, live log tail
-- **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable env pane. Narrow terminals stack the panes. `enter` opens the full detail screen
+- **Dashboard** — services, identity, proxy, live log tail. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
+- **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so `j`/`k` scroll. `/reveal` shows secrets. `n`/`x`/`R`/`l`
-- **Logs** — see [Logs](logs.md)
-- **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens)
+- **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. See [Logs](logs.md)
+- **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
-- **Proxy** — status + routes; `n` start / `x` stop
+- **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. `n` start / `x` stop
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. `enter` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. `r` reruns
-- **Config** — merged view. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/reload` re-reads after an external edit
+- **Config** — merged view including **tasks**. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/diff` shows provenance (`devctl config diff`). `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
 - **Settings** — grouped prefs: theme, display size, mouse, leader timeout, **MCP settings page**, about, reset. `←`/`→` writes the highlighted cycle or toggles mouse. Reset asks before restoring defaults. Saves to `~/.devctl/tui.json` unless `DEVCTL_TUI_CONFIG` is set
@@ -100,7 +100,8 @@ The status bar only lists keys that work **on the current screen**. On a termina
 /restart
 /run <task>           one-off task; output is in Logs under task:<name>
 /exec <service> -- <command…>
-/exec <service> --print-env   open the service env inspector
+/exec <service> --print-env [--reveal]
+                      resolved env (dotenv, profile, secrets, plugins, ports), not config-only vars
 /logs /services /auth /credentials /proxy /mcp /doctor /config /profiles /setup
 /stats                system and service statistics
 /dashboard            return home
@@ -117,11 +118,15 @@ The status bar only lists keys that work **on the current screen**. On a termina
 /clear
 /refresh
 /reload               reload .devctl
-/version
+/diff                 winning config sources and what they shadowed (`devctl config diff`)
+/daemon               supervisor bootstrap stderr (`devctl daemon logs`)
+/auth login|logout|refresh
+/update               check GitHub Releases (does not overwrite the binary)
+/version              current version, then the same update check
 /exit /quit /q
 ```
 
-Aliases include `/up`, `/down`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/prefs`, `/task`.
+Aliases include `/up`, `/down`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/prefs`, `/task`, `/provenance`, `/bootstrap`.
 
 ## Leader key
 
