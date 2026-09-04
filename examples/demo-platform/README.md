@@ -8,9 +8,10 @@ A mostly local example, modeled as a small invoicing platform, used by tests and
 | `invoices-api` | Python 3 | 18000 | invoice job queue; calls identity |
 | `invoices-worker` | Python 3 | 18002 | polls invoices-api, finalizes jobs, watches its own token |
 | `billing-console` | React + Vite (Bun) | 18003 | admin console UI |
+| `telemetry` | Python 3 | — | background agent; no HTTP, JSON-per-line logs (see below) |
 | `postgres` | Docker (`postgres:16`) | 18004 | opt-in data profile; not in the default profiles |
 
-Profiles: `minimal` (identity + api), `backend` (+ worker), `full` (+ console), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
+Profiles: `minimal` (identity + api + telemetry), `backend` (+ worker), `full` (+ console), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
 
 `postgres` is always in configuration, so Doctor still probes Docker even when you never start `data`. Default profiles do not start it.
 
@@ -74,6 +75,6 @@ Or just watch it happen without touching curl at all: `invoices-worker` polls de
 
 The first `billing-console` start runs `bun install` in `billing-console/` if `node_modules` is missing.
 
-Each Python service logs at `INFO`/`WARN`/`ERROR` (session churn, rejected requests, unreachable dependencies, retry/backlog) so the logs and status screens have something realistic to filter.
+Each Python service logs at `INFO`/`WARN`/`ERROR` (session churn, rejected requests, unreachable dependencies, retry/backlog) so the logs and status screens have something realistic to filter. `telemetry` is the exception: it emits one JSON object per line (`time`/`level`/`msg`/`request_id`, plus extra fields like `status` and `latency_ms`) instead of plain text — pino/zap-style structured logging — specifically to exercise the Logs screen's JSON parsing. Open its logs and the list shows a clean message and level like any other service; press enter (or click a row) to see the full record, extra fields included.
 
 Wiki: [docs](../../docs/README.md).

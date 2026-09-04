@@ -1,0 +1,8 @@
+description: Telemetry agent — emits structured JSON-per-line logs for the Logs screen
+command:
+  - python3
+  - main.py
+working_dir: telemetry
+health:
+  type: process
+extends: python-http
