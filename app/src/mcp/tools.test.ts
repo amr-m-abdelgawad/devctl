@@ -92,10 +92,17 @@ function stubHost(): McpHost {
     restart: async () => undefined,
     reload: async () => ({ restart_required: [], changes: {} }),
     doctor: async () => ({ checks: [{ name: "ok", severity: "ok", message: "fine" }], issues: 0 }),
+    exec: async (service, command, printEnv) => ({ service, code: 0, stdout: command.join(" ") + " Bearer secret-token", stderr: "", environment: printEnv ? { API_TOKEN: "secret-token", NAME: "ok" } : undefined }),
   };
 }
 
 describe("mcp tools", () => {
+  test("exec_service is mutating and redacts output and resolved environment", async () => {
+    const result = (await callMcpTool(stubHost(), "exec_service", { service: "api", command: ["echo", "ok"], print_env: true })) as { stdout: string; environment: Record<string, string> };
+    expect(result.stdout).not.toContain("secret-token");
+    expect(result.environment.API_TOKEN).toBe(REDACTED_VALUE);
+    expect(result.environment.NAME).toBe("ok");
+  });
   test("get_config_sources returns provenance while redacting secret values", async () => {
     const result = (await callMcpTool(stubHost(), "get_config_sources", {})) as { entries: Array<{ value: string; layer: string; shadowed: unknown[] }> };
     expect(result.entries[0]?.value).toBe(REDACTED_VALUE);

@@ -22,6 +22,7 @@ import { runTui } from "./tui/index.tsx";
 import { completeLine, completionScript } from "./complete.ts";
 import { checkUpdate } from "./update.ts";
 import { versionLine } from "./version.ts";
+import { Detector } from "./secrets.ts";
 
 export function newRoot(): Command {
   const root = new Command();
@@ -48,6 +49,7 @@ export function newRoot(): Command {
   addStop(root);
   addRestart(root);
   addRun(root);
+  addExec(root);
   addStatus(root);
   addDown(root);
   addLogs(root);
@@ -64,6 +66,33 @@ export function newRoot(): Command {
   addUpdate(root);
   addSupervisor(root);
   return root;
+}
+
+function addExec(root: Command): void {
+  root.command("exec")
+    .argument("<service>", "service whose execution context to use")
+    .argument("[command...]", "command and arguments")
+    .option("--print-env", "print the resolved environment instead of running a command")
+    .option("--reveal", "show secret values with --print-env")
+    .option("--json", "machine-readable output")
+    .action(async (service: string, command: string[], opts: { printEnv?: boolean; reveal?: boolean; json?: boolean }) => {
+      if (!opts.printEnv && command.length === 0) throw new Error("exec command is required (or use --print-env)");
+      const ctrl = await openController("", configFlag(root), true);
+      try {
+        const result = await ctrl.execService(service, command, opts.printEnv === true);
+        if (result.environment) {
+          const env = opts.reveal ? result.environment : new Detector(ctrl.cfg.secrets.extra_markers, ctrl.cfg.secrets.extra_patterns).redactMap(result.environment);
+          if (opts.json) writeOut(JSON.stringify({ ...result, environment: env }, null, 2) + "\n");
+          else for (const key of Object.keys(env).sort()) writeOut(`${key}=${env[key]}\n`);
+        } else if (opts.json) writeOut(JSON.stringify(result, null, 2) + "\n");
+        else {
+          if (result.stdout) writeOut(result.stdout);
+          if (result.stderr) process.stderr.write(result.stderr);
+        }
+      } finally {
+        await ctrl.close();
+      }
+    });
 }
 
 function addRun(root: Command): void {

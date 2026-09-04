@@ -27,6 +27,7 @@ export type McpHost = {
   restart(names: string[], cascade?: boolean): Promise<void>;
   reload(): Promise<ReloadResult>;
   doctor(): Promise<Report>;
+  exec?(service: string, command: string[], printEnv?: boolean): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }>;
 };
 
 // Ordered so the TUI renders groups in a stable, sensible sequence rather
@@ -188,6 +189,24 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     mutates: true,
     description: "Reload .devctl configuration",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "exec_service",
+    label: "Execute in service",
+    summary: "Run a command in a resolved service context",
+    category: "control",
+    mutates: true,
+    description: "Run an arbitrary command with a service's fully resolved environment and working directory, whether or not it is running. Output and print_env values are redacted.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        command: { type: "array", items: { type: "string" } },
+        print_env: { type: "boolean", description: "Return the resolved environment without executing a command" },
+      },
+      required: ["service"],
+      additionalProperties: false,
+    },
   },
   {
     name: "get_setup_guide",
@@ -437,6 +456,18 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return { ok: true };
     case "reload_config":
       return host.reload();
+    case "exec_service": {
+      if (typeof args.service !== "string" || args.service === "") throw new Error("service is required");
+      if (!host.exec) throw new Error("exec is unavailable");
+      const result = await host.exec(args.service, stringList(args.command), args.print_env === true);
+      const detector = detectorFor(host.config());
+      return {
+        ...result,
+        stdout: detector.redactText(result.stdout),
+        stderr: detector.redactText(result.stderr),
+        environment: result.environment ? detector.redactMap(result.environment) : undefined,
+      };
+    }
     case "get_setup_guide":
       return getSetupGuide(args);
     case "validate_config":

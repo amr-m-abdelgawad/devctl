@@ -65,6 +65,8 @@ tasks:
 
 Run one with `devctl run migrate`. Its exit code determines command success, and its stdout/stderr are also captured in supervisor logs under `task:migrate`.
 
+Use `devctl exec api -- python3 check.py` to run an ad-hoc command in a service's same resolved context without starting it. `devctl exec api --print-env` inspects that context with secrets redacted by default.
+
 ## Container services
 
 Set `container.image` to let devctl own a Docker or Podman container with the

@@ -61,6 +61,22 @@ describe("supervisor snapshot", () => {
     }
   });
 
+  test("exec uses a stopped service's resolved environment and working directory", async () => {
+    const dir = tmp();
+    const workDir = join(dir, "api");
+    mkdirSync(workDir, { recursive: true });
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.services.api = { ...emptyService(), working_dir: "api", command: { args: ["unused"], shell: false }, environment: { vars: { EXEC_MARKER: "resolved" }, required: [], defaults: {} } };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    const result = await sup.execService("api", [process.execPath, "-e", "console.log(process.cwd()); console.log(process.env.EXEC_MARKER)"], {});
+    expect(result.stdout.endsWith("/api\nresolved\n")).toBe(true);
+    expect(sup.snapshot().services.api?.state).toBe("STOPPED");
+    const printed = await sup.execService("api", [], { CLIENT_ONLY: "yes" }, true);
+    expect(printed.environment?.CLIENT_ONLY).toBe("yes");
+  });
+
   test("a failed pre-start hook prevents the service process from launching", async () => {
     const dir = tmp();
     const marker = join(dir, "launched.txt");

@@ -319,5 +319,9 @@ export function runtimeForService(
 }
 
 export function envList(env: Record<string, string>): Record<string, string> {
-  return { ...process.env, ...env } as Record<string, string>;
+  // resolveEnvironment already includes the calling client's complete OS
+  // environment as its lowest-precedence layer. Adding the daemon's own
+  // process.env here would reintroduce stale values the client intentionally
+  // replaced or omitted, and would make --print-env disagree with execution.
+  return { ...env };
 }

@@ -415,6 +415,8 @@ export class Supervisor {
         return null;
       case "run_task":
         return this.runTask(typeof rec.name === "string" ? rec.name : "", asStringRecord(rec.client_env) ?? {});
+      case "exec":
+        return this.execService(typeof rec.service === "string" ? rec.service : "", asStringArray(rec.command), asStringRecord(rec.client_env) ?? {}, rec.print_env === true);
       case "auth_refresh":
         // Not tokens.invalidate() — that clears the whole store (every
         // identity and audience, including ones this refresh never
@@ -642,6 +644,33 @@ export class Supervisor {
     return { task: name, ...result };
   }
 
+  async execService(service: string, command: string[], clientEnv?: Record<string, string>, printEnv = false): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }> {
+    const svc = this.cfg.services[service];
+    if (!svc) throw newError(KindServiceNotFound, `unknown service ${service}`);
+    const profile = this.serviceProfile.get(service) ?? this.profile;
+    const profileEnv = this.serviceProfileEnv.get(service) ?? this.profileEnv;
+    const { env, workDir } = await this.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv);
+    if (printEnv) return { service, code: 0, stdout: "", stderr: "", environment: env };
+    if (command.length === 0) throw newError(KindGeneral, "exec command is required");
+    const result = await this.runTransient(`${service}:exec`, { args: command, shell: false }, false, workDir, env);
+    return { service, ...result };
+  }
+
+  private async resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>): Promise<{ env: Record<string, string>; workDir: string }> {
+    const assigned = this.ports.get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
+    const proxyURL = this.proxy?.isRunning() ? `http://${this.proxy.address()}` : this.cfg.proxy.enabled ? `http://${listenAddress(this.cfg.proxy.listen)}` : "";
+    const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, this.cfg.project.name);
+    runtime.DEVCTL_INTERNAL_TOKEN = this.internalTok;
+    if (this.cfg.proxy.token_endpoint.enabled) runtime.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
+    const resolved = await resolveEnvironment(this.cfg.repoRoot, {
+      service: name, profile, serviceCfg: svc, profileEnv, assignedPorts: assigned, runtime, cfg: this.cfg,
+      fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
+      pluginSources: this.registry?.environmentSources, clientEnv,
+    });
+    const workDir = svc.working_dir && !isAbsolute(svc.working_dir) ? join(this.cfg.repoRoot, svc.working_dir) : svc.working_dir;
+    return { env: envList(resolved), workDir };
+  }
+
   private async runTransient(name: string, command: Command, shell: boolean, workDir: string, env: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
     if (commandEmpty(command)) return { code: 0, stdout: "", stderr: "" };
     this.log(name, "INFO", `running ${command.args.join(" ")}`);
@@ -777,36 +806,10 @@ export class Supervisor {
       }
     }
     const assigned = this.ports.get(name) ?? {};
-    let proxyURL = "";
-    if (this.proxy?.isRunning()) {
-      proxyURL = `http://${this.proxy.address()}`;
-    } else if (this.cfg.proxy.enabled) {
-      proxyURL = `http://${listenAddress(this.cfg.proxy.listen)}`;
-    }
-    const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, this.cfg.project.name);
-    runtimeEnv.DEVCTL_INTERNAL_TOKEN = this.internalTok;
-    if (this.cfg.proxy.token_endpoint.enabled) {
-      runtimeEnv.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
-    }
-    const env = await resolveEnvironment(this.cfg.repoRoot, {
-      service: name,
-      profile,
-      serviceCfg: svc,
-      profileEnv,
-      assignedPorts: assigned,
-      runtime: runtimeEnv,
-      cfg: this.cfg,
-      fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
-      pluginSources: this.registry?.environmentSources,
-      clientEnv: this.clientEnv.get(name),
-    });
-    let workDir = svc.working_dir;
-    if (workDir !== "" && !isAbsolute(workDir)) {
-      workDir = join(this.cfg.repoRoot, workDir);
-    }
+    const { env, workDir } = await this.resolveServiceExecution(name, svc, profile, profileEnv, this.clientEnv.get(name));
     if (runHooks) {
       try {
-        await this.runTransient(`${name}:pre_start`, svc.hooks.pre_start, svc.shell, workDir, envList(env));
+        await this.runTransient(`${name}:pre_start`, svc.hooks.pre_start, svc.shell, workDir, env);
       } catch (err) {
         await this.fail(name, err);
         throw err;
@@ -826,7 +829,7 @@ export class Supervisor {
           containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
           image: svc.container.image,
           command: [...svc.command.args],
-          env: containerEnvironment({ ...envList(env), ...svc.container.env }),
+          env: containerEnvironment({ ...env, ...svc.container.env }),
           ports: assigned,
           targetPorts: svc.container.ports,
           volumes: svc.container.volumes,
@@ -839,7 +842,7 @@ export class Supervisor {
       args: [...svc.command.args],
       shell: svc.shell || svc.command.shell,
       workDir,
-      env: envList(env),
+      env,
       graceMs: graceSeconds(this.cfg.shutdown) * 1000,
       captureStdout: captureStdout(svc),
       captureStderr: captureStderr(svc),
@@ -851,13 +854,13 @@ export class Supervisor {
     this.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));
     if (runHooks) {
       try {
-        await this.runTransient(`${name}:post_start`, svc.hooks.post_start, svc.shell, workDir, envList(env));
+        await this.runTransient(`${name}:post_start`, svc.hooks.post_start, svc.shell, workDir, env);
       } catch (err) {
         await this.fail(name, err);
         throw err;
       }
     }
-    this.startHealth(name, svc, handle.pid, assigned, workDir, envList(env), gen);
+    this.startHealth(name, svc, handle.pid, assigned, workDir, env, gen);
     // Persist right after a successful spawn — not batched at the end of
     // start()'s whole plan — so a crash-restart's respawn (which never goes
     // through start() at all) and an earlier wave's processes both survive
@@ -1281,6 +1284,7 @@ export class Supervisor {
         }
         return runDoctor(this.cfg);
       },
+      exec: (service, command, printEnv) => this.execService(service, command, undefined, printEnv),
     };
   }
 
