@@ -23,6 +23,7 @@
     "test": "bun test",
     "test:npm-launcher": "node --test ../packaging/npm/devctl.test.cjs",
     "typecheck": "bunx tsc --noEmit",
+    "check:architecture": "bun scripts/check-architecture.ts",
     "build:npm": "bun run scripts/build-npm-package.ts",
     "update:homebrew": "bun run scripts/update-homebrew-formula.ts",
     "sync-guide": "bun run scripts/sync-guide.ts"

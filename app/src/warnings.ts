@@ -1,5 +1,3 @@
-import "./gcp-env.ts";
-
 const METADATA_WARNING = "MetadataLookupWarning";
 const METADATA_PREFIX = "received unexpected error =";
 

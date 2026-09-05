@@ -1,0 +1,26 @@
+---
+description: Hexagonal / ports-and-adapters rules for the devctl modular monolith
+alwaysApply: true
+---
+
+# Architecture
+
+Use a modular monolith with ports-and-adapters. No DI container, no service locator, no new god `*Manager`.
+
+1. Dependencies point inward. Domain must not import adapters, presentation, Google SDKs, TUI, filesystem libraries, or process libraries.
+2. Constructor injection. One composition root per process (`bootstrap/daemon.ts`, `bootstrap/client.ts`).
+3. Ports exist only at replaceable boundaries (`ProcessRuntime`, `Clock`, `FileSystem`, `CredentialProvider`). Do not invent `IService` / `IServiceManager`.
+4. CLI, TUI, and MCP share application commands. Presentation must not start or kill processes.
+5. Commands are explicit calls. Events are facts that already happened. Do not hide control flow on the event bus.
+6. Separate `ServiceDefinition` (config) from `ServiceRuntime` (live state). Config becomes an immutable snapshot after load.
+7. Google Cloud stays an adapter. Local-only services must run without it.
+8. Split decisions into policies/resolvers. Use an explicit lifecycle state machine for service transitions.
+9. Keep module public APIs small. `bun run check:architecture` must stay green.
+
+```ts
+// BAD — domain reaches Google
+import { GoogleAuth } from "google-auth-library";
+
+// GOOD — application depends on a port
+constructor(private readonly credentials: CredentialProvider) {}
+```

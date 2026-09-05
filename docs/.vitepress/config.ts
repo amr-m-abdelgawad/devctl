@@ -65,7 +65,7 @@ export default withMermaid({
           { text: 'Proxy', link: '/proxy' }
         ]
       },
-      { text: 'Architecture', link: '/devctl-architecture' },
+      { text: 'Architecture', link: '/architecture' },
       {
         text: 'v0.2.3',
         items: [
@@ -129,6 +129,7 @@ export default withMermaid({
         collapsed: true,
         items: [
           { text: 'Building from source', link: '/typescript' },
+          { text: 'Architecture', link: '/architecture' },
           { text: 'npm publishing', link: '/npm-publishing' },
           { text: 'Architecture spec', link: '/devctl-architecture' },
           { text: 'Contributing', link: `${blob}/CONTRIBUTING.md` },

@@ -1,11 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-import { decodeCommand } from "./config/decode.ts";
-import { defaultConfig } from "./config/types.ts";
-import { KindProxy } from "./errors.ts";
-import { INTERNAL_TOKEN_HEADER, ProxyServer, TokenEndpoint } from "./proxy.ts";
-import { Detector } from "./secrets.ts";
-import { TokenManager, type AccessToken } from "./token.ts";
+import { decodeCommand } from "./adapters/config/decode.ts";
+import { defaultConfig } from "./domain/config/types.ts";
+import { KindProxy } from "./shared/errors.ts";
+import { INTERNAL_TOKEN_HEADER, ProxyServer, TokenEndpoint } from "./adapters/proxy/proxy.ts";
+import { Detector } from "./adapters/secrets/detector.ts";
+import { TokenManager, type AccessToken } from "./adapters/google/token.ts";
 
 function token(partial: Partial<AccessToken> = {}): AccessToken {
   return {

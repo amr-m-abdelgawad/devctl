@@ -2,9 +2,9 @@
 
 ## Complete Architecture & Implementation Specification
 
-> **Status:** Implementation Specification  
+> **Status:** Historical implementation specification  
 > **Audience:** Coding / Agentic Development Agent  
-> **Goal:** Build a production-quality CLI/TUI application for managing a complete multi-service local development environment.
+> **Layers:** §3–4 (Service Manager / Identity Manager) are historical. The living layer map is [architecture.md](architecture.md).
 >
 > **Important:** Every feature described in this document is part of the required implementation. Do not remove, simplify away, or silently omit features because they appear complex. Where an implementation detail is not explicitly specified, choose a clean, maintainable implementation consistent with the architecture below.
 

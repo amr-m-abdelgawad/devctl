@@ -1,5 +1,5 @@
-import { type LogEvent } from "./logs.ts";
-import { type Runtime } from "./services.ts";
+import { type LogEvent } from "./adapters/storage/logs.ts";
+import { type Runtime } from "./domain/service/services.ts";
 
 export type StartRequest = {
   services?: string[];

@@ -1,0 +1,411 @@
+import "../google/gcp-env.ts";
+import { type DevctlConfig, validate } from "../config/index.ts";
+import { versionLine } from "../../version.ts";
+import { DevctlError, humanMessage } from "../../shared/errors.ts";
+import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "../google/google.ts";
+import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
+import { available, findPortHolder } from "../net/ports.ts";
+import { openCredentialStore } from "../storage/credentials.ts";
+import { TokenManager, googleTokenProviders } from "../google/token.ts";
+import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
+import type { DoctorRunner } from "../../ports/doctor-runner.ts";
+export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
+
+const LIVE_PROBE_MS = 4_000;
+const LIVE_SECTION_MS = 8_000;
+
+export type DoctorHost = {
+  detectGoogle(project: string): Promise<GoogleStatus>;
+  hasCommand(name: string): Promise<boolean>;
+  portAvailable(port: number): Promise<boolean>;
+  hasLocalAdc?: () => boolean;
+  adcQuotaProject?: () => string;
+  liveDeadlineMs?: number;
+  mintToken?: (identity: string, audience: string) => Promise<void>;
+  probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
+  containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
+};
+
+export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
+  let tokens = deps?.tokens;
+  const manager = (): TokenManager => {
+    tokens ??= new TokenManager(60_000, googleTokenProviders(), undefined, openCredentialStore("file"));
+    return tokens;
+  };
+  return {
+    detectGoogle,
+    hasCommand,
+    portAvailable: available,
+    hasLocalAdc: hasLocalAdcMaterial,
+    adcQuotaProject,
+    mintToken: async (identity, audience) => {
+      await manager().get(identity, audience, []);
+    },
+    probeServiceUsage: async (project, service) => {
+      const tok = await withTimeout(manager().get("user", "", []), LIVE_PROBE_MS);
+      const url = `https://serviceusage.googleapis.com/v1/projects/${project}/services/${service}`;
+      const resp = await fetch(url, {
+        headers: { Authorization: `Bearer ${tok.accessToken}` },
+        signal: AbortSignal.timeout(LIVE_PROBE_MS),
+      });
+      if (!resp.ok) {
+        return false;
+      }
+      const body = await resp.json().catch(() => undefined) as { state?: string } | undefined;
+      return body?.state === "ENABLED";
+    },
+    containerRuntimeAvailable: async (runtime) => {
+      try {
+        const proc = Bun.spawn({ cmd: [runtime, "info"], stdout: "ignore", stderr: "ignore", stdin: "ignore" });
+        return (await proc.exited) === 0;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+const defaultHost: DoctorHost = createDoctorHost();
+
+export function createDoctorRunner(host: DoctorHost = createDoctorHost()): DoctorRunner {
+  return {
+    run: (cfg, onProgress, runtime) => runDoctor(cfg, host, onProgress, runtime),
+  };
+}
+
+export async function runDoctor(
+  cfg: DevctlConfig,
+  host: DoctorHost = defaultHost,
+  onProgress?: (progress: DoctorProgress) => void,
+  runtime?: DoctorRuntimeContext,
+): Promise<Report> {
+  const report: Report = { checks: [], issues: 0 };
+  let active = "Preparing diagnostics";
+  const publish = (): void => onProgress?.({ active, checks: [...report.checks] });
+  const checking = (name: string): void => {
+    active = name;
+    publish();
+  };
+  const add = (c: Check): void => {
+    report.checks.push(c);
+    if (c.severity === "error") {
+      report.issues += 1;
+    }
+    publish();
+  };
+  const runtimes = [...new Set(Object.values(cfg.services).flatMap((svc) => svc.container ? [svc.container.runtime || "docker"] : []))];
+  for (const runtimeName of runtimes) {
+    checking(`${runtimeName} container runtime`);
+    const installed = await host.hasCommand(runtimeName);
+    const reachable = installed && await (host.containerRuntimeAvailable ?? defaultHost.containerRuntimeAvailable!)(runtimeName);
+    add(reachable
+      ? { name: `${runtimeName} container runtime`, severity: "ok", message: `${runtimeName} daemon reachable` }
+      : { name: `${runtimeName} container runtime`, severity: "error", message: installed ? `${runtimeName} daemon is not reachable` : `${runtimeName} not found`, hint: `install and start ${runtimeName}` });
+  }
+  checking("Google CLI installed");
+  if (await host.hasCommand("gcloud")) {
+    add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });
+  } else {
+    add({
+      name: "Google CLI installed",
+      severity: needsCloudFeatures(cfg) ? "error" : "warn",
+      message: "gcloud not installed",
+      hint: "install the Google Cloud CLI from https://cloud.google.com/sdk/docs/install",
+    });
+  }
+  checking("Google environment");
+  const st = await host.detectGoogle(cfg.google.project_id);
+  if (st.adcAvailable) {
+    add({ name: "Google authentication available", severity: "ok", message: "Application Default Credentials found" });
+  } else {
+    add({
+      name: "Google authentication available",
+      severity: needsCloudFeatures(cfg) ? "error" : "warn",
+      message: "ADC unavailable",
+      hint: "run `gcloud auth application-default login`",
+    });
+  }
+  if (st.projectID !== "") {
+    add({ name: "Project configured", severity: "ok", message: `${st.projectID} (source: ${st.projectSource})` });
+  } else {
+    add({
+      name: "Project configured",
+      severity: needsCloudFeatures(cfg) ? "error" : "warn",
+      message: "no Google project configured",
+      hint: "set google.project_id in .devctl/config.yaml",
+    });
+  }
+  const probeCloud =
+    needsCloudFeatures(cfg) ||
+    Object.values(cfg.services).some((svc) => svc.capabilities.includes("google") || svc.identity.type !== "");
+  if (probeCloud) {
+    checking("Live Google access");
+    let liveOpen = true;
+    const liveAdd = (c: Check): void => {
+      if (liveOpen) {
+        add(c);
+      }
+    };
+    try {
+      await withTimeout(
+        (async () => {
+          await addLiveCloudChecks(cfg, liveAdd, host, st.userEmail);
+          await addLiveApiChecks(cfg, liveAdd, host);
+        })(),
+        host.liveDeadlineMs ?? LIVE_SECTION_MS,
+      );
+    } catch (err) {
+      liveAdd({
+        name: "Live Google probes",
+        severity: "warn",
+        message: humanMessage(err),
+        hint: "network or timeout — retry when online",
+      });
+    } finally {
+      liveOpen = false;
+    }
+  }
+  for (const tool of cfg.doctor.tools) {
+    const cmd = tool.command || tool.name;
+    checking(`${tool.name} installed`);
+    if (await host.hasCommand(cmd)) {
+      add({ name: `${tool.name} installed`, severity: "ok", message: `${cmd} found` });
+    } else {
+      add({
+        name: `${tool.name} installed`,
+        severity: "error",
+        message: `${cmd} not found`,
+        hint: `install ${tool.name} and ensure it is on PATH`,
+      });
+    }
+  }
+  checking("Repository configuration");
+  if (runtime?.repositoryConfigError !== undefined) {
+    if (runtime.repositoryConfigError === "") {
+      add({ name: "Repository configuration", severity: "ok", message: "valid" });
+    } else {
+      add({ name: "Repository configuration", severity: "error", message: runtime.repositoryConfigError });
+    }
+  } else {
+    try {
+      const issues = validate(cfg);
+      if (issues.length > 0) {
+        add({ name: "Repository configuration", severity: "error", message: issues.join("; ") });
+      } else {
+        add({ name: "Repository configuration", severity: "ok", message: "valid" });
+      }
+    } catch (err) {
+      add({ name: "Repository configuration", severity: "error", message: humanMessage(err) });
+    }
+  }
+  const seenPorts: Record<number, string> = {};
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    for (const p of svc.ports) {
+      if (p.auto) {
+        continue;
+      }
+      const label = `Port ${p.value}`;
+      checking(label);
+      if (seenPorts[p.value]) {
+        add({ name: label, severity: "error", message: `configured on both ${seenPorts[p.value]} and ${name}` });
+      } else {
+        seenPorts[p.value] = name;
+        const owner = runtime?.services?.[name];
+        const containerIsRunning = Boolean(svc.container && owner && ["STARTING", "RUNNING", "HEALTHY", "UNHEALTHY"].includes(owner.state ?? ""));
+        const ownedByRunningService = Boolean(owner && (owner.pid > 0 || containerIsRunning) && Object.values(owner.ports).includes(p.value));
+        if (ownedByRunningService) {
+          add({ name: label, severity: "ok", message: `in use by running service ${name}` });
+        } else if (await host.portAvailable(p.value)) {
+          add({ name: label, severity: "ok", message: "available" });
+        } else {
+          add(await busyPortCheck(label, p.value, `services.${name}.ports`));
+        }
+      }
+    }
+  }
+  if (cfg.proxy.listen.port > 0) {
+    const label = `Port ${cfg.proxy.listen.port}`;
+    checking(label);
+    if (runtime?.proxyRunning) {
+      add({ name: label, severity: "ok", message: "in use by the running proxy" });
+    } else if (await host.portAvailable(cfg.proxy.listen.port)) {
+      add({ name: label, severity: "ok", message: "proxy listen port available" });
+    } else {
+      add(await busyPortCheck(label, cfg.proxy.listen.port, "proxy.listen.port"));
+    }
+  }
+  active = "Diagnostics complete";
+  publish();
+  return report;
+}
+
+async function addLiveApiChecks(cfg: DevctlConfig, add: (c: Check) => void, host: DoctorHost): Promise<void> {
+  const project = cfg.google.project_id;
+  const adc = host.hasLocalAdc ?? hasLocalAdcMaterial;
+  if (project === "" || !adc()) {
+    return;
+  }
+  const probe = host.probeServiceUsage ?? defaultHost.probeServiceUsage!;
+  const apis = [
+    { name: "IAM Credentials API", service: "iamcredentials.googleapis.com" },
+    { name: "Resource Manager API", service: "cloudresourcemanager.googleapis.com" },
+    { name: "IAP API", service: "iap.googleapis.com" },
+  ];
+  const results = await Promise.allSettled(apis.map((api) => withTimeout(probe(project, api.service), LIVE_PROBE_MS)));
+  results.forEach((result, index) => {
+    const api = apis[index];
+    if (!api) {
+      return;
+    }
+    if (result.status === "fulfilled") {
+      add({
+        name: api.name,
+        severity: result.value ? "ok" : "warn",
+        message: result.value ? "enabled" : "not enabled or unreachable",
+        hint: result.value ? undefined : `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
+      });
+      return;
+    }
+    add({
+      name: api.name,
+      severity: "warn",
+      message: humanMessage(result.reason),
+      hint: `enable ${api.service} in the Google Cloud console — doctor never auto-enables APIs`,
+    });
+  });
+}
+
+async function addLiveCloudChecks(
+  cfg: DevctlConfig,
+  add: (c: Check) => void,
+  host: DoctorHost,
+  sourcePrincipal: string,
+): Promise<void> {
+  const accounts = configuredServiceAccounts(cfg);
+  const iapRoutes = cfg.proxy.routes.filter((route) => route.auth.type.toLowerCase() === "iap");
+  const mintableIap = iapRoutes.filter((route) => route.auth.audience.trim() !== "");
+  for (const route of iapRoutes) {
+    if (route.auth.audience.trim() === "") {
+      add({
+        name: `IAP audience ${route.name}`,
+        severity: "error",
+        message: "missing audience",
+        hint: "set auth.audience to the IAP OAuth client ID",
+      });
+    }
+  }
+  if (accounts.length === 0 && mintableIap.length === 0) {
+    return;
+  }
+  const adc = host.hasLocalAdc ?? hasLocalAdcMaterial;
+  if (!adc()) {
+    return;
+  }
+  const mint = host.mintToken ?? defaultHost.mintToken!;
+  const impersonation = accounts.map(async (email) => {
+    try {
+      await withTimeout(mint(`sa:${email}`, ""), LIVE_PROBE_MS);
+      add({ name: `Impersonate ${email}`, severity: "ok", message: "token minted" });
+    } catch (err) {
+      const quotaProject = (host.adcQuotaProject ?? adcQuotaProject)();
+      const principal = sourcePrincipal || "the ADC principal";
+      const quota = quotaProject === "" ? "unknown" : quotaProject;
+      const check = classifyLiveFailure(
+        `Impersonate ${email}`,
+        err,
+        `grant roles/iam.serviceAccountTokenCreator to ${principal} on ${email}; ADC quota project: ${quota}`,
+      );
+      if (quotaProject !== "" && check.message.toLowerCase().includes("api is not enabled")) {
+        check.message = `IAM Credentials API is disabled in ADC quota project ${quotaProject}`;
+        check.hint = `enable iamcredentials.googleapis.com in ${quotaProject}, or set the ADC quota project to ${cfg.google.project_id}`;
+      } else if (check.message.toLowerCase() === "google authentication failed") {
+        check.message = `access-token mint failed: ${principal} → ${email}`;
+        check.hint = `verify roles/iam.serviceAccountTokenCreator for ${principal} on this service account; ADC quota project: ${quota}`;
+      }
+      add(check);
+    }
+  });
+  const iap = mintableIap.map(async (route) => {
+    const identity = fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user";
+    try {
+      await withTimeout(mint(identity, route.auth.audience), LIVE_PROBE_MS);
+      add({ name: `IAP ${route.name}`, severity: "ok", message: "id token minted" });
+    } catch (err) {
+      add(classifyLiveFailure(`IAP ${route.name}`, err, "check IAP OAuth client ID and ADC"));
+    }
+  });
+  await Promise.all([...impersonation, ...iap]);
+}
+
+function classifyLiveFailure(name: string, err: unknown, hint: string): Check {
+  const message = humanMessage(err);
+  const lower = message.toLowerCase();
+  if (lower.includes("timeout") || lower.includes("network") || lower.includes("econnrefused") || lower.includes("enotfound")) {
+    return { name, severity: "warn", message, hint: "network or timeout — retry when online" };
+  }
+  if (err instanceof DevctlError && err.hint !== "") {
+    const prefix = `${err.kind}: `;
+    const summary = err.message.startsWith(prefix) ? err.message.slice(prefix.length) : err.message;
+    return { name, severity: "error", message: summary, hint: err.hint };
+  }
+  return { name, severity: "error", message, hint };
+}
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
+async function busyPortCheck(label: string, port: number, configField: string): Promise<Check> {
+  const holder = await findPortHolder(port);
+  if (!holder) {
+    return {
+      name: label,
+      severity: "error",
+      message: "already in use",
+      hint: `stop the process using port ${port} or change ${configField}`,
+    };
+  }
+  if (holder.pid === process.pid) {
+    return {
+      name: label,
+      severity: "error",
+      message: `in use by this TUI (${holder.command} pid ${holder.pid})`,
+      hint: "stop the proxy from the proxy screen (x), then rerun doctor",
+    };
+  }
+  return {
+    name: label,
+    severity: "error",
+    message: `in use by ${holder.command} (pid ${holder.pid})`,
+    hint: "enter  stop that process after a confirmation",
+    action: { kind: "free-port", holder },
+  };
+}
+
+export function formatDoctor(r: Report): string {
+  const lines = [`${versionLine()} doctor`, ""];
+  for (const c of r.checks) {
+    const mark = c.severity === "error" ? "✗" : c.severity === "warn" ? "!" : "✓";
+    lines.push(`${mark} ${c.name}`);
+    if (c.severity !== "ok") {
+      lines.push(`    ${c.message}`);
+      if (c.hint) {
+        lines.push(`    → ${c.hint}`);
+      }
+    }
+  }
+  lines.push("", `${r.issues} issue(s) found.`);
+  return lines.join("\n") + "\n";
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { KindConfiguration, KindToken, newError } from "./errors.ts";
+import { KindConfiguration, KindToken, newError } from "./shared/errors.ts";
 import { isRetryableError, withRetry } from "./retry.ts";
 
 describe("withRetry", () => {
