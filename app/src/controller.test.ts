@@ -143,11 +143,11 @@ describe("ensureSupervisor bootstrap failure", () => {
       process.argv[1] = originalArgv1;
     }
     // Generous on purpose. This test's runtime has a hard floor of
-    // controller.ts's DIAL_TIMEOUT_MS (8s) — it waits out the full dial before
-    // reporting failure — plus a real child process spawn. A 15s limit left
-    // only ~6s of headroom, which a loaded runner (and Windows, where spawns
-    // are slower) can exhaust; it timed out under CPU contention locally.
-    // Raise this alongside DIAL_TIMEOUT_MS if that constant ever grows.
+    // controller.ts's BOOTSTRAP_DIAL_TIMEOUT_MS (15s) — it waits out the full
+    // dial before reporting failure — plus a real child process spawn. Keep a
+    // wide margin, which a loaded runner (and Windows, where spawns are slower)
+    // can otherwise exhaust; it timed out under CPU contention locally.
+    // Raise this alongside BOOTSTRAP_DIAL_TIMEOUT_MS if that constant grows.
   }, 40_000);
 });
 
@@ -354,7 +354,10 @@ services:
     } finally {
       process.argv[1] = originalArgv1;
     }
-  }, 15_000);
+    // Spawns a real daemon *process* and waits for it via ensureSupervisor's
+    // BOOTSTRAP_DIAL_TIMEOUT_MS (15s). Keep this comfortably above that budget
+    // so a slow-but-successful cold spawn (Windows / loaded CI) still passes.
+  }, 30_000);
 });
 
 describe("attach", () => {

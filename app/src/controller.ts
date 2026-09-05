@@ -13,6 +13,12 @@ import { RPC_PROTOCOL_VERSION, VERSION } from "./version.ts";
 
 const DIAL_RETRY_MS = 50;
 const DIAL_TIMEOUT_MS = 8_000;
+// Waiting for a *freshly spawned* daemon to bind its socket, not for an
+// already-running one to answer. A cold cross-process spawn (a new Bun
+// runtime plus socket bind) can take noticeably longer than a ping to a live
+// daemon — especially on Windows and loaded CI runners — so this gets more
+// grace than DIAL_TIMEOUT_MS to avoid spurious "supervisor failed to start".
+const BOOTSTRAP_DIAL_TIMEOUT_MS = 15_000;
 const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
 const COMMAND_RPC_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -255,7 +261,7 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
   });
   child.unref();
   try {
-    return await dial(repoRoot, DIAL_TIMEOUT_MS);
+    return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
   } catch {
     throw hintError(KindGeneral, "supervisor failed to start", `see ${bootstrapLog} for details`);
   }
