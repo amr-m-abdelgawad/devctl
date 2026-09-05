@@ -10,6 +10,15 @@ rm -rf "${dest}"
 mkdir -p "${dest}"
 cp -R "${src}/." "${dest}/"
 
+# Strip VitePress website files — the wiki only wants the doc pages.
+rm -rf \
+  "${dest}/.vitepress" \
+  "${dest}/public" \
+  "${dest}/node_modules" \
+  "${dest}/index.md" \
+  "${dest}/package.json" \
+  "${dest}/package-lock.json"
+
 if [[ -f "${dest}/README.md" ]]; then
   mv "${dest}/README.md" "${dest}/Home.md"
 fi

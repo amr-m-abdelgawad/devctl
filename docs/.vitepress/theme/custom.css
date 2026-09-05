@@ -1,0 +1,262 @@
+/**
+ * devctl website theme — terminal-inspired.
+ * Palette pulled from the project's badges: teal (#0d9488/#14b8a6),
+ * cyan (#06b6d4), amber (#f59e0b).
+ */
+
+:root {
+  --vp-c-brand-1: #0d9488;
+  --vp-c-brand-2: #0f766e;
+  --vp-c-brand-3: #14b8a6;
+  --vp-c-brand-soft: rgba(20, 184, 166, 0.14);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --vp-font-family-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Code',
+    'Fira Code', Menlo, Consolas, monospace;
+
+  /* Hero wordmark: teal → cyan */
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #14b8a6 28%, #06b6d4);
+
+  /* Ambient glow behind the terminal */
+  --vp-home-hero-image-background-image: linear-gradient(
+    120deg,
+    rgba(20, 184, 166, 0.35),
+    rgba(6, 182, 212, 0.35)
+  );
+  --vp-home-hero-image-filter: blur(60px);
+
+  --vp-button-brand-bg: var(--vp-c-brand-3);
+  --vp-button-brand-hover-bg: var(--vp-c-brand-1);
+  --vp-button-brand-active-bg: var(--vp-c-brand-2);
+}
+
+.dark {
+  /* Brighter tokens read better on the dark ground */
+  --vp-c-brand-1: #2dd4bf;
+  --vp-c-brand-2: #14b8a6;
+  --vp-c-brand-3: #0d9488;
+  --vp-c-brand-soft: rgba(45, 212, 191, 0.16);
+
+  --vp-home-hero-image-background-image: linear-gradient(
+    120deg,
+    rgba(45, 212, 191, 0.32),
+    rgba(6, 182, 212, 0.4)
+  );
+}
+
+/* Hero tagline a touch calmer */
+.VPHero .tagline {
+  max-width: 34rem;
+}
+
+/**
+ * The default hero pins the image box to a 320px square. Our terminal is
+ * taller and wider than that, which is fine in the two-column desktop layout
+ * but overlaps the text once the hero stacks (<960px). Let it flow instead.
+ */
+@media (max-width: 959px) {
+  .VPHero .image {
+    order: 1;
+    height: auto;
+    margin: 0 auto 12px;
+  }
+  .VPHero .image-container {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin: 0 auto;
+    padding: 0;
+    transform: none;
+  }
+  .VPHero .image-bg {
+    display: none;
+  }
+}
+
+/* Feature cards: terminal-panel feel with a top accent on hover */
+.VPFeature {
+  border: 1px solid var(--vp-c-border);
+  transition: border-color 0.25s, transform 0.25s, box-shadow 0.25s;
+  position: relative;
+  overflow: hidden;
+}
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-1);
+  transform: translateY(-3px);
+  box-shadow: 0 14px 30px -18px rgba(6, 182, 212, 0.5);
+}
+.VPFeature .icon {
+  background: var(--vp-c-brand-soft) !important;
+  border-radius: 8px;
+}
+/* Lucide line icons inherit stroke from color — tint them brand */
+.VPFeature .icon svg {
+  width: 24px;
+  height: 24px;
+  color: var(--vp-c-brand-1);
+}
+
+/* Give the "Get started" brand button a subtle glow */
+.VPButton.brand {
+  box-shadow: 0 8px 24px -12px rgba(20, 184, 166, 0.6);
+}
+
+/* ---- Custom landing sections (used by index.md) ---- */
+
+.landing {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 8px 24px 24px;
+}
+
+.landing h2.landing__title {
+  font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.1rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  border: 0;
+  margin: 8px 0 6px;
+}
+.landing__lede {
+  color: var(--vp-c-text-2);
+  max-width: 44rem;
+  margin-bottom: 26px;
+}
+.landing__eyebrow {
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+  margin-bottom: 6px;
+}
+
+/* Pipeline diagram — "how the pieces fit" */
+.pipe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 14px;
+  margin: 8px 0 4px;
+}
+.pipe__col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
+}
+.pipe__box {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-border);
+  background: var(--vp-c-bg-soft);
+  white-space: nowrap;
+}
+.pipe__box b {
+  color: var(--vp-c-brand-1);
+  font-weight: 600;
+}
+.pipe__box--core {
+  border-color: var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  padding: 16px 18px;
+}
+.pipe__arrow {
+  align-self: center;
+  color: var(--vp-c-brand-1);
+  font-family: var(--vp-font-family-mono);
+  font-size: 20px;
+  line-height: 1;
+}
+.pipe__note {
+  color: var(--vp-c-text-3);
+  font-size: 13px;
+  margin-top: 14px;
+}
+
+/* Numbered "60 seconds" steps */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+  margin: 6px 0;
+}
+.step {
+  border: 1px solid var(--vp-c-border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  background: var(--vp-c-bg-soft);
+}
+.step__n {
+  font-family: var(--vp-font-family-mono);
+  font-weight: 700;
+  color: var(--vp-c-brand-1);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+.step__cmd {
+  font-family: var(--vp-font-family-mono);
+  color: var(--vp-c-text-1);
+  margin: 6px 0 8px;
+  font-size: 14px;
+}
+.step__cmd::before {
+  content: '$ ';
+  color: var(--vp-c-brand-1);
+}
+.step p {
+  margin: 0;
+  color: var(--vp-c-text-2);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Ground rules */
+.rules {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px 24px;
+}
+.rules li {
+  position: relative;
+  padding-left: 26px;
+  color: var(--vp-c-text-2);
+  line-height: 1.5;
+}
+.rules li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--vp-c-brand-1);
+  font-weight: 700;
+  font-family: var(--vp-font-family-mono);
+}
+
+.landing__cta {
+  margin: 32px 0 8px;
+  padding: 26px;
+  border-radius: 16px;
+  border: 1px solid var(--vp-c-brand-1);
+  background: var(--vp-c-brand-soft);
+  text-align: center;
+}
+.landing__cta code {
+  font-size: 15px;
+}
+
+@media (max-width: 640px) {
+  .pipe { flex-direction: column; align-items: stretch; }
+  .pipe__arrow { transform: rotate(90deg); align-self: center; }
+}

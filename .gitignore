@@ -21,6 +21,11 @@ vendor/
 app/node_modules/
 examples/**/node_modules/
 
+# VitePress website (docs/)
+docs/node_modules/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
+
 # OS / editor
 .DS_Store
 .idea/
