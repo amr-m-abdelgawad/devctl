@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import spinners from "cli-spinners";
 import { EmptyState, ErrorState } from "../chrome.tsx";
 import { renderBar } from "../helpers.ts";
 import { ScreenFrame, scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
@@ -6,7 +7,9 @@ import { stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type Check, type DoctorProgress, type Report } from "../../doctor.ts";
 
 const ROW_PREFIX = "doctor-row";
-const DOCTOR_SPINNER = ["◐", "◓", "◑", "◒"] as const;
+// The fixed-width frames keep the centered loading heading stable in every
+// terminal, without depending on emoji font support.
+const DOCTOR_SPINNER = spinners.bouncingBall;
 
 export function DoctorScreen(props: {
   palette: Palette;
@@ -81,7 +84,7 @@ export function DoctorScreen(props: {
 function DoctorLoading({ palette, progress }: { palette: Palette; progress: DoctorProgress }) {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
-    const timer = setInterval(() => setFrame((value) => (value + 1) % DOCTOR_SPINNER.length), 120);
+    const timer = setInterval(() => setFrame((value) => (value + 1) % DOCTOR_SPINNER.frames.length), DOCTOR_SPINNER.interval);
     return () => clearInterval(timer);
   }, []);
   return (
@@ -101,7 +104,7 @@ function DoctorLoading({ palette, progress }: { palette: Palette; progress: Doct
         overflow="hidden"
       >
         <text wrapMode="none">
-          <span fg={palette.primary}>{`${DOCTOR_SPINNER[frame]}  `}</span>
+          <span fg={palette.primary}>{`${DOCTOR_SPINNER.frames[frame]}  `}</span>
           <span fg={palette.text}>devctl doctor</span>
         </text>
         <box height={1} flexShrink={0} />

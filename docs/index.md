@@ -51,9 +51,22 @@ features:
 
 <div class="landing">
 
-<div class="landing__eyebrow">Install</div>
-<h2 class="landing__title">Node.js is the only prerequisite</h2>
-<p class="landing__lede">The npm package brings its own official Bun runtime. No <code>gcloud</code> is needed for the local demo — Google Cloud is entirely optional.</p>
+<div class="landing__signal" role="note">
+  <span><i></i> LOCAL-FIRST</span>
+  <span>127.0.0.1 by default</span>
+  <span>no cloud required</span>
+  <span>one shared session</span>
+</div>
+
+<section class="landing__section landing__section--install">
+  <div class="landing__section-copy">
+    <div class="landing__eyebrow">Install</div>
+    <h2 class="landing__title">Bring order to a crowded local stack.</h2>
+    <p class="landing__lede">Node.js is the only prerequisite. The npm package brings its own official Bun runtime; <code>gcloud</code> is optional, even for the demo.</p>
+  </div>
+
+  <div class="landing__install-panel">
+    <div class="landing__panel-topline"><span>TERMINAL</span><span>READY</span></div>
 
 ::: code-group
 
@@ -73,32 +86,45 @@ npx @amr-m-abdelgawad/devctl@latest
 ```
 
 :::
+</div>
+</section>
 
-<div class="landing__eyebrow" style="margin-top:40px">Architecture</div>
-<h2 class="landing__title">How the pieces fit</h2>
-<p class="landing__lede">The <b>supervisor</b> owns host processes, optional Docker/Podman containers, the proxy, and the log buffer. The TUI is just a client — agents talk HTTP to the same process.</p>
+<section class="landing__section landing__section--architecture">
+  <div class="landing__eyebrow">Control plane</div>
+  <div class="landing__split-heading">
+    <h2 class="landing__title">One session.<br>Every control surface.</h2>
+    <p class="landing__lede">The <b>supervisor</b> owns processes, optional Docker/Podman containers, the proxy, and the log buffer. TUI, CLI, and agents attach to the same source of truth.</p>
+  </div>
 
 <div class="pipe">
-  <div class="pipe__col">
+  <div class="pipe__col pipe__col--input">
+    <div class="pipe__label">CONTROL</div>
     <div class="pipe__box"><b>TUI</b></div>
     <div class="pipe__box"><b>CLI</b></div>
     <div class="pipe__box"><b>MCP</b> · 127.0.0.1</div>
   </div>
   <div class="pipe__arrow">→</div>
-  <div class="pipe__col">
+  <div class="pipe__col pipe__col--core">
+    <div class="pipe__label">SESSION</div>
     <div class="pipe__box pipe__box--core">Supervisor</div>
   </div>
   <div class="pipe__arrow">→</div>
-  <div class="pipe__col">
+  <div class="pipe__col pipe__col--output">
+    <div class="pipe__label">RUNTIME</div>
     <div class="pipe__box">Host processes + containers</div>
     <div class="pipe__box">Proxy</div>
     <div class="pipe__box">Logs</div>
   </div>
 </div>
 <p class="pipe__note">Default MCP is off. See <a href="/devctl/overview">how it fits together</a>.</p>
+</section>
 
-<div class="landing__eyebrow" style="margin-top:40px">Quick start</div>
-<h2 class="landing__title">Your repo, 60 seconds</h2>
+<section class="landing__section landing__section--start">
+<div class="landing__eyebrow">Quick start</div>
+<div class="landing__split-heading">
+  <h2 class="landing__title">Your repo,<br>under control.</h2>
+  <p class="landing__lede">The shortest route from a repo full of services to a visible, repeatable development session.</p>
+</div>
 
 <div class="steps">
   <div class="step">
@@ -122,9 +148,14 @@ npx @amr-m-abdelgawad/devctl@latest
     <p>Keep working; the daemon outlives <code>start</code>. Reattach with <code>devctl attach</code>.</p>
   </div>
 </div>
+</section>
 
-<div class="landing__eyebrow" style="margin-top:40px">Ground rules</div>
-<h2 class="landing__title">Safe by construction</h2>
+<section class="landing__section landing__section--safety">
+<div class="landing__safety-copy">
+  <div class="landing__eyebrow">Ground rules</div>
+  <h2 class="landing__title">Local, observable,<br>safe by construction.</h2>
+  <p class="landing__lede">Good defaults keep the local machine in charge and make the dangerous edges explicit.</p>
+</div>
 
 <ul class="rules">
   <li>No hard-coded services, ports, profiles, or service accounts</li>
@@ -134,10 +165,13 @@ npx @amr-m-abdelgawad/devctl@latest
   <li>Local services run with zero Google Cloud</li>
   <li>Doctor reports; it never auto-enables anything</li>
 </ul>
+</section>
 
 <div class="landing__cta">
-  <p style="margin:0 0 4px;font-size:1.1rem;font-weight:600">Ready to run your whole stack as one session?</p>
-  <p style="margin:0 0 14px;color:var(--vp-c-text-2)">Point it at any repo — add YAML, not code.</p>
+  <div>
+    <p class="landing__cta-title">Ready to run your whole stack as one session?</p>
+    <p class="landing__cta-copy">Point it at any repo — add YAML, not code.</p>
+  </div>
   <code>npx @amr-m-abdelgawad/devctl@latest</code>
 </div>
 

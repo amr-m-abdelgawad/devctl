@@ -1,216 +1,157 @@
 <script setup lang="ts">
-// A CSS terminal that mirrors what devctl actually shows: a services
-// dashboard with live status, plus a rolling log stream. Pure CSS/HTML —
-// no canvas, no timers — so it stays cheap and SSR-safe.
+// A compact, static reconstruction of the real devctl dashboard. It is
+// intentionally dense: the hero should show the product, not a generic shell.
 const services = [
-  { name: 'api-gateway', port: ':8080', state: 'running', meta: 'up 1m' },
-  { name: 'auth-service', port: ':8081', state: 'running', meta: 'up 1m' },
-  { name: 'web-console', port: ':18003', state: 'running', meta: 'up 42s' },
-  { name: 'worker', port: '—', state: 'starting', meta: 'health…' },
-  { name: 'postgres', port: ':5432', state: 'stopped', meta: 'data' }
+  { name: 'billing-console', tone: 'cyan' },
+  { name: 'identity', tone: 'teal' },
+  { name: 'invoices-api', tone: 'blue' },
+  { name: 'invoices-worker', tone: 'pink' },
+  { name: 'postgres', tone: 'cyan' },
+  { name: 'telemetry', tone: 'teal' }
 ]
 
 const logs = [
-  { t: '12:04:01', svc: 'api-gateway', msg: 'listening on :8080' },
-  { t: '12:04:02', svc: 'auth-service', msg: 'ADC ok · project acme-dev' },
-  { t: '12:04:03', svc: 'proxy', msg: 'route /iap → token injected' },
-  { t: '12:04:04', svc: 'web-console', msg: 'ready in 812 ms' }
+  { time: '15:08:53', service: 'devctl', level: 'INFO', message: 'supervisor started session=2026-09-05T15-08', tone: 'amber' },
+  { time: '15:08:53', service: 'mcp', level: 'INFO', message: 'mcp listening on 127.0.0.1:8799', tone: 'teal' },
+  { time: '15:08:53', service: 'auth', level: 'INFO', message: 'authentication changed user=dev@example.com', tone: 'purple' },
+  { time: '15:21:11', service: 'mcp', level: 'WARN', message: 'mcp rejected unauthorized request from 127.0.0.1', tone: 'teal', warning: true }
 ]
 </script>
 
 <template>
-  <div class="term" aria-hidden="true">
-    <div class="term__bar">
-      <span class="term__dot term__dot--r" />
-      <span class="term__dot term__dot--y" />
-      <span class="term__dot term__dot--g" />
-      <span class="term__title">devctl — ~/acme-platform</span>
+  <div class="tui" aria-hidden="true">
+    <div class="tui__topbar">
+      <span class="tui__chip tui__chip--cyan">devctl 0.2.3</span>
+      <span class="tui__project">demo-platform</span>
+      <span class="tui__chip tui__chip--magenta">backend</span>
+      <span class="tui__top-spacer" />
+      <span class="tui__muted">none started&nbsp; ○ off</span>
+      <span class="tui__chip tui__chip--blue">MCP</span>
+      <span class="tui__chip tui__chip--green">ADC ok</span>
     </div>
 
-    <div class="term__body">
-      <div class="term__prompt">
-        <span class="term__sigil">❯</span> devctl
-      </div>
-
-      <div class="term__head">
-        <span class="term__label">DASHBOARD</span>
-        <span>profile <b>full</b></span>
-        <span class="term__ok">4/5 up</span>
-        <span>proxy <span class="term__d term__d--run" /></span>
-        <span>identity <span class="term__ok">✓</span></span>
-      </div>
-
-      <div class="term__rows">
-        <div v-for="s in services" :key="s.name" class="term__row">
-          <span class="term__d" :class="`term__d--${s.state}`" />
-          <span class="term__svc">{{ s.name }}</span>
-          <span class="term__port">{{ s.port }}</span>
-          <span class="term__state" :class="`is-${s.state}`">{{ s.state }}</span>
-          <span class="term__meta">{{ s.meta }}</span>
-        </div>
-      </div>
-
-      <div class="term__sep">LOGS</div>
-      <div class="term__logs">
-        <div v-for="(l, i) in logs" :key="i" class="term__log" :style="{ '--i': i }">
-          <span class="term__t">{{ l.t }}</span>
-          <span class="term__lsvc">{{ l.svc }}</span>
-          <span class="term__msg">{{ l.msg }}</span>
-        </div>
-        <div class="term__log term__log--cursor" :style="{ '--i': logs.length }">
-          <span class="term__t">12:04:04</span>
-          <span class="term__lsvc">supervisor</span>
-          <span class="term__msg">watching<span class="term__cursor">▊</span></span>
-        </div>
-      </div>
-
-      <div class="term__keys">
-        <b>enter</b> start · <b>x</b> stop · <b>l</b> logs · <b>?</b> help · <b>q</b> quit
-      </div>
+    <div class="tui__tabs">
+      <span class="is-active">dashboard</span><span>services</span><span>logs</span><span>identity</span><span>credentials</span><span>proxy</span><span>doctor</span><span>config</span><span>profiles</span><span>setup</span><span>stats</span><span>settings</span>
     </div>
+
+    <div class="tui__workspace">
+      <section class="tui__panel tui__services">
+        <div class="tui__panel-title">services</div>
+        <div class="tui__subhead">none started&nbsp;&nbsp; up 12m 19s</div>
+        <div class="tui__rule" />
+        <div class="tui__action">none started&nbsp;&nbsp; <b>space</b> select&nbsp;&nbsp; <b>enter</b> start</div>
+        <div class="tui__rule" />
+        <div class="tui__service-head"><span>sel</span><span>name</span><span>state</span></div>
+        <div v-for="(service, index) in services" :key="service.name" class="tui__service-row" :class="`is-${service.tone}`">
+          <span class="tui__selection">{{ index === 0 ? '› [ ]' : '  [ ]' }}</span>
+          <span class="tui__service-name">○ {{ service.name }}</span>
+          <span class="tui__state">STOPPED</span>
+        </div>
+        <div class="tui__services-foot">identity&nbsp; dev@example.com&nbsp;&nbsp; logs 4</div>
+      </section>
+
+      <section class="tui__panel tui__logs">
+        <div class="tui__panel-title">logs&nbsp; · &nbsp;1–5 of 5</div>
+        <div class="tui__log-tools"><span class="tui__chip tui__chip--green">LIVE</span><span class="tui__chip tui__chip--blue">shown 5</span><span>total 2</span><span>all services</span><span>all levels</span><span class="tui__chip tui__chip--magenta">system: on</span><span>clear</span></div>
+        <div class="tui__rule" />
+        <div class="tui__log-tabs"><span class="is-current">1 all · 2</span><span>2 billing-console · 0</span><span>3 identity · 0</span><span>4 invoices-api · 0</span></div>
+        <div class="tui__rule" />
+        <div class="tui__log-lines">
+          <div v-for="log in logs" :key="`${log.time}-${log.service}`" class="tui__log-line" :class="{ 'is-warning': log.warning }">
+            <span class="tui__time">{{ log.time }}</span><span class="tui__log-service" :class="`is-${log.tone}`">{{ log.service }}</span><span class="tui__level">{{ log.level }}</span><span class="tui__source">devctl</span><span class="tui__message">{{ log.message }}</span>
+          </div>
+        </div>
+        <div class="tui__log-help"><b>e</b> errors&nbsp;&nbsp; <b>i</b> internal off&nbsp;&nbsp; <b>ctrl+l</b> clear&nbsp;&nbsp; <b>g</b> latest&nbsp;&nbsp; <b>z</b> full logs&nbsp;&nbsp; <b>↔</b> filter</div>
+      </section>
+    </div>
+
+    <div class="tui__command"><b>/</b> command&nbsp;&nbsp; <b>ctrl+p</b> palette&nbsp;&nbsp; <b>ctrl+x</b> leader&nbsp;&nbsp; <b>?</b> help</div>
+    <div class="tui__status"><span><i>dashboard</i><i class="is-live">LIVE</i></span><span><b>space</b> select&nbsp;&nbsp; <b>★</b> all&nbsp;&nbsp; <b>−</b> none&nbsp;&nbsp; <b>enter</b> start or open&nbsp;&nbsp; <b>n</b> start&nbsp;&nbsp; <b>x</b> stop</span></div>
   </div>
 </template>
 
 <style scoped>
-.term {
-  width: min(560px, 92vw);
-  font-family: var(--vp-font-family-mono);
-  font-size: 13px;
-  line-height: 1.55;
-  border-radius: 14px;
+.tui {
+  --tui-bg: #141414;
+  --tui-line: #444;
+  --tui-text: #b8b8b8;
+  --tui-muted: #747474;
+  --tui-cyan: #35e7ea;
+  --tui-teal: #56d6bd;
+  --tui-magenta: #ec43e7;
+  --tui-blue: #688eff;
+  --tui-green: #56ef68;
+  width: min(720px, 96vw);
   overflow: hidden;
-  background: #0b1016;
-  border: 1px solid rgba(45, 212, 191, 0.18);
-  box-shadow:
-    0 30px 70px -30px rgba(6, 182, 212, 0.45),
-    0 12px 30px -12px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  color: var(--tui-text);
+  background: var(--tui-bg);
+  border: 1px solid #333;
+  border-radius: 7px;
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, .82), 0 0 0 1px rgba(255, 255, 255, .025) inset;
+  font-family: var(--vp-font-family-mono);
+  font-size: 10px;
+  line-height: 1.25;
+  letter-spacing: -.025em;
+  text-align: left;
 }
-
-.term__bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background: linear-gradient(180deg, #10161d, #0b1016);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+.tui__topbar, .tui__tabs, .tui__command, .tui__status { display: flex; align-items: center; gap: 7px; padding: 7px 9px; white-space: nowrap; }
+.tui__topbar { min-height: 20px; border-bottom: 1px solid var(--tui-line); }
+.tui__top-spacer { flex: 1; }
+.tui__project, .tui__muted { color: var(--tui-text); }
+.tui__muted { color: var(--tui-muted); }
+.tui__chip { display: inline-block; padding: 2px 7px; color: #141414; font-weight: 700; }
+.tui__chip--cyan, .tui__tabs .is-active, .tui__log-tabs .is-current, .tui__status i:first-child { background: var(--tui-cyan); }
+.tui__chip--magenta { background: var(--tui-magenta); }
+.tui__chip--blue { background: var(--tui-blue); }
+.tui__chip--green, .tui__status .is-live { background: var(--tui-green); }
+.tui__tabs { gap: 0; overflow: hidden; padding: 7px 9px; border-bottom: 1px solid var(--tui-line); color: #aaa; }
+.tui__tabs span { padding: 2px 6px; }
+.tui__tabs .is-active { color: #111; }
+.tui__workspace { display: grid; grid-template-columns: 31% 1fr; gap: 4px; min-height: 280px; padding: 9px 4px 8px; }
+.tui__panel { position: relative; display: flex; min-width: 0; flex-direction: column; border: 1px solid var(--tui-line); border-radius: 5px; }
+.tui__panel-title { position: absolute; top: -9px; left: 9px; padding: 0 4px; color: var(--tui-cyan); background: var(--tui-bg); font-size: 11px; }
+.tui__subhead, .tui__action, .tui__service-head, .tui__log-tools, .tui__log-tabs { padding: 10px 9px 6px; }
+.tui__subhead, .tui__action, .tui__log-tools { color: var(--tui-text); }
+.tui__action b, .tui__log-help b, .tui__command b, .tui__status b { color: var(--tui-cyan); font-weight: 600; }
+.tui__rule { height: 1px; margin: 0 5px; background: var(--tui-line); }
+.tui__service-head, .tui__service-row { display: grid; grid-template-columns: 52px 1fr 58px; gap: 2px; padding: 2px 9px; }
+.tui__service-head { padding-top: 8px; color: var(--tui-muted); }
+.tui__service-row:first-of-type { background: rgba(255,255,255,.018); }
+.tui__selection { color: var(--tui-muted); }
+.tui__service-row:first-of-type .tui__selection { color: var(--tui-cyan); }
+.tui__service-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tui__state { color: #898989; }
+.tui__service-row.is-cyan .tui__service-name { color: var(--tui-cyan); }
+.tui__service-row.is-teal .tui__service-name { color: var(--tui-teal); }
+.tui__service-row.is-blue .tui__service-name { color: #a9b7ff; }
+.tui__service-row.is-pink .tui__service-name { color: #fa6b92; }
+.tui__services-foot { margin-top: auto; padding: 8px 9px; border-top: 1px solid var(--tui-line); color: var(--tui-text); }
+.tui__log-tools { display: flex; gap: 7px; align-items: center; overflow: hidden; white-space: nowrap; }
+.tui__log-tabs { display: flex; gap: 9px; overflow: hidden; padding: 7px 5px; color: #9ab7ff; white-space: nowrap; }
+.tui__log-tabs span { padding: 3px 5px; }
+.tui__log-tabs .is-current { color: #101010; }
+.tui__log-lines { display: grid; gap: 5px; padding: 9px 8px; }
+.tui__log-line { display: grid; grid-template-columns: 58px 48px 38px 43px minmax(0, 1fr); gap: 5px; white-space: nowrap; }
+.tui__time, .tui__source { color: var(--tui-muted); }
+.tui__level { color: var(--tui-blue); }
+.tui__log-service { font-weight: 600; }
+.tui__log-service.is-amber { color: #f4a546; }
+.tui__log-service.is-teal { color: var(--tui-teal); }
+.tui__log-service.is-purple { color: #bb8df4; }
+.tui__message { overflow: hidden; color: #aaa; text-overflow: clip; }
+.tui__log-line.is-warning .tui__level, .tui__log-line.is-warning .tui__message { color: #e6e73e; }
+.tui__log-help { margin-top: auto; padding: 8px; border-top: 1px solid var(--tui-line); color: var(--tui-muted); white-space: nowrap; }
+.tui__command { min-height: 22px; border-top: 1px solid var(--tui-line); color: var(--tui-muted); }
+.tui__status { justify-content: space-between; min-height: 22px; padding: 0 6px; border-top: 1px solid var(--tui-line); color: var(--tui-muted); }
+.tui__status i { display: inline-block; padding: 3px 7px; color: #121212; font-style: normal; font-weight: 700; }
+@media (max-width: 959px) { .tui { width: min(760px, 96vw); font-size: clamp(7px, 1.75vw, 10px); } }
+@media (max-width: 560px) {
+  .tui__topbar .tui__muted, .tui__tabs span:nth-child(n+7), .tui__log-tabs span:nth-child(n+3), .tui__status > span:last-child { display: none; }
+  .tui__workspace { grid-template-columns: 38% 1fr; min-height: 245px; }
+  .tui__service-head, .tui__service-row { grid-template-columns: 35px 1fr; }
+  .tui__state, .tui__log-line .tui__source, .tui__log-line .tui__level { display: none; }
+  .tui__log-line { grid-template-columns: 42px 30px minmax(0, 1fr); gap: 3px; }
+  .tui__topbar, .tui__tabs, .tui__command { gap: 3px; padding-left: 5px; padding-right: 5px; }
 }
-.term__dot {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.term__dot--r { background: #ff5f57; }
-.term__dot--y { background: #febc2e; }
-.term__dot--g { background: #28c840; }
-.term__title {
-  margin-left: 8px;
-  color: #7d8794;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-}
-
-.term__body { padding: 14px 16px 16px; }
-
-.term__prompt { color: #c9d3de; margin-bottom: 12px; }
-.term__sigil { color: #2dd4bf; font-weight: 700; }
-
-.term__head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  color: #8a95a2;
-  font-size: 12px;
-  padding-bottom: 10px;
-  margin-bottom: 8px;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
-}
-.term__head b { color: #f59e0b; font-weight: 600; }
-.term__label { color: #2dd4bf; letter-spacing: 0.14em; font-weight: 700; }
-.term__ok { color: #2dd4bf; }
-
-.term__rows { display: grid; gap: 3px; }
-.term__row {
-  display: grid;
-  grid-template-columns: 14px 1.5fr 0.8fr 0.9fr 0.7fr;
-  align-items: center;
-  gap: 8px;
-  padding: 2px 0;
-  color: #c9d3de;
-}
-.term__svc { color: #e6edf3; }
-.term__port { color: #06b6d4; }
-.term__meta { color: #6b7581; text-align: right; }
-
-.term__state { font-size: 11px; text-transform: lowercase; }
-.term__state.is-running { color: #2dd4bf; }
-.term__state.is-starting { color: #f59e0b; }
-.term__state.is-stopped { color: #6b7581; }
-
-.term__d {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-  background: #6b7581;
-}
-.term__d--running,
-.term__d--run { background: #2dd4bf; box-shadow: 0 0 8px rgba(45, 212, 191, 0.8); }
-.term__d--starting { background: #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
-.term__d--stopped { background: #46505c; }
-
-.term__sep {
-  margin: 12px 0 6px;
-  color: #2dd4bf;
-  letter-spacing: 0.14em;
-  font-size: 11px;
-  font-weight: 700;
-  border-top: 1px dashed rgba(255, 255, 255, 0.08);
-  padding-top: 10px;
-}
-
-.term__logs { display: grid; gap: 2px; }
-.term__log {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  gap: 10px;
-  opacity: 0;
-  transform: translateY(3px);
-  animation: rise 0.4s ease forwards;
-  animation-delay: calc(var(--i) * 0.5s + 0.3s);
-}
-.term__t { color: #5c6673; }
-.term__lsvc { color: #06b6d4; }
-.term__msg { color: #b9c3ce; }
-.term__cursor {
-  color: #2dd4bf;
-  animation: blink 1s step-end infinite;
-  margin-left: 1px;
-}
-
-.term__keys {
-  margin-top: 14px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  color: #6b7581;
-  font-size: 11.5px;
-}
-.term__keys b { color: #c9d3de; font-weight: 600; }
-
-@keyframes blink { 50% { opacity: 0; } }
-@keyframes pulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(245, 158, 11, 0.8); }
-  50% { opacity: 0.35; box-shadow: 0 0 2px rgba(245, 158, 11, 0.3); }
-}
-@keyframes rise {
-  to { opacity: 1; transform: translateY(0); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .term__log { opacity: 1; transform: none; animation: none; }
-  .term__cursor,
-  .term__d--starting { animation: none; }
-}
+@media (prefers-reduced-motion: reduce) { .tui * { animation: none !important; } }
 </style>
