@@ -27,7 +27,7 @@ import { useDensity } from "../density.tsx";
 import { clipText, padClip } from "../helpers.ts";
 import { KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from "../layout.tsx";
 import { serviceColor, type Palette } from "../themes.ts";
-import { type DevctlConfig } from "../../../adapters/config/index.ts";
+import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { VERSION } from "../../../version.ts";
 
 const COL_GAP = 1;

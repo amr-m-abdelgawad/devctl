@@ -2,8 +2,8 @@ import { existsSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { hintError, KindConfigurationMissing, wrapError } from "../../shared/errors.ts";
 
-export const ConfigDirName = ".devctl";
-export const ConfigFileName = "config.yaml";
+import { ConfigDirName, ConfigFileName } from "../../domain/config/paths.ts";
+export { ConfigDirName, ConfigFileName } from "../../domain/config/paths.ts";
 
 export function discover(startDir: string, explicit: string): { repoRoot: string; configPath: string } {
   if (explicit !== "") {

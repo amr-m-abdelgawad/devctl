@@ -10,7 +10,7 @@ import { available } from "../net/ports.ts";
 import { processAlive, readPersistedState, socketPath, writePersistedState } from "../storage/storage.ts";
 import { ProcessManager } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
-import { saveTuiPreferences } from "../../presentation/tui/tui-config.ts";
+import { saveTuiPreferences } from "../config/tui-preferences.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
 function tmp(): string {

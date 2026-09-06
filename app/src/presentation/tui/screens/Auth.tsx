@@ -3,8 +3,8 @@ import { LoadingState } from "../chrome.tsx";
 import { googleProjectDisplay } from "../helpers.ts";
 import { Chip, FieldRow, ScreenFrame } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
-import { type DevctlConfig } from "../../../adapters/config/index.ts";
-import { type GoogleStatus } from "../../../adapters/google/google.ts";
+import { type DevctlConfig } from "../../../domain/config/types.ts";
+import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { type IdentitySnapshot } from "../../../types.ts";
 import { declaredServiceAccounts } from "../../../domain/identity/identity.ts";
 

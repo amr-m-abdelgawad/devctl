@@ -27,7 +27,7 @@ import {
 } from "../helpers.ts";
 import { Chip, KeyHints, MetaBar, TabStrip, Toolbar } from "../layout.tsx";
 import { logSpanColor, serviceColor, stateColor, type Palette } from "../themes.ts";
-import { type LogEvent, type LogFacets } from "../../../adapters/storage/logs.ts";
+import { type LogEvent, type LogFacets } from "../../../domain/logs/logs.ts";
 
 const FOLLOW_ARM_MS = 400;
 const FOLLOW_POLL_MS = 200;

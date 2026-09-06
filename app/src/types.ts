@@ -1,4 +1,4 @@
-import { type LogEvent } from "./adapters/storage/logs.ts";
+import { type LogEvent } from "./domain/logs/logs.ts";
 import { type Runtime } from "./domain/service/services.ts";
 
 export type StartRequest = {

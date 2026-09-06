@@ -17,7 +17,7 @@ import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { KeyHints, MetaBar, type ChipTone } from "../layout.tsx";
 import { serviceColor, type Palette } from "../themes.ts";
-import { dependencyLabel, type DevctlConfig } from "../../../adapters/config/index.ts";
+import { dependencyLabel, type DevctlConfig } from "../../../domain/config/types.ts";
 import { type StatusSnapshot } from "../../../types.ts";
 
 const ERROR_PREVIEW = 72;

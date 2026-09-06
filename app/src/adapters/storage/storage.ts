@@ -1,12 +1,15 @@
+import { repoID } from "../../shared/repo-id.ts";
+export { repoID } from "../../shared/repo-id.ts";
+import type { PersistedState } from "../../domain/session/session.ts";
+export { sessionStartedAt, type PersistedProcess, type PersistedState } from "../../domain/session/session.ts";
 import { spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
-const REPO_ID_LENGTH = 16;
 
 export function homeDir(): string {
   const override = process.env.DEVCTL_HOME;
@@ -18,17 +21,6 @@ export function homeDir(): string {
 
 export function ensureDir(path: string): void {
   mkdirSync(path, { recursive: true, mode: DIR_PERM });
-}
-
-export function repoID(repoRoot: string): string {
-  // Every caller that names the same repository must land in the same state
-  // directory, even when one spelling contains redundant separators or is
-  // relative. Otherwise the daemon can bind one socket while its client dials
-  // another (macOS TMPDIR commonly ends in a separator, which exposed this).
-  const canonical = resolve(repoRoot);
-  const normalized = process.platform === "win32" ? canonical.toLowerCase() : canonical;
-  const sum = createHash("sha256").update(normalized).digest("hex");
-  return sum.slice(0, REPO_ID_LENGTH);
 }
 
 export function sessionDir(repoRoot: string): string {
@@ -168,38 +160,6 @@ export function newSessionID(now = new Date()): string {
   const stamp = now.toISOString().slice(0, 19).replace(/:/g, "-") + "Z";
   return `${stamp}-${randomBytes(3).toString("hex")}`;
 }
-
-// Reverses newSessionID()'s format to recover the moment the session
-// started, so uptime can be derived from session_id alone with no new
-// persisted state.
-export function sessionStartedAt(sessionID: string): Date | undefined {
-  const zIndex = sessionID.indexOf("Z-");
-  const stamp = zIndex >= 0 ? sessionID.slice(0, zIndex + 1) : sessionID;
-  const tIndex = stamp.indexOf("T");
-  if (tIndex < 0 || !stamp.endsWith("Z")) {
-    return undefined;
-  }
-  const datePart = stamp.slice(0, tIndex);
-  const timePart = stamp.slice(tIndex + 1, -1).replace(/-/g, ":");
-  const parsed = new Date(`${datePart}T${timePart}Z`);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
-}
-
-export type PersistedProcess = {
-  name: string;
-  pid: number;
-  command: string[];
-  cwd: string;
-  startTime: string;
-  ports: Record<string, number>;
-};
-
-export type PersistedState = {
-  session_id: string;
-  repo_root: string;
-  profile: string;
-  processes: PersistedProcess[];
-};
 
 export function readPersistedState(repoRoot: string): PersistedState | undefined {
   return readPersistedStateFile(statePath(repoRoot));

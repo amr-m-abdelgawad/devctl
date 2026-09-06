@@ -1,3 +1,4 @@
+import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig } from "../../domain/config/types.ts";
 import { KindGeneral } from "../../shared/errors.ts";
@@ -23,6 +24,7 @@ function host(): McpHost {
     status: () => snap,
     logsPage: () => ({ events: [], nextCursor: "", prevCursor: "", hasNext: false, hasPrev: false, sessionChanged: false }),
     config: () => cfg,
+    validateConfigText: (text) => validateConfigText(cfg.repoRoot, cfg.configPath, text),
     start: async () => null,
     stop: async () => undefined,
     restart: async () => undefined,

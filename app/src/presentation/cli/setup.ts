@@ -2,10 +2,10 @@ import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { basename, dirname, join, resolve } from "node:path";
-import { ConfigDirName, ConfigFileName, DEFAULT_PROXY_PORT, load } from "../../adapters/config/index.ts";
-import { formatDoctor, runDoctor } from "../../adapters/doctor/doctor.ts";
+import { DEFAULT_PROXY_PORT } from "../../domain/config/types.ts";
+import { ConfigDirName, ConfigFileName } from "../../domain/config/paths.ts";
+import type { ClientRuntime } from "../../application/client-runtime.ts";
 import { KindConfiguration, newError } from "../../shared/errors.ts";
-import { detectGoogle, loginGoogle } from "../../adapters/google/google.ts";
 
 // Honors the same "config file or .devctl directory" convention as the
 // global --config flag, but — unlike discover()'s explicit-path resolution —
@@ -38,7 +38,7 @@ export function createStarterConfig(repo: string, name = basename(repo), project
   return cfgPath;
 }
 
-export async function runSetup(startDir: string, explicitConfig = "", force = false): Promise<void> {
+export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "loginGoogle" | "load" | "runDoctor" | "formatDoctor">, startDir: string, explicitConfig = "", force = false): Promise<void> {
   const { repo, cfgPath } = resolveSetupTarget(startDir, explicitConfig);
   if (!force && existsSync(cfgPath)) {
     writeLine(`Found existing configuration at ${cfgPath}; nothing written.`);
@@ -66,7 +66,7 @@ export async function runSetup(startDir: string, explicitConfig = "", force = fa
     await ask(`${nextStep()}. Repository root`, repo);
   }
   const name = await ask(`${nextStep()}. Environment / project name`, basename(repo));
-  const st = await detectGoogle("");
+  const st = await client.detectGoogle("");
   const gproj = await ask(`${nextStep()}. Google Cloud project`, st.projectID);
   writeLine(`${nextStep()}. Authentication`);
   if (!st.adcAvailable) {
@@ -74,7 +74,7 @@ export async function runSetup(startDir: string, explicitConfig = "", force = fa
     const now = await ask("   Run login now? (y/N)", "n");
     if (now.toLowerCase() === "y") {
       try {
-        await loginGoogle();
+        await client.loginGoogle();
       } catch (err) {
         writeLine(`   login failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -96,9 +96,9 @@ export async function runSetup(startDir: string, explicitConfig = "", force = fa
   writeLine(`Wrote starter configuration to ${cfgPath}`);
   writeLine(`${nextStep()}. Validation`);
   try {
-    const cfg = load(repo, "");
-    const report = await runDoctor(cfg);
-    writeLine(formatDoctor(report));
+    const cfg = client.load(repo, "");
+    const report = await client.runDoctor.execute(cfg);
+    writeLine(client.formatDoctor(report));
   } catch (err) {
     writeLine(`   configuration is not valid yet: ${err instanceof Error ? err.message : String(err)}`);
     writeLine("   edit .devctl/config.yaml and run `devctl config validate`");

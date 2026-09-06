@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig, loadOrEmpty, type DevctlConfig } from "../../adapters/config/index.ts";
+import { defaultConfig, loadOrEmpty, validateConfigText, type DevctlConfig } from "../../adapters/config/index.ts";
 import { callMcpTool, MCP_TOOLS, type McpHost } from "./tools.ts";
 
 function tmp(): string {
@@ -17,6 +17,7 @@ function hostFor(cfg: DevctlConfig): McpHost {
   };
   return {
     config: () => cfg,
+    validateConfigText: (text) => validateConfigText(cfg.repoRoot, cfg.configPath, text),
     status: unused,
     logsPage: unused,
     start: unused,

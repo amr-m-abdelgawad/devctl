@@ -1,3 +1,4 @@
+import { createClient } from "../../bootstrap/client.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -84,7 +85,7 @@ describe("setup", () => {
       // If this reached the interactive prompts it would hang waiting on
       // stdin (no TTY in the test runner) until the test times out — so a
       // fast, clean return here is itself proof the early-exit guard fired.
-      await runSetup(dir);
+      await runSetup(createClient(), dir);
     } finally {
       cap.restore();
     }

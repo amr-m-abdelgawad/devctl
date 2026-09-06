@@ -1,29 +1,22 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { stringify } from "yaml";
-import { configDiff, defaultConfig, discover, load, loadOrEmpty, stopOnExit, validate } from "../../adapters/config/index.ts";
-import { assertMethodAllowed, findDaemon, openAttach, openController, tryDial } from "../../adapters/rpc/controller.ts";
-import { existsSync, readFileSync } from "node:fs";
-import { bootstrapLogPath, readPersistedState } from "../../adapters/storage/storage.ts";
+import { defaultConfig } from "../../domain/config/types.ts";
+import type { ClientRuntime, DaemonLauncher } from "../../application/client-runtime.ts";
 import type { StatusSnapshot } from "../../types.ts";
 import { ExitSuccess, humanMessage, exitCode } from "../../shared/errors.ts";
 import { displayState, formatPlan, supervisorRestartAdvice } from "../../domain/service/services.ts";
-import { runSetup } from "./setup.ts";
-import { createClient } from "../../bootstrap/client.ts";
-import { createDaemon } from "../../bootstrap/daemon.ts";
 
-const client = createClient();
-import { resolveExportPath, type LogEvent, type LogPage } from "../../adapters/storage/logs.ts";
+import type { LogEvent, LogPage } from "../../domain/logs/logs.ts";
 import { derivedMcpPort } from "../mcp/port.ts";
 import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "../mcp/snippets.ts";
-import { loadTuiConfig } from "../tui/tui-config.ts";
 import { runTui } from "../tui/index.tsx";
 import { completeLine, completionScript } from "./complete.ts";
 import { checkUpdate } from "../../update.ts";
 import { versionLine } from "../../version.ts";
-import { Detector } from "../../adapters/secrets/detector.ts";
+import { Detector } from "../../shared/redaction.ts";
 
-export function newRoot(): Command {
+export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): Command {
   const root = new Command();
   root
     .name("devctl")
@@ -42,32 +35,32 @@ export function newRoot(): Command {
   });
   root.action(async () => {
     const opts = root.opts<{ config?: string }>();
-    await runTui(opts.config ?? "");
+    await runTui(runtime, opts.config ?? "");
   });
-  addStart(root);
-  addStop(root);
-  addRestart(root);
-  addRun(root);
-  addExec(root);
-  addStatus(root);
-  addDown(root);
-  addLogs(root);
-  addDaemon(root);
-  addDoctor(root);
-  addSetup(root);
-  addAuth(root);
-  addProxy(root);
-  addMcp(root);
-  addConfig(root);
-  addReload(root);
-  addAttach(root);
-  addCompletion(root);
+  addStart(root, runtime);
+  addStop(root, runtime);
+  addRestart(root, runtime);
+  addRun(root, runtime);
+  addExec(root, runtime);
+  addStatus(root, runtime);
+  addDown(root, runtime);
+  addLogs(root, runtime);
+  addDaemon(root, runtime);
+  addDoctor(root, runtime);
+  addSetup(root, runtime);
+  addAuth(root, runtime);
+  addProxy(root, runtime);
+  addMcp(root, runtime);
+  addConfig(root, runtime);
+  addReload(root, runtime);
+  addAttach(root, runtime);
+  addCompletion(root, runtime);
   addUpdate(root);
-  addSupervisor(root);
+  addSupervisor(root, launchDaemon);
   return root;
 }
 
-function addExec(root: Command): void {
+function addExec(root: Command, runtime: ClientRuntime): void {
   root.command("exec")
     .argument("<service>", "service whose execution context to use")
     .argument("[command...]", "command and arguments")
@@ -76,7 +69,7 @@ function addExec(root: Command): void {
     .option("--json", "machine-readable output")
     .action(async (service: string, command: string[], opts: { printEnv?: boolean; reveal?: boolean; json?: boolean }) => {
       if (!opts.printEnv && command.length === 0) throw new Error("exec command is required (or use --print-env)");
-      const ctrl = await openController("", configFlag(root), true);
+      const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         const result = await ctrl.execService(service, command, opts.printEnv === true);
         if (result.environment) {
@@ -94,9 +87,9 @@ function addExec(root: Command): void {
     });
 }
 
-function addRun(root: Command): void {
+function addRun(root: Command, runtime: ClientRuntime): void {
   root.command("run").argument("<task>", "task to run").option("--json", "machine-readable output").action(async (task: string, opts: { json?: boolean }) => {
-    const ctrl = await openController("", configFlag(root), true);
+    const ctrl = await runtime.openController("", configFlag(root), true);
     try {
       const result = await ctrl.runTask(task);
       if (opts.json) writeOut(JSON.stringify(result, null, 2) + "\n");
@@ -115,7 +108,7 @@ function configFlag(cmd: Command): string {
   return opts.config ?? "";
 }
 
-function addStart(root: Command): void {
+function addStart(root: Command, runtime: ClientRuntime): void {
   root
     .command("start")
     .argument("[services...]", "services to start")
@@ -128,7 +121,7 @@ function addStart(root: Command): void {
           "warning: --detach is deprecated and no longer changes behavior — the daemon already keeps running after `start` exits; use `devctl down` to stop it\n",
         );
       }
-      const ctrl = await openController("", configFlag(root), true);
+      const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         const plan = await ctrl.start({ services, profile: opts.profile, detach: opts.detach === true });
         if (opts.json) {
@@ -145,13 +138,13 @@ function addStart(root: Command): void {
     });
 }
 
-function addStop(root: Command): void {
+function addStop(root: Command, runtime: ClientRuntime): void {
   root
     .command("stop")
     .argument("[services...]", "services to stop")
     .option("--json", "machine-readable output")
     .action(async (services: string[], opts: { json?: boolean }) => {
-      const ctrl = await openController("", configFlag(root), true);
+      const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         await ctrl.stop(services);
         if (opts.json) {
@@ -163,14 +156,14 @@ function addStop(root: Command): void {
     });
 }
 
-function addRestart(root: Command): void {
+function addRestart(root: Command, runtime: ClientRuntime): void {
   root
     .command("restart")
     .argument("[services...]")
     .option("--cascade", "also restart transitive dependents (default: only the named services)")
     .option("--json", "machine-readable output")
     .action(async (services: string[], opts: { cascade?: boolean; json?: boolean }) => {
-      const ctrl = await openController("", configFlag(root), true);
+      const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         await ctrl.restart(services, opts.cascade === true);
         if (opts.json) {
@@ -182,15 +175,15 @@ function addRestart(root: Command): void {
     });
 }
 
-async function renderStatusOnce(root: Command, opts: { repo?: string; json?: boolean }): Promise<void> {
-  // Deliberately not openController(): status only needs a repo root to
+async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { repo?: string; json?: boolean }): Promise<void> {
+  // Deliberately not runtime.openController(): status only needs a repo root to
   // dial, not a parsed config, so a deleted .devctl must not prevent it
   // from finding a still-live daemon (findDaemon's discovery-then-
   // state-scan fallback handles that).
-  const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
+  const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
   try {
     if (!client) {
-      const persisted = readPersistedState(repoRoot);
+      const persisted = runtime.readPersistedState(repoRoot);
       if (opts.json) {
         writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
         return;
@@ -204,7 +197,7 @@ async function renderStatusOnce(root: Command, opts: { repo?: string; json?: boo
       }
       return;
     }
-    assertMethodAllowed(client, "status");
+    runtime.assertMethodAllowed(client, "status");
     const snap = (await client.call("status", null)) as StatusSnapshot;
     if (opts.json) {
       writeOut(JSON.stringify(snap, null, 2) + "\n");
@@ -225,7 +218,7 @@ async function renderStatusOnce(root: Command, opts: { repo?: string; json?: boo
 
 const WATCH_POLL_MS = 2000;
 
-function addStatus(root: Command): void {
+function addStatus(root: Command, runtime: ClientRuntime): void {
   root
     .command("status")
     .option("--repo <path>", "target a repository directly, even without a loadable configuration")
@@ -233,7 +226,7 @@ function addStatus(root: Command): void {
     .option("--watch", "keep refreshing until interrupted")
     .action(async (opts: { repo?: string; json?: boolean; watch?: boolean }) => {
       if (!opts.watch) {
-        await renderStatusOnce(root, opts);
+        await renderStatusOnce(runtime, root, opts);
         return;
       }
       const abort = new AbortController();
@@ -243,7 +236,7 @@ function addStatus(root: Command): void {
       try {
         while (!abort.signal.aborted) {
           writeOut(`--- ${new Date().toISOString()} ---\n`);
-          await renderStatusOnce(root, opts);
+          await renderStatusOnce(runtime, root, opts);
           writeOut("\n");
           try {
             await delay(WATCH_POLL_MS, undefined, { signal: abort.signal });
@@ -258,14 +251,14 @@ function addStatus(root: Command): void {
     });
 }
 
-function addDown(root: Command): void {
+function addDown(root: Command, runtime: ClientRuntime): void {
   root
     .command("down")
     .description("stop the daemon (and, by default, its services)")
     .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--keep-services", "stop only the daemon; its services keep running, detached")
     .action(async (opts: { repo?: string; keepServices?: boolean }) => {
-      const { repoRoot, client } = await findDaemon("", opts.repo ?? "", configFlag(root));
+      const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
       if (!client) {
         writeOut(`no supervisor is running for ${repoRoot}\n`);
         return;
@@ -285,7 +278,7 @@ function addDown(root: Command): void {
       // actual work shortly after (so the reply can flush before its own
       // socket goes away). down's job is to leave the daemon actually
       // gone, so wait for it to stop answering before reporting success.
-      await waitUntilUnreachable(repoRoot, timeout);
+      await waitUntilUnreachable(runtime, repoRoot, timeout);
       writeOut(
         opts.keepServices !== true
           ? `stopped services and the supervisor for ${repoRoot}\n`
@@ -294,10 +287,10 @@ function addDown(root: Command): void {
     });
 }
 
-async function waitUntilUnreachable(repoRoot: string, timeoutMs: number): Promise<void> {
+async function waitUntilUnreachable(runtime: ClientRuntime, repoRoot: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const probe = await tryDial(repoRoot);
+    const probe = await runtime.tryDial(repoRoot);
     if (!probe) {
       return;
     }
@@ -351,7 +344,7 @@ export async function followLogs(
   }
 }
 
-function addLogs(root: Command): void {
+function addLogs(root: Command, runtime: ClientRuntime): void {
   // Needed alongside root's own enablePositionalOptions(): logs and its
   // export subcommand both declare --output, and without this, logs' own
   // parser consumes --output before export's turn even begins, leaving
@@ -368,12 +361,12 @@ function addLogs(root: Command): void {
     .option("--json", "machine-readable output")
     .option("-f, --follow", "keep printing new matching events until interrupted")
     .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean }) => {
-      const ctrl = await openController("", configFlag(root), true);
+      const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         // Resolved against this process's own cwd before it crosses the RPC
         // boundary: the daemon may be a long-running background process with
         // an unrelated cwd, so a relative path must not be resolved there.
-        const exportPath = opts.output ? resolveExportPath(opts.output) : undefined;
+        const exportPath = opts.output ? runtime.resolveExportPath(opts.output) : undefined;
         if (opts.follow && !exportPath) {
           const abort = new AbortController();
           const onSignal = (): void => abort.abort();
@@ -436,9 +429,9 @@ function addLogs(root: Command): void {
     .option("--regex", "treat search as regular expression")
     .option("--source <source>", "filter by source")
     .action(async (services: string[], opts: { output: string; level?: string; search?: string; regex?: boolean; source?: string }) => {
-      const ctrl = await openController("", configFlag(root), true);
+      const ctrl = await runtime.openController("", configFlag(root), true);
       try {
-        const exportPath = resolveExportPath(opts.output);
+        const exportPath = runtime.resolveExportPath(opts.output);
         await ctrl.logs({
           services,
           level: opts.level,
@@ -456,29 +449,29 @@ function addLogs(root: Command): void {
 
 // The daemon's own bootstrap stderr (captured by ensureSupervisor() so a
 // failed `start`/`attach` has a path to point at) was previously only
-// reachable by manually opening that file. discover() only needs to find
+// reachable by manually opening that file. runtime.discover() only needs to find
 // the repo, not load a valid config, since the config is often exactly
 // what's broken when this log is worth reading.
-function addDaemon(root: Command): void {
+function addDaemon(root: Command, runtime: ClientRuntime): void {
   root
     .command("daemon")
     .command("logs")
     .option("-f, --follow", "keep printing new lines until interrupted")
     .action(async (opts: { follow?: boolean }) => {
-      const { repoRoot } = discover("", configFlag(root));
-      const path = bootstrapLogPath(repoRoot);
+      const { repoRoot } = runtime.discover("", configFlag(root));
+      const path = runtime.bootstrapLogPath(repoRoot);
       let printed = 0;
       const printNew = (): void => {
-        if (!existsSync(path)) {
+        if (!runtime.fileExists(path)) {
           return;
         }
-        const text = readFileSync(path, "utf8");
+        const text = runtime.readTextFile(path);
         if (text.length > printed) {
           writeOut(text.slice(printed));
           printed = text.length;
         }
       };
-      if (!existsSync(path)) {
+      if (!runtime.fileExists(path)) {
         writeOut("no daemon bootstrap log yet for this repository\n");
       } else {
         printNew();
@@ -506,17 +499,17 @@ function addDaemon(root: Command): void {
     });
 }
 
-function addDoctor(root: Command): void {
+function addDoctor(root: Command, runtime: ClientRuntime): void {
   root
     .command("doctor")
     .option("--json", "machine-readable output")
     .action(async (opts: { json?: boolean }) => {
-      const cfg = load("", configFlag(root));
-      const report = await client.runDoctor.execute(cfg);
+      const cfg = runtime.load("", configFlag(root));
+      const report = await runtime.runDoctor.execute(cfg);
       if (opts.json) {
         writeOut(JSON.stringify(report, null, 2) + "\n");
       } else {
-        writeOut(client.formatDoctor(report));
+        writeOut(runtime.formatDoctor(report));
       }
       if (report.issues > 0) {
         process.exitCode = 2;
@@ -524,16 +517,16 @@ function addDoctor(root: Command): void {
     });
 }
 
-function addSetup(root: Command): void {
+function addSetup(root: Command, runtime: ClientRuntime): void {
   root
     .command("setup")
     .option("--force", "overwrite an existing configuration")
     .action(async (opts: { force?: boolean }) => {
-      await runSetup("", configFlag(root), opts.force === true);
+      await runtime.runSetup("", configFlag(root), opts.force === true);
     });
 }
 
-function addAuth(root: Command): void {
+function addAuth(root: Command, runtime: ClientRuntime): void {
   const auth = root.command("auth").description("Google authentication");
   auth
     .command("status")
@@ -541,11 +534,11 @@ function addAuth(root: Command): void {
     .action(async (opts: { json?: boolean }) => {
       let project = "";
       try {
-        project = load("", configFlag(root)).google.project_id;
+        project = runtime.load("", configFlag(root)).google.project_id;
       } catch {
         project = "";
       }
-      const st = await client.detectGoogle(project);
+      const st = await runtime.detectGoogle(project);
       if (opts.json) {
         writeOut(JSON.stringify(st, null, 2) + "\n");
         return;
@@ -559,10 +552,10 @@ function addAuth(root: Command): void {
       writeOut(`gcloud:    ${st.gcloudInstalled}\n`);
     });
   auth.command("login").action(async () => {
-    await client.loginGoogle();
+    await runtime.loginGoogle();
   });
   auth.command("logout").action(async () => {
-    await client.logoutGoogle();
+    await runtime.logoutGoogle();
   });
   auth
     .command("refresh")
@@ -573,12 +566,12 @@ function addAuth(root: Command): void {
       // configured service accounts. Previously these were two disconnected
       // paths, so the command printed "refreshed" while the Identity screen
       // remained permanently "NOT PROBED".
-      const ctrl = await openController("", configFlag(root), false);
+      const ctrl = await runtime.openController("", configFlag(root), false);
       try {
         // tokens.refresh(), not invalidate()+get() — invalidate() clears
         // every credential in the shared store, not just this one; refresh()
         // forces a fresh mint of only the user identity being checked here.
-        const tok = await client.refreshUserToken("user");
+        const tok = await runtime.refreshUserToken("user");
         const daemonIdentity = ctrl.client ? await ctrl.refreshAuth() : undefined;
         if (opts.json) {
           writeOut(
@@ -606,9 +599,9 @@ function addAuth(root: Command): void {
     });
 }
 
-function addReload(root: Command): void {
+function addReload(root: Command, runtime: ClientRuntime): void {
   root.command("reload").description("reload configuration").action(async () => {
-    const ctrl = await openController("", configFlag(root), true);
+    const ctrl = await runtime.openController("", configFlag(root), true);
     try {
       const result = await ctrl.reload();
       if (result.restart_required.length === 0) {
@@ -625,13 +618,13 @@ function addReload(root: Command): void {
   });
 }
 
-function addProxy(root: Command): void {
+function addProxy(root: Command, runtime: ClientRuntime): void {
   const proxy = root.command("proxy");
   proxy
     .command("status")
     .option("--json")
     .action(async (opts: { json?: boolean }) => {
-      const ctrl = await openController("", configFlag(root), false);
+      const ctrl = await runtime.openController("", configFlag(root), false);
       try {
         if (!ctrl.client) {
           writeOut("PROXY  STOPPED\n");
@@ -652,7 +645,7 @@ function addProxy(root: Command): void {
       }
     });
   proxy.command("start").action(async () => {
-    const ctrl = await openController("", configFlag(root), true);
+    const ctrl = await runtime.openController("", configFlag(root), true);
     try {
       await ctrl.proxyStart();
     } finally {
@@ -660,7 +653,7 @@ function addProxy(root: Command): void {
     }
   });
   proxy.command("stop").action(async () => {
-    const ctrl = await openController("", configFlag(root), true);
+    const ctrl = await runtime.openController("", configFlag(root), true);
     try {
       await ctrl.proxyStop();
     } finally {
@@ -669,7 +662,7 @@ function addProxy(root: Command): void {
   });
 }
 
-function addMcp(root: Command): void {
+function addMcp(root: Command, runtime: ClientRuntime): void {
   root
     .command("mcp")
     .description("Local MCP server for coding agents")
@@ -682,7 +675,7 @@ function addMcp(root: Command): void {
       if (opts.port !== undefined && (!Number.isInteger(portOpt) || (portOpt ?? 0) <= 0)) {
         throw new Error(`invalid --port ${opts.port}`);
       }
-      const ctrl = await openController("", configFlag(root), opts.on === true, { allowMissingConfig: true });
+      const ctrl = await runtime.openController("", configFlag(root), opts.on === true, { allowMissingConfig: true });
       try {
         if (opts.off === true && ctrl.client) {
           await ctrl.mcpStop();
@@ -690,7 +683,7 @@ function addMcp(root: Command): void {
           await ctrl.mcpStart({ port: portOpt });
         }
         const snap = ctrl.client ? await ctrl.status() : undefined;
-        const tui = loadTuiConfig(ctrl.cfg.repoRoot, ctrl.cfg.ui.keymap);
+        const tui = runtime.loadTuiConfig(ctrl.cfg.repoRoot, ctrl.cfg.ui.keymap);
         const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot);
         const url = snap?.mcp?.address ?? mcpUrl(port);
         const token = snap?.mcp?.token ?? "";
@@ -732,15 +725,15 @@ function addMcp(root: Command): void {
     });
 }
 
-function addConfig(root: Command): void {
+function addConfig(root: Command, runtime: ClientRuntime): void {
   const cfg = root.command("config");
   cfg
     .command("validate")
     .option("--json")
     .action((opts: { json?: boolean }) => {
       try {
-        const loaded = load("", configFlag(root));
-        const issues = validate(loaded);
+        const loaded = runtime.load("", configFlag(root));
+        const issues = runtime.validate(loaded);
         if (opts.json) {
           writeOut(JSON.stringify({ valid: issues.length === 0, issues }, null, 2) + "\n");
           return;
@@ -762,8 +755,8 @@ function addConfig(root: Command): void {
     .description("show where effective configuration values came from")
     .option("--json")
     .action((opts: { json?: boolean }) => {
-      const loaded = load("", configFlag(root));
-      const entries = configDiff(loaded);
+      const loaded = runtime.load("", configFlag(root));
+      const entries = runtime.configDiff(loaded);
       if (opts.json) {
         writeOut(JSON.stringify({ entries }, null, 2) + "\n");
         return;
@@ -778,7 +771,7 @@ function addConfig(root: Command): void {
     .command("show")
     .option("--json")
     .action((opts: { json?: boolean }) => {
-      const loaded = load("", configFlag(root));
+      const loaded = runtime.load("", configFlag(root));
       if (opts.json) {
         writeOut(JSON.stringify(loaded, null, 2) + "\n");
         return;
@@ -787,7 +780,7 @@ function addConfig(root: Command): void {
     });
 }
 
-function addCompletion(root: Command): void {
+function addCompletion(root: Command, runtime: ClientRuntime): void {
   root
     .command("completion")
     .argument("[shell]", "zsh, bash, or fish")
@@ -803,7 +796,7 @@ function addCompletion(root: Command): void {
       const line = words.join(" ");
       const prefix = line === "" ? "devctl " : line;
       try {
-        const cfg = load("", configFlag(root));
+        const cfg = runtime.load("", configFlag(root));
         writeOut(completeLine(prefix, cfg).join("\n") + "\n");
       } catch {
         writeOut(completeLine(prefix, defaultConfig()).join("\n") + "\n");
@@ -832,45 +825,24 @@ function addUpdate(root: Command): void {
     });
 }
 
-function addAttach(root: Command): void {
+function addAttach(root: Command, runtime: ClientRuntime): void {
   root.command("attach").action(async () => {
-    const ctrl = await openAttach("", configFlag(root));
+    const ctrl = await runtime.openAttach("", configFlag(root));
     const { runTuiWithController } = await import("../tui/index.tsx");
-    await runTuiWithController(ctrl);
+    await runTuiWithController(runtime, ctrl);
   });
 }
 
-function addSupervisor(root: Command): void {
+function addSupervisor(root: Command, launchDaemon: DaemonLauncher): void {
   root
     .command("_supervisor")
     .option("--repo <path>", "repository root")
     .action(async (opts: { repo?: string }) => {
-      // loadOrEmpty, not load: a daemon is only ever spawned because a client
-      // already decided one should exist, so a missing configuration here means
-      // setup mode (see `devctl mcp --on`), not an error worth dying over. An
-      // invalid configuration still throws.
-      const cfg = loadOrEmpty(opts.repo ?? "", configFlag(root));
-      const { supervisor: sup } = createDaemon(cfg);
-      // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
-      // but it can also receive a signal directly (system shutdown, an
-      // admin `kill`, a container orchestrator). Without a handler, Node's
-      // default action skips shutdown() entirely — including flushing the
-      // now-asynchronous log writes — so register one as a safety net.
-      let shuttingDown = false;
-      const onSignal = (): void => {
-        if (shuttingDown) {
-          return;
-        }
-        shuttingDown = true;
-        void sup.shutdown(stopOnExit(cfg.shutdown)).finally(() => process.exit(0));
-      };
-      process.on("SIGINT", onSignal);
-      process.on("SIGTERM", onSignal);
-      await sup.run();
+      await launchDaemon(opts.repo ?? "", configFlag(root));
     });
 }
 
-export async function execute(): Promise<void> {
+export async function execute(runtime: ClientRuntime, launchDaemon: DaemonLauncher): Promise<void> {
   // A downstream reader closing early (`devctl status --watch | head -1`, a
   // terminal that goes away mid-stream) makes the next stdout write fail
   // with EPIPE — a normal, quiet end of output, not a crash. This backstops
@@ -882,7 +854,7 @@ export async function execute(): Promise<void> {
     }
   });
   try {
-    await newRoot().parseAsync(process.argv);
+    await newRoot(runtime, launchDaemon).parseAsync(process.argv);
   } catch (err) {
     process.stderr.write(humanMessage(err) + "\n");
     process.exit(exitCode(err));

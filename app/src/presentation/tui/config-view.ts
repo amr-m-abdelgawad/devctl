@@ -1,5 +1,6 @@
-import { configDiff, dependencyLabel, emptyService, listenAddress, refreshThreshold, type DevctlConfig, type RouteConfig, type ServiceConfig } from "../../adapters/config/index.ts";
-import { Detector } from "../../adapters/secrets/detector.ts";
+import { configDiff } from "../../domain/config/provenance.ts";
+import { dependencyLabel, emptyService, listenAddress, refreshThreshold, type DevctlConfig, type RouteConfig, type ServiceConfig } from "../../domain/config/types.ts";
+import { Detector } from "../../shared/redaction.ts";
 import { serviceCommandText, serviceHealthText, serviceIdentityText, servicePortsText, serviceRestartText } from "./helpers.ts";
 
 export type ConfigChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle";

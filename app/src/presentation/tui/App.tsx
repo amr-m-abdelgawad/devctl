@@ -1,18 +1,16 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import { loadPath, validateConfigText, type DevctlConfig } from "../../adapters/config/index.ts";
-import { type Controller } from "../../adapters/rpc/controller.ts";
+import type { DevctlConfig } from "../../domain/config/types.ts";
+import { type Controller } from "../../application/client-runtime.ts";
 import { type DoctorProgress, type Report } from "../../domain/doctor/types.ts";
-import { freePort, type PortHolder } from "../../adapters/net/ports.ts";
-import { type GoogleStatus } from "../../adapters/google/google.ts";
+import type { PortHolder } from "../../domain/net/ports.ts";
+import { type GoogleStatus } from "../../domain/identity/google-status.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogReceived, type BusEvent } from "../../shared/events.ts";
-import { openInFileManager, resolveExportPath, writeLogExport, type LogEvent, type LogFacets } from "../../adapters/storage/logs.ts";
-import { bootstrapLogPath, exportsDir } from "../../adapters/storage/storage.ts";
+import type { LogEvent, LogFacets } from "../../domain/logs/logs.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { defaultTuiWorkspace, type TuiWorkspace } from "./workspace.ts";
+import { type TuiWorkspace } from "./workspace.ts";
 import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../mcp/snippets.ts";
 import { type StatusSnapshot } from "../../types.ts";
@@ -84,7 +82,7 @@ import {
 } from "./settings.ts";
 import { isDarkTerminalBackground, paletteFor, resolveThemeName, THEME_NAMES } from "./themes.ts";
 import { type ConfirmDetail, type ConfirmKind, type LifecycleKind, type Overlay, type Screen } from "./types.ts";
-import { defaultCopyKeybind, saveTuiPreferences, type TuiConfig, type TuiPreferencePatch } from "./tui-config.ts";
+import { defaultCopyKeybind, type TuiConfig, type TuiPreferencePatch } from "./tui-config.ts";
 import { withSuspendedRenderer } from "./suspend.ts";
 
 const COMMAND_LOCK_MS = 50;
@@ -98,11 +96,11 @@ type AppProps = {
   bootError?: string;
   bootErrorMissing?: boolean;
   terminalBackground?: string | null;
-  workspace?: TuiWorkspace;
+  workspace: TuiWorkspace;
 };
 
-export function App({ controller, tui, onQuit, bootError, bootErrorMissing = false, terminalBackground, workspace = defaultTuiWorkspace }: AppProps) {
-  const { detectGoogle, runDoctor, startupPlan, shutdownPlan, resolveStartRequest, loginGoogle, logoutGoogle } = workspace;
+export function App({ controller, tui, onQuit, bootError, bootErrorMissing = false, terminalBackground, workspace }: AppProps) {
+  const { listSessions, loadSessionEvents, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, loadPath, validateConfigText, freePort, openInFileManager, resolveExportPath, writeLogExport, bootstrapLogPath, exportsDir, readTextFile, writeTextFile, fileExists, createStarterConfig, validate, detectGoogle, runDoctor, startupPlan, shutdownPlan, resolveStartRequest, loginGoogle, logoutGoogle } = workspace;
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [themeName, setThemeName] = useState(tui.theme || controller?.cfg.ui.theme || "devctl");
@@ -113,7 +111,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const committedLeader = useRef(tui.leader_timeout);
   const [fontSize, setFontSize] = useState(() => nearestFontSize(tui.font_size));
   const committedFont = useRef(fontSize);
-  const prefsLocked = tuiPrefsLocked();
+  const prefsLocked = tuiPrefsLocked(resolveTuiOverridePath());
   const palette = useMemo(() => {
     const base = paletteFor(themeName);
     if (resolveThemeName(themeName) !== "terminal" || !isDarkTerminalBackground(terminalBackground)) {
@@ -148,7 +146,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
         mouse: mousePref,
         leaderMs,
         locked: prefsLocked,
-        configPath: prefsLocked ? tui.path || prefsSavePath() : prefsSavePath(),
+        configPath: prefsLocked ? tui.path || prefsSavePath(resolveTuiOverridePath(), userTuiConfigPath()) : prefsSavePath(resolveTuiOverridePath(), userTuiConfigPath()),
         mcpRunning: snap?.mcp?.running === true,
       }),
     [fontSize, leaderMs, mousePref, prefsLocked, snap?.mcp?.running, themeName, tui.path],
@@ -1039,7 +1037,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       return;
     }
     try {
-      setConfigEditText(readFileSync(cfg.configPath, "utf8"));
+      setConfigEditText(readTextFile(cfg.configPath));
       setConfigEditError("");
       setOverlay("config-edit");
     } catch (err) {
@@ -1058,7 +1056,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       setStatus("Config buffer not saved");
       return;
     }
-    writeFileSync(cfg.configPath, text);
+    writeTextFile(cfg.configPath, text);
     setConfigEditError("");
     setOverlay("none");
     if (!controller) {
@@ -1193,11 +1191,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
               return;
             }
             const path = bootstrapLogPath(root);
-            if (!existsSync(path)) {
+            if (!fileExists(path)) {
               setStatus("no daemon bootstrap log yet for this repository");
               return;
             }
-            setScrollText({ title: "daemon bootstrap", body: readFileSync(path, "utf8") });
+            setScrollText({ title: "daemon bootstrap", body: readTextFile(path) });
             setOverlay("scroll-text");
             return;
           }
@@ -1369,7 +1367,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             setStatus(`Logs until ${args[0] || "now"}`);
             return;
           case "history": {
-            const { listSessions, loadSessionEvents } = await import("../../adapters/storage/logs.ts");
             const sessions = listSessions();
             const pick = args[0] || sessions[0];
             if (!pick) {
@@ -2127,7 +2124,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           setStatus(bootError || "Existing configuration is invalid — fix it and restart devctl.");
           return;
         }
-        void import("../cli/setup.ts").then(({ createStarterConfig }) => {
+        void Promise.resolve().then(() => {
           try {
             const path = createStarterConfig(process.cwd());
             setStatus(`Wrote ${path}. Restart devctl or run the CLI wizard.`);
@@ -2424,7 +2421,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />
         ) : null}
         {screen === "setup" ? (
-          <SetupScreen palette={palette} cfg={cfg} google={google} bootError={bootError} bootErrorMissing={bootErrorMissing} step={listCursor} />
+          <SetupScreen issues={cfg ? validate(cfg) : ["configuration not loaded"]} palette={palette} cfg={cfg} google={google} bootError={bootError} bootErrorMissing={bootErrorMissing} step={listCursor} />
         ) : null}
         {screen === "settings" ? (
           <SettingsScreen

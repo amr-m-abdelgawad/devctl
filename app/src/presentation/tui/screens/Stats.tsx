@@ -37,8 +37,8 @@ import {
 import { useDensity } from "../density.tsx";
 import { ScreenFrame } from "../layout.tsx";
 import { serviceColor, stateColor, type Palette } from "../themes.ts";
-import { sessionStartedAt } from "../../../adapters/storage/storage.ts";
-import { type DevctlConfig } from "../../../adapters/config/index.ts";
+import { sessionStartedAt } from "../../../domain/session/session.ts";
+import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type Runtime } from "../../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../../types.ts";
 

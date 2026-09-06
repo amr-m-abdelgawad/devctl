@@ -1,34 +1,35 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { type DevctlConfig } from "../../adapters/config/index.ts";
-import { openTui, type Controller } from "../../adapters/rpc/controller.ts";
+import { type DevctlConfig } from "../../domain/config/types.ts";
+import type { ClientRuntime, Controller } from "../../application/client-runtime.ts";
+import { createTuiWorkspace } from "./workspace.ts";
 import { humanMessage, isKind, KindConfigurationMissing } from "../../shared/errors.ts";
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../warnings.ts";
-import { loadTuiConfig } from "./tui-config.ts";
 
-export async function runTuiWithController(controller: Controller): Promise<void> {
-  const tui = loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);
-  await renderApp(controller, tui);
+export async function runTuiWithController(client: ClientRuntime, controller: Controller): Promise<void> {
+  const tui = client.loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);
+  await renderApp(client, controller, tui);
 }
 
-export async function runTui(configPath: string): Promise<void> {
+export async function runTui(client: ClientRuntime, configPath: string): Promise<void> {
   let controller: Controller | undefined;
   let bootError: string | undefined;
   let bootErrorMissing = false;
   try {
-    controller = await openTui("", configPath);
+    controller = await client.openTui("", configPath);
   } catch (err) {
     bootError = humanMessage(err);
     bootErrorMissing = isKind(err, KindConfigurationMissing);
   }
-  const tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap);
-  await renderApp(controller, tui, bootError, bootErrorMissing);
+  const tui = client.loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap);
+  await renderApp(client, controller, tui, bootError, bootErrorMissing);
 }
 
 export async function renderApp(
+  client: ClientRuntime,
   controller: Controller | undefined,
-  tui = loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap),
+  tui = client.loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap),
   bootError?: string,
   bootErrorMissing = false,
 ): Promise<void> {
@@ -69,6 +70,7 @@ export async function renderApp(
     };
     root.render(
       <App
+        workspace={createTuiWorkspace(client)}
         controller={controller}
         tui={tui}
         onQuit={quit}
@@ -80,6 +82,6 @@ export async function renderApp(
   });
 }
 
-export function tuiConfigFor(cfg: DevctlConfig) {
-  return loadTuiConfig(cfg.repoRoot, cfg.ui.keymap);
+export function tuiConfigFor(client: ClientRuntime, cfg: DevctlConfig) {
+  return client.loadTuiConfig(cfg.repoRoot, cfg.ui.keymap);
 }

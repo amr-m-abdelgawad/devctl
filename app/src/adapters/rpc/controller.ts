@@ -60,7 +60,7 @@ export function compatWarning(compat: DaemonCompat): string | undefined {
 // Shared by Controller.call() and any lighter-weight caller (status,
 // down, daemon logs) that talks to a Client directly instead of through a
 // Controller.
-export function assertMethodAllowed(client: Client, method: string): void {
+export function assertMethodAllowed(client: { compat: DaemonCompat }, method: string): void {
   if (!client.compat.compatible && !ALWAYS_ALLOWED_METHODS.has(method)) {
     throw hintError(KindGeneral, describeIncompatibility(client.compat), "run `devctl down` to stop it, then start again");
   }

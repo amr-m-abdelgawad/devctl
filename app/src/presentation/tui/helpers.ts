@@ -1,9 +1,9 @@
-import { dependencyCondition, dependencyName, type DevctlConfig, type ServiceConfig } from "../../adapters/config/index.ts";
+import { dependencyCondition, dependencyName, type DevctlConfig, type ServiceConfig } from "../../domain/config/types.ts";
 import { type BusEvent } from "../../shared/events.ts";
-import { compileLogSearch, LevelUnknown, type LogEvent, type LogFacets } from "../../adapters/storage/logs.ts";
-import { Detector } from "../../adapters/secrets/detector.ts";
+import { compileLogSearch, LevelUnknown, type LogEvent, type LogFacets } from "../../domain/logs/logs.ts";
+import { Detector } from "../../shared/redaction.ts";
 import { displayState, type Plan, type Runtime } from "../../domain/service/services.ts";
-import { type PersistedState } from "../../adapters/storage/storage.ts";
+import { type PersistedState } from "../../domain/session/session.ts";
 import { type StatusSnapshot } from "../../types.ts";
 import { allCommands, type CommandSpec } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";

@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import { configDiff, validateConfigText, type DevctlConfig } from "../../adapters/config/index.ts";
+import type { DevctlConfig } from "../../domain/config/types.ts";
+import { configDiff } from "../../domain/config/provenance.ts";
 import { type Report } from "../../domain/doctor/types.ts";
-import { type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
-import { Detector } from "../../adapters/secrets/detector.ts";
+import { type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { Detector } from "../../shared/redaction.ts";
 import { type ReloadResult, type StartRequest, type StatusSnapshot } from "../../types.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
@@ -22,6 +23,7 @@ export type McpHost = {
   status(): StatusSnapshot;
   logsPage(req: LogFilter & LogPageRequest): LogPage | Promise<LogPage>;
   config(): DevctlConfig;
+  validateConfigText(text: string): string[];
   start(req: StartRequest): Promise<unknown>;
   stop(names: string[]): Promise<void>;
   restart(names: string[], cascade?: boolean): Promise<void>;
@@ -492,7 +494,7 @@ export function getSetupGuide(args: Record<string, unknown>): unknown {
 export function validateConfig(host: McpHost, args: Record<string, unknown>): unknown {
   const cfg = host.config();
   if (typeof args.text === "string") {
-    const issues = validateConfigText(cfg.repoRoot, cfg.configPath, args.text);
+    const issues = host.validateConfigText(args.text);
     return { valid: issues.length === 0, issues, source: "candidate", config_path: cfg.configPath };
   }
   if (!existsSync(cfg.configPath)) {
@@ -504,7 +506,7 @@ export function validateConfig(host: McpHost, args: Record<string, unknown>): un
       setup_mode: true,
     };
   }
-  const issues = validateConfigText(cfg.repoRoot, cfg.configPath, readFileSync(cfg.configPath, "utf8"));
+  const issues = host.validateConfigText(readFileSync(cfg.configPath, "utf8"));
   return { valid: issues.length === 0, issues, source: "disk", config_path: cfg.configPath };
 }
 

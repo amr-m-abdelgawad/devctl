@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultCopyKeybind, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath } from "./tui-config.ts";
+import { defaultCopyKeybind, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath } from "./tui-preferences.ts";
 
 describe("tui.json", () => {
   test("parses jsonc and merges keybinds with defaults", () => {

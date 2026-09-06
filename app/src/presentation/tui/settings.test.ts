@@ -104,17 +104,8 @@ describe("settings", () => {
     expect(settingsDefaults().theme).toBe("devctl");
   });
 
-  test("prefs lock only when DEVCTL_TUI_CONFIG points at a real file", () => {
-    const prev = process.env.DEVCTL_TUI_CONFIG;
-    process.env.DEVCTL_TUI_CONFIG = "/tmp/devctl-missing-tui-config.json";
-    try {
-      expect(tuiPrefsLocked()).toBe(false);
-    } finally {
-      if (prev === undefined) {
-        delete process.env.DEVCTL_TUI_CONFIG;
-      } else {
-        process.env.DEVCTL_TUI_CONFIG = prev;
-      }
-    }
+  test("prefs lock only when an override path was resolved", () => {
+    expect(tuiPrefsLocked(undefined)).toBe(false);
+    expect(tuiPrefsLocked("/tmp/override.json")).toBe(true);
   });
 });

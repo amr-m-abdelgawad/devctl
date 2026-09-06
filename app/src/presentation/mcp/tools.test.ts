@@ -1,3 +1,4 @@
+import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { matchLog, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
@@ -87,6 +88,7 @@ function stubHost(): McpHost {
     status: () => sampleSnap(),
     logsPage: (req: LogFilter & LogPageRequest) => fakeLogsPage(logs, req),
     config: () => cfg,
+    validateConfigText: (text) => validateConfigText(cfg.repoRoot, cfg.configPath, text),
     start: async () => ({ started: true }),
     stop: async () => undefined,
     restart: async () => undefined,

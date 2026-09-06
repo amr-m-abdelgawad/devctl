@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { followLogs, newRoot } from "./cli.ts";
+import { followLogs } from "./cli.ts";
+import { newRoot } from "../../bootstrap/test-client.ts";
 import { type LogEvent, type LogPage } from "../../adapters/storage/logs.ts";
 import { processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
 

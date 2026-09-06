@@ -1,6 +1,6 @@
 import { VERSION, versionLine } from "../../version.ts";
 import { THEME_NAMES } from "./themes.ts";
-import { DEFAULT_FONT_SIZE, DEFAULT_LEADER_TIMEOUT_MS, resolveTuiOverridePath, userTuiConfigPath } from "./tui-config.ts";
+import { DEFAULT_FONT_SIZE, DEFAULT_LEADER_TIMEOUT_MS } from "./tui-config.ts";
 
 export const LEADER_STEPS_MS = [1000, 2000, 3000] as const;
 export const FONT_SIZES = [12, 14, 16, 18, 20, 22] as const;
@@ -31,8 +31,8 @@ export type SettingsState = {
   mcpRunning?: boolean;
 };
 
-export function tuiPrefsLocked(): boolean {
-  return resolveTuiOverridePath() !== undefined;
+export function tuiPrefsLocked(overridePath?: string): boolean {
+  return overridePath !== undefined;
 }
 
 export function formatLeader(ms: number): string {
@@ -220,6 +220,6 @@ export function selectedSettingsItem(items: SettingsItem[], selected: number): S
   return items[settingsIndex(items, selected)];
 }
 
-export function prefsSavePath(): string {
-  return resolveTuiOverridePath() ?? userTuiConfigPath();
+export function prefsSavePath(overridePath: string | undefined, userPath: string): string {
+  return overridePath ?? userPath;
 }

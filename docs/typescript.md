@@ -24,10 +24,11 @@ cd app && bun link    # optional: `devctl` on PATH
 |------|------|
 | `app/src/bin.ts` | Entry |
 | `app/src/bootstrap/` | Composition roots (daemon + client) |
+| `app/src/application/client-runtime.ts` | Injected CLI/TUI operations and controller contract |
 | `app/src/presentation/cli/` | Commander CLI |
 | `app/src/presentation/tui/` | OpenTUI screens and overlays |
 | `app/src/presentation/mcp/` | Streamable HTTP MCP server |
-| `app/src/domain/` | Service, identity, config types |
+| `app/src/domain/` | Service, identity, config, log, session, and preference types and policies |
 | `app/src/adapters/config/` | Discover, decode, merge, validate |
 | `app/src/adapters/process/` | Host process runtime |
 | `app/src/adapters/google/` | Google / IAP / tokens |

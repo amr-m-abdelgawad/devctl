@@ -1,34 +1,32 @@
+import { loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath } from "../adapters/config/tui-preferences.ts";
+import type { ClientRuntime } from "../application/client-runtime.ts";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readPersistedState, bootstrapLogPath, exportsDir } from "../adapters/storage/storage.ts";
+import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents } from "../adapters/storage/logs.ts";
+import { freePort } from "../adapters/net/ports.ts";
+import { createStarterConfig, runSetup } from "../presentation/cli/setup.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
-import { load, loadOrEmpty, validate } from "../adapters/config/index.ts";
-import { detectGoogle, loginGoogle, logoutGoogle, type GoogleStatus } from "../adapters/google/google.ts";
+import { load, loadOrEmpty, loadPath, validate, validateConfigText, discover, configDiff } from "../adapters/config/index.ts";
+import { detectGoogle, loginGoogle, logoutGoogle } from "../adapters/google/google.ts";
 import { TokenManager, googleTokenProviders } from "../adapters/google/token.ts";
 import { createDoctorHost, createDoctorRunner, formatDoctor, type DoctorHost, type DoctorProgress, type DoctorRuntimeContext, type Report } from "../adapters/doctor/doctor.ts";
 import { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "../application/commands.ts";
 import type { DevctlConfig } from "../domain/config/types.ts";
-import { openAttach, openController, type Controller } from "../adapters/rpc/controller.ts";
-
-export type ClientRuntime = {
-  load: typeof load;
-  loadOrEmpty: typeof loadOrEmpty;
-  validate: typeof validate;
-  detectGoogle: (project: string) => Promise<GoogleStatus>;
-  loginGoogle: typeof loginGoogle;
-  logoutGoogle: typeof logoutGoogle;
-  refreshUserToken: (identity?: string) => Promise<{ identity: string; expiresAt: Date }>;
-  runDoctor: RunDoctor;
-  getStartupPlan: GetStartupPlan;
-  getShutdownPlan: GetShutdownPlan;
-  resolveStart: ResolveStart;
-  formatDoctor: typeof formatDoctor;
-  doctorHost: DoctorHost;
-  openController: typeof openController;
-  openAttach: typeof openAttach;
-};
+import { openAttach, openController, openTui, findDaemon, tryDial, assertMethodAllowed } from "../adapters/rpc/controller.ts";
 
 export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: DoctorHost; tokens?: TokenManager }): ClientRuntime {
   const tokens = deps?.tokens ?? new TokenManager(60_000, googleTokenProviders(), undefined);
   const doctorHost = deps?.doctorHost ?? createDoctorHost({ tokens });
-  return {
+  const client: ClientRuntime = {
+    loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, listSessions, loadSessionEvents,
+    loadPath, validateConfigText, discover, configDiff,
+    openTui, findDaemon, tryDial, assertMethodAllowed,
+    readPersistedState, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
+    createStarterConfig,
+    runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),
+    readTextFile: (path) => readFileSync(path, "utf8"),
+    writeTextFile: (path, text) => writeFileSync(path, text),
+    fileExists: existsSync,
     load,
     loadOrEmpty,
     validate,
@@ -41,10 +39,10 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     getShutdownPlan: new GetShutdownPlan(),
     resolveStart: new ResolveStart(),
     formatDoctor,
-    doctorHost,
     openController,
     openAttach,
   };
+  return client;
 }
 
 export async function doctorReport(
@@ -56,4 +54,4 @@ export async function doctorReport(
   return client.runDoctor.execute(cfg, onProgress, runtime);
 }
 
-export type { Controller };
+export type { ClientRuntime, Controller } from "../application/client-runtime.ts";

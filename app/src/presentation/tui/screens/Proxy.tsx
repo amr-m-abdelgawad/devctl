@@ -2,7 +2,7 @@ import { EmptyState } from "../chrome.tsx";
 import { clipText, NARROW_WIDTH, padClip } from "../helpers.ts";
 import { Chip, KeyHints, MetaBar, ScreenFrame, Toolbar, scrollboxStyle } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
-import { type DevctlConfig } from "../../../adapters/config/index.ts";
+import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type ProxyRequestSnapshot, type StatusSnapshot } from "../../../types.ts";
 
 // Routes pane still has a max width, but match/upstream wrap instead of

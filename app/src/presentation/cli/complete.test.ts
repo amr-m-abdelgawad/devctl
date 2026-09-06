@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { completeLine, completionScript } from "./complete.ts";
-import { newRoot } from "./cli.ts";
+import { newRoot } from "../../bootstrap/test-client.ts";
 
 describe("completions", () => {
   test("suggests commands and service names from config", () => {

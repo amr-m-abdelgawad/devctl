@@ -1,6 +1,5 @@
-import { validate } from "../../../adapters/config/index.ts";
-import { type DevctlConfig } from "../../../adapters/config/index.ts";
-import { type GoogleStatus } from "../../../adapters/google/google.ts";
+import { type DevctlConfig } from "../../../domain/config/types.ts";
+import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { Chip, KeyHints, ScreenFrame } from "../layout.tsx";
@@ -21,6 +20,7 @@ const STEPS = [
 
 export function SetupScreen(props: {
   palette: Palette;
+  issues: string[];
   cfg?: DevctlConfig;
   google?: GoogleStatus;
   bootError?: string;
@@ -49,7 +49,7 @@ export function SetupScreen(props: {
       />
     );
   }
-  const issues = cfg ? validate(cfg) : ["configuration not loaded"];
+  const issues = props.issues;
   const rows = setupRows(cfg, google, issues);
   const done = rows.filter((row) => row.ok).length;
   const total = rows.length;

@@ -16,14 +16,8 @@ import {
 } from "../../shared/errors.ts";
 import { emptyIdentity, type Identity } from "../../domain/identity/identity.ts";
 
-export type GoogleStatus = {
-  gcloudInstalled: boolean;
-  adcAvailable: boolean;
-  userEmail: string;
-  projectID: string;
-  projectSource: string;
-  error?: Error;
-};
+import type { GoogleStatus } from "../../domain/identity/google-status.ts";
+export type { GoogleStatus } from "../../domain/identity/google-status.ts";
 
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 export const COMMAND_PROBE_MS = 1_500;

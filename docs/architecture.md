@@ -87,13 +87,18 @@ The stricter layer rules and doctor boundary are in place. `RunDoctor` depends o
 `ports/doctor-runner.ts`; the adapter implements it with the existing diagnostics.
 Doctor reports, progress, runtime context, and port-holder data live in `domain/`,
 so application code and doctor screens do not import adapter types for these values.
-The presentation migration still has explicit exceptions to remove in the next phase.
+Production CLI, TUI, and MCP modules now have no adapter or bootstrap import
+exceptions. `bin.ts` supplies the client runtime and daemon launcher to the CLI;
+the TUI workspace receives that same runtime. The application owns the
+`ClientRuntime` and `Controller` contracts. Config, Google status, logs, session,
+and preference view types live in domain modules. Preference persistence stays
+in the config adapter, and MCP validation is supplied by its host. Integration
+tests retain explicit composition exceptions.
 
 Remaining migration phases, in order:
 
-1. Inject the client runtime into CLI/TUI and move remaining screen types inward.
-2. Split TUI App/helpers by responsibility.
-3. Require all Supervisor dependencies and apply `ProfileId` at profile boundaries.
+1. Split TUI App/helpers by responsibility.
+2. Require all Supervisor dependencies and apply `ProfileId` at profile boundaries.
    Health-checker injection and `ProcessManager implements ProcessRuntime` are already in place.
 
 Keep RPC names, JSON fields, `plugin-sdk.ts`, and `bin.ts` stable. Validate each

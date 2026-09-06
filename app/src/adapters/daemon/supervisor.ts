@@ -11,6 +11,7 @@ import {
   graceSeconds,
   listenAddress,
   load,
+  validateConfigText,
   stopOnExit,
   unresolvedHealthTypes,
   unresolvedIdentityTypes,
@@ -49,8 +50,8 @@ import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { ProcessManager, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "../process/processes.ts";
 import { McpHttpServer } from "../../presentation/mcp/server.ts";
 import { isKnownToolName, type McpHost } from "../../presentation/mcp/tools.ts";
-import { resolveMcpPort } from "../../presentation/mcp/port.ts";
-import { loadTuiConfig } from "../../presentation/tui/tui-config.ts";
+import { resolveMcpPort } from "../net/mcp-port.ts";
+import { loadTuiConfig } from "../config/tui-preferences.ts";
 import { createDoctorHost, createDoctorRunner } from "../doctor/doctor.ts";
 import { ProxyServer, TokenEndpoint } from "../proxy/proxy.ts";
 import { Detector } from "../secrets/detector.ts";
@@ -966,6 +967,7 @@ export class Supervisor {
       status: () => this.commands.getServiceStatus.execute(),
       logsPage: (req) => this.queryLogsPage(req),
       config: () => this.cfg,
+      validateConfigText: (text) => validateConfigText(this.cfg.repoRoot, this.cfg.configPath, text),
       start: (req) => this.commands.startService.execute(req),
       stop: (names) => this.commands.stopService.execute(names),
       restart: (names, cascade) => this.commands.restartService.execute(names, { cascade }),

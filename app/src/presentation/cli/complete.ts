@@ -1,4 +1,4 @@
-import { type DevctlConfig } from "../../adapters/config/index.ts";
+import { type DevctlConfig } from "../../domain/config/types.ts";
 
 const SHELLS = ["zsh", "bash", "fish"] as const;
 

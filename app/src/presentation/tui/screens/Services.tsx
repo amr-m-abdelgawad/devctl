@@ -1,7 +1,7 @@
 import { EmptyState } from "../chrome.tsx";
 import { canStartAll, NARROW_WIDTH, SERVICE_LIST_MIN, serviceListInnerWidth, serviceListPaneWidth, type ServiceEnvEntry } from "../helpers.ts";
 import { serviceColor, type Palette } from "../themes.ts";
-import { type DevctlConfig } from "../../../adapters/config/index.ts";
+import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type StatusSnapshot } from "../../../types.ts";
 import { ServiceInspector } from "./ServiceDetail.tsx";
 import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
