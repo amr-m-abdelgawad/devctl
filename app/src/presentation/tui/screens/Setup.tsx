@@ -2,9 +2,9 @@ import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { Chip, KeyHints, ScreenFrame } from "../layout.tsx";
-import { googleProjectDisplay } from "../helpers.ts";
-import { stateColor, stateGlyph, type Palette } from "../themes.ts";
+import { googleProjectDisplay } from "../helpers/identity.ts";
+import { Chip,KeyHints,ScreenFrame } from "../layout.tsx";
+import { stateColor,stateGlyph,type Palette } from "../themes.ts";
 
 const STEPS = [
   "Repository",

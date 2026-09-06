@@ -95,11 +95,22 @@ and preference view types live in domain modules. Preference persistence stays
 in the config adapter, and MCP validation is supplied by its host. Integration
 tests retain explicit composition exceptions.
 
-Remaining migration phases, in order:
+The TUI decomposition is complete. `App.tsx` coordinates screen rendering and
+input. Hooks under `presentation/tui/hooks/` own log filtering/windowing and
+paged queries, daemon event subscriptions, diagnostics, lifecycle commands,
+environment inspection, config editing, MCP controls, preferences, and command
+dispatch. They receive the client workspace or controller explicitly. Screen
+helpers live in focused modules under `presentation/tui/helpers/`; production
+consumers import those modules directly. The old `helpers.ts` is a compatibility
+barrel, also exercised by the existing helper tests.
 
-1. Split TUI App/helpers by responsibility.
-2. Require all Supervisor dependencies and apply `ProfileId` at profile boundaries.
-   Health-checker injection and `ProcessManager implements ProcessRuntime` are already in place.
+Hook regression tests cover stale diagnostic and environment results, pinned log
+windows, failed lifecycle commands, config validation before writes, preference
+preview/override behavior, and rendering App in setup mode.
+
+The remaining phase is to require all Supervisor dependencies and apply
+`ProfileId` at profile boundaries. Health-checker injection and
+`ProcessManager implements ProcessRuntime` are already in place.
 
 Keep RPC names, JSON fields, `plugin-sdk.ts`, and `bin.ts` stable. Validate each
 phase with `bun test`, `./node_modules/.bin/tsc --noEmit`, and

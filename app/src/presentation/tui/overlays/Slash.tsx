@@ -1,5 +1,5 @@
 import { type CommandSpec } from "../commands.ts";
-import { selectedSlashCommand, slashWindowStart } from "../helpers.ts";
+import { selectedSlashCommand,slashWindowStart } from "../helpers/command-catalog.ts";
 import { type Palette } from "../themes.ts";
 
 const VISIBLE = 8;

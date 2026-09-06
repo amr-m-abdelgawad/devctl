@@ -1,22 +1,13 @@
-import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
-import {
-  firstPort,
-  padClip,
-  planActionCopy,
-  planProgress,
-  planRowNote,
-  planTitle,
-  serviceLineState,
-  waveCardTitle,
-  waveStatus,
-  type WaveStatus,
-} from "../helpers.ts";
-import { Chip, OverlayShell, scrollboxStyle, type ChipTone } from "../layout.tsx";
-import { serviceColor, stateColor, type Palette } from "../themes.ts";
-import { type LifecycleKind } from "../types.ts";
+import { type Ref } from "react";
 import { type Plan } from "../../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../../types.ts";
+import { padClip } from "../helpers/format.ts";
+import { planActionCopy,planProgress,planRowNote,planTitle,waveCardTitle,waveStatus,type WaveStatus } from "../helpers/lifecycle.ts";
+import { firstPort,serviceLineState } from "../helpers/services.ts";
+import { Chip,OverlayShell,scrollboxStyle,type ChipTone } from "../layout.tsx";
+import { serviceColor,stateColor,type Palette } from "../themes.ts";
+import { type LifecycleKind } from "../types.ts";
 
 type WavePresentation = {
   icon: string;

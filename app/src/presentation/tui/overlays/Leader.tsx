@@ -1,5 +1,5 @@
-import { leaderHints } from "../helpers.ts";
-import { KeyHints, OverlayShell } from "../layout.tsx";
+import { leaderHints } from "../helpers/command-catalog.ts";
+import { KeyHints,OverlayShell } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
 export function LeaderOverlay(props: { palette: Palette; termW: number; termH: number }) {

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
 import spinners from "cli-spinners";
-import { EmptyState, ErrorState } from "../chrome.tsx";
-import { renderBar } from "../helpers.ts";
-import { ScreenFrame, scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
-import { stateColor, stateGlyph, type Palette } from "../themes.ts";
-import { type Check, type DoctorProgress, type Report } from "../../../domain/doctor/types.ts";
+import { useEffect,useState } from "react";
+import { type Check,type DoctorProgress,type Report } from "../../../domain/doctor/types.ts";
+import { EmptyState,ErrorState } from "../chrome.tsx";
+import { renderBar } from "../helpers/format.ts";
+import { ScreenFrame,scrollboxStyle,useScrollSelectedIntoView } from "../layout.tsx";
+import { stateColor,stateGlyph,type Palette } from "../themes.ts";
 
 const ROW_PREFIX = "doctor-row";
 // The fixed-width frames keep the centered loading heading stable in every

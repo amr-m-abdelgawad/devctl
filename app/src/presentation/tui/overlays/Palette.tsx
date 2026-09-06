@@ -1,6 +1,7 @@
 import { type CommandSpec } from "../commands.ts";
 import { useDensity } from "../density.tsx";
-import { commandSelectOptions, overlayRect } from "../helpers.ts";
+import { overlayRect } from "../helpers/chrome.ts";
+import { commandSelectOptions } from "../helpers/command-catalog.ts";
 import { OverlayShell } from "../layout.tsx";
 import { isCompactScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";

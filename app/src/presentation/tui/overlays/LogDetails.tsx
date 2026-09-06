@@ -1,9 +1,9 @@
-import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
-import { OverlayShell, scrollboxStyle } from "../layout.tsx";
-import { displayLogLevel, prettyPrintLogRaw, stripAnsi } from "../helpers.ts";
-import { serviceColor, type Palette } from "../themes.ts";
+import { type Ref } from "react";
 import { type LogEvent } from "../../../domain/logs/logs.ts";
+import { displayLogLevel,prettyPrintLogRaw,stripAnsi } from "../helpers/logs.ts";
+import { OverlayShell,scrollboxStyle } from "../layout.tsx";
+import { serviceColor,type Palette } from "../themes.ts";
 
 export function LogDetailsOverlay(props: {
   palette: Palette;

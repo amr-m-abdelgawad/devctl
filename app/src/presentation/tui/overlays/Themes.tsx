@@ -1,8 +1,8 @@
 import { useDensity } from "../density.tsx";
-import { overlayRect } from "../helpers.ts";
+import { overlayRect } from "../helpers/chrome.ts";
 import { OverlayShell } from "../layout.tsx";
 import { isCompactScale } from "../settings.ts";
-import { THEME_BLURBS, THEME_NAMES, type Palette } from "../themes.ts";
+import { THEME_BLURBS,THEME_NAMES,type Palette } from "../themes.ts";
 
 const THEMES_W = 52;
 const THEMES_H = 22;

@@ -1,9 +1,10 @@
-import { EmptyState } from "../chrome.tsx";
-import { clipText, NARROW_WIDTH, padClip } from "../helpers.ts";
-import { Chip, KeyHints, MetaBar, ScreenFrame, Toolbar, scrollboxStyle } from "../layout.tsx";
-import { type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
-import { type ProxyRequestSnapshot, type StatusSnapshot } from "../../../types.ts";
+import { type ProxyRequestSnapshot,type StatusSnapshot } from "../../../types.ts";
+import { EmptyState } from "../chrome.tsx";
+import { NARROW_WIDTH } from "../helpers/chrome.ts";
+import { clipText,padClip } from "../helpers/format.ts";
+import { Chip,KeyHints,MetaBar,ScreenFrame,Toolbar,scrollboxStyle } from "../layout.tsx";
+import { type Palette } from "../themes.ts";
 
 // Routes pane still has a max width, but match/upstream wrap instead of
 // clipping. Click-through RouteDetailsOverlay remains the full record.

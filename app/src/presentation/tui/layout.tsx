@@ -1,9 +1,10 @@
-import { type ReactNode, useEffect, useRef } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
+import { type ReactNode,useEffect,useRef } from "react";
 import { useDensity } from "./density.tsx";
-import { isCompactScale, isTightScale } from "./settings.ts";
-import { CHIP_DARK_INK, chipForeground, isLightPalette, type Palette } from "./themes.ts";
-import { overlayRect, tabChipWidth, visibleTabRange } from "./helpers.ts";
+import { overlayRect } from "./helpers/chrome.ts";
+import { tabChipWidth,visibleTabRange } from "./helpers/navigation.ts";
+import { isCompactScale,isTightScale } from "./settings.ts";
+import { CHIP_DARK_INK,chipForeground,isLightPalette,type Palette } from "./themes.ts";
 
 export type ChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle";
 

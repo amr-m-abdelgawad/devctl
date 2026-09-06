@@ -1,26 +1,31 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RGBA, type ScrollBoxRenderable, type TextareaRenderable } from "@opentui/core";
+import { type ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/react";
-import type { DevctlConfig } from "../../domain/config/types.ts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../application/client-runtime.ts";
-import { type DoctorProgress, type Report } from "../../domain/doctor/types.ts";
+import type { DevctlConfig } from "../../domain/config/types.ts";
+import type { LogEvent } from "../../domain/logs/logs.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
-import { type GoogleStatus } from "../../domain/identity/google-status.ts";
 import { humanMessage } from "../../shared/errors.ts";
-import { ConfigurationChanged, ConfigurationReloadFailed, LogReceived, type BusEvent } from "../../shared/events.ts";
-import type { LogEvent, LogFacets } from "../../domain/logs/logs.ts";
-import { type Plan } from "../../domain/service/services.ts";
-import { type TuiWorkspace } from "./workspace.ts";
-import { backspaceMcpPortDraft, clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
-import { mcpSnippets, mcpUrl, type McpSnippet } from "../mcp/snippets.ts";
 import { type StatusSnapshot } from "../../types.ts";
-import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, parseExecArgs, type CommandSpec } from "./commands.ts";
-import { versionLine } from "../../version.ts";
-import { checkUpdate, formatUpdateStatus } from "../../update.ts";
-import { formatConfigDiffText } from "./config-view.ts";
+import { backspaceMcpPortDraft, clampMcpPort, typeMcpPortDigit } from "../mcp/port.ts";
 import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { appendVisibleLogs, canStartAll, compactChrome, confirmCopy, cycleLogService, defaultProfileName, explicitServices, filterLogs, focusedServices, formatLogDetails, formatLogsForClipboard, formatPlanSummary, formatStarted, formatStopped, INTERNAL_LOG_SERVICES, isActiveRuntime, LOG_LIST_TAIL, logCursorStep, logFilterSources, logPinStart, logViewWindow, logWrapLabel, mergeLoadedPage, navItemForDigit, needsOlderLogPage, nextLogWrapMode, nextScreen, pageScrollAmount, paletteOptions, pickLogService, planServices, prependOlderPage, prevScreen, reloadFailureMessage, screenListCount, selectedSlashCommand, type LogWrapMode, type ServiceEnvEntry } from "./helpers.ts";
+import { allCommands, commandArgs, filterCommands, leaderAction, lookupCommand, type CommandSpec } from "./commands.ts";
+import { DensityContext } from "./density.tsx";
+import { compactChrome, confirmCopy, pageScrollAmount } from "./helpers/chrome.ts";
+import { nextScreen, paletteOptions, prevScreen, selectedSlashCommand } from "./helpers/command-catalog.ts";
+import { cycleLogService, formatLogDetails, formatLogsForClipboard, logWrapLabel, nextLogWrapMode, pickLogService } from "./helpers/logs.ts";
+import { navItemForDigit, screenListCount } from "./helpers/navigation.ts";
+import { canStartAll, defaultProfileName, focusedServices, type ServiceEnvEntry } from "./helpers/services.ts";
+import { useCommandDispatcher } from "./hooks/use-command-dispatcher.ts";
+import { useConfigEditor } from "./hooks/use-config-editor.ts";
+import { useDaemonEvents } from "./hooks/use-daemon-events.ts";
+import { useDiagnostics } from "./hooks/use-diagnostics.ts";
+import { useLifecycle } from "./hooks/use-lifecycle.ts";
+import { useLogView } from "./hooks/use-log-view.ts";
+import { useMcpControls } from "./hooks/use-mcp-controls.ts";
+import { usePreferences } from "./hooks/use-preferences.ts";
+import { useServiceEnvironment } from "./hooks/use-service-environment.ts";
 import {
   isBound,
   isClearLogsKey,
@@ -41,9 +46,9 @@ import {
 import { scrollBoxBy } from "./layout.tsx";
 import { ConfigEditOverlay } from "./overlays/ConfigEdit.tsx";
 import { ConfirmOverlay } from "./overlays/Confirm.tsx";
-import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
 import { HELP_SCROLL_PAGE, HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
+import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
 import { PaletteOverlay } from "./overlays/Palette.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
 import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
@@ -51,43 +56,24 @@ import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
 import { SlashOverlay } from "./overlays/Slash.tsx";
 import { ThemesOverlay } from "./overlays/Themes.tsx";
 import { AuthScreen } from "./screens/Auth.tsx";
-import { CredentialsScreen } from "./screens/Credentials.tsx";
 import { ConfigScreen } from "./screens/Config.tsx";
+import { CredentialsScreen } from "./screens/Credentials.tsx";
 import { Dashboard } from "./screens/Dashboard.tsx";
 import { DoctorScreen } from "./screens/Doctor.tsx";
 import { LogsScreen } from "./screens/Logs.tsx";
+import { mcpRowCount, McpScreen, mcpToolAtRow } from "./screens/Mcp.tsx";
 import { ProfilesScreen } from "./screens/Profiles.tsx";
 import { ProxyScreen, type RouteDetailInfo } from "./screens/Proxy.tsx";
 import { ServiceDetail } from "./screens/ServiceDetail.tsx";
 import { ServicesScreen } from "./screens/Services.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
-import { StatsScreen } from "./screens/Stats.tsx";
 import { SetupScreen } from "./screens/Setup.tsx";
-import { McpScreen, mcpRowCount, mcpSnippetIndexAtRow, mcpToolAtRow } from "./screens/Mcp.tsx";
-import { toolEnabled, type McpToolDef } from "../mcp/tools.ts";
-import { DensityContext } from "./density.tsx";
-import {
-  cycleFontSize,
-  cycleLeader,
-  cycleTheme,
-  formatFontSize,
-  nearestFontSize,
-  prefsSavePath,
-  selectedSettingsItem,
-  settingsDefaults,
-  settingsItems,
-  tuiPrefsLocked,
-  uiScaleFor,
-  type SettingsItem,
-} from "./settings.ts";
-import { isDarkTerminalBackground, paletteFor, resolveThemeName, THEME_NAMES } from "./themes.ts";
-import { type ConfirmDetail, type ConfirmKind, type LifecycleKind, type Overlay, type Screen } from "./types.ts";
-import { defaultCopyKeybind, type TuiConfig, type TuiPreferencePatch } from "./tui-config.ts";
-import { withSuspendedRenderer } from "./suspend.ts";
-
-const COMMAND_LOCK_MS = 50;
-const NO_LOG_SERVICES: string[] = [];
-const FACETS_POLL_MS = 2000;
+import { StatsScreen } from "./screens/Stats.tsx";
+import { cycleFontSize, selectedSettingsItem, settingsDefaults, uiScaleFor } from "./settings.ts";
+import { THEME_NAMES } from "./themes.ts";
+import { defaultCopyKeybind, type TuiConfig } from "./tui-config.ts";
+import { type ConfirmDetail, type ConfirmKind, type Overlay, type Screen } from "./types.ts";
+import { type TuiWorkspace } from "./workspace.ts";
 
 type AppProps = {
   controller?: Controller;
@@ -100,36 +86,21 @@ type AppProps = {
 };
 
 export function App({ controller, tui, onQuit, bootError, bootErrorMissing = false, terminalBackground, workspace }: AppProps) {
-  const { listSessions, loadSessionEvents, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, loadPath, validateConfigText, freePort, openInFileManager, resolveExportPath, writeLogExport, bootstrapLogPath, exportsDir, readTextFile, writeTextFile, fileExists, createStarterConfig, validate, detectGoogle, runDoctor, startupPlan, shutdownPlan, resolveStartRequest, loginGoogle, logoutGoogle } = workspace;
+  const {
+    saveTuiPreferences,
+    resolveTuiOverridePath,
+    userTuiConfigPath,
+    validateConfigText,
+    freePort,
+    openInFileManager,
+    exportsDir,
+    readTextFile,
+    writeTextFile,
+    createStarterConfig,
+    validate,
+  } = workspace;
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
-  const [themeName, setThemeName] = useState(tui.theme || controller?.cfg.ui.theme || "devctl");
-  const committedTheme = useRef(themeName);
-  const [mousePref, setMousePref] = useState(tui.mouse);
-  const committedMouse = useRef(tui.mouse);
-  const [leaderMs, setLeaderMs] = useState(tui.leader_timeout);
-  const committedLeader = useRef(tui.leader_timeout);
-  const [fontSize, setFontSize] = useState(() => nearestFontSize(tui.font_size));
-  const committedFont = useRef(fontSize);
-  const prefsLocked = tuiPrefsLocked(resolveTuiOverridePath());
-  const palette = useMemo(() => {
-    const base = paletteFor(themeName);
-    if (resolveThemeName(themeName) !== "terminal" || !isDarkTerminalBackground(terminalBackground)) {
-      return base;
-    }
-    const native = terminalBackground ?? base.background;
-    return {
-      ...base,
-      background: native,
-      panel: native,
-      element: native,
-      inverse: native,
-    };
-  }, [terminalBackground, themeName]);
-  const rootBackground =
-    resolveThemeName(themeName) === "terminal" && isDarkTerminalBackground(terminalBackground)
-      ? RGBA.defaultBackground(terminalBackground ?? undefined)
-      : palette.background;
   const [screen, setScreen] = useState<Screen>(controller ? "dashboard" : "setup");
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [query, setQuery] = useState("");
@@ -138,66 +109,15 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const [selected, setSelected] = useState(0);
   const [checked, setChecked] = useState<string[]>([]);
   const [snap, setSnap] = useState<StatusSnapshot | undefined>();
-  const settingRows = useMemo(
-    () =>
-      settingsItems({
-        themeName,
-        fontSize,
-        mouse: mousePref,
-        leaderMs,
-        locked: prefsLocked,
-        configPath: prefsLocked ? tui.path || prefsSavePath(resolveTuiOverridePath(), userTuiConfigPath()) : prefsSavePath(resolveTuiOverridePath(), userTuiConfigPath()),
-        mcpRunning: snap?.mcp?.running === true,
-      }),
-    [fontSize, leaderMs, mousePref, prefsLocked, snap?.mcp?.running, themeName, tui.path],
-  );
-  const [logs, setLogs] = useState<LogEvent[]>([]);
-  const [paused, setPaused] = useState(false);
-  const [errorOnly, setErrorOnly] = useState(false);
-  const [showSystemLogs, setShowSystemLogs] = useState(true);
   const [status, setStatus] = useState(bootError ?? "");
-  const [google, setGoogle] = useState<GoogleStatus | undefined>();
-  const [doctor, setDoctor] = useState<Report | undefined>();
-  const [doctorLoading, setDoctorLoading] = useState(false);
-  const [doctorError, setDoctorError] = useState("");
-  const [doctorTick, setDoctorTick] = useState(0);
-  const [doctorProgress, setDoctorProgress] = useState<DoctorProgress>({ active: "Preparing diagnostics", checks: [] });
-  const doctorRunKey = useRef<{ cfg: unknown; tick: number; sessionID: string; reloadError?: string } | undefined>(undefined);
-  const doctorRunGeneration = useRef(0);
   const [confirmDetail, setConfirmDetail] = useState<ConfirmDetail>({});
   const [portTarget, setPortTarget] = useState<PortHolder | undefined>();
   const [profile, setProfile] = useState(defaultProfileName(controller?.cfg));
   const [detailName, setDetailName] = useState("");
   const [reveal, setReveal] = useState(false);
-  const [logSearch, setLogSearch] = useState("");
-  const [logSearchFocused, setLogSearchFocused] = useState(false);
-  const [logFollow, setLogFollow] = useState(0);
-  const [logSince, setLogSince] = useState("");
-  const [logUntil, setLogUntil] = useState("");
-  const [logService, setLogService] = useState("");
-  const logServices = NO_LOG_SERVICES;
-  const [logShowTimestamps, setLogShowTimestamps] = useState(tui.log_timestamps !== false);
-  const [logShowMeta, setLogShowMeta] = useState(tui.log_metadata !== false);
-  const [extraLogSources, setExtraLogSources] = useState<string[]>(() => [...INTERNAL_LOG_SERVICES]);
-  const [logLevel] = useState("");
-  const [logSource] = useState("");
-  const [logRegex, setLogRegex] = useState(false);
   const [logDetail, setLogDetail] = useState<LogEvent | undefined>();
   const [routeDetail, setRouteDetail] = useState<RouteDetailInfo | undefined>();
   const [scrollText, setScrollText] = useState<{ title: string; body: string } | undefined>();
-  const [resolvedEnvCache, setResolvedEnvCache] = useState<{ name: string; env: Record<string, string> } | undefined>();
-  const [resolvedEnvLoading, setResolvedEnvLoading] = useState(false);
-  const [resolvedEnvError, setResolvedEnvError] = useState("");
-  const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
-  const [logPinned, setLogPinned] = useState(false);
-  const [logSelected, setLogSelected] = useState(LOG_LIST_TAIL - 1);
-  const [logsFullscreen, setLogsFullscreen] = useState(false);
-  const [dashboardLogCursor, setDashboardLogCursor] = useState(-1);
-  const [logFacets, setLogFacets] = useState<LogFacets | undefined>();
-  const [logPrevCursor, setLogPrevCursor] = useState("");
-  const [logHasPrevPage, setLogHasPrevPage] = useState(false);
-  const [loadingOlderLogs, setLoadingOlderLogs] = useState(false);
-  const logsRef = useRef<LogEvent[]>([]);
   const configScrollRef = useRef<ScrollBoxRenderable>(null);
   const helpScrollRef = useRef<ScrollBoxRenderable>(null);
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
@@ -205,19 +125,8 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   const routeDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
   const scrollTextScrollRef = useRef<ScrollBoxRenderable>(null);
   const planScrollRef = useRef<ScrollBoxRenderable>(null);
-  const configEditRef = useRef<TextareaRenderable>(null);
-  const [configEditText, setConfigEditText] = useState("");
-  const [configEditError, setConfigEditError] = useState("");
   const lastExportPath = useRef("");
-  const commandBusy = useRef(false);
-  const [logViewStart, setLogViewStart] = useState(0);
-  const [mcpPortDraft, setMcpPortDraft] = useState("");
-  const [plan, setPlan] = useState<Plan | undefined>();
-  const [planInitiallyRunning, setPlanInitiallyRunning] = useState<string[]>([]);
-  const [planBusy, setPlanBusy] = useState(false);
-  const [lifecycle, setLifecycle] = useState<LifecycleKind>("start");
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>("quit");
-  const [mcpPort, setMcpPort] = useState(() => tui.mcp_port ?? derivedMcpPort(controller?.cfg.repoRoot ?? process.cwd()));
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
 
@@ -227,277 +136,44 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
   // unlike `status`, which is a transient one-line message for the last
   // action, this is state the user needs to keep seeing.
   const [configReloadError, setConfigReloadError] = useState<string | undefined>(undefined);
+  const {
+    themeName,
+    setThemeName,
+    leaderMs,
+    fontSize,
+    prefsLocked,
+    palette,
+    rootBackground,
+    settingRows,
+    persistPrefs,
+    persistTheme,
+    toggleMouse,
+    applyFont,
+    applyReset,
+    activateSetting,
+    cycleSetting,
+    revertThemePreview,
+  } = usePreferences({
+    tui,
+    controller,
+    resolveTuiOverridePath,
+    terminalBackground,
+    userTuiConfigPath,
+    snap,
+    setStatus,
+    saveTuiPreferences,
+    setPaletteIndex,
+    setOverlay,
+    setConfirmKind,
+    setScreen,
+    setSelected,
+    screen,
+  });
+
+  const diagnostics = useDiagnostics({ controller, workspace, cfg, snap, screen, configReloadError, setSnap, setStatus });
+  const { google, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick, refreshAuth } = diagnostics;
   const copyKey = tui.keybinds.copy ?? defaultCopyKeybind();
   const names = useMemo(() => Object.keys(cfg?.services ?? {}).sort(), [cfg]);
-  const logSources = useMemo(() => logFilterSources(names, logs, extraLogSources), [names, logs, extraLogSources]);
-  const filtered = useMemo(() => filterCommands(query), [query]);
-  const paletteItems = useMemo(() => paletteOptions(query), [query]);
-
-  useEffect(() => {
-    setExtraLogSources((prev) => {
-      const found = new Set(prev);
-      let changed = false;
-      for (const ev of logs) {
-        if (ev.service !== "" && !names.includes(ev.service) && !found.has(ev.service)) {
-          found.add(ev.service);
-          changed = true;
-        }
-      }
-      return changed ? [...found].sort() : prev;
-    });
-  }, [logs, names]);
-
-  useEffect(() => {
-    setSlashIndex(0);
-  }, [query]);
-
-  useEffect(() => {
-    if (overlay === "palette") {
-      setPaletteIndex(0);
-    }
-  }, [overlay, query]);
-
-  const filteredLogs = useMemo(
-    () =>
-      filterLogs(logs, {
-        service: logService,
-        services: logServices,
-        errorOnly,
-        search: logSearch,
-        regex: logRegex,
-        source: logSource,
-        since: logSince,
-        until: logUntil,
-        systemLogs: showSystemLogs,
-      }),
-    [errorOnly, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs, showSystemLogs],
-  );
-  const logWindow = useMemo(
-    () => logViewWindow(filteredLogs, logPinned, logViewStart),
-    [filteredLogs, logPinned, logViewStart],
-  );
-  const logSlice = logWindow.items;
-  const listCount = screenListCount(screen, {
-    doctor: doctor?.checks.length ?? 0,
-    settings: settingRows.length,
-    profiles: Object.keys(cfg?.profiles ?? {}).length,
-    services: names.length,
-    logs: logSlice.length,
-    mcp: mcpRowCount(),
-  });
-  const cursorState = screen === "logs" ? logSelected : selected;
-  const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
-  const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
-  const envMatches = resolvedEnvCache?.name === envService;
-  const inspectorEnv = envMatches ? resolvedEnvCache?.env : undefined;
-  const inspectorEnvStatus = envService === "" ? "config" : resolvedEnvLoading && !envMatches ? "loading" : envMatches ? "resolved" : resolvedEnvError !== "" ? "error" : "config";
-  const inspectorEnvError = envMatches || envService === "" ? "" : resolvedEnvError;
-
-  useEffect(() => {
-    setDashboardLogCursor(-1);
-    setLogPinned(false);
-    setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-  }, [errorOnly, logSearch, logService, showSystemLogs]);
-
-  useEffect(() => {
-    if (screen !== "logs") {
-      setLogsFullscreen(false);
-    }
-  }, [screen]);
-
-  useEffect(() => {
-    if (screen !== "logs" || logPinned) {
-      return;
-    }
-    setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-  }, [filteredLogs.length, logPinned, screen]);
-
-  useEffect(() => {
-    if (screen === "settings") {
-      return;
-    }
-    setThemeName(committedTheme.current);
-    setFontSize(committedFont.current);
-    setLeaderMs(committedLeader.current);
-    setMousePref(committedMouse.current);
-  }, [screen]);
-
-  const pinLogView = useCallback(() => {
-    if (!logPinned) {
-      setLogViewStart(logPinStart(filteredLogs.length));
-      setLogPinned(true);
-    }
-  }, [filteredLogs.length, logPinned]);
-
-  const applyLogCursor = useCallback(
-    (next: number) => {
-      const step = logCursorStep(next, listCount, logWindow.start, logWindow.newer);
-      if (step.startDelta !== 0) {
-        setLogViewStart(Math.max(0, logWindow.start + step.startDelta));
-        setLogPinned(true);
-        setLogSelected(step.selected);
-        return;
-      }
-      const last = Math.max(listCount - 1, 0);
-      const leaveLatest = listCount > 0 && (step.selected < last || logWindow.newer > 0);
-      if (leaveLatest && !logPinned) {
-        setLogViewStart(logPinStart(filteredLogs.length));
-        setLogPinned(true);
-      } else if (!leaveLatest) {
-        setLogPinned(false);
-      }
-      setLogSelected(step.selected);
-    },
-    [filteredLogs.length, listCount, logPinned, logWindow.newer, logWindow.start],
-  );
-
-  const applyDashboardLogCursor = useCallback(
-    (next: number) => {
-      const count = logSlice.length;
-      const step = logCursorStep(next, count, logWindow.start, logWindow.newer);
-      if (step.startDelta !== 0) {
-        setLogViewStart(Math.max(0, logWindow.start + step.startDelta));
-        setLogPinned(true);
-      }
-      setDashboardLogCursor(step.selected);
-    },
-    [logSlice.length, logWindow.newer, logWindow.start],
-  );
-
-  const jumpToLatestLogs = useCallback(() => {
-    setLogPinned(false);
-    setDashboardLogCursor(-1);
-    if (screen === "logs") {
-      setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-    }
-    setLogFollow((tick) => tick + 1);
-    setStatus(logWindow.newer > 0 ? `Jumped to latest (+${logWindow.newer} new)` : "Jumped to latest logs");
-  }, [filteredLogs.length, logWindow.newer, screen]);
-
-  const closeOverlay = useCallback(() => {
-    setOverlay("none");
-    setQuery("");
-    setLogSearchFocused(false);
-    if (leaderTimer.current) {
-      clearTimeout(leaderTimer.current);
-    }
-  }, []);
-
-  const toggleChecked = useCallback((name: string) => {
-    setChecked((cur) => (cur.includes(name) ? cur.filter((svc) => svc !== name) : [...cur, name]));
-  }, []);
-
-  const persistPrefs = useCallback((partial: TuiPreferencePatch, message: string) => {
-    if (prefsLocked) {
-      setStatus(`${message}  session only`);
-      return;
-    }
-    const dest = saveTuiPreferences(partial);
-    setStatus(`${message}  saved ${dest}`);
-  }, [prefsLocked]);
-
-  const persistTheme = useCallback((name: string) => {
-    setThemeName(name);
-    committedTheme.current = name;
-    persistPrefs({ theme: name }, `theme ${name}`);
-  }, [persistPrefs]);
-
-  const toggleMouse = useCallback(() => {
-    const next = !mousePref;
-    setMousePref(next);
-    committedMouse.current = next;
-    persistPrefs({ mouse: next }, `mouse ${next ? "on" : "off"}  restart TUI to apply clicks`);
-  }, [mousePref, persistPrefs]);
-
-  const applyLeader = useCallback((ms: number) => {
-    setLeaderMs(ms);
-    committedLeader.current = ms;
-    persistPrefs({ leader_timeout: ms }, `leader ${ms}ms`);
-  }, [persistPrefs]);
-
-  const applyFont = useCallback((size: number) => {
-    const next = nearestFontSize(size);
-    setFontSize(next);
-    committedFont.current = next;
-    persistPrefs({ font_size: next }, `display ${formatFontSize(next)}`);
-  }, [persistPrefs]);
-
-  const applyReset = useCallback(() => {
-    const defaults = settingsDefaults();
-    setThemeName(defaults.theme);
-    committedTheme.current = defaults.theme;
-    setMousePref(defaults.mouse);
-    committedMouse.current = defaults.mouse;
-    setLeaderMs(defaults.leader_timeout);
-    committedLeader.current = defaults.leader_timeout;
-    setFontSize(defaults.font_size);
-    committedFont.current = defaults.font_size;
-    persistPrefs(defaults, "restored default preferences");
-  }, [persistPrefs]);
-
-  const activateSetting = useCallback(
-    (item: SettingsItem) => {
-      if (item.id === "theme") {
-        setPaletteIndex(Math.max(0, THEME_NAMES.indexOf(themeName as (typeof THEME_NAMES)[number])));
-        setOverlay("themes");
-        return;
-      }
-      if (item.id === "mouse") {
-        toggleMouse();
-        return;
-      }
-      if (item.id === "leader") {
-        applyLeader(leaderMs);
-        return;
-      }
-      if (item.id === "font") {
-        applyFont(fontSize);
-        return;
-      }
-      if (item.id === "reset") {
-        setConfirmKind("reset-prefs");
-        setOverlay("confirm");
-        return;
-      }
-      if (item.id === "mcp") {
-        setScreen("mcp");
-        setSelected(0);
-        return;
-      }
-      setStatus(item.detail);
-    },
-    [applyFont, applyLeader, fontSize, leaderMs, themeName, toggleMouse],
-  );
-
-  const cycleSetting = useCallback(
-    (dir: 1 | -1) => {
-      const item = selectedSettingsItem(settingRows, listCursor);
-      if (!item) {
-        return;
-      }
-      if (item.id === "theme") {
-        persistTheme(cycleTheme(themeName, dir));
-        return;
-      }
-      if (item.id === "leader") {
-        applyLeader(cycleLeader(leaderMs, dir));
-        return;
-      }
-      if (item.id === "font") {
-        applyFont(cycleFontSize(fontSize, dir));
-        return;
-      }
-      if (item.id === "mouse") {
-        toggleMouse();
-      }
-    },
-    [applyFont, applyLeader, fontSize, leaderMs, listCursor, persistTheme, settingRows, themeName, toggleMouse],
-  );
-
-  const revertThemePreview = useCallback(() => {
-    setThemeName(committedTheme.current);
-  }, []);
-
   const refresh = useCallback(async () => {
     if (!controller) {
       return undefined;
@@ -515,353 +191,111 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     }
   }, [controller, profile]);
 
-  const refreshAuth = useCallback(async () => {
-    if (!controller) {
-      setStatus("Supervisor is not running");
-      return;
-    }
-    setStatus("Probing configured identities…");
-    try {
-      const identity = await controller.refreshAuth();
-      setSnap((current) => (current ? { ...current, identity } : current));
-      const statuses = Object.values(identity.service_account_status);
-      const available = statuses.filter((value) => value === "available").length;
-      const unavailable = statuses.filter((value) => value === "unavailable").length;
-      setStatus(
-        statuses.length === 0
-          ? "Identity refreshed — no service accounts configured"
-          : `Identity refreshed — ${available} available${unavailable > 0 ? `, ${unavailable} unavailable` : ""}`,
-      );
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [controller]);
+  const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
+  const {
+    logs,
+    setLogs,
+    paused,
+    setPaused,
+    errorOnly,
+    setErrorOnly,
+    showSystemLogs,
+    logSearch,
+    setLogSearch,
+    logSearchFocused,
+    setLogSearchFocused,
+    logFollow,
+    logSince,
+    logService,
+    setLogService,
+    logServices,
+    logShowTimestamps,
+    setLogShowTimestamps,
+    logShowMeta,
+    setLogShowMeta,
+    logSource,
+    logRegex,
+    logWrap,
+    setLogWrap,
+    logPinned,
+    logSelected,
+    logsFullscreen,
+    setLogsFullscreen,
+    dashboardLogCursor,
+    setDashboardLogCursor,
+    logFacets,
+    logSources,
+    filteredLogs,
+    logWindow,
+    logSlice,
+    pinLogView,
+    applyLogCursor,
+    applyDashboardLogCursor,
+    jumpToLatestLogs,
+    clearLogs,
+    toggleSystemLogs,
+  } = logView;
 
-  const persistMcpPort = useCallback(
-    (next: number) => {
-      const port = clampMcpPort(next);
-      setMcpPort(port);
-      const root = cfg?.repoRoot ?? process.cwd();
-      if (isDerivedMcpPort(root, port)) {
-        persistPrefs({ mcp_port: null }, `MCP port ${port} (default)`);
-        return;
-      }
-      persistPrefs({ mcp_port: port }, `MCP port ${port}`);
-    },
-    [cfg, persistPrefs],
-  );
+  const filtered = useMemo(() => filterCommands(query), [query]);
+  const paletteItems = useMemo(() => paletteOptions(query), [query]);
 
-  const applyMcpPortDraft = useCallback(() => {
-    if (mcpPortDraft === "") {
-      return mcpPort;
+  useEffect(() => {
+    setSlashIndex(0);
+  }, [query]);
+
+  useEffect(() => {
+    if (overlay === "palette") {
+      setPaletteIndex(0);
     }
-    const next = commitMcpPortDraft(mcpPortDraft, mcpPort);
-    setMcpPortDraft("");
-    persistMcpPort(next);
-    return next;
-  }, [mcpPort, mcpPortDraft, persistMcpPort]);
+  }, [overlay, query]);
 
-  const restartMcpOnPort = useCallback(
-    async (port: number) => {
-      if (!controller || snap?.mcp?.running !== true) {
-        return;
-      }
-      await controller.mcpStop();
-      await controller.mcpStart({ port });
-      await refresh();
-    },
-    [controller, refresh, snap?.mcp?.running],
-  );
-
-  // The whole deny-list is sent, not a delta — the daemon is authoritative
-  // for what it ends up with (it drops unknown names), and its reply is what
-  // gets persisted, so tui.json can never disagree with the running server.
-  const toggleMcpTool = useCallback(async (tool: McpToolDef) => {
-    if (!controller) {
-      setStatus("Supervisor is not running");
-      return;
+  const listCount = screenListCount(screen, {
+    doctor: doctor?.checks.length ?? 0,
+    settings: settingRows.length,
+    profiles: Object.keys(cfg?.profiles ?? {}).length,
+    services: names.length,
+    logs: logSlice.length,
+    mcp: mcpRowCount(),
+  });
+  const cursorState = screen === "logs" ? logSelected : selected;
+  const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
+  const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
+  const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService });
+  const closeOverlay = useCallback(() => {
+    setOverlay("none");
+    setQuery("");
+    setLogSearchFocused(false);
+    if (leaderTimer.current) {
+      clearTimeout(leaderTimer.current);
     }
-    const current = snap?.mcp?.disabled_tools ?? [];
-    const turningOff = toolEnabled(tool.name, current);
-    const next = turningOff ? [...current, tool.name] : current.filter((name) => name !== tool.name);
-    try {
-      const applied = await controller.mcpSetTools(next);
-      persistPrefs({ mcp_disabled_tools: applied }, `${tool.label} ${turningOff ? "disabled" : "enabled"}`);
-      await refresh();
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [controller, persistPrefs, refresh, snap]);
-
-  const toggleMcp = useCallback(async () => {
-    if (!controller) {
-      setStatus("Supervisor is not running");
-      return;
-    }
-    try {
-      if (snap?.mcp?.running) {
-        await controller.mcpStop();
-        persistPrefs({ mcp_enabled: false }, "MCP off");
-        setStatus("MCP stopped");
-      } else {
-        await controller.mcpStart({ port: mcpPort });
-        persistPrefs({ mcp_enabled: true }, "MCP on");
-        setStatus("MCP started");
-      }
-      await refresh();
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [controller, mcpPort, persistPrefs, refresh, snap?.mcp?.running]);
-
-  const copyMcpSnippet = useCallback(
-    (snippet: McpSnippet) => {
-      void writeClipboard(snippet.text)
-        .then(() => {
-          setStatus(`Copied ${snippet.title} snippet`);
-        })
-        .catch((err: unknown) => {
-          setStatus(humanMessage(err));
-        });
-    },
-    [],
-  );
-
-  const copyFocusedMcpSnippet = useCallback(
-    (index: number) => {
-      // Snippet rows now sit below the tool list, so their offset depends on
-      // how many tools exist — never hardcode it.
-      const snippetIndex = mcpSnippetIndexAtRow(index);
-      if (snippetIndex === undefined) {
-        return false;
-      }
-      const url = snap?.mcp?.address ?? mcpUrl(snap?.mcp?.port ?? mcpPort);
-      const snippet = mcpSnippets(url, snap?.mcp?.token ?? "")[snippetIndex];
-      if (!snippet) {
-        return false;
-      }
-      copyMcpSnippet(snippet);
-      return true;
-    },
-    [copyMcpSnippet, mcpPort, snap?.mcp?.address, snap?.mcp?.port, snap?.mcp?.token],
-  );
-
-  const currentLogFilter = useMemo(
-    () => ({
-      services: logService !== "" ? [logService] : logServices,
-      level: errorOnly ? "ERROR" : logLevel,
-      search: logSearch,
-      regex: logRegex,
-      source: logSource,
-      since: logSince,
-      until: logUntil,
-    }),
-    [errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil],
-  );
-
-  // Deliberately lightweight (no event payload) — safe to poll on a timer
-  // and after every filter change without re-transferring events already
-  // held locally.
-  const refreshFacets = useCallback(async () => {
-    if (!controller) {
-      return;
-    }
-    try {
-      setLogFacets(await controller.logsStats(currentLogFilter));
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [controller, currentLogFilter]);
-
-  const refreshLogs = useCallback(async () => {
-    if (!controller || paused) {
-      return;
-    }
-    try {
-      const page = await controller.logsPage(currentLogFilter);
-      setLogs((current) => mergeLoadedPage(current, page.events));
-      setLogPrevCursor(page.prevCursor);
-      setLogHasPrevPage(page.hasPrev);
-      await refreshFacets();
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [controller, currentLogFilter, paused, refreshFacets]);
-
-  // Client-local: hides everything up to now from this view via logSince,
-  // without touching the daemon's shared log buffer — other attached
-  // clients (another TUI session, the CLI, MCP) keep their own history.
-  const clearLogs = useCallback(() => {
-    setLogs([]);
-    setLogSince(new Date().toISOString());
-    setLogPinned(false);
-    setStatus("Cleared on-screen log buffer");
   }, []);
 
-  const toggleSystemLogs = useCallback(() => {
-    setShowSystemLogs((v) => !v);
+  const toggleChecked = useCallback((name: string) => {
+    setChecked((cur) => (cur.includes(name) ? cur.filter((svc) => svc !== name) : [...cur, name]));
   }, []);
 
-  useEffect(() => {
-    void refresh().then(() => refreshLogs());
-  }, [refresh, refreshLogs]);
+  const {
+    mcpPortDraft,
+    setMcpPortDraft,
+    mcpPort,
+    persistMcpPort,
+    applyMcpPortDraft,
+    restartMcpOnPort,
+    toggleMcpTool,
+    toggleMcp,
+    copyMcpSnippet,
+    copyFocusedMcpSnippet,
+  } = useMcpControls({
+    tui,
+    controller,
+    cfg,
+    persistPrefs,
+    snap,
+    refresh,
+    setStatus,
+  });
 
-  useEffect(() => {
-    logsRef.current = logs;
-  }, [logs]);
-
-  // Fetch older pages only while scrolling: the user has paged all the way
-  // back to the top of what's currently loaded, and the server has more
-  // history for the active filter. Sequence-based cursors make this safe to
-  // interleave with events still streaming in live (see mergeLoadedPage).
-  useEffect(() => {
-    if (!controller || loadingOlderLogs || !needsOlderLogPage(logPinned, logWindow.start, logHasPrevPage)) {
-      return;
-    }
-    setLoadingOlderLogs(true);
-    void controller
-      .logsPage({ ...currentLogFilter, cursor: logPrevCursor, direction: "backward" })
-      .then((older) => {
-        if (older.sessionChanged) {
-          setStatus("Daemon session changed — older log history is no longer available");
-          setLogHasPrevPage(false);
-          return;
-        }
-        const before = logsRef.current;
-        const merged = prependOlderPage(before, older.events);
-        setLogs(merged);
-        if (merged.length > before.length) {
-          setLogViewStart((start) => start + (merged.length - before.length));
-        }
-        setLogPrevCursor(older.prevCursor);
-        setLogHasPrevPage(older.hasPrev);
-      })
-      .catch((err: unknown) => setStatus(humanMessage(err)))
-      .finally(() => setLoadingOlderLogs(false));
-  }, [controller, currentLogFilter, loadingOlderLogs, logHasPrevPage, logPinned, logPrevCursor, logWindow.start]);
-
-  // Facets are cheap (no event payload) so they can be kept live on a timer
-  // while the logs screen is actively tailing, on top of the immediate
-  // refresh already triggered by refreshLogs on every filter change/clear.
-  useEffect(() => {
-    if (!controller || paused || screen !== "logs") {
-      return;
-    }
-    const id = setInterval(() => {
-      void refreshFacets();
-    }, FACETS_POLL_MS);
-    return () => clearInterval(id);
-  }, [controller, paused, refreshFacets, screen]);
-
-  useEffect(() => {
-    if (!controller) {
-      return;
-    }
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let statusDirty = false;
-    const pendingLogs: LogEvent[] = [];
-    const cap = cfg && cfg.logs.max_memory_events > 0 ? cfg.logs.max_memory_events : 50_000;
-    const flush = (): void => {
-      timer = undefined;
-      if (pendingLogs.length > 0) {
-        const batch = pendingLogs.splice(0, pendingLogs.length);
-        setLogs((current) => appendVisibleLogs(current, batch, logSince, cap));
-      }
-      if (statusDirty) {
-        statusDirty = false;
-        void refresh();
-      }
-    };
-    const unsub = controller.onEvent((ev: BusEvent) => {
-      if (ev.type === LogReceived && ev.payload && typeof ev.payload === "object" && "event" in ev.payload) {
-        const incoming = ev.payload.event as LogEvent;
-        if (!paused) {
-          pendingLogs.push(incoming);
-        }
-        if (!timer) {
-          timer = setTimeout(flush, 30);
-        }
-        return;
-      }
-      if (ev.type === ConfigurationReloadFailed) {
-        setConfigReloadError(reloadFailureMessage(ev));
-        return;
-      }
-      if (ev.type === ConfigurationChanged) {
-        setConfigReloadError(undefined);
-        void controller.configSnapshot().then(setCfg).catch((err: unknown) => setStatus(humanMessage(err)));
-      }
-      statusDirty = true;
-      if (!timer) {
-        timer = setTimeout(flush, 30);
-      }
-    });
-    return () => {
-      unsub();
-      if (timer) {
-        clearTimeout(timer);
-      }
-    };
-  }, [controller, logSince, paused, refresh]);
-
-  useEffect(() => {
-    void detectGoogle(cfg?.google.project_id ?? "")
-      .then(setGoogle)
-      .catch((err: unknown) => {
-        setStatus(humanMessage(err));
-      });
-  }, [cfg?.google.project_id, snap?.identity.project]);
-
-  useEffect(() => {
-    if (screen !== "doctor" || !cfg) {
-      return;
-    }
-    const previous = doctorRunKey.current;
-    const sessionID = snap?.session_id ?? "";
-    if (previous?.cfg === cfg && previous.tick === doctorTick && previous.sessionID === sessionID && previous.reloadError === configReloadError) {
-      return;
-    }
-    doctorRunKey.current = { cfg, tick: doctorTick, sessionID, reloadError: configReloadError };
-    const generation = ++doctorRunGeneration.current;
-    setDoctorLoading(true);
-    setDoctorError("");
-    setDoctorProgress({ active: "Preparing diagnostics", checks: [] });
-    let repositoryConfigError: string | undefined;
-    if (cfg.configPath !== "") {
-      repositoryConfigError = "";
-      try {
-        loadPath(cfg.repoRoot, cfg.configPath);
-      } catch (err) {
-        repositoryConfigError = humanMessage(err);
-      }
-    }
-    void runDoctor(
-      cfg,
-      (progress) => {
-        if (generation === doctorRunGeneration.current) {
-          setDoctorProgress(progress);
-        }
-      },
-      { services: snap?.services, proxyRunning: snap?.proxy.running, repositoryConfigError },
-    )
-      .then((report) => {
-        if (generation !== doctorRunGeneration.current) {
-          return;
-        }
-        setDoctor(report);
-      })
-      .catch((err: unknown) => {
-        if (generation !== doctorRunGeneration.current) {
-          return;
-        }
-        setDoctorError(humanMessage(err));
-      })
-      .finally(() => {
-        if (generation === doctorRunGeneration.current) {
-          setDoctorLoading(false);
-        }
-      });
-  }, [screen, cfg, doctorTick, snap?.session_id, configReloadError]);
+  useDaemonEvents({ controller, cfg, paused, logSince, refresh, setLogs, setCfg, setConfigReloadError, setStatus });
 
   const openDetail = useCallback((name: string) => {
     setDetailName(name);
@@ -874,137 +308,8 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     setOverlay("scroll-text");
   }, []);
 
-  useEffect(() => {
-    setResolvedEnvCache(undefined);
-    setResolvedEnvError("");
-  }, [cfg]);
-
-  useEffect(() => {
-    if (!controller || envService === "" || !cfg?.services[envService]) {
-      return;
-    }
-    if (resolvedEnvCache?.name === envService) {
-      return;
-    }
-    let cancelled = false;
-    setResolvedEnvLoading(true);
-    setResolvedEnvError("");
-    void controller
-      .execService(envService, [], true)
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        setResolvedEnvCache({ name: envService, env: result.environment ?? {} });
-        setResolvedEnvError("");
-      })
-      .catch((err: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        setResolvedEnvError(humanMessage(err));
-      })
-      .finally(() => {
-        setResolvedEnvLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [cfg, controller, envService, resolvedEnvCache?.name]);
-
-  const beginStart = useCallback(
-    async (targets: string[], profileName: string) => {
-      if (!controller || !cfg) {
-        setStatus("no configuration loaded");
-        return;
-      }
-      try {
-        const resolved = resolveStartRequest(cfg, { services: targets, profile: profileName });
-        const nextPlan = startupPlan(cfg, resolved.services, resolved.profile);
-        setLifecycle("start");
-        setPlanInitiallyRunning(nextPlan.waves.flat().filter((name) => isActiveRuntime(snap?.services[name])));
-        setPlan(nextPlan);
-        setOverlay("plan");
-        setPlanBusy(true);
-        const needed = resolved.services.filter((name) => !isActiveRuntime(snap?.services[name]));
-        const result = await controller.start({
-          services: needed.length > 0 ? needed : resolved.services,
-          profile: resolved.profile,
-        });
-        await refresh();
-        setPlanBusy(false);
-        setStatus(formatStarted(result));
-      } catch (err) {
-        setPlanBusy(false);
-        await refresh();
-        setStatus(humanMessage(err));
-      }
-    },
-    [cfg, controller, refresh, snap],
-  );
-
-  const beginStop = useCallback(
-    async (targets: string[]) => {
-      if (!controller || !cfg) {
-        setStatus("no configuration loaded");
-        return;
-      }
-      const selected =
-        targets.length > 0
-          ? targets
-          : Object.entries(snap?.services ?? {})
-              .filter(([, rt]) => rt.state !== "STOPPED" && rt.state !== "UNKNOWN")
-              .map(([name]) => name);
-      if (selected.length === 0) {
-        setStatus("nothing to stop");
-        return;
-      }
-      try {
-        const nextPlan = shutdownPlan(cfg, selected);
-        setLifecycle("stop");
-        setPlanInitiallyRunning([]);
-        setPlan(nextPlan);
-        setOverlay("plan");
-        setPlanBusy(true);
-        await controller.stop(targets);
-        await refresh();
-        setPlanBusy(false);
-        setStatus(formatStopped(nextPlan));
-      } catch (err) {
-        setPlanBusy(false);
-        await refresh();
-        setStatus(humanMessage(err));
-      }
-    },
-    [cfg, controller, refresh, snap],
-  );
-
-  const beginRestart = useCallback(
-    async (targets: string[], profileName: string) => {
-      if (!controller || !cfg) {
-        setStatus("no configuration loaded");
-        return;
-      }
-      try {
-        const planned = planServices(cfg, targets, profileName);
-        const nextPlan = startupPlan(cfg, planned.services, planned.profile);
-        setLifecycle("restart");
-        setPlanInitiallyRunning([]);
-        setPlan(nextPlan);
-        setOverlay("plan");
-        setPlanBusy(true);
-        await controller.restart(targets);
-        await refresh();
-        setPlanBusy(false);
-        setStatus(formatPlanSummary(nextPlan) === "" ? "Restarted selected services" : `Restarted ${formatPlanSummary(nextPlan)}`);
-      } catch (err) {
-        setPlanBusy(false);
-        await refresh();
-        setStatus(humanMessage(err));
-      }
-    },
-    [cfg, controller, refresh],
-  );
+  const lifecycleActions = useLifecycle({ controller, workspace, cfg, snap, refresh, setStatus, setOverlay });
+  const { plan, planInitiallyRunning, planBusy, lifecycle, beginStart, beginStop, beginRestart } = lifecycleActions;
 
   const copyVisibleLogs = useCallback(async (note = "") => {
     // filteredLogs is the exact set the list itself renders from — reusing
@@ -1031,382 +336,57 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       setStatus(humanMessage(err));
     }
   }, [filteredLogs, logDetail, overlay, scrollText]);
+  const {
+    configEditRef,
+    configEditText,
+    configEditError,
+    setConfigEditError,
+    openConfigBuffer,
+    saveConfigBuffer,
+  } = useConfigEditor({
+    cfg,
+    readTextFile,
+    setOverlay,
+    setStatus,
+    validateConfigText,
+    writeTextFile,
+    controller,
+    setConfirmKind,
+    refresh,
+  });
 
-  const openConfigBuffer = useCallback(() => {
-    if (!cfg) {
-      return;
-    }
-    try {
-      setConfigEditText(readTextFile(cfg.configPath));
-      setConfigEditError("");
-      setOverlay("config-edit");
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [cfg]);
-
-  const saveConfigBuffer = useCallback(() => {
-    if (!cfg) {
-      return;
-    }
-    const text = configEditRef.current?.plainText ?? configEditText;
-    const issues = validateConfigText(cfg.repoRoot, cfg.configPath, text);
-    if (issues.length > 0) {
-      setConfigEditError(issues.join("\n"));
-      setStatus("Config buffer not saved");
-      return;
-    }
-    writeTextFile(cfg.configPath, text);
-    setConfigEditError("");
-    setOverlay("none");
-    if (!controller) {
-      setStatus(`Wrote ${cfg.configPath}`);
-      return;
-    }
-    void controller.reload().then((result) => {
-      setStatus(result.restart_required.length === 0 ? "Configuration saved and reloaded" : `Saved; restart required: ${result.restart_required.join(", ")}`);
-      if (result.restart_required.length > 0) {
-        setConfirmKind("reload");
-        setOverlay("confirm");
-      }
-      void refresh();
-    });
-  }, [cfg, configEditText, controller, refresh]);
-
-  const runCommand = useCallback(
-    async (spec: CommandSpec, args: string[]) => {
-      if (commandBusy.current) {
-        return;
-      }
-      commandBusy.current = true;
-      if (spec.name !== "start" && spec.name !== "stop" && spec.name !== "restart") {
-        setOverlay("none");
-      }
-      setQuery("");
-      const targets = explicitServices(args, checked);
-      try {
-        switch (spec.name) {
-          case "exit":
-            setConfirmKind("quit");
-            setOverlay("confirm");
-            return;
-          case "help":
-            setOverlay("help");
-            return;
-          case "version":
-            setStatus(versionLine());
-            void checkUpdate()
-              .then((result) => setStatus(formatUpdateStatus(result)))
-              .catch((err: unknown) => setStatus(humanMessage(err)));
-            return;
-          case "update":
-            setStatus("checking for update…");
-            void checkUpdate()
-              .then((result) => setStatus(formatUpdateStatus(result)))
-              .catch((err: unknown) => setStatus(humanMessage(err)));
-            return;
-          case "themes":
-            if (args[0]) {
-              persistTheme(args[0]);
-              return;
-            }
-            setPaletteIndex(Math.max(0, THEME_NAMES.indexOf(themeName as (typeof THEME_NAMES)[number])));
-            setQuery("");
-            setOverlay("themes");
-            return;
-          case "settings":
-            setScreen("settings");
-            setSelected(0);
-            return;
-          case "dashboard":
-          case "services":
-            setScreen(spec.name);
-            return;
-          case "logs":
-            if (args[0]) {
-              setLogService(args[0]);
-            }
-            setScreen("logs");
-            return;
-          case "fullscreen":
-            setScreen("logs");
-            setLogsFullscreen((current) => (screen === "logs" ? !current : true));
-            return;
-          case "auth": {
-            const action = (args[0] ?? "").toLowerCase();
-            if (action === "refresh") {
-              setScreen("auth");
-              await refreshAuth();
-              return;
-            }
-            if (action === "login") {
-              setScreen("auth");
-              setStatus("starting gcloud ADC login…");
-              try {
-                await withSuspendedRenderer(renderer, () => loginGoogle());
-                setGoogle(await detectGoogle(cfg?.google.project_id ?? ""));
-                await refreshAuth();
-                setStatus("ADC login complete");
-              } catch (err) {
-                setStatus(humanMessage(err));
-              }
-              return;
-            }
-            if (action === "logout") {
-              setScreen("auth");
-              setStatus("revoking ADC…");
-              try {
-                await logoutGoogle();
-                setGoogle(await detectGoogle(cfg?.google.project_id ?? ""));
-                await refreshAuth();
-                setStatus("ADC revoked");
-              } catch (err) {
-                setStatus(humanMessage(err));
-              }
-              return;
-            }
-            setScreen("auth");
-            return;
-          }
-          case "credentials":
-          case "proxy":
-          case "mcp":
-          case "config":
-          case "profiles":
-          case "setup":
-            setScreen(spec.name);
-            return;
-          case "diff":
-            if (!cfg) {
-              setStatus("no configuration loaded");
-              return;
-            }
-            setScrollText({ title: "config sources", body: formatConfigDiffText(cfg, reveal) });
-            setOverlay("scroll-text");
-            return;
-          case "daemon": {
-            const root = cfg?.repoRoot;
-            if (!root) {
-              setStatus("no repository");
-              return;
-            }
-            const path = bootstrapLogPath(root);
-            if (!fileExists(path)) {
-              setStatus("no daemon bootstrap log yet for this repository");
-              return;
-            }
-            setScrollText({ title: "daemon bootstrap", body: readTextFile(path) });
-            setOverlay("scroll-text");
-            return;
-          }
-          case "reload":
-            if (!controller) {
-              return;
-            }
-            void controller.reload().then((result) => {
-              setStatus(result.restart_required.length === 0 ? "Configuration reloaded" : `Reload requires restart: ${result.restart_required.join(", ")}`);
-              if (result.restart_required.length > 0) {
-                setConfirmKind("reload");
-                setOverlay("confirm");
-              }
-              void refresh();
-            });
-            return;
-          case "doctor":
-            setScreen("doctor");
-            return;
-          case "stats":
-            setScreen("stats");
-            return;
-          case "start":
-            await beginStart(targets, profile);
-            return;
-          case "stop":
-            await beginStop(targets);
-            return;
-          case "restart":
-            await beginRestart(targets, profile);
-            return;
-          case "run": {
-            const name = args[0] ?? "";
-            if (!controller || !name) {
-              setStatus(name ? "no daemon attached" : "usage: /run <task>");
-              return;
-            }
-            try {
-              const result = await controller.runTask(name);
-              setLogService(`task:${name}`);
-              setScreen("logs");
-              setStatus(`task ${name} exited ${result.code}`);
-            } catch (err) {
-              setLogService(`task:${name}`);
-              setScreen("logs");
-              throw err;
-            }
-            return;
-          }
-          case "exec": {
-            const parsed = parseExecArgs(args);
-            if (!controller || !parsed.service) {
-              setStatus(parsed.service ? "no daemon attached" : "usage: /exec <service> -- <command…>");
-              return;
-            }
-            if (parsed.printEnv) {
-              if (!cfg?.services[parsed.service]) {
-                setStatus(`unknown service ${parsed.service}`);
-                return;
-              }
-              if (parsed.reveal) {
-                setReveal(true);
-              }
-              setStatus(`Resolving environment for ${parsed.service}…`);
-              try {
-                const result = await controller.execService(parsed.service, [], true);
-                setResolvedEnvCache({ name: parsed.service, env: result.environment ?? {} });
-                setResolvedEnvError("");
-                openDetail(parsed.service);
-                setStatus(`Resolved environment for ${parsed.service}`);
-              } catch (err) {
-                setResolvedEnvError(humanMessage(err));
-                openDetail(parsed.service);
-                setStatus(humanMessage(err));
-              }
-              return;
-            }
-            if (parsed.command.length === 0) {
-              setStatus("usage: /exec <service> -- <command…>");
-              return;
-            }
-            try {
-              const result = await controller.execService(parsed.service, parsed.command);
-              setLogService(`${parsed.service}:exec`);
-              setScreen("logs");
-              setStatus(`${parsed.service}:exec exited ${result.code}`);
-            } catch (err) {
-              setLogService(`${parsed.service}:exec`);
-              setScreen("logs");
-              throw err;
-            }
-            return;
-          }
-          case "refresh":
-            if (screen === "auth") {
-              await refreshAuth();
-              return;
-            }
-            await refresh();
-            setStatus("Refreshed status and logs");
-            return;
-          case "pause":
-            setPaused((v) => !v);
-            setScreen("logs");
-            return;
-          case "filter":
-            setErrorOnly((v) => !v);
-            setScreen("logs");
-            return;
-          case "system":
-            toggleSystemLogs();
-            setScreen("logs");
-            return;
-          case "clear":
-            clearLogs();
-            return;
-          case "reveal": {
-            const next = !reveal;
-            setReveal(next);
-            setStatus(next ? "Secrets visible this session" : "Secrets hidden");
-            return;
-          }
-          case "wrap": {
-            const next = nextLogWrapMode(logWrap);
-            setLogWrap(next);
-            setStatus(`Log ${logWrapLabel(next)}`);
-            return;
-          }
-          case "copy":
-            await copyVisibleLogs();
-            return;
-          case "export": {
-            const dest = resolveExportPath(args[0]);
-            if (controller) {
-              await controller.logs({
-                export: dest,
-                services: logServices,
-                level: errorOnly ? "ERROR" : logLevel,
-                search: logSearch,
-                regex: logRegex,
-                source: logSource,
-              });
-            } else {
-              // Same reasoning as copyVisibleLogs: reuse the already-filtered
-              // list instead of reconstructing the filter, so a local-only
-              // export (no daemon attached) matches every active filter too.
-              writeLogExport(dest, filteredLogs);
-            }
-            lastExportPath.current = dest;
-            setStatus(`Exported ${dest}`);
-            return;
-          }
-          case "exports": {
-            const target = lastExportPath.current || exportsDir();
-            openInFileManager(target);
-            setStatus(`Opened ${exportsDir()}`);
-            return;
-          }
-          case "regex":
-            setLogRegex((v) => !v);
-            setStatus(logRegex ? "Substring search" : "Regex search");
-            return;
-          case "since":
-            setLogSince(args[0] || new Date(Date.now() - 3_600_000).toISOString());
-            setStatus(`Logs since ${args[0] || "1h"}`);
-            return;
-          case "until":
-            setLogUntil(args[0] || new Date().toISOString());
-            setStatus(`Logs until ${args[0] || "now"}`);
-            return;
-          case "history": {
-            const sessions = listSessions();
-            const pick = args[0] || sessions[0];
-            if (!pick) {
-              setStatus("No persisted log sessions");
-              return;
-            }
-            setLogs(loadSessionEvents(pick));
-            setStatus(`Loaded session ${pick}`);
-            return;
-          }
-          case "buffer":
-            openConfigBuffer();
-            return;
-          case "edit": {
-            if (!cfg) {
-              return;
-            }
-            const editor = process.env.DEVCTL_EDITOR || process.env.EDITOR;
-            const cmd = editor
-              ? [editor, cfg.configPath]
-              : process.platform === "darwin"
-                ? ["open", cfg.configPath]
-                : ["xdg-open", cfg.configPath];
-            Bun.spawn({ cmd, stdout: "ignore", stderr: "ignore", stdin: "ignore" });
-            setStatus(`Opened ${cfg.configPath} in ${cmd[0]}. Run /reload after saving.`);
-            return;
-          }
-          default:
-            setStatus(`/${spec.name}`);
-        }
-      } catch (err) {
-        setStatus(humanMessage(err));
-      } finally {
-        setTimeout(() => {
-          commandBusy.current = false;
-        }, COMMAND_LOCK_MS);
-      }
-    },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, themeName, toggleSystemLogs],
-  );
+  const {
+    runCommand,
+  } = useCommandDispatcher({
+    setOverlay,
+    setQuery,
+    checked,
+    setConfirmKind,
+    setStatus,
+    persistTheme,
+    setPaletteIndex,
+    themeName,
+    setScreen,
+    setSelected,
+    screen,
+    renderer,
+    cfg,
+    setScrollText,
+    reveal,
+    controller,
+    refresh,
+    profile,
+    setReveal,
+    resolveEnvironment,
+    openDetail,
+    copyVisibleLogs,
+    lastExportPath,
+    openConfigBuffer,
+    workspace,
+    logView,
+    diagnostics,
+    lifecycleActions,
+  });
 
   const openExportsFolder = useCallback(() => {
     const target = lastExportPath.current || exportsDir();
@@ -2069,11 +1049,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       return;
     }
     if (screen === "settings" && (name === "left" || name === "h")) {
-      cycleSetting(-1);
+      cycleSetting(-1, listCursor);
       return;
     }
     if (screen === "settings" && (name === "right" || name === "l")) {
-      cycleSetting(1);
+      cycleSetting(1, listCursor);
       return;
     }
     if (name === "space") {

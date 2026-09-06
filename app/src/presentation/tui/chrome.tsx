@@ -1,13 +1,17 @@
-import { versionLine } from "../../version.ts";
-import { useDensity } from "./density.tsx";
-import { clipText, countRunning, footerHints, headerStatusChips, HEADER_STACK_WIDTH, NAV_ITEMS, navActiveIndex, navTabLabel, statusChipTone, visibleHints } from "./helpers.ts";
-import { Banner, Chip, KeyHints, MetaBar, TabStrip, Toolbar, type ChipTone } from "./layout.tsx";
-import { isTightScale } from "./settings.ts";
-import { stateColor, stateGlyph, type Palette } from "./themes.ts";
-import { type Overlay, type Screen } from "./types.ts";
 import { type DevctlConfig } from "../../domain/config/types.ts";
 import { type GoogleStatus } from "../../domain/identity/google-status.ts";
 import { type StatusSnapshot } from "../../types.ts";
+import { versionLine } from "../../version.ts";
+import { useDensity } from "./density.tsx";
+import { HEADER_STACK_WIDTH,headerStatusChips,statusChipTone,visibleHints } from "./helpers/chrome.ts";
+import { footerHints } from "./helpers/command-catalog.ts";
+import { clipText } from "./helpers/format.ts";
+import { NAV_ITEMS,navActiveIndex,navTabLabel } from "./helpers/navigation.ts";
+import { countRunning } from "./helpers/stats.ts";
+import { Banner,Chip,KeyHints,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
+import { isTightScale } from "./settings.ts";
+import { stateColor,stateGlyph,type Palette } from "./themes.ts";
+import { type Overlay,type Screen } from "./types.ts";
 
 export function Header(props: {
   palette: Palette;

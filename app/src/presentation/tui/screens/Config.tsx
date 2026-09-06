@@ -1,34 +1,34 @@
-import { type ReactNode, type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
-import { EmptyState } from "../chrome.tsx";
-import {
-  CONFIG_FACT_LABEL,
-  CONFIG_TWO_COL_MIN,
-  configExtraFacts,
-  configGoogleFacts,
-  configHeaderChips,
-  configLogFacts,
-  configProfileRows,
-  configProjectFacts,
-  configProxyFacts,
-  configRouteRows,
-  configRuntimeFacts,
-  configServiceNameWidth,
-  configServiceRows,
-  configTaskRows,
-  configTemplateRows,
-  type ConfigFact,
-  type ConfigNamedSummary,
-  type ConfigProfileRow,
-  type ConfigRouteRow,
-  type ConfigServiceRow,
-} from "../config-view.ts";
-import { useDensity } from "../density.tsx";
-import { clipText, padClip } from "../helpers.ts";
-import { KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from "../layout.tsx";
-import { serviceColor, type Palette } from "../themes.ts";
+import { type ReactNode,type Ref } from "react";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { VERSION } from "../../../version.ts";
+import { EmptyState } from "../chrome.tsx";
+import {
+CONFIG_FACT_LABEL,
+CONFIG_TWO_COL_MIN,
+configExtraFacts,
+configGoogleFacts,
+configHeaderChips,
+configLogFacts,
+configProfileRows,
+configProjectFacts,
+configProxyFacts,
+configRouteRows,
+configRuntimeFacts,
+configServiceNameWidth,
+configServiceRows,
+configTaskRows,
+configTemplateRows,
+type ConfigFact,
+type ConfigNamedSummary,
+type ConfigProfileRow,
+type ConfigRouteRow,
+type ConfigServiceRow,
+} from "../config-view.ts";
+import { useDensity } from "../density.tsx";
+import { clipText,padClip } from "../helpers/format.ts";
+import { KeyHints,MetaBar,ScreenFrame,scrollboxStyle,Toolbar } from "../layout.tsx";
+import { serviceColor,type Palette } from "../themes.ts";
 
 const COL_GAP = 1;
 const ROW_GAP = 1;

@@ -1,24 +1,13 @@
-import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
-import {
-  clipText,
-  firstPort,
-  padClip,
-  serviceCommandText,
-  serviceEnvEntries,
-  serviceHealthText,
-  serviceIdentityText,
-  serviceLineState,
-  servicePortsText,
-  serviceRestartText,
-  type ServiceEnvEntry,
-} from "../helpers.ts";
+import { type Ref } from "react";
+import { dependencyLabel,type DevctlConfig } from "../../../domain/config/types.ts";
+import { type StatusSnapshot } from "../../../types.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { KeyHints, MetaBar, type ChipTone } from "../layout.tsx";
-import { serviceColor, type Palette } from "../themes.ts";
-import { dependencyLabel, type DevctlConfig } from "../../../domain/config/types.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { clipText,padClip } from "../helpers/format.ts";
+import { firstPort,serviceCommandText,serviceEnvEntries,serviceHealthText,serviceIdentityText,serviceLineState,servicePortsText,serviceRestartText,type ServiceEnvEntry } from "../helpers/services.ts";
+import { KeyHints,MetaBar,type ChipTone } from "../layout.tsx";
+import { serviceColor,type Palette } from "../themes.ts";
 
 const ERROR_PREVIEW = 72;
 const TWO_COL_MIN = 56;

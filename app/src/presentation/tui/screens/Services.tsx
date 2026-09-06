@@ -1,10 +1,11 @@
-import { EmptyState } from "../chrome.tsx";
-import { canStartAll, NARROW_WIDTH, SERVICE_LIST_MIN, serviceListInnerWidth, serviceListPaneWidth, type ServiceEnvEntry } from "../helpers.ts";
-import { serviceColor, type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type StatusSnapshot } from "../../../types.ts";
+import { EmptyState } from "../chrome.tsx";
+import { NARROW_WIDTH } from "../helpers/chrome.ts";
+import { canStartAll,SERVICE_LIST_MIN,serviceListInnerWidth,serviceListPaneWidth,type ServiceEnvEntry } from "../helpers/services.ts";
+import { serviceColor,type Palette } from "../themes.ts";
 import { ServiceInspector } from "./ServiceDetail.tsx";
-import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
+import { SelectionHint,ServiceRows } from "./ServiceRows.tsx";
 
 const DETAIL_MIN_WIDTH = 36;
 const DETAIL_STACK_MIN_HEIGHT = 12;

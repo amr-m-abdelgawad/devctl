@@ -1,12 +1,12 @@
 import { type ReactNode } from "react";
-import { LoadingState } from "../chrome.tsx";
-import { googleProjectDisplay } from "../helpers.ts";
-import { Chip, FieldRow, ScreenFrame } from "../layout.tsx";
-import { type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
-import { type IdentitySnapshot } from "../../../types.ts";
 import { declaredServiceAccounts } from "../../../domain/identity/identity.ts";
+import { type IdentitySnapshot } from "../../../types.ts";
+import { LoadingState } from "../chrome.tsx";
+import { googleProjectDisplay } from "../helpers/identity.ts";
+import { Chip,FieldRow,ScreenFrame } from "../layout.tsx";
+import { type Palette } from "../themes.ts";
 
 type ServiceAccountRow = { email: string; ok?: boolean; inactive?: boolean };
 

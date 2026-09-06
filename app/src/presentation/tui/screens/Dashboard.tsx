@@ -1,16 +1,21 @@
-import { canStartAll, clipText, countRunning, defaultProfileName, filterLogs, formatUptime, googleProjectDisplay, isSystemLogSource, NARROW_WIDTH, padClip, previousSessionNote, profileMembers, runningLabel, serviceListInnerWidth, serviceListPaneWidth, serviceLineState, statusStripChips, visibleHints, visibleLogErrorCount, type LogWrapMode } from "../helpers.ts";
-import { useDensity } from "../density.tsx";
-import { Chip, KeyHints, MetaBar, Toolbar } from "../layout.tsx";
-import { EmptyState } from "../chrome.tsx";
-import { serviceColor, stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
-import { type LogEvent, type LogFacets } from "../../../domain/logs/logs.ts";
-import { HealthUnhealthy, StateFailed, StateRestarting, type Runtime } from "../../../domain/service/services.ts";
-import { sessionStartedAt, type PersistedState } from "../../../domain/session/session.ts";
+import { type LogEvent,type LogFacets } from "../../../domain/logs/logs.ts";
+import { HealthUnhealthy,StateFailed,StateRestarting,type Runtime } from "../../../domain/service/services.ts";
+import { sessionStartedAt,type PersistedState } from "../../../domain/session/session.ts";
 import { type StatusSnapshot } from "../../../types.ts";
-import { SelectionHint, ServiceRows } from "./ServiceRows.tsx";
-import { JumpLatestPrompt, LogFilterBar, LogHistoryBar, LogList } from "./Logs.tsx";
+import { EmptyState } from "../chrome.tsx";
+import { useDensity } from "../density.tsx";
+import { NARROW_WIDTH,statusStripChips,visibleHints } from "../helpers/chrome.ts";
+import { clipText,formatUptime,padClip } from "../helpers/format.ts";
+import { googleProjectDisplay } from "../helpers/identity.ts";
+import { filterLogs,isSystemLogSource,runningLabel,visibleLogErrorCount,type LogWrapMode } from "../helpers/logs.ts";
+import { canStartAll,defaultProfileName,previousSessionNote,profileMembers,serviceLineState,serviceListInnerWidth,serviceListPaneWidth } from "../helpers/services.ts";
+import { countRunning } from "../helpers/stats.ts";
+import { Chip,KeyHints,MetaBar,Toolbar } from "../layout.tsx";
+import { serviceColor,stateColor,stateGlyph,type Palette } from "../themes.ts";
+import { JumpLatestPrompt,LogFilterBar,LogHistoryBar,LogList } from "./Logs.tsx";
+import { SelectionHint,ServiceRows } from "./ServiceRows.tsx";
 
 export function Dashboard(props: {
   palette: Palette;

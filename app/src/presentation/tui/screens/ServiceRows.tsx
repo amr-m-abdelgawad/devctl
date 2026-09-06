@@ -1,22 +1,10 @@
 import { useRef } from "react";
-import {
-  firstPort,
-  padClip,
-  SERVICE_COL_GAP,
-  SERVICE_HEALTH_COL,
-  SERVICE_PID_COL,
-  SERVICE_PORT_COL,
-  SERVICE_STATE_COL,
-  serviceLineState,
-  serviceNameColumnWidth,
-  serviceRowShowsHealth,
-  serviceRowShowsPid,
-  serviceRowShowsPort,
-} from "../helpers.ts";
-import { useDensity } from "../density.tsx";
-import { MetaBar } from "../layout.tsx";
-import { serviceColor, stateColor, stateGlyph, type Palette } from "../themes.ts";
 import { type StatusSnapshot } from "../../../types.ts";
+import { useDensity } from "../density.tsx";
+import { padClip } from "../helpers/format.ts";
+import { firstPort,SERVICE_COL_GAP,SERVICE_HEALTH_COL,SERVICE_PID_COL,SERVICE_PORT_COL,SERVICE_STATE_COL,serviceLineState,serviceNameColumnWidth,serviceRowShowsHealth,serviceRowShowsPid,serviceRowShowsPort } from "../helpers/services.ts";
+import { MetaBar } from "../layout.tsx";
+import { serviceColor,stateColor,stateGlyph,type Palette } from "../themes.ts";
 
 export function ServiceRows(props: {
   palette: Palette;

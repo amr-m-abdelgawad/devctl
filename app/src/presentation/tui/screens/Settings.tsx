@@ -1,7 +1,7 @@
 import { useDensity } from "../density.tsx";
-import { clipText } from "../helpers.ts";
-import { scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
-import { groupedSettings, selectedSettingsItem, settingsIndex, sizeMeter, type SettingsItem, type UiScale } from "../settings.ts";
+import { clipText } from "../helpers/format.ts";
+import { scrollboxStyle,useScrollSelectedIntoView } from "../layout.tsx";
+import { groupedSettings,selectedSettingsItem,settingsIndex,sizeMeter,type SettingsItem,type UiScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";
 
 const NAME_WIDTH = 14;

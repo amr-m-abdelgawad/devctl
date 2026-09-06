@@ -1,33 +1,14 @@
-import { useEffect, useRef } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
+import { useEffect,useRef } from "react";
+import { type LogEvent,type LogFacets } from "../../../domain/logs/logs.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import {
-  displayLogLevel,
-  facetFilterCatalog,
-  filterLogs,
-  foldLogLines,
-  isSystemLogSource,
-  LOG_COL_GAP,
-  LOG_LEVEL_COL,
-  LOG_META_COL,
-  LOG_TIME_COL,
-  logFilterCatalog,
-  logMessageSpans,
-  logMessageWidth,
-  logPaneInnerWidth,
-  logRowExpanded,
-  logServiceColumnWidth,
-  logWrapLabel,
-  padClip,
-  tabChipWidth,
-  visibleHints,
-  wrapLogMessage,
-  type LogWrapMode,
-} from "../helpers.ts";
-import { Chip, KeyHints, MetaBar, TabStrip, Toolbar } from "../layout.tsx";
-import { logSpanColor, serviceColor, stateColor, type Palette } from "../themes.ts";
-import { type LogEvent, type LogFacets } from "../../../domain/logs/logs.ts";
+import { visibleHints } from "../helpers/chrome.ts";
+import { padClip } from "../helpers/format.ts";
+import { displayLogLevel,facetFilterCatalog,filterLogs,foldLogLines,isSystemLogSource,LOG_COL_GAP,LOG_LEVEL_COL,LOG_META_COL,LOG_TIME_COL,logFilterCatalog,logMessageSpans,logMessageWidth,logPaneInnerWidth,logRowExpanded,logServiceColumnWidth,logWrapLabel,wrapLogMessage,type LogWrapMode } from "../helpers/logs.ts";
+import { tabChipWidth } from "../helpers/navigation.ts";
+import { Chip,KeyHints,MetaBar,TabStrip,Toolbar } from "../layout.tsx";
+import { logSpanColor,serviceColor,stateColor,type Palette } from "../themes.ts";
 
 const FOLLOW_ARM_MS = 400;
 const FOLLOW_POLL_MS = 200;
