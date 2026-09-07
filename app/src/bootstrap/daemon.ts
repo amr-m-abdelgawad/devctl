@@ -18,6 +18,7 @@ import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
 
 export type DaemonDeps = {
   healthCheckers?: HealthCheckerFactory;
+  bus?: Bus;
   clock?: Clock;
   fs?: FileSystem;
   config?: ConfigSource;
@@ -37,8 +38,8 @@ export function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): DaemonRu
   const clock = deps.clock ?? systemClock;
   const fs = deps.fs ?? osFileSystem;
   const processes = deps.processes ?? new ProcessManager();
-  const bus = new Bus(2048);
-  const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), bus);
+  const bus = deps.bus ?? new Bus(2048);
+  const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), bus, undefined, clock);
   const orchestrator = new ServiceOrchestrator(processes, clock);
   const supervisor = new Supervisor(cfg, {
     healthCheckers: deps.healthCheckers ?? healthCheckerFactory([]),

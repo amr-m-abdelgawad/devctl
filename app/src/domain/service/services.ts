@@ -1,3 +1,4 @@
+import { profileId, type ProfileId } from "../ids.ts";
 import { dependencyName, type Dependency, type DevctlConfig, type ServiceConfig } from "../config/types.ts";
 import { KindConfiguration, KindDependency, KindServiceNotFound, newError } from "../../shared/errors.ts";
 
@@ -279,7 +280,7 @@ export function supervisorRestartAdvice(fields: string[]): string {
 // Empty name and empty extra still means every service. Start paths must use resolveStartRequest.
 export function resolveProfile(
   cfg: DevctlConfig,
-  name: string,
+  name: ProfileId,
   extra: string[],
 ): { services: string[]; env: Record<string, string> } {
   const env: Record<string, string> = {};
@@ -299,17 +300,17 @@ export function resolveProfile(
   return { services: uniqueServices(cfg, cfg.profiles[name]?.services ?? []), env };
 }
 
-export function firstProfileName(cfg: DevctlConfig): string {
+export function firstProfileName(cfg: DevctlConfig): ProfileId {
   const names = Object.keys(cfg.profiles).sort();
-  return names[0] ?? "";
+  return profileId(names[0] ?? "");
 }
 
 export function resolveStartRequest(
   cfg: DevctlConfig,
-  opts: { services?: string[]; profile?: string; activeProfile?: string },
-): { services: string[]; profile: string; env: Record<string, string> } {
+  opts: { services?: string[]; profile?: ProfileId; activeProfile?: ProfileId },
+): { services: string[]; profile: ProfileId; env: Record<string, string> } {
   const extra = opts.services ?? [];
-  let profile = opts.profile ?? "";
+  let profile = opts.profile ?? profileId("");
   if (extra.length === 0 && profile === "") {
     profile = opts.activeProfile || firstProfileName(cfg);
     if (profile === "") {

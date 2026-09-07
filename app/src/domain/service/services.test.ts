@@ -1,3 +1,4 @@
+import { profileId } from "../ids.ts";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, type DevctlConfig } from "../config/types.ts";
 import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan, supervisorRestartAdvice } from "./services.ts";
@@ -67,10 +68,10 @@ describe("resolveProfile", () => {
   test("named services do not pull in the rest of the profile", () => {
     const c = cfg({ auth: [], api: ["auth"], worker: ["api"] });
     c.profiles = { backend: { services: ["auth", "api", "worker"], environment: { REGION: "eu" } } };
-    const named = resolveProfile(c, "backend", ["api"]);
+    const named = resolveProfile(c, profileId("backend"), ["api"]);
     expect(named.services).toEqual(["api"]);
     expect(named.env.REGION).toBe("eu");
-    expect(resolveProfile(c, "backend", []).services).toEqual(["auth", "api", "worker"]);
+    expect(resolveProfile(c, profileId("backend"), []).services).toEqual(["auth", "api", "worker"]);
   });
 
   test("empty start uses the active profile, then the first profile, and never every service", () => {
@@ -79,11 +80,11 @@ describe("resolveProfile", () => {
       backend: { services: ["auth", "api"], environment: {} },
       full: { services: ["auth", "api", "extra"], environment: {} },
     };
-    expect(firstProfileName(c)).toBe("backend");
-    expect(resolveStartRequest(c, { activeProfile: "full" }).services).toEqual(["auth", "api", "extra"]);
-    expect(resolveStartRequest(c, { profile: "backend" }).services).toEqual(["auth", "api"]);
+    expect(firstProfileName(c)).toBe(profileId("backend"));
+    expect(resolveStartRequest(c, { activeProfile: profileId("full") }).services).toEqual(["auth", "api", "extra"]);
+    expect(resolveStartRequest(c, { profile: profileId("backend") }).services).toEqual(["auth", "api"]);
     expect(resolveStartRequest(c, { services: ["extra"] }).services).toEqual(["extra"]);
-    expect(resolveStartRequest(c, {}).profile).toBe("backend");
+    expect(resolveStartRequest(c, {}).profile).toBe(profileId("backend"));
     const bare = cfg({ auth: [], api: [] });
     expect(() => resolveStartRequest(bare, {})).toThrow(/no profile or services/);
   });

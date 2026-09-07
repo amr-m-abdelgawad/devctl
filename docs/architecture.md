@@ -108,9 +108,19 @@ Hook regression tests cover stale diagnostic and environment results, pinned log
 windows, failed lifecycle commands, config validation before writes, preference
 preview/override behavior, and rendering App in setup mode.
 
-The remaining phase is to require all Supervisor dependencies and apply
-`ProfileId` at profile boundaries. Health-checker injection and
-`ProcessManager implements ProcessRuntime` are already in place.
+The final dependency/ID phase is complete. Supervisor requires its token and
+process runtimes, clock, filesystem, event bus, Google detector, health-checker
+factory, and orchestrator. `createDaemon` selects production defaults and shares
+the injected clock and bus with its collaborators; the explicit test fixture
+supplies local adapters and replaceable identity/token dependencies. Supervisor
+retains defaults for its own lock/socket inspection operations.
+
+`StartProfile`, `ResolveStart`, and domain profile resolution use `ProfileId`.
+Transport and UI entry points convert strings before calling those boundaries;
+RPC/JSON fields stay strings. `ProcessManager implements ProcessRuntime` and
+health-checker injection remain in place. All six phases in the remaining-work
+plan are complete. The daemon-host composition and integration-test exceptions
+documented in the checker remain explicit.
 
 Keep RPC names, JSON fields, `plugin-sdk.ts`, and `bin.ts` stable. Validate each
 phase with `bun test`, `./node_modules/.bin/tsc --noEmit`, and

@@ -3,7 +3,7 @@ import { startupPlan, shutdownPlan, resolveStartRequest, type Plan } from "../do
 import type { StartRequest, StatusSnapshot, ReloadResult } from "../types.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
 import type { DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
-import { serviceId, type ServiceId } from "../domain/ids.ts";
+import { profileId, type ProfileId, serviceId, type ServiceId } from "../domain/ids.ts";
 import type { ServiceOrchestrator } from "./orchestrator.ts";
 
 export type ServiceCommandHost = {
@@ -28,6 +28,7 @@ export class StartService {
   execute(req: StartRequest): Promise<Plan> {
     return this.start({
       ...req,
+      profile: req.profile === undefined ? undefined : profileId(req.profile),
       services: req.services?.map((name) => asServiceId(name)),
     });
   }
@@ -49,7 +50,7 @@ export class RestartService {
 
 export class StartProfile {
   constructor(private readonly start: StartService) {}
-  execute(profile: string, clientEnv?: Record<string, string>): Promise<Plan> {
+  execute(profile: ProfileId, clientEnv?: Record<string, string>): Promise<Plan> {
     return this.start.execute({ profile, client_env: clientEnv });
   }
 }
@@ -116,7 +117,7 @@ export class GetConfigSnapshot {
 }
 
 export class ResolveStart {
-  execute(cfg: DevctlConfig, req: { services?: string[]; profile?: string; activeProfile?: string }) {
+  execute(cfg: DevctlConfig, req: { services?: string[]; profile?: ProfileId; activeProfile?: ProfileId }) {
     return resolveStartRequest(cfg, req);
   }
 }

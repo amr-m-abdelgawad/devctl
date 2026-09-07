@@ -1,3 +1,4 @@
+import { profileId } from "../domain/ids.ts";
 import { HealthMonitor } from "./health-monitor.ts";
 import { ServiceStarted, ServiceFailed, ServiceStopped, newEvent } from "../shared/events.ts";
 import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, dependencyName, dependencyCondition, type Command } from "../domain/config/types.ts";
@@ -77,8 +78,8 @@ export class ServiceOrchestrator {
     }
     const resolved = resolveStartRequest(s.cfg, {
       services: req.services,
-      profile: req.profile,
-      activeProfile: s.profile,
+      profile: req.profile === undefined ? undefined : profileId(req.profile),
+      activeProfile: profileId(s.profile),
     });
     if (resolved.profile) {
       s.profile = resolved.profile;

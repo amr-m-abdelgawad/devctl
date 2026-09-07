@@ -11,7 +11,7 @@ describe("demo-platform TUI first-run flow", () => {
     expect(profile).toBe("backend");
     expect(noneStarted(undefined)).toBe(true);
     const resolved = resolveStartRequest(cfg, {});
-    expect(resolved.profile).toBe("backend");
+    expect(String(resolved.profile)).toBe("backend");
     const plan = startupPlan(cfg, resolved.services, resolved.profile);
     expect(plan.waves.flat()).toEqual(["identity", "telemetry", "invoices-api", "invoices-worker"]);
     expect(formatStarted(plan)).toBe("Started identity → telemetry → invoices-api → invoices-worker");

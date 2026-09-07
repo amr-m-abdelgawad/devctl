@@ -20,17 +20,15 @@ import { ENV_SOURCE_ORDER, envList, resolveEnvironment, runtimeForService } from
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import { commandsForHost, type ApplicationCommands } from "../../application/commands.ts";
 import type { LifecycleSession } from "../../application/lifecycle-session.ts";
-import { ServiceOrchestrator } from "../../application/orchestrator.ts";
+import type { ServiceOrchestrator } from "../../application/orchestrator.ts";
 import { configSnapshotDiff, replaceSnapshot } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
-import { systemClock } from "../system/clock.ts";
-import { osFileSystem } from "../system/filesystem.ts";
 import { DevctlError, KindConfiguration, KindGeneral, KindProcessStart, KindServiceNotFound, humanMessage, newError, serializeError } from "../../shared/errors.ts";
 import {
   AuthenticationChanged,
-  Bus,
+  type Bus,
   ConfigurationChanged,
   ConfigurationReloadFailed,
   ServiceFailed,
@@ -40,14 +38,14 @@ import {
   TokenRefreshFailed,
   newEvent,
 } from "../../shared/events.ts";
-import { detectGoogle, detectIdentity, type GoogleStatus } from "../google/google.ts";
+import { detectIdentity, type GoogleStatus } from "../google/google.ts";
 import type { HealthCheckerFactory } from "../../ports/health-checker.ts";
 import { readHostMemory } from "../system/host-stats.ts";
 import { configuredServiceAccounts, fromConfig, resolveIdentity, tokenIdentityKey } from "../../domain/identity/identity.ts";
 import { LogManager, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
-import { ProcessManager, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "../process/processes.ts";
+import { type ProcessManager, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "../process/processes.ts";
 import { McpHttpServer } from "../../presentation/mcp/server.ts";
 import { isKnownToolName, type McpHost } from "../../presentation/mcp/tools.ts";
 import { resolveMcpPort } from "../net/mcp-port.ts";
@@ -71,7 +69,7 @@ import {
   type ServiceState,
 } from "../../domain/service/services.ts";
 import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
-import { TokenManager, googleTokenProviders } from "../google/token.ts";
+import type { TokenManager } from "../google/token.ts";
 import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "../../types.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
@@ -162,18 +160,18 @@ export class Supervisor {
     cfg: DevctlConfig,
     deps: {
       healthCheckers: HealthCheckerFactory;
-      detectGoogle?: (project: string) => Promise<GoogleStatus>;
-      tokens?: TokenManager;
+      detectGoogle: (project: string) => Promise<GoogleStatus>;
+      tokens: TokenManager;
       inspectProcess?: (pid: number) => Promise<ProcessIdentity | undefined>;
       processAlive?: (pid: number) => boolean;
       acquireLock?: (repoRoot: string, socket: string) => { release: () => void };
       socketExists?: (socket: string) => boolean;
       unlinkSocket?: (socket: string) => void;
-      procs?: ProcessManager;
-      orchestrator?: ServiceOrchestrator;
-      clock?: Clock;
-      fs?: FileSystem;
-      bus?: Bus;
+      procs: ProcessManager;
+      orchestrator: ServiceOrchestrator;
+      clock: Clock;
+      fs: FileSystem;
+      bus: Bus;
     },
   ) {
     this.healthCheckers = deps.healthCheckers;
@@ -181,15 +179,15 @@ export class Supervisor {
     this.sessionID = newSessionID();
     this.internalTok = randomSecret();
     this.mcpToken = readOrCreateMcpToken(cfg.repoRoot);
-    this.clock = deps?.clock ?? systemClock;
-    this.fs = deps?.fs ?? osFileSystem;
-    this.bus = deps?.bus ?? new Bus(2048);
-    this.detectGoogleFn = deps?.detectGoogle ?? detectGoogle;
-    this.inspectProcessFn = deps?.inspectProcess ?? inspectProcess;
-    this.processAliveFn = deps?.processAlive ?? processAlive;
-    this.acquireLockFn = deps?.acquireLock ?? acquireLock;
-    this.socketExistsFn = deps?.socketExists ?? existsSync;
-    this.unlinkSocketFn = deps?.unlinkSocket ?? unlinkSync;
+    this.clock = deps.clock;
+    this.fs = deps.fs;
+    this.bus = deps.bus;
+    this.detectGoogleFn = deps.detectGoogle;
+    this.inspectProcessFn = deps.inspectProcess ?? inspectProcess;
+    this.processAliveFn = deps.processAlive ?? processAlive;
+    this.acquireLockFn = deps.acquireLock ?? acquireLock;
+    this.socketExistsFn = deps.socketExists ?? existsSync;
+    this.unlinkSocketFn = deps.unlinkSocket ?? unlinkSync;
     this.detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
     this.logs = new LogManager(
       cfg.logs.max_memory_events,
@@ -201,9 +199,9 @@ export class Supervisor {
       cfg.logs.persistence.retention_days,
       cfg.logs.persistence.max_session_logs,
     );
-    this.procs = deps?.procs ?? new ProcessManager();
-    this.orchestrator = deps?.orchestrator ?? new ServiceOrchestrator(this.procs, this.clock);
-    this.tokens = deps?.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), this.bus);
+    this.procs = deps.procs;
+    this.orchestrator = deps.orchestrator;
+    this.tokens = deps.tokens;
     this.bus.subscribe((ev) => {
       const payload = ev.payload ?? {};
       const message =
@@ -213,7 +211,7 @@ export class Supervisor {
             ? `token refresh failed identity=${String(payload.identity ?? "")} audience=${String(payload.audience ?? "")}: ${String(payload.error ?? "")}`
             : `authentication changed user=${String(payload.user ?? "")}`;
       this.logs.append({
-        timestamp: new Date().toISOString(),
+        timestamp: this.clock.isoNow(),
         service: "auth",
         source: "auth",
         level: ev.type === TokenRefreshFailed ? "WARN" : "INFO",
@@ -666,7 +664,7 @@ export class Supervisor {
     const result = await this.procs.runOnce({
       name, args: [...command.args], shell: shell || command.shell, workDir, env,
       graceMs: graceSeconds(this.cfg.shutdown) * 1000,
-      onLine: (stream, line) => this.logs.append({ timestamp: new Date().toISOString(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
     });
     if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;
@@ -702,7 +700,7 @@ export class Supervisor {
         runtime,
         containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
         workDir,
-        onLine: (stream, line) => this.logs.append({ timestamp: new Date().toISOString(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+        onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
         onExit: (code, err) => this.orchestrator.health.onExit(name, gen, code, err),
       });
       if (!handle) return false;
@@ -1505,7 +1503,7 @@ export class Supervisor {
 
   private log(service: string, level: string, message: string): void {
     this.logs.append({
-      timestamp: new Date().toISOString(),
+      timestamp: this.clock.isoNow(),
       service,
       source: "devctl",
       level,
@@ -1585,7 +1583,7 @@ export class Supervisor {
         runtime,
         containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
         workDir: this.serviceWorkDir(svc),
-        onLine: (stream, line) => this.logs.append({ timestamp: new Date().toISOString(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+        onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
         onExit: (code, err) => this.orchestrator.health.onExit(name, gen, code, err),
       });
       if (!handle) continue;
@@ -1620,7 +1618,7 @@ export class Supervisor {
         }
         continue;
       }
-      const gen = this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || Date.now())) ?? this.orchestrator.health.bumpGeneration(rec.name);
+      const gen = this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || this.clock.unixMs())) ?? this.orchestrator.health.bumpGeneration(rec.name);
       if (Object.keys(rec.ports).length > 0) {
         this.ports.set(rec.name, rec.ports);
       }
