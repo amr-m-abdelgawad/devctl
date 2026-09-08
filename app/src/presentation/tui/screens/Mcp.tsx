@@ -3,7 +3,7 @@ import { Chip, KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from ".
 import { agentColor, onAgentColor, type Palette } from "../themes.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { MCP_TOOL_CATEGORIES, MCP_TOOLS, toolEnabled, type McpToolDef } from "../../mcp/tools.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 
 export const MCP_TOGGLE_ROW = 0;
 export const MCP_PORT_ROW = 1;

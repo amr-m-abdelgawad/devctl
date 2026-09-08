@@ -6,7 +6,9 @@
  *   or infrastructure SDKs (google-auth-library, @opentui/*).
  *
  * All forbidden edges fail unless the exact file pair is allowlisted.
- * Presentation only reaches application/shared/domain; adapters cannot reach legacy.
+ * Presentation may import presentation, application, ports, shared, and domain.
+ * Adapters cannot reach presentation, application, or legacy. `*.test.ts` is
+ * layer `test` and may import any layer. The production allowlist is empty.
  *
  *   bun run check:architecture
  */
@@ -14,30 +16,29 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 
-type Layer = "domain" | "application" | "ports" | "adapters" | "presentation" | "shared" | "bootstrap" | "legacy";
+type Layer = "domain" | "application" | "ports" | "adapters" | "presentation" | "shared" | "bootstrap" | "legacy" | "test";
 
 const ROOT_LAYER: Record<string, Layer> = {
   "bin.ts": "bootstrap",
   "types.ts": "shared",
   "version.ts": "shared",
-  "version.test.ts": "shared",
   "warnings.ts": "shared",
-  "warnings.test.ts": "shared",
   "retry.ts": "shared",
-  "retry.test.ts": "shared",
   "update.ts": "shared",
-  "update.test.ts": "shared",
 };
+
+const ALL_LAYERS: readonly Layer[] = ["domain", "application", "ports", "adapters", "presentation", "shared", "bootstrap", "legacy", "test"];
 
 const ALLOWED: Record<Layer, readonly Layer[]> = {
   domain: ["domain", "shared"],
   application: ["application", "domain", "ports", "shared"],
   ports: ["ports", "domain", "shared"],
   adapters: ["adapters", "ports", "domain", "shared"],
-  presentation: ["presentation", "application", "shared", "domain"],
+  presentation: ["presentation", "application", "ports", "shared", "domain"],
   shared: ["shared"],
   bootstrap: ["domain", "application", "ports", "adapters", "presentation", "shared", "bootstrap", "legacy"],
   legacy: ["domain", "application", "ports", "adapters", "presentation", "shared", "bootstrap", "legacy"],
+  test: ALL_LAYERS,
 };
 
 const FORBIDDEN_PACKAGES: Partial<Record<Layer, readonly string[]>> = {
@@ -46,40 +47,7 @@ const FORBIDDEN_PACKAGES: Partial<Record<Layer, readonly string[]>> = {
   ports: ["google-auth-library", "@opentui/core", "@opentui/react"],
 };
 
-// Shrink as later phases extract commands and isolate Google.
-const ALLOWLIST = new Set<string>([
-  "types.ts → domain/logs/logs.ts",
-  "presentation/mcp/tools.test.ts → adapters/config/index.ts",
-  "presentation/mcp/server.test.ts → adapters/config/index.ts",
-  "presentation/cli/complete.test.ts → bootstrap/test-client.ts",
-  "presentation/cli/cli.test.ts → bootstrap/test-client.ts",
-  "presentation/cli/setup.test.ts → bootstrap/client.ts",
-  // Integration fixtures compose real clients and inspect persisted output.
-  "presentation/cli/cli.test.ts → adapters/storage/logs.ts",
-  "presentation/cli/cli.test.ts → adapters/storage/storage.ts",
-  // MCP adapter-backed helpers and integration fixtures.
-  "presentation/mcp/setup.test.ts → adapters/config/index.ts",
-  "presentation/mcp/setup.test.ts → bootstrap/test-supervisor.ts",
-  "presentation/mcp/toolgate.test.ts → adapters/config/index.ts",
-  "presentation/mcp/toolgate.test.ts → bootstrap/test-supervisor.ts",
-  "presentation/mcp/tools.test.ts → adapters/secrets/detector.ts",
-  "presentation/mcp/tools.test.ts → adapters/storage/logs.ts",
-  "presentation/tui/demo-flow.test.ts → adapters/config/load.ts",
-
-  "types.ts → domain/service/services.ts",
-  // Daemon host still composes application commands and listeners. These
-  // exact edges remain until listener/dependency composition moves to bootstrap.
-  "adapters/daemon/supervisor.ts → application/commands.ts",
-  "adapters/daemon/supervisor.ts → application/lifecycle-session.ts",
-  "adapters/daemon/supervisor.ts → application/orchestrator.ts",
-  "adapters/daemon/supervisor.ts → presentation/mcp/server.ts",
-  "adapters/daemon/supervisor.ts → presentation/mcp/tools.ts",
-  // Integration tests exercise the daemon composition and its presentation contract.
-  "adapters/daemon/supervisor.test.ts → presentation/mcp/tools.ts",
-  "adapters/daemon/supervisor.test.ts → bootstrap/test-supervisor.ts",
-  "adapters/daemon/supervisor.integration.test.ts → bootstrap/test-supervisor.ts",
-  "adapters/rpc/controller.test.ts → bootstrap/test-supervisor.ts",
-]);
+const ALLOWLIST = new Set<string>([]);
 
 function walk(dir: string, prefix = ""): string[] {
   const out: string[] = [];
@@ -93,6 +61,9 @@ function walk(dir: string, prefix = ""): string[] {
 }
 
 function layerOf(rel: string): Layer {
+  if (rel.endsWith(".test.ts") || rel.endsWith(".test.tsx")) {
+    return "test";
+  }
   const top = rel.split("/")[0] ?? rel;
   if (top === "domain" || top === "application" || top === "ports" || top === "adapters" || top === "presentation" || top === "shared" || top === "bootstrap") {
     return top;

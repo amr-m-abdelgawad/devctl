@@ -1,7 +1,7 @@
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { type Ref } from "react";
 import { dependencyLabel,type DevctlConfig } from "../../../domain/config/types.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { clipText,padClip } from "../helpers/format.ts";

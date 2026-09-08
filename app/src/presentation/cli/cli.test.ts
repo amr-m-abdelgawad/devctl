@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { followLogs } from "./cli.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
-import { type LogEvent, type LogPage } from "../../adapters/storage/logs.ts";
+import { type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
 import { processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
 
 function tmp(): string {

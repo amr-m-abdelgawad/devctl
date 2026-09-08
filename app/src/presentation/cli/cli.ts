@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { stringify } from "yaml";
 import { defaultConfig } from "../../domain/config/types.ts";
 import type { ClientRuntime, DaemonLauncher } from "../../application/client-runtime.ts";
-import type { StatusSnapshot } from "../../types.ts";
+import type { StatusSnapshot } from "../../domain/status.ts";
 import { ExitSuccess, humanMessage, exitCode } from "../../shared/errors.ts";
 import { displayState, formatPlan, supervisorRestartAdvice } from "../../domain/service/services.ts";
 

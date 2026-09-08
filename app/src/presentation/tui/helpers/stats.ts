@@ -1,6 +1,6 @@
 import { type ServiceConfig } from "../../../domain/config/types.ts";
 import { type Runtime } from "../../../domain/service/services.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { formatMemoryKB, formatUptime, renderBar } from "./format.ts";
 import {
   isActiveRuntime,

@@ -1,7 +1,7 @@
 import { LoadingState } from "../chrome.tsx";
 import { Banner, Chip, ScreenFrame } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
-import { type CredentialsSnapshot } from "../../../types.ts";
+import { type CredentialsSnapshot } from "../../../domain/status.ts";
 
 export function CredentialsScreen(props: { palette: Palette; credentials?: CredentialsSnapshot }) {
   const { palette, credentials } = props;

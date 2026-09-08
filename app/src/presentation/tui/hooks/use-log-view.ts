@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { LogEvent, LogFacets } from "../../../domain/logs/logs.ts";
 import { humanMessage } from "../../../shared/errors.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import {
   filterLogs,
   INTERNAL_LOG_SERVICES,

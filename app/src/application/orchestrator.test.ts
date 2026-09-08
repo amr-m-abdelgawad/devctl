@@ -5,7 +5,7 @@ import type { Clock } from "../ports/clock.ts";
 import type { HealthCheckerFactory, HealthCheckResult } from "../ports/health-checker.ts";
 import type { ContainerLaunchSpec, ProcessHandle, ProcessRuntime, ProcessSpec } from "../ports/process-runtime.ts";
 import { Bus } from "../shared/events.ts";
-import type { LifecycleSession } from "./lifecycle-session.ts";
+import type { LifecycleSession } from "../ports/lifecycle-session.ts";
 import { ServiceOrchestrator } from "./orchestrator.ts";
 
 const clock: Clock = { now: () => new Date(), isoNow: () => new Date().toISOString(), unixMs: () => Date.now() };

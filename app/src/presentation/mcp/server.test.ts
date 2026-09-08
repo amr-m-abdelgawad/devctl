@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { defaultConfig } from "../../domain/config/types.ts";
 import { KindGeneral } from "../../shared/errors.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
-import { type StatusSnapshot } from "../../types.ts";
+import { type StatusSnapshot } from "../../domain/status.ts";
 import { isLoopbackHost, McpHttpServer } from "./server.ts";
 import { MCP_TOOLS } from "./tools.ts";
 import { type McpHost } from "./tools.ts";

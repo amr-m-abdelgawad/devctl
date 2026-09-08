@@ -4,7 +4,7 @@ import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { matchLog, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
-import { type StatusSnapshot } from "../../types.ts";
+import { type StatusSnapshot } from "../../domain/status.ts";
 import { callMcpTool, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {

@@ -7,7 +7,7 @@ import type { Plan } from "../domain/service/services.ts";
 import type { LogEvent, LogFilter, LogPageRequest, LogPage, LogFacets } from "../domain/logs/logs.ts";
 import type { PortHolder } from "../domain/net/ports.ts";
 import type { BusEvent } from "../shared/events.ts";
-import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../types.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
 import type { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "./commands.ts";
 import type { Report } from "../domain/doctor/types.ts";
 

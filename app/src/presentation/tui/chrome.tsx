@@ -1,6 +1,6 @@
 import { type DevctlConfig } from "../../domain/config/types.ts";
 import { type GoogleStatus } from "../../domain/identity/google-status.ts";
-import { type StatusSnapshot } from "../../types.ts";
+import { type StatusSnapshot } from "../../domain/status.ts";
 import { versionLine } from "../../version.ts";
 import { useDensity } from "./density.tsx";
 import { HEADER_STACK_WIDTH,headerStatusChips,statusChipTone,visibleHints } from "./helpers/chrome.ts";

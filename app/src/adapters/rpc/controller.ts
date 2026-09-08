@@ -8,7 +8,8 @@ import { type BusEvent } from "../../shared/events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
 import { type Plan } from "../../domain/service/services.ts";
 import { bootstrapLogPath, rotateBootstrapLog, socketPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
-import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../../types.ts";
+import type { Envelope } from "../../types.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 const DIAL_RETRY_MS = 50;

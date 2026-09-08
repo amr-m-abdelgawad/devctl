@@ -2,7 +2,7 @@ import { type DevctlConfig, type ServiceConfig } from "../../../domain/config/ty
 import { type Runtime, displayState } from "../../../domain/service/services.ts";
 import { type PersistedState } from "../../../domain/session/session.ts";
 import { Detector } from "../../../shared/redaction.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 
 export const SERVICE_ROW_LEAD = 8;
 

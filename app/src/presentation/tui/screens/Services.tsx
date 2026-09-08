@@ -1,5 +1,5 @@
 import { type DevctlConfig } from "../../../domain/config/types.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
 import { canStartAll,SERVICE_LIST_MIN,serviceListInnerWidth,serviceListPaneWidth,type ServiceEnvEntry } from "../helpers/services.ts";

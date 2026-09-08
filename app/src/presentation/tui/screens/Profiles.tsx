@@ -1,5 +1,5 @@
 import { type DevctlConfig } from "../../../domain/config/types.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { serviceLineState } from "../helpers/services.ts";

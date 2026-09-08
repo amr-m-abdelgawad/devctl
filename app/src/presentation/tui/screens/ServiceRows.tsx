@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { useDensity } from "../density.tsx";
 import { padClip } from "../helpers/format.ts";
 import { firstPort,SERVICE_COL_GAP,SERVICE_HEALTH_COL,SERVICE_PID_COL,SERVICE_PORT_COL,SERVICE_STATE_COL,serviceLineState,serviceNameColumnWidth,serviceRowShowsHealth,serviceRowShowsPid,serviceRowShowsPort } from "../helpers/services.ts";

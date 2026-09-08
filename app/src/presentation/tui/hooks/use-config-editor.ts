@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { type ConfirmKind, type Overlay } from "../types.ts";
 
 type Options = {

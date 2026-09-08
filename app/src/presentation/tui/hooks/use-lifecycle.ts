@@ -3,7 +3,7 @@ import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { type Plan } from "../../../domain/service/services.ts";
 import { humanMessage } from "../../../shared/errors.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { formatPlanSummary, formatStarted, formatStopped, planServices } from "../helpers/lifecycle.ts";
 import { isActiveRuntime } from "../helpers/services.ts";
 import { type LifecycleKind, type Overlay } from "../types.ts";

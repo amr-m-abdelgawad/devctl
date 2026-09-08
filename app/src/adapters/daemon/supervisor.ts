@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:net";
-import { existsSync, unlinkSync, watch, type FSWatcher } from "node:fs";
+import { watch, type FSWatcher } from "node:fs";
 import { cpus, loadavg, platform, uptime } from "node:os";
 import { isAbsolute, join } from "node:path";
 import {
@@ -18,9 +18,9 @@ import {
 } from "../config/index.ts";
 import { ENV_SOURCE_ORDER, envList, resolveEnvironment, runtimeForService } from "../environment/environment.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
-import { commandsForHost, type ApplicationCommands } from "../../application/commands.ts";
-import type { LifecycleSession } from "../../application/lifecycle-session.ts";
-import type { ServiceOrchestrator } from "../../application/orchestrator.ts";
+import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
+import type { DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
+import type { McpHost, McpListener, McpListenerFactory } from "../../ports/mcp-host.ts";
 import { configSnapshotDiff, replaceSnapshot } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
 import type { Clock } from "../../ports/clock.ts";
@@ -45,12 +45,9 @@ import { configuredServiceAccounts, fromConfig, resolveIdentity, tokenIdentityKe
 import { LogManager, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
 import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
-import { type ProcessManager, inspectProcess, processAlive, sameProcess, sampleResourceUsage, type ProcessIdentity } from "../process/processes.ts";
-import { McpHttpServer } from "../../presentation/mcp/server.ts";
-import { isKnownToolName, type McpHost } from "../../presentation/mcp/tools.ts";
+import { type ProcessManager, sameProcess, sampleResourceUsage, type ProcessIdentity } from "../process/processes.ts";
 import { resolveMcpPort } from "../net/mcp-port.ts";
 import { loadTuiConfig } from "../config/tui-preferences.ts";
-import { createDoctorHost, createDoctorRunner } from "../doctor/doctor.ts";
 import { ProxyServer, TokenEndpoint } from "../proxy/proxy.ts";
 import { Detector } from "../secrets/detector.ts";
 import {
@@ -68,9 +65,10 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { acquireLock, newSessionID, randomSecret, readOrCreateMcpToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { randomSecret, readOrCreateMcpToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
-import type { Envelope, IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "../../types.ts";
+import type { Envelope } from "../../types.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
@@ -92,7 +90,7 @@ export class Supervisor {
   // (config change, shutdown) — so a user who deliberately stopped the
   // proxy doesn't have it silently come back on the next service start.
   private proxySuppressed = false;
-  private mcp?: McpHttpServer;
+  private mcp?: McpListener;
   private readonly mcpToken: string;
   private tokenEP?: TokenEndpoint;
   private profile = "";
@@ -150,11 +148,13 @@ export class Supervisor {
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
 
-  private readonly orchestrator: ServiceOrchestrator;
-  private readonly commands: ApplicationCommands;
+  private readonly orchestrator: ServiceOrchestratorPort;
+  private commands!: DaemonCommands;
   private readonly clock: Clock;
   private readonly fs: FileSystem;
   private readonly healthCheckers: HealthCheckerFactory;
+  private readonly createMcpListener: McpListenerFactory;
+  private readonly isKnownTool: (name: string) => boolean;
 
   constructor(
     cfg: DevctlConfig,
@@ -162,46 +162,44 @@ export class Supervisor {
       healthCheckers: HealthCheckerFactory;
       detectGoogle: (project: string) => Promise<GoogleStatus>;
       tokens: TokenManager;
-      inspectProcess?: (pid: number) => Promise<ProcessIdentity | undefined>;
-      processAlive?: (pid: number) => boolean;
-      acquireLock?: (repoRoot: string, socket: string) => { release: () => void };
-      socketExists?: (socket: string) => boolean;
-      unlinkSocket?: (socket: string) => void;
+      inspectProcess: (pid: number) => Promise<ProcessIdentity | undefined>;
+      processAlive: (pid: number) => boolean;
+      acquireLock: (repoRoot: string, socket: string) => { release: () => void };
+      socketExists: (socket: string) => boolean;
+      unlinkSocket: (socket: string) => void;
       procs: ProcessManager;
-      orchestrator: ServiceOrchestrator;
+      orchestrator: ServiceOrchestratorPort;
       clock: Clock;
       fs: FileSystem;
       bus: Bus;
+      logs: LogManager;
+      detector: Detector;
+      sessionID: string;
+      createMcpListener: McpListenerFactory;
+      isKnownTool: (name: string) => boolean;
     },
   ) {
     this.healthCheckers = deps.healthCheckers;
     this.cfg = cfg;
-    this.sessionID = newSessionID();
+    this.sessionID = deps.sessionID;
     this.internalTok = randomSecret();
     this.mcpToken = readOrCreateMcpToken(cfg.repoRoot);
     this.clock = deps.clock;
     this.fs = deps.fs;
     this.bus = deps.bus;
     this.detectGoogleFn = deps.detectGoogle;
-    this.inspectProcessFn = deps.inspectProcess ?? inspectProcess;
-    this.processAliveFn = deps.processAlive ?? processAlive;
-    this.acquireLockFn = deps.acquireLock ?? acquireLock;
-    this.socketExistsFn = deps.socketExists ?? existsSync;
-    this.unlinkSocketFn = deps.unlinkSocket ?? unlinkSync;
-    this.detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
-    this.logs = new LogManager(
-      cfg.logs.max_memory_events,
-      this.bus,
-      this.detector,
-      cfg.logs.persistence.enabled,
-      cfg.logs.persistence.directory,
-      this.sessionID,
-      cfg.logs.persistence.retention_days,
-      cfg.logs.persistence.max_session_logs,
-    );
+    this.inspectProcessFn = deps.inspectProcess;
+    this.processAliveFn = deps.processAlive;
+    this.acquireLockFn = deps.acquireLock;
+    this.socketExistsFn = deps.socketExists;
+    this.unlinkSocketFn = deps.unlinkSocket;
+    this.detector = deps.detector;
+    this.logs = deps.logs;
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;
     this.tokens = deps.tokens;
+    this.createMcpListener = deps.createMcpListener;
+    this.isKnownTool = deps.isKnownTool;
     this.bus.subscribe((ev) => {
       const payload = ev.payload ?? {};
       const message =
@@ -233,7 +231,10 @@ export class Supervisor {
       this.runtimes.set(name, emptyRuntime(name));
     }
     this.orchestrator.bind(this.lifecycleSession());
-    this.commands = commandsForHost(this, createDoctorRunner(createDoctorHost({ tokens: this.tokens })), this.orchestrator);
+  }
+
+  attachCommands(commands: DaemonCommands): void {
+    this.commands = commands;
   }
 
   async run(): Promise<void> {
@@ -732,7 +733,7 @@ export class Supervisor {
         this.log(name, "WARN", `port ${first} is held by pid ${pid} with no persisted record for ${name}; not adopting`);
         return false;
       }
-      const observed = await inspectProcess(pid);
+      const observed = await this.inspectProcessFn(pid);
       const identityOk =
         observed !== undefined &&
         observed.command !== "" &&
@@ -924,8 +925,7 @@ export class Supervisor {
       return;
     }
     const resolved = await resolveMcpPort(this.cfg.repoRoot, port);
-    this.mcp = new McpHttpServer({
-      host: "127.0.0.1",
+    this.mcp = this.createMcpListener({
       port: resolved,
       token: this.mcpToken,
       hostApi: this.asMcpHost(),
@@ -940,7 +940,7 @@ export class Supervisor {
   // version would otherwise sit in the list forever, disabling nothing and
   // showing up in status as a tool that does not exist.
   setMcpDisabledTools(names: readonly string[]): void {
-    const known = names.filter((name) => isKnownToolName(name));
+    const known = names.filter((name) => this.isKnownTool(name));
     const before = this.mcpDisabledTools.join(",");
     this.mcpDisabledTools = [...new Set(known)].sort();
     // Only when it actually changes, and never the boring "nothing is
@@ -1416,7 +1416,7 @@ export class Supervisor {
 
   private watchConfig(): void {
     const dir = join(this.cfg.repoRoot, ".devctl");
-    if (!existsSync(dir)) {
+    if (!this.fs.exists(dir)) {
       return;
     }
     try {
@@ -1452,7 +1452,7 @@ export class Supervisor {
         continue;
       }
       if (svc) {
-        const observed = await inspectProcess(holder.pid);
+        const observed = await this.inspectProcessFn(holder.pid);
         const identityOk =
           observed !== undefined &&
           observed.command !== "" &&

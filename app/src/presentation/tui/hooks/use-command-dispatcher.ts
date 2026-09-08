@@ -4,7 +4,7 @@ import { useCallback, useRef } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { checkUpdate, formatUpdateStatus } from "../../../update.ts";
 import { versionLine } from "../../../version.ts";
 import { parseExecArgs, type CommandSpec } from "../commands.ts";

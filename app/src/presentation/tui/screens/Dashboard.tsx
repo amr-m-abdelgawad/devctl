@@ -3,7 +3,7 @@ import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { type LogEvent,type LogFacets } from "../../../domain/logs/logs.ts";
 import { HealthUnhealthy,StateFailed,StateRestarting,type Runtime } from "../../../domain/service/services.ts";
 import { sessionStartedAt,type PersistedState } from "../../../domain/session/session.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { NARROW_WIDTH,statusStripChips,visibleHints } from "../helpers/chrome.ts";

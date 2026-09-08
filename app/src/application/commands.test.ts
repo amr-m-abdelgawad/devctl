@@ -32,7 +32,7 @@ test("profile commands preserve wire fields and resolve branded active/default p
   const { profileId } = await import("../domain/ids.ts");
   const cfg = defaultConfig();
   cfg.profiles = { backend: { services: [], environment: { MODE: "backend" } }, full: { services: [], environment: { MODE: "full" } } };
-  const requests: import("../types.ts").StartRequest[] = [];
+  const requests: import("../domain/status.ts").StartRequest[] = [];
   const start = new StartService(async (request) => { requests.push(request); return { profile: request.profile ?? "", steps: [], waves: [] }; });
   const env = { FROM_CLIENT: "yes" };
   await new StartProfile(start).execute(profileId("backend"), env);

@@ -4,7 +4,7 @@ import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { type DoctorProgress, type Report } from "../../../domain/doctor/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { humanMessage } from "../../../shared/errors.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { type Screen } from "../types.ts";
 import { type TuiWorkspace } from "../workspace.ts";
 

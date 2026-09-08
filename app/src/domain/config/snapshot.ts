@@ -1,5 +1,5 @@
 import type { DevctlConfig } from "./types.ts";
-import type { ReloadResult } from "../../types.ts";
+import type { ReloadResult } from "../status.ts";
 
 export type ConfigSnapshot = DevctlConfig;
 export type ConfigDiff = ReloadResult;

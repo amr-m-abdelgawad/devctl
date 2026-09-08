@@ -1,7 +1,7 @@
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { type Ref } from "react";
 import { type Plan } from "../../../domain/service/services.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { padClip } from "../helpers/format.ts";
 import { planActionCopy,planProgress,planRowNote,planTitle,waveCardTitle,waveStatus,type WaveStatus } from "../helpers/lifecycle.ts";
 import { firstPort,serviceLineState } from "../helpers/services.ts";

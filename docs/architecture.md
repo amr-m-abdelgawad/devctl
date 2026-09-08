@@ -19,12 +19,13 @@ app/src/
 Dependency direction points inward:
 
 ```text
-presentation  → application, shared, domain types
+presentation  → application, ports, shared, domain types
 application   → domain, ports, shared
 domain        → shared (and other domain)
 ports         → domain, shared
 adapters      → ports, domain, shared
 bootstrap     → everything
+test          → any layer
 ```
 
 Forbidden: domain → adapters/application/presentation; application → adapters/presentation; adapters → presentation/application.
@@ -49,10 +50,11 @@ cd app && bun run check:architecture
 ```
 
 CI runs the same script. Domain, application, and ports must not import `google-auth-library` or `@opentui/*`.
-Presentation may import only presentation, application, shared, and domain modules;
-adapters may no longer import legacy root modules. Remaining migration exceptions
-are exact source/target pairs in the check script. New forbidden pairs fail, and
-an exception left behind after its dependency is removed also fails.
+Presentation may import presentation, application, ports, shared, and domain modules.
+Adapters cannot import presentation, application, or leftover root modules.
+`*.test.ts` files are a `test` layer and may compose any layer, including
+bootstrap fixtures. The production allowlist is empty: a new forbidden pair
+fails, and a stale exception for a removed import also fails.
 
 The checker parses TypeScript syntax, including type imports, re-exports, literal
 dynamic imports, and `require()` calls. Comments and example strings do not count
@@ -79,9 +81,10 @@ continue to delegate to the application.
 The legacy daemon, controller, doctor, environment, plugin registry, network-port,
 secret-detector, and host-stat modules and their tests now live under `adapters/`.
 The setup command and its tests live under `presentation/cli/`. `plugin-sdk.ts`
-and `bin.ts` retain their public paths. Existing daemon composition imports are
-recorded as exact temporary exceptions in the architecture check, alongside
-exceptions for integration-test composition; no layer-wide permissions were added.
+and `bin.ts` retain their public paths. Daemon command and MCP composition live
+in `bootstrap/daemon.ts` and `bootstrap/test-supervisor.ts`, so adapters do not
+import application or presentation. Integration tests compose through those
+fixtures rather than architecture exceptions.
 
 The stricter layer rules and doctor boundary are in place. `RunDoctor` depends on
 `ports/doctor-runner.ts`; the adapter implements it with the existing diagnostics.
@@ -93,16 +96,17 @@ the TUI workspace receives that same runtime. The application owns the
 `ClientRuntime` and `Controller` contracts. Config, Google status, logs, session,
 and preference view types live in domain modules. Preference persistence stays
 in the config adapter, and MCP validation is supplied by its host. Integration
-tests retain explicit composition exceptions.
+tests compose through bootstrap fixtures instead of layer exceptions.
 
 The TUI decomposition is complete. `App.tsx` coordinates screen rendering and
-input. Hooks under `presentation/tui/hooks/` own log filtering/windowing and
-paged queries, daemon event subscriptions, diagnostics, lifecycle commands,
-environment inspection, config editing, MCP controls, preferences, and command
-dispatch. They receive the client workspace or controller explicitly. Screen
-helpers live in focused modules under `presentation/tui/helpers/`; production
-consumers import those modules directly. The old `helpers.ts` is a compatibility
-barrel, also exercised by the existing helper tests.
+state wiring. Hooks under `presentation/tui/hooks/` own log filtering/windowing
+and paged queries, daemon event subscriptions, diagnostics, lifecycle commands,
+environment inspection, config editing, MCP controls, preferences, command
+dispatch, and keyboard/overlay dispatch (`use-app-keyboard.ts`). They receive
+the client workspace or controller explicitly. Screen helpers live in focused
+modules under `presentation/tui/helpers/`; production consumers import those
+modules directly. The old `helpers.ts` is a compatibility barrel, also
+exercised by the existing helper tests.
 
 Hook regression tests cover stale diagnostic and environment results, pinned log
 windows, failed lifecycle commands, config validation before writes, preference
@@ -110,17 +114,22 @@ preview/override behavior, and rendering App in setup mode.
 
 The final dependency/ID phase is complete. Supervisor requires its token and
 process runtimes, clock, filesystem, event bus, Google detector, health-checker
-factory, and orchestrator. `createDaemon` selects production defaults and shares
-the injected clock and bus with its collaborators; the explicit test fixture
-supplies local adapters and replaceable identity/token dependencies. Supervisor
-retains defaults for its own lock/socket inspection operations.
+factory, orchestrator, log store, secret detector, session id, process
+inspect/alive helpers, lock/socket functions, and an MCP listener factory.
+`createDaemon` selects production defaults, shares the injected clock and bus,
+builds `commandsForHost`, and attaches commands after construct. The explicit
+test fixture mirrors that wiring. Supervisor does not import application or
+presentation modules; it talks to `DaemonCommands`, `LifecycleSession`,
+`McpHost`, and `McpListener` ports.
 
 `StartProfile`, `ResolveStart`, and domain profile resolution use `ProfileId`.
 Transport and UI entry points convert strings before calling those boundaries;
 RPC/JSON fields stay strings. `ProcessManager implements ProcessRuntime` and
-health-checker injection remain in place. All six phases in the remaining-work
-plan are complete. The daemon-host composition and integration-test exceptions
-documented in the checker remain explicit.
+health-checker injection remain in place. Snapshot and RPC payload types live
+in `domain/status.ts`; `types.ts` is the shared `Envelope` only. All six
+phases in the remaining-work plan are complete. The follow-up leftover work
+emptied the architecture allowlist: tests are a first-class layer, daemon
+composition lives in bootstrap, and there are no production import exceptions.
 
 Keep RPC names, JSON fields, `plugin-sdk.ts`, and `bin.ts` stable. Validate each
 phase with `bun test`, `./node_modules/.bin/tsc --noEmit`, and

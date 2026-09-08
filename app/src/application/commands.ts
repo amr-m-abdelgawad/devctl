@@ -1,10 +1,10 @@
 import type { DevctlConfig } from "../domain/config/types.ts";
 import { startupPlan, shutdownPlan, resolveStartRequest, type Plan } from "../domain/service/services.ts";
-import type { StartRequest, StatusSnapshot, ReloadResult } from "../types.ts";
+import type { StartRequest, StatusSnapshot, ReloadResult } from "../domain/status.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
 import type { DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
 import { profileId, type ProfileId, serviceId, type ServiceId } from "../domain/ids.ts";
-import type { ServiceOrchestrator } from "./orchestrator.ts";
+import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
 
 export type ServiceCommandHost = {
   start(req: StartRequest): Promise<Plan>;
@@ -142,7 +142,7 @@ export type ApplicationCommands = {
   resolveStart: ResolveStart;
 };
 
-export function commandsForHost(host: ServiceCommandHost, doctor: DoctorRunner, orchestrator?: ServiceOrchestrator): ApplicationCommands {
+export function commandsForHost(host: ServiceCommandHost, doctor: DoctorRunner, orchestrator?: ServiceOrchestratorPort): ApplicationCommands {
   const startStop: StartStop = orchestrator ?? host;
   const startService = new StartService((req) => startStop.start(req));
   return {

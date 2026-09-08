@@ -70,8 +70,16 @@ describe("architecture boundaries", () => {
       import { RunDoctor } from "../../application/commands.ts";
       import type { Report } from "../../domain/doctor/types.ts";
       import { humanMessage } from "../../shared/errors.ts";
+      import type { McpHost } from "../../ports/mcp-host.ts";
     `)).toEqual([]);
     expect(audit("application/commands.ts", 'import type { DoctorRunner } from "../ports/doctor-runner.ts";')).toEqual([]);
+  });
+
+  test("test files may import adapters and bootstrap", () => {
+    expect(audit("presentation/cli/cli.test.ts", `
+      import { newRoot } from "../../bootstrap/test-client.ts";
+      import { processAlive } from "../../adapters/storage/storage.ts";
+    `)).toEqual([]);
   });
 
   test("domain still rejects infrastructure SDKs", () => {

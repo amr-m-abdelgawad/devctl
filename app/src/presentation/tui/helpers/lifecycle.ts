@@ -1,6 +1,6 @@
 import { type DevctlConfig, dependencyCondition, dependencyName } from "../../../domain/config/types.ts";
 import { type Plan, type Runtime } from "../../../domain/service/services.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { type LifecycleKind } from "../types.ts";
 import { isActiveRuntime, serviceLineState } from "./services.ts";
 

@@ -7,7 +7,7 @@ alwaysApply: true
 
 Use a modular monolith with ports-and-adapters. No DI container, no service locator, no new god `*Manager`.
 
-1. Dependencies point inward. Domain must not import adapters, presentation, Google SDKs, TUI, filesystem libraries, or process libraries.
+1. Dependencies point inward. Domain must not import adapters, presentation, Google SDKs, TUI, filesystem libraries, or process libraries. Presentation may import application, ports, shared, and domain. Adapters may import ports, domain, and shared only.
 2. Constructor injection. One composition root per process (`bootstrap/daemon.ts`, `bootstrap/client.ts`).
 3. Ports exist only at replaceable boundaries (`ProcessRuntime`, `Clock`, `FileSystem`, `CredentialProvider`). Do not invent `IService` / `IServiceManager`.
 4. CLI, TUI, and MCP share application commands. Presentation must not start or kill processes.

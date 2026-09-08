@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { declaredServiceAccounts } from "../../../domain/identity/identity.ts";
-import { type IdentitySnapshot } from "../../../types.ts";
+import { type IdentitySnapshot } from "../../../domain/status.ts";
 import { LoadingState } from "../chrome.tsx";
 import { googleProjectDisplay } from "../helpers/identity.ts";
 import { Chip,FieldRow,ScreenFrame } from "../layout.tsx";

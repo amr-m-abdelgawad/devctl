@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort } from "../../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { toolEnabled, type McpToolDef } from "../../mcp/tools.ts";

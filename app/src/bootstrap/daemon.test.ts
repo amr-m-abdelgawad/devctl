@@ -13,7 +13,7 @@ import type { FileSystem } from "../ports/filesystem.ts";
 
 // These compile-time contracts prevent optional defaults from returning to the host.
 type Deps = ConstructorParameters<typeof Supervisor>[1];
-type Core = "tokens" | "procs" | "clock" | "fs" | "bus" | "detectGoogle" | "healthCheckers" | "orchestrator";
+type Core = "tokens" | "procs" | "clock" | "fs" | "bus" | "detectGoogle" | "healthCheckers" | "orchestrator" | "logs" | "detector" | "sessionID" | "inspectProcess" | "processAlive" | "acquireLock" | "socketExists" | "unlinkSocket" | "createMcpListener" | "isKnownTool";
 type OptionalCore = { [K in Core]: undefined extends Deps[K] ? K : never }[Core];
 const coreIsRequired: OptionalCore extends never ? true : false = true;
 

@@ -1,10 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { DevctlConfig } from "../../domain/config/types.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
-import { type Report } from "../../domain/doctor/types.ts";
-import { type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
 import { Detector } from "../../shared/redaction.ts";
-import { type ReloadResult, type StartRequest, type StatusSnapshot } from "../../types.ts";
+import { type StatusSnapshot } from "../../domain/status.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
@@ -19,18 +17,9 @@ export const MCP_RESOURCE_URIS = [
 
 export type McpResourceUri = (typeof MCP_RESOURCE_URIS)[number];
 
-export type McpHost = {
-  status(): StatusSnapshot;
-  logsPage(req: LogFilter & LogPageRequest): LogPage | Promise<LogPage>;
-  config(): DevctlConfig;
-  validateConfigText(text: string): string[];
-  start(req: StartRequest): Promise<unknown>;
-  stop(names: string[]): Promise<void>;
-  restart(names: string[], cascade?: boolean): Promise<void>;
-  reload(): Promise<ReloadResult>;
-  doctor(): Promise<Report>;
-  exec?(service: string, command: string[], printEnv?: boolean): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }>;
-};
+import type { McpHost } from "../../ports/mcp-host.ts";
+
+export type { McpHost };
 
 // Ordered so the TUI renders groups in a stable, sensible sequence rather
 // than whatever order the tool list happens to be in.

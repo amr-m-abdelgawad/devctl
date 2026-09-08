@@ -2,7 +2,7 @@ import { useEffect,useState,type ReactNode } from "react";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type Runtime } from "../../../domain/service/services.ts";
 import { sessionStartedAt } from "../../../domain/session/session.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { formatCpuPercent,formatMemoryKB,formatUptime,padClip,renderBar } from "../helpers/format.ts";

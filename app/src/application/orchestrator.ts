@@ -24,13 +24,14 @@ import {
 } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { ProcessRuntime } from "../ports/process-runtime.ts";
-import type { StartRequest } from "../types.ts";
-import type { LifecycleSession } from "./lifecycle-session.ts";
+import type { StartRequest } from "../domain/status.ts";
+import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
+import type { LifecycleSession } from "../ports/lifecycle-session.ts";
 
 const HEALTH_POLL_MS = 100;
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
-export class ServiceOrchestrator {
+export class ServiceOrchestrator implements ServiceOrchestratorPort {
   private session?: LifecycleSession;
   readonly health: HealthMonitor;
 

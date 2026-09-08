@@ -4,7 +4,7 @@ import type { DevctlConfig } from "../../../domain/config/types.ts";
 import type { LogEvent } from "../../../domain/logs/logs.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogReceived, type BusEvent } from "../../../shared/events.ts";
-import { type StatusSnapshot } from "../../../types.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { reloadFailureMessage } from "../helpers/chrome.ts";
 import { appendVisibleLogs } from "../helpers/logs.ts";
 
