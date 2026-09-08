@@ -1653,6 +1653,96 @@ ${commandBlock}
     }
   });
 
+  test("claiming an already-running service does not clear restart_required", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const identityYaml = (marker: string): string => `version: 1
+project:
+  name: reload-test
+services:
+  identity:
+    command:
+      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+    environment:
+      MARKER: ${marker}
+`;
+    writeConfig(configPath, identityYaml("old"));
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["identity"] });
+      const pid = sup.snapshot().services.identity?.pid ?? 0;
+      expect(pid).toBeGreaterThan(0);
+
+      writeConfig(configPath, identityYaml("new"));
+      const reloaded = await sup.reload();
+      expect(reloaded.restart_required).toEqual(["identity"]);
+
+      await sup.dispatch("start", { services: ["identity"] });
+      expect(sup.snapshot().services.identity?.pid).toBe(pid);
+      expect(sup.snapshot().restart_required).toEqual(["identity"]);
+
+      await sup.dispatch("restart", { services: ["identity"] });
+      expect(sup.snapshot().restart_required).toEqual([]);
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("a crash restart after reload clears restart_required", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const identityYaml = (marker: string): string => `version: 1
+project:
+  name: reload-test
+services:
+  identity:
+    command:
+      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+    environment:
+      MARKER: ${marker}
+    restart:
+      policy: on_failure
+      max_retries: 2
+      backoff_seconds: 0.01
+`;
+    writeConfig(configPath, identityYaml("old"));
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["identity"] });
+      const pid = sup.snapshot().services.identity?.pid ?? 0;
+      expect(pid).toBeGreaterThan(0);
+
+      writeConfig(configPath, identityYaml("new"));
+      const reloaded = await sup.reload();
+      expect(reloaded.restart_required).toEqual(["identity"]);
+
+      process.kill(pid, "SIGKILL");
+      await waitFor(() => {
+        const next = sup.snapshot().services.identity?.pid ?? 0;
+        return next > 0 && next !== pid;
+      });
+      expect(sup.snapshot().restart_required).toEqual([]);
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
   test("reload forgets an already-stopped service once it's removed from configuration", async () => {
     const dir = tmp();
     mkdirSync(join(dir, ".devctl"), { recursive: true });

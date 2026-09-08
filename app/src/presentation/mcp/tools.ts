@@ -437,7 +437,7 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
     case "start_services":
       return host.start({
         services: stringList(args.services),
-        profile: typeof args.profile === "string" ? args.profile : "",
+        profile: typeof args.profile === "string" && args.profile !== "" ? args.profile : undefined,
       });
     case "stop_services":
       await host.stop(stringList(args.services));

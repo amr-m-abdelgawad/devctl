@@ -15,7 +15,7 @@ export class StartService {
   execute(req: StartRequest): Promise<Plan> {
     return this.start({
       ...req,
-      profile: req.profile === undefined ? undefined : profileId(req.profile),
+      profile: req.profile ? profileId(req.profile) : undefined,
       services: req.services?.map((name) => asServiceId(name)),
     });
   }

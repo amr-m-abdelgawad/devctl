@@ -16,9 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proxy, token endpoint, and MCP listeners refuse IPv6 unspecified (`::`) and other non-loopback binds, not only `0.0.0.0`.
 - A failed spawn no longer leaves the service stuck in `STARTING`, which blocked every later start of that name.
 - A crash restart is no longer skipped when a stale health probe still reports `HEALTHY` after the process has already exited.
-- Restarting several services no longer applies the first target's profile environment to the rest.
+- Restarting several services no longer applies the first target's profile environment to the rest. A later start that omits `--profile` (or sends an empty profile) keeps each service's stored profile instead of clearing it.
 - Session recovery restores each leftover process's own profile (and re-resolves that profile's current environment) instead of assigning every service the last daemon-wide profile.
-- A no-op configuration reload no longer clears outstanding `restart_required` names; starting or restarting a service through CLI, TUI, or MCP drops it from that list.
+- A no-op configuration reload no longer clears outstanding `restart_required` names. A successful spawn (including crash restart) drops that service from the list; claiming an already-running process does not, and a later health-wait failure does not restore names that already spawned.
+- `start --profile` against an already-running process no longer rewrites that service's stored profile without applying it. TUI start of named services omits the selected profile the same way CLI `devctl start api` does; start of the current profile still sends it.
 - Restarting a service keeps its profile name but re-resolves that profile's environment from the current configuration, so edited profile variables take effect.
 - HTTPS upstreams can complete WebSocket upgrades (the proxy used `http.request` for every upgrade).
 

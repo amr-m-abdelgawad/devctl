@@ -208,7 +208,7 @@ describe("mcp tools", () => {
     await callMcpTool(host, "start_services", { profile: "backend" });
     expect(seen).toEqual({ services: [], profile: "backend" });
     await callMcpTool(host, "start_services", {});
-    expect(seen).toEqual({ services: [], profile: "" });
+    expect(seen).toEqual({ services: [], profile: undefined });
   });
 
   test("get_logs caps at 200", async () => {

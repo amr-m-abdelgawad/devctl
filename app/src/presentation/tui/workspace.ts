@@ -19,7 +19,7 @@ export function createTuiWorkspace(client: ClientRuntime): TuiWorkspace {
     shutdownPlan: (cfg, selected) => client.getShutdownPlan.execute(cfg, selected),
     resolveStartRequest: (cfg, req) => client.resolveStart.execute(cfg, {
       ...req,
-      profile: req.profile === undefined ? undefined : profileId(req.profile),
+      profile: req.profile ? profileId(req.profile) : undefined,
       activeProfile: req.activeProfile === undefined ? undefined : profileId(req.activeProfile),
     }),
   };

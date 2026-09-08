@@ -37,6 +37,8 @@ test("profile commands preserve wire fields and resolve branded active/default p
   const env = { FROM_CLIENT: "yes" };
   await new StartProfile(start).execute(profileId("backend"), env);
   expect(JSON.parse(JSON.stringify(requests[0]))).toEqual({ profile: "backend", client_env: env });
+  await start.execute({ services: ["api"], profile: "" });
+  expect(requests[1]?.profile).toBeUndefined();
   const resolve = new ResolveStart();
   expect(String(resolve.execute(cfg, {}).profile)).toBe("backend");
   expect(resolve.execute(cfg, { activeProfile: profileId("full") }).env).toEqual({ MODE: "full" });

@@ -282,5 +282,5 @@ function rememberLaunchContext(host: RecoverHost, name: string, profileName: str
 }
 
 function persistedProfileFor(host: RecoverHost, rec?: { profile?: string }): string {
-  return rec?.profile || host.profile;
+  return rec?.profile ?? host.profile;
 }

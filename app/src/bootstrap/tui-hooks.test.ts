@@ -132,11 +132,13 @@ test("lifecycle failure ends the busy plan and refreshes daemon state", async ()
   });
   try {
     await act(async () => mounted.value.beginStart(["api"], ""));
-    expect(calls).toEqual([{ services: ["api"], profile: "" }]);
+    expect(calls).toEqual([{ services: ["api"], profile: undefined }]);
+    await act(async () => mounted.value.beginStart(["api"], "backend"));
+    expect(calls.at(-1)).toEqual({ services: ["api"], profile: undefined });
     expect(mounted.value.plan?.waves).toEqual([["api"]]);
     expect(mounted.value.lifecycle).toBe("start");
     expect(mounted.value.planBusy).toBe(false);
-    expect(refreshes).toBe(1);
+    expect(refreshes).toBe(2);
     expect(statuses.at(-1)).toBe("launch failed");
   } finally { await mounted.close(); }
 });

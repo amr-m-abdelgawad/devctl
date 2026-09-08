@@ -477,7 +477,7 @@ export class Supervisor {
       case "start":
         return this.commands.startService.execute({
           services: asStringArray(rec.services),
-          profile: typeof rec.profile === "string" ? rec.profile : "",
+          profile: typeof rec.profile === "string" && rec.profile !== "" ? rec.profile : undefined,
           detach: rec.detach === true,
           client_env: asStringRecord(rec.client_env),
         });
@@ -598,10 +598,7 @@ export class Supervisor {
   }
 
   async start(req: StartRequest): Promise<Plan> {
-    const plan = await this.orchestrator.start(req);
-    const blocked = new Set((plan.blockers ?? []).map((blocker) => blocker.name));
-    this.dropRestartRequired(plan.waves.flat().filter((name) => !blocked.has(name)));
-    return plan;
+    return this.orchestrator.start(req);
   }
 
   private lifecycleSession(): LifecycleSession {

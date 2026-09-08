@@ -40,7 +40,11 @@ export function useLifecycle({
         return;
       }
       try {
-        const resolved = resolveStartRequest(cfg, { services: targets, profile: profileName });
+        const named = targets.length > 0;
+        const resolved = resolveStartRequest(cfg, {
+          services: targets,
+          profile: named ? undefined : profileName,
+        });
         const nextPlan = startupPlan(cfg, resolved.services, resolved.profile);
         setLifecycle("start");
         setPlanInitiallyRunning(nextPlan.waves.flat().filter((name) => isActiveRuntime(snap?.services[name])));
@@ -50,7 +54,7 @@ export function useLifecycle({
         const needed = resolved.services.filter((name) => !isActiveRuntime(snap?.services[name]));
         const result = await controller.start({
           services: needed.length > 0 ? needed : resolved.services,
-          profile: resolved.profile,
+          profile: named ? undefined : resolved.profile,
         });
         await refresh();
         setPlanBusy(false);

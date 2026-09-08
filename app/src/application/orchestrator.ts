@@ -81,7 +81,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
     const resolved = resolveStartRequest(s.cfg, {
       services: req.services,
-      profile: req.profile === undefined ? undefined : profileId(req.profile),
+      profile: req.profile ? profileId(req.profile) : undefined,
       activeProfile: profileId(s.profile),
     });
     if (resolved.profile) {
@@ -94,15 +94,6 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     if (req.client_env) {
       for (const name of resolved.services) {
         s.clientEnv.set(name, req.client_env);
-      }
-    }
-    // Every explicit start (client or MCP-initiated) records the profile
-    // context it resolved for each named service — see serviceProfile.
-    // Restart reuses stored per-service context unless this request names a
-    // profile. Do not clobber an existing entry with an empty resolved profile.
-    for (const name of resolved.services) {
-      if (req.profile !== undefined || !s.serviceProfile.has(name)) {
-        s.serviceProfile.set(name, resolved.profile);
       }
     }
     // A real start request forgives past restarts for everything it names —
@@ -131,6 +122,19 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       }
       pending.push(name);
     }
+    // Record profile only for names we are about to spawn. Claiming an
+    // already-running process must not rewrite the stored name — `start api
+    // --profile frontend` against a live backend process would otherwise
+    // remember frontend without applying it, and a later crash restart
+    // would switch environments. Restart and a start that omitted profile
+    // reuse stored per-service context. RPC/MCP often send profile as ""
+    // when the client omitted it; that must not look like an explicit
+    // request to clear the stored name.
+    for (const name of pending) {
+      if (req.profile || !s.serviceProfile.has(name)) {
+        s.serviceProfile.set(name, resolved.profile);
+      }
+    }
     if (pending.length > 0) {
       await s.assignPendingPorts(pending);
     }
@@ -157,7 +161,6 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       }
     }
     s.persistState();
-    s.clearRestartRequired(plan.waves.flat().filter((name) => !blocked.has(name)));
     return plan;
   }
 
@@ -380,11 +383,14 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
     if (!this.health.isCurrentGeneration(name, gen)) return;
     this.health.startHealth(name, svc, handle.pid, assigned, workDir, env, gen);
-    // Persist right after a successful spawn — not batched at the end of
-    // start()'s whole plan — so a crash-restart's respawn (which never goes
-    // through start() at all) and an earlier wave's processes both survive
-    // a daemon crash even when a later wave or health wait goes on to fail.
+    // Persist and drop restart_required right after a successful spawn —
+    // not batched at the end of start()'s whole plan — so a crash-restart's
+    // respawn (which never goes through start() at all) and an earlier
+    // wave's processes both survive a later wave or health wait failing.
+    // Claiming an already-running process never reaches here, so a stale
+    // process does not lose its restart_required warning.
     s.persistState();
+    s.clearRestartRequired([name]);
     if (svc.startup.wait_for_healthy) {
       const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
       try {
