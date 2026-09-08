@@ -1,8 +1,8 @@
-import { mkdirSync } from "node:fs";
+import { spawn } from "bun";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, repoID, rotateBootstrapLog, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, repoID, rotateBootstrapLog, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
 
 describe("session storage", () => {
   test("equivalent repository path spellings share one state identity", () => {
@@ -88,6 +88,29 @@ describe("session storage", () => {
     expect(processAlive(process.pid)).toBe(true);
     lock.release();
     expect(existsSync(lockPath("/repo"))).toBe(false);
+  });
+
+  test("killRepoSupervisor SIGKILLs the live lock pid", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-kill-sup-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    const child = spawn({
+      cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+      detached: true,
+    });
+    const pid = child.pid ?? 0;
+    expect(pid).toBeGreaterThan(0);
+    child.unref();
+    writeFileSync(lockPath("/repo"), JSON.stringify({ pid, socket: "/tmp/sock" }));
+    killRepoSupervisor("/repo");
+    const deadline = Date.now() + 1_000;
+    while (processAlive(pid) && Date.now() < deadline) {
+      await Bun.sleep(20);
+    }
+    expect(processAlive(pid)).toBe(false);
   });
 
   test("rotateBootstrapLog preserves the previous boot attempt instead of letting it be silently truncated", () => {

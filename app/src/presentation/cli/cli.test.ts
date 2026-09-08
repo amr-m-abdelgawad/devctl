@@ -4,13 +4,25 @@ import { describe, expect, test } from "bun:test";
 import { followLogs } from "./cli.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
 import { type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
-import { processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
+import { killRepoSupervisor, processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
 
 function tmp(): string {
   const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-cli-${Date.now()}-${Math.random().toString(16).slice(2)}`);
   mkdirSync(join(dir, ".devctl"), { recursive: true });
   process.env.DEVCTL_HOME = join(dir, "home");
   return dir;
+}
+
+async function stopSpawned(dir: string, originalArgv1?: string): Promise<void> {
+  try {
+    await run(["down", "--repo", dir]);
+  } catch {
+    // never started, or already gone
+  }
+  killRepoSupervisor(dir);
+  if (originalArgv1 !== undefined) {
+    process.argv[1] = originalArgv1;
+  }
 }
 
 function captureStdout(): { output: () => string; restore: () => void } {
@@ -97,7 +109,7 @@ services:
       const persisted = readPersistedState(dir);
       expect(persisted?.processes ?? []).toEqual([]);
     } finally {
-      process.argv[1] = originalArgv1;
+      await stopSpawned(dir, originalArgv1);
     }
   }, 20_000);
 
@@ -134,7 +146,7 @@ services:
       expect(afterDown?.processes.find((p) => p.name === "api")?.pid).toBe(pid);
       expect(processAlive(pid)).toBe(true);
     } finally {
-      process.argv[1] = originalArgv1;
+      await stopSpawned(dir, originalArgv1);
       if (pid > 0) {
         try {
           process.kill(pid, "SIGKILL");
@@ -174,7 +186,7 @@ services:
       expect(withoutDetach.output()).not.toContain("deprecated");
       await run(["down", "--repo", dir]);
     } finally {
-      process.argv[1] = originalArgv1;
+      await stopSpawned(dir, originalArgv1);
     }
   }, 20_000);
 });
@@ -215,7 +227,7 @@ services:
       await run(["--config", configFile(dir), "down"]);
     } finally {
       process.chdir(originalCwd);
-      process.argv[1] = originalArgv1;
+      await stopSpawned(dir, originalArgv1);
     }
   }, 20_000);
 });
@@ -246,7 +258,7 @@ services:
       const downOut = await run(["--config", configFile(dir), "down"]);
       expect(downOut).toContain("stopped services and the supervisor");
     } finally {
-      process.argv[1] = originalArgv1;
+      await stopSpawned(dir, originalArgv1);
     }
   }, 20_000);
 });
@@ -276,7 +288,7 @@ describe("devctl status --watch piped into a reader that closes early", () => {
 
       await run(["--config", configFile(dir), "down"]);
     } finally {
-      process.argv[1] = originalArgv1;
+      await stopSpawned(dir, originalArgv1);
     }
   }, 20_000);
 });

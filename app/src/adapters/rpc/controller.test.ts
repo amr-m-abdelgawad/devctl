@@ -1,12 +1,13 @@
+import { spawn } from "bun";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, openTui, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "../environment/environment.ts";
 import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "../../shared/errors.ts";
-import { bootstrapLogPath, socketPath, writePersistedState } from "../storage/storage.ts";
+import { bootstrapLogPath, killRepoSupervisor, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 function tmp(): string {
@@ -126,11 +127,11 @@ describe("ensureSupervisor bootstrap failure", () => {
     // and the daemon comes up fine (see mcp/setup.test.ts). A config that
     // exists and is broken still kills it, which is what this needs — the
     // real spawned process exits almost immediately instead of ever binding a
-    // socket, exercising the dial-timeout-then-report path end to end rather
-    // than a mocked one.
+    // socket. ensureSupervisor reaps that child as soon as it exits rather
+    // than waiting out the full dial timeout.
     const configPath = join(dir, ".devctl", "config.yaml");
     mkdirSync(join(dir, ".devctl"), { recursive: true });
-    writeFileSync(configPath, "version: 1\nservices: {}\n");
+    writeFileSync(configPath, "version: [\n");
     const originalArgv1 = process.argv[1] ?? "";
     process.argv[1] = join(import.meta.dir, "../../bin.ts");
     try {
@@ -141,14 +142,25 @@ describe("ensureSupervisor bootstrap failure", () => {
       expect(readFileSync(bootstrapLogPath(dir), "utf8").length).toBeGreaterThan(0);
     } finally {
       process.argv[1] = originalArgv1;
+      killRepoSupervisor(dir);
     }
-    // Generous on purpose. This test's runtime has a hard floor of
-    // controller.ts's BOOTSTRAP_DIAL_TIMEOUT_MS (15s) — it waits out the full
-    // dial before reporting failure — plus a real child process spawn. Keep a
-    // wide margin, which a loaded runner (and Windows, where spawns are slower)
-    // can otherwise exhaust; it timed out under CPU contention locally.
-    // Raise this alongside BOOTSTRAP_DIAL_TIMEOUT_MS if that constant grows.
-  }, 40_000);
+  }, 15_000);
+});
+
+describe("ensureSupervisor reap", () => {
+  test("SIGKILLs a detached child that never binds a socket", async () => {
+    const child = spawn({
+      cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"],
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+      detached: true,
+    });
+    const pid = child.pid ?? 0;
+    expect(pid).toBeGreaterThan(0);
+    await reapSupervisorChild(child);
+    expect(processAlive(pid)).toBe(false);
+  });
 });
 
 describe("daemon compatibility handshake", () => {
@@ -353,6 +365,7 @@ services:
       }
     } finally {
       process.argv[1] = originalArgv1;
+      killRepoSupervisor(dir);
     }
     // Spawns a real daemon *process* and waits for it via ensureSupervisor's
     // BOOTSTRAP_DIAL_TIMEOUT_MS (15s). Keep this comfortably above that budget
