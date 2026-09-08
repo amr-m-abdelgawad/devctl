@@ -1,4 +1,4 @@
-import { buildNpmPackage } from "../src/npm-package.ts";
+import { buildNpmPackage } from "./npm-package.ts";
 import { resolve } from "node:path";
 
 const requestedVersion = process.argv[2] ?? process.env.DEVCTL_VERSION;

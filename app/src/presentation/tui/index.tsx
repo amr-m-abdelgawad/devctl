@@ -5,7 +5,7 @@ import type { ClientRuntime, Controller } from "../../application/client-runtime
 import { createTuiWorkspace } from "./workspace.ts";
 import { humanMessage, isKind, KindConfigurationMissing } from "../../shared/errors.ts";
 import { App } from "./App.tsx";
-import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../warnings.ts";
+import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
 
 export async function runTuiWithController(client: ClientRuntime, controller: Controller): Promise<void> {
   const tui = client.loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);

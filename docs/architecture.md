@@ -12,7 +12,7 @@ app/src/
   ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, …
   adapters/        daemon, rpc, doctor, environment, plugins, net, secrets, system,
                    process, google, config, health, proxy, storage, containers
-  shared/          events, errors
+  shared/          events, errors, retry, warnings
   bootstrap/       one composition root per process
 ```
 

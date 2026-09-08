@@ -1,3 +1,4 @@
 [test]
 preload = []
-root = "./src"
+# Cover src/ and scripts/ so packaging tests stay in CI (`bun test` from app/).
+root = "."

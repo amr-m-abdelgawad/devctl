@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
-import { emptyIdentity as emptyIdentityConfig } from "./domain/config/types.ts";
-import { identityProviders, tokenProviders } from "../../plugins/oidc/index.ts";
+import { emptyIdentity as emptyIdentityConfig } from "../../domain/config/types.ts";
+import { identityProviders, tokenProviders } from "../../../../plugins/oidc/index.ts";
 
 let server: Server | undefined;
 afterEach(() => new Promise<void>((resolve) => server ? server.close(() => resolve()) : resolve()));
