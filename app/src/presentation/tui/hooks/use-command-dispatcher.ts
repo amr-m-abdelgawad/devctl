@@ -5,7 +5,7 @@ import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
-import { checkUpdate, formatUpdateStatus } from "../../../update.ts";
+import { applyInstall, checkUpdate, DAEMON_RESTART_HINT, formatUpdateStatus } from "../../../update.ts";
 import { versionLine } from "../../../version.ts";
 import { parseExecArgs, type CommandSpec } from "../commands.ts";
 import { formatConfigDiffText } from "../config-view.ts";
@@ -151,7 +151,19 @@ export function useCommandDispatcher({
           case "update":
             setStatus("checking for update…");
             void checkUpdate()
-              .then((result) => setStatus(formatUpdateStatus(result)))
+              .then(async (result) => {
+                if (!result.newer || !result.command) {
+                  setStatus(formatUpdateStatus(result));
+                  return;
+                }
+                setStatus(`installing ${result.current} → ${result.latest} via ${result.kind}…`);
+                const applied = await applyInstall(result.command);
+                if (applied.code !== 0) {
+                  setStatus(`update failed (${applied.code}): ${(applied.stderr || applied.stdout).trim() || result.hint}`);
+                  return;
+                }
+                setStatus(`updated to ${result.latest}; ${DAEMON_RESTART_HINT}`);
+              })
               .catch((err: unknown) => setStatus(humanMessage(err)));
             return;
           case "themes":

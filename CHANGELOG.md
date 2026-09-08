@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `devctl update` and TUI `/update` detect how this binary was installed (npm, npx, Homebrew, GitHub Release, source) and, for npm and Homebrew, run that channel's upgrade. `--check` and `--json` still report only. `/version` stays a check.
+
 ## [0.2.3] - 2026-09-04
 
 ### Added

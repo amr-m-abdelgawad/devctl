@@ -121,8 +121,8 @@ The status bar only lists keys that work **on the current screen**. On a termina
 /diff                 winning config sources and what they shadowed (`devctl config diff`)
 /daemon               supervisor bootstrap stderr (`devctl daemon logs`)
 /auth login|logout|refresh
-/update               check GitHub Releases (does not overwrite the binary)
-/version              current version, then the same update check
+/update               install a newer GitHub Release when the method is known (npm/Homebrew)
+/version              current version, then the same update check (does not install)
 /exit /quit /q
 ```
 

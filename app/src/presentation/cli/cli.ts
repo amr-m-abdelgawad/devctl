@@ -4,7 +4,7 @@ import { stringify } from "yaml";
 import { defaultConfig } from "../../domain/config/types.ts";
 import type { ClientRuntime, DaemonLauncher } from "../../application/client-runtime.ts";
 import type { StatusSnapshot } from "../../domain/status.ts";
-import { ExitSuccess, humanMessage, exitCode } from "../../shared/errors.ts";
+import { ExitGeneral, ExitSuccess, humanMessage, exitCode } from "../../shared/errors.ts";
 import { displayState, formatPlan, supervisorRestartAdvice } from "../../domain/service/services.ts";
 
 import type { LogEvent, LogPage } from "../../domain/logs/logs.ts";
@@ -12,7 +12,7 @@ import { derivedMcpPort } from "../mcp/port.ts";
 import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "../mcp/snippets.ts";
 import { runTui } from "../tui/index.tsx";
 import { completeLine, completionScript } from "./complete.ts";
-import { checkUpdate } from "../../update.ts";
+import { applyInstall, checkUpdate, DAEMON_RESTART_HINT, spawnInstall } from "../../update.ts";
 import { versionLine } from "../../version.ts";
 import { Detector } from "../../shared/redaction.ts";
 
@@ -807,9 +807,10 @@ function addCompletion(root: Command, runtime: ClientRuntime): void {
 function addUpdate(root: Command): void {
   root
     .command("update")
-    .description("check GitHub Releases for a newer version")
+    .description("check GitHub Releases and install when the install method is known")
     .option("--json", "machine-readable output")
-    .action(async (opts: { json?: boolean }) => {
+    .option("--check", "report only; do not install")
+    .action(async (opts: { json?: boolean; check?: boolean }) => {
       const result = await checkUpdate();
       if (opts.json) {
         writeOut(JSON.stringify(result, null, 2) + "\n");
@@ -817,11 +818,24 @@ function addUpdate(root: Command): void {
       }
       writeOut(`current  ${result.current}\n`);
       writeOut(`latest   ${result.latest || "(unavailable)"}\n`);
-      if (result.newer) {
-        writeOut(`install  ${result.hint}\n`);
-      } else if (result.latest !== "") {
-        writeOut("up to date\n");
+      writeOut(`channel  ${result.kind}\n`);
+      if (!result.newer) {
+        if (result.latest !== "") {
+          writeOut("up to date\n");
+        }
+        return;
       }
+      writeOut(`install  ${result.hint}\n`);
+      if (opts.check || !result.command) {
+        return;
+      }
+      writeOut(`installing via ${result.kind}…\n`);
+      const applied = await applyInstall(result.command, (command) => spawnInstall(command, true));
+      if (applied.code !== 0) {
+        process.exitCode = ExitGeneral;
+        return;
+      }
+      writeOut(`updated to ${result.latest}; ${DAEMON_RESTART_HINT}\n`);
     });
 }
 

@@ -25,7 +25,7 @@ export function allCommands(): CommandSpec[] {
     { name: "config", aliases: ["c"], desc: "View merged configuration", leader: "c", group: "nav" },
     { name: "diff", aliases: ["provenance"], desc: "Show winning config sources and what they shadowed", leader: "", group: "ui" },
     { name: "daemon", aliases: ["bootstrap"], desc: "Show supervisor bootstrap logs (same file as devctl daemon logs)", leader: "", group: "app" },
-    { name: "update", aliases: [], desc: "Check GitHub Releases for a newer version", leader: "", group: "app" },
+    { name: "update", aliases: [], desc: "Install a newer GitHub Release when the install method is known", leader: "", group: "app" },
     { name: "profiles", aliases: ["o"], desc: "Select a development profile", leader: "o", group: "nav" },
     { name: "setup", aliases: ["init"], desc: "Open setup guidance", leader: "i", group: "nav" },
     { name: "dashboard", aliases: ["home"], desc: "Return to the dashboard", leader: "h", group: "nav" },
