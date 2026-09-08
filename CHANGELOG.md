@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-08
+
+### Added
+
+- Ports-and-adapters layout is enforced: `bun run check:architecture` (and a CI job) rejects inward-layer imports, and [docs/architecture.md](docs/architecture.md) is the living layer map.
+- Structured JSON-per-line parsing covers metric telemetry (`metric_name` / `value`), nginx-style access logs, and OpenTelemetry OTLP records (`body.stringValue`, attribute arrays), not only pino/zap application logs.
+
+### Changed
+
+- `devctl update` and TUI `/update` detect how this binary was installed (npm, npx, Homebrew, GitHub Release, source) and, for npm and Homebrew, run that channel's upgrade. `--check` and `--json` still report only. `/version` stays a check.
+- Application code is split into `presentation`, `application`, `domain`, `ports`, `adapters`, `shared`, and `bootstrap`. CLI, TUI, and MCP still share the same commands; the supervisor is no longer a single god file.
+
+### Fixed
+
+- Proxy, token endpoint, and MCP listeners refuse IPv6 unspecified (`::`) and other non-loopback binds, not only `0.0.0.0`.
+- A failed spawn no longer leaves the service stuck in `STARTING`, which blocked every later start of that name.
+- A crash restart is no longer skipped when a stale health probe still reports `HEALTHY` after the process has already exited.
+- Restarting several services no longer applies the first target's profile environment to the rest. A later start that omits `--profile` (or sends an empty profile) keeps each service's stored profile instead of clearing it.
+- Session recovery restores each leftover process's own profile (and re-resolves that profile's current environment) instead of assigning every service the last daemon-wide profile.
+- A no-op configuration reload no longer clears outstanding `restart_required` names. A successful spawn (including crash restart) drops that service from the list; claiming an already-running process does not, and a later health-wait failure does not restore names that already spawned.
+- `start --profile` against an already-running process no longer rewrites that service's stored profile without applying it. TUI start of named services omits the selected profile the same way CLI `devctl start api` does; start of the current profile still sends it.
+- Restarting a service keeps its profile name but re-resolves that profile's environment from the current configuration, so edited profile variables take effect.
+- HTTPS upstreams can complete WebSocket upgrades (the proxy used `http.request` for every upgrade).
+
 ## [0.2.3] - 2026-09-04
 
 ### Added
@@ -244,7 +268,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.0...v0.2.1

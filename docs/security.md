@@ -28,7 +28,7 @@ Tokens never sit in the TUI, logs, or MCP output. Listeners bind `127.0.0.1`. Se
 |------|----------------|
 | **No tokens on screen** | TUI, `devctl status`, and MCP tool results never print access tokens |
 | **Redacted env** | Names matching PASSWORD, SECRET, TOKEN, PRIVATE_KEY, CLIENT_SECRET, API_KEY, CREDENTIAL, ACCESS_KEY, AUTH_KEY → `********` |
-| **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0` |
+| **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0`, `::`, and other non-loopback binds |
 | **Argv by default** | Shell metacharacters fail validation unless `shell: true` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
@@ -42,8 +42,8 @@ Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devct
 ```mermaid
 flowchart TB
   ask["Listen request"] --> host{"Host"}
-  host -->|127.0.0.1| ok["Bind"]
-  host -->|0.0.0.0 or other| refuse["Refused"]
+  host -->|127.0.0.1 / ::1| ok["Bind"]
+  host -->|0.0.0.0 / :: / other| refuse["Refused"]
   ok --> proxy["Proxy"]
   ok --> token["GET /token"]
   ok --> mcp["MCP /mcp"]

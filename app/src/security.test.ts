@@ -1,11 +1,11 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-import { decodeCommand } from "./config/decode.ts";
-import { defaultConfig } from "./config/types.ts";
-import { KindProxy } from "./errors.ts";
-import { INTERNAL_TOKEN_HEADER, ProxyServer, TokenEndpoint } from "./proxy.ts";
-import { Detector } from "./secrets.ts";
-import { TokenManager, type AccessToken } from "./token.ts";
+import { decodeCommand } from "./adapters/config/decode.ts";
+import { defaultConfig } from "./domain/config/types.ts";
+import { KindProxy } from "./shared/errors.ts";
+import { INTERNAL_TOKEN_HEADER, ProxyServer, TokenEndpoint } from "./adapters/proxy/proxy.ts";
+import { Detector } from "./adapters/secrets/detector.ts";
+import { TokenManager, type AccessToken } from "./adapters/google/token.ts";
 
 function token(partial: Partial<AccessToken> = {}): AccessToken {
   return {
@@ -23,6 +23,12 @@ describe("security", () => {
   test("token endpoint refuses 0.0.0.0", async () => {
     const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token() }]);
     const ep = new TokenEndpoint("0.0.0.0", 0, "internal", tokens);
+    await expect(ep.start()).rejects.toMatchObject({ kind: KindProxy });
+  });
+
+  test("token endpoint refuses ::", async () => {
+    const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token() }]);
+    const ep = new TokenEndpoint("::", 0, "internal", tokens);
     await expect(ep.start()).rejects.toMatchObject({ kind: KindProxy });
   });
 
@@ -52,6 +58,12 @@ describe("security", () => {
   test("proxy still refuses 0.0.0.0", async () => {
     const cfg = defaultConfig().proxy;
     cfg.listen = { host: "0.0.0.0", port: 18998 };
+    await expect(new ProxyServer(cfg).start()).rejects.toMatchObject({ kind: KindProxy });
+  });
+
+  test("proxy still refuses ::", async () => {
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "::", port: 18998 };
     await expect(new ProxyServer(cfg).start()).rejects.toMatchObject({ kind: KindProxy });
   });
 });

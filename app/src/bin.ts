@@ -1,7 +1,9 @@
 #!/usr/bin/env bun
-import "./gcp-env.ts";
+import "./adapters/google/gcp-env.ts";
 import { silenceGcpMetadataWarnings } from "./warnings.ts";
-import { execute } from "./cli.ts";
+import { createClient } from "./bootstrap/client.ts";
+import { runDaemon } from "./bootstrap/daemon.ts";
+import { execute } from "./presentation/cli/cli.ts";
 
 silenceGcpMetadataWarnings();
-await execute();
+await execute(createClient(), runDaemon);

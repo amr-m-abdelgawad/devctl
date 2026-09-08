@@ -25,7 +25,7 @@ devctl mcp [--on|--off] [--port N] [--json]
 devctl config validate|show|diff [--json]
 devctl attach
 devctl completion zsh|bash|fish
-devctl update [--json]
+devctl update [--json] [--check]
 ```
 
 `_supervisor` is an internal command. Do not invoke it by hand.
@@ -80,7 +80,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Update
 
-`devctl update` checks the latest GitHub Release and prints the current version, latest tag, and an install hint. It does **not** overwrite the running binary. `/update` and `/version` in the TUI run the same check.
+`devctl update` checks the latest GitHub Release, reports which install channel this process is (npm, npx, Homebrew, GitHub Release binary, or source), and **installs** when that channel has a known package-manager command (npm global or Homebrew). `--json` and `--check` only report. After a successful install, restart a running daemon with `devctl down` then start again. `/update` in the TUI does the same install; `/version` still only checks.
 
 ## Exit codes
 

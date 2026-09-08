@@ -187,8 +187,8 @@ Anything else is rejected.
 ## Proxy
 
 - `proxy.listen.port` is **required** when `proxy.enabled: true`.
-- `proxy.listen.host` must be an IP or `localhost`. `0.0.0.0` is rejected.
-- `proxy.token_endpoint.host` must be loopback; `0.0.0.0` is rejected.
+- `proxy.listen.host` must be loopback (`127.0.0.1`, `localhost`, `::1`, or `127.0.0.0/8`). `0.0.0.0` and `::` are rejected.
+- `proxy.token_endpoint.host` must be loopback; `0.0.0.0` and `::` are rejected.
 - Every route needs a `name` and an `upstream.url`.
 - **Route names must be unique** — including names generated from per-service
   `proxy` fragments.

@@ -56,6 +56,21 @@ jobs:
         working-directory: app
         run: bunx tsc --noEmit
 
+  architecture:
+    name: Architecture
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: check architecture
+        working-directory: app
+        run: bun run check:architecture
+
   container-tests:
     name: Container tests
     needs: setup
@@ -71,7 +86,7 @@ jobs:
         working-directory: app
         env:
           DEVCTL_CONTAINER_TESTS: "1"
-        run: bun test src/containers.integration.test.ts
+        run: bun test src/adapters/containers/containers.integration.test.ts
 
   demo-config:
     name: Demo config
@@ -246,7 +261,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
+    needs: [tests, typecheck, architecture, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -254,6 +269,7 @@ jobs:
         env:
           TESTS: ${{ needs.tests.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
+          ARCHITECTURE: ${{ needs.architecture.result }}
           CONTAINERS: ${{ needs.container-tests.result }}
           DEMO: ${{ needs.demo-config.result }}
           COMPILE: ${{ needs.compile-smoke.result }}
@@ -266,6 +282,7 @@ jobs:
         run: |
           test "$TESTS" = success
           test "$TYPECHECK" = success
+          test "$ARCHITECTURE" = success
           test "$CONTAINERS" = success
           test "$DEMO" = success
           test "$COMPILE" = success

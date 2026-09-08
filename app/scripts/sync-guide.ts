@@ -1,4 +1,4 @@
-// Regenerates src/mcp/guide.generated.ts from the skill files at the repo root.
+// Regenerates src/presentation/mcp/guide.generated.ts from the skill files at the repo root.
 //
 // The MCP `get_setup_guide` tool has to serve this text from inside a
 // `bun build --compile` binary, which is a single file with no repo alongside
@@ -56,7 +56,7 @@ export type GuideSection = keyof typeof GUIDE_SECTIONS;
 }
 
 if (import.meta.main) {
-  const out = join(appRoot, "src", "mcp", "guide.generated.ts");
+  const out = join(appRoot, "src", "presentation", "mcp", "guide.generated.ts");
   writeFileSync(out, renderGuideModule());
   process.stdout.write(`wrote ${out}\n`);
 }

@@ -2,7 +2,7 @@
 
 The local proxy injects authentication so services do not each implement Google/IAP logic. It runs **inside the supervisor**.
 
-Default listen address when enabled: `127.0.0.1:8080`. Binding to `0.0.0.0` is rejected. The demo platform uses `127.0.0.1:18080`.
+Default listen address when enabled: `127.0.0.1:8080`. Binding to `0.0.0.0` or `::` is rejected. The demo platform uses `127.0.0.1:18080`.
 
 ```bash
 devctl proxy start
@@ -57,7 +57,7 @@ services:
 
 ## Token endpoint
 
-Optional `GET /token` (`proxy.token_endpoint`) binds to `127.0.0.1` (never `0.0.0.0`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers.
+Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers.
 
 ```json
 {

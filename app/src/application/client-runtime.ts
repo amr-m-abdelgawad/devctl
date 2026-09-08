@@ -1,0 +1,92 @@
+import type { TuiConfig, TuiKeybinds, TuiPreferencePatch } from "../domain/ui/preferences.ts";
+import type { DevctlConfig } from "../domain/config/types.ts";
+import type { ConfigDiffEntry } from "../domain/config/provenance.ts";
+import type { GoogleStatus } from "../domain/identity/google-status.ts";
+import type { PersistedState } from "../domain/session/session.ts";
+import type { Plan } from "../domain/service/services.ts";
+import type { LogEvent, LogFilter, LogPageRequest, LogPage, LogFacets } from "../domain/logs/logs.ts";
+import type { PortHolder } from "../domain/net/ports.ts";
+import type { BusEvent } from "../shared/events.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
+import type { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "./commands.ts";
+import type { Report } from "../domain/doctor/types.ts";
+
+export type DaemonClient = {
+  call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
+  onEvent(handler: (event: BusEvent) => void): () => void;
+  close(): void;
+  compat: { compatible: boolean; legacy: boolean; daemonVersion?: string; daemonProtocol?: number };
+};
+
+/** The controller contract consumed by presentation, independent of its RPC transport. */
+export type Controller = {
+  cfg: DevctlConfig;
+  client?: DaemonClient;
+  previousPersisted?: PersistedState;
+  start(req: StartRequest): Promise<Plan>;
+  stop(services: string[]): Promise<void>;
+  restart(services: string[], cascade?: boolean): Promise<void>;
+  runTask(name: string): Promise<{ task: string; code: number; stdout: string; stderr: string }>;
+  execService(service: string, command: string[], printEnv?: boolean): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }>;
+  status(): Promise<StatusSnapshot>;
+  refreshAuth(): Promise<IdentitySnapshot>;
+  configSnapshot(): Promise<DevctlConfig>;
+  logs(req: LogsRequest): Promise<LogEvent[]>;
+  logsPage(req: LogFilter & LogPageRequest): Promise<LogPage>;
+  logsStats(req: LogFilter): Promise<LogFacets>;
+  proxyStart(): Promise<void>;
+  proxyStop(): Promise<void>;
+  mcpStart(opts?: { port?: number }): Promise<void>;
+  mcpStop(): Promise<void>;
+  mcpSetTools(disabled: readonly string[]): Promise<string[]>;
+  reload(): Promise<ReloadResult>;
+  invalidateAuth(): Promise<void>;
+  onEvent(handler: (ev: BusEvent) => void): () => void;
+  close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void>;
+};
+
+export type DaemonLauncher = (repoRoot: string, configPath: string) => Promise<void>;
+
+/** Client-side use cases and local operations supplied by the composition root. */
+export type ClientRuntime = {
+  loadTuiConfig(startDir: string, yamlKeymap?: TuiKeybinds): TuiConfig;
+  saveTuiPreferences(partial: TuiPreferencePatch): string;
+  resolveTuiOverridePath(startDir?: string): string | undefined;
+  userTuiConfigPath(): string;
+  listSessions(root?: string): string[];
+  loadSessionEvents(session: string, root?: string): LogEvent[];
+  load(startDir: string, explicit: string): DevctlConfig;
+  loadOrEmpty(startDir: string, explicit: string): DevctlConfig;
+  loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig;
+  validate(cfg: DevctlConfig): string[];
+  validateConfigText(repoRoot: string, configPath: string, text: string): string[];
+  discover(startDir: string, explicit: string): { repoRoot: string; configPath: string };
+  configDiff(cfg: DevctlConfig): ConfigDiffEntry[];
+  detectGoogle(project: string): Promise<GoogleStatus>;
+  loginGoogle(): Promise<void>;
+  logoutGoogle(): Promise<void>;
+  refreshUserToken(identity?: string): Promise<{ identity: string; expiresAt: Date }>;
+  runDoctor: RunDoctor;
+  getStartupPlan: GetStartupPlan;
+  getShutdownPlan: GetShutdownPlan;
+  resolveStart: ResolveStart;
+  formatDoctor(report: Report): string;
+  openController(startDir: string, configPath: string, startSupervisor: boolean, opts?: { allowMissingConfig?: boolean }): Promise<Controller>;
+  openAttach(startDir: string, configPath: string): Promise<Controller>;
+  openTui(startDir: string, configPath: string): Promise<Controller>;
+  findDaemon(startDir: string, explicitRepo: string, explicitConfig?: string): Promise<{ repoRoot: string; client?: DaemonClient }>;
+  tryDial(repoRoot: string): Promise<DaemonClient | undefined>;
+  assertMethodAllowed(client: DaemonClient, method: string): void;
+  readPersistedState(repoRoot: string): PersistedState | undefined;
+  bootstrapLogPath(repoRoot: string): string;
+  exportsDir(): string;
+  resolveExportPath(input?: string): string;
+  writeLogExport(path: string, events: LogEvent[]): void;
+  openInFileManager(path: string): void;
+  freePort(holder: PortHolder): Promise<void>;
+  createStarterConfig(repo: string, name?: string, project?: string, profile?: string, force?: boolean): string;
+  runSetup(startDir: string, explicitConfig?: string, force?: boolean): Promise<void>;
+  readTextFile(path: string): string;
+  writeTextFile(path: string, text: string): void;
+  fileExists(path: string): boolean;
+};

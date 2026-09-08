@@ -1,4 +1,4 @@
-import { DevctlError, KindAuthorization, KindConfiguration } from "./errors.ts";
+import { DevctlError, KindAuthorization, KindConfiguration } from "./shared/errors.ts";
 
 const DEFAULT_ATTEMPTS = 3;
 const DEFAULT_BACKOFF_MS = 200;

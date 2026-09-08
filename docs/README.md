@@ -52,6 +52,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | Page | Side |
 |------|------|
 | [Building from source](typescript.md) | `app/` layout, tests, TUI config file |
+| [Architecture](architecture.md) | Layers, composition roots, import rules |
 | [Contributing](../CONTRIBUTING.md) | Source loop, tests, and where to edit docs |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
 | [Architecture spec](devctl-architecture.md) | Original implementation specification (historical). Do not treat the `cmd/` tree there as the current repo. |

@@ -23,14 +23,22 @@ cd app && bun link    # optional: `devctl` on PATH
 | Path | Role |
 |------|------|
 | `app/src/bin.ts` | Entry |
-| `app/src/cli.ts` | Commander CLI |
-| `app/src/supervisor.ts` | Process owner, proxy, MCP, logs |
-| `app/src/controller.ts` | Local supervisor or socket / named-pipe client |
-| `app/src/config/` | Discover, decode, merge, validate |
-| `app/src/tui/` | OpenTUI screens and overlays |
-| `app/src/mcp/` | Streamable HTTP MCP server |
-| `app/src/proxy.ts` | Auth-injecting reverse proxy |
+| `app/src/bootstrap/` | Composition roots (daemon + client) |
+| `app/src/application/client-runtime.ts` | Injected CLI/TUI operations and controller contract |
+| `app/src/presentation/cli/` | Commander CLI |
+| `app/src/presentation/tui/` | OpenTUI screens and overlays |
+| `app/src/presentation/tui/hooks/` | Client queries, command execution, and TUI state |
+| `app/src/presentation/tui/helpers/` | Screen-specific formatting, navigation, logs, and plan helpers |
+| `app/src/presentation/mcp/` | Streamable HTTP MCP server |
+| `app/src/domain/` | Service, identity, config, log, session, and preference types and policies |
+| `app/src/adapters/config/` | Discover, decode, merge, validate |
+| `app/src/adapters/process/` | Host process runtime |
+| `app/src/adapters/google/` | Google / IAP / tokens |
+| `app/src/adapters/daemon/supervisor.ts` | Daemon host (socket, recovery, watch, listeners) |
+| `app/src/adapters/rpc/controller.ts` | Local supervisor or socket / named-pipe client |
 | `app/tui.json` | Starter TUI preferences |
+
+Layer rules: [architecture.md](architecture.md). Check with `bun run check:architecture`.
 
 There is no separate Go tree.
 

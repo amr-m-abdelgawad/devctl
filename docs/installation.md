@@ -50,7 +50,7 @@ A Homebrew formula lives in this repository rather than Homebrew-core:
 brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/homebrew/devctl.rb
 ```
 
-`devctl update` reports whether a newer GitHub Release exists and recommends the npm update command first. It never overwrites the running installation.
+`devctl update` reports whether a newer GitHub Release exists and which install channel this process is. For an npm global or Homebrew install it runs that upgrade; otherwise it prints the matching command. `--check` reports without installing.
 
 ## From source
 
@@ -95,7 +95,7 @@ Install `gcloud` only if you use user identity, impersonation, or IAP. Local-onl
 
 ## Cross-platform
 
-The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (`app/src/processes/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows.
+The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (`app/src/adapters/process/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows.
 
 ## Related
 
