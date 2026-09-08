@@ -1,7 +1,6 @@
 import { RestartAlways, RestartNever, RestartOnFailure, effectiveRestartPolicy, type ServiceConfig } from "../config/types.ts";
 
 export const DEFAULT_MAX_RETRIES = 3;
-export const DEFAULT_BACKOFF_SECONDS = 2;
 export const HEALTH_RESTART_STREAK = 3;
 export const HEALTH_RESET_STREAK = 10;
 

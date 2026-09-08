@@ -52,7 +52,6 @@ import {
   StateRunning,
   dependentsClosure,
   emptyRuntime,
-  formatPlan,
   profileEnvironment,
   type Plan,
   type Runtime,
@@ -939,5 +938,3 @@ export class Supervisor {
 export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult {
   return configSnapshotDiff(prev, next);
 }
-
-export { formatPlan };

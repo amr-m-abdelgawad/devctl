@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   // Reserved hexagonal port: adapters are expected to implement this later.
-  "ignore": ["src/ports/credential-provider.ts"],
+  // plugin-sdk.ts is a public entry; its re-exports have no in-repo importer.
+  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts"],
   // Host tools spawned at runtime, not npm packages.
   "ignoreBinaries": ["explorer", "xdg-open", "vm_stat"],
   "ignoreExportsUsedInFile": true,
@@ -12,10 +13,9 @@
     "binaries": "error",
     "unresolved": "error",
     "duplicates": "error",
-    // plugin-sdk.ts is a public entry; unused-export rules also flag
-    // barrel re-exports and RPC/domain contract types that have no
-    // in-repo importer. Named dead exports are deleted instead.
-    "exports": "off",
+    // Named values with no importer. Types stay off: barrels and RPC
+    // contract types have no in-repo importer by design.
+    "exports": "error",
     "nsExports": "off",
     "types": "off",
     "nsTypes": "off",

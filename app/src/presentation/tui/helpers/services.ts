@@ -16,8 +16,6 @@ export const SERVICE_PID_COL = 8;
 
 export const SERVICE_UPTIME_COL = 9;
 
-export const SERVICE_RESTARTS_COL = 6;
-
 export const SERVICE_CPU_COL = 7;
 
 export const SERVICE_MEM_COL = 8;

@@ -8,6 +8,7 @@ import {
   ExitHealth,
   ExitProxy,
   ExitStartup,
+  ExitSuccess,
   exitCode,
   hintError,
   humanMessage,
@@ -38,6 +39,8 @@ describe("typed errors", () => {
     expect(newError(KindGeneral, "boom").exitCode()).toBe(ExitGeneral);
     expect(exitCode(new Error("plain"))).toBe(ExitGeneral);
     expect(exitCode(newError("proxy", "bind"))).toBe(ExitProxy);
+    expect(ExitSuccess).toBe(0);
+    expect(ExitSuccess).not.toBe(ExitGeneral);
   });
 
   test("RPC payload reconstructs DevctlError kind", () => {

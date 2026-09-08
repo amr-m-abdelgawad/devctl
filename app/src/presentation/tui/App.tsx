@@ -9,7 +9,7 @@ import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
 import { Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { allCommands, lookupCommand, type CommandSpec } from "./commands.ts";
+import { lookupCommand } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
@@ -810,8 +810,4 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     </box>
     </DensityContext.Provider>
   );
-}
-
-export function commandCatalog(): CommandSpec[] {
-  return allCommands();
 }

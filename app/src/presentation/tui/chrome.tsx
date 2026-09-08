@@ -10,7 +10,7 @@ import { NAV_ITEMS,navActiveIndex,navTabLabel } from "./helpers/navigation.ts";
 import { countRunning } from "./helpers/stats.ts";
 import { Banner,Chip,KeyHints,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
 import { isTightScale } from "./settings.ts";
-import { stateColor,stateGlyph,type Palette } from "./themes.ts";
+import { type Palette } from "./themes.ts";
 import { type Overlay,type Screen } from "./types.ts";
 
 export function Header(props: {
@@ -165,20 +165,6 @@ export function ErrorState(props: { palette: Palette; title: string; body: strin
       <text fg={props.palette.text} wrapMode="word">
         {props.body}
       </text>
-    </box>
-  );
-}
-
-export function StateLabel(props: { palette: Palette; state: string; extra?: string }) {
-  const { palette, state, extra } = props;
-  return (
-    <box height={1} flexDirection="row" overflow="hidden">
-      <text fg={stateColor(palette, state)}>{`${stateGlyph(state)} ${state}`}</text>
-      {extra ? (
-        <text fg={palette.error} wrapMode="none">
-          {`  ${extra}`}
-        </text>
-      ) : null}
     </box>
   );
 }

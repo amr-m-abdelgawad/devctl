@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { defaultConfig } from "../../domain/config/types.ts";
 import type { ClientRuntime, DaemonLauncher } from "../../application/client-runtime.ts";
-import { ExitSuccess, humanMessage, exitCode } from "../../shared/errors.ts";
+import { humanMessage, exitCode } from "../../shared/errors.ts";
 import { runTui } from "../tui/index.tsx";
 import { completeLine, completionScript } from "./complete.ts";
 import { versionLine } from "../../version.ts";
@@ -126,5 +126,3 @@ export async function execute(runtime: ClientRuntime, launchDaemon: DaemonLaunch
     process.exit(exitCode(err));
   }
 }
-
-export { ExitSuccess };

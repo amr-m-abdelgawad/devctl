@@ -159,13 +159,3 @@ async function checkCommand(
   }
   return { status: HealthUnhealthy, message: `exit ${code}` };
 }
-
-export function healthLevel(status: ServiceHealth): string {
-  if (status === HealthUnhealthy) {
-    return "WARN";
-  }
-  if (status === HealthHealthy) {
-    return "INFO";
-  }
-  return "DEBUG";
-}
