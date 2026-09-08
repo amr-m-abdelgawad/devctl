@@ -14,7 +14,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     logDetailsScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
     revertThemePreview, setPaletteIndex, setThemeName, paletteIndex, applyTheme, leaderTimer,
     setOverlay, runCommand, setConfigEditError, saveConfigBuffer, setSlashIndex, filtered,
-    setQuery, slashIndex, submitSlash, paletteItems,
+    setQuery, slashIndex, submitSlash,
   } = ctx;
   const name = (key.name ?? "").toLowerCase();
   if (overlay === "none") {
@@ -198,20 +198,6 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     if (overlay === "slash" && name === "return") {
       submitSlash();
       return true;
-    }
-    if (overlay === "palette" && name === "down") {
-      setPaletteIndex((i) => Math.min(i + 1, Math.max(paletteItems.length - 1, 0)));
-      return true;
-    }
-    if (overlay === "palette" && name === "up") {
-      setPaletteIndex((i) => Math.max(0, i - 1));
-      return true;
-    }
-    if (overlay === "palette" && name === "return") {
-      const cmd = selectedSlashCommand(paletteItems, paletteIndex);
-      if (cmd) {
-        void runCommand(cmd, []);
-      }
     }
     return true;
   }

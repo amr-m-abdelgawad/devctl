@@ -1,18 +1,16 @@
 import { type DevctlConfig } from "../../../domain/config/types.ts";
-import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { type LogEvent,type LogFacets } from "../../../domain/logs/logs.ts";
 import { HealthUnhealthy,StateFailed,StateRestarting,type Runtime } from "../../../domain/service/services.ts";
-import { sessionStartedAt,type PersistedState } from "../../../domain/session/session.ts";
+import { type PersistedState } from "../../../domain/session/session.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { NARROW_WIDTH,statusStripChips,visibleHints } from "../helpers/chrome.ts";
-import { clipText,formatUptime,padClip } from "../helpers/format.ts";
-import { googleProjectDisplay } from "../helpers/identity.ts";
-import { filterLogs,isSystemLogSource,runningLabel,visibleLogErrorCount,type LogWrapMode } from "../helpers/logs.ts";
-import { canStartAll,defaultProfileName,previousSessionNote,profileMembers,serviceLineState,serviceListInnerWidth,serviceListPaneWidth } from "../helpers/services.ts";
+import { NARROW_WIDTH } from "../helpers/chrome.ts";
+import { clipText,padClip } from "../helpers/format.ts";
+import { filterLogs,isSystemLogSource,visibleLogErrorCount,type LogWrapMode } from "../helpers/logs.ts";
+import { canStartAll,previousSessionNote,serviceLineState,serviceListInnerWidth,serviceListPaneWidth } from "../helpers/services.ts";
 import { countRunning } from "../helpers/stats.ts";
-import { Chip,KeyHints,MetaBar,Toolbar } from "../layout.tsx";
+import { MetaBar } from "../layout.tsx";
 import { serviceColor,stateColor,stateGlyph,type Palette } from "../themes.ts";
 import { JumpLatestPrompt,LogFilterBar,LogHistoryBar,LogList } from "./Logs.tsx";
 import { SelectionHint,ServiceRows } from "./ServiceRows.tsx";
@@ -26,10 +24,7 @@ export function Dashboard(props: {
   selected: number;
   selectedLog?: number;
   checked: string[];
-  profile: string;
-  google?: GoogleStatus;
   width: number;
-  paused: boolean;
   followTick: number;
   logService: string;
   logSources?: string[];
@@ -40,8 +35,6 @@ export function Dashboard(props: {
   onToggle: (name: string) => void;
   onFilterService: (service: string) => void;
   onToggleErrors: () => void;
-  onToggleSystemLogs: () => void;
-  onClearLogs: () => void;
   onShowErrors?: () => void;
   wrapMode?: LogWrapMode;
   view?: LogEvent[];
@@ -64,10 +57,7 @@ export function Dashboard(props: {
     selected,
     selectedLog = -1,
     checked,
-    profile,
-    google,
     width,
-    paused,
     followTick,
     logService,
     logSources,
@@ -78,8 +68,6 @@ export function Dashboard(props: {
     onToggle,
     onFilterService,
     onToggleErrors,
-    onToggleSystemLogs,
-    onClearLogs,
     onShowErrors,
     wrapMode = "clip",
     view,
@@ -108,11 +96,7 @@ export function Dashboard(props: {
   const idle = canStartAll(snap);
   const counts = countRunning(snap, names);
   const failed = names.filter((name) => snap?.services[name]?.state === "FAILED").length;
-  const sessionStart = snap?.session_id ? sessionStartedAt(snap.session_id) : undefined;
-  const uptime = sessionStart ? formatUptime(Date.now() - sessionStart.getTime()) : undefined;
   const logErrors = visibleLogErrorCount(logs);
-  const profileName = profile || defaultProfileName(cfg);
-  const members = profileMembers(cfg, profileName);
   const lastSession = idle ? previousSessionNote(leftover, snap?.session_id) : undefined;
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
@@ -122,7 +106,13 @@ export function Dashboard(props: {
   const shownTotal = viewTotal ?? visible.length;
   const viewEnd = Math.min(shownTotal, viewStart + shown.length);
   const rangeLabel = shownTotal === 0 ? "empty" : `${viewStart + 1}–${viewEnd} of ${shownTotal}`;
-  const scope = logService === "" ? "all services" : logService;
+  const scope = logService === "" ? "all" : logService;
+  const serviceMeta = [
+    ...(counts.running > 0 ? [{ text: `${counts.running}/${names.length}`, tone: "success" as const }] : []),
+    ...(failed > 0 ? [{ text: `${failed} failed`, tone: "error" as const }] : []),
+    ...(checked.length > 0 ? [{ text: `${checked.length} selected`, tone: "primary" as const }] : []),
+    ...(logErrors > 0 ? [{ text: `${logErrors} errors`, tone: "error" as const, onMouseDown: onShowErrors }] : []),
+  ];
 
   return (
     <box flexGrow={1} flexDirection={stacked ? "column" : "row"} overflow="hidden">
@@ -140,17 +130,8 @@ export function Dashboard(props: {
         flexDirection="column"
         overflow="hidden"
       >
-        <MetaBar
-          palette={palette}
-          items={[
-            { text: runningLabel(counts.running, names.length), tone: counts.running > 0 ? "success" : "idle" },
-            ...(failed > 0 ? [{ text: `${failed} failed`, tone: "error" as const }] : []),
-            ...(checked.length > 0 ? [{ text: `${checked.length} selected`, tone: "primary" as const }] : []),
-            ...(uptime !== undefined ? [{ text: `up ${uptime}`, tone: "idle" as const }] : []),
-            ...(logErrors > 0 ? [{ text: `${logErrors} errors`, tone: "error" as const, onMouseDown: onShowErrors }] : []),
-          ]}
-        />
-        <SelectionHint palette={palette} checked={checked} idle={idle} profileName={profileName} members={members} />
+        {serviceMeta.length > 0 ? <MetaBar palette={palette} items={serviceMeta} /> : null}
+        <SelectionHint palette={palette} checked={checked} />
         <box flexGrow={1} paddingLeft={scale.pad} paddingRight={scale.pad} overflow="hidden">
           <ServiceRows
             palette={palette}
@@ -166,7 +147,6 @@ export function Dashboard(props: {
         </box>
         <IssuesPanel palette={palette} names={names} snap={snap} width={listWidth} onOpen={onOpen} />
         {lastSession ? <LastSessionPanel palette={palette} leftover={lastSession} width={listWidth} /> : null}
-        <StatusStrip palette={palette} cfg={cfg} snap={snap} google={google} width={listWidth} />
       </box>
       <box
         position="relative"
@@ -177,23 +157,11 @@ export function Dashboard(props: {
         borderStyle="rounded"
         borderColor={palette.border}
         backgroundColor={palette.panel}
-        title={`logs  ·  ${rangeLabel}`}
+        title={`logs  ·  ${scope}  ·  ${rangeLabel}`}
         titleColor={palette.primary}
         overflow="hidden"
         flexDirection="column"
       >
-        <MetaBar
-          palette={palette}
-          items={[
-            { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
-            { text: `shown ${visible.length}`, tone: "info" },
-            { text: facets ? `total ${facets.total}` : `total ${logs.length}` },
-            { text: scope, tone: logService === "" ? "idle" : "primary" },
-            { text: errorOnly ? "ERROR+" : "all levels", tone: errorOnly ? "error" : "idle", onMouseDown: onToggleErrors },
-            { text: showSystemLogs ? "system: on" : "system: off", tone: showSystemLogs ? "accent" : "idle", onMouseDown: onToggleSystemLogs },
-            { text: "clear", tone: "muted", onMouseDown: onClearLogs },
-          ]}
-        />
         <LogFilterBar
           palette={palette}
           logs={filterBarLogs}
@@ -219,7 +187,7 @@ export function Dashboard(props: {
                   ? "New lines appear as services write output."
                   : "Click All or another service chip, or turn off ERROR+."
             }
-            hint="[ ] cycle service   g  jump to latest"
+            hint="← → cycle service   e errors   g latest"
           />
         ) : (
           <LogList
@@ -237,23 +205,7 @@ export function Dashboard(props: {
             viewStart={viewStart}
           />
         )}
-        <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-          <KeyHints
-            palette={palette}
-            hints={visibleHints(
-              [
-                { key: "e", label: "errors" },
-                { key: "i", label: showSystemLogs ? "internal off" : "internal on" },
-                { key: "ctrl+l", label: "clear" },
-                { key: "g", label: "latest" },
-                { key: "z", label: "full logs" },
-                { key: "←→", label: "filter" },
-              ],
-              Math.max(20, logWidth - 2),
-            )}
-          />
-        </Toolbar>
-        {!follow ? <JumpLatestPrompt palette={palette} width={logWidth} newer={newer} bottom={1} onJump={onJumpLatest} /> : null}
+        {!follow ? <JumpLatestPrompt palette={palette} width={logWidth} newer={newer} bottom={0} onJump={onJumpLatest} /> : null}
       </box>
     </box>
   );
@@ -305,18 +257,12 @@ function IssuesPanel(props: { palette: Palette; names: string[]; snap?: StatusSn
   const hidden = rows.length - shown.length;
   const msgWidth = Math.max(8, width - ISSUE_NAME_COL - 4);
   return (
-    <box
-      border
-      borderStyle="rounded"
-      borderColor={palette.error}
-      title={`issues (${rows.length})`}
-      titleColor={palette.error}
-      flexDirection="column"
-      flexShrink={0}
-      paddingLeft={1}
-      paddingRight={1}
-      overflow="hidden"
-    >
+    <box flexDirection="column" flexShrink={0} paddingLeft={1} paddingRight={1} overflow="hidden">
+      <box height={1} overflow="hidden">
+        <text fg={palette.error} wrapMode="none">
+          {`issues (${rows.length})`}
+        </text>
+      </box>
       {shown.map(({ name, rt }) => {
         const state = serviceLineState(rt);
         return (
@@ -355,18 +301,12 @@ function LastSessionPanel(props: { palette: Palette; leftover: PersistedState; w
   const hidden = leftover.processes.length - shown.length;
   const pidWidth = Math.max(8, width - LAST_SESSION_NAME_COL - 4);
   return (
-    <box
-      border
-      borderStyle="rounded"
-      borderColor={palette.warning}
-      title="last session"
-      titleColor={palette.warning}
-      flexDirection="column"
-      flexShrink={0}
-      paddingLeft={1}
-      paddingRight={1}
-      overflow="hidden"
-    >
+    <box flexDirection="column" flexShrink={0} paddingLeft={1} paddingRight={1} overflow="hidden">
+      <box height={1} overflow="hidden">
+        <text fg={palette.warning} wrapMode="none">
+          last session
+        </text>
+      </box>
       <text fg={palette.muted} wrapMode="none">
         {clipText(`${leftover.session_id}  ${leftover.profile || "(none)"}`, Math.max(8, width - 4))}
       </text>
@@ -390,28 +330,5 @@ function LastSessionPanel(props: { palette: Palette; leftover: PersistedState; w
         </text>
       ) : null}
     </box>
-  );
-}
-
-function StatusStrip(props: {
-  palette: Palette;
-  cfg: DevctlConfig;
-  snap?: StatusSnapshot;
-  google?: GoogleStatus;
-  width: number;
-}) {
-  const { palette, cfg, snap, google, width } = props;
-  const email = google?.userEmail;
-  const project = googleProjectDisplay(cfg, snap?.identity, google).project;
-  const logsTotal = snap?.logs.total ?? 0;
-  const chips = statusStripChips(email, project, logsTotal, width);
-  return (
-    <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-      <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
-        {chips.map((chip, i) => (
-          <Chip key={`${chip.label}-${i}`} palette={palette} label={chip.label} tone={chip.tone} />
-        ))}
-      </box>
-    </Toolbar>
   );
 }

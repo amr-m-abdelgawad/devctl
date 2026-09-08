@@ -1,10 +1,14 @@
-import { type CommandSpec, allCommands } from "../commands.ts";
+import { commandSearchToken, type CommandSpec, filterCommands } from "../commands.ts";
 import { defaultCopyKeybind } from "../tui-config.ts";
 import { type FooterHint, type Overlay, type Screen } from "../types.ts";
 import { NAV_CYCLE } from "./navigation.ts";
 
+function navCycleScreen(current: Screen): Screen {
+  return current === "detail" ? "services" : current;
+}
+
 export function nextScreen(current: Screen): Screen {
-  const idx = NAV_CYCLE.indexOf(current);
+  const idx = NAV_CYCLE.indexOf(navCycleScreen(current));
   if (idx < 0) {
     return "dashboard";
   }
@@ -12,7 +16,7 @@ export function nextScreen(current: Screen): Screen {
 }
 
 export function prevScreen(current: Screen): Screen {
-  const idx = NAV_CYCLE.indexOf(current);
+  const idx = NAV_CYCLE.indexOf(navCycleScreen(current));
   if (idx < 0) {
     return "dashboard";
   }
@@ -31,9 +35,11 @@ export function groupedCommands(commands: CommandSpec[]): { group: string; items
 }
 
 export function paletteOptions(query: string): CommandSpec[] {
-  const q = query.trim().toLowerCase().replace(/^\//, "");
-  const matches = allCommands().filter((c) => q === "" || c.name.includes(q) || c.desc.toLowerCase().includes(q) || c.aliases.some((a) => a.startsWith(q)));
-  return groupedCommands(matches).flatMap((group) => group.items);
+  const hits = filterCommands(query);
+  if (commandSearchToken(query) === "") {
+    return groupedCommands(hits).flatMap((group) => group.items);
+  }
+  return hits;
 }
 
 export function commandSelectOptions(items: CommandSpec[]): { name: string; description: string; value: string }[] {
@@ -55,11 +61,11 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
       { key: "esc", label: "cancel" },
     ];
   }
-  if (overlay === "palette" || overlay === "themes") {
+  if (overlay === "themes") {
     return [
       { key: "↑↓", label: "move" },
-      { key: "enter", label: overlay === "themes" ? "save" : "select" },
-      { key: "esc", label: overlay === "themes" ? "revert" : "close" },
+      { key: "enter", label: "save" },
+      { key: "esc", label: "revert" },
     ];
   }
   if (overlay === "help") {
@@ -114,7 +120,6 @@ export function leaderHints(): FooterHint[] {
 function screenHints(screen: Screen, copyKey: string): FooterHint[] {
   const common: FooterHint[] = [
     { key: "/", label: "command" },
-    { key: "ctrl+p", label: "palette" },
     { key: "?", label: "help" },
   ];
   switch (screen) {
@@ -154,7 +159,6 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
     case "logs":
       return [
         { key: "←→", label: "filter" },
-        { key: "1-9", label: "source" },
         { key: "e", label: "errors" },
         { key: "i", label: "internal logs" },
         { key: "ctrl+l", label: "clear logs" },
@@ -214,6 +218,34 @@ export function slashWindowStart(selected: number, size: number, total: number):
     return 0;
   }
   return Math.min(selected - size + 1, total - size);
+}
+
+function slashVisualRows(items: CommandSpec[], from: number, to: number): number {
+  const slice = items.slice(from, to + 1);
+  const groups = new Set(slice.map((cmd) => cmd.group));
+  return slice.length + groups.size;
+}
+
+/** Slice commands so group headers plus rows stay within `maxVisualRows`. */
+export function slashWindowItems(items: CommandSpec[], selected: number, maxVisualRows: number): CommandSpec[] {
+  if (items.length === 0) {
+    return [];
+  }
+  const idx = Math.min(Math.max(selected, 0), items.length - 1);
+  let start = idx;
+  let end = idx;
+  for (;;) {
+    const growEnd = end + 1 < items.length && slashVisualRows(items, start, end + 1) <= maxVisualRows;
+    const growStart = start > 0 && slashVisualRows(items, start - 1, end) <= maxVisualRows;
+    if (growEnd) {
+      end += 1;
+    } else if (growStart) {
+      start -= 1;
+    } else {
+      break;
+    }
+  }
+  return items.slice(start, end + 1);
 }
 
 export function selectedSlashCommand<T>(items: T[], index: number): T | undefined {

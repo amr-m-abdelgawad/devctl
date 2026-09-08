@@ -24,9 +24,10 @@ type Binding = {
 };
 
 export const HELP_NAVIGATION: readonly Binding[] = [
-  { key: "tab", label: "next screen" },
-  { key: "1-9,0", label: "jump to screen" },
-  { key: "s/l/a/p/d/c/u", label: "letter jump (config, setup)" },
+  { key: "tab", label: "next tab" },
+  { key: "1-4", label: "dashboard services logs proxy" },
+  { key: "s/l/a/p/d/c/u", label: "letter jump" },
+  { key: "/", label: "all other screens" },
   { key: "j/k", label: "move selection" },
   { key: "esc", label: "back / close" },
 ];
@@ -43,7 +44,6 @@ export const HELP_SERVICES: readonly Binding[] = [
 export function logBindings(copyKey: string): readonly Binding[] {
   return [
     { key: "←→", label: "filter services" },
-    { key: "1-9", label: "jump to source" },
     { key: "e", label: "ERROR+ only" },
     { key: "g", label: "jump to latest" },
     { key: "p", label: "pause stream" },
@@ -61,8 +61,8 @@ export function logBindings(copyKey: string): readonly Binding[] {
 }
 
 export const HELP_COMMANDS: readonly Binding[] = [
-  { key: "/", label: "slash command" },
-  { key: "ctrl+p", label: "command palette" },
+  { key: "/", label: "command overlay" },
+  { key: "ctrl+p", label: "same overlay" },
   { key: "ctrl+x", label: "leader chord" },
   { key: "/settings", label: "preferences · MCP page" },
   { key: "/themes", label: "preview themes" },

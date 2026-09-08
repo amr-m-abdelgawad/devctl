@@ -60,7 +60,7 @@ export function useAppKeyboard({
   const {
     screen, onQuit, closeOverlay, confirmKind, portTarget, profile, listCursor, names,
     copyVisibleLogs, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail,
-    setProfile, setStatus, setPaletteIndex, setSlashIndex, setQuery, setScreen, freePort, openDetail,
+    setProfile, setStatus, setSlashIndex, setQuery, setScreen, freePort, openDetail,
   } = ui;
   const {
     logSlice, logSearchFocused, logsFullscreen, setLogSearchFocused, setLogsFullscreen,
@@ -243,13 +243,7 @@ export function useAppKeyboard({
       leaderTimer.current = setTimeout(() => setOverlay("none"), leaderMs);
       return;
     }
-    if (isPaletteChord(key, tui)) {
-      setQuery("");
-      setPaletteIndex(0);
-      setOverlay("palette");
-      return;
-    }
-    if (isCommandChord(key, tui)) {
+    if (isPaletteChord(key, tui) || isCommandChord(key, tui)) {
       setQuery("");
       setSlashIndex(0);
       setOverlay("slash");

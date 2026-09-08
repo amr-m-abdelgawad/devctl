@@ -17,7 +17,7 @@ import {
 describe("help overlay layout", () => {
   test("section height keeps every binding plus the border", () => {
     expect(helpSectionHeight(5)).toBe(5 + HELP_SECTION_BORDER);
-    expect(helpSectionHeight(logBindings("cmd+c").length)).toBe(15 + HELP_SECTION_BORDER);
+    expect(helpSectionHeight(logBindings("cmd+c").length)).toBe(14 + HELP_SECTION_BORDER);
   });
 
   test("wide height fits nav, full logs, commands, and footer without clipping", () => {

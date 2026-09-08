@@ -79,18 +79,16 @@ function SettingsList(props: {
           return (
             <box
               key={section.group}
-              border
-              borderStyle="rounded"
-              borderColor={sectionActive ? palette.borderActive : palette.border}
-              title={`${section.group} (${section.items.length})`}
-              titleColor={sectionActive ? palette.primary : palette.muted}
               flexDirection="column"
               flexShrink={0}
               marginBottom={sectionIndex < sections.length - 1 ? Math.max(1, scale.gap) : 0}
-              paddingLeft={1}
-              paddingRight={1}
               overflow="hidden"
             >
+              <box height={1} overflow="hidden">
+                <text fg={sectionActive ? palette.primary : palette.muted} wrapMode="none">
+                  {section.group}
+                </text>
+              </box>
               {section.group === "MCP" ? (
                 <box height={1} overflow="hidden">
                   <text fg={palette.muted} wrapMode="none">

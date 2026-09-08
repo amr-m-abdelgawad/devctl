@@ -7,11 +7,11 @@ import type { LogEvent } from "../../domain/logs/logs.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
+import { Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { allCommands, commandArgs, filterCommands, lookupCommand, type CommandSpec } from "./commands.ts";
+import { allCommands, commandArgs, lookupCommand, type CommandSpec } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
-import { compactChrome, confirmCopy } from "./helpers/chrome.ts";
+import { confirmCopy } from "./helpers/chrome.ts";
 import { paletteOptions, selectedSlashCommand } from "./helpers/command-catalog.ts";
 import { formatLogDetails, formatLogsForClipboard } from "./helpers/logs.ts";
 import { screenListCount } from "./helpers/navigation.ts";
@@ -31,7 +31,6 @@ import { ConfirmOverlay } from "./overlays/Confirm.tsx";
 import { HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
-import { PaletteOverlay } from "./overlays/Palette.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
 import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
 import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
@@ -74,8 +73,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     userTuiConfigPath,
     validateConfigText,
     freePort,
-    openInFileManager,
-    exportsDir,
     readTextFile,
     writeTextFile,
     createStarterConfig,
@@ -203,22 +200,13 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     pinLogView,
     applyLogCursor,
     jumpToLatestLogs,
-    clearLogs,
-    toggleSystemLogs,
   } = logView;
 
-  const filtered = useMemo(() => filterCommands(query), [query]);
-  const paletteItems = useMemo(() => paletteOptions(query), [query]);
+  const filtered = useMemo(() => paletteOptions(query), [query]);
 
   useEffect(() => {
     setSlashIndex(0);
   }, [query]);
-
-  useEffect(() => {
-    if (overlay === "palette") {
-      setPaletteIndex(0);
-    }
-  }, [overlay, query]);
 
   const listCount = screenListCount(screen, {
     doctor: doctor?.checks.length ?? 0,
@@ -355,12 +343,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     lifecycleActions,
   });
 
-  const openExportsFolder = useCallback(() => {
-    const target = lastExportPath.current || exportsDir();
-    openInFileManager(target);
-    setStatus(`Opened ${exportsDir()}`);
-  }, []);
-
   const submitSlash = useCallback(() => {
     const spec = selectedSlashCommand(filtered, slashIndex);
     if (!spec) {
@@ -380,27 +362,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     },
     [closeOverlay, persistTheme],
   );
-
-  const pickPalette = useCallback(
-    (name: string) => {
-      const spec = lookupCommand(name);
-      if (spec) {
-        void runCommand(spec, []);
-      }
-    },
-    [runCommand],
-  );
-
-  const submitCommandLine = useCallback(() => {
-    if (overlay === "palette") {
-      const cmd = selectedSlashCommand(paletteItems, paletteIndex);
-      if (cmd) {
-        void runCommand(cmd, []);
-      }
-      return;
-    }
-    submitSlash();
-  }, [overlay, paletteIndex, paletteItems, runCommand, submitSlash]);
 
   useAppKeyboard({
     tui,
@@ -428,7 +389,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       filtered,
       slashIndex,
       submitSlash,
-      paletteItems,
       bootErrorMissing,
       bootError,
       createStarterConfig,
@@ -502,10 +462,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             names={names}
             selected={listCursor}
             checked={checked}
-            profile={profile}
-            google={google}
             width={width}
-            paused={paused}
             followTick={logFollow}
             logService={logService}
             errorOnly={errorOnly}
@@ -517,8 +474,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             logSources={logSources}
             onFilterService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
-            onToggleSystemLogs={toggleSystemLogs}
-            onClearLogs={clearLogs}
             onShowErrors={() => {
               setLogService("");
               setErrorOnly(true);
@@ -585,7 +540,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             names={names}
             logSources={logSources}
             service={logService}
-            paused={paused}
             errorOnly={errorOnly}
             showSystemLogs={showSystemLogs}
             search={logSearch}
@@ -595,8 +549,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             onSearch={setLogSearch}
             onService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
-            onToggleSystemLogs={toggleSystemLogs}
-            onClearLogs={clearLogs}
             source={logSource}
             regex={logRegex}
             services={logServices}
@@ -612,7 +564,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             onSelect={applyLogCursor}
             fullscreen={logsFullscreen}
             onLeaveLatest={pinLogView}
-            onOpenExports={openExportsFolder}
             onJumpLatest={jumpToLatestLogs}
             facets={logFacets}
           />
@@ -690,18 +641,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           query={query}
           selected={slashIndex}
           onQuery={setQuery}
-          onSubmit={submitCommandLine}
-        />
-      ) : null}
-      {overlay === "palette" ? (
-        <PaletteOverlay
-          palette={palette}
-          items={paletteItems}
-          selected={Math.min(paletteIndex, Math.max(paletteItems.length - 1, 0))}
-          termW={width}
-          termH={height}
-          onIndex={setPaletteIndex}
-          onPick={pickPalette}
+          onSubmit={submitSlash}
         />
       ) : null}
       {overlay === "themes" ? (
@@ -765,9 +705,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           onDismiss={closeOverlay}
         />
       ) : null}
-      {overlay === "slash" || overlay === "plan" || overlay === "config-edit" || logsFullscreen || (compactChrome(height) && overlay === "none") ? null : (
-        <CommandLine palette={palette} overlay={overlay} query={query} onQuery={setQuery} onSubmit={submitCommandLine} />
-      )}
       {logsFullscreen ? null : (
         <StatusBar
           palette={palette}

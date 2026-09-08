@@ -54,16 +54,132 @@ export function allCommands(): CommandSpec[] {
   ];
 }
 
-export function filterCommands(query: string): CommandSpec[] {
+const SCORE_EXACT_NAME = 100;
+const SCORE_EXACT_ALIAS = 90;
+const SCORE_NAME_PREFIX = 80;
+const SCORE_ALIAS_PREFIX = 70;
+const SCORE_NAME_PART = 60;
+const SCORE_NAME_CONTAINS = 50;
+const SCORE_ALIAS_CONTAINS = 45;
+const SCORE_FUZZY_NAME = 30;
+const SCORE_FUZZY_ALIAS = 28;
+const SCORE_DESC_WORD = 20;
+const SCORE_DESC_CONTAINS = 10;
+const MIN_CONTAINS_QUERY = 2;
+const MIN_FUZZY_QUERY = 3;
+const MIN_DESC_QUERY = 4;
+const MIN_DESC_WORD = 4;
+const MIN_DESC_INCLUDES = 4;
+const FUZZY_SCORE_CAP = 9;
+
+/** Command token only — `/start api` still searches `start`. */
+export function commandSearchToken(query: string): string {
   const q = query.trim().toLowerCase().replace(/^\//, "");
-  return allCommands().filter((c) => q === "" || commandMatch(c, q));
+  const space = q.indexOf(" ");
+  return space === -1 ? q : q.slice(0, space);
 }
 
-export function commandMatch(c: CommandSpec, q: string): boolean {
-  if (c.name.startsWith(q) || c.name.includes(q) || c.desc.toLowerCase().includes(q)) {
-    return true;
+export function filterCommands(query: string): CommandSpec[] {
+  const q = commandSearchToken(query);
+  if (q === "") {
+    return allCommands();
   }
-  return c.aliases.some((a) => a.startsWith(q) || a === q);
+  return allCommands()
+    .map((command) => ({ command, score: commandScore(command, q) }))
+    .filter((row) => row.score > 0)
+    .sort((left, right) => right.score - left.score || left.command.name.localeCompare(right.command.name))
+    .map((row) => row.command);
+}
+
+function commandScore(command: CommandSpec, q: string): number {
+  if (q === "") {
+    return 1;
+  }
+  const name = command.name.toLowerCase();
+  const aliases = command.aliases.map((alias) => alias.toLowerCase());
+  return (
+    exactScore(name, aliases, q) ||
+    prefixScore(name, aliases, q) ||
+    containsScore(name, aliases, q) ||
+    fuzzyScore(name, aliases, q) ||
+    descScore(command.desc.toLowerCase(), q)
+  );
+}
+
+function exactScore(name: string, aliases: string[], q: string): number {
+  if (name === q) {
+    return SCORE_EXACT_NAME;
+  }
+  return aliases.includes(q) ? SCORE_EXACT_ALIAS : 0;
+}
+
+function prefixScore(name: string, aliases: string[], q: string): number {
+  if (name.startsWith(q)) {
+    return SCORE_NAME_PREFIX;
+  }
+  if (aliases.some((alias) => alias.startsWith(q))) {
+    return SCORE_ALIAS_PREFIX;
+  }
+  const parts = name.split("-");
+  const partHit = parts.length > 1 && parts.some((part) => part.startsWith(q));
+  return partHit ? SCORE_NAME_PART : 0;
+}
+
+function containsScore(name: string, aliases: string[], q: string): number {
+  if (q.length < MIN_CONTAINS_QUERY) {
+    return 0;
+  }
+  if (name.includes(q)) {
+    return SCORE_NAME_CONTAINS;
+  }
+  return aliases.some((alias) => alias.includes(q)) ? SCORE_ALIAS_CONTAINS : 0;
+}
+
+function fuzzyScore(name: string, aliases: string[], q: string): number {
+  if (q.length < MIN_FUZZY_QUERY) {
+    return 0;
+  }
+  const nameFuzzy = subsequenceScore(name, q);
+  if (nameFuzzy > 0) {
+    return SCORE_FUZZY_NAME + Math.min(nameFuzzy, FUZZY_SCORE_CAP);
+  }
+  return aliases.some((alias) => subsequenceScore(alias, q) > 0) ? SCORE_FUZZY_ALIAS : 0;
+}
+
+function subsequenceScore(text: string, q: string): number {
+  let from = 0;
+  let consecutive = 0;
+  let points = 0;
+  for (let i = 0; i < q.length; i += 1) {
+    const ch = q[i];
+    if (ch === undefined) {
+      return 0;
+    }
+    const at = text.indexOf(ch, from);
+    if (at < 0) {
+      return 0;
+    }
+    if (from > 0 && at === from) {
+      consecutive += 1;
+      points += 2 + consecutive;
+    } else {
+      consecutive = 0;
+      points += at === 0 ? 4 : 1;
+    }
+    from = at + 1;
+  }
+  return points;
+}
+
+function descScore(desc: string, q: string): number {
+  if (q.length < MIN_DESC_QUERY) {
+    return 0;
+  }
+  const words = desc.split(/[^a-z0-9+]+/).filter((word) => word.length >= MIN_DESC_WORD);
+  if (words.some((word) => word.startsWith(q))) {
+    return SCORE_DESC_WORD;
+  }
+  return q.length >= MIN_DESC_INCLUDES && desc.includes(q) ? SCORE_DESC_CONTAINS : 0;
 }
 
 export function lookupCommand(name: string): CommandSpec | undefined {

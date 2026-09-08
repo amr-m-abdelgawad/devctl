@@ -15,7 +15,7 @@ export type KeyLike = {
 };
 
 export function overlayConsumesTyping(overlay: Overlay): boolean {
-  return overlay === "slash" || overlay === "palette" || overlay === "config-edit";
+  return overlay === "slash" || overlay === "config-edit";
 }
 
 export function isLeaderChord(key: KeyLike, tui: TuiConfig): boolean {

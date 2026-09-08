@@ -1,7 +1,7 @@
 import { backspaceMcpPortDraft, clampMcpPort, typeMcpPortDigit } from "../../mcp/port.ts";
 import { lookupCommand } from "../commands.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
-import { cycleLogService, logWrapLabel, nextLogWrapMode, pickLogService } from "../helpers/logs.ts";
+import { cycleLogService, logWrapLabel, nextLogWrapMode } from "../helpers/logs.ts";
 import { focusedServices } from "../helpers/services.ts";
 import { isBound, isClearLogsKey, isPageDownKey, isPageUpKey, isRestartKey, type KeyLike } from "../keymap.ts";
 import { scrollBoxBy } from "../layout.tsx";
@@ -10,18 +10,11 @@ import { selectedSettingsItem } from "../settings.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import type { ScreenKeyCtx } from "./keyboard-context.ts";
 
-export type ScreenDigitCtx = Pick<ScreenKeyCtx, "screen" | "logSearchFocused" | "logs" | "logSources" | "setLogService" | "listCursor" | "setMcpPortDraft">;
+export type ScreenDigitCtx = Pick<ScreenKeyCtx, "screen" | "listCursor" | "setMcpPortDraft">;
 
 /** Screen-specific digits must run before navItemForDigit. Returns true when consumed. */
 export function handleScreenDigitKey(ctx: ScreenDigitCtx, key: KeyLike): boolean {
   const name = (key.name ?? "").toLowerCase();
-  if (ctx.screen === "logs" && !ctx.logSearchFocused && name.length === 1 && name >= "1" && name <= "9") {
-    const pick = pickLogService(ctx.logSources, ctx.logs, Number(name));
-    if (pick !== undefined) {
-      ctx.setLogService(pick);
-    }
-    return true;
-  }
   if (ctx.screen === "mcp" && ctx.listCursor === 1 && name.length === 1 && name >= "0" && name <= "9") {
     ctx.setMcpPortDraft((draft) => typeMcpPortDigit(draft, name));
     return true;

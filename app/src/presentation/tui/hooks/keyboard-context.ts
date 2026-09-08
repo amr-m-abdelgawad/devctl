@@ -35,7 +35,6 @@ export type KeyboardUi = {
   filtered: CommandSpec[];
   slashIndex: number;
   submitSlash: () => void;
-  paletteItems: CommandSpec[];
   bootErrorMissing: boolean;
   bootError?: string;
   createStarterConfig: (repo: string) => string;

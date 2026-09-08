@@ -22,8 +22,6 @@ const CHROME_HEADER = 1;
 
 const CHROME_NAV = 1;
 
-const CHROME_COMMAND = 1;
-
 const CHROME_STATUS = 1;
 
 const CHROME_RULE = 1;
@@ -31,7 +29,7 @@ const CHROME_RULE = 1;
 export function chromeReserved(termW: number, toolbarRules = true): number {
   const headerRows = termW < HEADER_STACK_WIDTH ? CHROME_HEADER + 1 : CHROME_HEADER;
   const rule = toolbarRules ? CHROME_RULE : 0;
-  return headerRows + rule + CHROME_NAV + rule + CHROME_COMMAND + rule + CHROME_STATUS + rule;
+  return headerRows + rule + CHROME_NAV + rule + CHROME_STATUS + rule;
 }
 
 export const CHROME_RESERVED = chromeReserved(HEADER_STACK_WIDTH - 1);
@@ -58,10 +56,10 @@ export function headerStatusChips(opts: {
   reveal: boolean;
 }): HeaderChip[] {
   const narrow = opts.width < HEADER_NARROW_WIDTH;
-  const proxyLabel = opts.proxyOn ? `● ${clipText(opts.proxyAddress, narrow ? 10 : 18)}` : narrow ? "" : "○ off";
+  const proxyLabel = opts.proxyOn ? `● ${clipText(opts.proxyAddress, narrow ? 10 : 18)}` : "";
   return [
     { label: narrow ? `${opts.running}/${opts.total}` : runningLabel(opts.running, opts.total), tone: opts.running > 0 ? "success" : "idle" },
-    { label: proxyLabel, tone: opts.proxyOn ? "info" : "idle", hide: narrow && !opts.proxyOn },
+    { label: proxyLabel, tone: "info", hide: !opts.proxyOn },
     { label: "MCP", tone: "info", hide: !opts.mcpOn },
     { label: opts.adc ? (narrow ? "ADC" : "ADC ok") : narrow ? "!ADC" : "ADC missing", tone: opts.adc ? "success" : "error" },
     { label: narrow ? "sec" : "secrets shown", tone: "warning", hide: !opts.reveal },

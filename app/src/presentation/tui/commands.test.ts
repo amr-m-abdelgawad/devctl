@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { commandArgs, filterCommands, leaderAction, lookupCommand, parseExecArgs } from "./commands.ts";
+import { commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs } from "./commands.ts";
 
 describe("slash commands", () => {
   test("resolves aliases like /q /quit /exit", () => {
@@ -11,7 +11,29 @@ describe("slash commands", () => {
 
   test("filters palette query", () => {
     const hits = filterCommands("the");
-    expect(hits.some((c) => c.name === "themes")).toBe(true);
+    expect(hits.map((c) => c.name)).toEqual(["themes"]);
+  });
+
+  test("ranks name and alias matches ahead of descriptions", () => {
+    expect(filterCommands("set")[0]?.name).toBe("settings");
+    expect(filterCommands("q")[0]?.name).toBe("exit");
+    expect(filterCommands("ident")[0]?.name).toBe("auth");
+    expect(filterCommands("cfg")[0]?.name).toBe("config");
+    expect(filterCommands("error").some((c) => c.name === "filter")).toBe(true);
+  });
+
+  test("keeps the command token when arguments are typed", () => {
+    expect(commandSearchToken("/start api")).toBe("start");
+    expect(filterCommands("start api")[0]?.name).toBe("start");
+    expect(filterCommands("/logs --level error")[0]?.name).toBe("logs");
+  });
+
+  test("single-letter queries only prefix names or aliases", () => {
+    const hits = filterCommands("s");
+    expect(hits[0]?.name).toBe("services");
+    expect(
+      hits.every((c) => c.name.startsWith("s") || c.aliases.some((alias) => alias === "s" || alias.startsWith("s"))),
+    ).toBe(true);
   });
 
   test("leader keys match documented shortcuts", () => {

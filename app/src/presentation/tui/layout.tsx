@@ -6,7 +6,7 @@ import { tabChipWidth,visibleTabRange } from "./helpers/navigation.ts";
 import { isCompactScale,isTightScale } from "./settings.ts";
 import { CHIP_DARK_INK,chipForeground,isLightPalette,type Palette } from "./themes.ts";
 
-export type ChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle";
+export type ChipTone = "primary" | "accent" | "success" | "warning" | "error" | "info" | "muted" | "idle" | "ghost";
 
 function chipColors(palette: Palette, tone: ChipTone): { bg: string; fg: string } {
   switch (tone) {
@@ -24,6 +24,8 @@ function chipColors(palette: Palette, tone: ChipTone): { bg: string; fg: string 
       return { bg: palette.info, fg: chipForeground(palette.info, palette.inverse) };
     case "muted":
       return { bg: palette.element, fg: palette.text };
+    case "ghost":
+      return { bg: palette.element, fg: palette.muted };
     default:
       return { bg: palette.element, fg: palette.text };
   }
@@ -78,8 +80,10 @@ export function TabStrip(props: {
   active: number;
   width: number;
   onPick: (index: number) => void;
+  /** `fill` paints the active chip with primary so selection stays readable on near-black themes. */
+  emphasis?: "ghost" | "fill";
 }) {
-  const { palette, items, active, width, onPick } = props;
+  const { palette, items, active, width, onPick, emphasis = "ghost" } = props;
   const widths = items.map((item) => tabChipWidth(item.label));
   const range = visibleTabRange(widths, active, Math.max(1, width));
   const moreLeft = range.start > 0;
@@ -92,13 +96,15 @@ export function TabStrip(props: {
           return null;
         }
         const selected = index === active;
+        const fill = emphasis === "fill" && selected;
         return (
           <Chip
             key={item.id}
             palette={palette}
             label={item.label}
-            tone={selected ? "primary" : "muted"}
-            fg={selected ? undefined : item.color}
+            tone={fill ? "primary" : "ghost"}
+            bg={fill ? undefined : selected ? palette.highlight : palette.element}
+            fg={fill ? undefined : selected ? palette.primary : item.color ?? palette.muted}
             onMouseDown={() => onPick(index)}
           />
         );

@@ -91,6 +91,14 @@ export function navActiveIndex(screen: Screen): number {
   return NAV_ITEMS.findIndex((item) => item.id === screen);
 }
 
+/** Primary tabs only. Identity, doctor, config, settings, and the rest stay on `/`. */
+export const NAV_ITEMS: NavItem[] = [
+  { id: "dashboard", label: "dashboard" },
+  { id: "services", label: "services" },
+  { id: "logs", label: "logs" },
+  { id: "proxy", label: "proxy" },
+];
+
 // No fallback constant here on purpose: the mcp screen's row count now
 // depends on how many tools exist, which only screens/Mcp.tsx knows. A
 // hardcoded duplicate would silently go stale the next time a tool is added.
@@ -123,25 +131,7 @@ export function screenListCount(
   return 0;
 }
 
-export const NAV_ITEMS: NavItem[] = [
-  { id: "dashboard", label: "dashboard" },
-  { id: "services", label: "services" },
-  { id: "logs", label: "logs" },
-  { id: "auth", label: "identity" },
-  { id: "credentials", label: "credentials" },
-  { id: "proxy", label: "proxy" },
-  { id: "doctor", label: "doctor" },
-  { id: "config", label: "config" },
-  { id: "profiles", label: "profiles" },
-  { id: "setup", label: "setup" },
-  { id: "stats", label: "stats" },
-  { id: "settings", label: "settings" },
-];
-
 export function navItemForDigit(name: string): Screen | undefined {
-  if (name === "0") {
-    return NAV_ITEMS[9]?.id;
-  }
   if (name.length === 1 && name >= "1" && name <= "9") {
     return NAV_ITEMS[Number(name) - 1]?.id;
   }

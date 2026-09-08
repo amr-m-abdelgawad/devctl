@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
@@ -264,11 +264,15 @@ describe("TUI helpers", () => {
     expect(confirmCopy("reset-prefs", "").body).toContain("defaults");
   });
 
-  test("nav cycles skip detail", () => {
+  test("nav cycles the four primary tabs; other screens return home", () => {
+    expect(nextScreen("dashboard")).toBe("services");
+    expect(nextScreen("services")).toBe("logs");
+    expect(nextScreen("logs")).toBe("proxy");
+    expect(nextScreen("proxy")).toBe("dashboard");
+    expect(prevScreen("dashboard")).toBe("proxy");
+    expect(nextScreen("detail")).toBe("logs");
     expect(nextScreen("settings")).toBe("dashboard");
-    expect(prevScreen("dashboard")).toBe("settings");
-    expect(nextScreen("detail")).toBe("dashboard");
-    expect(nextScreen("auth")).toBe("credentials");
+    expect(nextScreen("auth")).toBe("dashboard");
   });
 
   test("footer hints are overlay-specific", () => {
@@ -290,6 +294,12 @@ describe("TUI helpers", () => {
     expect(groups.map((g) => g.group)).toEqual(["services", "nav", "logs", "ui", "app"]);
   });
 
+  test("typed slash queries rank matches instead of grouping by catalog order", () => {
+    const ranked = paletteOptions("set");
+    expect(ranked[0]?.name).toBe("settings");
+    expect(ranked.map((item) => item.name).slice(0, 2)).toEqual(["settings", "setup"]);
+  });
+
   test("select options stay grouped for the palette", () => {
     const options = commandSelectOptions(allCommands());
     expect(options[0]?.description.startsWith("services")).toBe(true);
@@ -307,7 +317,7 @@ describe("TUI helpers", () => {
     expect(keys).toContain(defaultCopyKeybind());
     expect(keys).toContain("g");
     expect(keys).toContain("←→");
-    expect(keys).toContain("1-9");
+    expect(keys).not.toContain("1-9");
     expect(keys).toContain("w");
     expect(keys).toContain("j/k");
     expect(keys).toContain("z");
@@ -482,6 +492,19 @@ describe("TUI helpers", () => {
     expect(selectedSlashCommand(["a", "b", "c"], 8)).toBe("c");
   });
 
+  test("slash window budgets visual rows including group headers", () => {
+    const items = paletteOptions("");
+    const budget = 10;
+    const head = slashWindowItems(items, 0, budget);
+    expect(head[0]?.name).toBe(items[0]?.name);
+    expect(head.length + groupedCommands(head).length).toBeLessThanOrEqual(budget);
+    const last = items.length - 1;
+    const tail = slashWindowItems(items, last, budget);
+    expect(tail.at(-1)?.name).toBe(items[last]?.name);
+    expect(tail.length + groupedCommands(tail).length).toBeLessThanOrEqual(budget);
+    expect(slashWindowItems([], 0, budget)).toEqual([]);
+  });
+
   test("overlayRect stays inside the terminal chrome", () => {
     const rect = overlayRect(80, 24, 64, 18);
     expect(rect.left + rect.width).toBeLessThanOrEqual(80);
@@ -608,25 +631,25 @@ describe("TUI helpers", () => {
     expect(tabChipWidth("logs")).toBe(6);
   });
 
-  test("first-run setup and letter nav stay on the cycle", () => {
-    expect(NAV_ITEMS.some((item) => item.id === "setup")).toBe(true);
-    expect(nextScreen("setup")).toBe("stats");
-    expect(prevScreen("stats")).toBe("setup");
-    expect(NAV_ITEMS.some((item) => item.id === "credentials")).toBe(true);
+  test("first-run setup stays reachable outside the tab strip", () => {
+    expect(NAV_ITEMS.some((item) => item.id === "setup")).toBe(false);
+    expect(NAV_ITEMS.some((item) => item.id === "credentials")).toBe(false);
     expect(footerHints("setup", "none").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("config", "none").some((h) => h.key === "/reload")).toBe(true);
   });
 
-  test("nav digits cover ten tabs and chrome height matches the toolbar stack", () => {
-    expect(NAV_ITEMS).toHaveLength(12);
+  test("nav digits cover the four primary tabs and chrome height matches the toolbar stack", () => {
+    expect(NAV_ITEMS).toHaveLength(4);
+    expect(NAV_ITEMS.map((item) => item.id)).toEqual(["dashboard", "services", "logs", "proxy"]);
     expect(navItemForDigit("1")).toBe("dashboard");
-    expect(navItemForDigit("8")).toBe("config");
-    expect(navItemForDigit("9")).toBe("profiles");
-    expect(navItemForDigit("0")).toBe("setup");
+    expect(navItemForDigit("4")).toBe("proxy");
+    expect(navItemForDigit("5")).toBeUndefined();
+    expect(navItemForDigit("8")).toBeUndefined();
+    expect(navItemForDigit("0")).toBeUndefined();
     expect(navItemForDigit("a")).toBeUndefined();
-    expect(chromeReserved(120)).toBe(8);
-    expect(chromeReserved(120, false)).toBe(4);
-    expect(CHROME_RESERVED).toBe(9);
+    expect(chromeReserved(120)).toBe(6);
+    expect(chromeReserved(120, false)).toBe(3);
+    expect(CHROME_RESERVED).toBe(7);
     expect(chromeReserved(HEADER_STACK_WIDTH - 1)).toBe(CHROME_RESERVED);
     expect(compactChrome(COMPACT_CHROME_HEIGHT - 1)).toBe(true);
     expect(compactChrome(COMPACT_CHROME_HEIGHT)).toBe(false);

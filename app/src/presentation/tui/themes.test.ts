@@ -19,6 +19,7 @@ describe("themes", () => {
     expect(resolveThemeName("xterm")).toBe("terminal");
     expect(resolveThemeName("ansi")).toBe("terminal");
     expect(paletteFor("terminal").background).toBe("#000000");
+    expect(hexLuminance(paletteFor("terminal").highlight)).toBeGreaterThan(hexLuminance(paletteFor("terminal").element) + 20);
     expect(resolveThemeName("not-a-theme")).toBe("devctl");
     expect(resolveThemeName("opencode")).toBe("ember");
     expect(paletteFor("github").primary).toBe(paletteFor("github-dark").primary);

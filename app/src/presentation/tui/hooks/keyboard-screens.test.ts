@@ -5,10 +5,6 @@ import { handleScreenDigitKey, type ScreenDigitCtx } from "./keyboard-screens.ts
 function digitCtx(overrides: Partial<ScreenDigitCtx>): ScreenDigitCtx {
   return {
     screen: "dashboard",
-    logSearchFocused: false,
-    logSources: [],
-    logs: [],
-    setLogService: () => {},
     listCursor: 0,
     setMcpPortDraft: () => {},
     ...overrides,
@@ -16,17 +12,11 @@ function digitCtx(overrides: Partial<ScreenDigitCtx>): ScreenDigitCtx {
 }
 
 describe("handleScreenDigitKey", () => {
-  test("logs 1 is consumed instead of a nav jump", () => {
-    let service = "";
+  test("logs 1 is not consumed so nav can jump to dashboard", () => {
     const consumed = handleScreenDigitKey(digitCtx({
       screen: "logs",
-      logSources: ["api"],
-      setLogService: (next) => {
-        service = typeof next === "function" ? next(service) : next;
-      },
     }), { name: "1" });
-    expect(consumed).toBe(true);
-    expect(service).toBe("");
+    expect(consumed).toBe(false);
     expect(navItemForDigit("1")).toBe("dashboard");
   });
 

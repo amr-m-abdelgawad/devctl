@@ -17,7 +17,6 @@ export type Screen =
 export type Overlay =
   | "none"
   | "slash"
-  | "palette"
   | "themes"
   | "help"
   | "confirm"

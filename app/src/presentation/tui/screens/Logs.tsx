@@ -3,11 +3,10 @@ import { useEffect,useRef } from "react";
 import { type LogEvent,type LogFacets } from "../../../domain/logs/logs.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { visibleHints } from "../helpers/chrome.ts";
 import { padClip } from "../helpers/format.ts";
-import { displayLogLevel,facetFilterCatalog,filterLogs,foldLogLines,isSystemLogSource,LOG_COL_GAP,LOG_LEVEL_COL,LOG_META_COL,LOG_TIME_COL,logFilterCatalog,logMessageSpans,logMessageWidth,logPaneInnerWidth,logRowExpanded,logServiceColumnWidth,logWrapLabel,wrapLogMessage,type LogWrapMode } from "../helpers/logs.ts";
+import { displayLogLevel,facetFilterCatalog,filterLogs,foldLogLines,isSystemLogSource,LOG_COL_GAP,LOG_LEVEL_COL,LOG_META_COL,LOG_TIME_COL,logFilterCatalog,logMessageSpans,logMessageWidth,logPaneInnerWidth,logRowExpanded,logServiceColumnWidth,wrapLogMessage,type LogWrapMode } from "../helpers/logs.ts";
 import { tabChipWidth } from "../helpers/navigation.ts";
-import { Chip,KeyHints,MetaBar,TabStrip,Toolbar } from "../layout.tsx";
+import { Chip,MetaBar,TabStrip,Toolbar } from "../layout.tsx";
 import { logSpanColor,serviceColor,stateColor,type Palette } from "../themes.ts";
 
 const FOLLOW_ARM_MS = 400;
@@ -20,7 +19,6 @@ export function LogsScreen(props: {
   names: string[];
   logSources?: string[];
   service: string;
-  paused: boolean;
   errorOnly: boolean;
   showSystemLogs: boolean;
   search: string;
@@ -43,11 +41,8 @@ export function LogsScreen(props: {
   onSearch: (value: string) => void;
   onService: (service: string) => void;
   onToggleErrors: () => void;
-  onToggleSystemLogs: () => void;
-  onClearLogs: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
-  onOpenExports?: () => void;
   onJumpLatest?: () => void;
   fullscreen?: boolean;
 }) {
@@ -57,7 +52,6 @@ export function LogsScreen(props: {
     names,
     logSources,
     service,
-    paused,
     errorOnly,
     showSystemLogs,
     search,
@@ -67,8 +61,6 @@ export function LogsScreen(props: {
     onSearch,
     onService,
     onToggleErrors,
-    onToggleSystemLogs,
-    onClearLogs,
     onSelect,
     wrapMode = "focus",
     selected = -1,
@@ -77,7 +69,6 @@ export function LogsScreen(props: {
     viewStart = 0,
     viewTotal,
     onLeaveLatest,
-    onOpenExports,
     onJumpLatest,
     view,
     fullscreen = false,
@@ -101,31 +92,17 @@ export function LogsScreen(props: {
   const rangeLabel = shownTotal === 0 ? "empty" : `${viewStart + 1}–${viewEnd} of ${shownTotal}`;
   const selectedServices = props.services ?? [];
   const scope = selectedServices.length > 0 ? selectedServices.join(",") : service === "" ? "all services" : service;
+  const logMeta = [
+    ...(follow ? [] : [{ text: newer > 0 ? `pinned · +${newer} new` : "pinned", tone: "warning" as const }]),
+    ...(props.source ? [{ text: `src ${props.source}`, tone: "info" as const }] : []),
+    ...(props.regex ? [{ text: "regex", tone: "accent" as const }] : []),
+    ...(search === "" ? [] : [{ text: `search ${search}`, tone: "accent" as const }]),
+  ];
   return (
     <box flexGrow={1} flexDirection="column" overflow="hidden">
       {fullscreen ? null : (
         <>
-          <MetaBar
-            palette={palette}
-            items={[
-              { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
-              { text: `shown ${shownTotal}`, tone: "info" },
-              { text: facets ? `total ${facets.total}` : `total ${logs.length}` },
-              ...(view && shownTotal > view.length
-                ? [{ text: `${viewStart + 1}–${viewStart + view.length} / ${shownTotal}`, tone: "info" as const }]
-                : []),
-              { text: scope, tone: service === "" ? "idle" : "primary" },
-              { text: logWrapLabel(wrapMode), tone: wrapMode === "clip" ? "idle" : "accent" },
-              ...(follow ? [] : [{ text: newer > 0 ? `pinned · +${newer} new` : "pinned", tone: "warning" as const }]),
-              { text: errorOnly ? "ERROR+" : "all levels", tone: errorOnly ? "error" : "idle", onMouseDown: onToggleErrors },
-              { text: showSystemLogs ? "system: on" : "system: off", tone: showSystemLogs ? "accent" : "idle", onMouseDown: onToggleSystemLogs },
-              ...(props.source ? [{ text: `src ${props.source}`, tone: "info" as const }] : []),
-              ...(props.regex ? [{ text: "regex", tone: "accent" as const }] : []),
-              ...(search === "" ? [] : [{ text: `search ${search}`, tone: "accent" as const }]),
-              { text: "clear", tone: "muted", onMouseDown: onClearLogs },
-              { text: "open folder", tone: "primary", onMouseDown: onOpenExports },
-            ]}
-          />
+          {logMeta.length > 0 ? <MetaBar palette={palette} items={logMeta} /> : null}
           <LogFilterBar
             palette={palette}
             logs={filterBarLogs}
@@ -171,7 +148,7 @@ export function LogsScreen(props: {
             palette={palette}
             title={logs.length === 0 ? "No log events" : "No events in this filter"}
             body={logs.length === 0 ? "Start services to stream logs." : "Pick All, another service, or clear search / ERROR+."}
-            hint="← → cycle filters   1-9 pick a source   e errors   i internal   ctrl+l clear"
+            hint="← → cycle filters   e errors   i internal   ctrl+l clear"
           />
         ) : (
           <LogList
@@ -192,32 +169,6 @@ export function LogsScreen(props: {
           />
         )}
       </box>
-      <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-        <KeyHints
-          palette={palette}
-          hints={visibleHints(
-            [
-              { key: "←→", label: "filter" },
-              { key: "1-9", label: "source" },
-              { key: "e", label: "errors" },
-              { key: "i", label: showSystemLogs ? "internal off" : "internal on" },
-              { key: "ctrl+l", label: "clear" },
-              { key: "f", label: "search" },
-              { key: "j/k", label: "move" },
-              { key: "enter", label: "details" },
-              { key: "g", label: newer > 0 ? `latest +${newer}` : "latest" },
-              { key: "w", label: "wrap" },
-              { key: "p", label: "pause" },
-              { key: "z", label: fullscreen ? "exit full" : "full screen" },
-              { key: "t", label: props.showTimestamps === false ? "time off" : "time" },
-              { key: "m", label: props.showMeta === false ? "meta off" : "meta" },
-              { key: "pgup/pgdn", label: "history" },
-              { key: "/exports", label: "open folder" },
-            ],
-            Math.max(20, width - 2),
-          )}
-        />
-      </Toolbar>
       {!follow ? (
         <JumpLatestPrompt palette={palette} width={width} newer={newer} onJump={onJumpLatest} />
       ) : null}
@@ -285,18 +236,17 @@ export function LogFilterBar(props: {
   const { palette, logs, names, service, errorOnly, width, onService, onToggleErrors, facets } = props;
   const sources = facets ? facetFilterCatalog(names, facets) : logFilterCatalog(names, logs);
   const compact = width < 80;
-  const items = sources.map((item, index) => {
-    const slot = index + 1;
+  const items = sources.map((item) => {
     const name = item.name === "" ? "all" : item.name;
     return {
       id: name,
-      label: compact ? `${slot} ${name}` : `${slot} ${name} · ${item.count}`,
+      label: compact ? name : `${name} · ${item.count}`,
       color: serviceColor(item.name, palette),
     };
   });
   const active = Math.max(0, sources.findIndex((item) => item.name === service));
   const levelLabel = errorOnly ? "ERROR+" : compact ? "lvls" : "all levels";
-  const stripWidth = Math.max(tabChipWidth(items[active]?.label ?? "1 all"), width - tabChipWidth(levelLabel));
+  const stripWidth = Math.max(tabChipWidth(items[active]?.label ?? "all"), width - tabChipWidth(levelLabel));
   return (
     <Toolbar palette={palette} backgroundColor={palette.element}>
     <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
@@ -306,6 +256,7 @@ export function LogFilterBar(props: {
           items={items}
           active={active}
           width={stripWidth}
+          emphasis="fill"
           onPick={(index) => {
             const item = sources[index];
             if (item) {
