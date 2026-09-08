@@ -5,7 +5,7 @@ import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
-import { applyInstall, checkUpdate, DAEMON_RESTART_HINT, formatUpdateStatus } from "../../../update.ts";
+import { DAEMON_RESTART_HINT } from "../../../domain/update.ts";
 import { versionLine } from "../../../version.ts";
 import { formatComposeImport, importComposeYaml } from "../../../application/compose-import.ts";
 import { parseExecArgs, parseRestartArgs, type CommandSpec } from "../commands.ts";
@@ -26,7 +26,7 @@ type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
   logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
-  workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents">;
+  workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
   setOverlay: Dispatch<SetStateAction<Overlay>>;
   setQuery: Dispatch<SetStateAction<string>>;
   setSlashPicker: Dispatch<SetStateAction<SlashPicker>>;
@@ -103,6 +103,9 @@ export function useCommandDispatcher({
     openInFileManager,
     listSessions,
     loadSessionEvents,
+    checkUpdate,
+    applyUpdate,
+    formatUpdateStatus,
   } = workspace;
   const {
     setLogService,
@@ -171,7 +174,7 @@ export function useCommandDispatcher({
                   return;
                 }
                 setStatus(`installing ${result.current} → ${result.latest} via ${result.kind}…`);
-                const applied = await applyInstall(result.command);
+                const applied = await applyUpdate(result.command);
                 if (applied.code !== 0) {
                   setStatus(`update failed (${applied.code}): ${(applied.stderr || applied.stdout).trim() || result.hint}`);
                   return;

@@ -12,7 +12,7 @@ import { canStartAll,previousSessionNote,serviceLineState,serviceListInnerWidth,
 import { countRunning } from "../helpers/stats.ts";
 import { MetaBar } from "../layout.tsx";
 import { serviceColor,stateColor,stateGlyph,type Palette } from "../themes.ts";
-import { JumpLatestPrompt,LogFilterBar,LogHistoryBar,LogList } from "./Logs.tsx";
+import { JumpLatestPrompt, LogFilterBar, LogHistoryBar, LogList } from "../components/logs/index.ts";
 import { SelectionHint,ServiceRows } from "./ServiceRows.tsx";
 
 export function Dashboard(props: {

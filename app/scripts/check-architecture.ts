@@ -24,7 +24,6 @@ const ROOT_LAYER: Record<string, Layer> = {
   "version.ts": "shared",
   "warnings.ts": "shared",
   "retry.ts": "shared",
-  "update.ts": "shared",
 };
 
 const ALL_LAYERS: readonly Layer[] = ["domain", "application", "ports", "adapters", "presentation", "shared", "bootstrap", "legacy", "test"];

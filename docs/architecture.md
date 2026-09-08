@@ -74,9 +74,16 @@ owns launch sequencing, hooks, health waits, and stop/restart plans.
 `application/health-monitor.ts` owns health probes, lifecycle generations, restart
 timers, and the shared crash/unhealthy retry budget. Process/container launch and
 transient commands use `ProcessRuntime`; health probes use `HealthCheckerFactory`.
-Supervisor retains the temporary identity/environment bridge, persistence, adoption,
-RPC, config watch, proxy, and MCP hosting. Its public start/stop/restart methods
-continue to delegate to the application.
+Supervisor coordinates service lifecycles. RPC accept, line framing, and dispatch
+routing live in `adapters/rpc/server.ts` (paired with the existing controller
+client). Identity cache, credential entries, and service-account probes live in
+`adapters/daemon/identity-coordinator.ts`. Client/profile environment resolution
+lives in `adapters/daemon/environment-bridge.ts`. Proxy and token-endpoint bind
+live in `adapters/daemon/proxy-coordinator.ts`. MCP listen and the tool deny-list
+live in `adapters/daemon/mcp-coordinator.ts`. Host CPU/memory sampling lives in
+`adapters/daemon/resource-sampler.ts`. Supervisor still owns persistence,
+adoption, config watch, and the host facades that bind those slices.
+Its public start/stop/restart methods continue to delegate to the application.
 
 The legacy daemon, controller, doctor, environment, plugin registry, network-port,
 secret-detector, and host-stat modules and their tests now live under `adapters/`.

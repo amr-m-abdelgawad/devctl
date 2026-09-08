@@ -551,7 +551,7 @@ describe("supervisor snapshot", () => {
       expect(events[0]).toBe("lock");
       // Windows named pipes vanish with their owning process — existsSync/
       // unlinkSync don't apply there, so removeStaleSocket() returns before
-      // ever calling these mocks on win32 (see supervisor.ts).
+      // ever calling these mocks on win32 (see adapters/rpc/server.ts).
       const expectedCleanup = process.platform === "win32" ? [] : ["check", "unlink", "check", "unlink"];
       expect(events.slice(1)).toEqual(expectedCleanup);
     } finally {
@@ -2365,11 +2365,11 @@ describe("supervisor socket error handling", () => {
     let client: Socket | undefined;
     try {
       await sup.run();
-      const server = (sup as unknown as { server?: Server }).server;
+      const server = (sup as unknown as { rpc: { nativeServer?: Server } }).rpc.nativeServer;
       expect(server).toBeDefined();
 
       // The server's own "connection" listener fires with the identical
-      // Socket instance handleConn() wraps — capture it to poke the same
+      // Socket instance the RPC server wraps — capture it to poke the same
       // object devctl's own error listener (or its absence) would see.
       let captured: Socket | undefined;
       server?.on("connection", (s) => {

@@ -96,13 +96,6 @@ export class GetServiceStatus {
   }
 }
 
-export class GetConfigSnapshot {
-  constructor(private readonly load: (repoRoot: string, configPath: string) => DevctlConfig) {}
-  execute(repoRoot: string, configPath: string): DevctlConfig {
-    return this.load(repoRoot, configPath);
-  }
-}
-
 export class ResolveStart {
   execute(cfg: DevctlConfig, req: { services?: string[]; profile?: ProfileId; activeProfile?: ProfileId }) {
     return resolveStartRequest(cfg, req);

@@ -7,7 +7,7 @@ import { type Detector } from "../secrets/detector.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import { ensureDir, exportsDir, logsDir } from "./storage.ts";
 
-import { LevelError, LevelFatal, type LogEvent, type LogParser, parseJSONLogLine, type LogFilter, parseLevel, parseRequestID, matchLog, type LogPageDirection, type LogPageRequest, type LogPage, type LogFacets, clampLogPageSize, truncateLogLine } from "../../domain/logs/logs.ts";
+import { LevelError, LevelFatal, type LogEvent, type LogParser, parseJSONLogLine, type LogFilter, parseLevel, parseRequestID, createLogMatcher, createSearchMatcher, matchesLogDimensions, type LogPageDirection, type LogPageRequest, type LogPage, type LogFacets, clampLogPageSize, truncateLogLine } from "../../domain/logs/logs.ts";
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
@@ -191,9 +191,10 @@ export class LogManager {
   }
 
   query(filter: LogFilter): LogEvent[] {
+    const matches = createLogMatcher(filter);
     const out: LogEvent[] = [];
     this.forEachEvent((event) => {
-      if (matchLog(filter, event)) {
+      if (matches(event)) {
         out.push(event);
       }
     });
@@ -210,9 +211,10 @@ export class LogManager {
     const cursor = sessionChanged ? undefined : requested;
     const direction: LogPageDirection = cursor ? (page.direction ?? "backward") : "backward";
 
+    const matchesFilter = createLogMatcher(filter);
     const matches: LogEvent[] = [];
     this.forEachEvent((event) => {
-      if (matchLog(filter, event)) {
+      if (matchesFilter(event)) {
         matches.push(event);
       }
     });
@@ -250,21 +252,25 @@ export class LogManager {
     const withoutServices = withoutFilterDimension(filter, "services");
     const withoutLevel = withoutFilterDimension(filter, "level");
     const withoutSource = withoutFilterDimension(filter, "source");
+    const search = createSearchMatcher(filter);
     let total = 0;
     const byService: Record<string, number> = {};
     const byLevel: Record<string, number> = {};
     const bySource: Record<string, number> = {};
     this.forEachEvent((ev) => {
-      if (matchLog(filter, ev)) {
+      if (!search(ev)) {
+        return;
+      }
+      if (matchesLogDimensions(filter, ev)) {
         total += 1;
       }
-      if (matchLog(withoutServices, ev)) {
+      if (matchesLogDimensions(withoutServices, ev)) {
         byService[ev.service] = (byService[ev.service] ?? 0) + 1;
       }
-      if (matchLog(withoutLevel, ev)) {
+      if (matchesLogDimensions(withoutLevel, ev)) {
         byLevel[ev.level] = (byLevel[ev.level] ?? 0) + 1;
       }
-      if (matchLog(withoutSource, ev)) {
+      if (matchesLogDimensions(withoutSource, ev)) {
         bySource[ev.source] = (bySource[ev.source] ?? 0) + 1;
       }
     });

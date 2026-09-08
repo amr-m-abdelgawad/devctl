@@ -59,15 +59,3 @@ export const StartupPolicy = {
     return svc.startup.wait_for_healthy;
   },
 };
-
-export const ShutdownPolicy = {
-  graceMs(seconds: number, fallbackMs: number): number {
-    return seconds > 0 ? seconds * 1000 : fallbackMs;
-  },
-};
-
-export const CredentialRefreshPolicy = {
-  shouldRefresh(expiresAt: Date, now: Date, thresholdMs: number): boolean {
-    return expiresAt.getTime() - now.getTime() < thresholdMs;
-  },
-};

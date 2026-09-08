@@ -9,14 +9,16 @@ import type { DoctorRunner } from "../ports/doctor-runner.ts";
 import { load, loadOrEmpty, loadPath, validate, validateConfigText, discover, configDiff } from "../adapters/config/index.ts";
 import { detectGoogle, loginGoogle, logoutGoogle } from "../adapters/google/google.ts";
 import { TokenManager, googleTokenProviders } from "../adapters/google/token.ts";
-import { createDoctorHost, createDoctorRunner, formatDoctor, type DoctorHost, type DoctorProgress, type DoctorRuntimeContext, type Report } from "../adapters/doctor/doctor.ts";
+import { createDoctorHost, createDoctorRunner, formatDoctor, type DoctorHost } from "../adapters/doctor/doctor.ts";
 import { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "../application/commands.ts";
-import type { DevctlConfig } from "../domain/config/types.ts";
 import { openAttach, openController, openTui, findDaemon, tryDial, assertMethodAllowed } from "../adapters/rpc/controller.ts";
+import { githubUpdate } from "../adapters/update/update.ts";
+import { formatUpdateStatus } from "../domain/update.ts";
 
 export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: DoctorHost; tokens?: TokenManager }): ClientRuntime {
   const tokens = deps?.tokens ?? new TokenManager(60_000, googleTokenProviders(), undefined);
   const doctorHost = deps?.doctorHost ?? createDoctorHost({ tokens });
+  const updates = githubUpdate();
   const client: ClientRuntime = {
     loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, listSessions, loadSessionEvents,
     loadPath, validateConfigText, discover, configDiff,
@@ -41,17 +43,11 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     formatDoctor,
     openController,
     openAttach,
+    checkUpdate: () => updates.check(),
+    applyUpdate: (command, inherit) => updates.apply(command, inherit),
+    formatUpdateStatus,
   };
   return client;
-}
-
-export async function doctorReport(
-  client: ClientRuntime,
-  cfg: DevctlConfig,
-  onProgress?: (progress: DoctorProgress) => void,
-  runtime?: DoctorRuntimeContext,
-): Promise<Report> {
-  return client.runDoctor.execute(cfg, onProgress, runtime);
 }
 
 export type { ClientRuntime, Controller } from "../application/client-runtime.ts";

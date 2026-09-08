@@ -7,8 +7,7 @@ import { ProcessManager, inspectProcess, processAlive } from "../adapters/proces
 import { TokenManager, googleTokenProviders } from "../adapters/google/token.ts";
 import { systemClock } from "../adapters/system/clock.ts";
 import { osFileSystem } from "../adapters/system/filesystem.ts";
-import { load, loadOrEmpty, stopOnExit } from "../adapters/config/index.ts";
-import type { ConfigSource } from "../ports/config-source.ts";
+import { loadOrEmpty, stopOnExit } from "../adapters/config/index.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { FileSystem } from "../ports/filesystem.ts";
 import { ServiceOrchestrator } from "../application/orchestrator.ts";
@@ -30,7 +29,6 @@ export type DaemonDeps = {
   bus?: Bus;
   clock?: Clock;
   fs?: FileSystem;
-  config?: ConfigSource;
   processes?: Processes;
   tokens?: Tokens;
   detectGoogle?: (project: string) => Promise<GoogleStatus>;
@@ -104,10 +102,6 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
     createCommands: (host) => commandsForHost(host, createDoctorRunner(createDoctorHost({ tokens })), orchestrator),
   });
   return { supervisor, orchestrator, clock, fs };
-}
-
-export function loadDaemonConfig(repoRoot: string, configPath: string, source: ConfigSource = { load }): DevctlConfig {
-  return source.load(repoRoot, configPath);
 }
 
 /** Entry used by the CLI’s internal daemon command. */

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { applyInstall, checkUpdate, compareSemver, detectInstall, formatUpdateStatus, HOMEBREW_FORMULA_URL, NPM_PACKAGE } from "./update.ts";
-import { VERSION } from "./version.ts";
+import { applyInstall, checkUpdate } from "./update.ts";
+import { compareSemver, detectInstall, formatUpdateStatus, HOMEBREW_FORMULA_URL, NPM_PACKAGE } from "../../domain/update.ts";
+import { VERSION } from "../../version.ts";
 
 describe("update", () => {
   test("compareSemver orders dotted versions", () => {

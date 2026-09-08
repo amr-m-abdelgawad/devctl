@@ -14,6 +14,7 @@ import {
   MAX_LOG_LINE_CHARS,
   MAX_LOG_PAGE_SIZE,
   matchLog,
+  createLogMatcher,
   parseJSONLogLine,
   pruneSessions,
   resolveExportPath,
@@ -222,6 +223,7 @@ describe("LogManager persistence", () => {
     expect(matchLog({ regex: true, search: "^ok" }, ev)).toBe(true);
     expect(matchLog({ regex: true, search: "^fail" }, ev)).toBe(false);
     expect(matchLog({ regex: true, search: "(a+)+" }, { ...ev, message: "aaaa" })).toBe(false);
+    expect(createLogMatcher({ regex: true, search: "^ok" })(ev)).toBe(true);
   });
 
   test("compileLogSearch rejects nested and oversized patterns", () => {
@@ -421,6 +423,22 @@ describe("LogManager at scale", () => {
     expect(facets.total).toBe(50_000);
     expect(facets.byService.api).toBe(mgr.query({ services: ["api"] }).length);
     expect(elapsed).toBeLessThan(2000);
+  });
+
+  test("regex queryPage and queryFacets stay fast at a full 50,000-event buffer", () => {
+    const mgr = filled(50_000);
+    const filter = { regex: true, search: "line 49\\d+" };
+    const pageStarted = performance.now();
+    const page = mgr.queryPage(filter, { limit: 500 });
+    const pageElapsed = performance.now() - pageStarted;
+    const facetStarted = performance.now();
+    const facets = mgr.queryFacets(filter);
+    const facetElapsed = performance.now() - facetStarted;
+    expect(page.events.length).toBeGreaterThan(0);
+    expect(facets.total).toBe(page.events.length > 0 ? facets.total : 0);
+    expect(facets.total).toBeGreaterThan(0);
+    expect(pageElapsed).toBeLessThan(2000);
+    expect(facetElapsed).toBeLessThan(2000);
   });
 
   test("paging backward through the entire 50,000-event history visits every event exactly once", () => {

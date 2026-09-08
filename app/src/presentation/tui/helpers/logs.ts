@@ -329,10 +329,6 @@ export function isSystemLogSource(source: string): boolean {
 // is no stale cross-session data to protect against here — only `since` (the log-view boundary set
 // by an explicit clear or filter command) should ever hide events. Starting or stopping services
 // must not clear the view; see the `clear` command / Clear button for that.
-export function visibleLogs(events: LogEvent[], since?: string): LogEvent[] {
-  return since ? events.filter((ev) => ev.timestamp >= since) : events;
-}
-
 export function appendVisibleLogs(current: LogEvent[], incoming: LogEvent[], since: string, cap: number): LogEvent[] {
   const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
   if (accepted.length === 0) {
@@ -395,10 +391,6 @@ export function formatLogDetails(ev: LogEvent): string {
     `request   ${ev.request_id || "—"}`,
     `identity  ${ev.identity || "—"}`,
   ].join("\n");
-}
-
-export function formatLogsForClipboard(events: LogEvent[]): string {
-  return events.map((ev) => formatLogLine(ev)).join("\n");
 }
 
 export function filterLogs(

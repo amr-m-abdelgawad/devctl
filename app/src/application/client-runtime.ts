@@ -10,6 +10,8 @@ import type { BusEvent } from "../shared/events.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
 import type { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "./commands.ts";
 import type { Report } from "../domain/doctor/types.ts";
+import type { UpdateCheck } from "../domain/update.ts";
+import type { UpdateApplyResult } from "../ports/update.ts";
 
 export type DaemonClient = {
   call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
@@ -90,4 +92,7 @@ export type ClientRuntime = {
   readTextFile(path: string): string;
   writeTextFile(path: string, text: string): void;
   fileExists(path: string): boolean;
+  checkUpdate(): Promise<UpdateCheck>;
+  applyUpdate(command: readonly string[], inherit?: boolean): Promise<UpdateApplyResult>;
+  formatUpdateStatus(result: UpdateCheck): string;
 };
