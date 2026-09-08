@@ -21,7 +21,7 @@ const logs = [
 <template>
   <div class="tui" aria-hidden="true">
     <div class="tui__topbar">
-      <span class="tui__chip tui__chip--cyan">devctl 0.2.3</span>
+      <span class="tui__chip tui__chip--cyan">devctl 0.2.4</span>
       <span class="tui__project">demo-platform</span>
       <span class="tui__chip tui__chip--magenta">backend</span>
       <span class="tui__top-spacer" />
