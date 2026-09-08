@@ -52,13 +52,18 @@ export function slashItemKey(cmd: CommandSpec): string {
 }
 
 export function slashItemLabel(cmd: CommandSpec): string {
-  if (cmd.hint) {
-    return `${cmd.name} ${cmd.hint}`;
-  }
-  if (cmd.usage) {
-    return `${cmd.name} ${cmd.usage}`;
-  }
   return cmd.name;
+}
+
+export function slashItemDesc(cmd: CommandSpec): string {
+  if (cmd.hint) {
+    return `${cmd.hint} · ${cmd.desc}`;
+  }
+  const extras = [cmd.usage, ...(cmd.suggest ?? []).map((item) => item.token)].filter((part): part is string => Boolean(part));
+  if (extras.length === 0) {
+    return cmd.desc;
+  }
+  return `${cmd.desc} · ${extras.join(" · ")}`;
 }
 
 export function slashCommandColumnWidth(items: CommandSpec[]): number {
@@ -112,13 +117,16 @@ export function expandCommandSuggestions(commands: CommandSpec[], query: string,
   const out: CommandSpec[] = [];
   for (const cmd of commands) {
     out.push({ ...cmd, hint: undefined });
-    const catalog = cmd.suggest ?? [];
-    for (const suggestion of catalog) {
-      if (suggestionMatches(suggestion.token, rest)) {
+    if (typed === "") {
+      continue;
+    }
+    const isTypedCmd = cmd.name === typed || cmd.aliases.includes(typed);
+    const optionQuery = isTypedCmd ? rest : typed;
+    for (const suggestion of cmd.suggest ?? []) {
+      if (suggestionMatches(suggestion.token, optionQuery)) {
         out.push(asSuggestionRow(cmd, suggestion));
       }
     }
-    const isTypedCmd = typed !== "" && (cmd.name === typed || cmd.aliases.includes(typed));
     if (!isTypedCmd || !hasArgContext) {
       continue;
     }

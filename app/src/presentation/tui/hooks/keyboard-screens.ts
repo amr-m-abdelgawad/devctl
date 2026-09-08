@@ -35,7 +35,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     restartMcpOnPort, setMcpPortDraft, settingRows, persistPrefs, cycleSetting, toggleMouse,
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
-    toggleChecked, createStarterConfig: _createStarterConfig, startWizard, onQuit, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
+    toggleChecked, createStarterConfig: _createStarterConfig, startWizard, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
     runCommand,
   } = ctx;
 
@@ -306,19 +306,6 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
       return;
     }
     handleEnter();
-    return;
-  }
-  if (name === "q") {
-    if (cfg?.shutdown.stop_services_on_exit === false) {
-      onQuit(true);
-      return;
-    }
-    if (cfg?.shutdown.stop_services_on_exit === true) {
-      onQuit(false);
-      return;
-    }
-    setConfirmKind("quit");
-    setOverlay("confirm");
     return;
   }
   if (isBound(key, tui, "services", "s") && overlay === "none" && screen !== "logs") {

@@ -31,6 +31,7 @@ export const HELP_NAVIGATION: readonly Binding[] = [
   { key: "j/k", label: "move selection" },
   { key: "esc", label: "back / close overlay" },
   { key: "esc ×2", label: "quit" },
+  { key: "q ×2", label: "quit" },
 ];
 
 export const HELP_SERVICES: readonly Binding[] = [

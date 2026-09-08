@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isInterruptChord, isPageDownKey, isPageUpKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
+import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isInterruptChord, isPageDownKey, isPageUpKey, isQuitKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
@@ -15,6 +15,13 @@ describe("tui keymap", () => {
     expect(isInterruptChord({ name: "c", ctrl: true }, tui)).toBe(false);
     expect(isInterruptChord({ name: "c", ctrl: true }, { ...tui, keybinds: { ...tui.keybinds, interrupt: "ctrl+c" } })).toBe(false);
     expect(isInterruptChord({ name: "c", meta: true }, { ...tui, keybinds: { ...tui.keybinds, interrupt: "cmd+c" } })).toBe(false);
+  });
+
+  test("plain q is a quit key; modifiers are not", () => {
+    expect(isQuitKey({ name: "q" })).toBe(true);
+    expect(isQuitKey({ name: "Q" })).toBe(true);
+    expect(isQuitKey({ name: "q", ctrl: true })).toBe(false);
+    expect(isQuitKey({ name: "q", meta: true })).toBe(false);
   });
 
   test("interrupt requires a second press inside the window", () => {

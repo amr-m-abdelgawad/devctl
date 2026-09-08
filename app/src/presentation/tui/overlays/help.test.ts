@@ -19,6 +19,7 @@ describe("help overlay layout", () => {
   test("copy is the highlighted selection, quit is double-esc", () => {
     expect(HELP_COMMANDS.some((row) => row.key === displayWithMod("c") && row.label.includes("selection"))).toBe(true);
     expect(HELP_NAVIGATION.some((row) => row.key === "esc ×2")).toBe(true);
+    expect(HELP_NAVIGATION.some((row) => row.key === "q ×2")).toBe(true);
     expect(logBindings("ctrl+c").some((row) => row.key === "ctrl+c ×2")).toBe(false);
     expect(logBindings("cmd+c").some((row) => row.key === displayKeybind("cmd+c"))).toBe(true);
   });

@@ -14,6 +14,7 @@ import {
   isHelpChord,
   isLeaderChord,
   isPaletteChord,
+  isQuitKey,
   isSearchChord,
   shouldConfirmInterrupt,
   type KeyLike,
@@ -262,18 +263,20 @@ export function useAppKeyboard({
       setLogSearchFocused(true);
       return;
     }
-    if (name === "escape") {
-      if (logsFullscreen) {
-        setLogsFullscreen(false);
-        return;
-      }
-      if (screen === "detail") {
-        setScreen("services");
-        return;
-      }
-      if (screen === "setup" && controller) {
-        setScreen("dashboard");
-        return;
+    if (name === "escape" || isQuitKey(key)) {
+      if (name === "escape") {
+        if (logsFullscreen) {
+          setLogsFullscreen(false);
+          return;
+        }
+        if (screen === "detail") {
+          setScreen("services");
+          return;
+        }
+        if (screen === "setup" && controller) {
+          setScreen("dashboard");
+          return;
+        }
       }
       const now = Date.now();
       if (shouldConfirmInterrupt(now, interruptArmedAt.current)) {
@@ -282,7 +285,7 @@ export function useAppKeyboard({
         return;
       }
       interruptArmedAt.current = now;
-      setStatus("Esc again to quit");
+      setStatus(name === "q" ? "q again to quit" : "Esc again to quit");
       return;
     }
     if (name === "z" && (screen === "logs" || screen === "dashboard") && !key.ctrl && !key.meta) {
