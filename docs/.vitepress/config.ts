@@ -67,7 +67,7 @@ export default withMermaid({
       },
       { text: 'Architecture', link: '/architecture' },
       {
-        text: 'v0.2.4',
+        text: 'v0.2.5',
         items: [
           { text: 'Changelog', link: `${blob}/CHANGELOG.md` },
           { text: 'npm package', link: 'https://www.npmjs.com/package/@amr-m-abdelgawad/devctl' },
