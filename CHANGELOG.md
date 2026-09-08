@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A no-op configuration reload no longer clears outstanding `restart_required` names. A successful spawn (including crash restart) drops that service from the list; claiming an already-running process does not, and a later health-wait failure does not restore names that already spawned.
 - `start --profile` against an already-running process no longer rewrites that service's stored profile without applying it. TUI start of named services omits the selected profile the same way CLI `devctl start api` does; start of the current profile still sends it.
 - Restarting a service keeps its profile name but re-resolves that profile's environment from the current configuration, so edited profile variables take effect.
-- HTTPS upstreams can complete WebSocket upgrades (the proxy used `http.request` for every upgrade).
+- Structured JSON-per-line parsing now covers metric telemetry (`metric_name` / `value`), nginx-style access logs, and OpenTelemetry OTLP records (`body.stringValue`, attribute arrays), not only pino/zap application logs.
 
 ## [0.2.3] - 2026-09-04
 

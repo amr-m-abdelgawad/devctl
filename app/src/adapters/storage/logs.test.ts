@@ -127,6 +127,51 @@ describe("LogManager persistence", () => {
     expect(parseJSONLogLine('{"foo":"bar"}')).toBeUndefined();
   });
 
+  test("metric telemetry JSON becomes a readable line instead of a raw blob", () => {
+    const line = '{"timestamp":"2026-09-08T19:23:10.000Z","metric_name":"http.server.request.duration","metric_type":"histogram","value":142.5,"unit":"ms","attributes":{"http.method":"POST","http.route":"/api/v1/orders","http.status_code":201}}';
+    const parsed = parseJSONLogLine(line);
+    expect(parsed?.message).toBe("http.server.request.duration histogram 142.5 ms POST /api/v1/orders 201");
+    expect(parsed?.raw).toBe(line);
+  });
+
+  test("nginx-style access JSON becomes a readable line", () => {
+    const line = '{"time":"2026-09-08T19:23:10+00:00","remote_ip":"192.168.1.50","request_method":"GET","request_uri":"/api/v1/health","status":200,"body_bytes_sent":42,"request_time":0.004}';
+    const parsed = parseJSONLogLine(line);
+    expect(parsed?.message).toBe("192.168.1.50 GET /api/v1/health 200 42B 0.004s");
+    expect(parsed?.level).toBeUndefined();
+    expect(parsed?.raw).toBe(line);
+  });
+
+  test("access logs with 4xx/5xx status map to WARN/ERROR", () => {
+    expect(parseJSONLogLine('{"request_method":"GET","request_uri":"/missing","status":404}')?.level).toBe("WARN");
+    expect(parseJSONLogLine('{"request_method":"GET","request_uri":"/boom","status":502}')?.level).toBe("ERROR");
+  });
+
+  test("a combined nginx request field still parses", () => {
+    expect(parseJSONLogLine('{"remote_addr":"10.0.0.1","request":"POST /orders HTTP/1.1","status":201}')?.message).toBe(
+      "10.0.0.1 POST /orders 201",
+    );
+  });
+
+  test("an application log that also has method/path/status keeps its message", () => {
+    const parsed = parseJSONLogLine('{"level":"info","msg":"handled request","method":"GET","path":"/x","status":200}');
+    expect(parsed?.message).toBe("handled request");
+    expect(parsed?.level).toBe("INFO");
+  });
+
+  test("OTLP log records use body.stringValue and keep the full payload as raw", () => {
+    const line = '{"timeUnixNano":"1788902590000000000","body":{"stringValue":"HTTP request processed"},"attributes":[{"key":"http.status_code","value":{"intValue":404}},{"key":"http.method","value":{"stringValue":"GET"}},{"key":"url.path","value":{"stringValue":"/missing-page"}}]}';
+    const parsed = parseJSONLogLine(line);
+    expect(parsed?.message).toBe("HTTP request processed");
+    expect(parsed?.raw).toBe(line);
+  });
+
+  test("OTLP records without a body fall back to HTTP attributes", () => {
+    const line = '{"timeUnixNano":"1","attributes":[{"key":"http.method","value":{"stringValue":"GET"}},{"key":"url.path","value":{"stringValue":"/missing-page"}},{"key":"http.status_code","value":{"intValue":404}}]}';
+    expect(parseJSONLogLine(line)?.message).toBe("GET /missing-page 404");
+    expect(parseJSONLogLine(line)?.level).toBeUndefined();
+  });
+
   test("matchLog searches the raw JSON payload as well as the extracted message", () => {
     const ev = {
       timestamp: "2026-08-30T00:00:00.000Z",
