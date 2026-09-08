@@ -2,12 +2,12 @@ import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type WriteStream } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { type Bus } from "../../shared/events.ts";
-import { LogReceived, newEvent } from "../../shared/events.ts";
+import { type Bus, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
+import type { LogStore } from "../../ports/log-store.ts";
 import { ensureDir, exportsDir, logsDir } from "./storage.ts";
 
-import { LevelError, LevelFatal, type LogEvent, type LogParser, parseJSONLogLine, type LogFilter, parseLevel, parseRequestID, matchLog, type LogPageDirection, type LogPageRequest, type LogPage, type LogFacets, clampLogPageSize } from "../../domain/logs/logs.ts";
+import { LevelError, LevelFatal, type LogEvent, type LogParser, parseJSONLogLine, type LogFilter, parseLevel, parseRequestID, matchLog, type LogPageDirection, type LogPageRequest, type LogPage, type LogFacets, clampLogPageSize, truncateLogLine } from "../../domain/logs/logs.ts";
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
@@ -97,17 +97,19 @@ export class LogManager {
     this.parsers = parsers;
   }
 
-  append(ev: Omit<LogEvent, "seq">): void {
-    const parsed = this.parseLine(ev.message);
+  append(ev: Omit<LogEvent, "seq">): LogEvent {
+    const message = truncateLogLine(ev.message);
+    const parsed = this.parseLine(message);
     const redact = (text: string) => (this.detector ? this.detector.redactText(text) : text);
     const structured = parsed.raw !== undefined;
-    const rawText = redact(ev.message);
+    const rawText = redact(message);
+    const extracted = parsed.message !== undefined ? redact(truncateLogLine(parsed.message)) : undefined;
     const next: LogEvent = {
       ...ev,
       timestamp: ev.timestamp || new Date().toISOString(),
-      level: ev.level || parsed.level || parseLevel(ev.message),
-      request_id: ev.request_id || parsed.request_id || parseRequestID(ev.message),
-      message: structured && parsed.message !== undefined ? redact(parsed.message) : rawText,
+      level: ev.level || parsed.level || parseLevel(message),
+      request_id: ev.request_id || parsed.request_id || parseRequestID(message),
+      message: structured && extracted !== undefined ? extracted : rawText,
       raw: structured ? rawText : undefined,
       seq: this.nextSeq++,
     };
@@ -134,6 +136,7 @@ export class LogManager {
         }),
       );
     }
+    return next;
   }
 
   // Waits for all writes queued so far to land on disk. Persistence is
@@ -293,6 +296,28 @@ export class LogManager {
   exportTo(path: string, filter: LogFilter): void {
     writeLogExport(path, this.query(filter));
   }
+}
+
+export function inProcessLogStore(mgr: LogManager): LogStore {
+  return {
+    append: (event) => {
+      mgr.append(event);
+    },
+    query: async (filter) => mgr.query(filter),
+    queryPage: async (filter, page) => mgr.queryPage(filter, page),
+    queryFacets: async (filter) => mgr.queryFacets(filter),
+    snapshot: () => mgr.snapshot(),
+    exportTo: async (path, filter) => {
+      mgr.exportTo(path, filter);
+    },
+    setParsers: (parsers) => {
+      mgr.setParsers(parsers);
+    },
+    setSecrets: (_extraMarkers, _extraPatterns) => {
+      // The supervisor updates the same Detector instance this manager holds.
+    },
+    close: () => mgr.close(),
+  };
 }
 
 export function defaultExportPath(now = new Date()): string {

@@ -10,6 +10,8 @@ import {
   defaultExportPath,
   defaultLogParser,
   LogManager,
+  MAX_JSON_LOG_BYTES,
+  MAX_LOG_LINE_CHARS,
   MAX_LOG_PAGE_SIZE,
   matchLog,
   parseJSONLogLine,
@@ -41,6 +43,21 @@ describe("LogManager persistence", () => {
 
     expect(mgr.query({}).map((event) => event.message)).toEqual(["line 3", "line 4", "line 5"]);
     expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 } });
+  });
+
+  test("append truncates lines longer than MAX_LOG_LINE_CHARS", () => {
+    const mgr = new LogManager(10, undefined, new Detector([], []), false, tmp(), "cap", 0, 0);
+    mgr.append({
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      level: "INFO",
+      message: "a".repeat(MAX_LOG_LINE_CHARS + 50),
+      pid: 1,
+    });
+    const stored = mgr.query({})[0];
+    expect(stored?.message).toHaveLength(MAX_LOG_LINE_CHARS);
+    expect(stored?.message).toBe("a".repeat(MAX_LOG_LINE_CHARS));
   });
 
   test("writes redacted lines to the session file", async () => {
@@ -215,6 +232,13 @@ describe("LogManager persistence", () => {
     expect(compileLogSearch("a{65}")).toBeUndefined();
     expect(compileLogSearch("[")).toBeUndefined();
     expect(compileLogSearch("x".repeat(201))).toBeUndefined();
+  });
+
+  test("parseJSONLogLine skips JSON larger than MAX_JSON_LOG_BYTES", () => {
+    const over = `{"msg":"${"x".repeat(MAX_JSON_LOG_BYTES)}"}`;
+    expect(over.length).toBeGreaterThan(MAX_JSON_LOG_BYTES);
+    expect(parseJSONLogLine(over)).toBeUndefined();
+    expect(parseJSONLogLine('{"msg":"ok"}')?.message).toBe("ok");
   });
 });
 

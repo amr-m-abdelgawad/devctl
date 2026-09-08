@@ -53,7 +53,7 @@ export function applyRegistry(host: ReloadHost): void {
   if (host.registry.tokenProviders.length > 0) {
     host.tokens.replaceProviders(host.registry.tokenProviders);
   }
-  host.logs.setParsers(host.registry.logParsers);
+  host.logs.setParsers(host.registry.logParsers, host.registry.pluginPaths);
 }
 
 export function checkPluginHealthTypes(registry: Registry | undefined, cfg: DevctlConfig): void {
@@ -203,6 +203,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   // asking for a restart; reloading plugins mid-session is out of scope.
   if (secretsChanged) {
     host.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns);
+    host.logs.setSecrets(next.secrets.extra_markers, next.secrets.extra_patterns);
   }
   if (proxyChanged) {
     const wasRunning = host.proxy?.isRunning() ?? false;

@@ -505,7 +505,7 @@ export class Supervisor {
       case "status":
         return this.snapshot();
       case "logs":
-        return this.queryLogs({
+        return await this.queryLogs({
           services: asStringArray(rec.services),
           level: typeof rec.level === "string" ? rec.level : "",
           search: typeof rec.search === "string" ? rec.search : "",
@@ -516,7 +516,7 @@ export class Supervisor {
           export: typeof rec.export === "string" ? rec.export : "",
         });
       case "logs_page":
-        return this.queryLogsPage({
+        return await this.queryLogsPage({
           services: asStringArray(rec.services),
           level: typeof rec.level === "string" ? rec.level : "",
           search: typeof rec.search === "string" ? rec.search : "",
@@ -529,7 +529,7 @@ export class Supervisor {
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
         });
       case "logs_stats":
-        return this.queryLogsFacets({
+        return await this.queryLogsFacets({
           services: asStringArray(rec.services),
           level: typeof rec.level === "string" ? rec.level : "",
           search: typeof rec.search === "string" ? rec.search : "",
@@ -1024,8 +1024,8 @@ export class Supervisor {
     return status;
   }
 
-  queryLogs(req: LogsRequest): { events: LogEvent[] } {
-    const events = this.logs.query({
+  async queryLogs(req: LogsRequest): Promise<{ events: LogEvent[] }> {
+    const events = await this.logs.query({
       services: req.services,
       level: req.level,
       search: req.search,
@@ -1035,7 +1035,7 @@ export class Supervisor {
       until: req.until,
     });
     if (req.export) {
-      this.logs.exportTo(req.export, {
+      await this.logs.exportTo(req.export, {
         services: req.services,
         level: req.level,
         search: req.search,
@@ -1052,7 +1052,7 @@ export class Supervisor {
   // rather than replacing it so CLI/TUI/MCP consumers can migrate to paging
   // one at a time; queryLogs()/the plain "logs" RPC still returns everything
   // matching, unbounded, until every consumer has moved off it.
-  queryLogsPage(req: LogFilter & LogPageRequest): LogPage {
+  async queryLogsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
     return this.logs.queryPage(
       {
         services: req.services,
@@ -1067,7 +1067,7 @@ export class Supervisor {
     );
   }
 
-  queryLogsFacets(req: LogFilter): LogFacets {
+  async queryLogsFacets(req: LogFilter): Promise<LogFacets> {
     return this.logs.queryFacets({
       services: req.services,
       level: req.level,

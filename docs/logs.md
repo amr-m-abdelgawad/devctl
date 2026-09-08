@@ -7,6 +7,8 @@ Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, plus proxy
 ## Buffer and persistence
 
 - In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills.
+- The live ring lives in a Bun Worker behind `LogStore` when running from source or npm, so parse and search do not stall the supervisor event loop. The main thread only receives page/facet/export results (and a cached snapshot for `status`). Compiled standalone binaries (`bun build --compile`) keep the ring in-process — Bun 1.4.0 cannot resolve the worker script inside a single-file executable. If the worker fails to start, the daemon falls back to the in-process store rather than hanging.
+- Ingest truncates lines longer than 16 KiB and skips `JSON.parse` on payloads larger than 64 KiB. Regex search is already capped (pattern length, nested quantifiers).
 - Optional persistence under `~/.devctl/logs/` (`persistence.enabled`, `directory`, `retention_days`, `max_session_logs`).
 - Ingest is a bounded channel; UI updates batch (~30ms) so a noisy service cannot freeze the TUI.
 - The detached supervisor's own bootstrap stderr (before it has a config, so before any of the above even starts) is a separate file with its own rotation — the last 5 boot attempts are kept, each overwrite-proof against the next. See `devctl daemon logs` in the [CLI reference](cli.md).

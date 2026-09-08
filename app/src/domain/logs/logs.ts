@@ -1,5 +1,7 @@
 export const MAX_LOG_PAGE_SIZE = 5_000;
 export const DEFAULT_LOG_PAGE_SIZE = 500;
+export const MAX_LOG_LINE_CHARS = 16 * 1024;
+export const MAX_JSON_LOG_BYTES = 64 * 1024;
 export const LevelTrace = "TRACE";
 export const LevelDebug = "DEBUG";
 export const LevelInfo = "INFO";
@@ -337,9 +339,19 @@ function parseApplicationJsonLog(obj: Record<string, unknown>, raw: string): Par
   return { message: message ?? raw, level, request_id: requestId, raw };
 }
 
+export function truncateLogLine(line: string): string {
+  if (line.length <= MAX_LOG_LINE_CHARS) {
+    return line;
+  }
+  return line.slice(0, MAX_LOG_LINE_CHARS);
+}
+
 export function parseJSONLogLine(line: string): Partial<LogEvent> | undefined {
   const trimmed = line.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return undefined;
+  }
+  if (trimmed.length > MAX_JSON_LOG_BYTES) {
     return undefined;
   }
   let value: unknown;
