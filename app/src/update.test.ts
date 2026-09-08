@@ -69,7 +69,7 @@ describe("update", () => {
     expect(result.newer).toBe(true);
     expect(result.kind).toBe("npm");
     expect(result.command).toEqual([process.platform === "win32" ? "npm.cmd" : "npm", "install", "--global", `${NPM_PACKAGE}@latest`]);
-    expect(result.hint).toContain("npm install --global");
+    expect(result.hint).toContain(`${process.platform === "win32" ? "npm.cmd" : "npm"} install --global`);
   });
 
   test("formatUpdateStatus reports availability without installing", () => {
