@@ -1,4 +1,5 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
+import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -284,8 +285,12 @@ function validateProfiles(cfg: DevctlConfig): string[] {
 
 function validateProxy(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
-  if (cfg.proxy.listen.host !== "" && !isHost(cfg.proxy.listen.host)) {
-    issues.push("proxy.listen.host must be an IP address or localhost");
+  if (cfg.proxy.listen.host !== "") {
+    if (!isHost(cfg.proxy.listen.host)) {
+      issues.push("proxy.listen.host must be an IP address or localhost");
+    } else if (!isLoopbackBindHost(cfg.proxy.listen.host)) {
+      issues.push("proxy.listen.host must be a loopback address");
+    }
   }
   if (cfg.proxy.enabled && cfg.proxy.listen.port === 0) {
     issues.push("proxy.listen.port is required when proxy.enabled is true");
@@ -332,9 +337,7 @@ function validateTokenEndpoint(cfg: DevctlConfig): string[] {
     return issues;
   }
   const host = ep.host || LOCALHOST;
-  if (host === "0.0.0.0") {
-    issues.push("proxy.token_endpoint.host must be a loopback address");
-  } else if (host !== "" && host !== LOCALHOST && host !== "localhost" && !host.startsWith("127.")) {
+  if (!isLoopbackBindHost(host)) {
     issues.push("proxy.token_endpoint.host must be a loopback address");
   }
   if (ep.port !== 0 && (ep.port < MIN_PORT || ep.port > MAX_PORT)) {

@@ -42,4 +42,5 @@ export type LifecycleSession = HealthHost & {
   assignPendingPorts(pending: string[]): Promise<void>;
   releasePorts(name: string): Promise<void>;
   forgetService(name: string): void;
+  clearRestartRequired(names: string[]): void;
 };

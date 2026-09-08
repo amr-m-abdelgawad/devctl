@@ -26,6 +26,12 @@ describe("security", () => {
     await expect(ep.start()).rejects.toMatchObject({ kind: KindProxy });
   });
 
+  test("token endpoint refuses ::", async () => {
+    const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token() }]);
+    const ep = new TokenEndpoint("::", 0, "internal", tokens);
+    await expect(ep.start()).rejects.toMatchObject({ kind: KindProxy });
+  });
+
   test("token endpoint requires the internal header", async () => {
     const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token() }]);
     const ep = new TokenEndpoint("127.0.0.1", 0, "internal-secret", tokens);
@@ -52,6 +58,12 @@ describe("security", () => {
   test("proxy still refuses 0.0.0.0", async () => {
     const cfg = defaultConfig().proxy;
     cfg.listen = { host: "0.0.0.0", port: 18998 };
+    await expect(new ProxyServer(cfg).start()).rejects.toMatchObject({ kind: KindProxy });
+  });
+
+  test("proxy still refuses ::", async () => {
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "::", port: 18998 };
     await expect(new ProxyServer(cfg).start()).rejects.toMatchObject({ kind: KindProxy });
   });
 });

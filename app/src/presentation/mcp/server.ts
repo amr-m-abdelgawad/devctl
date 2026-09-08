@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
 import { VERSION } from "../../version.ts";
 import {
@@ -19,10 +20,8 @@ const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
-
 export function isLoopbackHost(host: string): boolean {
-  return LOOPBACK_HOSTS.has(host);
+  return host !== "" && isLoopbackBindHost(host);
 }
 
 type JsonRpcId = string | number | null;

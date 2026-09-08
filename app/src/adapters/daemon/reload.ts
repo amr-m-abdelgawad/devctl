@@ -191,7 +191,9 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   const prevServices = host.cfg.services;
   host.cfg = replaceSnapshot(host.cfg, next);
   reconcileServices(host, prevServices, next.services);
-  host.restartRequired = result.restart_required;
+  const restartRequired = mergeRestartRequired(host.restartRequired, result.restart_required, Object.keys(next.services));
+  host.restartRequired = restartRequired;
+  result.restart_required = restartRequired;
   // Detector is a cheap, stateless holder of markers/patterns — update it
   // in place so the LogManager/ProxyServer instances that already hold a
   // reference to it see the new rules immediately. LogManager and the
@@ -224,4 +226,15 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   host.persistState();
   void host.refreshIdentity();
   return result;
+}
+
+export function mergeRestartRequired(previous: string[], incoming: string[], stillInConfig: string[]): string[] {
+  const still = new Set(stillInConfig);
+  const pending = new Set(previous.filter((name) => still.has(name)));
+  for (const name of incoming) {
+    if (still.has(name)) {
+      pending.add(name);
+    }
+  }
+  return [...pending].sort();
 }

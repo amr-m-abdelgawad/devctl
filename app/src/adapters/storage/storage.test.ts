@@ -60,12 +60,13 @@ describe("session storage", () => {
       session_id: "2026-08-30T00-00-00Z-abc123",
       repo_root: "/repo",
       profile: "backend",
-      processes: [{ name: "api", pid: 12, command: ["python", "main.py"], cwd: "/repo/api", startTime: "2026-08-30T00:00:00Z", ports: { http: 18000 } }],
+      processes: [{ name: "api", pid: 12, command: ["python", "main.py"], cwd: "/repo/api", startTime: "2026-08-30T00:00:00Z", ports: { http: 18000 }, profile: "backend" }],
     });
     const loaded = readPersistedState("/repo");
     expect(loaded?.profile).toBe("backend");
     expect(loaded?.processes[0]?.command).toEqual(["python", "main.py"]);
     expect(loaded?.processes[0]?.ports.http).toBe(18000);
+    expect(loaded?.processes[0]?.profile).toBe("backend");
     if (process.platform !== "win32") {
       const mode = statSync(statePath("/repo")).mode & 0o777;
       expect(mode).toBe(0o600);

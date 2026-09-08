@@ -10,6 +10,7 @@ import { available } from "../net/ports.ts";
 import { processAlive, readPersistedState, socketPath, writePersistedState } from "../storage/storage.ts";
 import { ProcessManager } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
+import { mergeRestartRequired } from "./reload.ts";
 import { saveTuiPreferences } from "../config/tui-preferences.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
@@ -465,6 +466,12 @@ describe("supervisor snapshot", () => {
     const result = diffReload(prev, next);
     expect(result.restart_required).toContain("api");
     expect(result.changes.api).toContain("command");
+  });
+
+  test("mergeRestartRequired unions outstanding names that are still in config", () => {
+    expect(mergeRestartRequired(["identity"], [], ["identity", "api"])).toEqual(["identity"]);
+    expect(mergeRestartRequired(["identity"], ["api"], ["identity", "api"])).toEqual(["api", "identity"]);
+    expect(mergeRestartRequired(["gone"], [], ["api"])).toEqual([]);
   });
 
   test("startTime is set while a service runs and cleared once stopped", async () => {
@@ -1344,6 +1351,7 @@ describe("per-service launch context", () => {
       await sup.start({ services: ["api"], profile: "backend" });
       expect(sup.snapshot().services.api?.profile).toBe("backend");
       expect(sup.snapshot().services.api?.env_source).toBe("daemon");
+      expect(readPersistedState(dir)?.processes.find((proc) => proc.name === "api")?.profile).toBe("backend");
 
       await sup.restart(["api"], { clientEnv: { X: "1" } });
       expect(sup.snapshot().services.api?.env_source).toBe("client");
@@ -1408,6 +1416,7 @@ describe("adopted service health environments", () => {
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
     cfg.shutdown.grace_seconds = 1;
+    cfg.profiles.backend = { services: ["api"], environment: { DEVCTL_PROFILE_MARKER: "from-backend" } };
     cfg.services.api = {
       ...emptyService(),
       command: { args: ["python", "main.py"], shell: false },
@@ -1415,7 +1424,7 @@ describe("adopted service health environments", () => {
         ...emptyHealth(),
         type: "command",
         command: {
-          args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(outFile)}, process.env.PATH ?? '');`],
+          args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(outFile)}, process.env.DEVCTL_PROFILE_MARKER ?? '');`],
           shell: false,
         },
         interval_seconds: 0.05,
@@ -1437,10 +1446,61 @@ describe("adopted service health environments", () => {
     try {
       await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
 
-      await waitFor(() => existsSync(outFile) && readFileSync(outFile, "utf8").length > 0);
-      expect(readFileSync(outFile, "utf8").length).toBeGreaterThan(0);
+      await waitFor(() => existsSync(outFile) && readFileSync(outFile, "utf8") === "from-backend");
+      expect(readFileSync(outFile, "utf8")).toBe("from-backend");
     } finally {
       await sup.stop(["api"]).catch(() => {});
+    }
+  }, 10_000);
+
+  test("recoverSession restores each leftover process's own profile, not only the last daemon-wide one", async () => {
+    const dir = tmp();
+    const apiOut = join(dir, "api-health-env.txt");
+    const workerOut = join(dir, "worker-health-env.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.profiles.one = { services: ["api"], environment: { DEVCTL_PROFILE_MARKER: "from-one" } };
+    cfg.profiles.two = { services: ["worker"], environment: { DEVCTL_PROFILE_MARKER: "from-two" } };
+    const healthFor = (outFile: string) => ({
+      ...emptyHealth(),
+      type: "command" as const,
+      command: {
+        args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(outFile)}, process.env.DEVCTL_PROFILE_MARKER ?? '');`],
+        shell: false,
+      },
+      interval_seconds: 0.05,
+      timeout_seconds: 2,
+    });
+    cfg.services.api = { ...emptyService(), command: { args: ["python", "main.py"], shell: false }, health: healthFor(apiOut) };
+    cfg.services.worker = { ...emptyService(), command: { args: ["python", "worker.py"], shell: false }, health: healthFor(workerOut) };
+    const leftovers = {
+      api: { pid: 4242, command: "python main.py", cwd: "" },
+      worker: { pid: 4343, command: "python worker.py", cwd: "" },
+    };
+    writePersistedState(dir, {
+      session_id: "2026-08-30T00-00-00Z-abc123",
+      repo_root: dir,
+      profile: "two",
+      processes: [
+        { name: "api", pid: leftovers.api.pid, command: ["python", "main.py"], cwd: "", startTime: "", ports: {}, profile: "one" },
+        { name: "worker", pid: leftovers.worker.pid, command: ["python", "worker.py"], cwd: "", startTime: "", ports: {}, profile: "two" },
+      ],
+    });
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      processAlive: (pid) => pid === leftovers.api.pid || pid === leftovers.worker.pid,
+      inspectProcess: async (pid) => (pid === leftovers.api.pid ? leftovers.api : pid === leftovers.worker.pid ? leftovers.worker : undefined),
+    });
+    try {
+      await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
+      expect(sup.snapshot().services.api?.profile).toBe("one");
+      expect(sup.snapshot().services.worker?.profile).toBe("two");
+      await waitFor(() => existsSync(apiOut) && readFileSync(apiOut, "utf8") === "from-one");
+      await waitFor(() => existsSync(workerOut) && readFileSync(workerOut, "utf8") === "from-two");
+    } finally {
+      await sup.stop([]).catch(() => {});
     }
   }, 10_000);
 
@@ -1541,6 +1601,53 @@ services:
       await sup.reload();
 
       expect(sup.snapshot().services.worker?.state).toBe("STOPPED");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("outstanding restart requirements survive a no-op reload and clear after restart", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const identityYaml = (commandBlock: string): string => `version: 1
+project:
+  name: reload-test
+services:
+  identity:
+    command:
+${commandBlock}
+`;
+    writeConfig(
+      configPath,
+      identityYaml(`      - echo
+      - ok
+`),
+    );
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      writeConfig(
+        configPath,
+        identityYaml(`      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+`),
+      );
+      const first = await sup.reload();
+      expect(first.restart_required).toEqual(["identity"]);
+      expect(sup.snapshot().restart_required).toEqual(["identity"]);
+
+      const second = await sup.reload();
+      expect(second.restart_required).toEqual(["identity"]);
+      expect(sup.snapshot().restart_required).toEqual(["identity"]);
+
+      await sup.dispatch("restart", { services: ["identity"] });
+      expect(sup.snapshot().restart_required).toEqual([]);
     } finally {
       await sup.stop([]).catch(() => {});
     }

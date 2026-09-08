@@ -1,6 +1,6 @@
 import type { ServiceConfig } from "../domain/config/types.ts";
 import { DEFAULT_MAX_RETRIES, HealthPolicy, RestartPolicy } from "../domain/service/policies.ts";
-import { HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateHealthy, StateUnhealthy, StateRestarting, StateRunning, StateStopping, StateStopped, type ServiceHealth } from "../domain/service/services.ts";
+import { HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateHealthy, StateUnhealthy, StateRestarting, StateRunning, StateStopping, StateStopped, type ServiceHealth, type ServiceState } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { ProcessRuntime } from "../ports/process-runtime.ts";
 import { humanMessage, newError } from "../shared/errors.ts";
@@ -55,6 +55,10 @@ export class HealthMonitor {
     if (!this.isCurrentGeneration(name, gen)) {
       return;
     }
+    // Stop further ticks immediately. Do not bump the lifecycle generation:
+    // armRestart's gen guard still needs this epoch so the scheduled crash
+    // restart can fire. In-flight probes are ignored in setHealth instead.
+    this.clearHealthWatch(name);
     const rt = this.host().runtimes.get(name);
     if (rt?.state === StateFailed) {
       // fail() already set this state and is in the middle of killing the
@@ -128,6 +132,10 @@ export class HealthMonitor {
           // a new pid; without this guard its stale result would land on
           // whatever process now holds this service's name instead.
           if (!this.isCurrentGeneration(name, gen)) {
+            return;
+          }
+          const current = this.host().runtimes.get(name);
+          if (current && healthResultIgnored(current.state)) {
             return;
           }
           if (res.status === HealthUnhealthy && this.clock.unixMs() - startedAt < svc.health.start_period_seconds * 1000) {
@@ -235,7 +243,7 @@ export class HealthMonitor {
 
   private setHealth(name: string, health: ServiceHealth, message: string): void {
     const rt = this.host().runtimes.get(name);
-    if (!rt) {
+    if (!rt || healthResultIgnored(rt.state)) {
       return;
     }
     rt.health = health;
@@ -306,6 +314,10 @@ export class HealthMonitor {
     }
   }
 
+}
+
+function healthResultIgnored(state: ServiceState): boolean {
+  return state === StateRestarting || state === StateStopping || state === StateStopped || state === StateFailed;
 }
 
 function healthLevel(status: ServiceHealth): string {

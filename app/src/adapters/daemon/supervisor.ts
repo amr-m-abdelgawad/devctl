@@ -52,8 +52,10 @@ import {
   StateHealthy,
   StateUnhealthy,
   StateRunning,
+  dependentsClosure,
   emptyRuntime,
   formatPlan,
+  profileEnvironment,
   type Plan,
   type Runtime,
   type ServiceHealth,
@@ -596,7 +598,10 @@ export class Supervisor {
   }
 
   async start(req: StartRequest): Promise<Plan> {
-    return this.orchestrator.start(req);
+    const plan = await this.orchestrator.start(req);
+    const blocked = new Set((plan.blockers ?? []).map((blocker) => blocker.name));
+    this.dropRestartRequired(plan.waves.flat().filter((name) => !blocked.has(name)));
+    return plan;
   }
 
   private lifecycleSession(): LifecycleSession {
@@ -666,6 +671,7 @@ export class Supervisor {
       log: (service, level, message) => self.log(service, level, message),
       releasePorts: (name) => self.releasePorts(name),
       forgetService: (name) => self.forgetService(name),
+      clearRestartRequired: (names) => self.dropRestartRequired(names),
     };
   }
 
@@ -716,7 +722,7 @@ export class Supervisor {
     const svc = this.cfg.services[service];
     if (!svc) throw newError(KindServiceNotFound, `unknown service ${service}`);
     const profile = this.serviceProfile.get(service) ?? this.profile;
-    const profileEnv = this.serviceProfileEnv.get(service) ?? this.profileEnv;
+    const profileEnv = profile !== "" ? profileEnvironment(this.cfg, profile) : this.profileEnv;
     const { env, workDir } = await this.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv, !svc.container);
     if (printEnv) return { service, code: 0, stdout: "", stderr: "", environment: env };
     if (command.length === 0) throw newError(KindGeneral, "exec command is required");
@@ -815,7 +821,17 @@ export class Supervisor {
   }
 
   async restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string>; auto?: boolean }): Promise<void> {
-    return this.orchestrator.restart(names, opts);
+    const targets = opts?.cascade === true ? dependentsClosure(this.cfg, names) : names;
+    await this.orchestrator.restart(names, opts);
+    this.dropRestartRequired(targets);
+  }
+
+  private dropRestartRequired(names: string[]): void {
+    if (names.length === 0) {
+      return;
+    }
+    const drop = new Set(names);
+    this.restartRequired = this.restartRequired.filter((name) => !drop.has(name));
   }
 
   async startProxy(): Promise<void> {
@@ -1206,6 +1222,7 @@ export class Supervisor {
         cwd: meta?.cwd ?? handle.workDir,
         startTime: (meta?.startTime ?? handle.startTime).toISOString(),
         ports: this.ports.get(handle.name) ?? {},
+        profile: this.serviceProfile.get(handle.name) ?? this.profile,
       });
     }
     writePersistedState(this.cfg.repoRoot, {

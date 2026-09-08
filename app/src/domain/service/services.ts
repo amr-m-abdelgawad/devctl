@@ -305,6 +305,14 @@ export function firstProfileName(cfg: DevctlConfig): ProfileId {
   return profileId(names[0] ?? "");
 }
 
+/** Current environment for a profile name. Unknown or empty names yield {}. */
+export function profileEnvironment(cfg: DevctlConfig, name: string): Record<string, string> {
+  if (name === "") {
+    return {};
+  }
+  return { ...(cfg.profiles[profileId(name)]?.environment ?? {}) };
+}
+
 export function resolveStartRequest(
   cfg: DevctlConfig,
   opts: { services?: string[]; profile?: ProfileId; activeProfile?: ProfileId },

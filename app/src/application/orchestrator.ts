@@ -11,10 +11,12 @@ import {
   StateStarting,
   StateRunning,
   StateFailed,
+  StateRestarting,
   HealthUnknown,
   StateStopped,
   StateStopping,
   dependentsClosure,
+  profileEnvironment,
   resolveStartRequest,
   shutdownPlan,
   shutdownPlanExact,
@@ -84,8 +86,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     });
     if (resolved.profile) {
       s.profile = resolved.profile;
+      s.profileEnv = resolved.env;
     }
-    s.profileEnv = resolved.env;
     // Only a request that actually carries a client_env replaces the stored
     // fallback for these services — an MCP-initiated or internally-triggered
     // start (never a real client) must not blank out an earlier real one.
@@ -96,9 +98,12 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
     // Every explicit start (client or MCP-initiated) records the profile
     // context it resolved for each named service — see serviceProfile.
+    // Restart reuses stored per-service context unless this request names a
+    // profile. Do not clobber an existing entry with an empty resolved profile.
     for (const name of resolved.services) {
-      s.serviceProfile.set(name, resolved.profile);
-      s.serviceProfileEnv.set(name, resolved.env);
+      if (req.profile !== undefined || !s.serviceProfile.has(name)) {
+        s.serviceProfile.set(name, resolved.profile);
+      }
     }
     // A real start request forgives past restarts for everything it names —
     // see resetRestartCount. `auto` marks a start restart() issued for its
@@ -152,6 +157,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       }
     }
     s.persistState();
+    s.clearRestartRequired(plan.waves.flat().filter((name) => !blocked.has(name)));
     return plan;
   }
 
@@ -193,11 +199,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     const plan = cascade ? this.planStop(s.cfg, names) : this.planStop(s.cfg, names, true);
     const manual = opts?.auto !== true;
     await this.runStopPlan(plan, { resetRestartCounts: manual });
-    // Reuse whichever of these targets already has its own tracked profile
-    // context rather than the daemon-wide profile, which an unrelated
-    // service's start may have since moved on from.
-    const profile = targets.map((name) => s.serviceProfile.get(name)).find((p) => p !== undefined) ?? s.profile;
-    await this.start({ services: targets, profile, client_env: opts?.clientEnv, auto: opts?.auto });
+    await this.start({ services: targets, client_env: opts?.clientEnv, auto: opts?.auto });
   }
 
   async runStopPlan(plan: Plan, opts?: { resetRestartCounts?: boolean }): Promise<void> {
@@ -261,6 +263,14 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     if (!current) {
       return false;
     }
+    if (
+      current.state === StateRestarting ||
+      current.state === StateStopping ||
+      current.state === StateStopped ||
+      current.state === StateFailed
+    ) {
+      return false;
+    }
     if (current.health === HealthHealthy || current.state === StateHealthy) {
       return true;
     }
@@ -281,59 +291,70 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
     s.setState(name, StateStarting, HealthUnknown, 0, "");
     const gen = this.health.bumpGeneration(name);
-    await s.prepareServiceIdentity(name, svc);
-    const assigned = s.ports.get(name) ?? {};
-    const { env, workDir } = await s.resolveServiceExecution(name, svc, profile, profileEnv, s.clientEnv.get(name), !svc.container);
-    if (runHooks) {
-      try {
+    const launchProfile = s.serviceProfile.get(name) ?? profile;
+    const launchEnv = launchProfile !== "" ? profileEnvironment(s.cfg, launchProfile) : { ...profileEnv };
+    s.serviceProfileEnv.set(name, launchEnv);
+    let assigned: Record<string, number> = {};
+    let env: Record<string, string> = {};
+    let workDir = "";
+    let handle!: Awaited<ReturnType<ProcessRuntime["start"]>>;
+    try {
+      await s.prepareServiceIdentity(name, svc);
+      assigned = s.ports.get(name) ?? {};
+      const resolved = await s.resolveServiceExecution(name, svc, launchProfile, launchEnv, s.clientEnv.get(name), !svc.container);
+      env = resolved.env;
+      workDir = resolved.workDir;
+      if (runHooks) {
         await this.runTransient(`${name}:pre_start`, svc.hooks.pre_start, svc.shell, workDir, env);
-      } catch (err) {
-        await s.fail(name, err);
-        throw err;
       }
-    }
-    // Identity resolution, env resolution, and pre_start can each take long
-    // enough for a stop()/restart() to land on this same name in the
-    // meantime — bumping the generation past `gen`. Spawning anyway would
-    // resurrect a service the caller already believes is stopped and
-    // silently undo that call's result, so bail out here instead.
-    if (!this.health.isCurrentGeneration(name, gen)) {
-      return;
-    }
-    const onLine = (stream: "stdout" | "stderr", line: string): void => {
-      s.logs.append({
-        timestamp: this.clock.isoNow(), service: name, source: stream, stream,
-        level: "", message: line, pid: handle.pid,
-      });
-    };
-    const onExit = (code: number, err?: Error): void => this.health.onExit(name, gen, code, err);
-    const handle = svc.container
-      ? await this.processes.startContainer({
-          name,
-          runtime: svc.container.runtime === "podman" ? "podman" : "docker",
-          containerName: `${s.containerPrefix}${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
-          image: svc.container.image,
-          command: [...svc.command.args],
-          env: { ...env, ...svc.container.env },
-          ports: assigned,
-          targetPorts: svc.container.ports,
-          volumes: svc.container.volumes,
-          workDir,
-          onLine,
-          onExit,
-        })
-      : await this.processes.start({
-          name,
-          args: [...svc.command.args],
-          shell: svc.shell || svc.command.shell,
-          workDir,
-          env,
-          graceMs: graceSeconds(s.cfg.shutdown) * 1000,
-          captureStdout: captureStdout(svc),
-          captureStderr: captureStderr(svc),
-          onLine,
-          onExit,
+      // Identity resolution, env resolution, and pre_start can each take long
+      // enough for a stop()/restart() to land on this same name in the
+      // meantime — bumping the generation past `gen`. Spawning anyway would
+      // resurrect a service the caller already believes is stopped and
+      // silently undo that call's result, so bail out here instead.
+      if (!this.health.isCurrentGeneration(name, gen)) {
+        return;
+      }
+      const onLine = (stream: "stdout" | "stderr", line: string): void => {
+        s.logs.append({
+          timestamp: this.clock.isoNow(), service: name, source: stream, stream,
+          level: "", message: line, pid: handle.pid,
         });
+      };
+      const onExit = (code: number, err?: Error): void => this.health.onExit(name, gen, code, err);
+      handle = svc.container
+        ? await this.processes.startContainer({
+            name,
+            runtime: svc.container.runtime === "podman" ? "podman" : "docker",
+            containerName: `${s.containerPrefix}${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
+            image: svc.container.image,
+            command: [...svc.command.args],
+            env: { ...env, ...svc.container.env },
+            ports: assigned,
+            targetPorts: svc.container.ports,
+            volumes: svc.container.volumes,
+            workDir,
+            onLine,
+            onExit,
+          })
+        : await this.processes.start({
+            name,
+            args: [...svc.command.args],
+            shell: svc.shell || svc.command.shell,
+            workDir,
+            env,
+            graceMs: graceSeconds(s.cfg.shutdown) * 1000,
+            captureStdout: captureStdout(svc),
+            captureStderr: captureStderr(svc),
+            onLine,
+            onExit,
+          });
+    } catch (err) {
+      if (this.health.isCurrentGeneration(name, gen)) {
+        await s.fail(name, err);
+      }
+      throw err;
+    }
     if (!this.health.isCurrentGeneration(name, gen)) {
       // A stop()/restart() landed on this name in the instant between the
       // check above and this spawn actually completing. Only clean up if

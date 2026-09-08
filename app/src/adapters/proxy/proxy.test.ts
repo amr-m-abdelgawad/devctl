@@ -1,4 +1,8 @@
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
+import { createServer as createHttpsServer, request as httpsRequest } from "node:https";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { connect } from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
@@ -8,7 +12,7 @@ import { type CredentialRecord, type CredentialStore } from "../storage/credenti
 import { KindProxy } from "../../shared/errors.ts";
 import { Bus, TokenRefreshFailed, TokenRefreshed } from "../../shared/events.ts";
 import { LogManager } from "../storage/logs.ts";
-import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
+import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "../secrets/detector.ts";
 import { TokenManager, type AccessToken } from "../google/token.ts";
 
@@ -163,6 +167,62 @@ describe("proxy", () => {
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
   });
 
+  test("proxies HTTPS WebSocket upgrades", async () => {
+    const testdata = join(dirname(fileURLToPath(import.meta.url)), "testdata");
+    const key = readFileSync(join(testdata, "localhost-key.pem"));
+    const cert = readFileSync(join(testdata, "localhost-cert.pem"));
+    const upstream = createHttpsServer({ key, cert });
+    upstream.on("upgrade", (_req, socket, head) => {
+      socket.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+      if (head.length > 0) socket.write(head);
+      socket.on("data", (chunk) => socket.write(chunk));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
+    const reservedAddr = reserved.address();
+    const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({
+      name: "wss",
+      match: { host: "", path: "/socket" },
+      upstream: { url: `https://127.0.0.1:${upPort}` },
+      auth: NONE_AUTH,
+    });
+    const proxy = new ProxyServer(cfg);
+    await proxy.start();
+    const previousTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+    try {
+      const client = connect(proxyPort, "127.0.0.1");
+      let received = "";
+      await new Promise<void>((resolve, reject) => {
+        client.once("error", reject);
+        client.on("data", (chunk) => {
+          received += chunk.toString();
+          if (received.includes("101 Switching Protocols") && !received.includes("round-trip")) client.write("round-trip");
+          if (received.includes("round-trip")) resolve();
+        });
+        client.write("GET /socket HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+      });
+      expect(received).toContain("101 Switching Protocols");
+      expect(received).toContain("round-trip");
+    } finally {
+      if (previousTls === undefined) {
+        delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+      } else {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = previousTls;
+      }
+      await proxy.stop();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  });
+
   test("rejects unmatched WebSocket upgrades without hanging", async () => {
     const reserved = createServer();
     await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
@@ -193,6 +253,11 @@ describe("proxy", () => {
     expect(resolveProxyTarget(base, "http://evil.example/steal").href).toBe("http://127.0.0.1:8000/steal");
     expect(resolveProxyTarget(base, "//evil.example/steal").href).toBe("http://127.0.0.1:8000/steal");
     expect(resolveProxyTarget(base, "///evil.example").href).toBe("http://127.0.0.1:8000/");
+  });
+
+  test("proxyUpgradeRequest uses https.request for https upstreams", () => {
+    expect(proxyUpgradeRequest(new URL("http://127.0.0.1:8000/"))).toBe(httpRequest);
+    expect(proxyUpgradeRequest(new URL("https://127.0.0.1:8000/"))).toBe(httpsRequest);
   });
 
   test("failed upstream writes a plain 502 without the exception text", async () => {
@@ -235,6 +300,13 @@ describe("proxy", () => {
   test("refuses to bind 0.0.0.0", async () => {
     const cfg = defaultConfig().proxy;
     cfg.listen = { host: "0.0.0.0", port: 18999 };
+    const server = new ProxyServer(cfg);
+    await expect(server.start()).rejects.toMatchObject({ kind: KindProxy });
+  });
+
+  test("refuses to bind ::", async () => {
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "::", port: 18999 };
     const server = new ProxyServer(cfg);
     await expect(server.start()).rejects.toMatchObject({ kind: KindProxy });
   });

@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `devctl update` and TUI `/update` detect how this binary was installed (npm, npx, Homebrew, GitHub Release, source) and, for npm and Homebrew, run that channel's upgrade. `--check` and `--json` still report only. `/version` stays a check.
 
+### Fixed
+
+- Proxy, token endpoint, and MCP listeners refuse IPv6 unspecified (`::`) and other non-loopback binds, not only `0.0.0.0`.
+- A failed spawn no longer leaves the service stuck in `STARTING`, which blocked every later start of that name.
+- A crash restart is no longer skipped when a stale health probe still reports `HEALTHY` after the process has already exited.
+- Restarting several services no longer applies the first target's profile environment to the rest.
+- Session recovery restores each leftover process's own profile (and re-resolves that profile's current environment) instead of assigning every service the last daemon-wide profile.
+- A no-op configuration reload no longer clears outstanding `restart_required` names; starting or restarting a service through CLI, TUI, or MCP drops it from that list.
+- Restarting a service keeps its profile name but re-resolves that profile's environment from the current configuration, so edited profile variables take effect.
+- HTTPS upstreams can complete WebSocket upgrades (the proxy used `http.request` for every upgrade).
+
 ## [0.2.3] - 2026-09-04
 
 ### Added

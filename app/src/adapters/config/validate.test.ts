@@ -62,6 +62,18 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
   });
 
+  test("rejects proxy listen on ::", () => {
+    const cfg = withService("api");
+    cfg.proxy.listen.host = "::";
+    expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
+  });
+
+  test("rejects token endpoint bound to ::", () => {
+    const cfg = withService("api");
+    cfg.proxy.token_endpoint = { enabled: true, host: "::", port: 0 };
+    expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
+  });
+
   test("validates plugin paths relative to the repository root", () => {
     const root = join(process.env.TMPDIR ?? "/tmp", `devctl-validate-${Date.now()}-${Math.random()}`);
     mkdirSync(root, { recursive: true });

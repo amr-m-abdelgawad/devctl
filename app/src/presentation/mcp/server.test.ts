@@ -38,7 +38,9 @@ describe("mcp server", () => {
     const server = new McpHttpServer({ host: "0.0.0.0", port: 18998, token: "t", hostApi: host() });
     await expect(server.start()).rejects.toMatchObject({ kind: KindGeneral });
     expect(isLoopbackHost("0.0.0.0")).toBe(false);
+    expect(isLoopbackHost("::")).toBe(false);
     expect(isLoopbackHost("127.0.0.1")).toBe(true);
+    expect(isLoopbackHost("::1")).toBe(true);
   });
 
   test("requires bearer token and lists tools", async () => {

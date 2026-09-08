@@ -21,6 +21,7 @@ export type PersistedProcess = {
   cwd: string;
   startTime: string;
   ports: Record<string, number>;
+  profile?: string;
 };
 
 export type PersistedState = {

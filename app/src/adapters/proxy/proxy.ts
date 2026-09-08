@@ -1,7 +1,9 @@
-import { createServer, request, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { randomBytes } from "node:crypto";
 import { type Duplex, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, listenAddress } from "../config/index.ts";
+import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
@@ -113,10 +115,10 @@ export class ProxyServer {
   }
 
   start(): Promise<void> {
-    if (this.cfg.listen.host === "0.0.0.0") {
-      return Promise.reject(newError(KindProxy, "refusing to bind proxy to 0.0.0.0 without explicit unsafe configuration"));
-    }
     const host = this.cfg.listen.host || "127.0.0.1";
+    if (!isLoopbackBindHost(host)) {
+      return Promise.reject(newError(KindProxy, `refusing to bind proxy to ${host}`));
+    }
     if (this.cfg.listen.port === 0) {
       return Promise.reject(newError(KindProxy, "proxy.listen.port is required when the proxy is enabled"));
     }
@@ -219,7 +221,7 @@ export class ProxyServer {
       }
 
       const upstream = resolveProxyTarget(route.upstream.url, path);
-      const upstreamReq = request(upstream, { method, headers });
+      const upstreamReq = proxyUpgradeRequest(upstream)(upstream, { method, headers });
       upstreamReq.on("upgrade", (upstreamRes, connectedSocket, upstreamHead) => {
         upstreamSocket = connectedSocket;
         this.upgradedSockets.add(socket);
@@ -440,6 +442,10 @@ async function pipeResponse(resp: Response, res: ServerResponse): Promise<void> 
   });
 }
 
+export function proxyUpgradeRequest(upstream: URL): typeof httpRequest {
+  return (upstream.protocol === "https:" ? httpsRequest : httpRequest) as typeof httpRequest;
+}
+
 export function resolveProxyTarget(upstreamUrl: string, requestUrl: string): URL {
   const configured = new URL(upstreamUrl);
   const resolved = new URL(requestUrl || "/", configured);
@@ -494,8 +500,8 @@ export class TokenEndpoint {
 
   start(): Promise<void> {
     const host = this.host || "127.0.0.1";
-    if (host === "0.0.0.0") {
-      return Promise.reject(newError(KindProxy, "refusing to bind token endpoint to 0.0.0.0"));
+    if (!isLoopbackBindHost(host)) {
+      return Promise.reject(newError(KindProxy, `refusing to bind token endpoint to ${host}`));
     }
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../domain/config/types.ts";
-import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateStopped } from "../domain/service/services.ts";
+import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { HealthCheckerFactory, HealthCheckResult } from "../ports/health-checker.ts";
 import type { ContainerLaunchSpec, ProcessHandle, ProcessRuntime, ProcessSpec } from "../ports/process-runtime.ts";
@@ -16,6 +16,7 @@ class MemoryProcesses implements ProcessRuntime {
   readonly started: ProcessSpec[] = [];
   readonly containers: ContainerLaunchSpec[] = [];
   readonly hooks: string[] = [];
+  readonly failNext = new Set<string>();
   private readonly handles = new Map<string, ProcessHandle>();
   isRunning(name: string): boolean { return this.handles.has(name); }
   async runOnce(spec: Omit<ProcessSpec, "onExit">): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -27,6 +28,10 @@ class MemoryProcesses implements ProcessRuntime {
     return this.start({ name: spec.name, args: spec.command, shell: false, workDir: spec.workDir, env: spec.env, graceMs: 0, onExit: spec.onExit });
   }
   async start(spec: ProcessSpec): Promise<ProcessHandle> {
+    if (this.failNext.has(spec.name)) {
+      this.failNext.delete(spec.name);
+      throw new Error("spawn failed");
+    }
     this.started.push(spec);
     const handle = { name: spec.name, pid: this.started.length, startTime: new Date(), workDir: spec.workDir, args: spec.args, done: new Promise<{ code: number }>(() => {}) };
     this.handles.set(spec.name, handle);
@@ -75,6 +80,7 @@ function harness(checkers: HealthCheckerFactory = { lookup: () => undefined }) {
     },
     persistState: () => {}, log: () => {}, releasePorts: async () => {},
     forgetService: (name) => { orch.health.forget(name); session.runtimes.delete(name); },
+    clearRestartRequired: () => {},
   };
   orch.bind(session);
   cleanups.push(() => orch.health.dispose());
@@ -149,6 +155,67 @@ describe("ServiceOrchestrator", () => {
     await orch.start({ services: ["api"] });
     await until(() => session.runtimes.get("api")?.health === HealthHealthy);
     expect(observed[0]).toEqual({ pid: 1, ports: { http: 1234 }, workDir: "/work", env: { PROFILE: "" } });
+  });
+
+  test("a throwing spawn leaves FAILED so a retry can start again", async () => {
+    const { orch, processes, session } = harness();
+    processes.failNext.add("api");
+    await expect(orch.start({ services: ["api"] })).rejects.toThrow(/failed to start/);
+    expect(session.runtimes.get("api")?.state).toBe(StateFailed);
+    expect(processes.started).toHaveLength(0);
+    await orch.start({ services: ["api"] });
+    expect(processes.started).toHaveLength(1);
+    expect(session.runtimes.get("api")?.state).not.toBe(StateFailed);
+  });
+
+  test("restart preserves each service's launch profile", async () => {
+    const { orch, cfg, session, processes } = harness();
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.services.worker.health.type = "";
+    session.runtimes.set("worker", emptyRuntime("worker"));
+    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "api-profile" } };
+    cfg.profiles.frontend = { services: ["worker"], environment: { MARKER: "worker-profile" } };
+    await orch.start({ services: ["api"], profile: "backend" });
+    await orch.start({ services: ["worker"], profile: "frontend" });
+    await orch.restart(["api", "worker"]);
+    const relaunched = processes.started.slice(-2);
+    expect(relaunched.find((spec) => spec.name === "api")?.env).toEqual({ MARKER: "api-profile", PROFILE: "backend" });
+    expect(relaunched.find((spec) => spec.name === "worker")?.env).toEqual({ MARKER: "worker-profile", PROFILE: "frontend" });
+  });
+
+  test("restart re-resolves profile environment from the current configuration", async () => {
+    const { orch, cfg, processes } = harness();
+    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "old" } };
+    await orch.start({ services: ["api"], profile: "backend" });
+    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "new" } };
+    await orch.restart(["api"]);
+    expect(processes.started.at(-1)?.env).toEqual({ MARKER: "new", PROFILE: "backend" });
+  });
+
+  test("a stale HEALTHY probe after crash does not block respawn", async () => {
+    let resolve!: (result: HealthCheckResult) => void;
+    let calls = 0;
+    const { orch, svc, session, processes } = harness({ lookup: () => ({ check: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<HealthCheckResult>((done) => { resolve = done; });
+      }
+      return { status: HealthHealthy, message: "new process" };
+    } }) });
+    svc.health.type = "custom";
+    svc.health.interval_seconds = 60;
+    svc.health.start_period_seconds = 0;
+    svc.restart = { enabled: true, policy: "on_failure", max_retries: 2, backoff_seconds: 0.01 };
+    await orch.start({ services: ["api"] });
+    await until(() => calls === 1);
+    processes.crash("api");
+    resolve({ status: HealthHealthy, message: "stale" });
+    await until(() => processes.started.length === 2);
+    expect(session.runtimes.get("api")?.state).not.toBe(StateRestarting);
+    expect(processes.isRunning("api")).toBe(true);
+    await until(() => session.runtimes.get("api")?.health === HealthHealthy);
   });
 
   test("crash restart preserves the service profile and skips hooks", async () => {
