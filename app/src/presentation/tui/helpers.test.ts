@@ -3,7 +3,7 @@ import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
 import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
-import { namedPickerItems } from "./helpers/command-catalog.ts";
+import { COMMAND_FOOTER_HINT, namedPickerItems, SLASH_COL_GAP, SLASH_LABEL_MAX, SLASH_NAME_PREFIX, slashCommandColumnWidth, slashCompleteQuery, slashItemKey, slashItemLabel, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
 
 describe("TUI helpers", () => {
@@ -302,6 +302,39 @@ describe("TUI helpers", () => {
     const ranked = paletteOptions("set");
     expect(ranked[0]?.name).toBe("settings");
     expect(ranked.map((item) => item.name).slice(0, 2)).toEqual(["settings", "setup"]);
+  });
+
+  test("slash list keeps a gap after the longest command column", () => {
+    const items = paletteOptions("");
+    const longest = items.reduce((max, cmd) => Math.max(max, slashItemLabel(cmd).length), 0);
+    expect(slashCommandColumnWidth(items)).toBe(SLASH_NAME_PREFIX + Math.min(SLASH_LABEL_MAX, longest) + SLASH_COL_GAP);
+    expect(slashItemLabel(items.find((cmd) => cmd.name === "credentials") ?? items[0]!)).toBe("credentials");
+    expect(slashItemKey({ name: "auth", aliases: [], desc: "", leader: "", group: "nav", hint: "login" })).toBe("auth login");
+  });
+
+  test("slash list shows second-word suggestions", () => {
+    const idle = paletteOptions("");
+    expect(idle.some((cmd) => cmd.name === "auth" && cmd.hint === "login")).toBe(true);
+    expect(idle.some((cmd) => cmd.name === "restart" && cmd.hint === "--cascade")).toBe(true);
+    expect(idle.some((cmd) => cmd.name === "import" && cmd.hint === "compose")).toBe(true);
+    expect(idle.some((cmd) => cmd.name === "down" && cmd.hint === "--keep-services")).toBe(true);
+    expect(slashItemLabel(idle.find((cmd) => cmd.name === "start" && !cmd.hint) ?? idle[0]!)).toBe("start <service>");
+    const auth = paletteOptions("auth logi");
+    expect(auth.some((cmd) => cmd.hint === "login")).toBe(true);
+    expect(auth.some((cmd) => cmd.hint === "logout")).toBe(false);
+    const started = paletteOptions("start ", { services: ["api", "worker"] });
+    expect(started.some((cmd) => cmd.name === "start" && cmd.hint === "api")).toBe(true);
+    expect(slashCompleteQuery({ name: "auth", aliases: [], desc: "", leader: "", group: "nav", hint: "login" })).toBe("auth login ");
+    expect(slashSubmitArgs({ name: "auth", aliases: [], desc: "", leader: "", group: "nav", hint: "login" }, "")).toEqual(["login"]);
+  });
+
+  test("visibleHints always keeps the slash command hint", () => {
+    const hints = footerHints("dashboard", "none");
+    expect(hints.some((h) => h.key === COMMAND_FOOTER_HINT.key && h.label === COMMAND_FOOTER_HINT.label)).toBe(true);
+    const shown = visibleHints(hints, 18);
+    expect(shown.some((h) => h.key === "/" && h.label === "command")).toBe(true);
+    expect(footerHints("dashboard", "help").some((h) => h.key === "/" && h.label === "command")).toBe(true);
+    expect(footerHints("logs", "themes").some((h) => h.key === "/" && h.label === "command")).toBe(true);
   });
 
   test("select options stay grouped for the palette", () => {

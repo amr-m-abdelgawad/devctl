@@ -9,10 +9,10 @@ import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
 import { Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { allCommands, commandArgs, lookupCommand, type CommandSpec } from "./commands.ts";
+import { allCommands, lookupCommand, type CommandSpec } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
-import { namedPickerItems, paletteOptions, selectedSlashCommand } from "./helpers/command-catalog.ts";
+import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
 import { defaultProfileName, type ServiceEnvEntry } from "./helpers/services.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
@@ -227,7 +227,10 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     if (slashPicker === "services") {
       return namedPickerItems(Object.keys(cfg?.services ?? {}), query, "services", "exec in this service");
     }
-    return paletteOptions(query);
+    return paletteOptions(query, {
+      services: Object.keys(cfg?.services ?? {}),
+      tasks: Object.keys(cfg?.tasks ?? {}),
+    });
   }, [cfg, query, slashPicker]);
 
   useEffect(() => {
@@ -402,9 +405,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       closeOverlay();
       return;
     }
-    const typed = lookupCommand(query);
-    const args = typed?.name === spec.name ? commandArgs(query) : [];
-    void runCommand(spec, args);
+    void runCommand(spec, slashSubmitArgs(spec, query));
   }, [closeOverlay, filtered, query, runCommand, slashIndex, slashPicker]);
 
   const applyTheme = useCallback(

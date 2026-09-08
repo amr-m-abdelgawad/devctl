@@ -66,11 +66,21 @@ export function headerStatusChips(opts: {
   ];
 }
 
+export function isPinnedFooterHint(hint: FooterHint): boolean {
+  return hint.key === "/" && hint.label === "command";
+}
+
+function hintCost(hint: FooterHint): number {
+  return hint.key.length + hint.label.length + 3;
+}
+
 export function visibleHints(hints: FooterHint[], width: number): FooterHint[] {
+  const pinned = hints.filter(isPinnedFooterHint);
+  const rest = hints.filter((hint) => !isPinnedFooterHint(hint));
   const out: FooterHint[] = [];
   let used = 0;
-  for (const hint of hints) {
-    const cost = hint.key.length + hint.label.length + 3;
+  for (const hint of [...pinned, ...rest]) {
+    const cost = hintCost(hint);
     if (used + cost > width) {
       break;
     }

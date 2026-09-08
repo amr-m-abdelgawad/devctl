@@ -4,11 +4,11 @@ import { type StatusSnapshot } from "../../domain/status.ts";
 import { versionLine } from "../../version.ts";
 import { useDensity } from "./density.tsx";
 import { HEADER_STACK_WIDTH,headerStatusChips,statusChipTone,visibleHints } from "./helpers/chrome.ts";
-import { footerHints } from "./helpers/command-catalog.ts";
+import { COMMAND_FOOTER_HINT, footerHints } from "./helpers/command-catalog.ts";
 import { clipText } from "./helpers/format.ts";
 import { NAV_ITEMS,navActiveIndex,navTabLabel } from "./helpers/navigation.ts";
 import { countRunning } from "./helpers/stats.ts";
-import { Banner,Chip,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
+import { Banner,Chip,KeyHints,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
 import { isTightScale } from "./settings.ts";
 import { stateColor,stateGlyph,type Palette } from "./themes.ts";
 import { type Overlay,type Screen } from "./types.ts";
@@ -68,6 +68,9 @@ export function Header(props: {
   );
 }
 
+const NAV_SLASH_HINT_WIDTH = COMMAND_FOOTER_HINT.key.length + COMMAND_FOOTER_HINT.label.length + 3;
+const NAV_SLASH_MIN_TABS = 8;
+
 export function NavStrip(props: {
   palette: Palette;
   screen: Screen;
@@ -75,22 +78,32 @@ export function NavStrip(props: {
   onSelect: (screen: Screen) => void;
 }) {
   const { palette, screen, width, onSelect } = props;
-  const items = NAV_ITEMS.map((item) => ({ id: item.id, label: navTabLabel(item.label, width) }));
+  const showSlash = width >= NAV_SLASH_HINT_WIDTH + NAV_SLASH_MIN_TABS;
+  const tabWidth = showSlash ? Math.max(1, width - NAV_SLASH_HINT_WIDTH) : width;
+  const items = NAV_ITEMS.map((item) => ({ id: item.id, label: navTabLabel(item.label, tabWidth) }));
   const active = navActiveIndex(screen);
   return (
     <Toolbar palette={palette} backgroundColor={palette.element}>
-    <TabStrip
-      palette={palette}
-      items={items}
-      active={active}
-      width={width}
-      onPick={(index) => {
-        const item = NAV_ITEMS[index];
-        if (item) {
-          onSelect(item.id);
-        }
-      }}
-    />
+    <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
+      <TabStrip
+        palette={palette}
+        items={items}
+        active={active}
+        width={tabWidth}
+        onPick={(index) => {
+          const item = NAV_ITEMS[index];
+          if (item) {
+            onSelect(item.id);
+          }
+        }}
+      />
+      {showSlash ? (
+        <>
+          <box flexGrow={1} backgroundColor={palette.element} />
+          <KeyHints palette={palette} hints={[COMMAND_FOOTER_HINT]} />
+        </>
+      ) : null}
+    </box>
     </Toolbar>
   );
 }

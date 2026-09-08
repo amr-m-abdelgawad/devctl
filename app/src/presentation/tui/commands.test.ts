@@ -20,6 +20,8 @@ describe("slash commands", () => {
     expect(filterCommands("ident")[0]?.name).toBe("auth");
     expect(filterCommands("cfg")[0]?.name).toBe("config");
     expect(filterCommands("error").some((c) => c.name === "filter")).toBe(true);
+    expect(filterCommands("login")[0]?.name).toBe("auth");
+    expect(filterCommands("cascade")[0]?.name).toBe("restart");
   });
 
   test("keeps the command token when arguments are typed", () => {

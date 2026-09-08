@@ -13,7 +13,7 @@ export const HELP_SECTION_BORDER = 2;
 export const HELP_OVERLAY_BORDER = 2;
 export const HELP_FOOTER_ROWS = 1;
 export const HELP_SCROLL_PAGE = 8;
-const KEY_COL_WIDTH = 16;
+const KEY_COL_GAP = 2;
 const PAIR_GAP = 2;
 const STACKED_BLOCKS = 6;
 const WIDE_BLOCKS = 4;
@@ -27,7 +27,7 @@ export const HELP_NAVIGATION: readonly Binding[] = [
   { key: "tab", label: "next tab" },
   { key: "1-4", label: "dashboard services logs proxy" },
   { key: "s/l/a/p/d/c/u", label: "letter jump" },
-  { key: "/", label: "all other screens" },
+  { key: "/", label: "command overlay · other screens" },
   { key: "j/k", label: "move selection" },
   { key: "esc", label: "back / close overlay" },
   { key: "esc ×2", label: "quit" },
@@ -204,6 +204,7 @@ function HelpSection(props: {
 }) {
   const { palette, title, bindings, stretch = false } = props;
   const height = props.height ?? helpSectionHeight(bindings.length);
+  const keyWidth = helpKeyColumnWidth(bindings);
   return (
     <box
       height={height}
@@ -220,18 +221,23 @@ function HelpSection(props: {
     >
       {bindings.map((binding) => (
         <box key={`${binding.key}-${binding.label}`} height={1} flexShrink={0} overflow="hidden" paddingLeft={1} paddingRight={1}>
-          <HelpBind palette={palette} binding={binding} />
+          <HelpBind palette={palette} binding={binding} keyWidth={keyWidth} />
         </box>
       ))}
     </box>
   );
 }
 
-function HelpBind(props: { palette: Palette; binding: Binding }) {
-  const { palette, binding } = props;
+function helpKeyColumnWidth(bindings: readonly Binding[]): number {
+  const longest = bindings.reduce((max, binding) => Math.max(max, binding.key.length), 0);
+  return longest + KEY_COL_GAP;
+}
+
+function HelpBind(props: { palette: Palette; binding: Binding; keyWidth: number }) {
+  const { palette, binding, keyWidth } = props;
   return (
     <box height={1} flexDirection="row" overflow="hidden">
-      <box width={KEY_COL_WIDTH} flexShrink={0} overflow="hidden">
+      <box width={keyWidth} flexShrink={0} overflow="hidden">
         <text fg={palette.primary} wrapMode="none">
           {binding.key}
         </text>

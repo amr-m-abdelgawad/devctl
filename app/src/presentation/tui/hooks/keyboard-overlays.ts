@@ -1,12 +1,19 @@
 import { leaderAction, lookupCommand } from "../commands.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
-import { selectedSlashCommand } from "../helpers/command-catalog.ts";
-import { isPageDownKey, isPageUpKey, overlayConsumesTyping, type KeyLike } from "../keymap.ts";
+import { selectedSlashCommand, slashCompleteQuery } from "../helpers/command-catalog.ts";
+import { isCommandChord, isPageDownKey, isPageUpKey, overlayConsumesTyping, type KeyLike } from "../keymap.ts";
 import { hasPrimaryMod } from "../tui-config.ts";
 import { scrollBoxBy } from "../layout.tsx";
 import { HELP_SCROLL_PAGE } from "../overlays/Help.tsx";
 import { THEME_NAMES } from "../themes.ts";
 import type { OverlayKeyCtx } from "./keyboard-context.ts";
+
+function openCommandOverlay(ctx: OverlayKeyCtx): void {
+  ctx.setQuery("");
+  ctx.setSlashIndex(0);
+  ctx.setSlashPicker("commands");
+  ctx.setOverlay("slash");
+}
 
 /** Returns true when an overlay consumed the key (including swallowing leftover keys). */
 export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
@@ -55,6 +62,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "log-details" || overlay === "scroll-text") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape") {
       closeOverlay();
       return true;
@@ -89,6 +100,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "route-details") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape" || name === "return") {
       closeOverlay();
       return true;
@@ -104,6 +119,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "plan") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape" || (name === "return" && !planBusy)) {
       closeOverlay();
       return true;
@@ -119,6 +138,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "help") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape") {
       closeOverlay();
       return true;
@@ -142,6 +165,11 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "themes") {
+    if (isCommandChord(key, tui)) {
+      revertThemePreview();
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape") {
       revertThemePreview();
       closeOverlay();
@@ -178,6 +206,13 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "leader") {
+    if (isCommandChord(key, tui)) {
+      if (leaderTimer.current) {
+        clearTimeout(leaderTimer.current);
+      }
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (leaderTimer.current) {
       clearTimeout(leaderTimer.current);
     }
@@ -221,7 +256,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       }
       const pick = selectedSlashCommand(filtered, slashIndex);
       if (pick) {
-        setQuery(`${pick.name} `);
+        setQuery(slashCompleteQuery(pick));
       }
       return true;
     }

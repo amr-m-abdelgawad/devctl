@@ -1,7 +1,20 @@
-import { commandSearchToken, type CommandSpec, filterCommands } from "../commands.ts";
+import { commandArgs, commandSearchToken, type CommandSpec, type CommandSuggestion, filterCommands, lookupCommand } from "../commands.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "../tui-config.ts";
 import { type FooterHint, type Overlay, type Screen } from "../types.ts";
 import { NAV_CYCLE } from "./navigation.ts";
+
+export const COMMAND_FOOTER_HINT: FooterHint = { key: "/", label: "command" };
+
+export const SLASH_NAME_PREFIX = 3;
+
+export const SLASH_COL_GAP = 2;
+
+export const SLASH_LABEL_MAX = 22;
+
+export type PaletteContext = {
+  services?: readonly string[];
+  tasks?: readonly string[];
+};
 
 function navCycleScreen(current: Screen): Screen {
   return current === "detail" ? "services" : current;
@@ -34,12 +47,94 @@ export function groupedCommands(commands: CommandSpec[]): { group: string; items
   });
 }
 
-export function paletteOptions(query: string): CommandSpec[] {
-  const hits = filterCommands(query);
-  if (commandSearchToken(query) === "") {
-    return groupedCommands(hits).flatMap((group) => group.items);
+export function slashItemKey(cmd: CommandSpec): string {
+  return cmd.hint ? `${cmd.name} ${cmd.hint}` : cmd.name;
+}
+
+export function slashItemLabel(cmd: CommandSpec): string {
+  if (cmd.hint) {
+    return `${cmd.name} ${cmd.hint}`;
   }
-  return hits;
+  if (cmd.usage) {
+    return `${cmd.name} ${cmd.usage}`;
+  }
+  return cmd.name;
+}
+
+export function slashCommandColumnWidth(items: CommandSpec[]): number {
+  const longest = items.reduce((max, cmd) => Math.max(max, slashItemLabel(cmd).length), 0);
+  const label = Math.min(SLASH_LABEL_MAX, Math.max(longest, 1));
+  return SLASH_NAME_PREFIX + label + SLASH_COL_GAP;
+}
+
+export function slashCompleteQuery(cmd: CommandSpec): string {
+  return cmd.hint ? `${cmd.name} ${cmd.hint} ` : `${cmd.name} `;
+}
+
+export function slashSubmitArgs(cmd: CommandSpec, query: string): string[] {
+  if (cmd.hint) {
+    return cmd.hint.split(/\s+/);
+  }
+  const typed = lookupCommand(query);
+  return typed?.name === cmd.name ? commandArgs(query) : [];
+}
+
+function suggestionMatches(token: string, typed: string): boolean {
+  if (typed === "") {
+    return true;
+  }
+  const needle = typed.toLowerCase();
+  const hay = token.toLowerCase();
+  return hay.startsWith(needle) || hay.includes(needle);
+}
+
+function dynamicSuggestions(cmd: CommandSpec, context: PaletteContext): CommandSuggestion[] {
+  if (cmd.name === "start" || cmd.name === "stop" || cmd.name === "restart") {
+    return (context.services ?? []).map((name) => ({ token: name, desc: `${cmd.name} ${name}` }));
+  }
+  if (cmd.name === "run") {
+    return (context.tasks ?? []).map((name) => ({ token: name, desc: `run ${name}` }));
+  }
+  if (cmd.name === "exec") {
+    return (context.services ?? []).map((name) => ({ token: name, desc: `exec in ${name}` }));
+  }
+  return [];
+}
+
+function asSuggestionRow(cmd: CommandSpec, suggestion: CommandSuggestion): CommandSpec {
+  return { ...cmd, hint: suggestion.token, desc: suggestion.desc, usage: undefined, suggest: undefined };
+}
+
+export function expandCommandSuggestions(commands: CommandSpec[], query: string, context: PaletteContext = {}): CommandSpec[] {
+  const rest = commandArgs(query).join(" ");
+  const hasArgContext = query.trim().includes(" ") || query.endsWith(" ");
+  const typed = commandSearchToken(query);
+  const out: CommandSpec[] = [];
+  for (const cmd of commands) {
+    out.push({ ...cmd, hint: undefined });
+    const catalog = cmd.suggest ?? [];
+    for (const suggestion of catalog) {
+      if (suggestionMatches(suggestion.token, rest)) {
+        out.push(asSuggestionRow(cmd, suggestion));
+      }
+    }
+    const isTypedCmd = typed !== "" && (cmd.name === typed || cmd.aliases.includes(typed));
+    if (!isTypedCmd || !hasArgContext) {
+      continue;
+    }
+    for (const suggestion of dynamicSuggestions(cmd, context)) {
+      if (suggestionMatches(suggestion.token, rest)) {
+        out.push(asSuggestionRow(cmd, suggestion));
+      }
+    }
+  }
+  return out;
+}
+
+export function paletteOptions(query: string, context: PaletteContext = {}): CommandSpec[] {
+  const hits = filterCommands(query);
+  const ranked = commandSearchToken(query) === "" ? groupedCommands(hits).flatMap((group) => group.items) : hits;
+  return expandCommandSuggestions(ranked, query, context);
 }
 
 export function namedPickerItems(names: string[], query: string, group: "tasks" | "services", desc: string): CommandSpec[] {
@@ -73,45 +168,25 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
     ];
   }
   if (overlay === "themes") {
-    return [
-      { key: "↑↓", label: "move" },
-      { key: "enter", label: "save" },
-      { key: "esc", label: "revert" },
-    ];
+    return [COMMAND_FOOTER_HINT, { key: "↑↓", label: "move" }, { key: "enter", label: "save" }, { key: "esc", label: "revert" }];
   }
   if (overlay === "help") {
-    return [
-      { key: "j/k", label: "scroll" },
-      { key: "esc", label: "close" },
-    ];
+    return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: "esc", label: "close" }];
   }
   if (overlay === "log-details" || overlay === "scroll-text") {
-    return [
-      { key: "j/k", label: "scroll" },
-      { key: displayKeybind(copyKey), label: "copy" },
-      { key: "esc", label: "close" },
-    ];
+    return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: displayKeybind(copyKey), label: "copy" }, { key: "esc", label: "close" }];
   }
   if (overlay === "confirm") {
-    return [
-      { key: "enter", label: "confirm" },
-      { key: "esc", label: "stay" },
-    ];
+    return [{ key: "enter", label: "confirm" }, { key: "esc", label: "stay" }];
   }
   if (overlay === "plan") {
-    return [
-      { key: "esc", label: "back to dashboard" },
-      { key: "enter", label: "done" },
-    ];
+    return [COMMAND_FOOTER_HINT, { key: "esc", label: "back to dashboard" }, { key: "enter", label: "done" }];
   }
   if (overlay === "leader") {
-    return leaderHints();
+    return [COMMAND_FOOTER_HINT, ...leaderHints()];
   }
   if (overlay === "config-edit") {
-    return [
-      { key: displayWithMod("s"), label: "save" },
-      { key: "esc", label: "discard" },
-    ];
+    return [{ key: displayWithMod("s"), label: "save" }, { key: "esc", label: "discard" }];
   }
   return screenHints(screen, copyKey);
 }
@@ -129,11 +204,7 @@ export function leaderHints(): FooterHint[] {
 }
 
 function screenHints(screen: Screen, copyKey: string): FooterHint[] {
-  const common: FooterHint[] = [
-    { key: displayKeybind(copyKey), label: "copy" },
-    { key: "/", label: "command" },
-    { key: "?", label: "help" },
-  ];
+  const common: FooterHint[] = [{ key: displayKeybind(copyKey), label: "copy" }, COMMAND_FOOTER_HINT, { key: "?", label: "help" }];
   switch (screen) {
     case "dashboard":
       return [

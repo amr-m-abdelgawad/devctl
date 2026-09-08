@@ -1,5 +1,5 @@
 import { commandSearchToken, type CommandSpec } from "../commands.ts";
-import { groupedCommands, selectedSlashCommand, slashWindowItems, slashWindowStart } from "../helpers/command-catalog.ts";
+import { groupedCommands, selectedSlashCommand, SLASH_LABEL_MAX, slashCommandColumnWidth, slashItemKey, slashItemLabel, slashWindowItems, slashWindowStart } from "../helpers/command-catalog.ts";
 import { type Palette } from "../themes.ts";
 
 const MAX_VISUAL_ROWS = 10;
@@ -21,6 +21,7 @@ export function SlashOverlay(props: {
   const groups = searching ? [{ group: "", items: shown }] : groupedCommands(shown);
   const rows = Math.max(shown.length + (searching ? 0 : groups.length), 1);
   const active = selectedSlashCommand(items, selected);
+  const commandCol = slashCommandColumnWidth(items);
   return (
     <box
       height={rows + CHROME_ROWS}
@@ -53,10 +54,10 @@ export function SlashOverlay(props: {
           return [
             ...header,
             ...group.items.map((cmd) => {
-              const activeRow = cmd.name === active?.name;
+              const activeRow = slashItemKey(cmd) === (active ? slashItemKey(active) : "");
               return (
                 <box
-                  key={cmd.name}
+                  key={slashItemKey(cmd)}
                   height={1}
                   flexDirection="row"
                   overflow="hidden"
@@ -64,9 +65,9 @@ export function SlashOverlay(props: {
                   paddingRight={1}
                   backgroundColor={activeRow ? palette.highlight : palette.panel}
                 >
-                  <box width={14} flexShrink={0} overflow="hidden">
+                  <box width={commandCol} flexShrink={0} overflow="hidden">
                     <text fg={activeRow ? palette.primary : palette.text} wrapMode="none">
-                      {`${activeRow ? "›" : " "} /${cmd.name}`}
+                      {`${activeRow ? "›" : " "} /${slashItemLabel(cmd).slice(0, SLASH_LABEL_MAX)}`}
                     </text>
                   </box>
                   <box flexGrow={1} overflow="hidden">
