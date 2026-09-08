@@ -49,7 +49,7 @@ type Options = {
   setReveal: Dispatch<SetStateAction<boolean>>;
   resolveEnvironment: (service: string) => Promise<void>;
   openDetail: (name: string) => void;
-  copyVisibleLogs: (note?: string) => Promise<void>;
+  copySelection: () => Promise<void>;
   lastExportPath: RefObject<string>;
   openConfigBuffer: () => void;
   onDown: (keepServices: boolean) => void;
@@ -78,7 +78,7 @@ export function useCommandDispatcher({
   setReveal,
   resolveEnvironment,
   openDetail,
-  copyVisibleLogs,
+  copySelection,
   lastExportPath,
   openConfigBuffer,
   onDown,
@@ -470,7 +470,7 @@ export function useCommandDispatcher({
             return;
           }
           case "copy":
-            await copyVisibleLogs();
+            await copySelection();
             return;
           case "export": {
             const dest = resolveExportPath(args[0]);
@@ -484,7 +484,7 @@ export function useCommandDispatcher({
                 source: logSource,
               });
             } else {
-              // Same reasoning as copyVisibleLogs: reuse the already-filtered
+              // Same reasoning as copyVisible: reuse the already-filtered
               // list instead of reconstructing the filter, so a local-only
               // export (no daemon attached) matches every active filter too.
               writeLogExport(dest, filteredLogs);
@@ -550,7 +550,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
   );
   return { runCommand };
 }

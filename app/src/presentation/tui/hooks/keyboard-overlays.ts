@@ -2,6 +2,7 @@ import { leaderAction, lookupCommand } from "../commands.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
 import { selectedSlashCommand } from "../helpers/command-catalog.ts";
 import { isPageDownKey, isPageUpKey, overlayConsumesTyping, type KeyLike } from "../keymap.ts";
+import { hasPrimaryMod } from "../tui-config.ts";
 import { scrollBoxBy } from "../layout.tsx";
 import { HELP_SCROLL_PAGE } from "../overlays/Help.tsx";
 import { THEME_NAMES } from "../themes.ts";
@@ -194,7 +195,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       closeOverlay();
       return true;
     }
-    if (key.ctrl && name === "s") {
+    if (hasPrimaryMod(key) && name === "s") {
       saveConfigBuffer();
       return true;
     }

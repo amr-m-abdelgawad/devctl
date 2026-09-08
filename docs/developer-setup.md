@@ -41,7 +41,7 @@ flowchart LR
 | `false` | Detach; services keep running |
 | unset | Confirm: `enter` stops, `d` detaches, `esc` stays |
 
-The starter config writes `stop_services_on_exit: true`. `ctrl+c` twice uses the same rule.
+The starter config writes `stop_services_on_exit: true`. `esc` twice uses the same rule.
 
 ## Related
 

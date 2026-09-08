@@ -57,34 +57,75 @@ export type TuiConfig = {
   path?: string;
 };
 
-export function defaultCopyKeybind(): string {
-  return process.platform === "darwin" ? "cmd+c" : "ctrl+shift+c";
+export function isApplePlatform(platform = process.platform): boolean {
+  return platform === "darwin";
 }
 
-export const DEFAULT_KEYBINDS: TuiKeybinds = {
-  leader: "ctrl+x",
-  command_list: "ctrl+p",
-  command: "/",
-  help: "?",
-  search: "f",
-  quit: "q",
-  services: "s",
-  logs: "l",
-  auth: "a",
-  proxy: "p",
-  doctor: "d",
-  config: "c",
-  setup: "u",
-  refresh: "r",
-  restart: "R",
-  find: "f",
-  fullscreen: "z",
-  confirm: "enter",
-  cancel: "esc",
-  select: "space",
-  interrupt: "ctrl+c",
-  copy: defaultCopyKeybind(),
-};
+/** Primary chord modifier: Command on macOS, Control everywhere else. */
+export function primaryMod(platform = process.platform): "cmd" | "ctrl" {
+  return isApplePlatform(platform) ? "cmd" : "ctrl";
+}
+
+export function withMod(key: string, platform = process.platform): string {
+  return `${primaryMod(platform)}+${key}`;
+}
+
+/** Human label for the primary modifier: "command" on macOS, "ctrl" elsewhere. */
+export function displayMod(platform = process.platform): "command" | "ctrl" {
+  return isApplePlatform(platform) ? "command" : "ctrl";
+}
+
+export function displayWithMod(key: string, platform = process.platform): string {
+  return `${displayMod(platform)}+${key}`;
+}
+
+/** Expand `cmd` to `command` in a stored keybind so the TUI matches the OS wording. */
+export function displayKeybind(spec: string): string {
+  return spec.replace(/\bcmd\b/gi, "command");
+}
+
+export function hasPrimaryMod(
+  event: { ctrl?: boolean; meta?: boolean; super?: boolean },
+  platform = process.platform,
+): boolean {
+  const apple = isApplePlatform(platform);
+  const cmd = Boolean(event.meta || event.super);
+  const ctrl = Boolean(event.ctrl);
+  return apple ? cmd && !ctrl : ctrl && !cmd;
+}
+
+export function defaultCopyKeybind(platform = process.platform): string {
+  return withMod("c", platform);
+}
+
+export function defaultKeybinds(platform = process.platform): TuiKeybinds {
+  return {
+    leader: withMod("x", platform),
+    command_list: withMod("p", platform),
+    command: "/",
+    help: "?",
+    search: "f",
+    quit: "q",
+    services: "s",
+    logs: "l",
+    auth: "a",
+    proxy: "p",
+    doctor: "d",
+    config: "c",
+    setup: "u",
+    refresh: "r",
+    restart: "R",
+    find: "f",
+    fullscreen: "z",
+    confirm: "enter",
+    cancel: "esc",
+    select: "space",
+    interrupt: "escape",
+    copy: defaultCopyKeybind(platform),
+  };
+}
+
+export const DEFAULT_KEYBINDS: TuiKeybinds = defaultKeybinds();
 
 export function defaultTuiConfig(): TuiConfig {
   return {

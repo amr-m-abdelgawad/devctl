@@ -11,7 +11,6 @@ import { canStartAll } from "../helpers/services.ts";
 import {
   isCommandChord,
   isCopyChord,
-  isCtrlC,
   isHelpChord,
   isLeaderChord,
   isPaletteChord,
@@ -21,7 +20,7 @@ import {
 } from "../keymap.ts";
 import { mcpToolAtRow } from "../screens/Mcp.tsx";
 import { cycleFontSize, selectedSettingsItem, settingsDefaults } from "../settings.ts";
-import { type TuiConfig } from "../tui-config.ts";
+import { hasPrimaryMod, type TuiConfig } from "../tui-config.ts";
 import type { useDiagnostics } from "./use-diagnostics.ts";
 import type { useLifecycle } from "./use-lifecycle.ts";
 import type { useLogView } from "./use-log-view.ts";
@@ -60,7 +59,7 @@ export function useAppKeyboard({
 }: Options): void {
   const {
     screen, onQuit, closeOverlay, confirmKind, confirmDetail, portTarget, profile, listCursor, names, runCommand,
-    copyVisibleLogs, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail,
+    copySelection, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail,
     setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail,
   } = ui;
   const {
@@ -200,40 +199,19 @@ export function useAppKeyboard({
 
   useKeyboard((key: KeyLike) => {
     const name = (key.name ?? "").toLowerCase();
-    const copyBound = isCopyChord(key, tui);
-    const interruptBound = isCtrlC(key, tui);
-    if (copyBound && !interruptBound) {
-      if (screen === "mcp" && copyFocusedMcpSnippet(listCursor)) {
-        return;
-      }
-      void copyVisibleLogs();
+    if (isCopyChord(key, tui)) {
+      void copySelection();
       return;
     }
-    if (interruptBound) {
-      const now = Date.now();
-      if (shouldConfirmInterrupt(now, interruptArmedAt.current)) {
-        interruptArmedAt.current = 0;
-        requestQuit();
-        return;
-      }
-      interruptArmedAt.current = now;
-      const again = "Ctrl+C again to quit";
-      if (copyBound) {
-        void copyVisibleLogs(again);
-      } else {
-        setStatus(`Press ${again}`);
-      }
-      return;
-    }
-    if (key.ctrl && (name === "=" || name === "+" || name === "plus")) {
+    if (hasPrimaryMod(key) && (name === "=" || name === "+" || name === "plus")) {
       applyFont(cycleFontSize(fontSize, 1));
       return;
     }
-    if (key.ctrl && (name === "-" || name === "_" || name === "minus")) {
+    if (hasPrimaryMod(key) && (name === "-" || name === "_" || name === "minus")) {
       applyFont(cycleFontSize(fontSize, -1));
       return;
     }
-    if (key.ctrl && name === "0") {
+    if (hasPrimaryMod(key) && name === "0") {
       applyFont(settingsDefaults().font_size);
       return;
     }
@@ -293,13 +271,18 @@ export function useAppKeyboard({
         setScreen("services");
         return;
       }
-      if (screen === "setup") {
-        if (controller) {
-          setScreen("dashboard");
-        } else {
-          onQuit(true);
-        }
+      if (screen === "setup" && controller) {
+        setScreen("dashboard");
+        return;
       }
+      const now = Date.now();
+      if (shouldConfirmInterrupt(now, interruptArmedAt.current)) {
+        interruptArmedAt.current = 0;
+        requestQuit();
+        return;
+      }
+      interruptArmedAt.current = now;
+      setStatus("Esc again to quit");
       return;
     }
     if (name === "z" && (screen === "logs" || screen === "dashboard") && !key.ctrl && !key.meta) {

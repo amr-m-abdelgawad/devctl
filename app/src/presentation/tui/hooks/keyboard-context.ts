@@ -28,7 +28,7 @@ export type KeyboardUi = {
   names: string[];
   listCount: number;
   openDetail: (name: string) => void;
-  copyVisibleLogs: (note?: string) => Promise<void>;
+  copySelection: () => Promise<void>;
   height: number;
   paletteIndex: number;
   applyTheme: (name: string) => void;

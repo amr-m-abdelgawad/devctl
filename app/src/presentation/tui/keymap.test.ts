@@ -1,16 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isPageDownKey, isPageUpKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
+import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isInterruptChord, isPageDownKey, isPageUpKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
-  test("copy uses the platform shortcut and not ctrl+c", () => {
+  test("the OS copy chord copies and escape is the double-tap interrupt", () => {
     const tui = defaultTuiConfig();
-    const onMac = process.platform === "darwin";
-    expect(isCopyChord({ name: "c", meta: true }, tui)).toBe(onMac);
-    expect(isCopyChord({ name: "c", ctrl: true, shift: true }, tui)).toBe(!onMac);
-    expect(isCopyChord({ name: "c", ctrl: true }, tui)).toBe(false);
-    expect(isCtrlC({ name: "c", ctrl: true }, tui)).toBe(true);
-    expect(isCtrlC({ name: "c", meta: true }, tui)).toBe(false);
+    const apple = process.platform === "darwin";
+    expect(isCopyChord({ name: "c", ctrl: true }, tui)).toBe(!apple);
+    expect(isCopyChord({ name: "c", meta: true }, tui)).toBe(apple);
+    expect(isCopyChord({ name: "c", ctrl: true, shift: true }, tui)).toBe(false);
+    expect(isCtrlC({ name: "c", ctrl: true })).toBe(!apple);
+    expect(isCtrlC({ name: "c", meta: true })).toBe(apple);
+    expect(isInterruptChord({ name: "escape" }, tui)).toBe(true);
+    expect(isInterruptChord({ name: "c", ctrl: true }, tui)).toBe(false);
+    expect(isInterruptChord({ name: "c", ctrl: true }, { ...tui, keybinds: { ...tui.keybinds, interrupt: "ctrl+c" } })).toBe(false);
+    expect(isInterruptChord({ name: "c", meta: true }, { ...tui, keybinds: { ...tui.keybinds, interrupt: "cmd+c" } })).toBe(false);
   });
 
   test("interrupt requires a second press inside the window", () => {
@@ -20,12 +24,14 @@ describe("tui keymap", () => {
     expect(shouldConfirmInterrupt(1001 + DOUBLE_INTERRUPT_MS, 1000)).toBe(false);
   });
 
-  test("page keys include ctrl+d and ctrl+u", () => {
+  test("page keys use the OS modifier plus d/u", () => {
+    const apple = process.platform === "darwin";
     expect(isPageDownKey({ name: "pagedown" })).toBe(true);
-    expect(isPageDownKey({ name: "d", ctrl: true })).toBe(true);
+    expect(isPageDownKey({ name: "d", ctrl: !apple, meta: apple })).toBe(true);
     expect(isPageDownKey({ name: "d" })).toBe(false);
+    expect(isPageDownKey({ name: "d", ctrl: apple, meta: !apple })).toBe(false);
     expect(isPageUpKey({ name: "pageup" })).toBe(true);
-    expect(isPageUpKey({ name: "u", ctrl: true })).toBe(true);
+    expect(isPageUpKey({ name: "u", ctrl: !apple, meta: apple })).toBe(true);
     expect(isPageUpKey({ name: "u" })).toBe(false);
   });
 
@@ -36,10 +42,12 @@ describe("tui keymap", () => {
     expect(isRestartKey({ name: "r" })).toBe(false);
   });
 
-  test("clear-logs is ctrl+l, since plain c already jumps to the config screen", () => {
-    expect(isClearLogsKey({ name: "l", ctrl: true })).toBe(true);
-    expect(isClearLogsKey({ name: "L", ctrl: true })).toBe(true);
+  test("clear-logs uses the OS modifier plus l, since plain c already jumps to config", () => {
+    const chord = { name: "l", ctrl: process.platform !== "darwin", meta: process.platform === "darwin" };
+    expect(isClearLogsKey(chord)).toBe(true);
+    expect(isClearLogsKey({ ...chord, name: "L" })).toBe(true);
     expect(isClearLogsKey({ name: "l" })).toBe(false);
     expect(isClearLogsKey({ name: "c", shift: true })).toBe(false);
+    expect(isClearLogsKey({ name: "l", ctrl: process.platform === "darwin" })).toBe(false);
   });
 });

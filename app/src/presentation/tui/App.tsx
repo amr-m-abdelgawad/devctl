@@ -13,7 +13,6 @@ import { allCommands, commandArgs, lookupCommand, type CommandSpec } from "./com
 import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand } from "./helpers/command-catalog.ts";
-import { formatLogDetails, formatLogsForClipboard } from "./helpers/logs.ts";
 import { screenListCount } from "./helpers/navigation.ts";
 import { defaultProfileName, type ServiceEnvEntry } from "./helpers/services.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
@@ -306,31 +305,6 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     setBootError,
   });
 
-  const copyVisibleLogs = useCallback(async (note = "") => {
-    // filteredLogs is the exact set the list itself renders from — reusing
-    // it (rather than reconstructing the filter here) is what guarantees
-    // this matches every currently active filter, not just the ones this
-    // callback happens to remember to pass along.
-    const text =
-      overlay === "log-details" && logDetail
-        ? formatLogDetails(logDetail)
-        : overlay === "scroll-text" && scrollText
-          ? scrollText.body
-          : formatLogsForClipboard(splitLogs && splitFocus === 1 ? filteredLogsB : filteredLogs);
-    const suffix = note === "" ? "" : ` · ${note}`;
-    if (text.trim() === "") {
-      setStatus(`No logs to copy${suffix}`);
-      return;
-    }
-    try {
-      await writeClipboard(text);
-      const lines = text.split("\n").length;
-      const copied = overlay === "log-details" ? "Copied log event" : overlay === "scroll-text" ? "Copied overlay text" : `Copied ${lines} log lines`;
-      setStatus(`${copied}${suffix}`);
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [filteredLogs, filteredLogsB, logDetail, overlay, scrollText, splitFocus, splitLogs]);
   const {
     configEditRef,
     configEditText,
@@ -349,6 +323,21 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     setConfirmKind,
     refresh,
   });
+
+  const copySelection = useCallback(async () => {
+    const text = renderer.getSelection()?.getSelectedText() ?? "";
+    if (text.trim() === "") {
+      setStatus("Nothing selected — drag to highlight text");
+      return;
+    }
+    try {
+      await writeClipboard(text);
+      const lines = text.split("\n").length;
+      setStatus(lines === 1 ? "Copied selection" : `Copied ${lines} selected lines`);
+    } catch (err) {
+      setStatus(humanMessage(err));
+    }
+  }, [renderer]);
 
   const {
     runCommand,
@@ -375,7 +364,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     setReveal,
     resolveEnvironment,
     openDetail,
-    copyVisibleLogs,
+    copySelection,
     lastExportPath,
     openConfigBuffer,
     onDown: onDown ?? ((keep) => onQuit(keep)),
@@ -445,7 +434,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       names,
       listCount,
       openDetail,
-      copyVisibleLogs,
+      copySelection,
       height,
       paletteIndex,
       applyTheme,

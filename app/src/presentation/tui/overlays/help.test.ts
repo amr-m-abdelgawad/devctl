@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { displayKeybind, displayWithMod } from "../tui-config.ts";
 import {
   HELP_COMMANDS,
   HELP_DISPLAY,
@@ -15,6 +16,13 @@ import {
 } from "./Help.tsx";
 
 describe("help overlay layout", () => {
+  test("copy is the highlighted selection, quit is double-esc", () => {
+    expect(HELP_COMMANDS.some((row) => row.key === displayWithMod("c") && row.label.includes("selection"))).toBe(true);
+    expect(HELP_NAVIGATION.some((row) => row.key === "esc ×2")).toBe(true);
+    expect(logBindings("ctrl+c").some((row) => row.key === "ctrl+c ×2")).toBe(false);
+    expect(logBindings("cmd+c").some((row) => row.key === displayKeybind("cmd+c"))).toBe(true);
+  });
+
   test("section height keeps every binding plus the border", () => {
     expect(helpSectionHeight(5)).toBe(5 + HELP_SECTION_BORDER);
     expect(helpSectionHeight(logBindings("cmd+c").length)).toBe(logBindings("cmd+c").length + HELP_SECTION_BORDER);

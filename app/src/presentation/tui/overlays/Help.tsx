@@ -5,7 +5,7 @@ import { useDensity } from "../density.tsx";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { isCompactScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";
-import { defaultCopyKeybind } from "../tui-config.ts";
+import { defaultCopyKeybind, displayKeybind, displayWithMod } from "../tui-config.ts";
 
 export const HELP_WIDTH = 78;
 export const HELP_STACK_BREAKPOINT = 56;
@@ -29,7 +29,8 @@ export const HELP_NAVIGATION: readonly Binding[] = [
   { key: "s/l/a/p/d/c/u", label: "letter jump" },
   { key: "/", label: "all other screens" },
   { key: "j/k", label: "move selection" },
-  { key: "esc", label: "back / close" },
+  { key: "esc", label: "back / close overlay" },
+  { key: "esc ×2", label: "quit" },
 ];
 
 export const HELP_SERVICES: readonly Binding[] = [
@@ -56,17 +57,17 @@ export function logBindings(copyKey: string): readonly Binding[] {
     { key: "m", label: "metadata" },
     { key: "w", label: "clip / wrap selected / wrap all" },
     { key: "j/k", label: "move and unfold" },
-    { key: copyKey, label: "copy visible logs" },
+    { key: displayKeybind(copyKey), label: "copy selection" },
     { key: "/export", label: "write ~/.devctl/exports" },
     { key: "/exports", label: "open export folder" },
-    { key: "ctrl+c ×2", label: "quit" },
   ];
 }
 
 export const HELP_COMMANDS: readonly Binding[] = [
+  { key: displayWithMod("c"), label: "copy highlighted selection" },
   { key: "/", label: "command overlay" },
-  { key: "ctrl+p", label: "same overlay" },
-  { key: "ctrl+x", label: "leader chord" },
+  { key: displayWithMod("p"), label: "same overlay" },
+  { key: displayWithMod("x"), label: "leader chord" },
   { key: "/settings", label: "preferences · MCP page" },
   { key: "/themes", label: "preview themes" },
   { key: "/diff", label: "config sources" },
@@ -74,8 +75,8 @@ export const HELP_COMMANDS: readonly Binding[] = [
 ];
 
 export const HELP_DISPLAY: readonly Binding[] = [
-  { key: "ctrl+=", label: "larger" },
-  { key: "ctrl+-", label: "smaller" },
+  { key: displayWithMod("="), label: "larger" },
+  { key: displayWithMod("-"), label: "smaller" },
   { key: "?", label: "this overlay" },
 ];
 

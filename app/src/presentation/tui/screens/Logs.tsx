@@ -8,6 +8,7 @@ import { displayLogLevel,facetFilterCatalog,filterLogs,foldLogLines,isSystemLogS
 import { tabChipWidth } from "../helpers/navigation.ts";
 import { Chip,MetaBar,TabStrip,Toolbar } from "../layout.tsx";
 import { logSpanColor,serviceColor,stateColor,type Palette } from "../themes.ts";
+import { displayWithMod } from "../tui-config.ts";
 
 const FOLLOW_POLL_MS = 200;
 const FOLLOW_SLACK = 2;
@@ -264,7 +265,7 @@ export function LogsScreen(props: {
             palette={palette}
             title={logs.length === 0 ? "No log events" : "No events in this filter"}
             body={logs.length === 0 ? "Start services to stream logs." : "Pick All, another service, or clear search / ERROR+."}
-            hint="← → cycle filters   e errors   i internal   ctrl+l clear"
+            hint={`← → cycle filters   e errors   i internal   ${displayWithMod("l")} clear`}
           />
         ) : (
           <LogList

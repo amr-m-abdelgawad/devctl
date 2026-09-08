@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Opt-in `service.watch` restarts one service when listed paths change (debounced, ignored globs, never the whole repo by default).
 - Configuration reload hot-applies a changed `plugins` path list; editing an already-imported plugin file still asks for a supervisor restart.
 - TUI log split panes (`\\` / `/split`), `/trace <id>`, and Stats sparklines from a 60-sample supervisor ring.
+- TUI chords use **command** on macOS and **ctrl** on Linux/Windows. Help and the status bar label the OS modifier. The copy chord copies the highlighted selection; `esc` twice quits.
 
 ## [0.2.4] - 2026-09-08
 

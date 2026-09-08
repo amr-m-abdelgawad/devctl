@@ -32,7 +32,7 @@ When services exist but none are running, the dashboard empty state:
 
 ## Quit
 
-`q` / `/exit` / `ctrl+c` twice:
+`q` / `/exit` / `esc` twice:
 
 | `shutdown.stop_services_on_exit` | Behavior |
 |----------------------------------|----------|
@@ -44,13 +44,13 @@ When services exist but none are running, the dashboard empty state:
 
 ## Interaction model
 
-Keyboard-first:
+Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Windows. Help, the status bar, and empty-state hints label the modifier for the OS you are on.
 
 | Input | What it does |
 |-------|----------------|
 | `/` | Command overlay — ranked as you type (name, alias, fuzzy, then description). `/start api` still lists `start`. `↑`/`↓` to move, `enter` to run |
-| `ctrl+p` | Same command overlay as `/` |
-| `ctrl+x` | Leader key (2s), then a shortcut — keymap overlay |
+| `command+p` / `ctrl+p` | Same command overlay as `/` |
+| `command+x` / `ctrl+x` | Leader key (2s), then a shortcut — keymap overlay |
 | `?` | Grouped help — `j`/`k` scroll when the list is taller than the terminal |
 | `tab` / `shift+tab` / `1`–`4` | Cycle or jump the **four nav tabs**. Other screens are `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`, `/mcp`. On a secondary screen, `tab` returns to the dashboard. When the strip is wider than the terminal it slides (`‹` `›`). |
 | `s` `l` `a` `p` `d` `c` `u` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
@@ -59,16 +59,16 @@ Keyboard-first:
 | `j` `k` / arrows | Move selection |
 | `enter` | Start (empty dashboard) or open service detail |
 | `space` | Multi-select a service |
-| `esc` | Back / close overlay |
+| `esc` | Back / close overlay. Twice (when nothing else is open) asks to quit |
 | `f` | Focus log search (`g` jumps to latest). Remap with `keybinds.search` |
 | `z` | Expand logs to fill the terminal. `z` or `esc` exits |
 | `w` | Cycle log wrap: clip, unwrap the selected row, or wrap every long line |
-| `cmd+c` / `ctrl+shift+c` | Copy visible logs. Remap with `keybinds.copy` |
-| `ctrl+=` / `ctrl+-` / `ctrl+0` | Display size (padding/row height, not the terminal font) |
-| `ctrl+c` `ctrl+c` | Interrupt only — twice to quit. Copy is never `ctrl+c` on Linux/Windows |
+| `command+c` / `ctrl+c` | Copy the highlighted selection (drag with the mouse). Remap with `keybinds.copy` |
+| `command+=` / `ctrl+=` (and `-` / `0`) | Display size (padding/row height, not the terminal font) |
+| `esc` `esc` | Twice to quit when no overlay or back target is open. The OS copy chord does not quit |
 | Mouse | Click nav, click a service, scroll logs (toggle in Settings) |
 
-The status bar only lists keys that work **on the current screen**. There is no idle command row — `/` and `ctrl+p` open the command overlay.
+The status bar only lists keys that work **on the current screen**. There is no idle command row — `/` and the OS palette chord open the command overlay.
 
 ## Nav tabs (4)
 
@@ -138,7 +138,7 @@ Aliases include `/up`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/pref
 
 ## Leader key
 
-Default leader is `ctrl+x` (2 second timeout). Then:
+Default leader is `command+x` on macOS and `ctrl+x` elsewhere (2 second timeout). Then:
 
 ```text
 n start    x stop    R restart (c cascade if dependents)    s services    l logs
@@ -154,7 +154,7 @@ Override in `tui.json` (`keybinds`) or `DEVCTL_TUI_CONFIG`.
 - **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
 - **Nav** — the four primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
-- **Command overlay** — `/` and `ctrl+p` open the same grouped list with a real OpenTUI input
+- **Command overlay** — `/` and `command+p` / `ctrl+p` open the same grouped list with a real OpenTUI input
 - **Status bar** — live/paused, last human result, contextual keys
 
 Status is never color-only: `✓` healthy, `●` running, `!` warning, `✗` failed, `○` stopped.

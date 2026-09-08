@@ -4,7 +4,7 @@ import { ConfigurationReloadFailed } from "../../shared/events.ts";
 import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { namedPickerItems } from "./helpers/command-catalog.ts";
-import { defaultCopyKeybind } from "./tui-config.ts";
+import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
 
 describe("TUI helpers", () => {
   test("default profile is the first sorted name", () => {
@@ -282,7 +282,7 @@ describe("TUI helpers", () => {
   test("footer hints are overlay-specific", () => {
     expect(footerHints("dashboard", "confirm").some((h) => h.key === "enter")).toBe(true);
     expect(footerHints("logs", "none").some((h) => h.key === "f")).toBe(true);
-    expect(footerHints("logs", "log-details").some((h) => h.key === defaultCopyKeybind())).toBe(true);
+    expect(footerHints("logs", "log-details").some((h) => h.key === displayKeybind(defaultCopyKeybind()))).toBe(true);
     expect(footerHints("settings", "none").some((h) => h.key === "←→" && h.label === "save")).toBe(true);
     expect(footerHints("mcp", "none").some((h) => h.label === "start or copy")).toBe(true);
     expect(footerHints("auth", "none").some((h) => h.key === "/auth login")).toBe(true);
@@ -290,7 +290,7 @@ describe("TUI helpers", () => {
     expect(footerHints("dashboard", "scroll-text").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("dashboard", "plan").some((h) => h.label.includes("dashboard"))).toBe(true);
     expect(footerHints("dashboard", "help").some((h) => h.key === "j/k")).toBe(true);
-    expect(footerHints("config", "config-edit").some((h) => h.key === "ctrl+s")).toBe(true);
+    expect(footerHints("config", "config-edit").some((h) => h.key === displayWithMod("s"))).toBe(true);
   });
 
   test("grouped commands keep command groups", () => {
@@ -311,14 +311,14 @@ describe("TUI helpers", () => {
   });
 
   test("footer copy hint follows the configured shortcut", () => {
-    expect(footerHints("logs", "none", "cmd+c").some((h) => h.key === "cmd+c")).toBe(true);
+    expect(footerHints("logs", "none", "cmd+c").some((h) => h.key === "command+c")).toBe(true);
     expect(footerHints("logs", "none", "ctrl+c").some((h) => h.key === "ctrl+c")).toBe(true);
   });
 
   test("logs footer includes search and jump latest", () => {
     const keys = footerHints("logs", "none").map((h) => h.key);
     expect(keys).toContain("f");
-    expect(keys).toContain(defaultCopyKeybind());
+    expect(keys).toContain(displayKeybind(defaultCopyKeybind()));
     expect(keys).toContain("g");
     expect(keys).toContain("←→");
     expect(keys).not.toContain("1-9");
@@ -333,7 +333,7 @@ describe("TUI helpers", () => {
     expect(keys).toContain("g");
     expect(keys).toContain("z");
     expect(keys).toContain("space");
-    expect(keys).toContain(defaultCopyKeybind());
+    expect(keys).toContain(displayKeybind(defaultCopyKeybind()));
   });
 
   test("log clipboard text keeps time service level and message", () => {

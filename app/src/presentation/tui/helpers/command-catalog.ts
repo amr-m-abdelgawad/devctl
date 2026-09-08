@@ -1,5 +1,5 @@
 import { commandSearchToken, type CommandSpec, filterCommands } from "../commands.ts";
-import { defaultCopyKeybind } from "../tui-config.ts";
+import { defaultCopyKeybind, displayKeybind, displayWithMod } from "../tui-config.ts";
 import { type FooterHint, type Overlay, type Screen } from "../types.ts";
 import { NAV_CYCLE } from "./navigation.ts";
 
@@ -88,7 +88,7 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "log-details" || overlay === "scroll-text") {
     return [
       { key: "j/k", label: "scroll" },
-      { key: copyKey, label: "copy" },
+      { key: displayKeybind(copyKey), label: "copy" },
       { key: "esc", label: "close" },
     ];
   }
@@ -109,7 +109,7 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   }
   if (overlay === "config-edit") {
     return [
-      { key: "ctrl+s", label: "save" },
+      { key: displayWithMod("s"), label: "save" },
       { key: "esc", label: "discard" },
     ];
   }
@@ -130,6 +130,7 @@ export function leaderHints(): FooterHint[] {
 
 function screenHints(screen: Screen, copyKey: string): FooterHint[] {
   const common: FooterHint[] = [
+    { key: displayKeybind(copyKey), label: "copy" },
     { key: "/", label: "command" },
     { key: "?", label: "help" },
   ];
@@ -148,8 +149,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         { key: "g", label: "latest" },
         { key: "z", label: "full logs" },
         { key: "i", label: "internal logs" },
-        { key: "ctrl+l", label: "clear logs" },
-        { key: copyKey, label: "copy logs" },
+        { key: displayWithMod("l"), label: "clear logs" },
         { key: "j/k", label: "move" },
         ...common,
       ];
@@ -172,14 +172,13 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         { key: "←→", label: "filter" },
         { key: "e", label: "errors" },
         { key: "i", label: "internal logs" },
-        { key: "ctrl+l", label: "clear logs" },
+        { key: displayWithMod("l"), label: "clear logs" },
         { key: "g", label: "latest" },
         { key: "f", label: "search" },
         { key: "t", label: "time" },
         { key: "m", label: "meta" },
         { key: "w", label: "wrap" },
         { key: "j/k", label: "move" },
-        { key: copyKey, label: "copy" },
         { key: "p", label: "pause" },
         { key: "z", label: "full screen" },
         { key: "\\", label: "split" },
@@ -201,7 +200,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
     case "config":
       return [{ key: "enter", label: "run task" }, { key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/diff", label: "sources" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll or select task" }, ...common];
     case "setup":
-      return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back or exit" }, ...common];
+      return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back" }, { key: "esc×2", label: "quit" }, ...common];
     case "doctor":
       return [{ key: "r", label: "run doctor again" }, { key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, ...common];
     case "auth":

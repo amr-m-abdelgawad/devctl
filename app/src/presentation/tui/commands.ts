@@ -48,7 +48,7 @@ export function allCommands(): CommandSpec[] {
     { name: "system", aliases: ["internal"], desc: "Show or hide internal auth/mcp/devctl/proxy logs", leader: "", group: "logs" },
     { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values", leader: "", group: "ui" },
     { name: "wrap", aliases: [], desc: "Cycle log wrap: selected, all lines, or clip", leader: "", group: "logs" },
-    { name: "copy", aliases: [], desc: "Copy visible logs to the clipboard", leader: "", group: "logs" },
+    { name: "copy", aliases: [], desc: "Copy the highlighted selection to the clipboard", leader: "", group: "ui" },
     { name: "export", aliases: [], desc: "Write filtered logs to ~/.devctl/exports", leader: "e", group: "logs" },
     { name: "exports", aliases: ["open-exports"], desc: "Open the log export folder", leader: "", group: "logs" },
     { name: "clear", aliases: ["new"], desc: "Clear the on-screen log buffer", leader: "", group: "logs" },

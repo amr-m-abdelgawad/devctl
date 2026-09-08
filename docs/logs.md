@@ -32,7 +32,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - `\\` / `/split` — second pane on the same live stream, with its own service filter. Shared search. `|` focuses the other pane.
 - `/trace <id>` — set search to that request/trace id. Enter in the details overlay on a row that has an id does the same.
 - `enter` — details overlay (full message, pid, stream, request_id, identity).
-- `cmd+c` (macOS) or `ctrl+shift+c` — copy visible lines. Remap with `keybinds.copy`.
+- `command+c` (macOS) or `ctrl+c` (Linux/Windows) — copy the highlighted selection. Remap with `keybinds.copy`.
 - `/export [path]` — write the **current** filters. Default file: `~/.devctl/exports/devctl-logs-<timestamp>.log`.
 - `/exports` or the **open folder** chip — reveal that directory.
 - `/history [id]` — load a persisted session (`LogManager.listSessions`).

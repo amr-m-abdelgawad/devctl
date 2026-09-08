@@ -62,7 +62,7 @@ flowchart TB
 
 Settings writes go to `~/.devctl/tui.json` unless the env override is set (then changes apply for this session only).
 
-`keybinds` merge with the built-in defaults, so you only override what you change.
+`keybinds` merge with the built-in defaults, so you only override what you change. Defaults use `cmd` on macOS and `ctrl` on Linux/Windows (`command+c` / `ctrl+c` in the TUI).
 
 ```json
 {
