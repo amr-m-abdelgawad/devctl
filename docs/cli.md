@@ -96,7 +96,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 | 4 | authorization |
 | 5 | service startup |
 | 6 | health check |
-| 7 | proxy |
+| 7 | proxy (`proxy start` with no listen port, or bind failed) |
 
 ## Related
 
