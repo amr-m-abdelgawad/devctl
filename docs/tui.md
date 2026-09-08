@@ -46,11 +46,11 @@ Keyboard-first:
 
 | Input | What it does |
 |-------|----------------|
-| `/` | Slash command line — `↑`/`↓` move the suggestion, `enter` runs it |
-| `ctrl+p` | Grouped command palette |
+| `/` | Command overlay — ranked as you type (name, alias, fuzzy, then description). `/start api` still lists `start`. `↑`/`↓` to move, `enter` to run |
+| `ctrl+p` | Same command overlay as `/` |
 | `ctrl+x` | Leader key (2s), then a shortcut — keymap overlay |
 | `?` | Grouped help — `j`/`k` scroll when the list is taller than the terminal |
-| `tab` / `shift+tab` / `1`–`9` / `0` | Cycle or jump **nav tabs**. `0` is the 10th tab (**setup**). Settings is the 11th tab — use `tab` or `/settings`. When the strip is wider than the terminal it slides (`‹` `›`). |
+| `tab` / `shift+tab` / `1`–`4` | Cycle or jump the **four nav tabs**. Other screens are `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`, `/mcp`. On a secondary screen, `tab` returns to the dashboard. When the strip is wider than the terminal it slides (`‹` `›`). |
 | `s` `l` `a` `p` `d` `c` `u` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
 | `r` | Refresh snapshot (doctor `r` re-runs checks) |
 | `R` | Restart selected services |
@@ -66,17 +66,17 @@ Keyboard-first:
 | `ctrl+c` `ctrl+c` | Interrupt only — twice to quit. Copy is never `ctrl+c` on Linux/Windows |
 | Mouse | Click nav, click a service, scroll logs (toggle in Settings) |
 
-The status bar only lists keys that work **on the current screen**. On a terminal shorter than 20 rows the idle command bar hides; `/` still opens the command overlay.
+The status bar only lists keys that work **on the current screen**. There is no idle command row — `/` and `ctrl+p` open the command overlay.
 
-## Nav tabs (11)
+## Nav tabs (4)
 
-1. dashboard · 2. services · 3. logs · 4. identity · 5. credentials · 6. proxy · 7. doctor · 8. config · 9. profiles · 0. setup · then **settings** (no digit).
+1. dashboard · 2. services · 3. logs · 4. proxy
 
-**MCP** is not a tab. Open it with `/mcp`, `/agent`, or Settings → **MCP → Settings page**.
+Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`. **MCP** is `/mcp`, `/agent`, or Settings → **MCP → Settings page**.
 
 ## Screens
 
-- **Dashboard** — services, identity, proxy, live log tail. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
+- **Dashboard** — services, proxy, live log tail. Identity lives on `/auth`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so `j`/`k` scroll. `/reveal` shows secrets. `n`/`x`/`R`/`l`
 - **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. See [Logs](logs.md)
@@ -143,10 +143,10 @@ Override in `tui.json` (`keybinds`) or `DEVCTL_TUI_CONFIG`.
 
 ## Layout
 
-- **Header** — `devctl` plus version, project, profile, `running N/M`, proxy chip, MCP chip when running, ADC chip
-- **Nav** — current tab highlighted
+- **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
+- **Nav** — the four primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
-- **Command line** — real OpenTUI input for `/` and palette filter
+- **Command overlay** — `/` and `ctrl+p` open the same grouped list with a real OpenTUI input
 - **Status bar** — live/paused, last human result, contextual keys
 
 Status is never color-only: `✓` healthy, `●` running, `!` warning, `✗` failed, `○` stopped.
