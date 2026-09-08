@@ -13,6 +13,7 @@ dist/
 *.out
 coverage.out
 coverage.html
+app/src/adapters/daemon/.watch-*/
 
 # Go
 vendor/

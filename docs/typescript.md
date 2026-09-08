@@ -9,6 +9,9 @@ bun install
 bun run src/bin.ts --help
 bun test
 bunx tsc --noEmit
+bun run check:architecture
+bun run check:dead
+bun run check:dup
 ```
 
 From the repository root (after `bun install` in `app/`):
@@ -38,7 +41,7 @@ cd app && bun link    # optional: `devctl` on PATH
 | `app/src/adapters/rpc/controller.ts` | Local supervisor or socket / named-pipe client |
 | `app/tui.json` | Starter TUI preferences |
 
-Layer rules: [architecture.md](architecture.md). Check with `bun run check:architecture`.
+Layer rules: [architecture.md](architecture.md). Check with `bun run check:architecture`. Unused files and dependencies: `bun run check:dead` ([Knip](https://knip.dev)). Copy-paste clones: `bun run check:dup` ([jscpd](https://jscpd.dev)).
 
 There is no separate Go tree.
 

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
+  // Reserved hexagonal port: adapters are expected to implement this later.
+  "ignore": ["src/ports/credential-provider.ts"],
+  // Host tools spawned at runtime, not npm packages.
+  "ignoreBinaries": ["explorer", "xdg-open", "vm_stat"],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "files": "error",
+    "dependencies": "error",
+    "unlisted": "error",
+    "binaries": "error",
+    "unresolved": "error",
+    "duplicates": "error",
+    "exports": "off",
+    "nsExports": "off",
+    "types": "off",
+    "nsTypes": "off",
+    "enumMembers": "off",
+    "namespaceMembers": "off"
+  }
+}

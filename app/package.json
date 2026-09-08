@@ -24,6 +24,8 @@
     "test:npm-launcher": "node --test ../packaging/npm/devctl.test.cjs",
     "typecheck": "bunx tsc --noEmit",
     "check:architecture": "bun scripts/check-architecture.ts",
+    "check:dead": "knip-bun",
+    "check:dup": "jscpd src scripts",
     "build:npm": "bun run scripts/build-npm-package.ts",
     "update:homebrew": "bun run scripts/update-homebrew-formula.ts",
     "sync-guide": "bun run scripts/sync-guide.ts"
@@ -31,6 +33,8 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^19.2.18",
+    "jscpd": "^5.2.0",
+    "knip": "^6.35.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
