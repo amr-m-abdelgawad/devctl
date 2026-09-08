@@ -1,6 +1,5 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { type DevctlConfig } from "../../domain/config/types.ts";
 import type { ClientRuntime, Controller } from "../../application/client-runtime.ts";
 import { createTuiWorkspace } from "./workspace.ts";
 import { humanMessage, isKind, KindConfigurationMissing } from "../../shared/errors.ts";
@@ -101,8 +100,4 @@ export async function renderApp(
       />,
     );
   });
-}
-
-export function tuiConfigFor(client: ClientRuntime, cfg: DevctlConfig) {
-  return client.loadTuiConfig(cfg.repoRoot, cfg.ui.keymap);
 }

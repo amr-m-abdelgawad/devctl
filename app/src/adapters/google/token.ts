@@ -212,14 +212,6 @@ export function googleTokenProviders(): TokenProvider[] {
   return [iapProvider(), serviceAccountProvider(), userProvider()];
 }
 
-export function staticTokenProvider(token: AccessToken): TokenProvider {
-  return {
-    name: "static",
-    accepts: (identity, audience) => (token.identity === "" || identity === token.identity) && (token.audience === "" || audience === token.audience),
-    fetch: async (identity, audience, scopes) => ({ ...token, identity, audience, scopes }),
-  };
-}
-
 function userProvider(): TokenProvider {
   return {
     name: "user",

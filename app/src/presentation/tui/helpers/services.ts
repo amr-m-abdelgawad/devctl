@@ -234,13 +234,6 @@ export function redactEnv(env: Record<string, string>, reveal: boolean, extraMar
   return new Detector(extraMarkers, extraPatterns).redactMap(env);
 }
 
-export function profileMembers(cfg: DevctlConfig | undefined, name: string): string {
-  if (!cfg) {
-    return "";
-  }
-  return (cfg.profiles[name]?.services ?? []).join(", ");
-}
-
 const LIVE_PROCESS_STATES = new Set(["RUNNING", "STARTING", "RESTARTING", "HEALTHY", "UNHEALTHY"]);
 
 export function isLiveProcessState(state: string): boolean {
