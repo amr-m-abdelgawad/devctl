@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyInstall, checkUpdate } from "./update.ts";
+import { applyInstall, checkUpdate, githubUpdate, spawnInstall } from "./update.ts";
 import { compareSemver, detectInstall, formatUpdateStatus, HOMEBREW_FORMULA_URL, NPM_PACKAGE } from "../../domain/update.ts";
 import { VERSION } from "../../version.ts";
 
@@ -77,6 +77,35 @@ describe("update", () => {
     expect(formatUpdateStatus({ current: "0.2.0", latest: "0.3.0", newer: true, hint: "npm i", kind: "npm" })).toContain("0.2.0 → 0.3.0");
     expect(formatUpdateStatus({ current: "0.2.0", latest: "0.2.0", newer: false, hint: "npm i", kind: "npm" })).toBe("0.2.0 up to date");
     expect(formatUpdateStatus({ current: "0.2.0", latest: "", newer: false, hint: "npm i", kind: "unknown" })).toBe("0.2.0 (latest unavailable)");
+  });
+
+  test("checkUpdate treats HTTP errors and fetch failures as unavailable", async () => {
+    const channel = detectInstall({
+      scriptPath: "/usr/local/lib/node_modules/@amr-m-abdelgawad/devctl/dist/devctl.js",
+      execPath: "/usr/local/lib/node_modules/bun/bin/bun.exe",
+      standalone: false,
+    });
+    const failed = await checkUpdate(async () => new Response("no", { status: 503 }), channel);
+    expect(failed.latest).toBe("");
+    expect(failed.newer).toBe(false);
+    const thrown = await checkUpdate(async () => {
+      throw new Error("offline");
+    }, channel);
+    expect(thrown.latest).toBe("");
+  });
+
+  test("githubUpdate wires check and apply", async () => {
+    const updates = githubUpdate(async () => new Response(JSON.stringify({ tag_name: "v1.0.0" }), { status: 200 }));
+    const check = await updates.check();
+    expect(check.latest).toBe("1.0.0");
+    const applied = await updates.apply([process.execPath, "-e", ""]);
+    expect(applied.code).toBe(0);
+  });
+
+  test("spawnInstall captures stdout when not inheriting", async () => {
+    const result = await spawnInstall([process.execPath, "-e", "process.stdout.write('ok')"]);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toBe("ok");
   });
 
   test("applyInstall runs the channel command", async () => {

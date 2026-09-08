@@ -2,3 +2,14 @@
 preload = []
 # Cover src/ and scripts/ so packaging tests stay in CI (`bun test` from app/).
 root = "."
+coverageSkipTestFiles = true
+# OpenTUI screens/hooks need a terminal renderer. Their logic lives in helpers/.
+# Generated guide text and plugin fixtures are not the unit-test surface.
+coveragePathIgnorePatterns = [
+  "**/*.generated.ts",
+  "**/.watch-*/**",
+  "src/adapters/google/testdata/**",
+  "src/presentation/tui/**/*.tsx",
+  "src/presentation/tui/hooks/**",
+  "src/presentation/tui/index.tsx",
+]

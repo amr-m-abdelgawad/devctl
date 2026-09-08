@@ -21,6 +21,7 @@
     "dev": "bun run src/bin.ts",
     "start": "bun run src/bin.ts",
     "test": "bun test",
+    "check:coverage": "bun scripts/check-coverage.ts",
     "test:npm-launcher": "node --test ../packaging/npm/devctl.test.cjs",
     "typecheck": "bunx tsc --noEmit",
     "check:architecture": "bun scripts/check-architecture.ts",

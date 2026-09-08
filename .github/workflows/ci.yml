@@ -37,9 +37,9 @@ jobs:
           bun-version: 1.4.0
       - working-directory: app
         run: bun install --frozen-lockfile
-      - name: bun test
+      - name: bun test with coverage
         working-directory: app
-        run: bun test
+        run: bun run check:coverage
 
   typecheck:
     name: Typecheck

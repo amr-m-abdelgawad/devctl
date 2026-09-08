@@ -12,6 +12,7 @@ cd app
 bun install
 bun run src/bin.ts --help
 bun test
+bun run check:coverage
 bunx tsc --noEmit
 bun run check:architecture
 bun run check:dead

@@ -140,5 +140,5 @@ composition lives in bootstrap, and there are no production import exceptions.
 
 Keep RPC names, JSON fields, `plugin-sdk.ts`, and `bin.ts` stable. Validate each
 phase with `bun test`, `./node_modules/.bin/tsc --noEmit`,
-`bun run check:architecture`, `bun run check:dead`, and `bun run check:dup`
+`bun run check:architecture`, `bun run check:coverage`, `bun run check:dead`, and `bun run check:dup`
 from `app/`.

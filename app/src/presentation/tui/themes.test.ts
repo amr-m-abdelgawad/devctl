@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { agentColor, chipForeground, CHIP_DARK_INK, hexLuminance, isDarkTerminalBackground, isLightPalette, logMessageColor, logSpanColor, onAgentColor, paletteFor, resolveThemeName, serviceColor, THEME_BLURBS, THEME_NAMES, themeBlurb } from "./themes.ts";
+import { agentColor, chipForeground, CHIP_DARK_INK, hexLuminance, isDarkTerminalBackground, isLightPalette, logMessageColor, logSpanColor, onAgentColor, paletteFor, resolveThemeName, serviceColor, stateGlyph, THEME_BLURBS, THEME_NAMES, themeBlurb } from "./themes.ts";
 
 describe("themes", () => {
   test("every named theme has a palette and blurb", () => {
@@ -85,5 +85,36 @@ describe("themes", () => {
     expect(isDarkTerminalBackground("#f5f5f5")).toBe(false);
     expect(isDarkTerminalBackground(null)).toBe(false);
     expect(isDarkTerminalBackground("default")).toBe(false);
+  });
+
+  test("state glyphs and the system light override", () => {
+    expect(stateGlyph("healthy")).toBe("✓");
+    expect(stateGlyph("ok")).toBe("✓");
+    expect(stateGlyph("unhealthy")).toBe("!");
+    expect(stateGlyph("warning")).toBe("!");
+    expect(stateGlyph("warn")).toBe("!");
+    expect(stateGlyph("failed")).toBe("✗");
+    expect(stateGlyph("error")).toBe("✗");
+    expect(stateGlyph("stopped")).toBe("○");
+    expect(stateGlyph("unknown")).toBe("○");
+    expect(stateGlyph("running")).toBe("●");
+    expect(stateGlyph("starting")).toBe("●");
+    expect(stateGlyph("restarting")).toBe("●");
+    expect(stateGlyph("other")).toBe("○");
+
+    const previous = process.env.DEVCTL_THEME_LIGHT;
+    try {
+      process.env.DEVCTL_THEME_LIGHT = "1";
+      expect(paletteFor("system").background).toBe(paletteFor("solarized-light").background);
+      process.env.DEVCTL_THEME_LIGHT = "0";
+      expect(paletteFor("system").name).toBe("system");
+      expect(paletteFor("system").background).toBe("#030712");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.DEVCTL_THEME_LIGHT;
+      } else {
+        process.env.DEVCTL_THEME_LIGHT = previous;
+      }
+    }
   });
 });
