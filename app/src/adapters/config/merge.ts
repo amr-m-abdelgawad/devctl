@@ -18,6 +18,7 @@ import {
 } from "./decode.ts";
 import {
   emptyService,
+  watchDebounceMs,
   type DevctlConfig,
   type ConfigProvenance,
   type EnvConfig,
@@ -308,7 +309,7 @@ function mergeWatch(base: ServiceConfig["watch"], raw: unknown): ServiceConfig["
   return {
     enabled: raw.enabled !== undefined ? asBoolean(raw.enabled) : base.enabled,
     paths: raw.paths !== undefined ? asStringArray(raw.paths) : base.paths,
-    debounce_ms: raw.debounce_ms !== undefined ? asNumber(raw.debounce_ms) : base.debounce_ms,
+    debounce_ms: raw.debounce_ms !== undefined ? watchDebounceMs(asNumber(raw.debounce_ms)) : base.debounce_ms,
     ignore: raw.ignore !== undefined ? asStringArray(raw.ignore) : base.ignore,
   };
 }

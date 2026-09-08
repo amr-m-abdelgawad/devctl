@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { emptyWatch } from "../config/types.ts";
+import { DEFAULT_WATCH_DEBOUNCE_MS, emptyWatch, watchDebounceMs } from "../config/types.ts";
 import { globMatch, shouldRestartOnWatch } from "./watch.ts";
 
 describe("shouldRestartOnWatch", () => {
@@ -16,6 +16,12 @@ describe("shouldRestartOnWatch", () => {
     expect(shouldRestartOnWatch(watch, "other/main.go")).toBe(false);
     expect(shouldRestartOnWatch(watch, "invoices-api/node_modules/pkg/index.js")).toBe(false);
     expect(shouldRestartOnWatch(watch, "../secret")).toBe(false);
+  });
+
+  test("watchDebounceMs rejects zero and negative values", () => {
+    expect(watchDebounceMs(800)).toBe(800);
+    expect(watchDebounceMs(0)).toBe(DEFAULT_WATCH_DEBOUNCE_MS);
+    expect(watchDebounceMs(-15)).toBe(DEFAULT_WATCH_DEBOUNCE_MS);
   });
 
   test("globMatch understands ** and *", () => {

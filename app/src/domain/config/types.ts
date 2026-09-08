@@ -80,6 +80,10 @@ export type ServiceWatchConfig = {
 export const DEFAULT_WATCH_DEBOUNCE_MS = 300;
 export const DEFAULT_WATCH_IGNORE = ["**/node_modules/**", "**/.git/**"];
 
+export function watchDebounceMs(value: number): number {
+  return value > 0 ? value : DEFAULT_WATCH_DEBOUNCE_MS;
+}
+
 export function emptyWatch(): ServiceWatchConfig {
   return { enabled: false, paths: [], debounce_ms: DEFAULT_WATCH_DEBOUNCE_MS, ignore: [...DEFAULT_WATCH_IGNORE] };
 }

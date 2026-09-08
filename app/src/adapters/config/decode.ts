@@ -5,8 +5,8 @@ import {
   emptyIdentity,
   emptyService,
   emptyWatch,
-  DEFAULT_WATCH_DEBOUNCE_MS,
   DEFAULT_WATCH_IGNORE,
+  watchDebounceMs,
   type Command,
   type EnvConfig,
   type Dependency,
@@ -218,11 +218,10 @@ export function decodeWatch(value: unknown): import("../../domain/config/types.t
   if (!isRecord(value)) {
     return emptyWatch();
   }
-  const debounce = asNumber(value.debounce_ms);
   return {
     enabled: asBoolean(value.enabled),
     paths: asStringArray(value.paths),
-    debounce_ms: debounce > 0 ? debounce : DEFAULT_WATCH_DEBOUNCE_MS,
+    debounce_ms: watchDebounceMs(asNumber(value.debounce_ms)),
     ignore: value.ignore === undefined ? [...DEFAULT_WATCH_IGNORE] : asStringArray(value.ignore),
   };
 }
