@@ -85,8 +85,8 @@ export function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): DaemonRu
     sessionID,
     createMcpListener: deps.createMcpListener ?? defaultMcpListener,
     isKnownTool: isKnownToolName,
+    createCommands: (host) => commandsForHost(host, createDoctorRunner(createDoctorHost({ tokens })), orchestrator),
   });
-  supervisor.attachCommands(commandsForHost(supervisor, createDoctorRunner(createDoctorHost({ tokens })), orchestrator));
   return { supervisor, orchestrator, clock, fs };
 }
 

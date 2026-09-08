@@ -5,7 +5,7 @@ import { type ProxyConfig, type RouteConfig, listenAddress } from "../config/ind
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
-import { type LogManager } from "../storage/logs.ts";
+import type { LogStore } from "../../ports/log-store.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
 
@@ -60,7 +60,7 @@ export type ProxyMiddlewareContext = {
 export class ProxyServer {
   private readonly cfg: ProxyConfig;
   private readonly tokens?: TokenManager;
-  private readonly logs?: LogManager;
+  private readonly logs?: Pick<LogStore, "append">;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
   private readonly middleware: ProxyMiddleware[];
@@ -76,7 +76,7 @@ export class ProxyServer {
   constructor(
     cfg: ProxyConfig,
     tokens?: TokenManager,
-    logs?: LogManager,
+    logs?: Pick<LogStore, "append">,
     bus?: Bus,
     detector?: Detector,
     middleware: ProxyMiddleware[] = [],

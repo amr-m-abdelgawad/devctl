@@ -8,21 +8,29 @@ export type GoogleProbe = {
   adcAvailable: boolean;
 };
 
-/** Daemon-owned state and infrastructure the orchestrator calls during start/stop. */
-export type LifecycleSession = {
+/** Runtime view health probes and crash/unhealthy restart need. */
+export type HealthHost = {
   cfg: DevctlConfig;
   profile: string;
   profileEnv: Record<string, string>;
-  detached: boolean;
-  readonly proxySuppressed: boolean;
   readonly runtimes: Map<string, Runtime>;
-  readonly ports: Map<string, Record<string, number>>;
-  readonly clientEnv: Map<string, Record<string, string>>;
   readonly serviceProfile: Map<string, string>;
   readonly serviceProfileEnv: Map<string, Record<string, string>>;
   readonly healthCheckers: HealthCheckerFactory;
   readonly logs: LogStore;
   readonly bus: Bus;
+  setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void;
+  persistState(): void;
+  log(service: string, level: string, message: string): void;
+  fail(name: string, err: unknown): Promise<void>;
+};
+
+/** Daemon-owned state and infrastructure the orchestrator calls during start/stop. */
+export type LifecycleSession = HealthHost & {
+  detached: boolean;
+  readonly proxySuppressed: boolean;
+  readonly ports: Map<string, Record<string, number>>;
+  readonly clientEnv: Map<string, Record<string, string>>;
   readonly processMeta: Map<string, { command: string[]; cwd: string; startTime: Date }>;
   readonly containerPrefix: string;
   prepareServiceIdentity(name: string, svc: ServiceConfig): Promise<void>;
@@ -30,12 +38,8 @@ export type LifecycleSession = {
 
   detectGoogle(project: string): Promise<GoogleProbe>;
   startProxy(): Promise<void>;
-  fail(name: string, err: unknown): Promise<void>;
   claimIfAlreadyUp(name: string): Promise<boolean>;
   assignPendingPorts(pending: string[]): Promise<void>;
-  setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void;
-  persistState(): void;
-  log(service: string, level: string, message: string): void;
   releasePorts(name: string): Promise<void>;
   forgetService(name: string): void;
 };

@@ -4,18 +4,9 @@ import type { StartRequest, StatusSnapshot, ReloadResult } from "../domain/statu
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
 import type { DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
 import { profileId, type ProfileId, serviceId, type ServiceId } from "../domain/ids.ts";
-import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
+import type { DaemonCommandHost, ServiceOrchestratorPort } from "../ports/daemon.ts";
 
-export type ServiceCommandHost = {
-  start(req: StartRequest): Promise<Plan>;
-  stop(names: string[]): Promise<void>;
-  restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string>; auto?: boolean }): Promise<void>;
-  reload(): Promise<ReloadResult>;
-  snapshot(): StatusSnapshot;
-  startProxy(): Promise<void>;
-  stopProxy(): Promise<void>;
-  refreshIdentity(opts?: { probeServiceAccounts?: boolean }): Promise<void>;
-};
+export type ServiceCommandHost = DaemonCommandHost;
 
 export type StartStop = {
   start(req: StartRequest): Promise<Plan>;

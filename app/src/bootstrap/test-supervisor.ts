@@ -57,7 +57,7 @@ export class Supervisor extends DaemonSupervisor {
       detector,
       sessionID,
       detectGoogle: deps.detectGoogle ?? (async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" })),
+      createCommands: deps.createCommands ?? ((host) => commandsForHost(host, createDoctorRunner(createDoctorHost({ tokens })), orchestrator)),
     });
-    this.attachCommands(commandsForHost(this, createDoctorRunner(createDoctorHost({ tokens })), orchestrator));
   }
 }

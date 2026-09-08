@@ -5,7 +5,7 @@ import type { Clock } from "../ports/clock.ts";
 import type { ProcessRuntime } from "../ports/process-runtime.ts";
 import { humanMessage, newError } from "../shared/errors.ts";
 import { ServiceStopped, ServiceHealthChanged, newEvent } from "../shared/events.ts";
-import type { LifecycleSession } from "../ports/lifecycle-session.ts";
+import type { HealthHost } from "../ports/lifecycle-session.ts";
 
 const DEFAULT_BACKOFF_SECONDS = 2;
 const DEFAULT_HEALTH_INTERVAL_MS = 2000;
@@ -22,7 +22,7 @@ export class HealthMonitor {
   private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(
-    private readonly host: () => LifecycleSession,
+    private readonly host: () => HealthHost,
     private readonly processes: ProcessRuntime,
     private readonly clock: Clock,
     private readonly actions: {

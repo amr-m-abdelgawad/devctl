@@ -1,1 +1,1 @@
-export type { LifecycleSession, GoogleProbe } from "../ports/lifecycle-session.ts";
+export type { LifecycleSession, HealthHost, GoogleProbe } from "../ports/lifecycle-session.ts";

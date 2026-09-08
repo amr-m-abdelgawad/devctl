@@ -1,6 +1,5 @@
 import { createServer, type Server } from "node:net";
-import { watch, type FSWatcher } from "node:fs";
-import { cpus, loadavg, platform, uptime } from "node:os";
+import type { FSWatcher } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
   type DevctlConfig,
@@ -10,40 +9,37 @@ import {
   commandEmpty,
   graceSeconds,
   listenAddress,
-  load,
   validateConfigText,
   stopOnExit,
-  unresolvedHealthTypes,
-  unresolvedIdentityTypes,
 } from "../config/index.ts";
-import { ENV_SOURCE_ORDER, envList, resolveEnvironment, runtimeForService } from "../environment/environment.ts";
+import { envList, resolveEnvironment, runtimeForService } from "../environment/environment.ts";
+import { claimIfAlreadyUp as claimAdoptedService, recoverSession as recoverPersistedSession, type RecoverHost } from "./recover.ts";
+import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
+import { buildSnapshot, emptyIdentitySnapshot, formatStatusFromSnapshot, serviceAccountSnapshot, type SnapshotHost } from "./snapshot.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
-import type { DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
+import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
 import type { McpHost, McpListener, McpListenerFactory } from "../../ports/mcp-host.ts";
-import { configSnapshotDiff, replaceSnapshot } from "../../domain/config/snapshot.ts";
+import { configSnapshotDiff } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
-import { DevctlError, KindConfiguration, KindGeneral, KindProcessStart, KindServiceNotFound, humanMessage, newError, serializeError } from "../../shared/errors.ts";
+import { DevctlError, KindGeneral, KindProcessStart, KindServiceNotFound, humanMessage, newError, serializeError } from "../../shared/errors.ts";
 import {
   AuthenticationChanged,
   type Bus,
-  ConfigurationChanged,
-  ConfigurationReloadFailed,
   ServiceFailed,
   ServiceStateChanged,
-  SessionRecovered,
   TokenRefreshed,
   TokenRefreshFailed,
   newEvent,
 } from "../../shared/events.ts";
 import { detectIdentity, type GoogleStatus } from "../google/google.ts";
 import type { HealthCheckerFactory } from "../../ports/health-checker.ts";
-import { readHostMemory } from "../system/host-stats.ts";
 import { configuredServiceAccounts, fromConfig, resolveIdentity, tokenIdentityKey } from "../../domain/identity/identity.ts";
-import { LogManager, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
-import { assignPorts, findPortHolder, freePort, occupiedFixedPorts } from "../net/ports.ts";
+import type { LogStore } from "../../ports/log-store.ts";
+import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../domain/logs/logs.ts";
+import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameProcess, sampleResourceUsage, type ProcessIdentity } from "../process/processes.ts";
 import { resolveMcpPort } from "../net/mcp-port.ts";
@@ -56,23 +52,20 @@ import {
   StateHealthy,
   StateUnhealthy,
   StateRunning,
-  displayState,
   emptyRuntime,
   formatPlan,
-  supervisorRestartAdvice,
   type Plan,
   type Runtime,
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { randomSecret, readOrCreateMcpToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { randomSecret, readOrCreateMcpToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { Envelope } from "../../types.ts";
-import type { IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, ServiceAccountStatus, StartRequest, StatusSnapshot } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
-const WATCH_DEBOUNCE_MS = 200;
 const RESOURCE_POLL_MS = 3_000;
 
 export class Supervisor {
@@ -80,7 +73,7 @@ export class Supervisor {
   private readonly sessionID: string;
   private readonly internalTok: string;
   private readonly bus: Bus;
-  private readonly logs: LogManager;
+  private readonly logs: LogStore;
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
   private readonly detector: Detector;
@@ -149,7 +142,7 @@ export class Supervisor {
   private resourceTimer?: ReturnType<typeof setInterval>;
 
   private readonly orchestrator: ServiceOrchestratorPort;
-  private commands!: DaemonCommands;
+  private readonly commands: DaemonCommands;
   private readonly clock: Clock;
   private readonly fs: FileSystem;
   private readonly healthCheckers: HealthCheckerFactory;
@@ -172,11 +165,12 @@ export class Supervisor {
       clock: Clock;
       fs: FileSystem;
       bus: Bus;
-      logs: LogManager;
+      logs: LogStore;
       detector: Detector;
       sessionID: string;
       createMcpListener: McpListenerFactory;
       isKnownTool: (name: string) => boolean;
+      createCommands: (host: DaemonCommandHost) => DaemonCommands;
     },
   ) {
     this.healthCheckers = deps.healthCheckers;
@@ -231,10 +225,15 @@ export class Supervisor {
       this.runtimes.set(name, emptyRuntime(name));
     }
     this.orchestrator.bind(this.lifecycleSession());
+    this.commands = deps.createCommands(this);
   }
 
-  attachCommands(commands: DaemonCommands): void {
-    this.commands = commands;
+  private toHost<T>(): T {
+    this.processAliveFn;
+    this.restartRequired;
+    this.credentialEntries;
+    this.setupMode;
+    return this as unknown as T;
   }
 
   async run(): Promise<void> {
@@ -248,12 +247,12 @@ export class Supervisor {
     this.removeStaleSocket(socket);
     this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path), this.cfg.repoRoot);
     for (const failure of this.registry.loadErrors) this.log("devctl", "ERROR", `plugin ${failure.path} skipped: ${failure.message}`);
-    this.applyRegistry();
-    this.checkPluginHealthTypes();
-    this.checkPluginIdentityTypes();
-    this.checkPluginEnvironmentSources();
+    applyPluginRegistry(this.toHost<ReloadHost>());
+    assertPluginHealthTypes(this.registry, this.cfg);
+    assertPluginIdentityTypes(this.registry, this.cfg);
+    assertPluginEnvironmentSources(this.registry, this.cfg);
     await this.recoverSession();
-    this.watchConfig();
+    watchConfigDir(this.toHost<ReloadHost>());
     this.persistState();
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
@@ -679,91 +678,11 @@ export class Supervisor {
   }
 
   private async claimIfAlreadyUp(name: string): Promise<boolean> {
-    const svc = this.cfg.services[name];
-    if (this.orchestrator.serviceIsActive(name)) {
-      if (svc && !this.ports.has(name)) {
-        const occupied = await occupiedFixedPorts(svc);
-        if (occupied) {
-          this.ports.set(name, occupied);
-        }
-      }
-      return true;
-    }
-    if (!svc) {
-      return false;
-    }
-    if (svc.container) {
-      const gen = this.orchestrator.health.bumpGeneration(name);
-      const runtime = svc.container.runtime === "podman" ? "podman" : "docker";
-      const workDir = this.serviceWorkDir(svc);
-      const handle = await this.procs.adoptContainer({
-        name,
-        runtime,
-        containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
-        workDir,
-        onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
-        onExit: (code, err) => this.orchestrator.health.onExit(name, gen, code, err),
-      });
-      if (!handle) return false;
-      const assigned = this.ports.get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
-      this.ports.set(name, assigned);
-      this.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
-      this.setState(name, StateRunning, HealthUnknown, 0, "");
-      const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, assigned);
-      this.orchestrator.health.startHealth(name, svc, 0, assigned, workDir, healthEnv, gen);
-      this.persistState();
-      this.log(name, "INFO", `claimed running ${runtime} container ${handle.container?.id ?? ""}`);
-      return true;
-    }
-    const occupied = await occupiedFixedPorts(svc);
-    if (!occupied) {
-      return false;
-    }
-    const first = Object.values(occupied)[0];
-    const holder = first === undefined ? undefined : await findPortHolder(first);
-    const pid = holder?.pid ?? 0;
-    if (pid > 0 && pid !== process.pid) {
-      const persistedRec = readPersistedState(this.cfg.repoRoot)?.processes.find((rec) => rec.name === name && rec.pid === pid);
-      if (!persistedRec) {
-        // No prior record ties this pid to this service. Matching on
-        // command + cwd alone isn't enough to safely adopt — a same-command
-        // process started independently of devctl would satisfy that too —
-        // so without a persisted start-time to corroborate identity, treat
-        // the port as unavailable rather than adopting.
-        this.log(name, "WARN", `port ${first} is held by pid ${pid} with no persisted record for ${name}; not adopting`);
-        return false;
-      }
-      const observed = await this.inspectProcessFn(pid);
-      const identityOk =
-        observed !== undefined &&
-        observed.command !== "" &&
-        sameProcess(
-          {
-            args: [...svc.command.args],
-            workDir: this.serviceWorkDir(svc),
-            startTime: new Date(persistedRec.startTime),
-          },
-          observed,
-        );
-      if (identityOk) {
-        this.ports.set(name, occupied);
-        // Use the persisted start time, not "now" — this process has been
-        // running since persistedRec.startTime (that's exactly what
-        // sameProcess() above just verified); reporting "now" would both
-        // show a bogus near-zero uptime and, once this adoption is itself
-        // persisted, poison the record a future adoption verifies identity
-        // against.
-        const gen = this.attachProcess(name, pid, [...svc.command.args], this.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? this.orchestrator.health.bumpGeneration(name);
-        this.setState(name, StateRunning, HealthUnknown, pid, "");
-        this.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
-        const workDir = this.serviceWorkDir(svc);
-        const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, occupied);
-        this.orchestrator.health.startHealth(name, svc, pid, occupied, workDir, healthEnv, gen);
-        return true;
-      }
-      this.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
-    }
-    return false;
+    return claimAdoptedService(this.toHost<RecoverHost>(), name);
+  }
+
+  private async recoverSession(): Promise<void> {
+    return recoverPersistedSession(this.toHost<RecoverHost>());
   }
 
   private async prepareServiceIdentity(name: string, svc: ServiceConfig): Promise<void> {
@@ -791,48 +710,6 @@ export class Supervisor {
     }
   }
 
-  // Reconstructs a reproducible environment for an adopted process's health
-  // checks. recoverSession()/claimIfAlreadyUp() adopt a process devctl
-  // itself never spawned this session — its real launch environment isn't
-  // persisted (and for a leftover from a previous daemon, no longer exists
-  // to read back) — so a command-type health check given no environment at
-  // all can't even resolve PATH to find its own executable. This recomputes
-  // one from the same configured, reproducible sources a fresh start would
-  // use (profile, dotenv, defaults/vars, secrets, runtime) with no
-  // client_env of course, falling back to just the daemon's own
-  // environment — a usable baseline PATH at minimum — if resolution itself
-  // fails, e.g. a required var only a now-vanished client ever supplied.
-  private async resolveAdoptedHealthEnv(name: string, svc: ServiceConfig, assigned: Record<string, number>): Promise<Record<string, string>> {
-    let proxyURL = "";
-    if (this.proxy?.isRunning()) {
-      proxyURL = `http://${this.proxy.address()}`;
-    } else if (this.cfg.proxy.enabled) {
-      proxyURL = `http://${listenAddress(this.cfg.proxy.listen)}`;
-    }
-    const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, this.cfg.project.name);
-    runtimeEnv.DEVCTL_INTERNAL_TOKEN = this.internalTok;
-    if (this.cfg.proxy.token_endpoint.enabled) {
-      runtimeEnv.DEVCTL_TOKEN_URL = this.boundTokenURL || `http://127.0.0.1:${this.tokenEP?.listenPort() || this.cfg.proxy.token_endpoint.port}/token`;
-    }
-    try {
-      const env = await resolveEnvironment(this.cfg.repoRoot, {
-        service: name,
-        profile: this.serviceProfile.get(name) ?? this.profile,
-        serviceCfg: svc,
-        profileEnv: this.serviceProfileEnv.get(name) ?? this.profileEnv,
-        assignedPorts: assigned,
-        runtime: runtimeEnv,
-        cfg: this.cfg,
-        fetchSecret: secretManagerFetcher(async () => (await this.tokens.get("user", "", [])).accessToken),
-        pluginSources: this.registry?.environmentSources,
-      });
-      return envList(env);
-    } catch (err) {
-      this.log(name, "WARN", `could not fully reconstruct environment for adopted service's health check (${humanMessage(err)}); using a baseline environment`);
-      return envList(runtimeEnv);
-    }
-  }
-
   // stop x also stops everything that (transitively) depends on x, never
   // x's own dependencies — see shutdownPlan. Empty names stops every
   // currently-active service but leaves the daemon itself running.
@@ -854,43 +731,6 @@ export class Supervisor {
     this.serviceProfileEnv.delete(name);
   }
 
-  // After a reload, cfg.services no longer necessarily matches what's
-  // actually tracked. A newly added service gets a STOPPED runtime entry
-  // right away instead of silently not existing until first started. A
-  // removed service that's already stopped is forgotten outright; one
-  // still running is marked orphaned (see Runtime.orphaned) and left
-  // alone — stop() can still reach it by name — rather than silently
-  // dropped with no way to stop it short of a full `down`.
-  private reconcileServices(prevServices: Record<string, ServiceConfig>, nextServices: Record<string, ServiceConfig>): void {
-    for (const name of Object.keys(nextServices)) {
-      if (!prevServices[name] && !this.runtimes.has(name)) {
-        this.runtimes.set(name, emptyRuntime(name));
-      }
-    }
-    for (const name of Object.keys(prevServices)) {
-      if (nextServices[name]) {
-        continue;
-      }
-      if (this.orchestrator.serviceIsActive(name)) {
-        const rt = this.runtimes.get(name);
-        if (rt) {
-          rt.orphaned = true;
-        }
-        this.log(name, "WARN", "removed from configuration while still running; now orphaned — stop it explicitly to clean it up");
-        continue;
-      }
-      this.forgetService(name);
-    }
-  }
-
-  // Plain restart touches only the named services — never their
-  // dependents — matching stop's "never dependencies" rule in spirit: a
-  // restart is a minimal, targeted action unless the caller explicitly
-  // opts into the wider blast radius of `cascade`.
-  //
-  // `auto` marks a restart the supervisor scheduled itself (a health-check
-  // failure via maybeRestartUnhealthy) rather than one a real client asked
-  // for.
   async restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string>; auto?: boolean }): Promise<void> {
     return this.orchestrator.restart(names, opts);
   }
@@ -984,83 +824,7 @@ export class Supervisor {
   }
 
   async reload(): Promise<ReloadResult> {
-    let next: DevctlConfig;
-    try {
-      next = load(this.cfg.repoRoot, this.cfg.configPath);
-    } catch (err) {
-      // this.cfg is untouched at this point, so the daemon keeps running on
-      // its last-known-good config — but an already-attached client (which
-      // didn't necessarily initiate this reload; e.g. the config-file
-      // watcher did) has no other way to learn the reload it's about to see
-      // reflected in config_snapshot silently failed, so publish it.
-      this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
-      this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
-      throw err;
-    }
-    try {
-      // Revalidate against the candidate config, not this.cfg — a newly
-      // added service (or one whose health/identity type just changed)
-      // referencing a plugin type nothing provides should reject the
-      // reload the same way an unparseable config file does, rather than
-      // silently taking effect and only surfacing once someone starts it.
-      this.checkPluginHealthTypes(next);
-      this.checkPluginIdentityTypes(next);
-      this.checkPluginEnvironmentSources(next);
-    } catch (err) {
-      this.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
-      this.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
-      throw err;
-    }
-    if (this.setupMode) {
-      this.setupMode = false;
-      this.log("devctl", "INFO", `configuration created at ${this.cfg.configPath}; leaving setup mode`);
-      // watchConfig() returned early at boot because .devctl did not exist
-      // yet. Now that it does, start watching it — otherwise a repository
-      // onboarded through setup mode would silently never pick up later
-      // edits, unlike every other repository.
-      if (!this.configWatcher) {
-        this.watchConfig();
-      }
-    }
-    const result = configSnapshotDiff(this.cfg, next);
-    const proxyChanged = JSON.stringify(this.cfg.proxy) !== JSON.stringify(next.proxy);
-    const secretsChanged = JSON.stringify(this.cfg.secrets) !== JSON.stringify(next.secrets);
-    const prevServices = this.cfg.services;
-    this.cfg = replaceSnapshot(this.cfg, next);
-    this.reconcileServices(prevServices, next.services);
-    this.restartRequired = result.restart_required;
-    // Detector is a cheap, stateless holder of markers/patterns — update it
-    // in place so the LogManager/ProxyServer instances that already hold a
-    // reference to it see the new rules immediately. LogManager and the
-    // plugin registry are deliberately NOT rebuilt here: recreating
-    // LogManager would drop the in-memory log ring buffer and start a new
-    // persistence session out from under the TUI, which is worse than
-    // asking for a restart; reloading plugins mid-session is out of scope.
-    if (secretsChanged) {
-      this.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns);
-    }
-    if (proxyChanged) {
-      const wasRunning = this.proxy?.isRunning() ?? false;
-      await this.stopProxy();
-      if (wasRunning && this.cfg.proxy.enabled) {
-        await this.startProxy();
-      }
-      this.log("devctl", "INFO", "proxy configuration changed; proxy restarted");
-    }
-    this.bus.publish(
-      newEvent(ConfigurationChanged, "", {
-        restart_required: result.restart_required,
-        changes: result.changes,
-        supervisor_restart_required: result.supervisor_restart_required,
-      }),
-    );
-    this.log("devctl", "INFO", result.restart_required.length === 0 ? "configuration reloaded" : `configuration reloaded; restart required: ${result.restart_required.join(", ")}`);
-    if (result.supervisor_restart_required) {
-      this.log("devctl", "WARN", supervisorRestartAdvice(result.supervisor_restart_required));
-    }
-    this.persistState();
-    void this.refreshIdentity();
-    return result;
+    return reloadSupervisor(this.toHost<ReloadHost>());
   }
 
   async shutdown(stopServices: boolean): Promise<void> {
@@ -1094,65 +858,7 @@ export class Supervisor {
   }
 
   snapshot(): StatusSnapshot {
-    const services: Record<string, Runtime> = {};
-    for (const [name, rt] of this.runtimes) {
-      services[name] = {
-        ...rt,
-        ports: this.ports.get(name) ?? rt.ports,
-        profile: this.serviceProfile.get(name) ?? rt.profile,
-        env_source: this.clientEnv.has(name) ? "client" : "daemon",
-      };
-    }
-    const proxyStatsRaw = this.proxy?.stats();
-    const proxyStats = {
-      requestTotal: proxyStatsRaw?.total ?? 0,
-      requestErrors: proxyStatsRaw?.errors ?? 0,
-      recentRequests: proxyStatsRaw?.recent ?? [],
-    };
-    return {
-      session_id: this.sessionID,
-      repo_root: this.cfg.repoRoot,
-      profile: this.profile,
-      services,
-      proxy: {
-        running: this.proxy?.isRunning() ?? false,
-        address: this.proxy?.address(),
-        routes: this.cfg.proxy.routes.map((r) => {
-          const host = r.match.host || "*";
-          const path = r.match.path;
-          const match = path === "" ? host : `${host}${path.startsWith("/") ? path : `/${path}`}`;
-          return {
-            name: r.name,
-            identity: r.auth.identity.service_account || r.auth.identity.type || r.auth.type,
-            upstream: r.upstream.url,
-            auth: r.auth.type,
-            match,
-          };
-        }),
-        ...proxyStats,
-      },
-      mcp: {
-        running: this.mcp?.isRunning() ?? false,
-        address: this.mcp?.isRunning() ? `http://${this.mcp.address()}/mcp` : undefined,
-        port: this.mcp?.isRunning() ? this.mcp.listenPort() : undefined,
-        token: this.mcpToken,
-        disabled_tools: [...this.mcpDisabledTools],
-      },
-      // service_accounts/service_account_status come from the live cache,
-      // not identityCache's snapshot — a first-use probe (startOne) or a
-      // doctor inspection updates serviceAccountStatus directly without
-      // going through refreshIdentity, and must be visible immediately.
-      identity: { ...this.identityCache, ...this.serviceAccountSnapshot() },
-      credentials: {
-        backend: this.tokens.storeBackend(),
-        entries: [...this.credentialEntries],
-      },
-      detached: this.detached,
-      setup_mode: this.setupMode ? true : undefined,
-      logs: this.logs.snapshot(),
-      restart_required: [...this.restartRequired],
-      system: systemSnapshot(),
-    };
+    return buildSnapshot(this.toHost<SnapshotHost>());
   }
 
   // Cheap local read of the credential store (keychain/file) — reflects
@@ -1184,7 +890,7 @@ export class Supervisor {
           await this.probeServiceAccount(email);
         }
       }
-      const { service_accounts, service_account_status } = this.serviceAccountSnapshot();
+      const { service_accounts, service_account_status } = serviceAccountSnapshot(this.cfg, this.serviceAccountStatus);
       this.identityCache = {
         user: st.userEmail,
         project: st.projectID || this.cfg.google.project_id,
@@ -1201,23 +907,6 @@ export class Supervisor {
     } catch (err) {
       this.log("devctl", "WARN", `identity refresh failed: ${humanMessage(err)}`);
     }
-  }
-
-  // Builds the two service-account views the snapshot exposes from the
-  // cache alone — never a fresh probe — against the currently configured
-  // set of identities, so a reload that adds or removes one is reflected
-  // immediately even though nothing has probed the new one yet.
-  private serviceAccountSnapshot(): { service_accounts: Record<string, boolean>; service_account_status: Record<string, ServiceAccountStatus> } {
-    const service_accounts: Record<string, boolean> = {};
-    const service_account_status: Record<string, ServiceAccountStatus> = {};
-    for (const email of configuredServiceAccounts(this.cfg)) {
-      const status = this.serviceAccountStatus.get(email) ?? "unknown";
-      service_account_status[email] = status;
-      if (status !== "unknown") {
-        service_accounts[email] = status === "available";
-      }
-    }
-    return { service_accounts, service_account_status };
   }
 
   // Always mints fresh (never serves a cached-still-valid token) — this is
@@ -1299,14 +988,7 @@ export class Supervisor {
   }
 
   formatStatus(): string {
-    const snap = this.snapshot();
-    const lines = [`PROFILE: ${snap.profile || "(none)"}`, "", "SERVICE\tSTATUS\tHEALTH\tPID"];
-    for (const [name, rt] of Object.entries(snap.services)) {
-      lines.push(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.pid}`);
-    }
-    lines.push("", `PROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}`);
-    lines.push(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}`);
-    return lines.join("\n") + "\n";
+    return formatStatusFromSnapshot(this.snapshot());
   }
 
   private setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void {
@@ -1348,88 +1030,6 @@ export class Supervisor {
         rt.cpuPercent = sample.cpuPercent;
         rt.memoryKB = sample.memoryKB;
       }
-    }
-  }
-
-  private applyRegistry(): void {
-    if (!this.registry) {
-      return;
-    }
-    if (this.registry.tokenProviders.length > 0) {
-      this.tokens.replaceProviders(this.registry.tokenProviders);
-    }
-    this.logs.setParsers(this.registry.logParsers);
-  }
-
-  // validate() lets a non-builtin health.type through when cfg.plugins is
-  // non-empty, since plugins aren't loaded yet at config-parse time. Now
-  // that they are, confirm each such type actually resolved to a registered
-  // health check plugin.
-  private checkPluginHealthTypes(cfg: DevctlConfig = this.cfg): void {
-    const unresolved = unresolvedHealthTypes(cfg);
-    if (unresolved.length === 0) {
-      return;
-    }
-    // checkHealth() matches plugin name to health.type case-insensitively; mirror that here.
-    const known = new Set((this.registry?.healthChecks ?? []).map((check) => check.name.toLowerCase()));
-    const stillUnknown = unresolved.filter((entry) => !known.has(entry.type.toLowerCase()));
-    if (stillUnknown.length > 0) {
-      throw newError(
-        KindConfiguration,
-        `unknown health check type(s): ${stillUnknown.map((entry) => `${entry.service}.health.type=${entry.type}`).join(", ")}`,
-      );
-    }
-  }
-
-  // Mirrors checkPluginHealthTypes: validate() lets a non-builtin
-  // identity.type through when cfg.plugins is non-empty, since plugins
-  // aren't loaded yet at config-parse time. Confirm each such type actually
-  // resolved to a registered identity provider now that they are.
-  private checkPluginIdentityTypes(cfg: DevctlConfig = this.cfg): void {
-    const unresolved = unresolvedIdentityTypes(cfg);
-    if (unresolved.length === 0) {
-      return;
-    }
-    // The built-in user provider accepts anything that isn't a service
-    // account, so only providers loaded from plugin modules count here.
-    // Track provenance rather than filtering by name: plugin authors are
-    // free to choose names that happen to match a built-in provider.
-    const pluginProviders = this.registry?.pluginIdentityProviders ?? [];
-    const stillUnknown = unresolved.filter(({ service }) => {
-      const svc = cfg.services[service];
-      return !svc || !pluginProviders.some((provider) => provider.accepts(svc.identity));
-    });
-    if (stillUnknown.length > 0) {
-      throw newError(
-        KindConfiguration,
-        `unknown identity type(s): ${stillUnknown.map((entry) => `${entry.service}.identity.type=${entry.type}`).join(", ")}`,
-      );
-    }
-  }
-
-  private checkPluginEnvironmentSources(cfg: DevctlConfig = this.cfg): void {
-    const builtin = new Set<string>(ENV_SOURCE_ORDER);
-    const registered = new Set((this.registry?.environmentSources ?? []).map((source) => source.name));
-    const unknown = cfg.environment.sources.filter((name) => !builtin.has(name) && !registered.has(name));
-    if (unknown.length > 0) throw newError(KindConfiguration, `unknown environment source(s): ${unknown.join(", ")}`);
-  }
-
-  private watchConfig(): void {
-    const dir = join(this.cfg.repoRoot, ".devctl");
-    if (!this.fs.exists(dir)) {
-      return;
-    }
-    try {
-      this.configWatcher = watch(dir, { recursive: true }, () => {
-        if (this.watchTimer) {
-          clearTimeout(this.watchTimer);
-        }
-        this.watchTimer = setTimeout(() => {
-          void this.reload().catch((err) => this.log("devctl", "WARN", humanMessage(err)));
-        }, WATCH_DEBOUNCE_MS);
-      });
-    } catch {
-      this.log("devctl", "WARN", "unable to watch .devctl for configuration changes");
     }
   }
 
@@ -1532,146 +1132,10 @@ export class Supervisor {
       processes,
     });
   }
-
-  // Returns the generation this adoption was recorded under, or undefined
-  // if nothing was adopted (already tracked and alive, or the pid isn't a
-  // live process devctl can attach to) — callers pass whichever they get
-  // (bumping their own fallback generation otherwise) through to
-  // startHealth() so its tick and this process's onExit agree on the same
-  // epoch.
-  private attachProcess(name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
-    if (this.procs.get(name) && this.processAliveFn(this.procs.get(name)?.pid ?? 0)) {
-      return undefined;
-    }
-    if (!this.processAliveFn(pid) || pid === process.pid) {
-      return undefined;
-    }
-    const gen = this.orchestrator.health.bumpGeneration(name);
-    try {
-      this.procs.adopt({
-        name,
-        pid,
-        args,
-        workDir,
-        startTime,
-        onExit: (code, err) => {
-          this.orchestrator.health.onExit(name, gen, code, err);
-        },
-      });
-    } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
-      this.log(name, "WARN", `adopt pid ${pid} failed (${detail}); tracking leftover in snapshot only`);
-    }
-    this.processMeta.set(name, { command: args, cwd: workDir, startTime });
-    this.persistState();
-    return gen;
-  }
-
-  private async recoverSession(): Promise<void> {
-    const persisted = readPersistedState(this.cfg.repoRoot);
-    if (!persisted) {
-      return;
-    }
-    const adopted: string[] = [];
-    for (const [name, svc] of Object.entries(this.cfg.services)) {
-      if (!svc.container) continue;
-      const rec = persisted.processes.find((item) => item.name === name);
-      const gen = this.orchestrator.health.bumpGeneration(name);
-      const runtime = svc.container.runtime === "podman" ? "podman" : "docker";
-      const handle = await this.procs.adoptContainer({
-        name,
-        runtime,
-        containerName: `devctl-${repoID(this.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
-        workDir: this.serviceWorkDir(svc),
-        onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
-        onExit: (code, err) => this.orchestrator.health.onExit(name, gen, code, err),
-      });
-      if (!handle) continue;
-      const assigned = rec?.ports ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
-      this.ports.set(name, assigned);
-      this.processMeta.set(name, { command: [...svc.command.args], cwd: this.serviceWorkDir(svc), startTime: rec?.startTime ? new Date(rec.startTime) : handle.startTime });
-      this.setState(name, StateRunning, HealthUnknown, 0, "");
-      const healthEnv = await this.resolveAdoptedHealthEnv(name, svc, assigned);
-      this.orchestrator.health.startHealth(name, svc, 0, assigned, this.serviceWorkDir(svc), healthEnv, gen);
-      this.log(name, "INFO", `adopted ${runtime} container ${handle.container?.id ?? ""}`);
-      adopted.push(name);
-    }
-    for (const rec of persisted.processes) {
-      if (!this.cfg.services[rec.name] || this.cfg.services[rec.name]?.container || rec.pid <= 0 || rec.pid === process.pid || !this.processAliveFn(rec.pid)) {
-        continue;
-      }
-      const observed = await this.inspectProcessFn(rec.pid);
-      const identityOk =
-        observed !== undefined &&
-        observed.command !== "" &&
-        sameProcess({ args: rec.command, workDir: rec.cwd, startTime: rec.startTime ? new Date(rec.startTime) : undefined }, observed);
-      if (!identityOk) {
-        const portOk =
-          Object.values(rec.ports).length > 0 &&
-          (await occupiedFixedPorts({
-            ports: Object.entries(rec.ports).map(([pname, value]) => ({ name: pname, value, auto: false })),
-          })) !== undefined;
-        if (portOk) {
-          this.log(rec.name, "WARN", `pid ${rec.pid} does not match stored command; leftover listener not adopted`);
-        } else {
-          this.log(rec.name, "WARN", `pid ${rec.pid} is a different process; not adopting`);
-        }
-        continue;
-      }
-      const gen = this.attachProcess(rec.name, rec.pid, rec.command, rec.cwd, new Date(rec.startTime || this.clock.unixMs())) ?? this.orchestrator.health.bumpGeneration(rec.name);
-      if (Object.keys(rec.ports).length > 0) {
-        this.ports.set(rec.name, rec.ports);
-      }
-      this.setState(rec.name, StateRunning, HealthUnknown, rec.pid, "");
-      const svc = this.cfg.services[rec.name];
-      if (svc) {
-        const workDir = rec.cwd || this.serviceWorkDir(svc);
-        const healthEnv = await this.resolveAdoptedHealthEnv(rec.name, svc, rec.ports);
-        this.orchestrator.health.startHealth(rec.name, svc, rec.pid, rec.ports, workDir, healthEnv, gen);
-      }
-      this.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
-      adopted.push(rec.name);
-    }
-    if (adopted.length > 0) {
-      this.profile = persisted.profile || this.profile;
-      this.bus.publish(newEvent(SessionRecovered, "", { services: adopted, session_id: persisted.session_id }));
-      this.log("devctl", "INFO", `recovered session processes: ${adopted.join(", ")}`);
-    }
-  }
 }
 
 export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult {
   return configSnapshotDiff(prev, next);
-}
-
-function emptyIdentitySnapshot(cfg?: DevctlConfig): IdentitySnapshot {
-  return {
-    user: "",
-    project: cfg?.google.project_id ?? "",
-    project_source: cfg?.google.project_id ? "configuration" : "",
-    adc: false,
-    // Nothing has been probed yet — omitted here, not defaulted to false;
-    // see service_account_status for the "not probed yet" state itself.
-    service_accounts: {},
-    service_account_status: Object.fromEntries(cfg ? configuredServiceAccounts(cfg).map((email) => [email, "unknown" as const]) : []),
-    iap: cfg?.proxy.routes.some((route) => route.auth.type.toLowerCase() === "iap") ?? false,
-  };
-}
-
-function systemSnapshot(): SystemSnapshot {
-  const avg = loadavg();
-  const mem = readHostMemory();
-  return {
-    platform: platform(),
-    cpuCount: cpus().length,
-    loadAvg1: avg[0] ?? 0,
-    loadAvg5: avg[1] ?? 0,
-    loadAvg15: avg[2] ?? 0,
-    memTotalKB: mem.totalKB,
-    memFreeKB: mem.unusedKB,
-    memAvailableKB: mem.leftoverKB,
-    hostUptimeSec: uptime(),
-  };
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
