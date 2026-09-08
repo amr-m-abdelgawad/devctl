@@ -105,7 +105,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 export function screenListCount(
   screen: Screen,
-  counts: { doctor: number; settings: number; profiles: number; services: number; logs?: number; mcp?: number },
+  counts: { doctor: number; settings: number; profiles: number; services: number; logs?: number; mcp?: number; config?: number },
 ): number {
   if (screen === "doctor") {
     return counts.doctor;
@@ -127,6 +127,9 @@ export function screenListCount(
   }
   if (screen === "setup") {
     return SETUP_STEP_COUNT;
+  }
+  if (screen === "config") {
+    return counts.config ?? 0;
   }
   return 0;
 }

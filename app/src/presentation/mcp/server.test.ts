@@ -30,6 +30,9 @@ function host(): McpHost {
     restart: async () => undefined,
     reload: async () => ({ restart_required: [], changes: {} }),
     doctor: async () => ({ checks: [], issues: 0 }),
+    runTask: async (name) => ({ task: name, code: 0, stdout: "", stderr: "" }),
+    startProxy: async () => undefined,
+    stopProxy: async () => undefined,
   };
 }
 

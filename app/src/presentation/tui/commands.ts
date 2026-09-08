@@ -9,10 +9,10 @@ export type CommandSpec = {
 export function allCommands(): CommandSpec[] {
   return [
     { name: "start", aliases: ["up"], desc: "Start selected services or the current profile", leader: "n", group: "services" },
-    { name: "stop", aliases: ["down"], desc: "Stop selected services", leader: "x", group: "services" },
-    { name: "restart", aliases: [], desc: "Restart selected services", leader: "R", group: "services" },
-    { name: "run", aliases: ["task"], desc: "Run a one-off task: /run <task>", leader: "", group: "services" },
-    { name: "exec", aliases: [], desc: "Run a command in a service context: /exec <service> -- <command…>", leader: "", group: "services" },
+    { name: "stop", aliases: [], desc: "Stop selected services", leader: "x", group: "services" },
+    { name: "restart", aliases: [], desc: "Restart selected services (/restart --cascade also restarts dependents)", leader: "R", group: "services" },
+    { name: "run", aliases: ["task"], desc: "Run a one-off task; empty /run opens a picker", leader: "", group: "services" },
+    { name: "exec", aliases: [], desc: "Run a command in a service context; empty /exec opens a picker", leader: "", group: "services" },
     { name: "services", aliases: ["s"], desc: "Open the services screen", leader: "s", group: "nav" },
     { name: "logs", aliases: ["l"], desc: "Open the log viewer", leader: "l", group: "nav" },
     { name: "auth", aliases: ["identity", "a"], desc: "Open identity; /auth login, logout, or refresh", leader: "a", group: "nav" },
@@ -23,6 +23,7 @@ export function allCommands(): CommandSpec[] {
     { name: "doctor", aliases: ["d"], desc: "Run environment diagnostics", leader: "d", group: "nav" },
     { name: "stats", aliases: ["metrics"], desc: "View system and service statistics", leader: "m", group: "nav" },
     { name: "config", aliases: ["c"], desc: "View merged configuration", leader: "c", group: "nav" },
+    { name: "import", aliases: [], desc: "Preview or write a Compose mapping: /import compose [path] [--write]", leader: "", group: "ui" },
     { name: "diff", aliases: ["provenance"], desc: "Show winning config sources and what they shadowed", leader: "", group: "ui" },
     { name: "daemon", aliases: ["bootstrap"], desc: "Show supervisor bootstrap logs (same file as devctl daemon logs)", leader: "", group: "app" },
     { name: "update", aliases: [], desc: "Install a newer GitHub Release when the install method is known", leader: "", group: "app" },
@@ -41,6 +42,8 @@ export function allCommands(): CommandSpec[] {
     { name: "buffer", aliases: [], desc: "Edit configuration in a validate/save buffer", leader: "", group: "ui" },
     { name: "pause", aliases: [], desc: "Pause or resume live logs", leader: "", group: "logs" },
     { name: "fullscreen", aliases: ["zen", "expand"], desc: "Expand logs to fill the terminal", leader: "z", group: "logs" },
+    { name: "split", aliases: [], desc: "Split the logs screen into two service panes", leader: "", group: "logs" },
+    { name: "trace", aliases: [], desc: "Search logs for a request or trace id", leader: "", group: "logs" },
     { name: "filter", aliases: [], desc: "Toggle ERROR+ log filter", leader: "", group: "logs" },
     { name: "system", aliases: ["internal"], desc: "Show or hide internal auth/mcp/devctl/proxy logs", leader: "", group: "logs" },
     { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values", leader: "", group: "ui" },
@@ -50,7 +53,8 @@ export function allCommands(): CommandSpec[] {
     { name: "exports", aliases: ["open-exports"], desc: "Open the log export folder", leader: "", group: "logs" },
     { name: "clear", aliases: ["new"], desc: "Clear the on-screen log buffer", leader: "", group: "logs" },
     { name: "version", aliases: ["v"], desc: "Show the current devctl version", leader: "", group: "app" },
-    { name: "exit", aliases: ["quit", "q"], desc: "Exit", leader: "q", group: "app" },
+    { name: "down", aliases: [], desc: "Stop the supervisor; --keep-services leaves processes running", leader: "", group: "app" },
+    { name: "exit", aliases: ["quit", "q"], desc: "Exit (detach or stop services)", leader: "q", group: "app" },
   ];
 }
 
@@ -203,6 +207,12 @@ export type ExecSlashArgs = {
   reveal: boolean;
   command: string[];
 };
+
+export function parseRestartArgs(args: string[]): { services: string[]; cascade: boolean } {
+  const cascade = args.includes("--cascade") || args.includes("-c");
+  const services = args.filter((a) => a !== "--cascade" && a !== "-c");
+  return { services, cascade };
+}
 
 export function parseExecArgs(args: string[]): ExecSlashArgs {
   const printEnv = args.includes("--print-env");

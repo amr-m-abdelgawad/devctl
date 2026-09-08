@@ -24,7 +24,7 @@ export function prevScreen(current: Screen): Screen {
 }
 
 export function groupedCommands(commands: CommandSpec[]): { group: string; items: CommandSpec[] }[] {
-  const order = ["services", "nav", "logs", "ui", "app"];
+  const order = ["services", "nav", "logs", "ui", "app", "tasks"];
   return order.flatMap((group) => {
     const items = commands.filter((c) => c.group === group);
     if (items.length === 0) {
@@ -40,6 +40,17 @@ export function paletteOptions(query: string): CommandSpec[] {
     return groupedCommands(hits).flatMap((group) => group.items);
   }
   return hits;
+}
+
+export function namedPickerItems(names: string[], query: string, group: "tasks" | "services", desc: string): CommandSpec[] {
+  const q = commandSearchToken(query);
+  const specs = [...names]
+    .sort()
+    .map((name) => ({ name, aliases: [] as string[], desc, leader: "", group }));
+  if (q === "") {
+    return specs;
+  }
+  return specs.filter((spec) => spec.name.toLowerCase().includes(q));
 }
 
 export function commandSelectOptions(items: CommandSpec[]): { name: string; description: string; value: string }[] {
@@ -171,6 +182,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         { key: copyKey, label: "copy" },
         { key: "p", label: "pause" },
         { key: "z", label: "full screen" },
+        { key: "\\", label: "split" },
         { key: "/exports", label: "open folder" },
         ...common,
       ];
@@ -187,7 +199,7 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
         ...common,
       ];
     case "config":
-      return [{ key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/diff", label: "sources" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll" }, ...common];
+      return [{ key: "enter", label: "run task" }, { key: "v", label: "buffer" }, { key: "e", label: "editor" }, { key: "/diff", label: "sources" }, { key: "/reload", label: "reload" }, { key: "j/k", label: "scroll or select task" }, ...common];
     case "setup":
       return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back or exit" }, ...common];
     case "doctor":

@@ -38,7 +38,7 @@ export function SetupScreen(props: {
         palette={palette}
         title="No configuration found"
         body="Would you like to run setup?"
-        hint="[Enter] Setup   [Esc] Exit"
+        hint="[Enter] 9-step setup   [Esc] Exit"
       />
     ) : (
       <EmptyState

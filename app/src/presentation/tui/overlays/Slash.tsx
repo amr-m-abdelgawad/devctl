@@ -12,8 +12,9 @@ export function SlashOverlay(props: {
   selected: number;
   onQuery: (value: string) => void;
   onSubmit: () => void;
+  title?: string;
 }) {
-  const { palette, items, query, selected, onQuery, onSubmit } = props;
+  const { palette, items, query, selected, onQuery, onSubmit, title = "commands" } = props;
   const searching = commandSearchToken(query) !== "";
   const start = slashWindowStart(selected, MAX_VISUAL_ROWS, items.length);
   const shown = searching ? items.slice(start, start + MAX_VISUAL_ROWS) : slashWindowItems(items, selected, MAX_VISUAL_ROWS);
@@ -29,7 +30,7 @@ export function SlashOverlay(props: {
       borderColor={palette.borderActive}
       titleColor={palette.primary}
       backgroundColor={palette.panel}
-      title="commands"
+      title={title}
       flexDirection="column"
       overflow="hidden"
     >

@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
+import { namedPickerItems } from "./helpers/command-catalog.ts";
 import { defaultCopyKeybind } from "./tui-config.ts";
 
 describe("TUI helpers", () => {
@@ -262,6 +263,9 @@ describe("TUI helpers", () => {
     expect(confirmCopy("free-port", "", { port: 18000, pid: 99, process: "node" }).title).toBe("Free port 18000");
     expect(confirmCopy("reset-prefs", "").title).toBe("Reset preferences");
     expect(confirmCopy("reset-prefs", "").body).toContain("defaults");
+    expect(confirmCopy("restart-cascade", "", { services: ["api"] }).title).toBe("Restart dependents?");
+    expect(confirmCopy("restart-cascade", "", { services: ["api"] }).body).toContain("api");
+    expect(confirmHints("restart-cascade").some((h) => h.key === "c")).toBe(true);
   });
 
   test("nav cycles the four primary tabs; other screens return home", () => {
@@ -478,6 +482,8 @@ describe("TUI helpers", () => {
       "text",
       "keyword",
     ]);
+    expect(logMessageSpans("ready auth worker", "auth").some((span) => span.kind === "search" && span.text === "auth")).toBe(true);
+    expect(logMessageSpans("ready ERROR worker", "ERR", true).some((span) => span.kind === "search")).toBe(true);
   });
 
   test("visibleHints drops keys that do not fit", () => {
@@ -537,6 +543,16 @@ describe("TUI helpers", () => {
     cfg.profiles = { backend: { services: ["api"], environment: {} } };
     expect(planServices(cfg, ["api"], "missing")).toEqual({ services: ["api"], profile: "" });
     expect(planServices(cfg, [], "backend").profile).toBe("backend");
+  });
+
+  test("restartDependents lists transitive dependents only", () => {
+    const cfg = defaultConfig();
+    cfg.services = { auth: emptyService(), api: emptyService(), web: emptyService() };
+    cfg.services.api!.dependencies = ["auth"];
+    cfg.services.web!.dependencies = ["api"];
+    expect(restartDependents(cfg, ["auth"])).toEqual(["api", "web"]);
+    expect(restartDependents(cfg, ["web"])).toEqual([]);
+    expect(restartDependents(cfg, [])).toEqual([]);
   });
 
   test("service inspector labels prefer live ports and fall back cleanly", () => {
@@ -698,6 +714,13 @@ describe("TUI helpers", () => {
     expect(screenListCount("mcp", counts)).toBe(0);
     expect(screenListCount("mcp", { ...counts, mcp: 19 })).toBe(19);
     expect(screenListCount("setup", counts)).toBe(9);
+    expect(screenListCount("config", counts)).toBe(0);
+    expect(screenListCount("config", { ...counts, config: 4 })).toBe(4);
+  });
+
+  test("namedPickerItems filters task and service names", () => {
+    expect(namedPickerItems(["seed", "migrate"], "", "tasks", "run this task").map((item) => item.name)).toEqual(["migrate", "seed"]);
+    expect(namedPickerItems(["seed", "migrate"], "se", "tasks", "run this task").map((item) => item.name)).toEqual(["seed"]);
   });
 
   test("googleProjectDisplay prefers google.project_id from config", () => {
@@ -821,6 +844,8 @@ describe("TUI helpers", () => {
     expect(loadCopy(1, 8).meter?.label).toBe("13%");
     expect(loadCopy(16, 8).reading).toBe("overloaded");
     expect(loadCopy(16, 8).meter?.ratio).toBe(1);
+    expect(sparkline([0, 0.5, 1], 3).length).toBe(3);
+    expect(sparkline([], 8)).toBe("");
     expect(leftoverCopy(8_192, 16_384).what).toBe("RAM leftover");
     expect(leftoverCopy(8_192, 16_384).meaning).toContain("still give out");
     expect(leftoverCopy(8_192, 16_384).meter?.label).toBe("50%");

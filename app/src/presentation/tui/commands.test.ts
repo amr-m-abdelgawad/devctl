@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs } from "./commands.ts";
+import { commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs, parseRestartArgs } from "./commands.ts";
 
 describe("slash commands", () => {
   test("resolves aliases like /q /quit /exit", () => {
@@ -95,6 +95,16 @@ describe("slash commands", () => {
     expect(lookupCommand("/bootstrap")?.name).toBe("daemon");
     expect(lookupCommand("/diff")?.name).toBe("diff");
     expect(lookupCommand("/provenance")?.name).toBe("diff");
+    expect(lookupCommand("/split")?.name).toBe("split");
+    expect(lookupCommand("/trace")?.name).toBe("trace");
+  });
+});
+
+describe("parseRestartArgs", () => {
+  test("strips cascade flags from service names", () => {
+    expect(parseRestartArgs(["api", "--cascade"])).toEqual({ services: ["api"], cascade: true });
+    expect(parseRestartArgs(["-c", "api", "worker"])).toEqual({ services: ["api", "worker"], cascade: true });
+    expect(parseRestartArgs(["api"])).toEqual({ services: ["api"], cascade: false });
   });
 });
 

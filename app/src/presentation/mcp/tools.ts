@@ -182,6 +182,38 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
+    name: "run_task",
+    label: "Run task",
+    summary: "Run a named one-off task",
+    category: "control",
+    mutates: true,
+    description: "Run a named task from configuration. Output is also written to the log ring as task:<name>.",
+    inputSchema: {
+      type: "object",
+      properties: { name: { type: "string" } },
+      required: ["name"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "start_proxy",
+    label: "Start proxy",
+    summary: "Start the local reverse proxy",
+    category: "control",
+    mutates: true,
+    description: "Start the local reverse proxy. Same as CLI `devctl proxy start` and TUI start on the proxy screen.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "stop_proxy",
+    label: "Stop proxy",
+    summary: "Stop the local reverse proxy",
+    category: "control",
+    mutates: true,
+    description: "Stop the local reverse proxy and leave it suppressed until start_proxy (or CLI/TUI start) runs again.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
     name: "exec_service",
     label: "Execute in service",
     summary: "Run a command in a resolved service context",
@@ -447,6 +479,24 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return { ok: true };
     case "reload_config":
       return host.reload();
+    case "run_task": {
+      if (typeof args.name !== "string" || args.name === "") {
+        throw new Error("name is required");
+      }
+      const result = await host.runTask(args.name);
+      const detector = detectorFor(host.config());
+      return {
+        ...result,
+        stdout: detector.redactText(result.stdout),
+        stderr: detector.redactText(result.stderr),
+      };
+    }
+    case "start_proxy":
+      await host.startProxy();
+      return { ok: true };
+    case "stop_proxy":
+      await host.stopProxy();
+      return { ok: true };
     case "exec_service": {
       if (typeof args.service !== "string" || args.service === "") throw new Error("service is required");
       if (!host.exec) throw new Error("exec is unavailable");

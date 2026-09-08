@@ -423,14 +423,21 @@ export class Controller {
     return () => undefined;
   }
 
+  async shutdown(opts: { stopServices: boolean }): Promise<void> {
+    if (!this.client) {
+      return;
+    }
+    const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
+    await this.client.call("shutdown", { stop_services: opts.stopServices }, shutdownTimeout);
+  }
+
   async close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void> {
     if (!this.client) {
       return;
     }
     try {
       if (opts?.shutdownSupervisor === true && opts.detach !== true) {
-        const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
-        await this.client.call("shutdown", { stop_services: true }, shutdownTimeout);
+        await this.shutdown({ stopServices: true });
       }
     } finally {
       this.client.close();

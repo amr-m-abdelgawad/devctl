@@ -64,6 +64,10 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
         fields.push("container");
         restart.add(name);
       }
+      if (JSON.stringify(before.watch) !== JSON.stringify(after.watch)) {
+        fields.push("watch");
+        restart.add(name);
+      }
     }
     if (fields.length > 0) {
       changes[name] = fields;
@@ -76,9 +80,8 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
   if (JSON.stringify(prev.auth) !== JSON.stringify(next.auth)) {
     supervisorRestart.push("auth");
   }
-  if (JSON.stringify(prev.plugins) !== JSON.stringify(next.plugins)) {
-    supervisorRestart.push("plugins");
-  }
+  // Plugin *path list* hot-applies on reload. Same-path mtime still needs a
+  // supervisor restart (Bun module cache) — that check lives in the adapter.
   return {
     restart_required: [...restart].sort(),
     changes,

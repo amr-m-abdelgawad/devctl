@@ -65,7 +65,7 @@ export class ProxyServer {
   private readonly logs?: Pick<LogStore, "append">;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
-  private readonly middleware: ProxyMiddleware[];
+  private middleware: ProxyMiddleware[];
   private server?: Server;
   private running = false;
   private addr = "";
@@ -93,6 +93,10 @@ export class ProxyServer {
 
   address(): string {
     return this.addr || listenAddress(this.cfg.listen);
+  }
+
+  setMiddleware(middleware: ProxyMiddleware[]): void {
+    this.middleware = middleware;
   }
 
   isRunning(): boolean {

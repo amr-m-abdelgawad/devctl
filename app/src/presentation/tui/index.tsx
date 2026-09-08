@@ -68,12 +68,33 @@ export async function renderApp(
       }
       void controller.close({ detach, shutdownSupervisor: true }).finally(finish);
     };
+    const down = (keepServices: boolean): void => {
+      const finish = (): void => {
+        root.unmount();
+        restoreStderr();
+        renderer.destroy();
+        resolve();
+        process.exit(0);
+      };
+      if (!controller) {
+        finish();
+        return;
+      }
+      void controller
+        .shutdown({ stopServices: !keepServices })
+        .then(() => controller?.close({ detach: true }))
+        .finally(finish);
+    };
     root.render(
       <App
         workspace={createTuiWorkspace(client)}
         controller={controller}
         tui={tui}
         onQuit={quit}
+        onDown={down}
+        onAttached={(next) => {
+          controller = next;
+        }}
         bootError={bootError}
         bootErrorMissing={bootErrorMissing}
         terminalBackground={terminalBackground}

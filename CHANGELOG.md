@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- TUI `/restart --cascade` (`-c`) and `R` confirm (`c` = cascade) restart dependents the same way CLI and MCP already do.
+- Empty TUI `/run` and `/exec` open a picker; Enter on a Config task row runs that task.
+- MCP `run_task`, `start_proxy`, and `stop_proxy` wrap the existing supervisor RPCs. Auth login and config write stay CLI/TUI-only.
+- TUI log search highlights matches (plain and regex) and the dashboard tail honors the same search.
+- TUI first-run Enter runs the 9-step setup wizard and attaches the daemon without restarting the process.
+- `devctl config import compose` (and TUI `/import compose`) maps modeled Compose fields and lists dropped ones; `--write` never invents unknown schema keys.
+- Opt-in `service.watch` restarts one service when listed paths change (debounced, ignored globs, never the whole repo by default).
+- Configuration reload hot-applies a changed `plugins` path list; editing an already-imported plugin file still asks for a supervisor restart.
+- TUI log split panes (`\\` / `/split`), `/trace <id>`, and Stats sparklines from a 60-sample supervisor ring.
+
 ## [0.2.4] - 2026-09-08
 
 ### Added

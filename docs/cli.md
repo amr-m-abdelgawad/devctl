@@ -13,7 +13,8 @@ devctl exec <service> -- <command…>
 devctl exec <service> --print-env [--reveal] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json] [-f|--follow]
+devctl config import compose <file> [--write]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl daemon logs [-f|--follow]
 devctl reload
@@ -50,6 +51,8 @@ devctl update [--json] [--check]
 - `devctl daemon logs [-f]` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when `start`/`attach` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. `-f` follows it live the same way `logs -f` does. The TUI equivalent is `/daemon`.
 
 `devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start` first.
+
+`devctl reload` re-reads `.devctl/`. Changing the `plugins` path list hot-applies token providers and proxy middleware; editing an already-imported plugin file still requires `devctl down && devctl start`. Opt-in `service.watch` (see [Services](services.md)) restarts that one service when listed paths change.
 
 ## Setup
 

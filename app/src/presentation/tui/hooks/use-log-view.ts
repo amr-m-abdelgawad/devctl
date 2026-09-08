@@ -21,6 +21,38 @@ import { type Screen } from "../types.ts";
 
 const NO_LOG_SERVICES: string[] = [];
 const FACETS_POLL_MS = 2000;
+
+type PaneCursor = {
+  readonly sliceLen: number;
+  readonly windowStart: number;
+  readonly windowNewer: number;
+  readonly filteredLen: number;
+  readonly pinned: boolean;
+};
+
+function applyPaneCursor(
+  next: number,
+  pane: PaneCursor,
+  setStart: (start: number) => void,
+  setPinned: (pinned: boolean) => void,
+  setSelected: (selected: number) => void,
+): void {
+  const step = logCursorStep(next, pane.sliceLen, pane.windowStart, pane.windowNewer);
+  if (step.startDelta !== 0) {
+    setStart(Math.max(0, pane.windowStart + step.startDelta));
+    setPinned(true);
+    setSelected(step.selected);
+    return;
+  }
+  const last = Math.max(pane.sliceLen - 1, 0);
+  const leaveLatest = pane.sliceLen > 0 && (step.selected < last || pane.windowNewer > 0);
+  if (leaveLatest && !pane.pinned) {
+    setStart(logPinStart(pane.filteredLen));
+  }
+  setPinned(leaveLatest);
+  setSelected(step.selected);
+}
+
 type Options = {
   controller?: Controller;
   tui: TuiConfig;
@@ -48,6 +80,12 @@ export function useLogView({
   const [logSince, setLogSince] = useState("");
   const [logUntil, setLogUntil] = useState("");
   const [logService, setLogService] = useState("");
+  const [logServiceB, setLogServiceB] = useState("");
+  const [splitLogs, setSplitLogs] = useState(false);
+  const [splitFocus, setSplitFocus] = useState<0 | 1>(0);
+  const [logSelectedB, setLogSelectedB] = useState(LOG_LIST_TAIL - 1);
+  const [logPinnedB, setLogPinnedB] = useState(false);
+  const [logViewStartB, setLogViewStartB] = useState(0);
   const logServices = NO_LOG_SERVICES;
   const [logShowTimestamps, setLogShowTimestamps] = useState(tui.log_timestamps !== false);
   const [logShowMeta, setLogShowMeta] = useState(tui.log_metadata !== false);
@@ -101,11 +139,35 @@ export function useLogView({
     [filteredLogs, logPinned, logViewStart],
   );
   const logSlice = logWindow.items;
+  const filteredLogsB = useMemo(
+    () =>
+      filterLogs(logs, {
+        service: logServiceB,
+        services: logServices,
+        errorOnly,
+        search: logSearch,
+        regex: logRegex,
+        source: logSource,
+        since: logSince,
+        until: logUntil,
+        systemLogs: showSystemLogs,
+      }),
+    [errorOnly, logRegex, logSearch, logServiceB, logServices, logSince, logSource, logUntil, logs, showSystemLogs],
+  );
+  const logWindowB = useMemo(
+    () => logViewWindow(filteredLogsB, logPinnedB, logViewStartB),
+    [filteredLogsB, logPinnedB, logViewStartB],
+  );
+  const logSliceB = logWindowB.items;
   useEffect(() => {
     setDashboardLogCursor(-1);
     setLogPinned(false);
     setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
   }, [errorOnly, logSearch, logService, showSystemLogs]);
+  useEffect(() => {
+    setLogPinnedB(false);
+    setLogSelectedB(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogsB.length) - 1));
+  }, [errorOnly, logSearch, logServiceB, showSystemLogs]);
 
   useEffect(() => {
     if (screen !== "logs") {
@@ -120,6 +182,13 @@ export function useLogView({
     setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
   }, [filteredLogs.length, logPinned, screen]);
 
+  useEffect(() => {
+    if (screen !== "logs" || logPinnedB) {
+      return;
+    }
+    setLogSelectedB(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogsB.length) - 1));
+  }, [filteredLogsB.length, logPinnedB, screen]);
+
   const pinLogView = useCallback(() => {
     if (!logPinned) {
       setLogViewStart(logPinStart(filteredLogs.length));
@@ -127,26 +196,51 @@ export function useLogView({
     }
   }, [filteredLogs.length, logPinned]);
 
+  const pinLogViewB = useCallback(() => {
+    if (!logPinnedB) {
+      setLogViewStartB(logPinStart(filteredLogsB.length));
+      setLogPinnedB(true);
+    }
+  }, [filteredLogsB.length, logPinnedB]);
+
+  const paneCursorA = useMemo(
+    () => ({
+      sliceLen: logSlice.length,
+      windowStart: logWindow.start,
+      windowNewer: logWindow.newer,
+      filteredLen: filteredLogs.length,
+      pinned: logPinned,
+    }),
+    [filteredLogs.length, logPinned, logSlice.length, logWindow.newer, logWindow.start],
+  );
+  const paneCursorB = useMemo(
+    () => ({
+      sliceLen: logSliceB.length,
+      windowStart: logWindowB.start,
+      windowNewer: logWindowB.newer,
+      filteredLen: filteredLogsB.length,
+      pinned: logPinnedB,
+    }),
+    [filteredLogsB.length, logPinnedB, logSliceB.length, logWindowB.newer, logWindowB.start],
+  );
+
+  const applyLogCursorA = useCallback(
+    (next: number) => applyPaneCursor(next, paneCursorA, setLogViewStart, setLogPinned, setLogSelected),
+    [paneCursorA],
+  );
+  const applyLogCursorB = useCallback(
+    (next: number) => applyPaneCursor(next, paneCursorB, setLogViewStartB, setLogPinnedB, setLogSelectedB),
+    [paneCursorB],
+  );
   const applyLogCursor = useCallback(
     (next: number) => {
-      const step = logCursorStep(next, logSlice.length, logWindow.start, logWindow.newer);
-      if (step.startDelta !== 0) {
-        setLogViewStart(Math.max(0, logWindow.start + step.startDelta));
-        setLogPinned(true);
-        setLogSelected(step.selected);
+      if (splitLogs && splitFocus === 1) {
+        applyLogCursorB(next);
         return;
       }
-      const last = Math.max(logSlice.length - 1, 0);
-      const leaveLatest = logSlice.length > 0 && (step.selected < last || logWindow.newer > 0);
-      if (leaveLatest && !logPinned) {
-        setLogViewStart(logPinStart(filteredLogs.length));
-        setLogPinned(true);
-      } else if (!leaveLatest) {
-        setLogPinned(false);
-      }
-      setLogSelected(step.selected);
+      applyLogCursorA(next);
     },
-    [filteredLogs.length, logSlice.length, logPinned, logWindow.newer, logWindow.start],
+    [applyLogCursorA, applyLogCursorB, splitFocus, splitLogs],
   );
 
   const applyDashboardLogCursor = useCallback(
@@ -164,17 +258,23 @@ export function useLogView({
 
   const jumpToLatestLogs = useCallback(() => {
     setLogPinned(false);
+    setLogPinnedB(false);
     setDashboardLogCursor(-1);
     if (screen === "logs") {
       setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
+      setLogSelectedB(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogsB.length) - 1));
     }
     setLogFollow((tick) => tick + 1);
-    setStatus(logWindow.newer > 0 ? `Jumped to latest (+${logWindow.newer} new)` : "Jumped to latest logs");
-  }, [filteredLogs.length, logWindow.newer, screen]);
+    const newer = Math.max(logWindow.newer, logWindowB.newer);
+    setStatus(newer > 0 ? `Jumped to latest (+${newer} new)` : "Jumped to latest logs");
+  }, [filteredLogs.length, filteredLogsB.length, logWindow.newer, logWindowB.newer, screen]);
 
   const currentLogFilter = useMemo(
     () => ({
-      services: logService !== "" ? [logService] : logServices,
+      // Split panes share one live buffer and filter client-side, so the
+      // page request must not pin either pane's service (that would starve
+      // the other pane of history and make the two tails drift).
+      services: splitLogs ? NO_LOG_SERVICES : logService !== "" ? [logService] : logServices,
       level: errorOnly ? "ERROR" : logLevel,
       search: logSearch,
       regex: logRegex,
@@ -182,7 +282,7 @@ export function useLogView({
       since: logSince,
       until: logUntil,
     }),
-    [errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil],
+    [errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, splitLogs],
   );
 
   // Deliberately lightweight (no event payload) — safe to poll on a timer
@@ -221,6 +321,7 @@ export function useLogView({
     setLogs([]);
     setLogSince(new Date().toISOString());
     setLogPinned(false);
+    setLogPinnedB(false);
     setStatus("Cleared on-screen log buffer");
   }, []);
 
@@ -240,8 +341,12 @@ export function useLogView({
   // back to the top of what's currently loaded, and the server has more
   // history for the active filter. Sequence-based cursors make this safe to
   // interleave with events still streaming in live (see mergeLoadedPage).
+  // Either split pane can trip this; the shared buffer is prepended once and
+  // every pinned window is shifted so neither pane jumps.
   useEffect(() => {
-    if (!controller || loadingOlderLogs || !needsOlderLogPage(logPinned, logWindow.start, logHasPrevPage)) {
+    const needA = needsOlderLogPage(logPinned, logWindow.start, logHasPrevPage);
+    const needB = splitLogs && needsOlderLogPage(logPinnedB, logWindowB.start, logHasPrevPage);
+    if (!controller || loadingOlderLogs || (!needA && !needB)) {
       return;
     }
     setLoadingOlderLogs(true);
@@ -256,15 +361,21 @@ export function useLogView({
         const before = logsRef.current;
         const merged = prependOlderPage(before, older.events);
         setLogs(merged);
-        if (merged.length > before.length) {
-          setLogViewStart((start) => start + (merged.length - before.length));
+        const added = merged.length - before.length;
+        if (added > 0) {
+          if (logPinned) {
+            setLogViewStart((start) => start + added);
+          }
+          if (logPinnedB) {
+            setLogViewStartB((start) => start + added);
+          }
         }
         setLogPrevCursor(older.prevCursor);
         setLogHasPrevPage(older.hasPrev);
       })
       .catch((err: unknown) => setStatus(humanMessage(err)))
       .finally(() => setLoadingOlderLogs(false));
-  }, [controller, currentLogFilter, loadingOlderLogs, logHasPrevPage, logPinned, logPrevCursor, logWindow.start]);
+  }, [controller, currentLogFilter, loadingOlderLogs, logHasPrevPage, logPinned, logPinnedB, logPrevCursor, logWindow.start, logWindowB.start, splitLogs]);
 
   // Facets are cheap (no event payload) so they can be kept live on a timer
   // while the logs screen is actively tailing, on top of the immediate
@@ -297,6 +408,38 @@ export function useLogView({
     setLogUntil,
     logService,
     setLogService,
+    logServiceB,
+    setLogServiceB,
+    splitLogs,
+    splitFocus,
+    setSplitFocus,
+    toggleSplitLogs: () => {
+      if (splitLogs) {
+        setSplitFocus(0);
+        setSplitLogs(false);
+        return;
+      }
+      if (logServiceB === "") {
+        const other = names.find((name) => name !== logService);
+        if (other !== undefined) {
+          setLogServiceB(other);
+        }
+      }
+      setSplitLogs(true);
+    },
+    cycleSplitFocus: () => setSplitFocus((pane) => (pane === 0 ? 1 : 0)),
+    setActiveLogService: (service: string | ((prev: string) => string)) => {
+      const apply = (prev: string): string => (typeof service === "function" ? service(prev) : service);
+      if (splitLogs && splitFocus === 1) {
+        setLogServiceB(apply);
+        return;
+      }
+      setLogService(apply);
+    },
+    logSliceB,
+    logWindowB,
+    logSelectedB,
+    logPinnedB,
     logServices,
     logShowTimestamps,
     setLogShowTimestamps,
@@ -317,10 +460,14 @@ export function useLogView({
     logFacets,
     logSources,
     filteredLogs,
+    filteredLogsB,
     logWindow,
     logSlice,
     pinLogView,
+    pinLogViewB,
     applyLogCursor,
+    applyLogCursorA,
+    applyLogCursorB,
     applyDashboardLogCursor,
     jumpToLatestLogs,
     clearLogs,

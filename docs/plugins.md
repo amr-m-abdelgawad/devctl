@@ -80,7 +80,7 @@ The OIDC plugin is intentionally a reference implementation: it supports client 
 ## Operational notes
 
 - Plugin code runs inside the supervisor process and receives the same permissions. Only load code you trust.
-- Changing plugin code requires restarting the supervisor; configuration reload does not unload imported module state.
+- Adding or removing `plugins[].path` entries is hot-applied on reload (token providers and proxy middleware swap immediately). Editing an already-loaded file still requires restarting the supervisor — Bun’s module cache does not reload the same path. A running service keeps its old environment until that service restarts.
 - A configured plugin path must exist. Invalid or missing paths are rejected during configuration validation.
 - Unknown custom environment sources, health types, and identity types are errors after plugins load.
 

@@ -47,6 +47,8 @@ export function Dashboard(props: {
   onJumpLatest?: () => void;
   facets?: LogFacets;
   leftover?: PersistedState;
+  search?: string;
+  regex?: boolean;
 }) {
   const {
     palette,
@@ -80,6 +82,8 @@ export function Dashboard(props: {
     onJumpLatest,
     facets,
     leftover,
+    search = "",
+    regex = false,
   } = props;
   const scale = useDensity();
   if (!cfg || names.length === 0) {
@@ -101,7 +105,7 @@ export function Dashboard(props: {
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
   const filterBarLogs = showSystemLogs ? logs : logs.filter((ev) => !isSystemLogSource(ev.source));
-  const visible = filterLogs(logs, { service: logService, errorOnly, systemLogs: showSystemLogs });
+  const visible = filterLogs(logs, { service: logService, errorOnly, systemLogs: showSystemLogs, search, regex });
   const shown = view ?? visible;
   const shownTotal = viewTotal ?? visible.length;
   const viewEnd = Math.min(shownTotal, viewStart + shown.length);
@@ -203,6 +207,8 @@ export function Dashboard(props: {
             onLeaveLatest={onLeaveLatest}
             onPick={onPickLog}
             viewStart={viewStart}
+            search={search}
+            regex={regex}
           />
         )}
         {!follow ? <JumpLatestPrompt palette={palette} width={logWidth} newer={newer} bottom={0} onJump={onJumpLatest} /> : null}

@@ -18,7 +18,7 @@ If a supervisor session already exists, the TUI attaches to it. Preferences: `tu
 
 ## First run
 
-With no `.devctl` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter writes a starter config (or run `devctl setup` for the 9-step wizard).
+With no `.devctl` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter starts the same 9-step wizard as `devctl setup` (OpenTUI fields, then write and attach the daemon — no process restart). Invalid existing YAML still refuses overwrite.
 
 If a `.devctl/config.yaml` exists but fails to parse or validate, the TUI shows **Configuration error** with the actual error instead — pressing Enter here does not run setup, since that would silently overwrite the file the error is about. Fix the file and restart devctl, or run `devctl config validate` for the same error from the CLI.
 
@@ -38,7 +38,9 @@ When services exist but none are running, the dashboard empty state:
 |----------------------------------|----------|
 | `true` | Stop managed services and leave |
 | `false` | Detach immediately |
-| unset | Confirm: `enter` stops, `d` detaches, `esc` stays |
+| unset | Confirm: `enter` stops services, `d` detaches (daemon stays), `k` stops the daemon and leaves services (`devctl down --keep-services`), `esc` stays |
+
+**Detach** (`d`) leaves the supervisor running. **`/down --keep-services`** (or quit `k`) stops the supervisor and persists PIDs so a later start can adopt them. **`/down`** stops services and the supervisor. `/stop` only stops selected services.
 
 ## Interaction model
 
@@ -79,7 +81,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Dashboard** — services, proxy, live log tail. Identity lives on `/auth`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so `j`/`k` scroll. `/reveal` shows secrets. `n`/`x`/`R`/`l`
-- **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. See [Logs](logs.md)
+- **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. `n` start / `x` stop
@@ -97,13 +99,18 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 ```text
 /start [service…]     start selection, args, or the current profile
 /stop [service…]
-/restart
-/run <task>           one-off task; output is in Logs under task:<name>
-/exec <service> -- <command…>
+/down [--keep-services]  stop the supervisor (and services unless --keep-services)
+/restart [--cascade|-c]  named services only; cascade also restarts dependents
+                        R with dependents: Enter = named, c = cascade
+/run [task]           one-off task; empty /run opens a picker. Output is in Logs under task:<name>
+/exec [service] -- <command…>
+                      empty /exec opens a service picker, then type the command
 /exec <service> --print-env [--reveal]
                       resolved env (dotenv, profile, secrets, plugins, ports), not config-only vars
 /logs /services /auth /credentials /proxy /mcp /doctor /config /profiles /setup
-/stats                system and service statistics
+/stats                system and service statistics (sparklines when the supervisor has samples)
+/split                second log pane (`\\`); `|` focuses the other pane
+/trace <id>           set log search to a request_id / trace_id
 /dashboard            return home
 /themes [name]        picker with live preview; enter saves to ~/.devctl/tui.json
 /settings             theme, mouse, display size, MCP page
@@ -119,6 +126,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 /refresh
 /reload               reload .devctl
 /diff                 winning config sources and what they shadowed (`devctl config diff`)
+/import compose [path] [--write]
 /daemon               supervisor bootstrap stderr (`devctl daemon logs`)
 /auth login|logout|refresh
 /update               install a newer GitHub Release when the method is known (npm/Homebrew)
@@ -126,14 +134,14 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 /exit /quit /q
 ```
 
-Aliases include `/up`, `/down`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/prefs`, `/task`, `/provenance`, `/bootstrap`.
+Aliases include `/up`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/prefs`, `/task`, `/provenance`, `/bootstrap`. `/down` is no longer an alias of `/stop`.
 
 ## Leader key
 
 Default leader is `ctrl+x` (2 second timeout). Then:
 
 ```text
-n start    x stop    R restart    s services    l logs
+n start    x stop    R restart (c cascade if dependents)    s services    l logs
 a auth     p proxy   d doctor     c config      o profiles
 t themes   e export  r refresh    i setup       h dashboard
 q quit     z fullscreen

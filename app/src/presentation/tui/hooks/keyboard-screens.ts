@@ -2,12 +2,12 @@ import { backspaceMcpPortDraft, clampMcpPort, typeMcpPortDigit } from "../../mcp
 import { lookupCommand } from "../commands.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
 import { cycleLogService, logWrapLabel, nextLogWrapMode } from "../helpers/logs.ts";
+import { restartDependents } from "../helpers/lifecycle.ts";
 import { focusedServices } from "../helpers/services.ts";
 import { isBound, isClearLogsKey, isPageDownKey, isPageUpKey, isRestartKey, type KeyLike } from "../keymap.ts";
 import { scrollBoxBy } from "../layout.tsx";
 import { mcpToolAtRow } from "../screens/Mcp.tsx";
 import { selectedSettingsItem } from "../settings.ts";
-import { humanMessage } from "../../../shared/errors.ts";
 import type { ScreenKeyCtx } from "./keyboard-context.ts";
 
 export type ScreenDigitCtx = Pick<ScreenKeyCtx, "screen" | "listCursor" | "setMcpPortDraft">;
@@ -35,7 +35,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     restartMcpOnPort, setMcpPortDraft, settingRows, persistPrefs, cycleSetting, toggleMouse,
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
-    toggleChecked, createStarterConfig, onQuit, setConfirmKind, setOverlay, openConfigBuffer,
+    toggleChecked, createStarterConfig: _createStarterConfig, startWizard, onQuit, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
     runCommand,
   } = ctx;
 
@@ -71,7 +71,14 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     return;
   }
   if ((screen === "dashboard" || screen === "services" || screen === "detail") && isRestartKey(key)) {
-    void beginRestart(focusedServices(checked, names[listCursor] ?? detailName), profile);
+    const targets = focusedServices(checked, names[listCursor] ?? detailName);
+    if (cfg && restartDependents(cfg, targets).length > 0) {
+      setConfirmKind("restart-cascade");
+      setConfirmDetail({ services: targets });
+      setOverlay("confirm");
+      return;
+    }
+    void beginRestart(targets, profile);
     return;
   }
   if ((screen === "dashboard" || screen === "services") && name === "r") {
@@ -100,6 +107,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
       applyMcpPortDraft();
     }
     if (screen === "config") {
+      if (listCount > 0) {
+        setSelected((i) => Math.min(Math.max(listCount - 1, 0), i + 1));
+      }
       scrollBoxBy(configScrollRef.current, tui.scroll_speed);
       return;
     }
@@ -123,6 +133,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
       applyMcpPortDraft();
     }
     if (screen === "config") {
+      if (listCount > 0) {
+        setSelected((i) => Math.max(0, Math.min(i, Math.max(listCount - 1, 0)) - 1));
+      }
       scrollBoxBy(configScrollRef.current, -tui.scroll_speed);
       return;
     }
@@ -285,14 +298,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
         setStatus(bootError || "Existing configuration is invalid — fix it and restart devctl.");
         return;
       }
-      void Promise.resolve().then(() => {
-        try {
-          const path = createStarterConfig(process.cwd());
-          setStatus(`Wrote ${path}. Restart devctl or run the CLI wizard.`);
-        } catch (err) {
-          setStatus(humanMessage(err));
-        }
-      });
+      startWizard();
       return;
     }
     if (screen === "setup" && controller) {

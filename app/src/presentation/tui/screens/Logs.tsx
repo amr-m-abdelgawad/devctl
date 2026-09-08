@@ -9,7 +9,6 @@ import { tabChipWidth } from "../helpers/navigation.ts";
 import { Chip,MetaBar,TabStrip,Toolbar } from "../layout.tsx";
 import { logSpanColor,serviceColor,stateColor,type Palette } from "../themes.ts";
 
-const FOLLOW_ARM_MS = 400;
 const FOLLOW_POLL_MS = 200;
 const FOLLOW_SLACK = 2;
 
@@ -45,6 +44,19 @@ export function LogsScreen(props: {
   onLeaveLatest?: () => void;
   onJumpLatest?: () => void;
   fullscreen?: boolean;
+  split?: boolean;
+  splitFocus?: 0 | 1;
+  serviceB?: string;
+  viewB?: LogEvent[];
+  selectedB?: number;
+  followB?: boolean;
+  newerB?: number;
+  viewStartB?: number;
+  viewTotalB?: number;
+  onServiceB?: (service: string) => void;
+  onSelectB?: (index: number) => void;
+  onLeaveLatestB?: () => void;
+  onFocusPane?: (pane: 0 | 1) => void;
 }) {
   const {
     palette,
@@ -73,6 +85,19 @@ export function LogsScreen(props: {
     view,
     fullscreen = false,
     facets,
+    split = false,
+    splitFocus = 0,
+    serviceB = "",
+    viewB,
+    selectedB = -1,
+    followB = true,
+    newerB = 0,
+    viewStartB = 0,
+    viewTotalB,
+    onServiceB,
+    onSelectB,
+    onLeaveLatestB,
+    onFocusPane,
   } = props;
   const scale = useDensity();
   const innerWidth = logPaneInnerWidth(width, scale.pad, fullscreen);
@@ -93,11 +118,102 @@ export function LogsScreen(props: {
   const selectedServices = props.services ?? [];
   const scope = selectedServices.length > 0 ? selectedServices.join(",") : service === "" ? "all services" : service;
   const logMeta = [
-    ...(follow ? [] : [{ text: newer > 0 ? `pinned · +${newer} new` : "pinned", tone: "warning" as const }]),
+    ...(follow ? [] : [{ text: newer > 0 ? `${split ? "left " : ""}pinned · +${newer} new` : `${split ? "left " : ""}pinned`, tone: "warning" as const }]),
+    ...(split && !followB ? [{ text: newerB > 0 ? `right pinned · +${newerB} new` : "right pinned", tone: "warning" as const }] : []),
     ...(props.source ? [{ text: `src ${props.source}`, tone: "info" as const }] : []),
     ...(props.regex ? [{ text: "regex", tone: "accent" as const }] : []),
     ...(search === "" ? [] : [{ text: `search ${search}`, tone: "accent" as const }]),
+    ...(split ? [{ text: splitFocus === 0 ? "left pane" : "right pane", tone: "accent" as const }] : []),
   ];
+  if (split) {
+    const leftWidth = Math.max(20, Math.floor(width / 2));
+    const rightWidth = Math.max(20, width - leftWidth);
+    const shownB = viewB ?? [];
+    const totalB = viewTotalB ?? shownB.length;
+    return (
+      <box flexGrow={1} flexDirection="column" overflow="hidden">
+        {searchFocused ? (
+          <box height={1} paddingLeft={1} backgroundColor={palette.highlight} overflow="hidden">
+            <input
+              focused
+              value={search}
+              placeholder="search messages or service names"
+              onInput={onSearch}
+              backgroundColor={palette.highlight}
+              focusedBackgroundColor={palette.highlight}
+              textColor={palette.text}
+              cursorColor={palette.primary}
+            />
+          </box>
+        ) : (
+          <MetaBar palette={palette} items={logMeta} />
+        )}
+        <box flexGrow={1} flexDirection="row" overflow="hidden">
+          <SplitLogPane
+            palette={palette}
+            names={logSources ?? names}
+            logs={logs}
+            service={service}
+            errorOnly={errorOnly}
+            showSystemLogs={showSystemLogs}
+            search={search}
+            regex={props.regex}
+            source={props.source}
+            width={leftWidth}
+            shown={shown}
+            shownTotal={shownTotal}
+            selected={selected}
+            follow={follow}
+            newer={newer}
+            viewStart={viewStart}
+            wrapMode={wrapMode}
+            showTimestamps={props.showTimestamps !== false}
+            showMeta={props.showMeta !== false}
+            followTick={followTick}
+            facets={facets}
+            focused={splitFocus === 0}
+            onService={onService}
+            onToggleErrors={onToggleErrors}
+            onSelect={onSelect}
+            onLeaveLatest={onLeaveLatest}
+            onFocus={() => onFocusPane?.(0)}
+          />
+          <SplitLogPane
+            palette={palette}
+            names={logSources ?? names}
+            logs={logs}
+            service={serviceB}
+            errorOnly={errorOnly}
+            showSystemLogs={showSystemLogs}
+            search={search}
+            regex={props.regex}
+            source={props.source}
+            width={rightWidth}
+            shown={shownB}
+            shownTotal={totalB}
+            selected={selectedB}
+            follow={followB}
+            newer={newerB}
+            viewStart={viewStartB}
+            wrapMode={wrapMode}
+            showTimestamps={props.showTimestamps !== false}
+            showMeta={props.showMeta !== false}
+            followTick={followTick}
+            facets={facets}
+            focused={splitFocus === 1}
+            onService={onServiceB ?? onService}
+            onToggleErrors={onToggleErrors}
+            onSelect={onSelectB}
+            onLeaveLatest={onLeaveLatestB}
+            onFocus={() => onFocusPane?.(1)}
+          />
+        </box>
+        {!follow || !followB ? (
+          <JumpLatestPrompt palette={palette} width={width} newer={Math.max(newer, newerB)} onJump={onJumpLatest} />
+        ) : null}
+      </box>
+    );
+  }
   return (
     <box flexGrow={1} flexDirection="column" overflow="hidden">
       {fullscreen ? null : (
@@ -166,12 +282,109 @@ export function LogsScreen(props: {
             onPick={onSelect}
             onLeaveLatest={onLeaveLatest}
             viewStart={viewStart}
+            search={search}
+            regex={props.regex === true}
           />
         )}
       </box>
       {!follow ? (
         <JumpLatestPrompt palette={palette} width={width} newer={newer} onJump={onJumpLatest} />
       ) : null}
+    </box>
+  );
+}
+
+function SplitLogPane(props: {
+  palette: Palette;
+  names: string[];
+  logs: LogEvent[];
+  service: string;
+  errorOnly: boolean;
+  showSystemLogs: boolean;
+  search: string;
+  regex?: boolean;
+  source?: string;
+  width: number;
+  shown: LogEvent[];
+  shownTotal: number;
+  selected: number;
+  follow: boolean;
+  newer: number;
+  viewStart: number;
+  wrapMode: LogWrapMode;
+  showTimestamps: boolean;
+  showMeta: boolean;
+  followTick: number;
+  facets?: LogFacets;
+  focused: boolean;
+  onService: (service: string) => void;
+  onToggleErrors: () => void;
+  onSelect?: (index: number) => void;
+  onLeaveLatest?: () => void;
+  onFocus: () => void;
+}) {
+  const { palette, width, service, shown, shownTotal, viewStart, focused } = props;
+  const filterBarLogs = props.showSystemLogs ? props.logs : props.logs.filter((ev) => !isSystemLogSource(ev.source));
+  const scope = service === "" ? "all services" : service;
+  const rangeLabel = shownTotal === 0 ? "empty" : `${viewStart + 1}–${Math.min(shownTotal, viewStart + shown.length)} of ${shownTotal}`;
+  return (
+    <box width={width} flexGrow={0} flexShrink={0} flexDirection="column" overflow="hidden" onMouseDown={props.onFocus}>
+      <LogFilterBar
+        palette={palette}
+        logs={filterBarLogs}
+        names={props.names}
+        service={service}
+        errorOnly={props.errorOnly}
+        width={width}
+        onService={(name) => {
+          props.onFocus();
+          props.onService(name);
+        }}
+        onToggleErrors={() => {
+          props.onFocus();
+          props.onToggleErrors();
+        }}
+        facets={props.facets}
+      />
+      <box
+        flexGrow={1}
+        border
+        borderStyle="rounded"
+        borderColor={focused ? palette.borderActive : palette.border}
+        title={`logs  ${scope}  ·  ${rangeLabel}`}
+        titleColor={focused ? palette.primary : palette.muted}
+        overflow="hidden"
+      >
+        {shown.length === 0 ? (
+          <EmptyState
+            palette={palette}
+            title="No events in this pane"
+            body="Click the pane, then ← → to pick a service."
+            hint="\\ split   | focus"
+          />
+        ) : (
+          <LogList
+            palette={palette}
+            logs={shown}
+            width={logPaneInnerWidth(width, 0, false)}
+            followTick={props.followTick}
+            focused={false}
+            wrapMode={props.wrapMode}
+            selected={props.selected}
+            follow={props.follow}
+            showTimestamps={props.showTimestamps}
+            showMeta={props.showMeta}
+            onPick={(index) => {
+              props.onFocus();
+              props.onSelect?.(index);
+            }}
+            onLeaveLatest={props.onLeaveLatest}
+            viewStart={viewStart}
+            search={props.search}
+            regex={props.regex === true}
+          />
+        )}
+      </box>
     </box>
   );
 }
@@ -291,6 +504,8 @@ export function LogList(props: {
   onPick?: (index: number) => void;
   onLeaveLatest?: () => void;
   viewStart?: number;
+  search?: string;
+  regex?: boolean;
 }) {
   const {
     palette,
@@ -307,6 +522,8 @@ export function LogList(props: {
     onPick,
     onLeaveLatest,
     viewStart = 0,
+    search = "",
+    regex = false,
   } = props;
   const scrollRef = useRef<ScrollBoxRenderable>(null);
   const alignedSelection = useRef("");
@@ -314,6 +531,8 @@ export function LogList(props: {
   const serviceNames = [...new Set(logs.map((ev) => ev.service))];
   const serviceWidth = logServiceColumnWidth(width, serviceNames);
   const msgWidth = logMessageWidth({ width, serviceWidth, showTimestamps, showMeta });
+  const tail = slice[slice.length - 1];
+  const tailKey = tail === undefined ? "empty" : String(tail.seq);
 
   useEffect(() => {
     const box = scrollRef.current;
@@ -325,7 +544,7 @@ export function LogList(props: {
       box.stickyStart = "bottom";
       box.scrollTo({ x: box.scrollLeft, y: Math.max(0, box.scrollHeight) });
     }
-  }, [follow, followTick]);
+  }, [follow, followTick, tailKey]);
 
   useEffect(() => {
     const alignment = `${viewStart}:${selected}:${wrapMode}`;
@@ -353,21 +572,35 @@ export function LogList(props: {
       return;
     }
     let armed = false;
-    const arm = setTimeout(() => {
-      armed = true;
-    }, FOLLOW_ARM_MS);
+    let lastHeight = 0;
     const id = setInterval(() => {
       const box = scrollRef.current;
-      if (!armed || !box) {
+      if (!box) {
         return;
       }
       const viewH = box.viewport.height;
-      if (viewH > 0 && box.scrollTop + viewH < box.scrollHeight - FOLLOW_SLACK) {
+      if (viewH <= 0) {
+        return;
+      }
+      const height = box.scrollHeight;
+      const atBottom = box.scrollTop + viewH >= height - FOLLOW_SLACK;
+      if (atBottom) {
+        armed = true;
+        lastHeight = height;
+        return;
+      }
+      if (height > lastHeight) {
+        box.stickyScroll = true;
+        box.stickyStart = "bottom";
+        box.scrollTo({ x: box.scrollLeft, y: Math.max(0, height) });
+        lastHeight = height;
+        return;
+      }
+      if (armed) {
         onLeaveLatest();
       }
     }, FOLLOW_POLL_MS);
     return () => {
-      clearTimeout(arm);
       clearInterval(id);
     };
   }, [follow, followTick, onLeaveLatest]);
@@ -406,6 +639,8 @@ export function LogList(props: {
               showTimestamps={showTimestamps}
               showMeta={showMeta}
               onPick={onPick ? () => onPick(i) : undefined}
+              search={search}
+              regex={regex}
             />
           ))}
         </box>
@@ -425,8 +660,10 @@ function LogRow(props: {
   showTimestamps?: boolean;
   showMeta?: boolean;
   onPick?: () => void;
+  search?: string;
+  regex?: boolean;
 }) {
-  const { id, palette, event, serviceWidth, msgWidth, expanded, active, showTimestamps = true, showMeta = true, onPick } = props;
+  const { id, palette, event, serviceWidth, msgWidth, expanded, active, showTimestamps = true, showMeta = true, onPick, search = "", regex = false } = props;
   const fold = foldLogLines(wrapLogMessage(event.message, msgWidth), msgWidth, expanded);
   return (
     <box
@@ -466,7 +703,7 @@ function LogRow(props: {
             <text fg={palette.muted}>{lineIndex === 0 ? " " : "│"}</text>
           </box>
           <box flexGrow={1} overflow="hidden">
-            <LogMessage palette={palette} level={event.level} text={line} mark={lineIndex === 0 ? fold.mark : ""} />
+            <LogMessage palette={palette} level={event.level} text={line} mark={lineIndex === 0 ? fold.mark : ""} search={search} regex={regex} />
           </box>
         </box>
       ))}
@@ -474,11 +711,11 @@ function LogRow(props: {
   );
 }
 
-function LogMessage(props: { palette: Palette; level: string; text: string; mark: string }) {
-  const { palette, level, text, mark } = props;
+function LogMessage(props: { palette: Palette; level: string; text: string; mark: string; search?: string; regex?: boolean }) {
+  const { palette, level, text, mark, search = "", regex = false } = props;
   return (
     <text wrapMode="none">
-      {logMessageSpans(text).map((span, spanIndex) => (
+      {logMessageSpans(text, search, regex).map((span, spanIndex) => (
         <span key={`${span.kind}-${spanIndex}`} fg={logSpanColor(palette, level, span.kind)}>
           {span.text}
         </span>

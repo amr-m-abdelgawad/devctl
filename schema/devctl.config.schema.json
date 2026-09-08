@@ -280,6 +280,16 @@
             "volumes": { "type": "array", "items": { "type": "string" } }
           }
         },
+        "watch": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "paths": { "type": "array", "items": { "type": "string" }, "description": "Paths relative to the repository root. Never defaults to the whole repo." },
+            "debounce_ms": { "type": "integer", "minimum": 0 },
+            "ignore": { "type": "array", "items": { "type": "string" } }
+          }
+        },
         "hooks": {
           "type": "object",
           "additionalProperties": false,

@@ -1,5 +1,8 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
+import { mkdirSync } from "node:fs";
+import { basename, dirname } from "node:path";
+import { Detector } from "../../shared/redaction.ts";
 import { stringify } from "yaml";
 import { defaultConfig } from "../../domain/config/types.ts";
 import type { ClientRuntime, DaemonLauncher } from "../../application/client-runtime.ts";
@@ -14,7 +17,8 @@ import { runTui } from "../tui/index.tsx";
 import { completeLine, completionScript } from "./complete.ts";
 import { applyInstall, checkUpdate, DAEMON_RESTART_HINT, spawnInstall } from "../../update.ts";
 import { versionLine } from "../../version.ts";
-import { Detector } from "../../shared/redaction.ts";
+import { formatComposeImport, importComposeYaml } from "../../application/compose-import.ts";
+import { resolveSetupTarget } from "./setup.ts";
 
 export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): Command {
   const root = new Command();
@@ -360,7 +364,8 @@ function addLogs(root: Command, runtime: ClientRuntime): void {
     .option("--output <path>", "export path")
     .option("--json", "machine-readable output")
     .option("-f, --follow", "keep printing new matching events until interrupted")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean }) => {
+    .option("--all", "print the full matching history instead of the latest page")
+    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         // Resolved against this process's own cwd before it crosses the RPC
@@ -395,7 +400,31 @@ function addLogs(root: Command, runtime: ClientRuntime): void {
           }
           return;
         }
-        const events = await ctrl.logs({
+        if (exportPath || opts.all === true) {
+          const events = await ctrl.logs({
+            services,
+            level: opts.level,
+            search: opts.search,
+            regex: opts.regex,
+            source: opts.source,
+            since: opts.since,
+            until: opts.until,
+            export: exportPath,
+          });
+          if (exportPath) {
+            writeOut(`exported ${exportPath}\n`);
+            return;
+          }
+          if (opts.json) {
+            writeOut(JSON.stringify(events, null, 2) + "\n");
+            return;
+          }
+          for (const ev of events) {
+            writeOut(formatLogLineForCli(ev));
+          }
+          return;
+        }
+        const page = await ctrl.logsPage({
           services,
           level: opts.level,
           search: opts.search,
@@ -403,18 +432,17 @@ function addLogs(root: Command, runtime: ClientRuntime): void {
           source: opts.source,
           since: opts.since,
           until: opts.until,
-          export: exportPath,
+          direction: "backward",
         });
-        if (exportPath) {
-          writeOut(`exported ${exportPath}\n`);
-          return;
-        }
         if (opts.json) {
-          writeOut(JSON.stringify(events, null, 2) + "\n");
+          writeOut(JSON.stringify(page.events, null, 2) + "\n");
           return;
         }
-        for (const ev of events) {
+        for (const ev of page.events) {
           writeOut(formatLogLineForCli(ev));
+        }
+        if (page.hasPrev) {
+          writeOut(`… older matching events omitted; pass --all for the full history\n`);
         }
       } finally {
         await ctrl.close();
@@ -777,6 +805,35 @@ function addConfig(root: Command, runtime: ClientRuntime): void {
         return;
       }
       writeOut(stringify(loaded));
+    });
+  cfg
+    .command("import")
+    .command("compose")
+    .argument("<file>", "docker-compose.yml or compose.yaml")
+    .option("--write", "write mapped fields under .devctl/config.yaml")
+    .action((file: string, opts: { write?: boolean }) => {
+      const text = runtime.readTextFile(file);
+      const { repo, cfgPath } = resolveSetupTarget("", configFlag(root));
+      const result = importComposeYaml(text, basename(repo));
+      const issues = runtime.validateConfigText(repo, cfgPath, result.yaml);
+      writeOut(formatComposeImport(result));
+      if (issues.length > 0) {
+        writeOut(`validation:\n${issues.map((issue) => `  ${issue}`).join("\n")}\n`);
+        if (opts.write === true) {
+          throw new Error("refusing to write an invalid mapping");
+        }
+        return;
+      }
+      if (opts.write !== true) {
+        writeOut("dry-run; pass --write to save under .devctl/config.yaml\n");
+        return;
+      }
+      if (runtime.fileExists(cfgPath)) {
+        throw new Error(`configuration already exists at ${cfgPath}; not overwriting`);
+      }
+      mkdirSync(dirname(cfgPath), { recursive: true });
+      runtime.writeTextFile(cfgPath, result.yaml);
+      writeOut(`wrote ${cfgPath}\n`);
     });
 }
 

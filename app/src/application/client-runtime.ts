@@ -43,6 +43,7 @@ export type Controller = {
   invalidateAuth(): Promise<void>;
   onEvent(handler: (ev: BusEvent) => void): () => void;
   close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void>;
+  shutdown(opts: { stopServices: boolean }): Promise<void>;
 };
 
 export type DaemonLauncher = (repoRoot: string, configPath: string) => Promise<void>;

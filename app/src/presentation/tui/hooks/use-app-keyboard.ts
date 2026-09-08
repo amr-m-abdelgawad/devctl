@@ -4,6 +4,7 @@ import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
+import { lookupCommand } from "../commands.ts";
 import { nextScreen, prevScreen } from "../helpers/command-catalog.ts";
 import { navItemForDigit } from "../helpers/navigation.ts";
 import { canStartAll } from "../helpers/services.ts";
@@ -36,7 +37,7 @@ type Options = {
   cfg: DevctlConfig | undefined;
   snap: StatusSnapshot | undefined;
   ui: KeyboardUi;
-  logView: Pick<ReturnType<typeof useLogView>, "logSlice" | "logSearchFocused" | "logsFullscreen" | "applyLogCursor" | "applyDashboardLogCursor" | "dashboardLogCursor" | "logPinned" | "logSources" | "logService" | "logs" | "logShowTimestamps" | "logShowMeta" | "logWrap" | "showSystemLogs" | "jumpToLatestLogs" | "toggleSystemLogs" | "clearLogs" | "setLogSearchFocused" | "setLogsFullscreen" | "setLogService" | "setLogShowTimestamps" | "setLogShowMeta" | "setPaused" | "setErrorOnly" | "setLogWrap">;
+  logView: Pick<ReturnType<typeof useLogView>, "logSlice" | "logSliceB" | "logSearchFocused" | "logsFullscreen" | "applyLogCursor" | "applyDashboardLogCursor" | "dashboardLogCursor" | "logPinned" | "logSources" | "logService" | "logServiceB" | "splitLogs" | "splitFocus" | "toggleSplitLogs" | "cycleSplitFocus" | "setActiveLogService" | "logs" | "logShowTimestamps" | "logShowMeta" | "logWrap" | "showSystemLogs" | "jumpToLatestLogs" | "toggleSystemLogs" | "clearLogs" | "setLogSearchFocused" | "setLogsFullscreen" | "setLogService" | "setLogShowTimestamps" | "setLogShowMeta" | "setPaused" | "setErrorOnly" | "setLogWrap">;
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart" | "planBusy">;
   mcp: Pick<ReturnType<typeof useMcpControls>, "applyMcpPortDraft" | "toggleMcp" | "toggleMcpTool" | "copyFocusedMcpSnippet" | "persistMcpPort" | "restartMcpOnPort" | "setMcpPortDraft">;
   preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "persistPrefs">;
@@ -58,12 +59,13 @@ export function useAppKeyboard({
   refs,
 }: Options): void {
   const {
-    screen, onQuit, closeOverlay, confirmKind, portTarget, profile, listCursor, names,
+    screen, onQuit, closeOverlay, confirmKind, confirmDetail, portTarget, profile, listCursor, names, runCommand,
     copyVisibleLogs, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail,
-    setProfile, setStatus, setSlashIndex, setQuery, setScreen, freePort, openDetail,
+    setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail,
   } = ui;
   const {
-    logSlice, logSearchFocused, logsFullscreen, setLogSearchFocused, setLogsFullscreen,
+    logSlice, logSliceB, logSearchFocused, logsFullscreen, setLogSearchFocused, setLogsFullscreen,
+    splitLogs, splitFocus, toggleSplitLogs, cycleSplitFocus, setActiveLogService, logService, logServiceB,
   } = logView;
   const { beginStart, beginRestart, planBusy } = lifecycleActions;
   const { applyMcpPortDraft, toggleMcp, toggleMcpTool, copyFocusedMcpSnippet } = mcp;
@@ -80,7 +82,7 @@ export function useAppKeyboard({
     onQuit(cfg.shutdown.stop_services_on_exit === false);
   }, [cfg, onQuit, setConfirmKind, setOverlay]);
 
-  const confirmAction = useCallback(() => {
+  const confirmAction = useCallback((mode?: "cascade") => {
     if (confirmKind === "quit") {
       onQuit(false);
       return;
@@ -91,6 +93,12 @@ export function useAppKeyboard({
       if (targets.length > 0) {
         void beginRestart(targets, profile);
       }
+      return;
+    }
+    if (confirmKind === "restart-cascade") {
+      const targets = confirmDetail?.services ?? [];
+      closeOverlay();
+      void beginRestart(targets, profile, mode === "cascade");
       return;
     }
     if (confirmKind === "reset-prefs") {
@@ -116,11 +124,11 @@ export function useAppKeyboard({
     }
     closeOverlay();
     void beginStart([], profile);
-  }, [applyReset, beginRestart, beginStart, closeOverlay, confirmKind, diagnostics, freePort, onQuit, portTarget, profile, setStatus, snap]);
+  }, [applyReset, beginRestart, beginStart, closeOverlay, confirmDetail, confirmKind, diagnostics, freePort, onQuit, portTarget, profile, setStatus, snap]);
 
   const handleEnter = useCallback(() => {
     if (screen === "logs") {
-      const event = logSlice[listCursor];
+      const event = (splitLogs && splitFocus === 1 ? logSliceB : logSlice)[listCursor];
       if (event) {
         setLogDetail(event);
         setOverlay("log-details");
@@ -172,6 +180,14 @@ export function useAppKeyboard({
       }
       return;
     }
+    if (screen === "config") {
+      const task = Object.keys(cfg?.tasks ?? {}).sort()[listCursor];
+      const run = lookupCommand("run");
+      if (task && run) {
+        void runCommand(run, [task]);
+      }
+      return;
+    }
     if (screen === "dashboard" && canStartAll(snap)) {
       void beginStart([], profile);
       return;
@@ -180,7 +196,7 @@ export function useAppKeyboard({
     if (name && (screen === "dashboard" || screen === "services")) {
       openDetail(name);
     }
-  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, logSlice, names, openDetail, profile, screen, setConfirmDetail, setConfirmKind, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, toggleMcp, toggleMcpTool]);
+  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
 
   useKeyboard((key: KeyLike) => {
     const name = (key.name ?? "").toLowerCase();
@@ -221,6 +237,15 @@ export function useAppKeyboard({
       applyFont(settingsDefaults().font_size);
       return;
     }
+    if (screen === "logs" && !logSearchFocused && (key.sequence === "\\" || name === "\\")) {
+      toggleSplitLogs();
+      setStatus(splitLogs ? "Single log pane" : "Split log panes");
+      return;
+    }
+    if (screen === "logs" && !logSearchFocused && (key.sequence === "|" || name === "|")) {
+      cycleSplitFocus();
+      return;
+    }
     if (handleOverlayKey({
       ...ui, tui, confirmAction, planBusy, leaderTimer,
       logDetailsScrollRef: refs.logDetailsScrollRef,
@@ -246,6 +271,7 @@ export function useAppKeyboard({
     if (isPaletteChord(key, tui) || isCommandChord(key, tui)) {
       setQuery("");
       setSlashIndex(0);
+      setSlashPicker("commands");
       setOverlay("slash");
       return;
     }
@@ -287,6 +313,8 @@ export function useAppKeyboard({
     }
     const screenCtx = {
       ...ui, tui, controller, cfg, snap, ...logView, ...lifecycleActions, ...mcp, ...preferences,
+      logService: splitLogs && splitFocus === 1 ? logServiceB : logService,
+      setLogService: setActiveLogService,
       setDoctorTick: diagnostics.setDoctorTick, refreshAuth: diagnostics.refreshAuth,
       configScrollRef: refs.configScrollRef, detailScrollRef: refs.detailScrollRef, handleEnter,
     };

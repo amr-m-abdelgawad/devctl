@@ -5,6 +5,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { DEFAULT_PROXY_PORT } from "../../domain/config/types.ts";
 import { ConfigDirName, ConfigFileName } from "../../domain/config/paths.ts";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
+import { defaultStarterAnswers, parseProxyPort, SETUP_FIELDS, starterConfigYaml, type StarterAnswers } from "../../application/setup-starter.ts";
 import { KindConfiguration, newError } from "../../shared/errors.ts";
 
 // Honors the same "config file or .devctl directory" convention as the
@@ -34,7 +35,7 @@ export function createStarterConfig(repo: string, name = basename(repo), project
   if (!force && existsSync(cfgPath)) {
     throw newError(KindConfiguration, `configuration already exists at ${cfgPath}; not overwriting`);
   }
-  writeStarter(repo, name, project, profile);
+  writeStarter(repo, { ...defaultStarterAnswers(repo, project), name, profile });
   return cfgPath;
 }
 
@@ -54,21 +55,23 @@ export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "log
   // Repository root is already settled (from --config or cwd) once --config
   // was given explicitly; asking again would just invite a mismatch between
   // what was passed and what setup actually writes to.
-  const steps = explicitConfig === "" ? 9 : 8;
   let step = 0;
   const nextStep = (): number => {
     step += 1;
     return step;
   };
-  writeLine(`devctl setup — ${steps} steps`);
+  writeLine(`devctl setup — ${SETUP_FIELDS.length} steps`);
   writeLine("");
   if (explicitConfig === "") {
     await ask(`${nextStep()}. Repository root`, repo);
   }
-  const name = await ask(`${nextStep()}. Environment / project name`, basename(repo));
+  const answers: StarterAnswers = defaultStarterAnswers(repo, "");
+  const name = await ask(`${nextStep()}. ${SETUP_FIELDS[1]?.prompt}`, basename(repo));
+  answers.name = name;
   const st = await client.detectGoogle("");
-  const gproj = await ask(`${nextStep()}. Google Cloud project`, st.projectID);
-  writeLine(`${nextStep()}. Authentication`);
+  const gproj = await ask(`${nextStep()}. ${SETUP_FIELDS[2]?.prompt}`, st.projectID);
+  answers.project = gproj;
+  writeLine(`${nextStep()}. ${SETUP_FIELDS[3]?.title}`);
   if (!st.adcAvailable) {
     writeLine("   ADC is not available. Run: gcloud auth application-default login");
     const now = await ask("   Run login now? (y/N)", "n");
@@ -85,13 +88,13 @@ export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "log
       writeLine(`   user: ${st.userEmail}`);
     }
   }
-  const sa = await ask(`${nextStep()}. Service account email to record (optional, never hard-coded at runtime)`, "");
-  const audience = await ask(`${nextStep()}. IAP audience to record on a sample route (optional)`, "");
-  const portRaw = await ask(`${nextStep()}. Proxy listen port`, String(DEFAULT_PROXY_PORT));
-  const proxyPort = Number(portRaw) || DEFAULT_PROXY_PORT;
-  const profile = await ask(`${nextStep()}. Default profile name (optional)`, "");
+  answers.sa = await ask(`${nextStep()}. ${SETUP_FIELDS[4]?.prompt}`, "");
+  answers.audience = await ask(`${nextStep()}. ${SETUP_FIELDS[5]?.prompt}`, "");
+  const portRaw = await ask(`${nextStep()}. ${SETUP_FIELDS[6]?.prompt}`, String(DEFAULT_PROXY_PORT));
+  answers.proxyPort = parseProxyPort(portRaw);
+  answers.profile = await ask(`${nextStep()}. ${SETUP_FIELDS[7]?.prompt}`, "");
   rl.close();
-  writeStarter(repo, name, gproj, profile, { sa, audience, proxyPort });
+  writeStarter(repo, answers);
   writeLine("");
   writeLine(`Wrote starter configuration to ${cfgPath}`);
   writeLine(`${nextStep()}. Validation`);
@@ -105,70 +108,12 @@ export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "log
   }
 }
 
-function writeStarter(
-  repo: string,
-  name: string,
-  project: string,
-  profile: string,
-  extra: { sa: string; audience: string; proxyPort: number } = { sa: "", audience: "", proxyPort: DEFAULT_PROXY_PORT },
-): void {
+export function writeStarter(repo: string, answers: StarterAnswers): void {
   const dir = join(repo, ".devctl");
   mkdirSync(join(dir, "services"), { recursive: true });
   mkdirSync(join(dir, "profiles"), { recursive: true });
   mkdirSync(join(dir, "proxy"), { recursive: true });
-  writeFileSync(
-    join(dir, "config.yaml"),
-    `# yaml-language-server: $schema=https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/schema/devctl.config.schema.json
-version: 1
-
-project:
-  name: ${name}
-
-google:
-  project_id: ${project}
-
-profiles:${profile === "" ? " {}" : `\n  ${profile}:\n    services: []`}
-
-services:
-  app:
-    command: ["echo", "replace this with your service's start command"]
-
-proxy:
-  enabled: true
-  listen:
-    host: 127.0.0.1
-    port: ${extra.proxyPort}${
-      extra.audience === ""
-        ? ""
-        : `
-  routes:
-    - name: sample
-      match:
-        host: sample.local
-      upstream:
-        url: http://127.0.0.1:8081
-      auth:
-        type: iap
-        audience: ${extra.audience}
-        identity: ${extra.sa === "" ? "user" : `{ type: service_account, service_account: ${extra.sa} }`}
-`
-    }
-
-logs:
-  max_memory_events: 50000
-  persistence:
-    enabled: true
-    directory: ~/.devctl/logs
-    retention_days: 14
-
-auth:
-  refresh_threshold_seconds: 300
-
-shutdown:
-  stop_services_on_exit: true
-  grace_seconds: 10
-`,
-  );
+  writeFileSync(join(dir, "config.yaml"), starterConfigYaml(answers));
 }
 
 function writeLine(line: string): void {

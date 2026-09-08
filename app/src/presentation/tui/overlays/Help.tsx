@@ -38,7 +38,7 @@ export const HELP_SERVICES: readonly Binding[] = [
   { key: "n", label: "start" },
   { key: "x", label: "stop" },
   { key: "r", label: "refresh" },
-  { key: "R", label: "restart" },
+  { key: "R", label: "restart (c cascade if dependents)" },
 ];
 
 export function logBindings(copyKey: string): readonly Binding[] {
@@ -48,6 +48,9 @@ export function logBindings(copyKey: string): readonly Binding[] {
     { key: "g", label: "jump to latest" },
     { key: "p", label: "pause stream" },
     { key: "z", label: "full-screen logs" },
+    { key: "\\", label: "split panes" },
+    { key: "|", label: "focus other pane" },
+    { key: "/trace", label: "jump to request id" },
     { key: "f", label: "search" },
     { key: "t", label: "timestamps" },
     { key: "m", label: "metadata" },

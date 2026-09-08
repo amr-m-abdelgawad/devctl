@@ -14,11 +14,22 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     logDetailsScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
     revertThemePreview, setPaletteIndex, setThemeName, paletteIndex, applyTheme, leaderTimer,
     setOverlay, runCommand, setConfigEditError, saveConfigBuffer, setSlashIndex, filtered,
-    setQuery, slashIndex, submitSlash,
+    setQuery, slashIndex, submitSlash, advanceWizard,
   } = ctx;
   const name = (key.name ?? "").toLowerCase();
   if (overlay === "none") {
     return false;
+  }
+  if (overlay === "setup-wizard") {
+    if (name === "escape") {
+      closeOverlay();
+      return true;
+    }
+    if (name === "return") {
+      advanceWizard?.();
+      return true;
+    }
+    return overlayConsumesTyping(overlay);
   }
   if (overlay === "confirm") {
     if (name === "escape") {
@@ -29,6 +40,14 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       onQuit(true);
       return true;
     }
+    if (confirmKind === "quit" && name === "k") {
+      ctx.onDown(true);
+      return true;
+    }
+    if (confirmKind === "restart-cascade" && name === "c") {
+      confirmAction("cascade");
+      return true;
+    }
     if (name === "return") {
       confirmAction();
     }
@@ -37,6 +56,16 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
   if (overlay === "log-details" || overlay === "scroll-text") {
     if (name === "escape") {
       closeOverlay();
+      return true;
+    }
+    if (overlay === "log-details" && name === "return") {
+      const id = ctx.logDetail?.request_id?.trim() ?? "";
+      if (id !== "") {
+        ctx.setLogSearch(id);
+        ctx.setScreen("logs");
+        ctx.closeOverlay();
+        ctx.setStatus(`tracing ${id}`);
+      }
       return true;
     }
     const box = overlay === "log-details" ? logDetailsScrollRef.current : scrollTextScrollRef.current;

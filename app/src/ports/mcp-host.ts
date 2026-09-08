@@ -14,6 +14,9 @@ export type McpHost = {
   reload(): Promise<ReloadResult>;
   doctor(): Promise<Report>;
   exec?(service: string, command: string[], printEnv?: boolean): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }>;
+  runTask(name: string): Promise<{ task: string; code: number; stdout: string; stderr: string }>;
+  startProxy(): Promise<void>;
+  stopProxy(): Promise<void>;
 };
 
 export type McpListener = {

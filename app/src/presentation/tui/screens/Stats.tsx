@@ -8,7 +8,7 @@ import { useDensity } from "../density.tsx";
 import { formatCpuPercent,formatMemoryKB,formatUptime,padClip,renderBar } from "../helpers/format.ts";
 import { wrapLogMessage } from "../helpers/logs.ts";
 import { SERVICE_COL_GAP,SERVICE_CPU_COL,SERVICE_HEALTH_COL,SERVICE_MEM_COL,SERVICE_PID_COL,SERVICE_STATE_COL,SERVICE_UPTIME_COL } from "../helpers/services.ts";
-import { credentialStoreLabel,factTableColumns,fleetFacts,formatResourceMeter,leftoverCopy,loadCopy,platformLabel,runtimeUptime,serviceCheckLabel,serviceFleetStats,serviceStatusLabel,STATS_FACT_GAP,STATS_RESTARTS_COL,statsPaneWidth,statsServiceColumns,topLogSources,usesTrafficHealth,type ResourceTone,type StatsFact } from "../helpers/stats.ts";
+import { credentialStoreLabel,factTableColumns,fleetFacts,formatResourceMeter,leftoverCopy,loadCopy,platformLabel,runtimeUptime,serviceCheckLabel,serviceFleetStats,serviceStatusLabel,sparkline,STATS_FACT_GAP,STATS_RESTARTS_COL,statsPaneWidth,statsServiceColumns,topLogSources,usesTrafficHealth,type ResourceTone,type StatsFact } from "../helpers/stats.ts";
 import { ScreenFrame } from "../layout.tsx";
 import { serviceColor,stateColor,type Palette } from "../themes.ts";
 
@@ -209,6 +209,23 @@ export function StatsScreen(props: {
       meaning: `on for ${formatUptime(sys.hostUptimeSec * MS_PER_SEC)}`,
       tone: "text",
     });
+    const series = snap?.stats_series;
+    if (series && series.cpu.length > 1) {
+      computerFacts.push({
+        what: "Load trend",
+        reading: sparkline(series.cpu),
+        meaning: `${Math.round(series.interval_ms / 1000)}s samples`,
+        tone: "text",
+      });
+    }
+    if (series && series.mem.length > 1) {
+      computerFacts.push({
+        what: "RAM trend",
+        reading: sparkline(series.mem),
+        meaning: "used memory over the same window",
+        tone: "text",
+      });
+    }
   }
   const sectionTone =
     fleet.failed > 0 || cpuFact?.tone === "error" || ramFact?.tone === "error"

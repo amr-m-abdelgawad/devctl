@@ -21,7 +21,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 ## TUI (Logs tab)
 
-- `f` focuses search. `/` stays the command line.
+- `f` focuses search. `/` stays the command line. Matches are highlighted in the log line (plain or `/regex`). Dashboard tail uses the same search filter.
 - `e` / `/filter` — ERROR and above.
 - `p` / `/pause` — freeze the live stream.
 - `z` / `/fullscreen` — hide header and nav so the stream fills a small editor terminal. `z` or `esc` exits.
@@ -29,6 +29,8 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - `w` / `/wrap` — clip → unwrap the selected row → wrap every long line.
 - `g` — jump to latest. Leaving the tail pins the view (`pinned · +N new`).
 - `←`/`→` or click a chip — cycle service filters. Digits `1`–`4` jump nav tabs, not log sources.
+- `\\` / `/split` — second pane on the same live stream, with its own service filter. Shared search. `|` focuses the other pane.
+- `/trace <id>` — set search to that request/trace id. Enter in the details overlay on a row that has an id does the same.
 - `enter` — details overlay (full message, pid, stream, request_id, identity).
 - `cmd+c` (macOS) or `ctrl+shift+c` — copy visible lines. Remap with `keybinds.copy`.
 - `/export [path]` — write the **current** filters. Default file: `~/.devctl/exports/devctl-logs-<timestamp>.log`.
@@ -42,6 +44,7 @@ Long lines fold with a `▸N` marker. `j`/`k` moves the highlight and unwraps th
 
 ```bash
 devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--json]
+devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
 devctl logs export --output FILE   # explicit export subcommand

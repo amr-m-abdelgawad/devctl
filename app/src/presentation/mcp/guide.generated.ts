@@ -332,7 +332,7 @@ complete allowlists.
 
 **Service** (and \`templates.<name>\`, same shape): \`extends\` \`description\`
 \`command\` \`shell\` \`working_dir\` \`dependencies\` \`ports\` \`environment\` \`health\`
-\`identity\` \`logs\` \`restart\` \`startup\` \`capabilities\` \`proxy\` \`container\` \`hooks\`
+\`identity\` \`logs\` \`restart\` \`startup\` \`capabilities\` \`proxy\` \`container\` \`watch\` \`hooks\`
 
 | Section | Allowed keys |
 |---|---|
@@ -342,6 +342,7 @@ complete allowlists.
 | \`service.health\` | \`type\` \`url\` \`address\` \`command\` \`interval_seconds\` \`timeout_seconds\` \`start_period_seconds\` \`unhealthy_threshold\` \`healthy_reset_threshold\` |
 | \`service.hooks\` | \`pre_start\` \`post_start\` |
 | \`service.container\` | \`image\` \`runtime\` \`ports\` \`env\` \`volumes\` |
+| \`service.watch\` | \`enabled\` \`paths\` \`debounce_ms\` \`ignore\` |
 | \`tasks.<name>\` | \`command\` \`shell\` \`working_dir\` \`dependencies\` \`environment\` |
 | \`service.identity\` | \`type\` \`mode\` \`service_account\` |
 | \`service.restart\` | \`enabled\` \`policy\` \`max_retries\` \`backoff_seconds\` |
@@ -703,6 +704,8 @@ command. Preserve the host/container port distinction, volumes, environment,
 health check, and dependencies. Keep container-backed services out of the
 default profile when doing so preserves a repository's existing no-Docker
 onboarding path.
+
+\`devctl config import compose <file>\` (dry-run) prints mapped YAML and a table of dropped fields (\`build\`, \`networks\`, \`deploy\`, \`replicas\`, per-service \`env_file\`, \`volumes\`, …). \`--write\` saves mapped fields only under \`.devctl/config.yaml\` after the same decode/validate path as hand-authored configs. TUI: \`/import compose [path]\`. K8s import is not implemented.
 
 ### Procfile
 

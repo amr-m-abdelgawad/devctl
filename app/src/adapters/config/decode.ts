@@ -4,6 +4,9 @@ import {
   emptyHealth,
   emptyIdentity,
   emptyService,
+  emptyWatch,
+  DEFAULT_WATCH_DEBOUNCE_MS,
+  DEFAULT_WATCH_IGNORE,
   type Command,
   type EnvConfig,
   type Dependency,
@@ -206,7 +209,21 @@ export function decodeService(value: unknown): ServiceConfig {
     capabilities: asStringArray(value.capabilities),
     proxy: decodeServiceProxy(value.proxy),
     container: decodeContainer(value.container),
+    watch: decodeWatch(value.watch),
     hooks: decodeHooks(value.hooks),
+  };
+}
+
+export function decodeWatch(value: unknown): import("../../domain/config/types.ts").ServiceWatchConfig {
+  if (!isRecord(value)) {
+    return emptyWatch();
+  }
+  const debounce = asNumber(value.debounce_ms);
+  return {
+    enabled: asBoolean(value.enabled),
+    paths: asStringArray(value.paths),
+    debounce_ms: debounce > 0 ? debounce : DEFAULT_WATCH_DEBOUNCE_MS,
+    ignore: value.ignore === undefined ? [...DEFAULT_WATCH_IGNORE] : asStringArray(value.ignore),
   };
 }
 

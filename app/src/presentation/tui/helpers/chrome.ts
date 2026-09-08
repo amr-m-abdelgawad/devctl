@@ -131,10 +131,17 @@ export function statusChipTone(status: string): StatusTone {
 }
 
 export function confirmCopy(kind: ConfirmKind, profile: string, detail?: ConfirmDetail): { title: string; body: string } {
+  if (kind === "restart-cascade") {
+    const named = detail?.services?.join(", ") || "selected services";
+    return {
+      title: "Restart dependents?",
+      body: `${named} has dependents. Enter restarts only the named services. Press c to cascade (same as /restart --cascade).`,
+    };
+  }
   if (kind === "quit") {
     return {
       title: "Quit",
-      body: "Stop managed services and leave the TUI? Press d to detach and leave them running.",
+      body: "Stop managed services and leave the TUI? Press d to detach (daemon stays). Press k to stop the daemon and leave services running (devctl down --keep-services).",
     };
   }
   if (kind === "reload") {
@@ -162,6 +169,28 @@ export function confirmCopy(kind: ConfirmKind, profile: string, detail?: Confirm
     title: "Start profile",
     body: profile === "" ? "Start the configured services?" : `Start profile ${profile}?`,
   };
+}
+
+export function confirmHints(kind: ConfirmKind): FooterHint[] {
+  if (kind === "quit") {
+    return [
+      { key: "enter", label: "stop services" },
+      { key: "d", label: "detach" },
+      { key: "k", label: "down, keep services" },
+      { key: "esc", label: "stay" },
+    ];
+  }
+  if (kind === "restart-cascade") {
+    return [
+      { key: "enter", label: "named only" },
+      { key: "c", label: "cascade" },
+      { key: "esc", label: "stay" },
+    ];
+  }
+  return [
+    { key: "enter", label: "confirm" },
+    { key: "esc", label: "stay" },
+  ];
 }
 
 export type StatusStripChip = {

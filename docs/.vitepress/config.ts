@@ -130,6 +130,7 @@ export default withMermaid({
         items: [
           { text: 'Building from source', link: '/typescript' },
           { text: 'Architecture', link: '/architecture' },
+          { text: 'Platform bets', link: '/platform-bets' },
           { text: 'npm publishing', link: '/npm-publishing' },
           { text: 'Architecture spec', link: '/devctl-architecture' },
           { text: 'Contributing', link: `${blob}/CONTRIBUTING.md` },

@@ -14,8 +14,9 @@ import {
 } from "../config/index.ts";
 import { envList, resolveEnvironment, runtimeForService } from "../environment/environment.ts";
 import { claimIfAlreadyUp as claimAdoptedService, recoverSession as recoverPersistedSession, type RecoverHost } from "./recover.ts";
-import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
-import { buildSnapshot, emptyIdentitySnapshot, formatStatusFromSnapshot, serviceAccountSnapshot, type SnapshotHost } from "./snapshot.ts";
+import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, pluginMtimes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
+import { ServiceWatchers } from "./service-watch.ts";
+import { buildSnapshot, emptyIdentitySnapshot, formatStatusFromSnapshot, serviceAccountSnapshot, systemSnapshot, type SnapshotHost } from "./snapshot.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
 import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
@@ -69,6 +70,8 @@ import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 const IDENTITY_PROBE_MS = 4_000;
 const RESOURCE_POLL_MS = 3_000;
+const STATS_SAMPLE_MS = 5_000;
+const STATS_RING = 60;
 
 export class Supervisor {
   private cfg: DevctlConfig;
@@ -142,6 +145,11 @@ export class Supervisor {
   private mcpDisabledTools: string[] = [];
   private profileEnv: Record<string, string> = {};
   private resourceTimer?: ReturnType<typeof setInterval>;
+  private readonly serviceWatchers: ServiceWatchers;
+  private pluginMtimes = new Map<string, number>();
+  private readonly statsCpu: number[] = [];
+  private readonly statsMem: number[] = [];
+  private lastStatsAt = 0;
 
   private readonly orchestrator: ServiceOrchestratorPort;
   private readonly commands: DaemonCommands;
@@ -228,6 +236,12 @@ export class Supervisor {
     }
     this.orchestrator.bind(this.lifecycleSession());
     this.commands = deps.createCommands(this);
+    this.serviceWatchers = new ServiceWatchers({
+      repoRoot: () => this.cfg.repoRoot,
+      log: (service, level, message) => this.log(service, level, message),
+      isActive: (name) => this.orchestrator.serviceIsActive(name),
+      restart: (name) => this.restart([name], { auto: true }),
+    });
   }
 
   private snapshotHost(): SnapshotHost {
@@ -250,6 +264,9 @@ export class Supervisor {
       get detached() { return self.detached; },
       get setupMode() { return self.setupMode; },
       get restartRequired() { return self.restartRequired; },
+      get statsSeries() {
+        return { interval_ms: STATS_SAMPLE_MS, cpu: [...self.statsCpu], mem: [...self.statsMem] };
+      },
       logs: { snapshot: () => self.logs.snapshot() },
       tokens: { storeBackend: () => self.tokens.storeBackend() },
     };
@@ -270,6 +287,9 @@ export class Supervisor {
       set restartRequired(value) { self.restartRequired = value; },
       get fs() { return self.fs; },
       get registry() { return self.registry; },
+      set registry(value) { self.registry = value; },
+      get pluginMtimes() { return self.pluginMtimes; },
+      set pluginMtimes(value) { self.pluginMtimes = value; },
       get detector() { return self.detector; },
       get bus() { return self.bus; },
       get orchestrator() { return self.orchestrator; },
@@ -284,6 +304,7 @@ export class Supervisor {
       stopProxy: () => self.stopProxy(),
       reload: () => self.reload(),
       forgetService: (name) => self.forgetService(name),
+      syncServiceWatchers: () => self.serviceWatchers.sync(self.cfg.services),
     };
   }
 
@@ -331,12 +352,14 @@ export class Supervisor {
     this.lock = this.acquireLockFn(this.cfg.repoRoot, socket);
     this.removeStaleSocket(socket);
     this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path), this.cfg.repoRoot);
+    this.pluginMtimes = pluginMtimes(this.cfg.plugins.map((plugin) => plugin.path), this.cfg.repoRoot);
     for (const failure of this.registry.loadErrors) this.log("devctl", "ERROR", `plugin ${failure.path} skipped: ${failure.message}`);
     applyPluginRegistry(this.reloadHost());
     assertPluginHealthTypes(this.registry, this.cfg);
     assertPluginIdentityTypes(this.registry, this.cfg);
     assertPluginEnvironmentSources(this.registry, this.cfg);
     await this.recoverSession();
+    this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());
     this.persistState();
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
@@ -916,6 +939,9 @@ export class Supervisor {
         return this.commands.runDoctor.execute(this.cfg);
       },
       exec: (service, command, printEnv) => this.execService(service, command, undefined, printEnv),
+      runTask: (name) => this.runTask(name, {}),
+      startProxy: () => this.startProxy(),
+      stopProxy: () => this.stopProxy(),
     };
   }
 
@@ -942,6 +968,7 @@ export class Supervisor {
     await this.stopProxy();
     await this.stopMcp();
     this.configWatcher?.close();
+    this.serviceWatchers.close();
     if (this.watchTimer) {
       clearTimeout(this.watchTimer);
     }
@@ -1110,6 +1137,7 @@ export class Supervisor {
   // on an interval rather than tracked per state transition, since they
   // change continuously while a process runs.
   private async pollResourceUsage(): Promise<void> {
+    this.recordStatsSample();
     const pids: number[] = [];
     for (const rt of this.runtimes.values()) {
       if (rt.pid > 0 && (rt.state === StateRunning || rt.state === StateHealthy || rt.state === StateUnhealthy)) {
@@ -1126,6 +1154,25 @@ export class Supervisor {
         rt.cpuPercent = sample.cpuPercent;
         rt.memoryKB = sample.memoryKB;
       }
+    }
+  }
+
+  private recordStatsSample(): void {
+    const now = this.clock.unixMs();
+    if (now - this.lastStatsAt < STATS_SAMPLE_MS) {
+      return;
+    }
+    this.lastStatsAt = now;
+    const sys = systemSnapshot();
+    const cpu = sys.cpuCount > 0 ? sys.loadAvg1 / sys.cpuCount : 0;
+    const mem = sys.memTotalKB > 0 ? 1 - sys.memAvailableKB / sys.memTotalKB : 0;
+    this.statsCpu.push(cpu);
+    this.statsMem.push(mem);
+    if (this.statsCpu.length > STATS_RING) {
+      this.statsCpu.shift();
+    }
+    if (this.statsMem.length > STATS_RING) {
+      this.statsMem.shift();
     }
   }
 

@@ -174,7 +174,19 @@ Default TUI profile (empty dashboard `enter`) is the first profile name **alphab
 
 During `health.start_period_seconds`, failing probes leave the service in its startup state and do not contribute to restart streaks. Afterward, `health.unhealthy_threshold` consecutive failures trigger the configured restart policy (default 3). `health.healthy_reset_threshold` consecutive successes forgive prior restart attempts (default 10).
 
-`devctl` watches `.devctl/` and offers reload. It does not restart a service when its source files change. Put `air`, `bun --watch`, or your language’s reloader in the service `command`.
+`devctl` watches `.devctl/` and offers reload. Source-file restart is **opt-in** per service — off by default so a noisy tree cannot bounce the fleet:
+
+```yaml
+services:
+  api:
+    watch:
+      enabled: true
+      paths: ["invoices-api"]   # relative to the repo root; never the whole checkout
+      debounce_ms: 300
+      ignore: ["**/node_modules/**", "**/.git/**"]
+```
+
+A matching change restarts only that service. Leave `watch` off and put `air`, `bun --watch`, or your language’s reloader in `command` when you want in-process reload instead.
 
 A service a reload adds shows up immediately, stopped — not just once it's first started. One a reload removes is forgotten immediately if it was already stopped; if it's still running, it becomes **orphaned**: still visible and stoppable by name (`devctl stop <name>`), but no longer restartable or reachable by a cascade, since there's no configuration left to describe how. Stopping it drops it from status entirely. A reload that references a health or identity type nothing provides — a plugin type from a service just added or edited — is rejected outright, the same as an unparseable config file, and the daemon keeps running on its last-known-good configuration.
 

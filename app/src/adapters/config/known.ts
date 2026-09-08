@@ -34,6 +34,7 @@ export const knownService = [
   "capabilities",
   "proxy",
   "container",
+  "watch",
   "hooks",
 ];
 
@@ -65,6 +66,7 @@ export const knownTokenEndpoint = ["enabled", "host", "port"];
 export const knownPlugin = ["path"];
 export const knownProjectEnvironment = ["sources", "secrets"];
 export const knownContainer = ["image", "runtime", "ports", "env", "volumes"];
+export const knownWatch = ["enabled", "paths", "debounce_ms", "ignore"];
 export const knownHooks = ["pre_start", "post_start"];
 export const knownTask = ["command", "shell", "working_dir", "dependencies", "environment"];
 
