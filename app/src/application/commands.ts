@@ -8,11 +8,7 @@ import type { DaemonCommandHost, ServiceOrchestratorPort } from "../ports/daemon
 
 export type ServiceCommandHost = DaemonCommandHost;
 
-export type StartStop = {
-  start(req: StartRequest): Promise<Plan>;
-  stop(names: string[]): Promise<void>;
-  restart(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string>; auto?: boolean }): Promise<void>;
-};
+export type StartStop = Pick<ServiceOrchestratorPort, "start" | "stop" | "restart">;
 
 export class StartService {
   constructor(private readonly start: (req: StartRequest) => Promise<Plan>) {}

@@ -28,7 +28,7 @@ import type { useMcpControls } from "./use-mcp-controls.ts";
 import type { usePreferences } from "./use-preferences.ts";
 import type { KeyboardRefs, KeyboardUi } from "./keyboard-context.ts";
 import { handleOverlayKey } from "./keyboard-overlays.ts";
-import { handleScreenKey } from "./keyboard-screens.ts";
+import { handleScreenDigitKey, handleScreenKey } from "./keyboard-screens.ts";
 
 type Options = {
   tui: TuiConfig;
@@ -291,15 +291,19 @@ export function useAppKeyboard({
       setScreen(key.shift ? prevScreen(screen) : nextScreen(screen));
       return;
     }
+    const screenCtx = {
+      ...ui, tui, controller, cfg, snap, ...logView, ...lifecycleActions, ...mcp, ...preferences,
+      setDoctorTick: diagnostics.setDoctorTick, refreshAuth: diagnostics.refreshAuth,
+      configScrollRef: refs.configScrollRef, detailScrollRef: refs.detailScrollRef, handleEnter,
+    };
+    if (handleScreenDigitKey(screenCtx, key)) {
+      return;
+    }
     const jump = navItemForDigit(name);
     if (jump) {
       setScreen(jump);
       return;
     }
-    handleScreenKey({
-      ...ui, tui, controller, cfg, snap, ...logView, ...lifecycleActions, ...mcp, ...preferences,
-      setDoctorTick: diagnostics.setDoctorTick, refreshAuth: diagnostics.refreshAuth,
-      configScrollRef: refs.configScrollRef, detailScrollRef: refs.detailScrollRef, handleEnter,
-    }, key);
+    handleScreenKey(screenCtx, key);
   });
 }

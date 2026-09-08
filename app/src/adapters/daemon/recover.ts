@@ -26,7 +26,7 @@ export type RecoverHost = {
   readonly serviceProfileEnv: Map<string, Record<string, string>>;
   readonly orchestrator: ServiceOrchestratorPort;
   readonly procs: ProcessManager;
-  readonly logs: LogStore;
+  readonly logs: Pick<LogStore, "append">;
   readonly clock: Clock;
   readonly tokens: TokenManager;
   readonly registry?: Registry;

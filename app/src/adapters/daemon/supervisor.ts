@@ -228,12 +228,95 @@ export class Supervisor {
     this.commands = deps.createCommands(this);
   }
 
-  private toHost<T>(): T {
-    this.processAliveFn;
-    this.restartRequired;
-    this.credentialEntries;
-    this.setupMode;
-    return this as unknown as T;
+  private snapshotHost(): SnapshotHost {
+    const self = this;
+    return {
+      get sessionID() { return self.sessionID; },
+      get cfg() { return self.cfg; },
+      get profile() { return self.profile; },
+      get runtimes() { return self.runtimes; },
+      get ports() { return self.ports; },
+      get serviceProfile() { return self.serviceProfile; },
+      get clientEnv() { return self.clientEnv; },
+      get proxy() { return self.proxy; },
+      get mcp() { return self.mcp; },
+      get mcpToken() { return self.mcpToken; },
+      get mcpDisabledTools() { return self.mcpDisabledTools; },
+      get identityCache() { return self.identityCache; },
+      get serviceAccountStatus() { return self.serviceAccountStatus; },
+      get credentialEntries() { return self.credentialEntries; },
+      get detached() { return self.detached; },
+      get setupMode() { return self.setupMode; },
+      get restartRequired() { return self.restartRequired; },
+      logs: { snapshot: () => self.logs.snapshot() },
+      tokens: { storeBackend: () => self.tokens.storeBackend() },
+    };
+  }
+
+  private reloadHost(): ReloadHost {
+    const self = this;
+    return {
+      get cfg() { return self.cfg; },
+      set cfg(value) { self.cfg = value; },
+      get setupMode() { return self.setupMode; },
+      set setupMode(value) { self.setupMode = value; },
+      get configWatcher() { return self.configWatcher; },
+      set configWatcher(value) { self.configWatcher = value; },
+      get watchTimer() { return self.watchTimer; },
+      set watchTimer(value) { self.watchTimer = value; },
+      get restartRequired() { return self.restartRequired; },
+      set restartRequired(value) { self.restartRequired = value; },
+      get fs() { return self.fs; },
+      get registry() { return self.registry; },
+      get detector() { return self.detector; },
+      get bus() { return self.bus; },
+      get orchestrator() { return self.orchestrator; },
+      get runtimes() { return self.runtimes; },
+      get tokens() { return self.tokens; },
+      get logs() { return self.logs; },
+      get proxy() { return self.proxy; },
+      persistState: () => self.persistState(),
+      log: (service, level, message) => self.log(service, level, message),
+      refreshIdentity: () => self.refreshIdentity(),
+      startProxy: () => self.startProxy(),
+      stopProxy: () => self.stopProxy(),
+      reload: () => self.reload(),
+      forgetService: (name) => self.forgetService(name),
+    };
+  }
+
+  private recoverHost(): RecoverHost {
+    const self = this;
+    return {
+      get cfg() { return self.cfg; },
+      set cfg(value) { self.cfg = value; },
+      get profile() { return self.profile; },
+      set profile(value) { self.profile = value; },
+      get profileEnv() { return self.profileEnv; },
+      set profileEnv(value) { self.profileEnv = value; },
+      get runtimes() { return self.runtimes; },
+      get ports() { return self.ports; },
+      get processMeta() { return self.processMeta; },
+      get serviceProfile() { return self.serviceProfile; },
+      get serviceProfileEnv() { return self.serviceProfileEnv; },
+      get orchestrator() { return self.orchestrator; },
+      get procs() { return self.procs; },
+      logs: { append: (event) => self.logs.append(event) },
+      get clock() { return self.clock; },
+      get tokens() { return self.tokens; },
+      get registry() { return self.registry; },
+      get proxy() { return self.proxy; },
+      get tokenEP() { return self.tokenEP; },
+      get boundTokenURL() { return self.boundTokenURL; },
+      get internalTok() { return self.internalTok; },
+      get bus() { return self.bus; },
+      inspectProcessFn: (pid) => self.inspectProcessFn(pid),
+      processAliveFn: (pid) => self.processAliveFn(pid),
+      serviceWorkDir: (svc) => self.serviceWorkDir(svc),
+      persistState: () => self.persistState(),
+      setState: (name, state, health, pid, lastError) => self.setState(name, state, health, pid, lastError),
+      log: (service, level, message) => self.log(service, level, message),
+    };
   }
 
   async run(): Promise<void> {
@@ -247,12 +330,12 @@ export class Supervisor {
     this.removeStaleSocket(socket);
     this.registry = await loadPluginPaths(this.cfg.plugins.map((plugin) => plugin.path), this.cfg.repoRoot);
     for (const failure of this.registry.loadErrors) this.log("devctl", "ERROR", `plugin ${failure.path} skipped: ${failure.message}`);
-    applyPluginRegistry(this.toHost<ReloadHost>());
+    applyPluginRegistry(this.reloadHost());
     assertPluginHealthTypes(this.registry, this.cfg);
     assertPluginIdentityTypes(this.registry, this.cfg);
     assertPluginEnvironmentSources(this.registry, this.cfg);
     await this.recoverSession();
-    watchConfigDir(this.toHost<ReloadHost>());
+    watchConfigDir(this.reloadHost());
     this.persistState();
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
@@ -567,7 +650,7 @@ export class Supervisor {
           } } : self.healthCheckers.lookup(type);
         },
       },
-      logs: self.logs,
+      logs: { append: (event) => self.logs.append(event) },
       bus: self.bus,
       processMeta: self.processMeta,
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot)}-`; },
@@ -678,11 +761,11 @@ export class Supervisor {
   }
 
   private async claimIfAlreadyUp(name: string): Promise<boolean> {
-    return claimAdoptedService(this.toHost<RecoverHost>(), name);
+    return claimAdoptedService(this.recoverHost(), name);
   }
 
   private async recoverSession(): Promise<void> {
-    return recoverPersistedSession(this.toHost<RecoverHost>());
+    return recoverPersistedSession(this.recoverHost());
   }
 
   private async prepareServiceIdentity(name: string, svc: ServiceConfig): Promise<void> {
@@ -824,7 +907,7 @@ export class Supervisor {
   }
 
   async reload(): Promise<ReloadResult> {
-    return reloadSupervisor(this.toHost<ReloadHost>());
+    return reloadSupervisor(this.reloadHost());
   }
 
   async shutdown(stopServices: boolean): Promise<void> {
@@ -858,7 +941,7 @@ export class Supervisor {
   }
 
   snapshot(): StatusSnapshot {
-    return buildSnapshot(this.toHost<SnapshotHost>());
+    return buildSnapshot(this.snapshotHost());
   }
 
   // Cheap local read of the credential store (keychain/file) — reflects

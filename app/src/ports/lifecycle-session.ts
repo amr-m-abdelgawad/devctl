@@ -17,7 +17,7 @@ export type HealthHost = {
   readonly serviceProfile: Map<string, string>;
   readonly serviceProfileEnv: Map<string, Record<string, string>>;
   readonly healthCheckers: HealthCheckerFactory;
-  readonly logs: LogStore;
+  readonly logs: Pick<LogStore, "append">;
   readonly bus: Bus;
   setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void;
   persistState(): void;

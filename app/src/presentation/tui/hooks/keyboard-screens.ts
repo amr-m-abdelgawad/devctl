@@ -10,12 +10,31 @@ import { selectedSettingsItem } from "../settings.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import type { ScreenKeyCtx } from "./keyboard-context.ts";
 
+export type ScreenDigitCtx = Pick<ScreenKeyCtx, "screen" | "logSearchFocused" | "logs" | "logSources" | "setLogService" | "listCursor" | "setMcpPortDraft">;
+
+/** Screen-specific digits must run before navItemForDigit. Returns true when consumed. */
+export function handleScreenDigitKey(ctx: ScreenDigitCtx, key: KeyLike): boolean {
+  const name = (key.name ?? "").toLowerCase();
+  if (ctx.screen === "logs" && !ctx.logSearchFocused && name.length === 1 && name >= "1" && name <= "9") {
+    const pick = pickLogService(ctx.logSources, ctx.logs, Number(name));
+    if (pick !== undefined) {
+      ctx.setLogService(pick);
+    }
+    return true;
+  }
+  if (ctx.screen === "mcp" && ctx.listCursor === 1 && name.length === 1 && name >= "0" && name <= "9") {
+    ctx.setMcpPortDraft((draft) => typeMcpPortDigit(draft, name));
+    return true;
+  }
+  return false;
+}
+
 export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   const name = (key.name ?? "").toLowerCase();
   const {
     screen, overlay, tui, cfg, controller, profile, listCursor, names, listCount, height,
     checked, detailName, bootErrorMissing, bootError, logSearchFocused,
-    logSources, logService, logs, logShowTimestamps, logShowMeta, logWrap, showSystemLogs,
+    logSources, logService, logShowTimestamps, logShowMeta, logWrap, showSystemLogs,
     logPinned, dashboardLogCursor, applyLogCursor, applyDashboardLogCursor, jumpToLatestLogs,
     toggleSystemLogs, clearLogs, setLogService, setLogShowTimestamps,
     setLogShowMeta, setPaused, setErrorOnly, setLogWrap, beginStart, beginStop, beginRestart,
@@ -34,13 +53,6 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   }
   if (onLogFilters && (name === "right" || name === "]" || (screen === "logs" && name === "l"))) {
     setLogService(cycleLogService(logSources, logService, 1));
-    return;
-  }
-  if (screen === "logs" && !logSearchFocused && name.length === 1 && name >= "1" && name <= "9") {
-    const pick = pickLogService(logSources, logs, Number(name));
-    if (pick !== undefined) {
-      setLogService(pick);
-    }
     return;
   }
   if ((screen === "dashboard" || screen === "setup") && name === "o") {
@@ -225,10 +237,6 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   }
   if (screen === "mcp" && listCursor === 1 && (name === "backspace" || name === "delete")) {
     setMcpPortDraft((draft) => backspaceMcpPortDraft(draft));
-    return;
-  }
-  if (screen === "mcp" && listCursor === 1 && name.length === 1 && name >= "0" && name <= "9") {
-    setMcpPortDraft((draft) => typeMcpPortDigit(draft, name));
     return;
   }
   if (screen === "settings" && (name === "left" || name === "h")) {
