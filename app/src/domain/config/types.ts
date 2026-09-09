@@ -157,7 +157,22 @@ export type RouteAuthConfig = {
   identity: RouteIdentity;
   audience: string;
   service_account: string;
+  client_id: string;
+  client_secret: string;
+  client_secret_env: string;
 };
+
+export function emptyRouteAuth(): RouteAuthConfig {
+  return {
+    type: "",
+    identity: { type: "", service_account: "" },
+    audience: "",
+    service_account: "",
+    client_id: "",
+    client_secret: "",
+    client_secret_env: "",
+  };
+}
 
 export type RouteConfig = {
   name: string;

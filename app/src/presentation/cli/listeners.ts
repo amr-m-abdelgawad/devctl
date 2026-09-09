@@ -24,7 +24,8 @@ export function addProxy(root: Command, runtime: ClientRuntime): void {
         writeOut(`PROXY  ${snap.proxy.running ? "RUNNING" : "STOPPED"}  ${snap.proxy.address ?? ""}\n`);
         for (const r of snap.proxy.routes ?? []) {
           const match = r.match ? `  match=${r.match}` : "";
-          writeOut(`  ${r.name.padEnd(16)} identity=${r.identity}${match}  ${r.upstream}\n`);
+          const client = r.client_id ? `  client_id=${r.client_id}` : "";
+          writeOut(`  ${r.name.padEnd(16)} identity=${r.identity}${match}${client}  ${r.upstream}\n`);
         }
       } finally {
         await ctrl.close();

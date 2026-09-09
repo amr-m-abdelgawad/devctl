@@ -27,7 +27,7 @@ A module may export any combination of these named arrays:
 | `environmentSources` | `{ name, load(ctx) }` | Add values to a service environment |
 | `healthChecks` | `{ name, check(config, ctx) }` | Implement a custom health-check type |
 | `identityProviders` | `{ name, accepts(config), resolve(config, detect) }` | Resolve custom service identities |
-| `tokenProviders` | `{ name, accepts(identity), fetch(identity, audience, scopes) }` | Mint and refresh access tokens |
+| `tokenProviders` | `{ name, accepts(identity), fetch(identity, audience, scopes, oauth?) }` | Mint and refresh access tokens |
 | `logParsers` | `{ name, parse(line) }` | Parse service log lines |
 | `proxyMiddleware` | `{ name, apply(ctx) }` | Participate in proxy request handling |
 

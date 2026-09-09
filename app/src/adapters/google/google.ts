@@ -184,6 +184,9 @@ export async function logoutGoogle(): Promise<void> {
 
 export function classifyGoogle(err: unknown): Error {
   const msg = googleErrorText(err).toLowerCase();
+  if (includesAny(msg, ["unauthorized_client"])) {
+    return hintError(KindIAP, "IAP OAuth client does not match the ADC refresh token", "omit client_id to use ADC's default client, or login with an OAuth client that matches auth.client_id");
+  }
   if (includesAny(msg, ["unauth", "invalid_grant", "token has been expired", "expired"])) {
     return hintError(KindAuthentication, "credential expired or invalid", "run `devctl auth login` or `gcloud auth application-default login`");
   }

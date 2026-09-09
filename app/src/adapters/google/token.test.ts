@@ -2,7 +2,8 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { Bus, TokenRefreshed, TokenRefreshFailed } from "../../shared/events.ts";
-import { TokenManager, googleTokenProviders, isValidToken, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
+import { TokenManager, googleTokenProviders, isValidToken, resolveIapOAuthClient, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
+import { emptyRouteAuth } from "../../domain/config/types.ts";
 
 function tok(partial: Partial<AccessToken> = {}): AccessToken {
   return {
@@ -154,6 +155,49 @@ describe("TokenManager", () => {
     await expect(mgr.get("sa:test@example.iam.gserviceaccount.com", "some-audience", [])).rejects.toThrow();
     expect(events).toEqual([{ identity: "sa:test@example.iam.gserviceaccount.com", audience: "some-audience", error: "permission denied" }]);
   });
+
+  test("cache keys include the OAuth client id so different clients do not share a token", async () => {
+    home();
+    const seen: string[] = [];
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async (_identity, _audience, _scopes, oauth) => {
+        seen.push(oauth?.clientId ?? "");
+        return tok({ accessToken: `tok-${oauth?.clientId}` });
+      },
+    };
+    const mgr = new TokenManager(60_000, [provider]);
+    const first = { clientId: "client-a", clientSecret: "sec-a" };
+    const second = { clientId: "client-b", clientSecret: "sec-b" };
+    expect((await mgr.get("user", "aud", [], first)).accessToken).toBe("tok-client-a");
+    expect((await mgr.get("user", "aud", [], second)).accessToken).toBe("tok-client-b");
+    expect((await mgr.get("user", "aud", [], first)).accessToken).toBe("tok-client-a");
+    expect(seen).toEqual(["client-a", "client-b"]);
+  });
+});
+
+describe("resolveIapOAuthClient", () => {
+  test("returns undefined when client_id is omitted", () => {
+    expect(resolveIapOAuthClient(emptyRouteAuth())).toBeUndefined();
+  });
+
+  test("reads the secret from client_secret_env", () => {
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" };
+    expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-env" })).toEqual({
+      clientId: "desktop.apps.googleusercontent.com",
+      clientSecret: "from-env",
+    });
+  });
+
+  test("prefers inline client_secret over the env value", () => {
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "inline", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" };
+    expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-env" })?.clientSecret).toBe("inline");
+  });
+
+  test("throws when client_id is set and the env secret is empty", () => {
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" };
+    expect(() => resolveIapOAuthClient(auth, {})).toThrow(/IAP client_secret_env IAP_OAUTH_CLIENT_SECRET is empty/);
+  });
 });
 
 // A stub TokenProvider proves the proxy threads (identity, audience)
@@ -177,5 +221,10 @@ describe("googleTokenProviders", () => {
       const accepting = providers.filter((p) => !p.accepts || p.accepts(identity, audience, []));
       expect(accepting.map((p) => p.name)).toEqual([expected]);
     }
+  });
+
+  test("cache key includes the OAuth client id when one is set", () => {
+    expect(tokenCacheKey("user", "aud", [])).toBe("user|aud|");
+    expect(tokenCacheKey("user", "aud", [], "desktop.apps.googleusercontent.com")).toBe("user|aud||oauth:desktop.apps.googleusercontent.com");
   });
 });

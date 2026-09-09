@@ -110,6 +110,7 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
           upstream: r.upstream.url,
           auth: r.auth.type,
           match,
+          client_id: r.auth.client_id.trim() || undefined,
         };
       }),
       ...proxyStats,

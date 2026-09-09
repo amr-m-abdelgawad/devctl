@@ -7,6 +7,11 @@ export type AccessToken = {
   scopes: string[];
 };
 
+export type OAuthClientCredentials = {
+  readonly clientId: string;
+  readonly clientSecret: string;
+};
+
 export type CredentialProvider = {
-  get(identity: string, audience: string, scopes: string[]): Promise<AccessToken>;
+  get(identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials): Promise<AccessToken>;
 };

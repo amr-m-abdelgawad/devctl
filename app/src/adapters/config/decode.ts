@@ -4,6 +4,7 @@ import {
   emptyHealth,
   emptyIdentity,
   emptyService,
+  emptyRouteAuth,
   emptyWatch,
   DEFAULT_WATCH_IGNORE,
   watchDebounceMs,
@@ -286,13 +287,16 @@ function decodeRouteIdentity(value: unknown): RouteIdentity {
 
 function decodeRouteAuth(value: unknown): RouteAuthConfig {
   if (!isRecord(value)) {
-    return { type: "", identity: { type: "", service_account: "" }, audience: "", service_account: "" };
+    return emptyRouteAuth();
   }
   return {
     type: asString(value.type),
     identity: decodeRouteIdentity(value.identity),
     audience: asString(value.audience),
     service_account: asString(value.service_account),
+    client_id: asString(value.client_id),
+    client_secret: asString(value.client_secret),
+    client_secret_env: asString(value.client_secret_env),
   };
 }
 
@@ -302,7 +306,7 @@ export function decodeRoute(value: unknown): RouteConfig {
       name: "",
       match: { host: "", path: "" },
       upstream: { url: "" },
-      auth: { type: "", identity: { type: "", service_account: "" }, audience: "", service_account: "" },
+      auth: emptyRouteAuth(),
     };
   }
   const match = isRecord(value.match) ? value.match : {};

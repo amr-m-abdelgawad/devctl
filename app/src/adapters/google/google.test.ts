@@ -40,4 +40,10 @@ describe("Google error classification", () => {
     });
     expect(error.message).toContain("cannot impersonate service account");
   });
+
+  test("unauthorized_client is an IAP OAuth client mismatch, not a generic expired credential", () => {
+    const error = classifyGoogle(new Error("unauthorized_client: The client is not authorized to request an ID token"));
+    expect(error.message).toContain("IAP OAuth client does not match the ADC refresh token");
+    expect(error.message).not.toContain("credential expired");
+  });
 });

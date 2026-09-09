@@ -7,7 +7,7 @@
 | Wrong project | Set `google.project_id` or check `gcloud config get-value core/project`. Identity shows the source |
 | Permission denied | Ask an admin for the missing IAM role; `devctl doctor` names the resource |
 | Cannot impersonate SA | Need `roles/iam.serviceAccountTokenCreator` on that service account (group binding preferred) |
-| IAP authentication failure | Confirm audience, IAP client, and that the identity matches the route |
+| IAP authentication failure | Confirm audience, IAP client, and that the identity matches the route. If `client_id` is set, the ADC refresh token must belong to that OAuth client |
 | Port already in use | Doctor lists the holder. Stop a leftover, or change config. Running your own services will also show as “in use” |
 | Service crashes | Open Logs, filter `ERROR` (`e`), restart with `R` |
 | Health check failure | Confirm the health URL/port; `process` checks only PID liveness |

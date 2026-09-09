@@ -14,6 +14,8 @@ export type RouteDetailInfo = {
   identityType: string;
   serviceAccount: string;
   audience: string;
+  clientId: string;
+  clientSecretEnv: string;
   matchHost: string;
   matchPath: string;
   upstream: string;
@@ -292,6 +294,8 @@ export function ProxyScreen(props: {
                                 identityType: full?.auth.identity.type ?? "",
                                 serviceAccount: full?.auth.identity.service_account || full?.auth.service_account || "",
                                 audience: full?.auth.audience ?? "",
+                                clientId: full?.auth.client_id ?? "",
+                                clientSecretEnv: full?.auth.client_secret_env ?? "",
                                 matchHost: full?.match.host ?? "",
                                 matchPath: full?.match.path ?? "",
                                 upstream: r.upstream,

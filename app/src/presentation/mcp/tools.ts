@@ -106,7 +106,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     label: "Read config",
     summary: "Merged project summary, no secret values",
     category: "inspect",
-    description: "Merged project summary: services, routes, and proxy listen paths. No secret env values.",
+    description: "Merged project summary: services, routes, and proxy listen paths. Route auth includes type, identity, audience, and optional IAP client_id. No secret values.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -400,6 +400,40 @@ export function listProfiles(cfg: DevctlConfig): unknown {
     .map(([name, profile]) => ({ name, services: profile.services }));
 }
 
+function nonempty(value: string): string | undefined {
+  return value.trim() === "" ? undefined : value;
+}
+
+function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: route.name,
+    match: route.match,
+    upstream: route.upstream.url,
+    auth: route.auth.type,
+  };
+  const identity = nonempty(route.auth.identity.type);
+  const audience = nonempty(route.auth.audience);
+  const serviceAccount = nonempty(route.auth.identity.service_account || route.auth.service_account);
+  const clientId = nonempty(route.auth.client_id);
+  const clientSecretEnv = nonempty(route.auth.client_secret_env);
+  if (identity) {
+    out.identity = identity;
+  }
+  if (audience) {
+    out.audience = audience;
+  }
+  if (serviceAccount) {
+    out.service_account = serviceAccount;
+  }
+  if (clientId) {
+    out.client_id = clientId;
+  }
+  if (clientSecretEnv) {
+    out.client_secret_env = clientSecretEnv;
+  }
+  return out;
+}
+
 export function getConfigSummary(cfg: DevctlConfig): unknown {
   const services = Object.entries(cfg.services).map(([name, svc]) => ({
     name,
@@ -418,12 +452,7 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     proxy: {
       enabled: cfg.proxy.enabled,
       listen: { host: cfg.proxy.listen.host, port: cfg.proxy.listen.port },
-      routes: cfg.proxy.routes.map((route) => ({
-        name: route.name,
-        match: route.match,
-        upstream: route.upstream.url,
-        auth: route.auth.type,
-      })),
+      routes: cfg.proxy.routes.map((route) => routeConfigSummary(route)),
     },
   };
 }

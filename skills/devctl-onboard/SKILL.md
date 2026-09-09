@@ -70,7 +70,7 @@ nothing at all. What Terraform legitimately contributes:
 | Terraform | Becomes |
 |---|---|
 | `google_service_account` | `identity.service_account`, or a route's `auth.identity.service_account` |
-| IAP brand / OAuth client / `iap_web_*` | route `auth.type: iap` + `audience` |
+| IAP brand / OAuth client / `iap_web_*` | route `auth.type: iap` + `audience`; optional `client_id` + `client_secret_env` to mint with a specific user OAuth client |
 | `google_secret_manager_secret` | a name under `environment.secrets` — never the value |
 | `project`, `region` in provider/vars | `google.project_id`, `google.region` |
 | Cloud Run / GKE endpoint you do **not** run locally | proxy route `upstream.url` |

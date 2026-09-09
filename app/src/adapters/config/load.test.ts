@@ -169,6 +169,41 @@ proxy:
     expect(cfg.proxy.routes[0]?.auth.audience).toBe("/projects/1/iap");
   });
 
+  test("decodes optional IAP OAuth client fields", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-iap-oauth-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 8080
+  routes:
+    - name: billing
+      match:
+        host: billing.local
+      upstream:
+        url: https://billing.example.com
+      auth:
+        type: iap
+        audience: "123.apps.googleusercontent.com"
+        identity: user
+        client_id: desktop.apps.googleusercontent.com
+        client_secret_env: IAP_OAUTH_CLIENT_SECRET
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.auth.client_id).toBe("desktop.apps.googleusercontent.com");
+    expect(cfg.proxy.routes[0]?.auth.client_secret_env).toBe("IAP_OAUTH_CLIENT_SECRET");
+    expect(cfg.proxy.routes[0]?.auth.client_secret).toBe("");
+  });
+
   test("rejects unknown fields", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-unknown-${Date.now()}`;
     writeFile(

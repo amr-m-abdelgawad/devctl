@@ -14,6 +14,9 @@ describe("Identity screen service accounts", () => {
         identity: { type: "service_account", service_account: "demo@example.com" },
         audience: "",
         service_account: "",
+        client_id: "",
+        client_secret: "",
+        client_secret_env: "",
       },
     });
 
@@ -31,6 +34,9 @@ describe("Identity screen service accounts", () => {
         identity: { type: "service_account", service_account: "inactive@example.com" },
         audience: "",
         service_account: "",
+        client_id: "",
+        client_secret: "",
+        client_secret_env: "",
       },
     });
 

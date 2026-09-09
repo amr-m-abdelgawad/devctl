@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, defaultConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyRouteAuth, defaultConfig, type RouteAuthConfig } from "../../domain/config/types.ts";
 import { validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
@@ -10,6 +10,16 @@ function withService(name: string, command: string[] = ["echo", "ok"]): ReturnTy
   svc.command = { args: command, shell: false };
   cfg.services[name] = svc;
   return cfg;
+}
+
+function iapUserAuth(overrides: Partial<RouteAuthConfig> = {}): RouteAuthConfig {
+  return {
+    ...emptyRouteAuth(),
+    type: "iap",
+    identity: { type: "user", service_account: "" },
+    audience: "/projects/1/iap",
+    ...overrides,
+  };
 }
 
 describe("config validate", () => {
@@ -40,9 +50,67 @@ describe("config validate", () => {
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { type: "iap", identity: { type: "", service_account: "" }, audience: "/projects/1/iap", service_account: "" },
+      auth: { type: "iap", identity: { type: "", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
     });
     expect(validate(cfg).some((issue) => issue.includes("identity.type is required"))).toBe(true);
+  });
+
+  test("accepts an IAP user route with client_id and client_secret_env", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" }),
+    });
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects IAP client_id without a secret", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com" }),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_secret or client_secret_env is required when client_id is set");
+  });
+
+  test("rejects IAP client_secret without client_id", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_secret_env: "IAP_OAUTH_CLIENT_SECRET" }),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is required when client_secret or client_secret_env is set");
+  });
+
+  test("rejects OAuth client fields on a non-IAP route", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "local",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: { ...emptyRouteAuth(), type: "none", identity: { type: "user", service_account: "" }, client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is only valid when auth.type is iap");
+  });
+
+  test("rejects IAP client_id with a service-account identity", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        ...iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" }),
+        identity: { type: "service_account", service_account: "api@example.com" },
+      },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is only valid with identity.type user");
   });
 
   test("rejects shell metacharacters without shell: true", () => {

@@ -364,6 +364,9 @@
             "type": { "type": "string", "description": "none, iap, or service_account" },
             "audience": { "type": "string" },
             "service_account": { "type": "string" },
+            "client_id": { "type": "string", "description": "Optional OAuth client ID used to mint IAP ID tokens instead of ADC's default client" },
+            "client_secret": { "type": "string", "description": "Optional OAuth client secret; prefer client_secret_env" },
+            "client_secret_env": { "type": "string", "description": "Environment variable holding the OAuth client secret" },
             "identity": {
               "oneOf": [
                 { "type": "string" },

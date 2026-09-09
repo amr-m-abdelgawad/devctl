@@ -107,7 +107,7 @@ describe("doctor", () => {
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
     });
     const host = offlineHost();
     const report = await runDoctor(cfg, host);
@@ -116,6 +116,44 @@ describe("doctor", () => {
     expect(aud?.message).toContain("missing audience");
     expect(report.checks.some((c) => c.name.startsWith("IAP billing"))).toBe(false);
     expect(report.checks.some((c) => c.name === "IAM Credentials API")).toBe(false);
+  });
+
+  test("mints an IAP user token with the configured OAuth client", async () => {
+    const cfg = localCfg();
+    cfg.google.project_id = "demo";
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        type: "iap",
+        identity: { type: "user", service_account: "" },
+        audience: "/projects/1/iap",
+        service_account: "",
+        client_id: "desktop.apps.googleusercontent.com",
+        client_secret: "",
+        client_secret_env: "IAP_OAUTH_CLIENT_SECRET",
+      },
+    });
+    const calls: Array<{ identity: string; audience: string; clientId?: string }> = [];
+    const host = offlineHost();
+    host.hasLocalAdc = () => true;
+    const previous = process.env.IAP_OAUTH_CLIENT_SECRET;
+    process.env.IAP_OAUTH_CLIENT_SECRET = "from-env";
+    try {
+      host.mintToken = async (identity, audience, oauth) => {
+        calls.push({ identity, audience, clientId: oauth?.clientId });
+      };
+      const report = await runDoctor(cfg, host);
+      expect(calls).toEqual([{ identity: "user", audience: "/projects/1/iap", clientId: "desktop.apps.googleusercontent.com" }]);
+      expect(report.checks.some((c) => c.name === "IAP billing" && c.severity === "ok")).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.IAP_OAUTH_CLIENT_SECRET;
+      } else {
+        process.env.IAP_OAUTH_CLIENT_SECRET = previous;
+      }
+    }
   });
 
   test("live ADC probes cannot stall doctor", async () => {

@@ -36,7 +36,7 @@ function sampleConfig() {
       name: "invoices-api",
       match: { host: "invoices-api.local", path: "" },
       upstream: { url: "http://127.0.0.1:18000" },
-      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
     },
   ];
   cfg.services["invoices-api"] = {
