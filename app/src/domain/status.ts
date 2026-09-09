@@ -41,6 +41,7 @@ export type RouteSnapshot = {
   upstream: string;
   auth: string;
   match?: string;
+  client_id?: string;
 };
 
 export type ProxyRequestSnapshot = {

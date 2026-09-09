@@ -18,6 +18,9 @@ describe("identity helpers", () => {
         identity: { type: "service_account", service_account: "api-dev@example.com" },
         audience: "aud",
         service_account: "",
+        client_id: "",
+        client_secret: "",
+       
       },
     });
     expect(configuredServiceAccounts(cfg)).toEqual(["api-dev@example.com", "worker-dev@example.com"]);
@@ -39,6 +42,9 @@ describe("identity helpers", () => {
         identity: { type: "service_account", service_account: "stale-dev@example.com" },
         audience: "",
         service_account: "",
+        client_id: "",
+        client_secret: "",
+       
       },
     });
     expect(configuredServiceAccounts(cfg)).toEqual([]);
@@ -61,6 +67,9 @@ describe("identity helpers", () => {
         identity: { type: "service_account", service_account: "shared@example.com" },
         audience: "",
         service_account: "",
+        client_id: "",
+        client_secret: "",
+       
       },
     });
     expect(declaredServiceAccounts(cfg)).toEqual([{ email: "shared@example.com", active: true }]);

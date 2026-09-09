@@ -7,7 +7,7 @@
 | Wrong project | Set `google.project_id` or check `gcloud config get-value core/project`. Identity shows the source |
 | Permission denied | Ask an admin for the missing IAM role; `devctl doctor` names the resource |
 | Cannot impersonate SA | Need `roles/iam.serviceAccountTokenCreator` on that service account (group binding preferred) |
-| IAP authentication failure | Confirm audience, IAP client, and that the identity matches the route |
+| IAP authentication failure | Confirm audience, IAP client, and that the identity matches the route. If `client_id` is set, the ADC refresh token must belong to that OAuth client |
 | Port already in use | Doctor lists the holder. Stop a leftover, or change config. Running your own services will also show as “in use” |
 | Service crashes | Open Logs, filter `ERROR` (`e`), restart with `R` |
 | Health check failure | Confirm the health URL/port; `process` checks only PID liveness |
@@ -22,7 +22,7 @@
 | `start` brought up extra services | Empty start uses the active or first profile **alphabetically**, plus dependencies — YAML key order does not matter (demo: `backend`, not `data`). Pass `--profile` or explicit names to stay narrower |
 | Docker / Podman missing or daemon down | A service in config declares `container` (the demo's `postgres` always does, even if you never start `data`). Install and start that runtime, or drop the service. Default profiles do not start postgres |
 | Doctor offers to kill a busy port that is Docker | It should not: ports owned by a running container service are healthy, and Doctor never offers to terminate the Docker or Podman daemon. Re-run Doctor after the container is up |
-| MCP tools work but nothing starts | `get_status` reports `setup_mode: true` — there is no `.devctl` yet. Have the agent call `get_setup_guide` and `validate_config`, write the files, then `reload_config` |
+| MCP tools work but nothing starts | `get_status` reports `setup_mode: true` — there is no `.devctl` yet. Have the agent call `get_setup_guide`, `search_docs`, and `validate_config`, write the files, then `reload_config` |
 | `devctl exec --print-env` hides values | Secret-like names are redacted unless you also pass `--reveal` (TUI: `/exec <svc> --print-env --reveal` or `/reveal`). MCP `exec_service` never reveals them |
 | TUI env pane looks incomplete | It now loads the same resolved map as `devctl exec --print-env`. If the chip says `config fallback`, the daemon `exec` call failed — check `/daemon` and that the supervisor is up |
 | Supervisor will not start | `devctl daemon logs` or TUI `/daemon` is the bootstrap stderr, not the service log bus |

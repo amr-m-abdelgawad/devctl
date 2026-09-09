@@ -807,7 +807,7 @@ services:
       name: "stub",
       match: { host: "", path: "" },
       upstream: { url: `http://127.0.0.1:${upPort}` },
-      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "" },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" },
     });
     const sup = new Supervisor(cfg, {
       detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),

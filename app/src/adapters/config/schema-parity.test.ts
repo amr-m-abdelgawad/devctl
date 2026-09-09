@@ -5,6 +5,7 @@ import {
   knownDoctor,
   knownDependency,
   knownEnvStructured,
+  knownExpose,
   knownGoogle,
   knownHealth,
   knownHooks,
@@ -79,6 +80,7 @@ describe("config allowlist/schema parity", () => {
       ["knownWatch", knownWatch, service.properties?.watch ?? {}],
       ["knownDependency", knownDependency, defs.dependency ?? {}],
       ["knownHooks", knownHooks, service.properties?.hooks ?? {}],
+      ["knownExpose", knownExpose, (service.properties?.expose?.oneOf ?? []).find((node) => node.properties) ?? {}],
       ["knownTask", knownTask, defs.task ?? {}],
       ["knownEnvStructured", knownEnvStructured, defs.serviceEnvironment ?? {}],
       ["knownProxy", knownProxy, proxy],
@@ -105,7 +107,7 @@ describe("config allowlist/schema parity", () => {
 
   test("every nested service object has an explicit strict-path case", () => {
     const service = schema.$defs?.service ?? {};
-    const nested = ["health", "identity", "restart", "startup", "logs", "environment", "proxy", "container", "watch", "hooks"];
+    const nested = ["health", "identity", "restart", "startup", "logs", "environment", "proxy", "expose", "container", "watch", "hooks"];
     for (const field of nested) {
       expect(knownService, `${field} is in the schema but not knownService`).toContain(field);
       expect(service.properties, `${field} is missing from schema/devctl.config.schema.json`).toHaveProperty(field);

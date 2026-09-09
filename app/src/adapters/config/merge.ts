@@ -13,11 +13,14 @@ import {
   decodeService,
   decodeTask,
   decodeServiceProxy,
+  decodeExpose,
   isRecord,
   presentKeys,
 } from "./decode.ts";
 import {
   emptyService,
+  emptyRouteAuth,
+  namedPort,
   watchDebounceMs,
   type DevctlConfig,
   type ConfigProvenance,
@@ -27,6 +30,7 @@ import {
   type ProfileConfig,
   type ProxyConfig,
   type RestartConfig,
+  type RouteConfig,
   type ServiceConfig,
   type ServiceLogConfig,
   type StartupConfig,
@@ -209,6 +213,9 @@ function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {
   if (raw.enabled !== undefined) {
     proxy.enabled = asBoolean(raw.enabled);
   }
+  if (raw.gateway !== undefined) {
+    proxy.gateway = asBoolean(raw.gateway);
+  }
   if (isRecord(raw.listen)) {
     if (raw.listen.host !== undefined) {
       proxy.listen.host = asString(raw.listen.host);
@@ -298,6 +305,9 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
   }
   if (present.has("proxy")) {
     out.proxy = decodeServiceProxy(raw.proxy);
+  }
+  if (present.has("expose")) {
+    out.expose = decodeExpose(raw.expose);
   }
   return out;
 }
@@ -438,6 +448,47 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigPr
         recordProvenance(provenance, route, `synthesized from services.${name}.proxy`, "synthesized", `proxy.routes.${index}`);
       }
     });
+  }
+  synthesizeExposeRoutes(cfg, provenance);
+}
+
+// Auto-generate a host-based proxy route for each service opted in via
+// `expose` (or, under `proxy.gateway`, every HTTP-capable service). The route
+// addresses its target by service + port name rather than a fixed url, so the
+// proxy resolves the *current* assigned port at request time and follows a
+// service that restarts on a new port. Auth is always none: an internal hop
+// must never silently acquire the service's identity token — that stays an
+// explicit, hand-written choice. Runs last so any explicit route or `proxy`
+// fragment of the same name wins (matchRoute is first-match).
+function synthesizeExposeRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance): void {
+  if (!cfg.proxy.enabled) {
+    return;
+  }
+  const claimed = new Set(cfg.proxy.routes.map((route) => route.name));
+  for (const name of Object.keys(cfg.services).sort()) {
+    const svc = cfg.services[name];
+    if (!svc) {
+      continue;
+    }
+    // An explicit `expose: false` opts the service out even when gateway is on.
+    const optedOut = svc.expose.enabled === false;
+    const exposed = !optedOut && (svc.expose.enabled === true || (cfg.proxy.gateway && namedPort(svc.ports, "http") !== undefined));
+    if (!exposed || claimed.has(name)) {
+      continue;
+    }
+    const route: RouteConfig = {
+      name,
+      match: { host: svc.expose.host || `${name}.local`, path: "" },
+      upstream: { url: "", service: name, port: svc.expose.port || "http" },
+      auth: emptyRouteAuth(),
+    };
+    const index = cfg.proxy.routes.length;
+    cfg.proxy.routes.push(route);
+    claimed.add(name);
+    if (provenance) {
+      const via = svc.expose.enabled === true ? `services.${name}.expose` : "proxy.gateway";
+      recordProvenance(provenance, route, `synthesized from ${via}`, "synthesized", `proxy.routes.${index}`);
+    }
   }
 }
 

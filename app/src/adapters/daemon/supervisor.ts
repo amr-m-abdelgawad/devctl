@@ -150,6 +150,7 @@ export class Supervisor {
     this.tokens = deps.tokens;
     this.proxy = new ProxyCoordinator({
       cfg: () => this.cfg,
+      ports: () => this.ports,
       tokens: this.tokens,
       logs: this.logs,
       bus: this.bus,

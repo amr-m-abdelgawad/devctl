@@ -41,7 +41,7 @@ export default withMermaid({
       'link',
       {
         rel: 'stylesheet',
-        href: 'https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap'
+        href: 'https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap'
       }
     ]
   ],
@@ -67,7 +67,7 @@ export default withMermaid({
       },
       { text: 'Architecture', link: '/architecture' },
       {
-        text: 'v0.2.5',
+        text: 'v0.3.0',
         items: [
           { text: 'Changelog', link: `${blob}/CHANGELOG.md` },
           { text: 'npm package', link: 'https://www.npmjs.com/package/@amr-m-abdelgawad/devctl' },

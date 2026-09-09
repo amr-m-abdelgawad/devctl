@@ -38,6 +38,9 @@ proxy:
       auth:
         type: none          # none | iap | service_account
         identity: user      # or { type: service_account, service_account: email }
+        # IAP only: audience is required. Optional client_id + client_secret
+        # mint the ID token with that OAuth client instead of ADC's default.
+        # client_secret may be a literal or ${NAME} / ${env.NAME}.
 ```
 
 Match is host + optional path prefix.
@@ -56,6 +59,51 @@ services:
         upstream:
           url: http://127.0.0.1:8000
 ```
+
+## Expose — the proxy as a stable entry point
+
+Instead of hand-writing a route, a service can be **exposed** through the proxy at a stable, logical address. The synthesized route addresses its target by service name, so the proxy resolves the service's **current** port at request time — a service that restarts on a different auto-assigned port is followed with no proxy reload and no consumer change.
+
+```yaml
+proxy:
+  enabled: true              # expose requires an enabled proxy
+  listen: { host: 127.0.0.1, port: 8080 }
+services:
+  invoices-api:
+    command: python main.py
+    ports: { http: 18000 }
+    expose: true             # → route "invoices-api", match host invoices-api.local
+```
+
+`expose: true` matches host `<service>.local` and forwards to the service's `http` port. Exposure is host-based: the request path is forwarded verbatim, so a path prefix belongs on a hand-written route, not here. Use the object form to override the host or port:
+
+```yaml
+    expose:
+      host: api.internal     # default: <service>.local
+      port: grpc             # named port to forward to (default: http)
+```
+
+Set `proxy.gateway: true` to expose **every** HTTP-capable service (one with a port named `http`) at once — sugar over per-service `expose`. For selective exposure, leave `gateway` off and mark services individually.
+
+A hand-written route or `proxy:` fragment of the same name always wins over a synthesized one, so you can override any auto route (for example to attach auth).
+
+**Auth is always `none` on synthesized routes.** An internal service-to-service hop never silently acquires a service's identity token — injecting credentials stays an explicit choice you make with a hand-written route.
+
+### Referencing an exposed service — `${services.<name>.url}`
+
+`${services.<name>.url}` and `${services.<name>.host}` give a service a stable logical address in another service's environment:
+
+```yaml
+services:
+  billing-console:
+    environment:
+      API_URL: ${services.invoices-api.url}
+```
+
+- **Direct** (target not exposed): resolves to `http://127.0.0.1:<port>` — a startup snapshot, like `${services.<name>.port}`.
+- **Hub** (target exposed and proxy enabled): resolves to the proxy entry address, e.g. `http://invoices-api.local:8080`. This is stable — the consumer keeps working even when the target moves to a new port.
+
+Host-based addressing is for **host** clients: `<service>.local` must resolve to `127.0.0.1` on the machine that makes the request — add it to `/etc/hosts` or your resolver. A container's loopback is isolated from the host proxy, and the container schema has no host-network or extra-hosts mode, so do not point a container at `<service>.local`.
 
 ## Token endpoint
 

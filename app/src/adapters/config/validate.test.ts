@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, defaultConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyRouteAuth, defaultConfig, type RouteAuthConfig } from "../../domain/config/types.ts";
 import { validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
@@ -10,6 +10,16 @@ function withService(name: string, command: string[] = ["echo", "ok"]): ReturnTy
   svc.command = { args: command, shell: false };
   cfg.services[name] = svc;
   return cfg;
+}
+
+function iapUserAuth(overrides: Partial<RouteAuthConfig> = {}): RouteAuthConfig {
+  return {
+    ...emptyRouteAuth(),
+    type: "iap",
+    identity: { type: "user", service_account: "" },
+    audience: "/projects/1/iap",
+    ...overrides,
+  };
 }
 
 describe("config validate", () => {
@@ -34,15 +44,130 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("duplicate port"))).toBe(true);
   });
 
+  test("accepts a service-reference upstream naming a real service and port", () => {
+    const cfg = withService("api");
+    cfg.services.api!.ports = [{ name: "http", value: 3000, auto: false }];
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "api.local", path: "" },
+      upstream: { url: "", service: "api", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a service-reference upstream to an unknown service", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "nope",
+      match: { host: "nope.local", path: "" },
+      upstream: { url: "", service: "ghost", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream.service references unknown service ghost");
+  });
+
+  test("rejects a service-reference upstream to a port the service does not declare", () => {
+    const cfg = withService("api");
+    cfg.services.api!.ports = [{ name: "grpc", value: 50051, auto: false }];
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "api.local", path: "" },
+      upstream: { url: "", service: "api", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream: service api has no port named http");
+  });
+
+  test("rejects a route with neither url nor service", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "empty",
+      match: { host: "empty.local", path: "" },
+      upstream: { url: "", service: "", port: "" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream requires either url or service");
+  });
+
   test("rejects IAP routes without identity type", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { type: "iap", identity: { type: "", service_account: "" }, audience: "/projects/1/iap", service_account: "" },
+      auth: { type: "iap", identity: { type: "", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "" },
     });
     expect(validate(cfg).some((issue) => issue.includes("identity.type is required"))).toBe(true);
+  });
+
+  test("accepts an IAP user route with client_id and an env-ref client_secret", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" }),
+    });
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a mixed client_secret that is not a whole ${…} reference", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret: "pre-${IAP_OAUTH_CLIENT_SECRET}" }),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_secret must be a literal or a single ${NAME} / ${env.NAME} reference");
+  });
+
+  test("rejects IAP client_id without a secret", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com" }),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_secret is required when client_id is set");
+  });
+
+  test("rejects IAP client_secret without client_id", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_secret: "${IAP_OAUTH_CLIENT_SECRET}" }),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is required when client_secret is set");
+  });
+
+  test("rejects OAuth client fields on a non-IAP route", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "local",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: { ...emptyRouteAuth(), type: "none", identity: { type: "user", service_account: "" }, client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is only valid when auth.type is iap");
+  });
+
+  test("rejects IAP client_id with a service-account identity", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        ...iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" }),
+        identity: { type: "service_account", service_account: "api@example.com" },
+      },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is only valid with identity.type user");
   });
 
   test("rejects shell metacharacters without shell: true", () => {

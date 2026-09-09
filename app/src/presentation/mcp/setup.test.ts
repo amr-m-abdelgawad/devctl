@@ -127,6 +127,7 @@ describe("setup tool surface", () => {
   test("both tools are advertised", () => {
     const names = MCP_TOOLS.map((t) => t.name);
     expect(names).toContain("get_setup_guide");
+    expect(names).toContain("search_docs");
     expect(names).toContain("validate_config");
   });
 

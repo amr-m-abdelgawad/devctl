@@ -1,4 +1,5 @@
 import { type DevctlConfig } from "../../../domain/config/types.ts";
+import { secretTemplateLabel } from "../../../domain/config/env-ref.ts";
 import { type ProxyRequestSnapshot,type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
@@ -14,6 +15,8 @@ export type RouteDetailInfo = {
   identityType: string;
   serviceAccount: string;
   audience: string;
+  clientId: string;
+  clientSecret: string;
   matchHost: string;
   matchPath: string;
   upstream: string;
@@ -292,6 +295,8 @@ export function ProxyScreen(props: {
                                 identityType: full?.auth.identity.type ?? "",
                                 serviceAccount: full?.auth.identity.service_account || full?.auth.service_account || "",
                                 audience: full?.auth.audience ?? "",
+                                clientId: full?.auth.client_id ?? "",
+                                clientSecret: secretTemplateLabel(full?.auth.client_secret ?? "") ?? ((full?.auth.client_secret ?? "").trim() ? "inline" : ""),
                                 matchHost: full?.match.host ?? "",
                                 matchPath: full?.match.path ?? "",
                                 upstream: r.upstream,

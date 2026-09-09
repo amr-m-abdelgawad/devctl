@@ -6,6 +6,7 @@ import {
   knownPlugin,
   knownProjectEnvironment,
   knownEnvStructured,
+  knownExpose,
   knownGoogle,
   knownHealth,
   knownHooks,
@@ -157,6 +158,8 @@ export function servicePathKnown(path: string): string[] {
         return knownEnvStructured;
       case "proxy":
         return serviceProxyPathKnown(parts);
+      case "expose":
+        return knownExpose;
       case "container":
         return knownContainer;
       case "watch":

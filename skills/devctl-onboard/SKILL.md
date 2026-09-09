@@ -70,7 +70,7 @@ nothing at all. What Terraform legitimately contributes:
 | Terraform | Becomes |
 |---|---|
 | `google_service_account` | `identity.service_account`, or a route's `auth.identity.service_account` |
-| IAP brand / OAuth client / `iap_web_*` | route `auth.type: iap` + `audience` |
+| IAP brand / OAuth client / `iap_web_*` | route `auth.type: iap` + `audience`; optional `client_id` + `client_secret` (`${NAME}` or a literal) to mint with a specific user OAuth client |
 | `google_secret_manager_secret` | a name under `environment.secrets` — never the value |
 | `project`, `region` in provider/vars | `google.project_id`, `google.region` |
 | Cloud Run / GKE endpoint you do **not** run locally | proxy route `upstream.url` |
@@ -294,8 +294,10 @@ Finish with:
 
 Both are also served by the MCP server itself, as
 `get_setup_guide { "section": "discovery" | "authoring" }` — the same text,
-compiled into the devctl binary. If you reached this procedure through MCP,
-there is nothing to install: fetch the sections you need from there.
+compiled into the devctl binary. `search_docs` searches the rest of the
+product wiki (IAP, proxy, configuration, and similar). If you reached this
+procedure through MCP, there is nothing to install: fetch the sections you
+need from there.
 
 ### Starting from nothing
 

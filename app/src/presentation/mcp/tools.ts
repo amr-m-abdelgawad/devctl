@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { DevctlConfig } from "../../domain/config/types.ts";
+import { secretTemplateLabel } from "../../domain/config/env-ref.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
 import { Detector } from "../../shared/redaction.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
+import { searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
@@ -106,7 +108,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     label: "Read config",
     summary: "Merged project summary, no secret values",
     category: "inspect",
-    description: "Merged project summary: services, routes, and proxy listen paths. No secret env values.",
+    description: "Merged project summary: services, routes, and proxy listen paths. Route auth includes type, identity, audience, and optional IAP client_id. client_secret is returned only as a ${ENV} template, never a resolved secret.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -247,6 +249,23 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
           description: "Which part of the guide to return; defaults to procedure",
         },
       },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "search_docs",
+    label: "Search docs",
+    summary: "Search the embedded product documentation",
+    category: "setup",
+    description:
+      "Search the compiled-in product documentation (docs/*.md plus the onboarding skill). Returns ranked pages with short snippets. Use this for IAP, proxy, MCP, configuration, and similar topics; use get_setup_guide for the full onboarding procedure.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Keywords or a short phrase to search for" },
+        limit: { type: "integer", description: "Maximum hits to return (default 5, max 10)" },
+      },
+      required: ["query"],
       additionalProperties: false,
     },
   },
@@ -400,6 +419,40 @@ export function listProfiles(cfg: DevctlConfig): unknown {
     .map(([name, profile]) => ({ name, services: profile.services }));
 }
 
+function nonempty(value: string): string | undefined {
+  return value.trim() === "" ? undefined : value;
+}
+
+function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: route.name,
+    match: route.match,
+    upstream: route.upstream.url,
+    auth: route.auth.type,
+  };
+  const identity = nonempty(route.auth.identity.type);
+  const audience = nonempty(route.auth.audience);
+  const serviceAccount = nonempty(route.auth.identity.service_account || route.auth.service_account);
+  const clientId = nonempty(route.auth.client_id);
+  const clientSecret = secretTemplateLabel(route.auth.client_secret);
+  if (identity) {
+    out.identity = identity;
+  }
+  if (audience) {
+    out.audience = audience;
+  }
+  if (serviceAccount) {
+    out.service_account = serviceAccount;
+  }
+  if (clientId) {
+    out.client_id = clientId;
+  }
+  if (clientSecret) {
+    out.client_secret = clientSecret;
+  }
+  return out;
+}
+
 export function getConfigSummary(cfg: DevctlConfig): unknown {
   const services = Object.entries(cfg.services).map(([name, svc]) => ({
     name,
@@ -418,12 +471,7 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     proxy: {
       enabled: cfg.proxy.enabled,
       listen: { host: cfg.proxy.listen.host, port: cfg.proxy.listen.port },
-      routes: cfg.proxy.routes.map((route) => ({
-        name: route.name,
-        match: route.match,
-        upstream: route.upstream.url,
-        auth: route.auth.type,
-      })),
+      routes: cfg.proxy.routes.map((route) => routeConfigSummary(route)),
     },
   };
 }
@@ -511,6 +559,8 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
     }
     case "get_setup_guide":
       return getSetupGuide(args);
+    case "search_docs":
+      return searchDocs(typeof args.query === "string" ? args.query : "", typeof args.limit === "number" ? args.limit : undefined);
     case "validate_config":
       return validateConfig(host, args);
     default:

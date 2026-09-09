@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRefs, refResolvable } from "./refs.ts";
+import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
   commandEmpty,
   CurrentVersion,
@@ -18,8 +19,11 @@ import {
   type DevctlConfig,
   type EnvConfig,
   type IdentityConfig,
+  type RouteAuthConfig,
+  type RouteConfig,
   dependencyName,
   dependencyCondition,
+  namedPort,
 } from "../../domain/config/types.ts";
 
 const MAX_PORT = 65535;
@@ -307,26 +311,87 @@ function validateProxy(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}: duplicate route name ${route.name}`);
     }
     seenRoutes[route.name] = true;
-    if (route.upstream.url === "") {
-      issues.push(`${prefix}.upstream.url is required`);
-    }
-    if (route.auth.type.toLowerCase() === "iap") {
-      if (route.auth.audience.trim() === "") {
-        issues.push(`${prefix}.auth.audience is required when auth.type is iap`);
-      }
-      if (route.auth.identity.type.trim() === "") {
-        issues.push(`${prefix}.auth.identity.type is required when auth.type is iap`);
-      }
-    }
-    const identType = route.auth.identity.type.toLowerCase();
-    if (identType === "service" || identType === "service_account" || isServiceAccountIdentity({ type: identType, mode: "", service_account: "" })) {
-      const sa = route.auth.identity.service_account || route.auth.service_account;
-      if (sa === "") {
-        issues.push(`${prefix}.auth.identity.service_account is required`);
-      }
-    }
+    issues.push(...validateRouteUpstream(route, prefix, cfg));
+    issues.push(...validateRouteAuth(route, prefix));
   });
   issues.push(...validateTokenEndpoint(cfg));
+  return issues;
+}
+
+// A route addresses its upstream by a literal url (hand-written) or by a
+// service + port reference (synthesized from expose/gateway, resolved to the
+// live port at request time). Exactly one is required; a service reference
+// must name a real service and an existing port — which also catches an
+// `expose` on a service that has no matching (default "http") port.
+function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  const hasUrl = route.upstream.url !== "";
+  const svcName = route.upstream.service ?? "";
+  if (svcName === "") {
+    if (!hasUrl) {
+      issues.push(`${prefix}.upstream requires either url or service`);
+    }
+    return issues;
+  }
+  const svc = cfg.services[svcName];
+  if (!svc) {
+    issues.push(`${prefix}.upstream.service references unknown service ${svcName}`);
+    return issues;
+  }
+  const portName = route.upstream.port || "http";
+  if (namedPort(svc.ports, portName) === undefined) {
+    issues.push(`${prefix}.upstream: service ${svcName} has no port named ${portName}`);
+  }
+  return issues;
+}
+
+function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  if (route.auth.type.toLowerCase() === "iap") {
+    if (route.auth.audience.trim() === "") {
+      issues.push(`${prefix}.auth.audience is required when auth.type is iap`);
+    }
+    if (route.auth.identity.type.trim() === "") {
+      issues.push(`${prefix}.auth.identity.type is required when auth.type is iap`);
+    }
+  }
+  issues.push(...validateIapOAuthClient(route.auth, prefix));
+  const identType = route.auth.identity.type.toLowerCase();
+  if (identType === "service" || identType === "service_account" || isServiceAccountIdentity({ type: identType, mode: "", service_account: "" })) {
+    const sa = route.auth.identity.service_account || route.auth.service_account;
+    if (sa === "") {
+      issues.push(`${prefix}.auth.identity.service_account is required`);
+    }
+  }
+  return issues;
+}
+
+function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[] {
+  const clientId = (auth.client_id ?? "").trim();
+  const secret = (auth.client_secret ?? "").trim();
+  if (clientId === "" && secret === "") {
+    return [];
+  }
+  if (auth.type.toLowerCase() !== "iap") {
+    return [`${prefix}.auth.client_id is only valid when auth.type is iap`];
+  }
+  const issues: string[] = [];
+  if (clientId === "") {
+    issues.push(`${prefix}.auth.client_id is required when client_secret is set`);
+    return issues;
+  }
+  if (secret === "") {
+    issues.push(`${prefix}.auth.client_secret is required when client_id is set`);
+  } else if (envRefsIn(secret).length > 0 && !isWholeEnvRef(secret)) {
+    // A pure literal is fine; a value that carries an environment reference
+    // must be exactly ${NAME} / ${env.NAME}. A mixed value like `pre-${SECRET}`
+    // would interpolate to a half-literal token — reject it up front.
+    issues.push(`${prefix}.auth.client_secret must be a literal or a single \${NAME} / \${env.NAME} reference`);
+  }
+  const identType = auth.identity.type.toLowerCase();
+  if (identType === "service" || identType === "service_account") {
+    issues.push(`${prefix}.auth.client_id is only valid with identity.type user`);
+  }
   return issues;
 }
 

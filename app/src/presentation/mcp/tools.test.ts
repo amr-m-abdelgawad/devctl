@@ -1,6 +1,6 @@
 import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
 import { matchLog, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
@@ -108,6 +108,60 @@ describe("mcp tools", () => {
     expect(result.environment.API_TOKEN).toBe(REDACTED_VALUE);
     expect(result.environment.NAME).toBe("ok");
   });
+  test("get_config exposes IAP client_id and never the client secret", async () => {
+    const host = stubHost();
+    const cfg = host.config();
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://billing.example.com" },
+      auth: {
+        ...emptyRouteAuth(),
+        type: "iap",
+        identity: { type: "user", service_account: "" },
+        audience: "123.apps.googleusercontent.com",
+        client_id: "desktop.apps.googleusercontent.com",
+        client_secret: "inline-secret",
+      },
+    });
+    const result = (await callMcpTool(host, "get_config", {})) as {
+      proxy: { routes: Array<Record<string, unknown>> };
+    };
+    expect(result.proxy.routes[0]).toEqual({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: "https://billing.example.com",
+      auth: "iap",
+      identity: "user",
+      audience: "123.apps.googleusercontent.com",
+      client_id: "desktop.apps.googleusercontent.com",
+    });
+    expect(JSON.stringify(result)).not.toContain("inline-secret");
+  });
+
+  test("get_config shows an env-ref client_secret template and never a resolved secret", async () => {
+    const host = stubHost();
+    const cfg = host.config();
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://billing.example.com" },
+      auth: {
+        ...emptyRouteAuth(),
+        type: "iap",
+        identity: { type: "user", service_account: "" },
+        audience: "123.apps.googleusercontent.com",
+        client_id: "desktop.apps.googleusercontent.com",
+        client_secret: "${IAP_OAUTH_CLIENT_SECRET}",
+      },
+    });
+    const result = (await callMcpTool(host, "get_config", {})) as {
+      proxy: { routes: Array<Record<string, unknown>> };
+    };
+    expect(result.proxy.routes[0]?.client_secret).toBe("${IAP_OAUTH_CLIENT_SECRET}");
+    expect(JSON.stringify(result)).not.toContain("from-env");
+  });
+
   test("get_config_sources returns provenance while redacting secret values", async () => {
     const result = (await callMcpTool(stubHost(), "get_config_sources", {})) as { entries: Array<{ value: string; layer: string; shadowed: unknown[] }> };
     expect(result.entries[0]?.value).toBe(REDACTED_VALUE);

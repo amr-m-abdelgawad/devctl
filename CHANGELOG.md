@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-09
+
+### Added
+
+- Optional IAP route `client_id` plus `client_secret` mints user ID tokens with that OAuth client instead of ADC's default client. Put `${NAME}` or `${env.NAME}` in `client_secret` to read the secret from the environment at mint time. MCP `get_config`, status snapshots, CLI `proxy status`, and the TUI route details show `client_id` and env-ref templates (never a resolved secret).
+- MCP `search_docs` searches the compiled-in product documentation and onboarding skill.
+- `service.expose` (and `proxy.gateway` for every HTTP-capable service) synthesizes a host-based, `auth: none` proxy route that addresses the service by name. The proxy resolves the **current** assigned port at request time, so a restart onto a new auto port does not require a proxy reload or consumer change. A hand-written route of the same name always wins. Routes may set `upstream.service` / `upstream.port` instead of a fixed `url`.
+- `${services.<name>.url}` and `${services.<name>.host}` resolve through the proxy when the target is exposed (hub mode), otherwise to the direct loopback address.
+
+### Changed
+
+- The docs site homepage, logos, and default TUI `devctl` theme use the forest/mint website palette.
+
 ## [0.2.5] - 2026-09-09
 
 ### Added
@@ -297,7 +310,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.5...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.2...v0.2.3

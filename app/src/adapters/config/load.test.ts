@@ -169,6 +169,40 @@ proxy:
     expect(cfg.proxy.routes[0]?.auth.audience).toBe("/projects/1/iap");
   });
 
+  test("decodes optional IAP OAuth client fields", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-iap-oauth-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 8080
+  routes:
+    - name: billing
+      match:
+        host: billing.local
+      upstream:
+        url: https://billing.example.com
+      auth:
+        type: iap
+        audience: "123.apps.googleusercontent.com"
+        identity: user
+        client_id: desktop.apps.googleusercontent.com
+        client_secret: "\${IAP_OAUTH_CLIENT_SECRET}"
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.auth.client_id).toBe("desktop.apps.googleusercontent.com");
+    expect(cfg.proxy.routes[0]?.auth.client_secret).toBe("${IAP_OAUTH_CLIENT_SECRET}");
+  });
+
   test("rejects unknown fields", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-unknown-${Date.now()}`;
     writeFile(
@@ -472,5 +506,82 @@ services:
     );
     const cfg = load(dir, "");
     expect(cfg.services.api?.environment.required).toEqual([]);
+  });
+
+  test("expose synthesizes a host-based, auth-none proxy route addressing the service", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-expose-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+services:
+  api:
+    command: [api]
+    ports: { http: 3000 }
+    expose: true
+`);
+    const cfg = load(dir, "");
+    const route = cfg.proxy.routes.find((r) => r.name === "api");
+    expect(route?.match.host).toBe("api.local");
+    expect(route?.upstream).toEqual({ url: "", service: "api", port: "http" });
+    expect(route?.auth.type).toBe("");
+  });
+
+  test("proxy.gateway exposes every http service, skips non-http, and yields to explicit routes", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-gateway-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+proxy:
+  enabled: true
+  gateway: true
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: api
+      match: { host: custom.local }
+      upstream: { url: "http://127.0.0.1:9000" }
+services:
+  api: { command: [api], ports: { http: 3000 } }
+  web: { command: [web], ports: { http: 3001 } }
+  worker: { command: [worker] }
+`);
+    const cfg = load(dir, "");
+    const names = cfg.proxy.routes.map((r) => r.name);
+    // The explicit api route wins; it is not re-synthesized.
+    expect(names.filter((n) => n === "api")).toEqual(["api"]);
+    expect(cfg.proxy.routes.find((r) => r.name === "api")?.upstream.url).toBe("http://127.0.0.1:9000");
+    // web is auto-exposed by service reference.
+    expect(cfg.proxy.routes.find((r) => r.name === "web")?.upstream).toEqual({ url: "", service: "web", port: "http" });
+    // worker has no http port, so gateway leaves it out.
+    expect(names).not.toContain("worker");
+  });
+
+  test("proxy.gateway honors an explicit expose: false opt-out", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-gateway-optout-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+proxy:
+  enabled: true
+  gateway: true
+  listen: { host: 127.0.0.1, port: 18080 }
+services:
+  api: { command: [api], ports: { http: 3000 } }
+  private: { command: [private], ports: { http: 3001 }, expose: false }
+`);
+    const cfg = load(dir, "");
+    const names = cfg.proxy.routes.map((r) => r.name);
+    expect(names).toContain("api");
+    expect(names).not.toContain("private");
+  });
+
+  test("expose is inert when the proxy is disabled", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-expose-off-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api: { command: [api], ports: { http: 3000 }, expose: true }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes).toEqual([]);
   });
 });

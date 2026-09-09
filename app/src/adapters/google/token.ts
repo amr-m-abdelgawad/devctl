@@ -1,15 +1,18 @@
 import "./gcp-env.ts";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { GoogleAuth, Impersonated } from "google-auth-library";
+import { GoogleAuth, Impersonated, UserRefreshClient } from "google-auth-library";
 import { type CredentialRecord, type CredentialStatus, type CredentialStore, openCredentialStore } from "../storage/credentials.ts";
-import { DevctlError, humanMessage, KindAuthorization, KindConfiguration, KindToken, newError } from "../../shared/errors.ts";
+import { DevctlError, hintError, humanMessage, KindAuthentication, KindAuthorization, KindConfiguration, KindToken, newError } from "../../shared/errors.ts";
 import { type Bus, TokenRefreshed, TokenRefreshFailed, newEvent } from "../../shared/events.ts";
 import { classifyGoogle, ensureFetchShim } from "./google.ts";
 import { withRetry } from "../../shared/retry.ts";
 import { credentialsDir, writeFileSecure } from "../storage/storage.ts";
 import type { Clock } from "../../ports/clock.ts";
+import type { OAuthClientCredentials } from "../../ports/credential-provider.ts";
 import { systemClock } from "../system/clock.ts";
+import type { RouteAuthConfig } from "../../domain/config/types.ts";
+import { interpolateEnvRefs } from "../../domain/config/env-ref.ts";
 
 const DEFAULT_THRESHOLD_MS = 5 * 60 * 1000;
 const FALLBACK_TTL_MS = 50 * 60 * 1000;
@@ -27,10 +30,12 @@ export type AccessToken = {
   scopes: string[];
 };
 
+export type { OAuthClientCredentials } from "../../ports/credential-provider.ts";
+
 export type TokenProvider = {
   name: string;
-  accepts?: (identity: string, audience: string, scopes: string[]) => boolean;
-  fetch: (identity: string, audience: string, scopes: string[]) => Promise<AccessToken>;
+  accepts?: (identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials) => boolean;
+  fetch: (identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials) => Promise<AccessToken>;
 };
 
 export type TokenMeta = {
@@ -40,8 +45,52 @@ export type TokenMeta = {
   scopes: string[];
 };
 
-export function tokenCacheKey(identity: string, audience: string, scopes: string[]): string {
-  return `${identity}|${audience}|${scopes.join(",")}`;
+export function tokenCacheKey(identity: string, audience: string, scopes: string[], clientId?: string): string {
+  const id = clientId ?? "";
+  const base = `${identity}|${audience}|${scopes.join(",")}`;
+  return id === "" ? base : `${base}|oauth:${id}`;
+}
+
+export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env): OAuthClientCredentials | undefined {
+  const clientId = (auth.client_id ?? "").trim();
+  if (clientId === "") {
+    return undefined;
+  }
+  const raw = (auth.client_secret ?? "").trim();
+  const { value: clientSecret, missing } = interpolateEnvRefs(raw, env);
+  if (clientSecret === "") {
+    const name = missing[0];
+    throw newError(KindConfiguration, name ? `IAP client_secret env ${name} is empty` : `IAP client_id ${clientId} requires client_secret`);
+  }
+  return { clientId, clientSecret };
+}
+
+// A lazy handle to a route's OAuth client. The token cache key needs only the
+// clientId, so `get`/`refresh` can find a valid cached token without touching
+// the (possibly env-backed, possibly empty) secret — resolve() runs, and can
+// throw, only when a refresh actually mints a new token. This keeps a still
+// valid cached token usable even after its env secret is removed, instead of
+// 502-ing on the eager resolve.
+export type OAuthClientRef = {
+  clientId: string;
+  resolve: () => OAuthClientCredentials;
+};
+
+export function iapOAuthClientRef(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env): OAuthClientRef | undefined {
+  const clientId = (auth.client_id ?? "").trim();
+  if (clientId === "") {
+    return undefined;
+  }
+  return {
+    clientId,
+    resolve: () => {
+      const creds = resolveIapOAuthClient(auth, env);
+      if (!creds) {
+        throw newError(KindConfiguration, `IAP client_id ${clientId} requires client_secret`);
+      }
+      return creds;
+    },
+  };
 }
 
 export function isValidToken(tok: AccessToken, thresholdMs = DEFAULT_THRESHOLD_MS, nowMs = Date.now()): boolean {
@@ -106,23 +155,23 @@ export class TokenManager {
     return this.store.backend;
   }
 
-  async get(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
-    const key = tokenCacheKey(identity, audience, scopes);
+  async get(identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
+    const key = tokenCacheKey(identity, audience, scopes, oauth?.clientId);
     const cached = this.cache.get(key) ?? (await this.loadStored(key));
     if (cached && this.isValid(cached)) {
       this.cache.set(key, cached);
       return cached;
     }
-    return this.refresh(identity, audience, scopes);
+    return this.refresh(identity, audience, scopes, oauth);
   }
 
-  async refresh(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
-    const key = tokenCacheKey(identity, audience, scopes);
+  async refresh(identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
+    const key = tokenCacheKey(identity, audience, scopes, oauth?.clientId);
     const pending = this.inflight.get(key);
     if (pending) {
       return pending;
     }
-    const work = this.refreshOnce(key, identity, audience, scopes);
+    const work = this.refreshOnce(key, identity, audience, scopes, oauth);
     this.inflight.set(key, work);
     try {
       return await work;
@@ -131,15 +180,19 @@ export class TokenManager {
     }
   }
 
-  private async refreshOnce(key: string, identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
-    const candidates = this.providers.filter((provider) => !provider.accepts || provider.accepts(identity, audience, scopes));
+  private async refreshOnce(key: string, identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
+    // Only now that a mint is actually happening do we resolve the OAuth
+    // secret — a cache hit in get() never reaches here, so a valid cached
+    // token survives an empty/removed env secret.
+    const creds = oauth?.resolve();
+    const candidates = this.providers.filter((provider) => !provider.accepts || provider.accepts(identity, audience, scopes, creds));
     if (candidates.length === 0) {
       throw newError(KindToken, `no token provider accepts identity ${identity}`);
     }
     let lastErr: Error = newError(KindToken, "no token provider available");
     for (const provider of candidates) {
       try {
-        const tok = await withRetry(() => provider.fetch(identity, audience, scopes), {
+        const tok = await withRetry(() => provider.fetch(identity, audience, scopes, creds), {
           attempts: TOKEN_RETRY_MAX,
           backoffMs: TOKEN_RETRY_BACKOFF_MS,
           retry: isTransientTokenError,
@@ -242,14 +295,14 @@ function iapProvider(): TokenProvider {
   return {
     name: "iap",
     accepts: (_identity, audience) => audience !== "",
-    fetch: async (identity, audience, scopes) => {
+    fetch: async (identity, audience, scopes, oauth) => {
       if (audience === "") {
         throw newError(KindToken, "IAP audience is required");
       }
       if (identity.startsWith("sa:")) {
         return fetchImpersonatedIdToken(identity, audience, scopes);
       }
-      return fetchUserIdToken(identity, audience, scopes);
+      return fetchUserIdToken(identity, audience, scopes, oauth);
     },
   };
 }
@@ -313,9 +366,12 @@ async function fetchImpersonatedIdToken(identity: string, audience: string, scop
   }
 }
 
-async function fetchUserIdToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {
+async function fetchUserIdToken(identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials): Promise<AccessToken> {
   try {
     ensureFetchShim();
+    if (oauth) {
+      return await fetchUserIdTokenWithOAuthClient(identity, audience, scopes, oauth);
+    }
     const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [IAP_SCOPE] });
     const client = await auth.getIdTokenClient(audience);
     const tok = await client.idTokenProvider.fetchIdToken(audience);
@@ -328,8 +384,41 @@ async function fetchUserIdToken(identity: string, audience: string, scopes: stri
       scopes,
     };
   } catch (err) {
+    if (err instanceof DevctlError) {
+      throw err;
+    }
     throw classifyGoogle(err);
   }
+}
+
+async function fetchUserIdTokenWithOAuthClient(identity: string, audience: string, scopes: string[], oauth: OAuthClientCredentials): Promise<AccessToken> {
+  const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [IAP_SCOPE] });
+  const adc = await auth.getClient();
+  const refreshToken = adc.credentials.refresh_token;
+  if (!refreshToken) {
+    throw hintError(
+      KindAuthentication,
+      "ADC has no refresh token for a custom IAP OAuth client",
+      "run `gcloud auth application-default login` with a user account; service-account ADC cannot mint IAP ID tokens for auth.client_id",
+    );
+  }
+  const client = new UserRefreshClient({
+    clientId: oauth.clientId,
+    clientSecret: oauth.clientSecret,
+    refreshToken,
+  });
+  const tok = await client.fetchIdToken(audience);
+  if (!tok) {
+    throw newError(KindToken, "empty IAP id token");
+  }
+  return {
+    accessToken: tok,
+    tokenType: "Bearer",
+    expiresAt: expiryFromToken(tok),
+    audience,
+    identity,
+    scopes,
+  };
 }
 
 async function fetchUserToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {

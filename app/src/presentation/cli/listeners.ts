@@ -24,7 +24,8 @@ export function addProxy(root: Command, runtime: ClientRuntime): void {
         writeOut(`PROXY  ${snap.proxy.running ? "RUNNING" : "STOPPED"}  ${snap.proxy.address ?? ""}\n`);
         for (const r of snap.proxy.routes ?? []) {
           const match = r.match ? `  match=${r.match}` : "";
-          writeOut(`  ${r.name.padEnd(16)} identity=${r.identity}${match}  ${r.upstream}\n`);
+          const client = r.client_id ? `  client_id=${r.client_id}` : "";
+          writeOut(`  ${r.name.padEnd(16)} identity=${r.identity}${match}${client}  ${r.upstream}\n`);
         }
       } finally {
         await ctrl.close();
@@ -98,7 +99,7 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
         if (snap?.setup_mode === true) {
           writeOut(`This repository has no .devctl yet, so the daemon is in setup mode.\n`);
           writeOut(`Connect an agent with the config below and ask it to set devctl up for this repository.\n`);
-          writeOut(`It can call get_setup_guide and validate_config; nothing will run until a configuration exists.\n\n`);
+          writeOut(`It can call get_setup_guide, search_docs, and validate_config; nothing will run until a configuration exists.\n\n`);
         }
         writeOut(formatMcpSnippets(url, token));
       } finally {

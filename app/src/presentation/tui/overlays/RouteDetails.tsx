@@ -16,13 +16,15 @@ export function RouteDetailsOverlay(props: {
     return null;
   }
   return (
-    <OverlayShell palette={palette} title={route.name} bottomTitle="j/k scroll  ·  esc close" termW={termW} termH={termH} preferW={78} preferH={16} gap={1}>
+    <OverlayShell palette={palette} title={route.name} bottomTitle="j/k scroll  ·  esc close" termW={termW} termH={termH} preferW={78} preferH={18} gap={1}>
       <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
         <box flexDirection="column" overflow="hidden">
           <text fg={palette.muted}>{`auth        ${route.authType || "none"}`}</text>
           <text fg={palette.muted}>{`identity    ${route.identityType || "—"}`}</text>
           <text fg={palette.text} wrapMode="word">{`account     ${route.serviceAccount || "—"}`}</text>
           <text fg={palette.text} wrapMode="word">{`audience    ${route.audience || "—"}`}</text>
+          <text fg={palette.muted} wrapMode="word">{`client id   ${route.clientId || "ADC default"}`}</text>
+          <text fg={palette.muted} wrapMode="word">{`client secret  ${route.clientSecret || "—"}`}</text>
           <text fg={palette.muted}>{`match host  ${route.matchHost || "*"}`}</text>
           <text fg={palette.muted}>{`match path  ${route.matchPath || "*"}`}</text>
           <text fg={palette.text} wrapMode="word">{`upstream    ${route.upstream}`}</text>
