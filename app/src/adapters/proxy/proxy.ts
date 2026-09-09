@@ -65,6 +65,11 @@ export class ProxyServer {
   private readonly logs?: Pick<LogStore, "append">;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
+  // Resolves a service-reference upstream (route.upstream.service) to its
+  // current loopback port at request time. Injected by the daemon from its
+  // live assigned-ports map, so a synthesized `expose`/`gateway` route follows
+  // a service that restarts on a new auto-assigned port without a proxy reload.
+  private readonly resolvePort?: (service: string, port: string) => number | undefined;
   private middleware: ProxyMiddleware[];
   private server?: Server;
   private running = false;
@@ -82,6 +87,7 @@ export class ProxyServer {
     bus?: Bus,
     detector?: Detector,
     middleware: ProxyMiddleware[] = [],
+    resolvePort?: (service: string, port: string) => number | undefined,
   ) {
     this.cfg = cfg;
     this.tokens = tokens;
@@ -89,6 +95,26 @@ export class ProxyServer {
     this.bus = bus;
     this.detector = detector;
     this.middleware = middleware;
+    this.resolvePort = resolvePort;
+  }
+
+  // The effective upstream base URL for a route. A hand-written route uses its
+  // literal url; a synthesized route names a service + port, resolved to the
+  // service's current loopback port here (throws when the service isn't
+  // running, surfacing as a 502 through the request handlers' catch blocks).
+  private upstreamBase(route: RouteConfig): string {
+    const service = route.upstream.service ?? "";
+    if (service === "") {
+      return route.upstream.url;
+    }
+    if (!this.resolvePort) {
+      throw newError(KindProxy, `route ${route.name} addresses service ${service} but this proxy has no port resolver configured`);
+    }
+    const port = this.resolvePort(service, route.upstream.port ?? "");
+    if (port === undefined) {
+      throw newError(KindProxy, `upstream service ${service} is not running`);
+    }
+    return `http://127.0.0.1:${port}`;
   }
 
   address(): string {
@@ -224,7 +250,7 @@ export class ProxyServer {
         await hook.apply({ route, headers, tokens: this.tokens, req, method, path, upgrade: true });
       }
 
-      const upstream = resolveProxyTarget(route.upstream.url, path);
+      const upstream = resolveProxyTarget(this.upstreamBase(route), path);
       const upstreamReq = proxyUpgradeRequest(upstream)(upstream, { method, headers });
       upstreamReq.on("upgrade", (upstreamRes, connectedSocket, upstreamHead) => {
         upstreamSocket = connectedSocket;
@@ -334,7 +360,7 @@ export class ProxyServer {
       for (const hook of this.middleware) {
         await hook.apply({ route, headers, tokens: this.tokens });
       }
-      const upstream = resolveProxyTarget(route.upstream.url, path);
+      const upstream = resolveProxyTarget(this.upstreamBase(route), path);
       const body = method !== "GET" && method !== "HEAD" ? req : undefined;
       const resp = await fetch(upstream, {
         method,

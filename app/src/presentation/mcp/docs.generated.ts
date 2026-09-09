@@ -816,181 +816,103 @@ Probing a configured SA is lazy and cached, never automatic: it happens the firs
 ` },
   { path: "docs/index.md", title: "index", body: `---
 layout: home
-
-hero:
-  name: devctl
-  text: One terminal for your local stack
-  tagline: Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.
-  actions:
-    - theme: brand
-      text: Get started
-      link: /quickstart
-    - theme: alt
-      text: Install
-      link: /installation
-    - theme: alt
-      text: View on GitHub
-      link: https://github.com/amr-m-abdelgawad/devctl
-
-features:
-  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></svg>'
-    title: Keyboard-first TUI
-    details: Dashboard, services, logs, identity, credentials, proxy, doctor, and settings — one session, no tab-juggling.
-    link: /tui
-    linkText: Explore the TUI
-  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 11 2-2-2-2"/><path d="M11 13h4"/><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/></svg>'
-    title: Scriptable CLI
-    details: Start/stop, tasks, service-context exec, logs, Doctor, and config provenance for scripts and CI.
-    link: /cli
-    linkText: CLI reference
-  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>'
-    title: MCP for agents
-    details: A localhost URL so Claude, Cursor, Codex, or Kilo can operate the stack. Off by default, 127.0.0.1 only.
-    link: /mcp
-    linkText: Wire up an agent
-  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg>'
-    title: Auth-aware proxy
-    details: Loopback routes that inject Google / IAP tokens for you. Binds 127.0.0.1 only — tokens never touch logs.
-    link: /proxy
-    linkText: How the proxy works
-  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2v2"/><path d="M5 2v2"/><path d="M5 3H4a2 2 0 0 0-2 2v4a6 6 0 0 0 12 0V5a2 2 0 0 0-2-2h-1"/><path d="M8 15a6 6 0 0 0 12 0v-3"/><circle cx="20" cy="10" r="2"/></svg>'
-    title: Doctor
-    details: Ports, containers, tools, ADC, impersonation — reported clearly, never auto-enabled behind your back.
-    link: /doctor
-    linkText: Run diagnostics
-  - icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m2.305 15.53.923-.382"/><path d="m3.228 12.852-.924-.383"/><path d="M4.677 21.5a2 2 0 0 0 1.313.5H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v2.5"/><path d="m4.852 11.228-.383-.923"/><path d="m4.852 16.772-.383.924"/><path d="m7.148 11.228.383-.923"/><path d="m7.53 17.696-.382-.924"/><path d="m8.772 12.852.923-.383"/><path d="m8.772 15.148.923.383"/><circle cx="6" cy="14" r="3"/></svg>'
-    title: Config, not code
-    details: Nothing knows your services by name. Add YAML to .devctl/ — profiles, health gates, hooks, and plugins.
-    link: /configuration
-    linkText: Configuration model
 ---
 
-<div class="landing">
+<script setup>
+import { ref } from 'vue'
+import { withBase } from 'vitepress'
+import TerminalHero from './.vitepress/theme/TerminalHero.vue'
+const copyLabel = ref('Copy command')
+const activeProfile = ref('backend')
+const profileExamples = {
+  backend: { label: 'Build an API', description: 'Focus on the backend. Bring up identity, the API, and its worker as a single group.', services: ['identity', 'invoices-api', 'invoices-worker'] },
+  full: { label: 'Work end to end', description: 'Bring the console into the picture when your work crosses the frontend and backend.', services: ['identity', 'invoices-api', 'invoices-worker', 'billing-console'] },
+  data: { label: 'Start with data', description: 'Run the demo’s optional PostgreSQL container when you need a local database.', services: ['postgres'] }
+}
+async function copyInstall() {
+  try {
+    await navigator.clipboard.writeText('npx @amr-m-abdelgawad/devctl@latest')
+    copyLabel.value = 'Copied!'
+  } catch {
+    copyLabel.value = 'Select the command to copy'
+  }
+}
+</script>
 
-<div class="landing__signal" role="note">
-  <span><i></i> LOCAL-FIRST</span>
-  <span>127.0.0.1 by default</span>
-  <span>no cloud required</span>
-  <span>one shared session</span>
-</div>
+<div class="landing vp-raw">
+  <section class="landing-hero" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="status-dot"></span> YOUR LOCAL DEVELOPMENT, IN SYNC</p>
+      <h1 id="hero-title">More building.<br>Less <span>tab juggling.</span></h1>
+      <p class="hero-description">Your services, logs, and local stack. Together in one terminal. Keep everything in view with devctl — from the first process to the last request.</p>
+      <div class="hero-actions">
+        <a class="primary-link" :href="withBase('/quickstart')">Get started <span aria-hidden="true">↗</span></a>
+        <a class="text-link" href="https://github.com/amr-m-abdelgawad/devctl">Explore on GitHub <span aria-hidden="true">↗</span></a>
+      </div>
+      <p class="hero-footnote">Open source. Local first. Your workflow.</p>
+    </div>
+    <div class="hero-preview">
+      <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true">↙</span></div>
+      <TerminalHero />
+      <div class="preview-footer"><span class="status-dot"></span> An illustrative devctl session <span class="preview-shortcut">⌘ / ctrl + p <span>command palette</span></span></div>
+    </div>
+  </section>
 
-<section class="landing__section landing__section--install">
-  <div class="landing__section-copy">
-    <div class="landing__eyebrow">Install</div>
-    <h2 class="landing__title">Bring order to a crowded local stack.</h2>
-    <p class="landing__lede">Node.js is the only prerequisite. The npm package brings its own official Bun runtime; <code>gcloud</code> is optional, even for the demo.</p>
-  </div>
+  <div class="landing-signal"><span>Less switching. <b>More context.</b></span><span>TUI <i>/</i> CLI <i>/</i> MCP</span><span>One shared session <span aria-hidden="true">↗</span></span></div>
 
-  <div class="landing__install-panel">
-    <div class="landing__panel-topline"><span>TERMINAL</span><span>READY</span></div>
+  <section class="landing-section" aria-labelledby="surfaces-title">
+    <div class="section-heading"><div><p class="eyebrow">01 / WORK YOUR WAY</p><h2 id="surfaces-title">One stack. Your kind of control.</h2></div><p>Stay hands-on, script the routine,<br>or let your agent take the next step.</p></div>
+    <div class="surface-grid">
+      <a class="surface" :href="withBase('/tui')"><span class="surface-symbol" aria-hidden="true">▤</span><span class="surface-label">FOR YOUR FLOW</span><h3>A home for your stack.</h3><p>Start services, follow logs, and check health in a keyboard-first terminal interface.</p><span class="surface-link">Explore the TUI <span aria-hidden="true">↗</span></span></a>
+      <a class="surface" :href="withBase('/cli')"><span class="surface-symbol" aria-hidden="true">&gt;_</span><span class="surface-label">FOR THE REPEATABLE</span><h3>Make it a command.</h3><p>Bring the same controls to scripts and CI. Run tasks, inspect config, and keep moving.</p><span class="surface-link">Meet the CLI <span aria-hidden="true">↗</span></span></a>
+      <a class="surface" :href="withBase('/mcp')"><span class="surface-symbol" aria-hidden="true">✳</span><span class="surface-label">FOR YOUR AGENT</span><h3>Give AI the context.</h3><p>Connect your agent over MCP to inspect and operate the same local session. Enabled when you choose.</p><span class="surface-link">Connect with MCP <span aria-hidden="true">↗</span></span></a>
+    </div>
+  </section>
 
-::: code-group
+  <section class="workflow-section landing-section" aria-labelledby="workflow-title">
+    <div class="section-heading"><div><p class="eyebrow">02 / FIND YOUR FOCUS</p><h2 id="workflow-title">The right services.<br>For the task at hand.</h2></div><p>Group services into named profiles.<br>Start the part of your stack you need.</p></div>
+    <div class="workflow-panel">
+      <div class="workflow-options" role="group" aria-label="Explore example profiles">
+        <button v-for="(profile, name) in profileExamples" :key="name" type="button" :aria-pressed="activeProfile === name" @click="activeProfile = name"><span>{{ profile.label }}</span><code>{{ name }}</code><span aria-hidden="true">↗</span></button>
+        <a class="text-link" :href="withBase('/profiles')">Explore profiles <span aria-hidden="true">↗</span></a>
+      </div>
+      <div class="workflow-example" aria-live="polite" aria-atomic="true">
+        <p class="eyebrow">DEMO PLATFORM / EXAMPLE PROFILE</p>
+        <p class="workflow-command"><span aria-hidden="true">$ </span><code>devctl start --profile {{ activeProfile }}</code></p>
+        <p class="workflow-description">{{ profileExamples[activeProfile].description }}</p>
+        <div class="workflow-services"><span v-for="service in profileExamples[activeProfile].services" :key="service"><i aria-hidden="true"></i>{{ service }}</span></div>
+        <p class="workflow-note">Your repo, your names. Profiles are defined in your config.</p>
+      </div>
+    </div>
+  </section>
 
-\`\`\`bash [npx]
-npx @amr-m-abdelgawad/devctl@latest
-\`\`\`
+  <section class="setup-section landing-section" aria-labelledby="setup-title">
+    <div class="setup-copy"><p class="eyebrow">03 / FROM REPO TO RUNNING</p><h2 id="setup-title">Small setup.<br>Clear head.</h2><p>Start with Node.js. The npm package includes its own Bun runtime. Google Cloud is optional.</p><a class="text-link" :href="withBase('/installation')">Installation guide <span aria-hidden="true">↗</span></a></div>
+    <div class="setup-panel">
+      <div class="install-heading"><span>TRY IT IN YOUR TERMINAL</span><button type="button" @click="copyInstall" aria-live="polite">{{ copyLabel }}</button></div>
+      <div class="install-command"><span aria-hidden="true">$</span><code>npx @amr-m-abdelgawad/devctl@latest</code></div>
+      <ol class="setup-steps"><li><span>01</span><div><code>devctl setup</code><p>Describe your services in a single config.</p></div></li><li><span>02</span><div><code>devctl doctor</code><p>See what’s missing before you start.</p></div></li><li><span>03</span><div><code>devctl</code><p>Open your dashboard. Press enter to start a profile.</p></div></li></ol>
+    </div>
+  </section>
 
-\`\`\`bash [npm (global)]
-npm install --global @amr-m-abdelgawad/devctl
-devctl version
-\`\`\`
+  <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">04 / THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true">↗</span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true">↗</span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true">↗</span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true">↗</span></a></div></section>
 
-\`\`\`bash [try the demo]
-git clone https://github.com/amr-m-abdelgawad/devctl.git
-cd devctl/examples/demo-platform
-npx @amr-m-abdelgawad/devctl@latest
-\`\`\`
+  <section class="demo-section landing-section" aria-labelledby="demo-title">
+    <div class="demo-band"><div><p class="eyebrow">05 / TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true">↗</span></a></div>
+  </section>
 
-:::
-</div>
-</section>
+  <section class="faq-section landing-section" aria-labelledby="faq-title">
+    <div><p class="eyebrow">06 / A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press enter.</h2><p>A little context for your first session.</p></div>
+    <div class="faq-list">
+      <details><summary>Do I need Docker or Google Cloud?</summary><p>Neither is required for local host processes. Use Docker or Podman when your configuration includes containers. Google Cloud tools are optional and only needed for the Google authentication features you choose to use. <a :href="withBase('/installation')">See installation requirements ↗</a></p></details>
+      <details><summary>Do I have to change my application code?</summary><p>Describe how your services run in <code>.devctl/config.yaml</code>: their commands, working directories, environment, and health checks. devctl works with that configuration. <a :href="withBase('/configuration')">Explore configuration ↗</a></p></details>
+      <details><summary>Can I use the CLI and TUI together?</summary><p>Yes. The TUI, CLI, and MCP connect to the same per-repo supervisor. Start a profile from the CLI and attach to its session with <code>devctl attach</code>. <a :href="withBase('/overview')">See how sessions work ↗</a></p></details>
+      <details><summary>Does my agent get access automatically?</summary><p>No. MCP is off by default. When enabled, it listens on the local loopback interface. You choose when to connect your agent and can disable individual tools. <a :href="withBase('/mcp')">Read the MCP guide ↗</a></p></details>
+      <details><summary>Can I try it without a global install?</summary><p>Yes. Run <code>npx @amr-m-abdelgawad/devctl@latest</code> from your repo. Node.js is required; the npm package includes its own Bun runtime. <a :href="withBase('/quickstart')">Follow the quick start ↗</a></p></details>
+    </div>
+  </section>
 
-<section class="landing__section landing__section--architecture">
-  <div class="landing__eyebrow">Control plane</div>
-  <div class="landing__split-heading">
-    <h2 class="landing__title">One session.<br>Every control surface.</h2>
-    <p class="landing__lede">The <b>supervisor</b> owns processes, optional Docker/Podman containers, the proxy, and the log buffer. TUI, CLI, and agents attach to the same source of truth.</p>
-  </div>
-
-<div class="pipe">
-  <div class="pipe__col pipe__col--input">
-    <div class="pipe__label">CONTROL</div>
-    <div class="pipe__box"><b>TUI</b></div>
-    <div class="pipe__box"><b>CLI</b></div>
-    <div class="pipe__box"><b>MCP</b> · 127.0.0.1</div>
-  </div>
-  <div class="pipe__arrow">→</div>
-  <div class="pipe__col pipe__col--core">
-    <div class="pipe__label">SESSION</div>
-    <div class="pipe__box pipe__box--core">Supervisor</div>
-  </div>
-  <div class="pipe__arrow">→</div>
-  <div class="pipe__col pipe__col--output">
-    <div class="pipe__label">RUNTIME</div>
-    <div class="pipe__box">Host processes + containers</div>
-    <div class="pipe__box">Proxy</div>
-    <div class="pipe__box">Logs</div>
-  </div>
-</div>
-<p class="pipe__note">Default MCP is off. See <a href="/devctl/overview">how it fits together</a>.</p>
-</section>
-
-<section class="landing__section landing__section--start">
-<div class="landing__eyebrow">Quick start</div>
-<div class="landing__split-heading">
-  <h2 class="landing__title">Your repo,<br>under control.</h2>
-  <p class="landing__lede">The shortest route from a repo full of services to a visible, repeatable development session.</p>
-</div>
-
-<div class="steps">
-  <div class="step">
-    <div class="step__n">01</div>
-    <div class="step__cmd">devctl setup</div>
-    <p>Writes <code>.devctl/config.yaml</code> — or use the TUI setup screen.</p>
-  </div>
-  <div class="step">
-    <div class="step__n">02</div>
-    <div class="step__cmd">devctl doctor</div>
-    <p>Names what is missing: ports, tools, ADC, container runtimes.</p>
-  </div>
-  <div class="step">
-    <div class="step__n">03</div>
-    <div class="step__cmd">devctl</div>
-    <p>Empty dashboard? <code>enter</code> starts the first profile.</p>
-  </div>
-  <div class="step">
-    <div class="step__n">04</div>
-    <div class="step__cmd">devctl start --profile backend</div>
-    <p>Keep working; the daemon outlives <code>start</code>. Reattach with <code>devctl attach</code>.</p>
-  </div>
-</div>
-</section>
-
-<section class="landing__section landing__section--safety">
-<div class="landing__safety-copy">
-  <div class="landing__eyebrow">Ground rules</div>
-  <h2 class="landing__title">Local, observable,<br>safe by construction.</h2>
-  <p class="landing__lede">Good defaults keep the local machine in charge and make the dangerous edges explicit.</p>
-</div>
-
-<ul class="rules">
-  <li>No hard-coded services, ports, profiles, or service accounts</li>
-  <li>User identity and service identity are never silently swapped</li>
-  <li>Tokens stay out of the TUI, logs, and MCP output</li>
-  <li>Proxy, token endpoint, and MCP bind <b>127.0.0.1</b> only</li>
-  <li>Local services run with zero Google Cloud</li>
-  <li>Doctor reports; it never auto-enables anything</li>
-</ul>
-</section>
-
-<div class="landing__cta">
-  <div>
-    <p class="landing__cta-title">Ready to run your whole stack as one session?</p>
-    <p class="landing__cta-copy">Point it at any repo — add YAML, not code.</p>
-  </div>
-  <code>npx @amr-m-abdelgawad/devctl@latest</code>
-</div>
-
+  <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true">↗</span></a><p>Free and open source · MIT licensed</p></section>
 </div>
 ` },
   { path: "docs/installation.md", title: "Installation", body: `# Installation
@@ -1642,7 +1564,6 @@ proxy:
         # mint the ID token with that OAuth client instead of ADC's default.
         # client_secret may be a literal or \${NAME} / \${env.NAME}.
 \`\`\`
-\`\`\`
 
 Match is host + optional path prefix.
 
@@ -1660,6 +1581,51 @@ services:
         upstream:
           url: http://127.0.0.1:8000
 \`\`\`
+
+## Expose — the proxy as a stable entry point
+
+Instead of hand-writing a route, a service can be **exposed** through the proxy at a stable, logical address. The synthesized route addresses its target by service name, so the proxy resolves the service's **current** port at request time — a service that restarts on a different auto-assigned port is followed with no proxy reload and no consumer change.
+
+\`\`\`yaml
+proxy:
+  enabled: true              # expose requires an enabled proxy
+  listen: { host: 127.0.0.1, port: 8080 }
+services:
+  invoices-api:
+    command: python main.py
+    ports: { http: 18000 }
+    expose: true             # → route "invoices-api", match host invoices-api.local
+\`\`\`
+
+\`expose: true\` matches host \`<service>.local\` and forwards to the service's \`http\` port. Exposure is host-based: the request path is forwarded verbatim, so a path prefix belongs on a hand-written route, not here. Use the object form to override the host or port:
+
+\`\`\`yaml
+    expose:
+      host: api.internal     # default: <service>.local
+      port: grpc             # named port to forward to (default: http)
+\`\`\`
+
+Set \`proxy.gateway: true\` to expose **every** HTTP-capable service (one with a port named \`http\`) at once — sugar over per-service \`expose\`. For selective exposure, leave \`gateway\` off and mark services individually.
+
+A hand-written route or \`proxy:\` fragment of the same name always wins over a synthesized one, so you can override any auto route (for example to attach auth).
+
+**Auth is always \`none\` on synthesized routes.** An internal service-to-service hop never silently acquires a service's identity token — injecting credentials stays an explicit choice you make with a hand-written route.
+
+### Referencing an exposed service — \`\${services.<name>.url}\`
+
+\`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a service a stable logical address in another service's environment:
+
+\`\`\`yaml
+services:
+  billing-console:
+    environment:
+      API_URL: \${services.invoices-api.url}
+\`\`\`
+
+- **Direct** (target not exposed): resolves to \`http://127.0.0.1:<port>\` — a startup snapshot, like \`\${services.<name>.port}\`.
+- **Hub** (target exposed and proxy enabled): resolves to the proxy entry address, e.g. \`http://invoices-api.local:8080\`. This is stable — the consumer keeps working even when the target moves to a new port.
+
+Host-based addressing means \`<service>.local\` must resolve to \`127.0.0.1\` on the machine (and inside any container) that makes the request — add it to \`/etc/hosts\` or your resolver.
 
 ## Token endpoint
 
@@ -1951,6 +1917,7 @@ services:
     proxy:                       # optional; merged into the global proxy at load
       match: { path: /api }
       upstream: { url: http://127.0.0.1:8000 }
+    expose: true                 # optional; reach it through the proxy at api.local
     restart:
       policy: on_failure         # never | on_failure | always
       max_retries: 3
@@ -1968,6 +1935,8 @@ services:
 \`\`\`
 
 Working directories resolve from the repository root (the directory that contains \`.devctl\`), not the process cwd.
+
+\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`expose: true\` publishes the service through the proxy at \`<service>.local\`; \`proxy.gateway: true\` does the same for every HTTP service at once.
 
 String commands that contain \`|\`, \`||\`, \`&&\`, \`;\`, \`>\`, \`>>\`, \`<\`, or \`&\` fail validation unless \`shell: true\`.
 

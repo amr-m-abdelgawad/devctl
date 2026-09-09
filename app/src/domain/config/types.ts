@@ -108,10 +108,28 @@ export type ServiceConfig = {
   startup: StartupConfig;
   capabilities: string[];
   proxy: RouteConfig[];
+  expose: ExposeConfig;
   container?: ContainerConfig;
   watch: ServiceWatchConfig;
   hooks: HooksConfig;
 };
+
+// Opt-in for a service to be reachable through the proxy by a stable, logical
+// address instead of its (possibly changing) port. `expose: true` in YAML
+// decodes to { enabled: true }; `host` overrides the synthesized route's match
+// host (default "<service>.local"), and `port` selects which named port to
+// forward to (default "http"). Exposure is host-based only — the proxy
+// forwards the request path verbatim, so a path prefix belongs on a
+// hand-written route, not here.
+export type ExposeConfig = {
+  enabled: boolean;
+  host: string;
+  port: string;
+};
+
+export function emptyExpose(): ExposeConfig {
+  return { enabled: false, host: "", port: "" };
+}
 
 export type ProfileConfig = {
   services: string[];
@@ -145,6 +163,13 @@ export type MatchConfig = {
 
 export type UpstreamConfig = {
   url: string;
+  // A route synthesized from `expose`/`proxy.gateway` addresses its target by
+  // service + port name rather than a fixed url, so the proxy can resolve the
+  // *current* assigned port at request time (see ProxyServer.resolvePort) — a
+  // service that restarts on a new auto-assigned port is then followed without
+  // a proxy reload. Hand-written routes omit both and use `url`.
+  service?: string;
+  port?: string;
 };
 
 export type RouteIdentity = {
@@ -181,6 +206,11 @@ export type RouteConfig = {
 
 export type ProxyConfig = {
   enabled: boolean;
+  // When true, every HTTP-capable service (one with a port named "http") is
+  // exposed through the proxy as if it declared `expose: true`, unless it opts
+  // out or a hand-written route already claims its name. Sugar over per-service
+  // `expose`; both synthesize the same kind of service-reference route.
+  gateway: boolean;
   listen: ListenConfig;
   token_endpoint: TokenEndpointConfig;
   routes: RouteConfig[];
@@ -308,6 +338,7 @@ export function emptyService(): ServiceConfig {
     startup: { wait_for_healthy: false, timeout_seconds: 0 },
     capabilities: [],
     proxy: [],
+    expose: emptyExpose(),
     container: undefined,
     watch: emptyWatch(),
     hooks: { pre_start: emptyCommand(), post_start: emptyCommand() },
@@ -325,6 +356,7 @@ export function defaultConfig(): DevctlConfig {
     tasks: {},
     proxy: {
       enabled: false,
+      gateway: false,
       listen: { host: LOCALHOST, port: 0 },
       token_endpoint: { enabled: false, host: "", port: 0 },
       routes: [],

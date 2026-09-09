@@ -33,6 +33,7 @@ export const knownService = [
   "startup",
   "capabilities",
   "proxy",
+  "expose",
   "container",
   "watch",
   "hooks",
@@ -43,11 +44,11 @@ export const knownDependency = ["service", "condition"];
 export const knownIdentity = ["type", "mode", "service_account", "config"];
 export const knownRestart = ["enabled", "policy", "max_retries", "backoff_seconds"];
 export const knownStartup = ["wait_for_healthy", "timeout_seconds"];
-export const knownProxy = ["enabled", "listen", "token_endpoint", "routes"];
+export const knownProxy = ["enabled", "gateway", "listen", "token_endpoint", "routes"];
 export const knownListen = ["host", "port"];
 export const knownRoute = ["name", "match", "upstream", "auth"];
 export const knownMatch = ["host", "path"];
-export const knownUpstream = ["url"];
+export const knownUpstream = ["url", "service", "port"];
 export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret"];
 export const knownLogs = ["max_memory_events", "persistence"];
 export const knownPersistence = ["enabled", "directory", "retention_days", "max_session_logs"];

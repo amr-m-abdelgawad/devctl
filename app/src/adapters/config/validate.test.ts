@@ -44,6 +44,52 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("duplicate port"))).toBe(true);
   });
 
+  test("accepts a service-reference upstream naming a real service and port", () => {
+    const cfg = withService("api");
+    cfg.services.api!.ports = [{ name: "http", value: 3000, auto: false }];
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "api.local", path: "" },
+      upstream: { url: "", service: "api", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a service-reference upstream to an unknown service", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "nope",
+      match: { host: "nope.local", path: "" },
+      upstream: { url: "", service: "ghost", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream.service references unknown service ghost");
+  });
+
+  test("rejects a service-reference upstream to a port the service does not declare", () => {
+    const cfg = withService("api");
+    cfg.services.api!.ports = [{ name: "grpc", value: 50051, auto: false }];
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "api.local", path: "" },
+      upstream: { url: "", service: "api", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream: service api has no port named http");
+  });
+
+  test("rejects a route with neither url nor service", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "empty",
+      match: { host: "empty.local", path: "" },
+      upstream: { url: "", service: "", port: "" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream requires either url or service");
+  });
+
   test("rejects IAP routes without identity type", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({

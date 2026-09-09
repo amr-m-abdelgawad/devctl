@@ -5,11 +5,13 @@ import {
   emptyIdentity,
   emptyService,
   emptyRouteAuth,
+  emptyExpose,
   emptyWatch,
   DEFAULT_WATCH_IGNORE,
   watchDebounceMs,
   type Command,
   type EnvConfig,
+  type ExposeConfig,
   type Dependency,
   type HealthCheckConfig,
   type IdentityConfig,
@@ -209,6 +211,7 @@ export function decodeService(value: unknown): ServiceConfig {
     startup: decodeStartup(value.startup),
     capabilities: asStringArray(value.capabilities),
     proxy: decodeServiceProxy(value.proxy),
+    expose: decodeExpose(value.expose),
     container: decodeContainer(value.container),
     watch: decodeWatch(value.watch),
     hooks: decodeHooks(value.hooks),
@@ -250,6 +253,22 @@ export function decodeContainer(value: unknown): import("../../domain/config/typ
     env: asStringMap(value.env),
     volumes: asStringArray(value.volumes),
   };
+}
+
+// `expose: true` is the common shorthand; an object form turns it on too
+// (unless it explicitly sets enabled:false) and carries match/port overrides.
+export function decodeExpose(value: unknown): ExposeConfig {
+  if (value === true) {
+    return { enabled: true, host: "", port: "" };
+  }
+  if (isRecord(value)) {
+    return {
+      enabled: value.enabled !== undefined ? asBoolean(value.enabled) : true,
+      host: asString(value.host),
+      port: asString(value.port),
+    };
+  }
+  return emptyExpose();
 }
 
 export function decodeServiceProxy(value: unknown): RouteConfig[] {
@@ -313,7 +332,7 @@ export function decodeRoute(value: unknown): RouteConfig {
   return {
     name: asString(value.name),
     match: { host: asString(match.host), path: asString(match.path) },
-    upstream: { url: asString(upstream.url) },
+    upstream: { url: asString(upstream.url), service: asString(upstream.service), port: asString(upstream.port) },
     auth: decodeRouteAuth(value.auth),
   };
 }

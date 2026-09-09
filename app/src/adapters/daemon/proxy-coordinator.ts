@@ -7,6 +7,9 @@ import type { Detector } from "../secrets/detector.ts";
 
 export type ProxyCoordinatorDeps = {
   cfg: () => DevctlConfig;
+  // Live assigned-ports map, keyed by service name then port name. Feeds the
+  // proxy's request-time resolution of service-reference upstreams.
+  ports: () => Map<string, Record<string, number>>;
   tokens: TokenManager;
   logs: LogStore;
   bus: Bus;
@@ -62,6 +65,7 @@ export class ProxyCoordinator {
       this.deps.bus,
       this.deps.detector,
       this.deps.middleware(),
+      (service, port) => this.deps.ports().get(service)?.[port || "http"],
     );
     await this.server.start();
     const cfg = this.deps.cfg();

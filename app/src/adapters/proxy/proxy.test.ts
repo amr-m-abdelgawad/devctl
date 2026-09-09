@@ -115,6 +115,47 @@ async function setupHeaderCapture(auth: RouteAuthConfig, tokens?: TokenManager, 
 }
 
 describe("proxy", () => {
+  test("resolves a service-reference upstream at request time and follows a port change", async () => {
+    const makeUpstream = async (body: string): Promise<{ server: ReturnType<typeof createServer>; port: number }> => {
+      const s = createServer((_req, res) => res.end(body));
+      await new Promise<void>((resolve) => s.listen(0, "127.0.0.1", () => resolve()));
+      const addr = s.address();
+      return { server: s, port: typeof addr === "object" && addr ? addr.port : 0 };
+    };
+    const a = await makeUpstream("from-A");
+    const b = await makeUpstream("from-B");
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", () => resolve()));
+    const reservedAddr = reserved.address();
+    const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({ name: "api", match: { host: "", path: "" }, upstream: { url: "", service: "api", port: "http" }, auth: NONE_AUTH });
+
+    // A mutable resolver stands in for the daemon's live assigned-ports map.
+    let current: number | undefined = a.port;
+    const server = new ProxyServer(cfg, undefined, undefined, undefined, undefined, [], (svc, port) => (svc === "api" && port === "http" ? current : undefined));
+    await server.start();
+    try {
+      const first = await fetch(`http://127.0.0.1:${proxyPort}/`);
+      expect(await first.text()).toBe("from-A");
+      // The service "restarts" on a different port; no proxy reload happens.
+      current = b.port;
+      const second = await fetch(`http://127.0.0.1:${proxyPort}/`);
+      expect(await second.text()).toBe("from-B");
+      // Service down: unresolved port surfaces as a 502.
+      current = undefined;
+      const down = await fetch(`http://127.0.0.1:${proxyPort}/`);
+      expect(down.status).toBe(502);
+    } finally {
+      await server.stop();
+      await new Promise<void>((resolve) => a.server.close(() => resolve()));
+      await new Promise<void>((resolve) => b.server.close(() => resolve()));
+    }
+  });
+
   test("proxies WebSocket upgrades, round-trips bytes, and closes live sockets on stop", async () => {
     const upstream = createServer();
     let seenAuthorization = "";

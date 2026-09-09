@@ -22,6 +22,7 @@ import {
   type RouteConfig,
   dependencyName,
   dependencyCondition,
+  namedPort,
 } from "../../domain/config/types.ts";
 
 const MAX_PORT = 65535;
@@ -309,12 +310,37 @@ function validateProxy(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}: duplicate route name ${route.name}`);
     }
     seenRoutes[route.name] = true;
-    if (route.upstream.url === "") {
-      issues.push(`${prefix}.upstream.url is required`);
-    }
+    issues.push(...validateRouteUpstream(route, prefix, cfg));
     issues.push(...validateRouteAuth(route, prefix));
   });
   issues.push(...validateTokenEndpoint(cfg));
+  return issues;
+}
+
+// A route addresses its upstream by a literal url (hand-written) or by a
+// service + port reference (synthesized from expose/gateway, resolved to the
+// live port at request time). Exactly one is required; a service reference
+// must name a real service and an existing port — which also catches an
+// `expose` on a service that has no matching (default "http") port.
+function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  const hasUrl = route.upstream.url !== "";
+  const svcName = route.upstream.service ?? "";
+  if (svcName === "") {
+    if (!hasUrl) {
+      issues.push(`${prefix}.upstream requires either url or service`);
+    }
+    return issues;
+  }
+  const svc = cfg.services[svcName];
+  if (!svc) {
+    issues.push(`${prefix}.upstream.service references unknown service ${svcName}`);
+    return issues;
+  }
+  const portName = route.upstream.port || "http";
+  if (namedPort(svc.ports, portName) === undefined) {
+    issues.push(`${prefix}.upstream: service ${svcName} has no port named ${portName}`);
+  }
   return issues;
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
 import { findRefs, refResolvable, resolveEnvMap, resolveString } from "./refs.ts";
 
 function cfgWithApi(ports: { name: string; value: number; auto: boolean }[]) {
@@ -39,6 +39,46 @@ describe("config refs", () => {
     const api = cfgWithApi([{ name: "http", value: 3000, auto: true }]);
     expect(() => resolveString("${services.api.ports}", api, {})).toThrow(/missing port name/);
     expect(() => resolveString("${services.api.ports.http}", api, {})).toThrow(/unresolvable/);
+  });
+
+  test("resolves service.url and .host to the direct loopback address by default", () => {
+    const cfg = cfgWithApi([{ name: "http", value: 3000, auto: false }]);
+    expect(resolveString("${services.api.url}", cfg, {})).toBe("http://127.0.0.1:3000");
+    expect(resolveString("${services.api.url}", cfg, { api: { http: 4100 } })).toBe("http://127.0.0.1:4100");
+    expect(resolveString("${services.api.host}", cfg, {})).toBe("127.0.0.1");
+  });
+
+  test("resolves service.url through the proxy when the service is exposed (hub mode)", () => {
+    const cfg = cfgWithApi([{ name: "http", value: 3000, auto: false }]);
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: 18080 };
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "api.local", path: "" },
+      upstream: { url: "", service: "api", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    // The proxy address is stable even though the target's real port moved.
+    expect(resolveString("${services.api.url}", cfg, { api: { http: 4100 } })).toBe("http://api.local:18080");
+    expect(resolveString("${services.api.host}", cfg, {})).toBe("api.local");
+  });
+
+  test("service.url falls back to direct addressing when the proxy is disabled", () => {
+    const cfg = cfgWithApi([{ name: "http", value: 3000, auto: false }]);
+    // A route exists but the proxy is off — no hub, so resolve direct.
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "api.local", path: "" },
+      upstream: { url: "", service: "api", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    expect(resolveString("${services.api.url}", cfg, {})).toBe("http://127.0.0.1:3000");
+  });
+
+  test("service.url is unresolvable for an auto port that has not been assigned yet", () => {
+    const cfg = cfgWithApi([{ name: "http", value: 3000, auto: true }]);
+    expect(() => resolveString("${services.api.url}", cfg, {})).toThrow(/unresolvable/);
+    expect(resolveString("${services.api.url}", cfg, { api: { http: 4100 } })).toBe("http://127.0.0.1:4100");
   });
 
   test("resolveEnvMap interpolates each value", () => {

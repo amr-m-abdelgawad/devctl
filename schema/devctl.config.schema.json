@@ -268,6 +268,21 @@
             { "type": "array", "items": { "$ref": "#/$defs/route" } }
           ]
         },
+        "expose": {
+          "description": "Expose this service through the proxy at a stable, host-based logical address (<service>.local) whose upstream port is resolved at request time. `true`, or an object with match/port overrides. Requires proxy.enabled.",
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "host": { "type": "string", "description": "Override the match host (default <service>.local)" },
+                "port": { "type": "string", "description": "Named port to forward to (default http)" }
+              }
+            }
+          ]
+        },
         "container": {
           "type": "object",
           "additionalProperties": false,
@@ -314,6 +329,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
+        "gateway": { "type": "boolean", "description": "Expose every HTTP-capable service (one with a port named http) through the proxy, as if each declared expose: true. Sugar over per-service expose." },
         "listen": {
           "type": "object",
           "additionalProperties": false,
@@ -354,7 +370,9 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "url": { "type": "string" }
+            "url": { "type": "string" },
+            "service": { "type": "string", "description": "Address the upstream by service name instead of a fixed url; the proxy resolves the service's live port at request time." },
+            "port": { "type": "string", "description": "Named port of the referenced service to forward to (default http)." }
           }
         },
         "auth": {

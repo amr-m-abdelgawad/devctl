@@ -1,6 +1,6 @@
 import { profileId } from "../ids.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyWatch, type DevctlConfig } from "../config/types.ts";
+import { defaultConfig, emptyExpose, emptyWatch, type DevctlConfig } from "../config/types.ts";
 import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan, supervisorRestartAdvice } from "./services.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -27,6 +27,7 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       hooks: { pre_start: { args: [], shell: false }, post_start: { args: [], shell: false } },
       capabilities: [],
       proxy: [],
+      expose: emptyExpose(),
       watch: emptyWatch(),
     };
   }

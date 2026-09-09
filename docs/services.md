@@ -30,6 +30,7 @@ services:
     proxy:                       # optional; merged into the global proxy at load
       match: { path: /api }
       upstream: { url: http://127.0.0.1:8000 }
+    expose: true                 # optional; reach it through the proxy at api.local
     restart:
       policy: on_failure         # never | on_failure | always
       max_retries: 3
@@ -47,6 +48,8 @@ services:
 ```
 
 Working directories resolve from the repository root (the directory that contains `.devctl`), not the process cwd.
+
+`${services.<name>.ports.<port>}` interpolates another service's port; `${services.<name>.url}` and `${services.<name>.host}` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). `expose: true` publishes the service through the proxy at `<service>.local`; `proxy.gateway: true` does the same for every HTTP service at once.
 
 String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.
 

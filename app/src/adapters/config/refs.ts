@@ -1,4 +1,24 @@
-import { firstPort, namedPort, type DevctlConfig } from "../../domain/config/types.ts";
+import { firstPort, namedPort, type DevctlConfig, type ServiceConfig } from "../../domain/config/types.ts";
+
+// The direct loopback port for a service: an assigned http port, else the
+// first assigned port, else a declared non-auto port. Undefined when only an
+// auto port is declared and nothing has been assigned yet.
+function directPort(svc: ServiceConfig, assignedPorts?: Record<string, number>): number | undefined {
+  if (assignedPorts) {
+    if (assignedPorts.http !== undefined) {
+      return assignedPorts.http;
+    }
+    const first = Object.values(assignedPorts)[0];
+    if (first !== undefined) {
+      return first;
+    }
+  }
+  const p = firstPort(svc.ports);
+  if (p && !p.auto) {
+    return p.value;
+  }
+  return undefined;
+}
 
 export function resolveString(
   value: string,
@@ -34,6 +54,27 @@ function resolveRef(ref: string, cfg: DevctlConfig, assigned: Record<string, Rec
     throw new Error(`reference \${${ref}}: unknown service`);
   }
   const assignedPorts = assigned[svcName];
+  // `.host` / `.url` give a stable logical address for a service. When the
+  // proxy is enabled and the service is exposed through it (a synthesized
+  // route references the service), they resolve to the proxy's entry address
+  // — a fixed host:port that survives the target moving to a new upstream
+  // port. Otherwise they resolve to the direct loopback address, which is a
+  // startup snapshot just like `.port`.
+  if (parts[2] === "host" || parts[2] === "url") {
+    const hubRoute = cfg.proxy.enabled ? cfg.proxy.routes.find((route) => route.upstream.service === svcName) : undefined;
+    if (parts[2] === "host") {
+      return hubRoute ? hubRoute.match.host || "127.0.0.1" : "127.0.0.1";
+    }
+    if (hubRoute) {
+      const host = hubRoute.match.host || "127.0.0.1";
+      return `http://${host}:${cfg.proxy.listen.port}${hubRoute.match.path}`;
+    }
+    const direct = directPort(svc, assignedPorts);
+    if (direct === undefined) {
+      throw new Error(`unresolvable reference \${${ref}}`);
+    }
+    return `http://127.0.0.1:${direct}`;
+  }
   if (parts[2] === "port") {
     if (assignedPorts) {
       if (assignedPorts.http !== undefined) {
