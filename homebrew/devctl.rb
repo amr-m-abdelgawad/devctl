@@ -1,26 +1,26 @@
 class Devctl < Formula
   desc "Local development orchestrator"
   homepage "https://github.com/amr-m-abdelgawad/devctl"
-  version "0.2.5"
+  version "0.3.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/amr-m-abdelgawad/devctl/releases/download/v#{version}/devctl-darwin-arm64"
-      sha256 "42b48f5a060a2d37401d6e22ca60f799d7d4796abf4bf0dac1537a8d84467c42"
+      sha256 "ee25bcc47dea9e83bc8b57291d0a29e912a4707291cbee0dafcfed83936bc51a"
     else
       url "https://github.com/amr-m-abdelgawad/devctl/releases/download/v#{version}/devctl-darwin-x64"
-      sha256 "08f768fea86d7615899b8071815455ad348576041f76123e11518b7ae7732a8d"
+      sha256 "6cf09d674f62b2f59db53933ab4c55303dea51fb196afc29163816253e5d8dbb"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/amr-m-abdelgawad/devctl/releases/download/v#{version}/devctl-linux-arm64"
-      sha256 "216f7200e890f29e70c314e7b90ca42b1488356060765eae9766380520e05761"
+      sha256 "0eb19ffb11b33e99eab88a249f1282fc3f56ea9f9cb67a23408a04e66ae7de09"
     else
       url "https://github.com/amr-m-abdelgawad/devctl/releases/download/v#{version}/devctl-linux-x64"
-      sha256 "905649c2a1c969169f8fb414983e4e4752104792f8bb6a6e81dd39bf5752b17b"
+      sha256 "f92f47b066de71650d49a1e93d7594fe26642650dfbb7bc5be84a2e6652bcd64"
     end
   end
 
