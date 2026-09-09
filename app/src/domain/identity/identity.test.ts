@@ -20,7 +20,7 @@ describe("identity helpers", () => {
         service_account: "",
         client_id: "",
         client_secret: "",
-        client_secret_env: "",
+       
       },
     });
     expect(configuredServiceAccounts(cfg)).toEqual(["api-dev@example.com", "worker-dev@example.com"]);
@@ -44,7 +44,7 @@ describe("identity helpers", () => {
         service_account: "",
         client_id: "",
         client_secret: "",
-        client_secret_env: "",
+       
       },
     });
     expect(configuredServiceAccounts(cfg)).toEqual([]);
@@ -69,7 +69,7 @@ describe("identity helpers", () => {
         service_account: "",
         client_id: "",
         client_secret: "",
-        client_secret_env: "",
+       
       },
     });
     expect(declaredServiceAccounts(cfg)).toEqual([{ email: "shared@example.com", active: true }]);

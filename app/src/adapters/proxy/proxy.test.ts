@@ -57,7 +57,7 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
   };
 }
 
-const NONE_AUTH: RouteAuthConfig = { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" };
+const NONE_AUTH: RouteAuthConfig = { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" };
 
 async function setupProxy(
   handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
@@ -139,7 +139,7 @@ describe("proxy", () => {
       name: "ws",
       match: { host: "", path: "/socket" },
       upstream: { url: `http://127.0.0.1:${upPort}` },
-      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "" },
     });
     const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token({ accessToken: "ws-token" }) }]);
     const proxy = new ProxyServer(cfg, tokens);
@@ -274,7 +274,7 @@ describe("proxy", () => {
       name: "down",
       match: { host: "", path: "" },
       upstream: { url: "http://127.0.0.1:1" },
-      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" },
     });
     const server = new ProxyServer(cfg);
     await server.start();
@@ -291,7 +291,7 @@ describe("proxy", () => {
       name: "billing",
       match: { host: "billing.local", path: "/v1" },
       upstream: { url: "https://example.com" },
-      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" },
     });
     expect(matchRoute(routes, { headers: { host: "billing.local:80" }, url: "/v1/orders" } as never)?.name).toBe("billing");
     expect(matchRoute(routes, { headers: { host: "other.local" }, url: "/v1/orders" } as never)).toBeUndefined();
@@ -386,7 +386,7 @@ describe("proxy", () => {
       name: "local",
       match: { host: "", path: "" },
       upstream: { url: `http://127.0.0.1:${upPort}` },
-      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" },
     });
     const server = new ProxyServer(cfg, undefined, logs);
     await server.start();
@@ -431,7 +431,7 @@ describe("proxy", () => {
       name: "iap",
       match: { host: "", path: "" },
       upstream: { url: `http://127.0.0.1:${upPort}` },
-      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "" },
     });
     const server = new ProxyServer(cfg, tokens);
     await server.start();
@@ -460,7 +460,7 @@ describe("proxy", () => {
       name: "iap",
       match: { host: "", path: "" },
       upstream: { url: mock.url },
-      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "" },
     });
     const server = new ProxyServer(cfg, tokens);
     await server.start();
@@ -566,7 +566,6 @@ describe("proxy identity and token wiring", () => {
       service_account: "",
       client_id: "",
       client_secret: "",
-      client_secret_env: "",
     };
     const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
     const resp = await fetch(`http://127.0.0.1:${proxyPort}/api`);
@@ -605,7 +604,6 @@ describe("proxy identity and token wiring", () => {
       service_account: "",
       client_id: "",
       client_secret: "",
-      client_secret_env: "",
     };
     const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
     const resp = await fetch(`http://127.0.0.1:${proxyPort}/invoices`);
@@ -638,7 +636,6 @@ describe("proxy identity and token wiring", () => {
       service_account: "",
       client_id: "desktop.apps.googleusercontent.com",
       client_secret: "local-secret",
-      client_secret_env: "",
     };
     const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
     const resp = await fetch(`http://127.0.0.1:${proxyPort}/secure`);
@@ -671,7 +668,6 @@ describe("proxy identity and token wiring", () => {
       service_account: "",
       client_id: "",
       client_secret: "",
-      client_secret_env: "",
     };
     const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
     const first = await fetch(`http://127.0.0.1:${proxyPort}/one`);
@@ -709,7 +705,6 @@ describe("proxy identity and token wiring", () => {
       service_account: "",
       client_id: "",
       client_secret: "",
-      client_secret_env: "",
     };
     const { proxyPort, close, seen } = await setupHeaderCapture(auth, tokens);
     await fetch(`http://127.0.0.1:${proxyPort}/one`);
@@ -747,7 +742,6 @@ describe("proxy identity and token wiring", () => {
       service_account: "",
       client_id: "",
       client_secret: "",
-      client_secret_env: "",
     };
     const { proxyPort, close } = await setupProxy((_req, res) => res.end("unreachable"), { auth, tokens, bus });
     const resp = await fetch(`http://127.0.0.1:${proxyPort}/secure`);

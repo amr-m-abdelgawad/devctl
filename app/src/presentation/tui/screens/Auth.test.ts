@@ -16,7 +16,7 @@ describe("Identity screen service accounts", () => {
         service_account: "",
         client_id: "",
         client_secret: "",
-        client_secret_env: "",
+       
       },
     });
 
@@ -36,7 +36,7 @@ describe("Identity screen service accounts", () => {
         service_account: "",
         client_id: "",
         client_secret: "",
-        client_secret_env: "",
+       
       },
     });
 

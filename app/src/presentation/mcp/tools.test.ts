@@ -122,7 +122,6 @@ describe("mcp tools", () => {
         audience: "123.apps.googleusercontent.com",
         client_id: "desktop.apps.googleusercontent.com",
         client_secret: "inline-secret",
-        client_secret_env: "IAP_OAUTH_CLIENT_SECRET",
       },
     });
     const result = (await callMcpTool(host, "get_config", {})) as {
@@ -136,9 +135,31 @@ describe("mcp tools", () => {
       identity: "user",
       audience: "123.apps.googleusercontent.com",
       client_id: "desktop.apps.googleusercontent.com",
-      client_secret_env: "IAP_OAUTH_CLIENT_SECRET",
     });
     expect(JSON.stringify(result)).not.toContain("inline-secret");
+  });
+
+  test("get_config shows an env-ref client_secret template and never a resolved secret", async () => {
+    const host = stubHost();
+    const cfg = host.config();
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://billing.example.com" },
+      auth: {
+        ...emptyRouteAuth(),
+        type: "iap",
+        identity: { type: "user", service_account: "" },
+        audience: "123.apps.googleusercontent.com",
+        client_id: "desktop.apps.googleusercontent.com",
+        client_secret: "${IAP_OAUTH_CLIENT_SECRET}",
+      },
+    });
+    const result = (await callMcpTool(host, "get_config", {})) as {
+      proxy: { routes: Array<Record<string, unknown>> };
+    };
+    expect(result.proxy.routes[0]?.client_secret).toBe("${IAP_OAUTH_CLIENT_SECRET}");
+    expect(JSON.stringify(result)).not.toContain("from-env");
   });
 
   test("get_config_sources returns provenance while redacting secret values", async () => {

@@ -107,7 +107,7 @@ describe("doctor", () => {
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "iap", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" },
     });
     const host = offlineHost();
     const report = await runDoctor(cfg, host);
@@ -131,8 +131,7 @@ describe("doctor", () => {
         audience: "/projects/1/iap",
         service_account: "",
         client_id: "desktop.apps.googleusercontent.com",
-        client_secret: "",
-        client_secret_env: "IAP_OAUTH_CLIENT_SECRET",
+        client_secret: "${IAP_OAUTH_CLIENT_SECRET}",
       },
     });
     const calls: Array<{ identity: string; audience: string; clientId?: string }> = [];

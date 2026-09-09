@@ -50,18 +50,18 @@ describe("config validate", () => {
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { type: "iap", identity: { type: "", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "", client_secret_env: "" },
+      auth: { type: "iap", identity: { type: "", service_account: "" }, audience: "/projects/1/iap", service_account: "", client_id: "", client_secret: "" },
     });
     expect(validate(cfg).some((issue) => issue.includes("identity.type is required"))).toBe(true);
   });
 
-  test("accepts an IAP user route with client_id and client_secret_env", () => {
+  test("accepts an IAP user route with client_id and an env-ref client_secret", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" }),
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" }),
     });
     expect(validate(cfg)).toEqual([]);
   });
@@ -74,7 +74,7 @@ describe("config validate", () => {
       upstream: { url: "https://example.com" },
       auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com" }),
     });
-    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_secret or client_secret_env is required when client_id is set");
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_secret is required when client_id is set");
   });
 
   test("rejects IAP client_secret without client_id", () => {
@@ -83,9 +83,9 @@ describe("config validate", () => {
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: iapUserAuth({ client_secret_env: "IAP_OAUTH_CLIENT_SECRET" }),
+      auth: iapUserAuth({ client_secret: "${IAP_OAUTH_CLIENT_SECRET}" }),
     });
-    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is required when client_secret or client_secret_env is set");
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is required when client_secret is set");
   });
 
   test("rejects OAuth client fields on a non-IAP route", () => {
@@ -94,7 +94,7 @@ describe("config validate", () => {
       name: "local",
       match: { host: "", path: "" },
       upstream: { url: "http://127.0.0.1:8000" },
-      auth: { ...emptyRouteAuth(), type: "none", identity: { type: "user", service_account: "" }, client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" },
+      auth: { ...emptyRouteAuth(), type: "none", identity: { type: "user", service_account: "" }, client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" },
     });
     expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is only valid when auth.type is iap");
   });
@@ -106,7 +106,7 @@ describe("config validate", () => {
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
       auth: {
-        ...iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" }),
+        ...iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" }),
         identity: { type: "service_account", service_account: "api@example.com" },
       },
     });

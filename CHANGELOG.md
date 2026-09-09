@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Optional IAP route `client_id` plus `client_secret` / `client_secret_env` mints user ID tokens with that OAuth client instead of ADC's default client. MCP `get_config`, status snapshots, CLI `proxy status`, and the TUI route details show `client_id` (never the secret).
+- Optional IAP route `client_id` plus `client_secret` mints user ID tokens with that OAuth client instead of ADC's default client. Put `${NAME}` or `${env.NAME}` in `client_secret` to read the secret from the environment at mint time. MCP `get_config`, status snapshots, CLI `proxy status`, and the TUI route details show `client_id` and env-ref templates (never a resolved secret).
+- MCP `search_docs` searches the compiled-in product documentation and onboarding skill.
 
 ## [0.2.5] - 2026-09-09
 

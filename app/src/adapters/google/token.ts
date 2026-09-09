@@ -12,6 +12,7 @@ import type { Clock } from "../../ports/clock.ts";
 import type { OAuthClientCredentials } from "../../ports/credential-provider.ts";
 import { systemClock } from "../system/clock.ts";
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
+import { interpolateEnvRefs } from "../../domain/config/env-ref.ts";
 
 const DEFAULT_THRESHOLD_MS = 5 * 60 * 1000;
 const FALLBACK_TTL_MS = 50 * 60 * 1000;
@@ -55,10 +56,11 @@ export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.Process
   if (clientId === "") {
     return undefined;
   }
-  const envName = (auth.client_secret_env ?? "").trim();
-  const clientSecret = (auth.client_secret ?? "").trim() || (envName === "" ? "" : env[envName] ?? "");
+  const raw = (auth.client_secret ?? "").trim();
+  const { value: clientSecret, missing } = interpolateEnvRefs(raw, env);
   if (clientSecret === "") {
-    throw newError(KindConfiguration, envName === "" ? `IAP client_id ${clientId} requires client_secret or client_secret_env` : `IAP client_secret_env ${envName} is empty`);
+    const name = missing[0];
+    throw newError(KindConfiguration, name ? `IAP client_secret env ${name} is empty` : `IAP client_id ${clientId} requires client_secret`);
   }
   return { clientId, clientSecret };
 }

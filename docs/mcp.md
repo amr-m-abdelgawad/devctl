@@ -15,11 +15,11 @@ devctl up for the repository.
 devctl mcp --on
 ```
 
-The agent calls `get_setup_guide`, surveys the repo, drafts a config, checks it
-with `validate_config` (which accepts candidate text, so it can check a draft
-before writing it), writes the files, and calls `reload_config`. Setup mode
-clears on the reload that finds a valid configuration, and `.devctl/` starts
-being watched for changes from then on.
+The agent calls `get_setup_guide` and `search_docs`, surveys the repo, drafts a
+config, checks it with `validate_config` (which accepts candidate text, so it
+can check a draft before writing it), writes the files, and calls
+`reload_config`. Setup mode clears on the reload that finds a valid
+configuration, and `.devctl/` starts being watched for changes from then on.
 
 `get_status` reports `setup_mode: true` while this state is active, so an agent
 can tell an empty service list apart from a daemon that failed to start
@@ -79,6 +79,7 @@ devctl mcp --json
 | `start_proxy` / `stop_proxy` | control | Start or stop the local reverse proxy |
 | `exec_service` | control | Run an arbitrary command in a service's resolved environment/cwd, or inspect its redacted environment with `print_env` |
 | `get_setup_guide` | setup | The onboarding guide for authoring a `.devctl`. `section`: `procedure` (default), `authoring`, `discovery`. Same text as [`skills/devctl-onboard`](../skills/devctl-onboard/SKILL.md), compiled into the binary so no skill install is needed |
+| `search_docs` | setup | Keyword search over the compiled-in product docs (`docs/*.md`) and the onboarding skill. Pass `query`; optional `limit` (default 5, max 10). Returns ranked pages with snippets |
 | `validate_config` | setup | Validate configuration and return the loader's exact issues. No arguments validates what is on disk; `text` validates a candidate `config.yaml` through the real load pipeline before it is written |
 
 No tool writes files. An agent authors `.devctl` with its own editing tools and uses `validate_config` to check the result.

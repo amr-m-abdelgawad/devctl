@@ -41,7 +41,7 @@ Injected when applicable:
 - `DEVCTL_ENVIRONMENT`
 - `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 
-References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values.
+References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${env.NAME}` is rejected there. IAP route `auth.client_secret` is the exception: `${NAME}` and `${env.NAME}` are expanded from the process environment when the token is minted, not at config load.
 
 `environment.required` on a service fails start if those keys are still empty after the merge.
 

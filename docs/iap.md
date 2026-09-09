@@ -21,7 +21,7 @@ auth:
     service_account: backend-dev@company-dev.iam.gserviceaccount.com
 ```
 
-User identity mints an ID token with ADC's default OAuth client. To mint with a **specific** OAuth client instead (a Desktop client, or the IAP client's own ID), set `client_id` and a secret. Prefer `client_secret_env` so the secret stays out of YAML:
+User identity mints an ID token with ADC's default OAuth client. To mint with a **specific** OAuth client instead (a Desktop client, or the IAP client's own ID), set `client_id` and `client_secret`. Put `${NAME}` or `${env.NAME}` in `client_secret` so the value is read from the environment at mint time — that is not the same as service-env `${services…}` interpolation, which does not run on route auth:
 
 ```yaml
 auth:
@@ -30,7 +30,7 @@ auth:
   identity:
     type: user
   client_id: "DESKTOP_CLIENT_ID.apps.googleusercontent.com"
-  client_secret_env: IAP_OAUTH_CLIENT_SECRET
+  client_secret: "${IAP_OAUTH_CLIENT_SECRET}"
 ```
 
 Omit `client_id` to keep the default ADC client. `client_id` is only valid on `auth.type: iap` with `identity.type: user`. Service-account IAP still uses IAM `generateIdToken` against `audience`.

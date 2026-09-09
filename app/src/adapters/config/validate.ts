@@ -342,8 +342,7 @@ function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
 function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[] {
   const clientId = (auth.client_id ?? "").trim();
   const secret = (auth.client_secret ?? "").trim();
-  const secretEnv = (auth.client_secret_env ?? "").trim();
-  if (clientId === "" && secret === "" && secretEnv === "") {
+  if (clientId === "" && secret === "") {
     return [];
   }
   if (auth.type.toLowerCase() !== "iap") {
@@ -351,11 +350,11 @@ function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[]
   }
   const issues: string[] = [];
   if (clientId === "") {
-    issues.push(`${prefix}.auth.client_id is required when client_secret or client_secret_env is set`);
+    issues.push(`${prefix}.auth.client_id is required when client_secret is set`);
     return issues;
   }
-  if (secret === "" && secretEnv === "") {
-    issues.push(`${prefix}.auth.client_secret or client_secret_env is required when client_id is set`);
+  if (secret === "") {
+    issues.push(`${prefix}.auth.client_secret is required when client_id is set`);
   }
   const identType = auth.identity.type.toLowerCase();
   if (identType === "service" || identType === "service_account") {

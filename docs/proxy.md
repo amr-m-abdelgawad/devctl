@@ -38,8 +38,9 @@ proxy:
       auth:
         type: none          # none | iap | service_account
         identity: user      # or { type: service_account, service_account: email }
-        # IAP only: audience is required. Optional client_id + client_secret_env
+        # IAP only: audience is required. Optional client_id + client_secret
         # mint the ID token with that OAuth client instead of ADC's default.
+        # client_secret may be a literal or ${NAME} / ${env.NAME}.
 ```
 ```
 

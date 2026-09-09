@@ -181,22 +181,27 @@ describe("resolveIapOAuthClient", () => {
     expect(resolveIapOAuthClient(emptyRouteAuth())).toBeUndefined();
   });
 
-  test("reads the secret from client_secret_env", () => {
-    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" };
+  test("reads the secret from ${NAME} in client_secret", () => {
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" };
     expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-env" })).toEqual({
       clientId: "desktop.apps.googleusercontent.com",
       clientSecret: "from-env",
     });
   });
 
-  test("prefers inline client_secret over the env value", () => {
-    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "inline", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" };
+  test("reads the secret from ${env.NAME} in client_secret", () => {
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "${env.IAP_OAUTH_CLIENT_SECRET}" };
+    expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-env" })?.clientSecret).toBe("from-env");
+  });
+
+  test("leaves a literal client_secret unchanged", () => {
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "inline" };
     expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-env" })?.clientSecret).toBe("inline");
   });
 
   test("throws when client_id is set and the env secret is empty", () => {
-    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret_env: "IAP_OAUTH_CLIENT_SECRET" };
-    expect(() => resolveIapOAuthClient(auth, {})).toThrow(/IAP client_secret_env IAP_OAUTH_CLIENT_SECRET is empty/);
+    const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" };
+    expect(() => resolveIapOAuthClient(auth, {})).toThrow(/IAP client_secret env IAP_OAUTH_CLIENT_SECRET is empty/);
   });
 });
 

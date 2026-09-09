@@ -296,7 +296,6 @@ function decodeRouteAuth(value: unknown): RouteAuthConfig {
     service_account: asString(value.service_account),
     client_id: asString(value.client_id),
     client_secret: asString(value.client_secret),
-    client_secret_env: asString(value.client_secret_env),
   };
 }
 

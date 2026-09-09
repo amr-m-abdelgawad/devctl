@@ -22,7 +22,7 @@
 | `start` brought up extra services | Empty start uses the active or first profile **alphabetically**, plus dependencies — YAML key order does not matter (demo: `backend`, not `data`). Pass `--profile` or explicit names to stay narrower |
 | Docker / Podman missing or daemon down | A service in config declares `container` (the demo's `postgres` always does, even if you never start `data`). Install and start that runtime, or drop the service. Default profiles do not start postgres |
 | Doctor offers to kill a busy port that is Docker | It should not: ports owned by a running container service are healthy, and Doctor never offers to terminate the Docker or Podman daemon. Re-run Doctor after the container is up |
-| MCP tools work but nothing starts | `get_status` reports `setup_mode: true` — there is no `.devctl` yet. Have the agent call `get_setup_guide` and `validate_config`, write the files, then `reload_config` |
+| MCP tools work but nothing starts | `get_status` reports `setup_mode: true` — there is no `.devctl` yet. Have the agent call `get_setup_guide`, `search_docs`, and `validate_config`, write the files, then `reload_config` |
 | `devctl exec --print-env` hides values | Secret-like names are redacted unless you also pass `--reveal` (TUI: `/exec <svc> --print-env --reveal` or `/reveal`). MCP `exec_service` never reveals them |
 | TUI env pane looks incomplete | It now loads the same resolved map as `devctl exec --print-env`. If the chip says `config fallback`, the daemon `exec` call failed — check `/daemon` and that the supervisor is up |
 | Supervisor will not start | `devctl daemon logs` or TUI `/daemon` is the bootstrap stderr, not the service log bus |

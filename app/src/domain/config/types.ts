@@ -159,7 +159,6 @@ export type RouteAuthConfig = {
   service_account: string;
   client_id: string;
   client_secret: string;
-  client_secret_env: string;
 };
 
 export function emptyRouteAuth(): RouteAuthConfig {
@@ -170,7 +169,6 @@ export function emptyRouteAuth(): RouteAuthConfig {
     service_account: "",
     client_id: "",
     client_secret: "",
-    client_secret_env: "",
   };
 }
 

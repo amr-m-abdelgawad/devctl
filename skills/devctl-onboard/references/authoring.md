@@ -41,7 +41,7 @@ complete allowlists.
 | `route` | `name` `match` `upstream` `auth` |
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` |
-| `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `client_secret_env` |
+| `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` |
 | `logs` | `max_memory_events` `persistence` |
 | `logs.persistence` | `enabled` `directory` `retention_days` `max_session_logs` |
 | `auth` | `refresh_threshold_seconds` |
@@ -196,10 +196,12 @@ Anything else is rejected.
 - `auth.type: iap` requires **both** `audience` and `auth.identity.type`. A
   missing identity type on an IAP route is a configuration error, not a
   default.
-- Optional `client_id` plus `client_secret` or `client_secret_env` mints the
-  user IAP ID token with that OAuth client instead of ADC's default client.
-  Prefer `client_secret_env`. These fields are invalid on non-IAP routes and
-  on IAP routes whose identity is a service account.
+- Optional `client_id` plus `client_secret` mints the user IAP ID token with
+  that OAuth client instead of ADC's default client. Put `${NAME}` or
+  `${env.NAME}` in `client_secret` so the value is read from the environment
+  at mint time (this is not service-env interpolation). These fields are
+  invalid on non-IAP routes and on IAP routes whose identity is a service
+  account.
 - An identity of `service` / `service_account` requires an SA email, from
   either `auth.identity.service_account` or the route's `auth.service_account`.
 - `auth.type: none` means no auth at all — any identity left on such a route is
@@ -346,8 +348,8 @@ Every message names its path. Fix the path it names.
 | `proxy.routes[i]: duplicate route name N` | often a per-service fragment colliding with a global route |
 | `proxy.routes[i].auth.audience is required when auth.type is iap` | IAP needs both audience and identity.type |
 | `proxy.routes[i].auth.client_id is only valid when auth.type is iap` | `client_id` / secret only apply to IAP user routes |
-| `proxy.routes[i].auth.client_id is required when client_secret or client_secret_env is set` | secret without client_id |
-| `proxy.routes[i].auth.client_secret or client_secret_env is required when client_id is set` | client_id needs a secret |
+| `proxy.routes[i].auth.client_id is required when client_secret is set` | secret without client_id |
+| `proxy.routes[i].auth.client_secret is required when client_id is set` | client_id needs a secret |
 | `proxy.routes[i].auth.client_id is only valid with identity.type user` | SA IAP uses generateIdToken, not a user OAuth client |
 | `proxy.listen.port is required when proxy.enabled is true` | pin a port |
 | `unsupported config version N (expected 1)` | `version:` must be `1` |

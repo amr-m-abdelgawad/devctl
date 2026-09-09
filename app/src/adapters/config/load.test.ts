@@ -195,13 +195,12 @@ proxy:
         audience: "123.apps.googleusercontent.com"
         identity: user
         client_id: desktop.apps.googleusercontent.com
-        client_secret_env: IAP_OAUTH_CLIENT_SECRET
+        client_secret: "\${IAP_OAUTH_CLIENT_SECRET}"
 `,
     );
     const cfg = load(dir, "");
     expect(cfg.proxy.routes[0]?.auth.client_id).toBe("desktop.apps.googleusercontent.com");
-    expect(cfg.proxy.routes[0]?.auth.client_secret_env).toBe("IAP_OAUTH_CLIENT_SECRET");
-    expect(cfg.proxy.routes[0]?.auth.client_secret).toBe("");
+    expect(cfg.proxy.routes[0]?.auth.client_secret).toBe("${IAP_OAUTH_CLIENT_SECRET}");
   });
 
   test("rejects unknown fields", () => {

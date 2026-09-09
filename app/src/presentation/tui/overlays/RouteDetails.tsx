@@ -24,7 +24,7 @@ export function RouteDetailsOverlay(props: {
           <text fg={palette.text} wrapMode="word">{`account     ${route.serviceAccount || "—"}`}</text>
           <text fg={palette.text} wrapMode="word">{`audience    ${route.audience || "—"}`}</text>
           <text fg={palette.muted} wrapMode="word">{`client id   ${route.clientId || "ADC default"}`}</text>
-          <text fg={palette.muted} wrapMode="word">{`secret env  ${route.clientSecretEnv || "—"}`}</text>
+          <text fg={palette.muted} wrapMode="word">{`client secret  ${route.clientSecret || "—"}`}</text>
           <text fg={palette.muted}>{`match host  ${route.matchHost || "*"}`}</text>
           <text fg={palette.muted}>{`match path  ${route.matchPath || "*"}`}</text>
           <text fg={palette.text} wrapMode="word">{`upstream    ${route.upstream}`}</text>
