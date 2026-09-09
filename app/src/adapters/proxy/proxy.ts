@@ -9,7 +9,7 @@ import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../s
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import { type Detector } from "../secrets/detector.ts";
-import { type TokenManager, resolveIapOAuthClient } from "../google/token.ts";
+import { type TokenManager, iapOAuthClientRef } from "../google/token.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
@@ -454,7 +454,7 @@ export async function injectIdentityHeaders(
     throw newError(KindProxy, "token manager unavailable");
   }
   const ident = fromRoute(route.auth);
-  const tok = await tokens.get(tokenIdentityKey(ident), route.auth.audience, [], resolveIapOAuthClient(route.auth));
+  const tok = await tokens.get(tokenIdentityKey(ident), route.auth.audience, [], iapOAuthClientRef(route.auth));
   headers.authorization = `Bearer ${tok.accessToken}`;
 }
 

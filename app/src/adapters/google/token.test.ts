@@ -167,12 +167,30 @@ describe("TokenManager", () => {
       },
     };
     const mgr = new TokenManager(60_000, [provider]);
-    const first = { clientId: "client-a", clientSecret: "sec-a" };
-    const second = { clientId: "client-b", clientSecret: "sec-b" };
+    const first = { clientId: "client-a", resolve: () => ({ clientId: "client-a", clientSecret: "sec-a" }) };
+    const second = { clientId: "client-b", resolve: () => ({ clientId: "client-b", clientSecret: "sec-b" }) };
     expect((await mgr.get("user", "aud", [], first)).accessToken).toBe("tok-client-a");
     expect((await mgr.get("user", "aud", [], second)).accessToken).toBe("tok-client-b");
     expect((await mgr.get("user", "aud", [], first)).accessToken).toBe("tok-client-a");
     expect(seen).toEqual(["client-a", "client-b"]);
+  });
+
+  test("reuses a cached token without re-resolving the OAuth secret", async () => {
+    home();
+    let resolves = 0;
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async () => tok({ accessToken: "minted", expiresAt: new Date(Date.now() + 3_600_000) }),
+    };
+    const mgr = new TokenManager(60_000, [provider]);
+    // First call mints, resolving the secret exactly once.
+    const withSecret = { clientId: "client-x", resolve: () => { resolves++; return { clientId: "client-x", clientSecret: "sec" }; } };
+    expect((await mgr.get("user", "aud", [], withSecret)).accessToken).toBe("minted");
+    expect(resolves).toBe(1);
+    // Secret is now gone — resolve() would throw. A still-valid cached token
+    // must be returned without touching it (regression: eager resolve 502'd).
+    const secretGone = { clientId: "client-x", resolve: (): never => { throw new Error("IAP client_secret env is empty"); } };
+    expect((await mgr.get("user", "aud", [], secretGone)).accessToken).toBe("minted");
   });
 });
 

@@ -18,7 +18,7 @@ complete allowlists.
 
 **Service** (and `templates.<name>`, same shape): `extends` `description`
 `command` `shell` `working_dir` `dependencies` `ports` `environment` `health`
-`identity` `logs` `restart` `startup` `capabilities` `proxy` `container` `watch` `hooks`
+`identity` `logs` `restart` `startup` `capabilities` `proxy` `expose` `container` `watch` `hooks`
 
 | Section | Allowed keys |
 |---|---|
@@ -35,12 +35,13 @@ complete allowlists.
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
 | `service.logs` | `stdout` `stderr` |
 | `service.environment` | `required` `defaults` + arbitrary `KEY: value` pairs |
-| `proxy` | `enabled` `listen` `token_endpoint` `routes` |
+| `service.expose` | `enabled` `host` `port` (or the `true` shorthand) |
+| `proxy` | `enabled` `gateway` `listen` `token_endpoint` `routes` |
 | `proxy.listen` | `host` `port` |
 | `proxy.token_endpoint` | `enabled` `host` `port` |
 | `route` | `name` `match` `upstream` `auth` |
 | `route.match` | `host` `path` |
-| `route.upstream` | `url` |
+| `route.upstream` | `url` `service` `port` |
 | `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` |
 | `logs` | `max_memory_events` `persistence` |
 | `logs.persistence` | `enabled` `directory` `retention_days` `max_session_logs` |
@@ -190,7 +191,11 @@ Anything else is rejected.
 - `proxy.listen.port` is **required** when `proxy.enabled: true`.
 - `proxy.listen.host` must be loopback (`127.0.0.1`, `localhost`, `::1`, or `127.0.0.0/8`). `0.0.0.0` and `::` are rejected.
 - `proxy.token_endpoint.host` must be loopback; `0.0.0.0` and `::` are rejected.
-- Every route needs a `name` and an `upstream.url`.
+- Every route needs a `name` and either `upstream.url` or `upstream.service`.
+  A service reference must name a real service and an existing port (default
+  port name is `http`). `service.expose` and `proxy.gateway` synthesize
+  service-reference routes; they do nothing unless `proxy.enabled` is true.
+  A hand-written route of the same name wins.
 - **Route names must be unique** — including names generated from per-service
   `proxy` fragments.
 - `auth.type: iap` requires **both** `audience` and `auth.identity.type`. A

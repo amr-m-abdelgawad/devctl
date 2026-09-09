@@ -27,3 +27,14 @@ export function secretTemplateLabel(value: string): string | undefined {
   }
   return trimmed;
 }
+
+/**
+ * True when the value is exactly one complete `${NAME}` / `${env.NAME}`
+ * reference with no surrounding literal text. A pure literal (no reference at
+ * all) is not a whole ref; callers that accept literals must check that
+ * separately. Used to reject "mixed" secret values like `prefix-${SECRET}`,
+ * which would silently interpolate to a half-literal token.
+ */
+export function isWholeEnvRef(value: string): boolean {
+  return /^\$\{(?:env\.)?[A-Za-z_][A-Za-z0-9_]*\}$/.test(value.trim());
+}

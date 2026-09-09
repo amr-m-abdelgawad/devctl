@@ -76,18 +76,9 @@ function resolveRef(ref: string, cfg: DevctlConfig, assigned: Record<string, Rec
     return `http://127.0.0.1:${direct}`;
   }
   if (parts[2] === "port") {
-    if (assignedPorts) {
-      if (assignedPorts.http !== undefined) {
-        return String(assignedPorts.http);
-      }
-      const first = Object.values(assignedPorts)[0];
-      if (first !== undefined) {
-        return String(first);
-      }
-    }
-    const p = firstPort(svc.ports);
-    if (p && !p.auto) {
-      return String(p.value);
+    const direct = directPort(svc, assignedPorts);
+    if (direct !== undefined) {
+      return String(direct);
     }
   }
   if (parts[2] === "ports") {

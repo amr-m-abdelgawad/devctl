@@ -261,6 +261,9 @@ export function decodeExpose(value: unknown): ExposeConfig {
   if (value === true) {
     return { enabled: true, host: "", port: "" };
   }
+  if (value === false) {
+    return { enabled: false, host: "", port: "" };
+  }
   if (isRecord(value)) {
     return {
       enabled: value.enabled !== undefined ? asBoolean(value.enabled) : true,

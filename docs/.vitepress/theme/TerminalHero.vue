@@ -134,14 +134,6 @@ const logs = [
 .tui__status { justify-content: space-between; min-height: 22px; padding: 0 6px; border-top: 1px solid var(--tui-line); color: var(--tui-muted); }
 .tui__status i { display: inline-block; padding: 3px 7px; color: #121212; font-style: normal; font-weight: 700; }
 @media (max-width: 959px) { .tui { width: 100%; font-size: clamp(7px, 1.75vw, 10px); } }
-@media (max-width: 560px) {
-  .tui__topbar .tui__muted, .tui__tabs span:nth-child(n+7), .tui__log-tabs span:nth-child(n+3), .tui__status > span:last-child { display: none; }
-  .tui__workspace { grid-template-columns: 38% 1fr; min-height: 245px; }
-  .tui__service-head, .tui__service-row { grid-template-columns: 35px 1fr; }
-  .tui__state, .tui__log-line .tui__source, .tui__log-line .tui__level { display: none; }
-  .tui__log-line { grid-template-columns: 42px 30px minmax(0, 1fr); gap: 3px; }
-  .tui__topbar, .tui__tabs, .tui__command { gap: 3px; padding-left: 5px; padding-right: 5px; }
-}
 @media (max-width: 640px) {
   .tui__workspace { grid-template-columns: 1fr; min-height: 200px; }
   .tui__logs { display: none; }
@@ -150,6 +142,14 @@ const logs = [
   .tui__state { display: block; }
   .tui__status > span:last-child { display: none; }
   .tui__topbar .tui__muted { display: none; }
+}
+@media (max-width: 560px) {
+  .tui__topbar .tui__muted, .tui__tabs span:nth-child(n+7), .tui__log-tabs span:nth-child(n+3), .tui__status > span:last-child { display: none; }
+  .tui__workspace { grid-template-columns: 38% 1fr; min-height: 245px; }
+  .tui__service-head, .tui__service-row { grid-template-columns: 35px 1fr; }
+  .tui__state, .tui__log-line .tui__source, .tui__log-line .tui__level { display: none; }
+  .tui__log-line { grid-template-columns: 42px 30px minmax(0, 1fr); gap: 3px; }
+  .tui__topbar, .tui__tabs, .tui__command { gap: 3px; padding-left: 5px; padding-right: 5px; }
 }
 @media (prefers-reduced-motion: reduce) { .tui * { animation: none !important; } }
 </style>

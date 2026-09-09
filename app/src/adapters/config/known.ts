@@ -44,6 +44,7 @@ export const knownDependency = ["service", "condition"];
 export const knownIdentity = ["type", "mode", "service_account", "config"];
 export const knownRestart = ["enabled", "policy", "max_retries", "backoff_seconds"];
 export const knownStartup = ["wait_for_healthy", "timeout_seconds"];
+export const knownExpose = ["enabled", "host", "port"];
 export const knownProxy = ["enabled", "gateway", "listen", "token_endpoint", "routes"];
 export const knownListen = ["host", "port"];
 export const knownRoute = ["name", "match", "upstream", "auth"];

@@ -103,7 +103,7 @@ services:
 - **Direct** (target not exposed): resolves to `http://127.0.0.1:<port>` — a startup snapshot, like `${services.<name>.port}`.
 - **Hub** (target exposed and proxy enabled): resolves to the proxy entry address, e.g. `http://invoices-api.local:8080`. This is stable — the consumer keeps working even when the target moves to a new port.
 
-Host-based addressing means `<service>.local` must resolve to `127.0.0.1` on the machine (and inside any container) that makes the request — add it to `/etc/hosts` or your resolver.
+Host-based addressing is for **host** clients: `<service>.local` must resolve to `127.0.0.1` on the machine that makes the request — add it to `/etc/hosts` or your resolver. A container's loopback is isolated from the host proxy, and the container schema has no host-network or extra-hosts mode, so do not point a container at `<service>.local`.
 
 ## Token endpoint
 

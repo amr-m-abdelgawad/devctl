@@ -1625,7 +1625,7 @@ services:
 - **Direct** (target not exposed): resolves to \`http://127.0.0.1:<port>\` — a startup snapshot, like \`\${services.<name>.port}\`.
 - **Hub** (target exposed and proxy enabled): resolves to the proxy entry address, e.g. \`http://invoices-api.local:8080\`. This is stable — the consumer keeps working even when the target moves to a new port.
 
-Host-based addressing means \`<service>.local\` must resolve to \`127.0.0.1\` on the machine (and inside any container) that makes the request — add it to \`/etc/hosts\` or your resolver.
+Host-based addressing is for **host** clients: \`<service>.local\` must resolve to \`127.0.0.1\` on the machine that makes the request — add it to \`/etc/hosts\` or your resolver. A container's loopback is isolated from the host proxy, and the container schema has no host-network or extra-hosts mode, so do not point a container at \`<service>.local\`.
 
 ## Token endpoint
 
@@ -1936,7 +1936,7 @@ services:
 
 Working directories resolve from the repository root (the directory that contains \`.devctl\`), not the process cwd.
 
-\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`expose: true\` publishes the service through the proxy at \`<service>.local\`; \`proxy.gateway: true\` does the same for every HTTP service at once.
+\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
 String commands that contain \`|\`, \`||\`, \`&&\`, \`;\`, \`>\`, \`>>\`, \`<\`, or \`&\` fail validation unless \`shell: true\`.
 

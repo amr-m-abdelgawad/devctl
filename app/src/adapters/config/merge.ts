@@ -470,7 +470,9 @@ function synthesizeExposeRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance
     if (!svc) {
       continue;
     }
-    const exposed = svc.expose.enabled || (cfg.proxy.gateway && namedPort(svc.ports, "http") !== undefined);
+    // An explicit `expose: false` opts the service out even when gateway is on.
+    const optedOut = svc.expose.enabled === false;
+    const exposed = !optedOut && (svc.expose.enabled === true || (cfg.proxy.gateway && namedPort(svc.ports, "http") !== undefined));
     if (!exposed || claimed.has(name)) {
       continue;
     }
@@ -484,7 +486,7 @@ function synthesizeExposeRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance
     cfg.proxy.routes.push(route);
     claimed.add(name);
     if (provenance) {
-      const via = svc.expose.enabled ? `services.${name}.expose` : "proxy.gateway";
+      const via = svc.expose.enabled === true ? `services.${name}.expose` : "proxy.gateway";
       recordProvenance(provenance, route, `synthesized from ${via}`, "synthesized", `proxy.routes.${index}`);
     }
   }

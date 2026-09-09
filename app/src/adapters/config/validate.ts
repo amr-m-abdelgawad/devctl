@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findRefs, refResolvable } from "./refs.ts";
+import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
   commandEmpty,
   CurrentVersion,
@@ -381,6 +382,11 @@ function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[]
   }
   if (secret === "") {
     issues.push(`${prefix}.auth.client_secret is required when client_id is set`);
+  } else if (envRefsIn(secret).length > 0 && !isWholeEnvRef(secret)) {
+    // A pure literal is fine; a value that carries an environment reference
+    // must be exactly ${NAME} / ${env.NAME}. A mixed value like `pre-${SECRET}`
+    // would interpolate to a half-literal token — reject it up front.
+    issues.push(`${prefix}.auth.client_secret must be a literal or a single \${NAME} / \${env.NAME} reference`);
   }
   const identType = auth.identity.type.toLowerCase();
   if (identType === "service" || identType === "service_account") {

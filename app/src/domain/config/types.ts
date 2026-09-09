@@ -121,14 +121,19 @@ export type ServiceConfig = {
 // forward to (default "http"). Exposure is host-based only — the proxy
 // forwards the request path verbatim, so a path prefix belongs on a
 // hand-written route, not here.
+//
+// `enabled` is tri-state so the decoder can tell three cases apart:
+//   undefined → not set (gateway may still expose it)
+//   true      → always exposed
+//   false     → explicit opt-out, honored even under `proxy.gateway`.
 export type ExposeConfig = {
-  enabled: boolean;
+  enabled?: boolean;
   host: string;
   port: string;
 };
 
 export function emptyExpose(): ExposeConfig {
-  return { enabled: false, host: "", port: "" };
+  return { enabled: undefined, host: "", port: "" };
 }
 
 export type ProfileConfig = {
@@ -207,9 +212,11 @@ export type RouteConfig = {
 export type ProxyConfig = {
   enabled: boolean;
   // When true, every HTTP-capable service (one with a port named "http") is
-  // exposed through the proxy as if it declared `expose: true`, unless it opts
-  // out or a hand-written route already claims its name. Sugar over per-service
+  // exposed through the proxy as if it declared `expose: true`, unless a
+  // hand-written route already claims its name. Sugar over per-service
   // `expose`; both synthesize the same kind of service-reference route.
+  // Selective exposure is `gateway` off plus per-service `expose` — there is
+  // no opt-out flag once gateway is on.
   gateway: boolean;
   listen: ListenConfig;
   token_endpoint: TokenEndpointConfig;

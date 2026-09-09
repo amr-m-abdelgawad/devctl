@@ -112,6 +112,17 @@ describe("config validate", () => {
     expect(validate(cfg)).toEqual([]);
   });
 
+  test("rejects a mixed client_secret that is not a whole ${…} reference", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ client_id: "desktop.apps.googleusercontent.com", client_secret: "pre-${IAP_OAUTH_CLIENT_SECRET}" }),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.client_secret must be a literal or a single ${NAME} / ${env.NAME} reference");
+  });
+
   test("rejects IAP client_id without a secret", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({

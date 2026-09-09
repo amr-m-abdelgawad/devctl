@@ -49,7 +49,7 @@ services:
 
 Working directories resolve from the repository root (the directory that contains `.devctl`), not the process cwd.
 
-`${services.<name>.ports.<port>}` interpolates another service's port; `${services.<name>.url}` and `${services.<name>.host}` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). `expose: true` publishes the service through the proxy at `<service>.local`; `proxy.gateway: true` does the same for every HTTP service at once.
+`${services.<name>.ports.<port>}` interpolates another service's port; `${services.<name>.url}` and `${services.<name>.host}` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). `expose: true` publishes the service through the proxy at `<service>.local` when `proxy.enabled` is true; `proxy.gateway: true` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
 String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.
 

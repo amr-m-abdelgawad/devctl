@@ -556,6 +556,24 @@ services:
     expect(names).not.toContain("worker");
   });
 
+  test("proxy.gateway honors an explicit expose: false opt-out", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-gateway-optout-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+proxy:
+  enabled: true
+  gateway: true
+  listen: { host: 127.0.0.1, port: 18080 }
+services:
+  api: { command: [api], ports: { http: 3000 } }
+  private: { command: [private], ports: { http: 3001 }, expose: false }
+`);
+    const cfg = load(dir, "");
+    const names = cfg.proxy.routes.map((r) => r.name);
+    expect(names).toContain("api");
+    expect(names).not.toContain("private");
+  });
+
   test("expose is inert when the proxy is disabled", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-expose-off-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `

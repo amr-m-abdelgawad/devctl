@@ -65,6 +65,34 @@ export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.Process
   return { clientId, clientSecret };
 }
 
+// A lazy handle to a route's OAuth client. The token cache key needs only the
+// clientId, so `get`/`refresh` can find a valid cached token without touching
+// the (possibly env-backed, possibly empty) secret — resolve() runs, and can
+// throw, only when a refresh actually mints a new token. This keeps a still
+// valid cached token usable even after its env secret is removed, instead of
+// 502-ing on the eager resolve.
+export type OAuthClientRef = {
+  clientId: string;
+  resolve: () => OAuthClientCredentials;
+};
+
+export function iapOAuthClientRef(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env): OAuthClientRef | undefined {
+  const clientId = (auth.client_id ?? "").trim();
+  if (clientId === "") {
+    return undefined;
+  }
+  return {
+    clientId,
+    resolve: () => {
+      const creds = resolveIapOAuthClient(auth, env);
+      if (!creds) {
+        throw newError(KindConfiguration, `IAP client_id ${clientId} requires client_secret`);
+      }
+      return creds;
+    },
+  };
+}
+
 export function isValidToken(tok: AccessToken, thresholdMs = DEFAULT_THRESHOLD_MS, nowMs = Date.now()): boolean {
   if (tok.accessToken === "") {
     return false;
@@ -127,7 +155,7 @@ export class TokenManager {
     return this.store.backend;
   }
 
-  async get(identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials): Promise<AccessToken> {
+  async get(identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
     const key = tokenCacheKey(identity, audience, scopes, oauth?.clientId);
     const cached = this.cache.get(key) ?? (await this.loadStored(key));
     if (cached && this.isValid(cached)) {
@@ -137,7 +165,7 @@ export class TokenManager {
     return this.refresh(identity, audience, scopes, oauth);
   }
 
-  async refresh(identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials): Promise<AccessToken> {
+  async refresh(identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
     const key = tokenCacheKey(identity, audience, scopes, oauth?.clientId);
     const pending = this.inflight.get(key);
     if (pending) {
@@ -152,15 +180,19 @@ export class TokenManager {
     }
   }
 
-  private async refreshOnce(key: string, identity: string, audience: string, scopes: string[], oauth?: OAuthClientCredentials): Promise<AccessToken> {
-    const candidates = this.providers.filter((provider) => !provider.accepts || provider.accepts(identity, audience, scopes, oauth));
+  private async refreshOnce(key: string, identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
+    // Only now that a mint is actually happening do we resolve the OAuth
+    // secret — a cache hit in get() never reaches here, so a valid cached
+    // token survives an empty/removed env secret.
+    const creds = oauth?.resolve();
+    const candidates = this.providers.filter((provider) => !provider.accepts || provider.accepts(identity, audience, scopes, creds));
     if (candidates.length === 0) {
       throw newError(KindToken, `no token provider accepts identity ${identity}`);
     }
     let lastErr: Error = newError(KindToken, "no token provider available");
     for (const provider of candidates) {
       try {
-        const tok = await withRetry(() => provider.fetch(identity, audience, scopes, oauth), {
+        const tok = await withRetry(() => provider.fetch(identity, audience, scopes, creds), {
           attempts: TOKEN_RETRY_MAX,
           backoffMs: TOKEN_RETRY_BACKOFF_MS,
           retry: isTransientTokenError,
@@ -338,7 +370,7 @@ async function fetchUserIdToken(identity: string, audience: string, scopes: stri
   try {
     ensureFetchShim();
     if (oauth) {
-      return fetchUserIdTokenWithOAuthClient(identity, audience, scopes, oauth);
+      return await fetchUserIdTokenWithOAuthClient(identity, audience, scopes, oauth);
     }
     const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [IAP_SCOPE] });
     const client = await auth.getIdTokenClient(audience);

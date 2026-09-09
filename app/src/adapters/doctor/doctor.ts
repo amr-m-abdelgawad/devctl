@@ -6,7 +6,7 @@ import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type Go
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
-import { TokenManager, googleTokenProviders, resolveIapOAuthClient, type OAuthClientCredentials } from "../google/token.ts";
+import { TokenManager, googleTokenProviders, iapOAuthClientRef, type OAuthClientRef } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
 export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
@@ -21,7 +21,7 @@ export type DoctorHost = {
   hasLocalAdc?: () => boolean;
   adcQuotaProject?: () => string;
   liveDeadlineMs?: number;
-  mintToken?: (identity: string, audience: string, oauth?: OAuthClientCredentials) => Promise<void>;
+  mintToken?: (identity: string, audience: string, oauth?: OAuthClientRef) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
   containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
 };
@@ -328,7 +328,7 @@ async function addLiveCloudChecks(
   const iap = mintableIap.map(async (route) => {
     const identity = fromRoute(route.auth).kind === KindServiceAccount ? `sa:${fromRoute(route.auth).serviceAccount}` : "user";
     try {
-      const oauth = resolveIapOAuthClient(route.auth);
+      const oauth = iapOAuthClientRef(route.auth);
       await withTimeout(mint(identity, route.auth.audience, oauth), LIVE_PROBE_MS);
       add({ name: `IAP ${route.name}`, severity: "ok", message: "id token minted" });
     } catch (err) {
