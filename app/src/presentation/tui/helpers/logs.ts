@@ -50,7 +50,7 @@ export type LogFold = {
   readonly hidden: number;
 };
 
-export type LogSpanKind = "text" | "string" | "keyword" | "number";
+export type LogSpanKind = "text" | "string" | "keyword" | "number" | "search";
 
 export type LogSpan = {
   text: string;
@@ -205,7 +205,71 @@ function wrapBreakAt(window: string): number {
   return window[at] === "," ? at + 1 : at;
 }
 
-export function logMessageSpans(message: string): LogSpan[] {
+function escapeSearch(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function logSearchRegex(search: string, regex = false): RegExp | undefined {
+  const trimmed = search.trim();
+  if (trimmed === "") {
+    return undefined;
+  }
+  if (regex) {
+    const compiled = compileLogSearch(trimmed);
+    if (compiled) {
+      return new RegExp(compiled.source, compiled.flags.includes("g") ? compiled.flags : `${compiled.flags}g`);
+    }
+  }
+  return new RegExp(escapeSearch(trimmed), "gi");
+}
+
+function applySearchSpans(spans: LogSpan[], re: RegExp): LogSpan[] {
+  const plain = spans.map((span) => span.text).join("");
+  const hits: Array<{ start: number; end: number }> = [];
+  re.lastIndex = 0;
+  let found = re.exec(plain);
+  while (found) {
+    const token = found[0] ?? "";
+    if (token.length > 0) {
+      hits.push({ start: found.index, end: found.index + token.length });
+    }
+    if (token.length === 0) {
+      re.lastIndex += 1;
+    }
+    found = re.exec(plain);
+  }
+  if (hits.length === 0) {
+    return spans;
+  }
+  const out: LogSpan[] = [];
+  let cursor = 0;
+  for (const span of spans) {
+    const spanStart = cursor;
+    const spanEnd = cursor + span.text.length;
+    let from = 0;
+    for (const hit of hits) {
+      const start = Math.max(hit.start, spanStart);
+      const end = Math.min(hit.end, spanEnd);
+      if (end <= start) {
+        continue;
+      }
+      const localStart = start - spanStart;
+      const localEnd = end - spanStart;
+      if (localStart > from) {
+        out.push({ text: span.text.slice(from, localStart), kind: span.kind });
+      }
+      out.push({ text: span.text.slice(localStart, localEnd), kind: "search" });
+      from = localEnd;
+    }
+    if (from < span.text.length) {
+      out.push({ text: span.text.slice(from), kind: span.kind });
+    }
+    cursor = spanEnd;
+  }
+  return out.filter((span) => span.text !== "");
+}
+
+export function logMessageSpans(message: string, search = "", regex = false): LogSpan[] {
   const plain = stripAnsi(message);
   const spans: LogSpan[] = [];
   const re = new RegExp(LOG_TOKEN.source, "gi");
@@ -223,10 +287,9 @@ export function logMessageSpans(message: string): LogSpan[] {
   if (last < plain.length) {
     spans.push({ text: plain.slice(last), kind: "text" });
   }
-  if (spans.length === 0) {
-    return [{ text: plain, kind: "text" }];
-  }
-  return spans;
+  const base = spans.length === 0 ? [{ text: plain, kind: "text" as const }] : spans;
+  const searchRe = logSearchRegex(search, regex);
+  return searchRe ? applySearchSpans(base, searchRe) : base;
 }
 
 export function logMessageWidth(opts: {
@@ -266,10 +329,6 @@ export function isSystemLogSource(source: string): boolean {
 // is no stale cross-session data to protect against here — only `since` (the log-view boundary set
 // by an explicit clear or filter command) should ever hide events. Starting or stopping services
 // must not clear the view; see the `clear` command / Clear button for that.
-export function visibleLogs(events: LogEvent[], since?: string): LogEvent[] {
-  return since ? events.filter((ev) => ev.timestamp >= since) : events;
-}
-
 export function appendVisibleLogs(current: LogEvent[], incoming: LogEvent[], since: string, cap: number): LogEvent[] {
   const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
   if (accepted.length === 0) {
@@ -332,10 +391,6 @@ export function formatLogDetails(ev: LogEvent): string {
     `request   ${ev.request_id || "—"}`,
     `identity  ${ev.identity || "—"}`,
   ].join("\n");
-}
-
-export function formatLogsForClipboard(events: LogEvent[]): string {
-  return events.map((ev) => formatLogLine(ev)).join("\n");
 }
 
 export function filterLogs(

@@ -21,52 +21,41 @@ const logs = [
 <template>
   <div class="tui" aria-hidden="true">
     <div class="tui__topbar">
-      <span class="tui__chip tui__chip--cyan">devctl 0.2.4</span>
-      <span class="tui__project">demo-platform</span>
-      <span class="tui__chip tui__chip--magenta">backend</span>
+      <span class="tui__project">devctl 0.2.4&nbsp;&nbsp; demo-platform&nbsp;&nbsp; backend</span>
       <span class="tui__top-spacer" />
-      <span class="tui__muted">none started&nbsp; ○ off</span>
+      <span class="tui__muted">none started</span>
       <span class="tui__chip tui__chip--blue">MCP</span>
       <span class="tui__chip tui__chip--green">ADC ok</span>
     </div>
 
     <div class="tui__tabs">
-      <span class="is-active">dashboard</span><span>services</span><span>logs</span><span>identity</span><span>credentials</span><span>proxy</span><span>doctor</span><span>config</span><span>profiles</span><span>setup</span><span>stats</span><span>settings</span>
+      <span class="is-active">dashboard</span><span>services</span><span>logs</span><span>proxy</span>
     </div>
 
     <div class="tui__workspace">
       <section class="tui__panel tui__services">
         <div class="tui__panel-title">services</div>
-        <div class="tui__subhead">none started&nbsp;&nbsp; up 12m 19s</div>
-        <div class="tui__rule" />
-        <div class="tui__action">none started&nbsp;&nbsp; <b>space</b> select&nbsp;&nbsp; <b>enter</b> start</div>
-        <div class="tui__rule" />
         <div class="tui__service-head"><span>sel</span><span>name</span><span>state</span></div>
         <div v-for="(service, index) in services" :key="service.name" class="tui__service-row" :class="`is-${service.tone}`">
           <span class="tui__selection">{{ index === 0 ? '› [ ]' : '  [ ]' }}</span>
           <span class="tui__service-name">○ {{ service.name }}</span>
           <span class="tui__state">STOPPED</span>
         </div>
-        <div class="tui__services-foot">identity&nbsp; dev@example.com&nbsp;&nbsp; logs 4</div>
       </section>
 
       <section class="tui__panel tui__logs">
-        <div class="tui__panel-title">logs&nbsp; · &nbsp;1–5 of 5</div>
-        <div class="tui__log-tools"><span class="tui__chip tui__chip--green">LIVE</span><span class="tui__chip tui__chip--blue">shown 5</span><span>total 2</span><span>all services</span><span>all levels</span><span class="tui__chip tui__chip--magenta">system: on</span><span>clear</span></div>
-        <div class="tui__rule" />
-        <div class="tui__log-tabs"><span class="is-current">1 all · 2</span><span>2 billing-console · 0</span><span>3 identity · 0</span><span>4 invoices-api · 0</span></div>
+        <div class="tui__panel-title">logs&nbsp; · &nbsp;all&nbsp; · &nbsp;1–4 of 4</div>
+        <div class="tui__log-tabs"><span class="is-current">all · 4</span><span>billing-console · 0</span><span>identity · 0</span><span>invoices-api · 0</span></div>
         <div class="tui__rule" />
         <div class="tui__log-lines">
           <div v-for="log in logs" :key="`${log.time}-${log.service}`" class="tui__log-line" :class="{ 'is-warning': log.warning }">
             <span class="tui__time">{{ log.time }}</span><span class="tui__log-service" :class="`is-${log.tone}`">{{ log.service }}</span><span class="tui__level">{{ log.level }}</span><span class="tui__source">devctl</span><span class="tui__message">{{ log.message }}</span>
           </div>
         </div>
-        <div class="tui__log-help"><b>e</b> errors&nbsp;&nbsp; <b>i</b> internal off&nbsp;&nbsp; <b>ctrl+l</b> clear&nbsp;&nbsp; <b>g</b> latest&nbsp;&nbsp; <b>z</b> full logs&nbsp;&nbsp; <b>↔</b> filter</div>
       </section>
     </div>
 
-    <div class="tui__command"><b>/</b> command&nbsp;&nbsp; <b>ctrl+p</b> palette&nbsp;&nbsp; <b>ctrl+x</b> leader&nbsp;&nbsp; <b>?</b> help</div>
-    <div class="tui__status"><span><i>dashboard</i><i class="is-live">LIVE</i></span><span><b>space</b> select&nbsp;&nbsp; <b>★</b> all&nbsp;&nbsp; <b>−</b> none&nbsp;&nbsp; <b>enter</b> start or open&nbsp;&nbsp; <b>n</b> start&nbsp;&nbsp; <b>x</b> stop</span></div>
+    <div class="tui__status"><span><i>dashboard</i><i class="is-live">LIVE</i></span><span><b>/</b> command&nbsp;&nbsp; <b>space</b> select&nbsp;&nbsp; <b>enter</b> start or open&nbsp;&nbsp; <b>n</b> start&nbsp;&nbsp; <b>x</b> stop</span></div>
   </div>
 </template>
 

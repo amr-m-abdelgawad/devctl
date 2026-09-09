@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { CredentialRefreshPolicy, HealthPolicy, RestartPolicy } from "./policies.ts";
-import { RestartAlways, RestartNever, RestartOnFailure } from "../config/types.ts";
+import { HealthPolicy, RestartPolicy, StartupPolicy } from "./policies.ts";
+import { emptyService, RestartAlways, RestartNever, RestartOnFailure } from "../config/types.ts";
 
 describe("RestartPolicy", () => {
   test("restarts on failure within budget", () => {
@@ -48,10 +48,13 @@ describe("HealthPolicy", () => {
   });
 });
 
-describe("CredentialRefreshPolicy", () => {
-  test("refreshes when expiry is inside the threshold", () => {
-    const now = new Date("2026-01-01T00:00:00Z");
-    expect(CredentialRefreshPolicy.shouldRefresh(new Date("2026-01-01T00:04:00Z"), now, 5 * 60_000)).toBe(true);
-    expect(CredentialRefreshPolicy.shouldRefresh(new Date("2026-01-01T01:00:00Z"), now, 5 * 60_000)).toBe(false);
+describe("StartupPolicy", () => {
+  test("uses the service timeout when set and falls back otherwise", () => {
+    const timed = emptyService();
+    timed.startup.timeout_seconds = 12;
+    timed.startup.wait_for_healthy = true;
+    expect(StartupPolicy.timeoutMs(timed, 30_000)).toBe(12_000);
+    expect(StartupPolicy.waitForHealthy(timed)).toBe(true);
+    expect(StartupPolicy.timeoutMs(emptyService(), 30_000)).toBe(30_000);
   });
 });

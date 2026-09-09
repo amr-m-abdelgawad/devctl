@@ -28,7 +28,7 @@ export function useLifecycle({
   setStatus,
   setOverlay,
 }: Options) {
-  const { resolveStartRequest, startupPlan, shutdownPlan } = workspace;
+  const { resolveStartRequest, startupPlan, shutdownPlan, shutdownPlanExact } = workspace;
   const [plan, setPlan] = useState<Plan | undefined>();
   const [planInitiallyRunning, setPlanInitiallyRunning] = useState<string[]>([]);
   const [planBusy, setPlanBusy] = useState(false);
@@ -105,23 +105,24 @@ export function useLifecycle({
   );
 
   const beginRestart = useCallback(
-    async (targets: string[], profileName: string) => {
+    async (targets: string[], profileName: string, cascade = false) => {
       if (!controller || !cfg) {
         setStatus("no configuration loaded");
         return;
       }
       try {
         const planned = planServices(cfg, targets, profileName);
-        const nextPlan = startupPlan(cfg, planned.services, planned.profile);
+        const nextPlan = cascade ? shutdownPlan(cfg, planned.services) : shutdownPlanExact(cfg, planned.services);
         setLifecycle("restart");
         setPlanInitiallyRunning([]);
         setPlan(nextPlan);
         setOverlay("plan");
         setPlanBusy(true);
-        await controller.restart(targets);
+        await controller.restart(planned.services, cascade);
         await refresh();
         setPlanBusy(false);
-        setStatus(formatPlanSummary(nextPlan) === "" ? "Restarted selected services" : `Restarted ${formatPlanSummary(nextPlan)}`);
+        const summary = formatPlanSummary(nextPlan);
+        setStatus(summary === "" ? "Restarted selected services" : `Restarted ${summary}`);
       } catch (err) {
         setPlanBusy(false);
         await refresh();

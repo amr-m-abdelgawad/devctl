@@ -50,14 +50,7 @@ export type EnvSourceName = (typeof ENV_SOURCE_ORDER)[number];
 const SECRET_MANAGER_PATTERN = /^projects\/[^/]+\/secrets\/[^/]+(?:\/versions\/[^/]+)?$/;
 const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "defaults", "vars", "runtime"];
 
-export function processSource(): EnvironmentSource {
-  return {
-    name: "process",
-    load: () => osEnviron(),
-  };
-}
-
-export function dotenvSource(): EnvironmentSource {
+function dotenvSource(): EnvironmentSource {
   return {
     name: "dotenv",
     load: (ctx) => {
@@ -69,32 +62,6 @@ export function dotenvSource(): EnvironmentSource {
     },
   };
 }
-
-export function generatedSource(): EnvironmentSource {
-  return {
-    name: "generated",
-    load: () => ({}),
-  };
-}
-
-export function keychainSource(): EnvironmentSource {
-  return {
-    name: "keychain",
-    load: (ctx) => loadKeychainEnv(ctx),
-  };
-}
-
-export function secretManagerSource(fetchSecret?: (name: string) => string | Promise<string>): EnvironmentSource {
-  return {
-    name: "secret_manager",
-    load: (ctx) => loadSecretManagerEnv(ctx, fetchSecret),
-  };
-}
-
-// Production fetcher for the secret_manager environment source: calls the
-// Secret Manager REST API directly using a caller-supplied access token, so
-// it has no dependency on the Google Cloud client libraries.
-export { secretManagerFetcher } from "../google/secret-manager.ts";
 
 // Returns the source names to apply, in precedence order (later wins).
 // Plugin-registered sources (any configured name outside ENV_SOURCE_ORDER)

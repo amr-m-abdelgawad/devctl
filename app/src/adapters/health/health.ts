@@ -5,7 +5,6 @@ import { HealthHealthy, HealthUnhealthy, type ServiceHealth } from "../../domain
 import type { HealthCheckerFactory } from "../../ports/health-checker.ts";
 
 const DEFAULT_TIMEOUT_MS = 2_000;
-const DEFAULT_INTERVAL_MS = 2_000;
 const HTTP_OK_MIN = 200;
 const HTTP_OK_MAX = 300;
 
@@ -13,13 +12,6 @@ export type HealthResult = {
   status: ServiceHealth;
   message: string;
 };
-
-export function healthIntervalMs(cfg: HealthCheckConfig): number {
-  if (cfg.interval_seconds <= 0) {
-    return DEFAULT_INTERVAL_MS;
-  }
-  return cfg.interval_seconds * 1000;
-}
 
 export type HealthPlugin = {
   name: string;
@@ -166,14 +158,4 @@ async function checkCommand(
     return { status: HealthHealthy, message: "ok" };
   }
   return { status: HealthUnhealthy, message: `exit ${code}` };
-}
-
-export function healthLevel(status: ServiceHealth): string {
-  if (status === HealthUnhealthy) {
-    return "WARN";
-  }
-  if (status === HealthHealthy) {
-    return "INFO";
-  }
-  return "DEBUG";
 }

@@ -37,9 +37,9 @@ jobs:
           bun-version: 1.4.0
       - working-directory: app
         run: bun install --frozen-lockfile
-      - name: bun test
+      - name: bun test with coverage
         working-directory: app
-        run: bun test
+        run: bun run check:coverage
 
   typecheck:
     name: Typecheck
@@ -70,6 +70,24 @@ jobs:
       - name: check architecture
         working-directory: app
         run: bun run check:architecture
+
+  hygiene:
+    name: Dead code and duplicates
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: unused files and dependencies
+        working-directory: app
+        run: bun run check:dead
+      - name: copy-paste clones
+        working-directory: app
+        run: bun run check:dup
 
   container-tests:
     name: Container tests
@@ -261,7 +279,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, architecture, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
+    needs: [tests, typecheck, architecture, hygiene, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -270,6 +288,7 @@ jobs:
           TESTS: ${{ needs.tests.result }}
           TYPECHECK: ${{ needs.typecheck.result }}
           ARCHITECTURE: ${{ needs.architecture.result }}
+          HYGIENE: ${{ needs.hygiene.result }}
           CONTAINERS: ${{ needs.container-tests.result }}
           DEMO: ${{ needs.demo-config.result }}
           COMPILE: ${{ needs.compile-smoke.result }}
@@ -283,6 +302,7 @@ jobs:
           test "$TESTS" = success
           test "$TYPECHECK" = success
           test "$ARCHITECTURE" = success
+          test "$HYGIENE" = success
           test "$CONTAINERS" = success
           test "$DEMO" = success
           test "$COMPILE" = success

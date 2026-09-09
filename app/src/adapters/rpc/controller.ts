@@ -253,19 +253,73 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
     // anything this process set on its own process.env at runtime (e.g.
     // gcp-env.ts's METADATA_SERVER_DETECTION/GCE_METADATA_TIMEOUT, always
     // set before the CLI even parses args) would silently not reach the
-    // supervisor it spawns.
-    env: process.env,
+    // supervisor it spawns. Copy so a later DEVCTL_HOME mutation in this
+    // process cannot change what the child already received.
+    env: { ...process.env },
     stdout: "ignore",
     stderr: Bun.file(bootstrapLog),
     stdin: "ignore",
     detached: true,
   });
-  child.unref();
   try {
-    return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
+    const client = await waitForSupervisorBind(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS, child.exited);
+    // Only after the socket is up: the daemon is meant to outlive this CLI.
+    // Unref-before-dial used to leak every spawn that failed to bind —
+    // including bun test processes that then exited and left PPID-1 orphans.
+    child.unref();
+    return client;
   } catch {
+    await reapSupervisorChild(child);
     throw hintError(KindGeneral, "supervisor failed to start", `see ${bootstrapLog} for details`);
   }
+}
+
+const SUPERVISOR_REAP_MS = 1_000;
+
+function waitForSupervisorBind(repoRoot: string, timeoutMs: number, exited: Promise<number>): Promise<Client> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (action: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      action();
+    };
+    void exited.then((code) => {
+      finish(() => reject(new Error(`supervisor exited (code ${code}) before accepting connections`)));
+    });
+    void dial(repoRoot, timeoutMs).then(
+      (client) => finish(() => resolve(client)),
+      (err: unknown) => finish(() => reject(err)),
+    );
+  });
+}
+
+export async function reapSupervisorChild(child: { pid?: number; kill: (signal?: "SIGKILL") => void; exited: Promise<number> }): Promise<void> {
+  const pid = child.pid;
+  try {
+    child.kill("SIGKILL");
+  } catch {
+    // already exited
+  }
+  if (pid !== undefined && pid > 0 && process.platform !== "win32") {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  }
+  await Promise.race([
+    child.exited.then(() => undefined),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, SUPERVISOR_REAP_MS);
+    }),
+  ]);
 }
 
 export class Controller {
@@ -369,14 +423,21 @@ export class Controller {
     return () => undefined;
   }
 
+  async shutdown(opts: { stopServices: boolean }): Promise<void> {
+    if (!this.client) {
+      return;
+    }
+    const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
+    await this.client.call("shutdown", { stop_services: opts.stopServices }, shutdownTimeout);
+  }
+
   async close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void> {
     if (!this.client) {
       return;
     }
     try {
       if (opts?.shutdownSupervisor === true && opts.detach !== true) {
-        const shutdownTimeout = Math.max(5_000, this.cfg.shutdown.grace_seconds * 1_000 + 2_000);
-        await this.client.call("shutdown", { stop_services: true }, shutdownTimeout);
+        await this.shutdown({ stopServices: true });
       }
     } finally {
       this.client.close();

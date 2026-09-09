@@ -4,13 +4,13 @@ import { type StatusSnapshot } from "../../domain/status.ts";
 import { versionLine } from "../../version.ts";
 import { useDensity } from "./density.tsx";
 import { HEADER_STACK_WIDTH,headerStatusChips,statusChipTone,visibleHints } from "./helpers/chrome.ts";
-import { footerHints } from "./helpers/command-catalog.ts";
+import { COMMAND_FOOTER_HINT, footerHints } from "./helpers/command-catalog.ts";
 import { clipText } from "./helpers/format.ts";
 import { NAV_ITEMS,navActiveIndex,navTabLabel } from "./helpers/navigation.ts";
 import { countRunning } from "./helpers/stats.ts";
 import { Banner,Chip,KeyHints,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
 import { isTightScale } from "./settings.ts";
-import { stateColor,stateGlyph,type Palette } from "./themes.ts";
+import { type Palette } from "./themes.ts";
 import { type Overlay,type Screen } from "./types.ts";
 
 export function Header(props: {
@@ -29,38 +29,34 @@ export function Header(props: {
   const stacked = width < HEADER_STACK_WIDTH;
   const project = clipText(cfg?.project.name || "local", stacked ? 18 : 22);
   const profileName = clipText(profile || snap?.profile || "no profile", 16);
-  const chips = (
-    <>
-      {headerStatusChips({
-        width,
-        running: counts.running,
-        total: counts.total,
-        proxyOn,
-        proxyAddress: snap?.proxy.address ?? "",
-        mcpOn: snap?.mcp?.running === true,
-        adc,
-        reveal,
-      })
-        .filter((chip) => !chip.hide && chip.label !== "")
-        .map((chip) => (
-          <Chip key={chip.label} palette={palette} label={chip.label} tone={chip.tone} />
-        ))}
-    </>
-  );
+  const chips = headerStatusChips({
+    width,
+    running: counts.running,
+    total: counts.total,
+    proxyOn,
+    proxyAddress: snap?.proxy.address ?? "",
+    mcpOn: snap?.mcp?.running === true,
+    adc,
+    reveal,
+  })
+    .filter((chip) => !chip.hide && chip.label !== "")
+    .map((chip) => <Chip key={chip.label} palette={palette} label={chip.label} tone={chip.tone} />);
   const tight = isTightScale(useDensity());
+  const identity = (
+    <box height={1} flexGrow={1} overflow="hidden" backgroundColor={palette.panel} paddingLeft={1}>
+      <text wrapMode="none">
+        <span fg={palette.primary}>{versionLine()}</span>
+        <span fg={palette.muted}>{`  ${project}`}</span>
+        <span fg={palette.accent}>{`  ${profileName}`}</span>
+      </text>
+    </box>
+  );
   return (
     <Toolbar palette={palette} backgroundColor={palette.panel} ruled={!tight}>
     <box height={stacked ? 2 : 1} flexDirection="column" backgroundColor={palette.panel} overflow="hidden">
       <box height={1} flexDirection="row" overflow="hidden">
-        <Chip palette={palette} label={versionLine()} tone="primary" />
-        <Chip palette={palette} label={project} tone="idle" />
-        <Chip palette={palette} label={profileName} tone="accent" />
-        {stacked ? null : (
-          <>
-            <box flexGrow={1} backgroundColor={palette.panel} />
-            {chips}
-          </>
-        )}
+        {identity}
+        {stacked ? null : chips}
       </box>
       {stacked ? (
         <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.panel}>
@@ -72,6 +68,9 @@ export function Header(props: {
   );
 }
 
+const NAV_SLASH_HINT_WIDTH = COMMAND_FOOTER_HINT.key.length + COMMAND_FOOTER_HINT.label.length + 3;
+const NAV_SLASH_MIN_TABS = 8;
+
 export function NavStrip(props: {
   palette: Palette;
   screen: Screen;
@@ -79,81 +78,31 @@ export function NavStrip(props: {
   onSelect: (screen: Screen) => void;
 }) {
   const { palette, screen, width, onSelect } = props;
-  const items = NAV_ITEMS.map((item) => ({ id: item.id, label: navTabLabel(item.label, width) }));
+  const showSlash = width >= NAV_SLASH_HINT_WIDTH + NAV_SLASH_MIN_TABS;
+  const tabWidth = showSlash ? Math.max(1, width - NAV_SLASH_HINT_WIDTH) : width;
+  const items = NAV_ITEMS.map((item) => ({ id: item.id, label: navTabLabel(item.label, tabWidth) }));
   const active = navActiveIndex(screen);
   return (
     <Toolbar palette={palette} backgroundColor={palette.element}>
-    <TabStrip
-      palette={palette}
-      items={items}
-      active={active}
-      width={width}
-      onPick={(index) => {
-        const item = NAV_ITEMS[index];
-        if (item) {
-          onSelect(item.id);
-        }
-      }}
-    />
-    </Toolbar>
-  );
-}
-
-export function CommandLine(props: {
-  palette: Palette;
-  overlay: Overlay;
-  query: string;
-  onQuery: (value: string) => void;
-  onSubmit: (value: string) => void;
-}) {
-  const { palette, overlay, query, onQuery, onSubmit } = props;
-  const editing = overlay === "slash" || overlay === "palette";
-  if (editing) {
-    const prefix = overlay === "slash" ? "/" : "> ";
-    return (
-      <Toolbar palette={palette} backgroundColor={palette.highlight} edge="top">
-      <box height={1} backgroundColor={palette.highlight} paddingLeft={1} flexDirection="row" overflow="hidden">
-        <box width={2} flexShrink={0}>
-          <text fg={palette.primary}>{prefix}</text>
-        </box>
-        <box flexGrow={1} overflow="hidden">
-          <input
-            focused
-            value={query}
-            placeholder={overlay === "slash" ? "start auth" : "filter commands"}
-            onInput={onQuery}
-            onSubmit={() => onSubmit(query)}
-            backgroundColor={palette.highlight}
-            focusedBackgroundColor={palette.highlight}
-            textColor={palette.text}
-            cursorColor={palette.primary}
-          />
-        </box>
-      </box>
-      </Toolbar>
-    );
-  }
-  const hints =
-    overlay === "leader"
-      ? [
-          { key: "n", label: "start" },
-          { key: "x", label: "stop" },
-          { key: "R", label: "restart" },
-          { key: "s", label: "services" },
-          { key: "l", label: "logs" },
-          { key: "t", label: "themes" },
-          { key: "q", label: "quit" },
-        ]
-      : [
-          { key: "/", label: "command" },
-          { key: "ctrl+p", label: "palette" },
-          { key: "ctrl+x", label: "leader" },
-          { key: "?", label: "help" },
-        ];
-  return (
-    <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-    <box height={1} backgroundColor={palette.element} overflow="hidden">
-      <KeyHints palette={palette} hints={hints} />
+    <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
+      <TabStrip
+        palette={palette}
+        items={items}
+        active={active}
+        width={tabWidth}
+        onPick={(index) => {
+          const item = NAV_ITEMS[index];
+          if (item) {
+            onSelect(item.id);
+          }
+        }}
+      />
+      {showSlash ? (
+        <>
+          <box flexGrow={1} backgroundColor={palette.element} />
+          <KeyHints palette={palette} hints={[COMMAND_FOOTER_HINT]} />
+        </>
+      ) : null}
     </box>
     </Toolbar>
   );
@@ -181,7 +130,7 @@ export function StatusBar(props: {
         ruled={false}
         palette={palette}
         items={[
-          { text: screen, tone: "primary" },
+          { text: screen, tone: "ghost" },
           { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
           ...(errorOnly ? [{ text: "ERROR+", tone: "error" as const }] : []),
           ...(status === "" ? [] : [{ text: clipText(status, Math.max(16, width - hintBudget - 28)), tone: statusTone }]),
@@ -216,20 +165,6 @@ export function ErrorState(props: { palette: Palette; title: string; body: strin
       <text fg={props.palette.text} wrapMode="word">
         {props.body}
       </text>
-    </box>
-  );
-}
-
-export function StateLabel(props: { palette: Palette; state: string; extra?: string }) {
-  const { palette, state, extra } = props;
-  return (
-    <box height={1} flexDirection="row" overflow="hidden">
-      <text fg={stateColor(palette, state)}>{`${stateGlyph(state)} ${state}`}</text>
-      {extra ? (
-        <text fg={palette.error} wrapMode="none">
-          {`  ${extra}`}
-        </text>
-      ) : null}
     </box>
   );
 }

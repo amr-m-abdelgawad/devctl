@@ -21,4 +21,18 @@ describe("config snapshot", () => {
     expect(diff.restart_required).toContain("api");
     expect(diff.changes.api).toContain("command");
   });
+
+  test("watch changes require a service restart; plugin list does not require a supervisor restart", () => {
+    const prev = defaultConfig();
+    prev.services.api = emptyService();
+    prev.plugins = [{ path: "./a.ts" }];
+    const next = defaultConfig();
+    next.services.api = emptyService();
+    next.services.api.watch = { ...next.services.api.watch, enabled: true, paths: ["api"] };
+    next.plugins = [{ path: "./a.ts" }, { path: "./b.ts" }];
+    const diff = configSnapshotDiff(prev, next);
+    expect(diff.changes.api).toContain("watch");
+    expect(diff.restart_required).toContain("api");
+    expect(diff.supervisor_restart_required ?? []).not.toContain("plugins");
+  });
 });

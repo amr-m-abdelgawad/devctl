@@ -22,8 +22,6 @@ const CHROME_HEADER = 1;
 
 const CHROME_NAV = 1;
 
-const CHROME_COMMAND = 1;
-
 const CHROME_STATUS = 1;
 
 const CHROME_RULE = 1;
@@ -31,7 +29,7 @@ const CHROME_RULE = 1;
 export function chromeReserved(termW: number, toolbarRules = true): number {
   const headerRows = termW < HEADER_STACK_WIDTH ? CHROME_HEADER + 1 : CHROME_HEADER;
   const rule = toolbarRules ? CHROME_RULE : 0;
-  return headerRows + rule + CHROME_NAV + rule + CHROME_COMMAND + rule + CHROME_STATUS + rule;
+  return headerRows + rule + CHROME_NAV + rule + CHROME_STATUS + rule;
 }
 
 export const CHROME_RESERVED = chromeReserved(HEADER_STACK_WIDTH - 1);
@@ -58,21 +56,31 @@ export function headerStatusChips(opts: {
   reveal: boolean;
 }): HeaderChip[] {
   const narrow = opts.width < HEADER_NARROW_WIDTH;
-  const proxyLabel = opts.proxyOn ? `● ${clipText(opts.proxyAddress, narrow ? 10 : 18)}` : narrow ? "" : "○ off";
+  const proxyLabel = opts.proxyOn ? `● ${clipText(opts.proxyAddress, narrow ? 10 : 18)}` : "";
   return [
     { label: narrow ? `${opts.running}/${opts.total}` : runningLabel(opts.running, opts.total), tone: opts.running > 0 ? "success" : "idle" },
-    { label: proxyLabel, tone: opts.proxyOn ? "info" : "idle", hide: narrow && !opts.proxyOn },
+    { label: proxyLabel, tone: "info", hide: !opts.proxyOn },
     { label: "MCP", tone: "info", hide: !opts.mcpOn },
     { label: opts.adc ? (narrow ? "ADC" : "ADC ok") : narrow ? "!ADC" : "ADC missing", tone: opts.adc ? "success" : "error" },
     { label: narrow ? "sec" : "secrets shown", tone: "warning", hide: !opts.reveal },
   ];
 }
 
+export function isPinnedFooterHint(hint: FooterHint): boolean {
+  return hint.key === "/" && hint.label === "command";
+}
+
+function hintCost(hint: FooterHint): number {
+  return hint.key.length + hint.label.length + 3;
+}
+
 export function visibleHints(hints: FooterHint[], width: number): FooterHint[] {
+  const pinned = hints.filter(isPinnedFooterHint);
+  const rest = hints.filter((hint) => !isPinnedFooterHint(hint));
   const out: FooterHint[] = [];
   let used = 0;
-  for (const hint of hints) {
-    const cost = hint.key.length + hint.label.length + 3;
+  for (const hint of [...pinned, ...rest]) {
+    const cost = hintCost(hint);
     if (used + cost > width) {
       break;
     }
@@ -133,10 +141,17 @@ export function statusChipTone(status: string): StatusTone {
 }
 
 export function confirmCopy(kind: ConfirmKind, profile: string, detail?: ConfirmDetail): { title: string; body: string } {
+  if (kind === "restart-cascade") {
+    const named = detail?.services?.join(", ") || "selected services";
+    return {
+      title: "Restart dependents?",
+      body: `${named} has dependents. Enter restarts only the named services. Press c to cascade (same as /restart --cascade).`,
+    };
+  }
   if (kind === "quit") {
     return {
       title: "Quit",
-      body: "Stop managed services and leave the TUI? Press d to detach and leave them running.",
+      body: "Stop managed services and leave the TUI? Press d to detach (daemon stays). Press k to stop the daemon and leave services running (devctl down --keep-services).",
     };
   }
   if (kind === "reload") {
@@ -164,6 +179,28 @@ export function confirmCopy(kind: ConfirmKind, profile: string, detail?: Confirm
     title: "Start profile",
     body: profile === "" ? "Start the configured services?" : `Start profile ${profile}?`,
   };
+}
+
+export function confirmHints(kind: ConfirmKind): FooterHint[] {
+  if (kind === "quit") {
+    return [
+      { key: "enter", label: "stop services" },
+      { key: "d", label: "detach" },
+      { key: "k", label: "down, keep services" },
+      { key: "esc", label: "stay" },
+    ];
+  }
+  if (kind === "restart-cascade") {
+    return [
+      { key: "enter", label: "named only" },
+      { key: "c", label: "cascade" },
+      { key: "esc", label: "stay" },
+    ];
+  }
+  return [
+    { key: "enter", label: "confirm" },
+    { key: "esc", label: "stay" },
+  ];
 }
 
 export type StatusStripChip = {

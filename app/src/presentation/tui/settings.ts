@@ -1,6 +1,6 @@
 import { VERSION, versionLine } from "../../version.ts";
 import { THEME_NAMES } from "./themes.ts";
-import { DEFAULT_FONT_SIZE, DEFAULT_LEADER_TIMEOUT_MS } from "./tui-config.ts";
+import { DEFAULT_FONT_SIZE, DEFAULT_LEADER_TIMEOUT_MS, displayWithMod } from "./tui-config.ts";
 
 export const LEADER_STEPS_MS = [1000, 2000, 3000] as const;
 export const FONT_SIZES = [12, 14, 16, 18, 20, 22] as const;
@@ -151,7 +151,7 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       name: "Leader",
       value: formatLeader(state.leaderMs),
       hint: "← → save",
-      detail: `How long ctrl+x waits for the next key. ${persist}`,
+      detail: `How long ${displayWithMod("x")} waits for the next key. ${persist}`,
     },
     {
       id: "mcp",

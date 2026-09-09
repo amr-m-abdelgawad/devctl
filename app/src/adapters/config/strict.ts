@@ -31,6 +31,7 @@ import {
   knownTask,
   knownUI,
   knownUpstream,
+  knownWatch,
 } from "./known.ts";
 
 const ROUTE_DOT_COUNT = 2;
@@ -158,6 +159,8 @@ export function servicePathKnown(path: string): string[] {
         return serviceProxyPathKnown(parts);
       case "container":
         return knownContainer;
+      case "watch":
+        return knownWatch;
       case "hooks":
         return knownHooks;
       default:

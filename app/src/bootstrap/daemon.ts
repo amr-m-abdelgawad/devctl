@@ -7,8 +7,7 @@ import { ProcessManager, inspectProcess, processAlive } from "../adapters/proces
 import { TokenManager, googleTokenProviders } from "../adapters/google/token.ts";
 import { systemClock } from "../adapters/system/clock.ts";
 import { osFileSystem } from "../adapters/system/filesystem.ts";
-import { load, loadOrEmpty, stopOnExit } from "../adapters/config/index.ts";
-import type { ConfigSource } from "../ports/config-source.ts";
+import { loadOrEmpty, stopOnExit } from "../adapters/config/index.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { FileSystem } from "../ports/filesystem.ts";
 import { ServiceOrchestrator } from "../application/orchestrator.ts";
@@ -17,7 +16,7 @@ import { Supervisor } from "../adapters/daemon/supervisor.ts";
 import type { TokenManager as Tokens } from "../adapters/google/token.ts";
 import type { ProcessManager as Processes } from "../adapters/process/processes.ts";
 import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
-import { LogManager } from "../adapters/storage/logs.ts";
+import { createDaemonLogStore } from "../adapters/storage/worker-log-store.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID } from "../adapters/storage/storage.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
@@ -30,7 +29,6 @@ export type DaemonDeps = {
   bus?: Bus;
   clock?: Clock;
   fs?: FileSystem;
-  config?: ConfigSource;
   processes?: Processes;
   tokens?: Tokens;
   detectGoogle?: (project: string) => Promise<GoogleStatus>;
@@ -47,7 +45,7 @@ export type DaemonRuntime = {
 export const defaultMcpListener: McpListenerFactory = (opts): McpListener =>
   new McpHttpServer({ host: "127.0.0.1", ...opts });
 
-export function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): DaemonRuntime {
+export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Promise<DaemonRuntime> {
   const clock = deps.clock ?? systemClock;
   const fs = deps.fs ?? osFileSystem;
   const processes = deps.processes ?? new ProcessManager();
@@ -56,16 +54,32 @@ export function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): DaemonRu
   const orchestrator = new ServiceOrchestrator(processes, clock);
   const sessionID = newSessionID();
   const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
-  const logs = new LogManager(
-    cfg.logs.max_memory_events,
+  const standalone = Bun.isStandaloneExecutable === true;
+  const { logs, usingWorker } = await createDaemonLogStore(
+    {
+      max: cfg.logs.max_memory_events,
+      persist: cfg.logs.persistence.enabled,
+      directory: cfg.logs.persistence.directory,
+      sessionID,
+      retentionDays: cfg.logs.persistence.retention_days,
+      maxSessionLogs: cfg.logs.persistence.max_session_logs,
+      extraMarkers: cfg.secrets.extra_markers,
+      extraPatterns: cfg.secrets.extra_patterns,
+    },
     bus,
     detector,
-    cfg.logs.persistence.enabled,
-    cfg.logs.persistence.directory,
-    sessionID,
-    cfg.logs.persistence.retention_days,
-    cfg.logs.persistence.max_session_logs,
+    { standalone },
   );
+  if (!usingWorker && !standalone) {
+    logs.append({
+      timestamp: clock.isoNow(),
+      service: "devctl",
+      source: "devctl",
+      level: "WARN",
+      message: "log worker failed to start; using in-process log store",
+      pid: 0,
+    });
+  }
   const supervisor = new Supervisor(cfg, {
     healthCheckers: deps.healthCheckers ?? healthCheckerFactory([]),
     detectGoogle: deps.detectGoogle ?? detectGoogle,
@@ -90,10 +104,6 @@ export function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): DaemonRu
   return { supervisor, orchestrator, clock, fs };
 }
 
-export function loadDaemonConfig(repoRoot: string, configPath: string, source: ConfigSource = { load }): DevctlConfig {
-  return source.load(repoRoot, configPath);
-}
-
 /** Entry used by the CLI’s internal daemon command. */
 export async function runDaemon(repoRoot: string, configPath: string): Promise<void> {
   // loadOrEmpty, not load: a daemon is only ever spawned because a client
@@ -101,7 +111,7 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An
   // invalid configuration still throws.
   const cfg = loadOrEmpty(repoRoot, configPath);
-  const { supervisor: sup } = createDaemon(cfg);
+  const { supervisor: sup } = await createDaemon(cfg);
   // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
   // but it can also receive a signal directly (system shutdown, an
   // admin `kill`, a container orchestrator). Without a handler, Node's

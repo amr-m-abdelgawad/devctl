@@ -16,8 +16,6 @@ export const SERVICE_PID_COL = 8;
 
 export const SERVICE_UPTIME_COL = 9;
 
-export const SERVICE_RESTARTS_COL = 6;
-
 export const SERVICE_CPU_COL = 7;
 
 export const SERVICE_MEM_COL = 8;
@@ -232,13 +230,6 @@ export function redactEnv(env: Record<string, string>, reveal: boolean, extraMar
     return env;
   }
   return new Detector(extraMarkers, extraPatterns).redactMap(env);
-}
-
-export function profileMembers(cfg: DevctlConfig | undefined, name: string): string {
-  if (!cfg) {
-    return "";
-  }
-  return (cfg.profiles[name]?.services ?? []).join(", ");
 }
 
 const LIVE_PROCESS_STATES = new Set(["RUNNING", "STARTING", "RESTARTING", "HEALTHY", "UNHEALTHY"]);

@@ -1,8 +1,17 @@
 import { type DevctlConfig, dependencyCondition, dependencyName } from "../../../domain/config/types.ts";
-import { type Plan, type Runtime } from "../../../domain/service/services.ts";
+import { dependentsClosure, type Plan, type Runtime } from "../../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { type LifecycleKind } from "../types.ts";
 import { isActiveRuntime, serviceLineState } from "./services.ts";
+
+/** Dependents that a cascading restart would add beyond the named services. */
+export function restartDependents(cfg: DevctlConfig, targets: string[]): string[] {
+  if (targets.length === 0) {
+    return [];
+  }
+  const named = new Set(targets);
+  return dependentsClosure(cfg, targets).filter((name) => !named.has(name));
+}
 
 export function planServices(
   cfg: DevctlConfig,

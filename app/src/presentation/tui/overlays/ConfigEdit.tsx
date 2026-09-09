@@ -2,6 +2,7 @@ import { type Ref } from "react";
 import { type TextareaRenderable } from "@opentui/core";
 import { OverlayShell } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
+import { displayWithMod } from "../tui-config.ts";
 
 export function ConfigEditOverlay(props: {
   palette: Palette;
@@ -17,7 +18,7 @@ export function ConfigEditOverlay(props: {
     <OverlayShell
       palette={palette}
       title="config buffer"
-      bottomTitle="ctrl+s save  ·  esc discard  ·  e still opens $EDITOR"
+      bottomTitle={`${displayWithMod("s")} save  ·  esc discard  ·  e still opens $EDITOR`}
       termW={termW}
       termH={termH}
       preferW={88}

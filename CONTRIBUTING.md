@@ -12,7 +12,11 @@ cd app
 bun install
 bun run src/bin.ts --help
 bun test
+bun run check:coverage
 bunx tsc --noEmit
+bun run check:architecture
+bun run check:dead
+bun run check:dup
 ```
 
 Install the `devctl` command onto your PATH with `cd app && bun link`.

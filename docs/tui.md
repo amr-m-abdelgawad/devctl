@@ -18,7 +18,7 @@ If a supervisor session already exists, the TUI attaches to it. Preferences: `tu
 
 ## First run
 
-With no `.devctl` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter writes a starter config (or run `devctl setup` for the 9-step wizard).
+With no `.devctl` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter starts the same 9-step wizard as `devctl setup` (OpenTUI fields, then write and attach the daemon — no process restart). Invalid existing YAML still refuses overwrite.
 
 If a `.devctl/config.yaml` exists but fails to parse or validate, the TUI shows **Configuration error** with the actual error instead — pressing Enter here does not run setup, since that would silently overwrite the file the error is about. Fix the file and restart devctl, or run `devctl config validate` for the same error from the CLI.
 
@@ -32,54 +32,56 @@ When services exist but none are running, the dashboard empty state:
 
 ## Quit
 
-`q` / `/exit` / `ctrl+c` twice:
+`q` / `/exit` / `esc` twice:
 
 | `shutdown.stop_services_on_exit` | Behavior |
 |----------------------------------|----------|
 | `true` | Stop managed services and leave |
 | `false` | Detach immediately |
-| unset | Confirm: `enter` stops, `d` detaches, `esc` stays |
+| unset | Confirm: `enter` stops services, `d` detaches (daemon stays), `k` stops the daemon and leaves services (`devctl down --keep-services`), `esc` stays |
+
+**Detach** (`d`) leaves the supervisor running. **`/down --keep-services`** (or quit `k`) stops the supervisor and persists PIDs so a later start can adopt them. **`/down`** stops services and the supervisor. `/stop` only stops selected services.
 
 ## Interaction model
 
-Keyboard-first:
+Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Windows. Help, the status bar, and empty-state hints label the modifier for the OS you are on.
 
 | Input | What it does |
 |-------|----------------|
-| `/` | Slash command line — `↑`/`↓` move the suggestion, `enter` runs it |
-| `ctrl+p` | Grouped command palette |
-| `ctrl+x` | Leader key (2s), then a shortcut — keymap overlay |
+| `/` | Command overlay — ranked as you type (name, alias, fuzzy, then description). `/start api` still lists `start`. `↑`/`↓` to move, `enter` to run |
+| `command+p` / `ctrl+p` | Same command overlay as `/` |
+| `command+x` / `ctrl+x` | Leader key (2s), then a shortcut — keymap overlay |
 | `?` | Grouped help — `j`/`k` scroll when the list is taller than the terminal |
-| `tab` / `shift+tab` / `1`–`9` / `0` | Cycle or jump **nav tabs**. `0` is the 10th tab (**setup**). Settings is the 11th tab — use `tab` or `/settings`. When the strip is wider than the terminal it slides (`‹` `›`). |
+| `tab` / `shift+tab` / `1`–`4` | Cycle or jump the **four nav tabs**. Other screens are `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`, `/mcp`. On a secondary screen, `tab` returns to the dashboard. When the strip is wider than the terminal it slides (`‹` `›`). |
 | `s` `l` `a` `p` `d` `c` `u` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
 | `r` | Refresh snapshot (doctor `r` re-runs checks) |
 | `R` | Restart selected services |
 | `j` `k` / arrows | Move selection |
 | `enter` | Start (empty dashboard) or open service detail |
 | `space` | Multi-select a service |
-| `esc` | Back / close overlay |
+| `esc` | Back / close overlay. Twice (when nothing else is open) asks to quit |
 | `f` | Focus log search (`g` jumps to latest). Remap with `keybinds.search` |
 | `z` | Expand logs to fill the terminal. `z` or `esc` exits |
 | `w` | Cycle log wrap: clip, unwrap the selected row, or wrap every long line |
-| `cmd+c` / `ctrl+shift+c` | Copy visible logs. Remap with `keybinds.copy` |
-| `ctrl+=` / `ctrl+-` / `ctrl+0` | Display size (padding/row height, not the terminal font) |
-| `ctrl+c` `ctrl+c` | Interrupt only — twice to quit. Copy is never `ctrl+c` on Linux/Windows |
+| `command+c` / `ctrl+c` | Copy the highlighted selection (drag with the mouse). Remap with `keybinds.copy` |
+| `command+=` / `ctrl+=` (and `-` / `0`) | Display size (padding/row height, not the terminal font) |
+| `esc` `esc` | Twice to quit when no overlay or back target is open. The OS copy chord does not quit |
 | Mouse | Click nav, click a service, scroll logs (toggle in Settings) |
 
-The status bar only lists keys that work **on the current screen**. On a terminal shorter than 20 rows the idle command bar hides; `/` still opens the command overlay.
+The status bar only lists keys that work **on the current screen**. There is no idle command row — `/` and the OS palette chord open the command overlay.
 
-## Nav tabs (11)
+## Nav tabs (4)
 
-1. dashboard · 2. services · 3. logs · 4. identity · 5. credentials · 6. proxy · 7. doctor · 8. config · 9. profiles · 0. setup · then **settings** (no digit).
+1. dashboard · 2. services · 3. logs · 4. proxy
 
-**MCP** is not a tab. Open it with `/mcp`, `/agent`, or Settings → **MCP → Settings page**.
+Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`. **MCP** is `/mcp`, `/agent`, or Settings → **MCP → Settings page**.
 
 ## Screens
 
-- **Dashboard** — services, identity, proxy, live log tail. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
+- **Dashboard** — services, proxy, live log tail. Identity lives on `/auth`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so `j`/`k` scroll. `/reveal` shows secrets. `n`/`x`/`R`/`l`
-- **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. See [Logs](logs.md)
+- **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. `n` start / `x` stop
@@ -97,13 +99,18 @@ The status bar only lists keys that work **on the current screen**. On a termina
 ```text
 /start [service…]     start selection, args, or the current profile
 /stop [service…]
-/restart
-/run <task>           one-off task; output is in Logs under task:<name>
-/exec <service> -- <command…>
+/down [--keep-services]  stop the supervisor (and services unless --keep-services)
+/restart [--cascade|-c]  named services only; cascade also restarts dependents
+                        R with dependents: Enter = named, c = cascade
+/run [task]           one-off task; empty /run opens a picker. Output is in Logs under task:<name>
+/exec [service] -- <command…>
+                      empty /exec opens a service picker, then type the command
 /exec <service> --print-env [--reveal]
                       resolved env (dotenv, profile, secrets, plugins, ports), not config-only vars
 /logs /services /auth /credentials /proxy /mcp /doctor /config /profiles /setup
-/stats                system and service statistics
+/stats                system and service statistics (sparklines when the supervisor has samples)
+/split                second log pane (`\\`); `|` focuses the other pane
+/trace <id>           set log search to a request_id / trace_id
 /dashboard            return home
 /themes [name]        picker with live preview; enter saves to ~/.devctl/tui.json
 /settings             theme, mouse, display size, MCP page
@@ -119,6 +126,7 @@ The status bar only lists keys that work **on the current screen**. On a termina
 /refresh
 /reload               reload .devctl
 /diff                 winning config sources and what they shadowed (`devctl config diff`)
+/import compose [path] [--write]
 /daemon               supervisor bootstrap stderr (`devctl daemon logs`)
 /auth login|logout|refresh
 /update               install a newer GitHub Release when the method is known (npm/Homebrew)
@@ -126,14 +134,14 @@ The status bar only lists keys that work **on the current screen**. On a termina
 /exit /quit /q
 ```
 
-Aliases include `/up`, `/down`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/prefs`, `/task`, `/provenance`, `/bootstrap`.
+Aliases include `/up`, `/identity`, `/creds`, `/agent`, `/init`, `/home`, `/prefs`, `/task`, `/provenance`, `/bootstrap`. `/down` is no longer an alias of `/stop`.
 
 ## Leader key
 
-Default leader is `ctrl+x` (2 second timeout). Then:
+Default leader is `command+x` on macOS and `ctrl+x` elsewhere (2 second timeout). Then:
 
 ```text
-n start    x stop    R restart    s services    l logs
+n start    x stop    R restart (c cascade if dependents)    s services    l logs
 a auth     p proxy   d doctor     c config      o profiles
 t themes   e export  r refresh    i setup       h dashboard
 q quit     z fullscreen
@@ -143,10 +151,10 @@ Override in `tui.json` (`keybinds`) or `DEVCTL_TUI_CONFIG`.
 
 ## Layout
 
-- **Header** — `devctl` plus version, project, profile, `running N/M`, proxy chip, MCP chip when running, ADC chip
-- **Nav** — current tab highlighted
+- **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
+- **Nav** — the four primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
-- **Command line** — real OpenTUI input for `/` and palette filter
+- **Command overlay** — `/` and `command+p` / `ctrl+p` open the same grouped list with a real OpenTUI input
 - **Status bar** — live/paused, last human result, contextual keys
 
 Status is never color-only: `✓` healthy, `●` running, `!` warning, `✗` failed, `○` stopped.

@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultCopyKeybind, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath } from "./tui-preferences.ts";
+import { defaultCopyKeybind, displayWithMod, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath, withMod } from "./tui-preferences.ts";
 
 describe("tui.json", () => {
   test("parses jsonc and merges keybinds with defaults", () => {
@@ -15,7 +15,7 @@ describe("tui.json", () => {
     expect(cfg.theme).toBe("tokyonight");
     expect(cfg.leader_timeout).toBe(1500);
     expect(cfg.keybinds.leader).toBe("ctrl+z");
-    expect(cfg.keybinds.command_list).toBe("ctrl+p");
+    expect(cfg.keybinds.command_list).toBe(withMod("p"));
     expect(cfg.keybinds.quit).toBe("q");
     expect(cfg.keybinds.restart).toBe("R");
     expect(cfg.keybinds.refresh).toBe("r");
@@ -107,9 +107,22 @@ describe("tui.json", () => {
     expect(keyMatches({ name: "c", ctrl: true }, "cmd+c")).toBe(false);
   });
 
-  test("copy defaults to the platform clipboard shortcut", () => {
-    expect(defaultCopyKeybind()).toBe(process.platform === "darwin" ? "cmd+c" : "ctrl+shift+c");
-    expect(defaultTuiConfig().keybinds.copy).toBe(defaultCopyKeybind());
+  test("copy defaults to the OS modifier and interrupt defaults to escape", () => {
+    expect(defaultCopyKeybind()).toBe(withMod("c"));
+    expect(defaultTuiConfig().keybinds.copy).toBe(withMod("c"));
+    expect(defaultTuiConfig().keybinds.interrupt).toBe("escape");
+  });
+
+  test("chords use command on macOS and ctrl elsewhere", () => {
+    expect(withMod("c", "darwin")).toBe("cmd+c");
+    expect(withMod("c", "linux")).toBe("ctrl+c");
+    expect(withMod("c", "win32")).toBe("ctrl+c");
+    expect(hasPrimaryMod({ meta: true }, "darwin")).toBe(true);
+    expect(hasPrimaryMod({ ctrl: true }, "darwin")).toBe(false);
+    expect(hasPrimaryMod({ ctrl: true }, "linux")).toBe(true);
+    expect(hasPrimaryMod({ meta: true }, "linux")).toBe(false);
+    expect(displayWithMod("c", "darwin")).toBe("command+c");
+    expect(displayWithMod("c", "linux")).toBe("ctrl+c");
   });
 
   test("missing DEVCTL_TUI_CONFIG path falls through to the user file", () => {
@@ -169,7 +182,7 @@ describe("tui.json", () => {
     expect(cfg.keybinds.leader).toBe("ctrl+z");
     expect(cfg.keybinds.quit).toBe("x");
     // Untouched bindings still come from the hardcoded defaults.
-    expect(cfg.keybinds.command_list).toBe("ctrl+p");
+    expect(cfg.keybinds.command_list).toBe(withMod("p"));
   });
 
   test("tui.json still wins over a YAML ui.keymap for the same binding", () => {

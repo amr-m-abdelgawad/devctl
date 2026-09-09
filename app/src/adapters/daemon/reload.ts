@@ -1,5 +1,5 @@
-import { watch, type FSWatcher } from "node:fs";
-import { join } from "node:path";
+import { statSync, watch, type FSWatcher } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
 import {
   type DevctlConfig,
   type ServiceConfig,
@@ -15,10 +15,11 @@ import type { FileSystem } from "../../ports/filesystem.ts";
 import type { ServiceOrchestratorPort } from "../../ports/daemon.ts";
 import { KindConfiguration, humanMessage, newError } from "../../shared/errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, newEvent, type Bus } from "../../shared/events.ts";
-import type { Registry } from "../plugins/registry.ts";
+import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import type { Detector } from "../secrets/detector.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { ProxyMiddleware } from "../proxy/proxy.ts";
 
 const WATCH_DEBOUNCE_MS = 200;
 
@@ -29,14 +30,15 @@ export type ReloadHost = {
   watchTimer?: ReturnType<typeof setTimeout>;
   restartRequired: string[];
   readonly fs: FileSystem;
-  readonly registry?: Registry;
+  registry?: Registry;
+  pluginMtimes: Map<string, number>;
   readonly detector: Detector;
   readonly bus: Bus;
   readonly orchestrator: ServiceOrchestratorPort;
   readonly runtimes: Map<string, Runtime>;
   readonly tokens: TokenManager;
   readonly logs: LogStore;
-  readonly proxy?: { isRunning(): boolean };
+  readonly proxy?: { isRunning(): boolean; setMiddleware?(middleware: ProxyMiddleware[]): void };
   persistState(): void;
   log(service: string, level: string, message: string): void;
   refreshIdentity(): Promise<void>;
@@ -44,6 +46,7 @@ export type ReloadHost = {
   stopProxy(): Promise<void>;
   reload(): Promise<ReloadResult>;
   forgetService(name: string): void;
+  syncServiceWatchers(): void;
 };
 
 export function applyRegistry(host: ReloadHost): void {
@@ -53,7 +56,53 @@ export function applyRegistry(host: ReloadHost): void {
   if (host.registry.tokenProviders.length > 0) {
     host.tokens.replaceProviders(host.registry.tokenProviders);
   }
-  host.logs.setParsers(host.registry.logParsers);
+  host.logs.setParsers(host.registry.logParsers, host.registry.pluginPaths);
+  host.proxy?.setMiddleware?.(host.registry.proxyMiddleware);
+}
+
+export function pluginMtimes(paths: string[], repoRoot: string): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const path of paths) {
+    const resolved = resolvePluginPath(path, repoRoot);
+    try {
+      out.set(resolved, statSync(resolved).mtimeMs);
+    } catch {
+      // Missing files are already reported as plugin load errors.
+    }
+  }
+  return out;
+}
+
+export async function reapplyPlugins(host: ReloadHost, next: DevctlConfig, prevPaths: string[]): Promise<string[]> {
+  const nextPaths = next.plugins.map((plugin) => plugin.path);
+  const listChanged = JSON.stringify(prevPaths) !== JSON.stringify(nextPaths);
+  const current = pluginMtimes(nextPaths, next.repoRoot);
+  const restart: string[] = [];
+  for (const [path, mtime] of current) {
+    const previous = host.pluginMtimes.get(path);
+    if (previous !== undefined && previous !== mtime) {
+      restart.push("plugins");
+      break;
+    }
+  }
+  if (listChanged) {
+    const registry = await loadPluginPaths(nextPaths, next.repoRoot);
+    host.registry = registry;
+    for (const failure of registry.loadErrors) {
+      host.log("devctl", "ERROR", `plugin ${failure.path} skipped: ${failure.message}`);
+    }
+    applyRegistry(host);
+    host.log("devctl", "INFO", "plugin path list reloaded");
+  }
+  host.pluginMtimes = current;
+  return restart;
+}
+
+function resolvePluginPath(path: string, repoRoot: string): string {
+  if (path.startsWith("file:")) {
+    return path;
+  }
+  return isAbsolute(path) ? path : resolve(repoRoot, path);
 }
 
 export function checkPluginHealthTypes(registry: Registry | undefined, cfg: DevctlConfig): void {
@@ -188,6 +237,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   const result = configSnapshotDiff(host.cfg, next);
   const proxyChanged = JSON.stringify(host.cfg.proxy) !== JSON.stringify(next.proxy);
   const secretsChanged = JSON.stringify(host.cfg.secrets) !== JSON.stringify(next.secrets);
+  const prevPluginPaths = host.cfg.plugins.map((plugin) => plugin.path);
   const prevServices = host.cfg.services;
   host.cfg = replaceSnapshot(host.cfg, next);
   reconcileServices(host, prevServices, next.services);
@@ -196,13 +246,19 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   result.restart_required = restartRequired;
   // Detector is a cheap, stateless holder of markers/patterns — update it
   // in place so the LogManager/ProxyServer instances that already hold a
-  // reference to it see the new rules immediately. LogManager and the
-  // plugin registry are deliberately NOT rebuilt here: recreating
-  // LogManager would drop the in-memory log ring buffer and start a new
-  // persistence session out from under the TUI, which is worse than
-  // asking for a restart; reloading plugins mid-session is out of scope.
+  // reference to it see the new rules immediately. LogManager is
+  // deliberately NOT rebuilt here: recreating it would drop the in-memory
+  // log ring buffer and start a new persistence session out from under
+  // the TUI. Plugin *path list* changes hot-apply; same-path mtime still
+  // advises a supervisor restart (Bun module cache).
+  const pluginRestart = await reapplyPlugins(host, next, prevPluginPaths);
+  if (pluginRestart.length > 0) {
+    result.supervisor_restart_required = [...(result.supervisor_restart_required ?? []), ...pluginRestart];
+  }
+  host.syncServiceWatchers();
   if (secretsChanged) {
     host.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns);
+    host.logs.setSecrets(next.secrets.extra_markers, next.secrets.extra_patterns);
   }
   if (proxyChanged) {
     const wasRunning = host.proxy?.isRunning() ?? false;

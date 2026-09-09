@@ -1,8 +1,9 @@
-import { type CommandSpec } from "../commands.ts";
-import { selectedSlashCommand,slashWindowStart } from "../helpers/command-catalog.ts";
+import { commandSearchToken, type CommandSpec } from "../commands.ts";
+import { groupedCommands, selectedSlashCommand, SLASH_LABEL_MAX, slashCommandColumnWidth, slashItemDesc, slashItemKey, slashItemLabel, slashWindowItems, slashWindowStart } from "../helpers/command-catalog.ts";
 import { type Palette } from "../themes.ts";
 
-const VISIBLE = 8;
+const MAX_VISUAL_ROWS = 10;
+const CHROME_ROWS = 3;
 
 export function SlashOverlay(props: {
   palette: Palette;
@@ -11,22 +12,26 @@ export function SlashOverlay(props: {
   selected: number;
   onQuery: (value: string) => void;
   onSubmit: () => void;
+  title?: string;
 }) {
-  const { palette, items, query, selected, onQuery, onSubmit } = props;
-  const start = slashWindowStart(selected, VISIBLE, items.length);
-  const shown = items.slice(start, start + VISIBLE);
-  const rows = Math.max(shown.length, 1);
+  const { palette, items, query, selected, onQuery, onSubmit, title = "commands" } = props;
+  const searching = commandSearchToken(query) !== "";
+  const start = slashWindowStart(selected, MAX_VISUAL_ROWS, items.length);
+  const shown = searching ? items.slice(start, start + MAX_VISUAL_ROWS) : slashWindowItems(items, selected, MAX_VISUAL_ROWS);
+  const groups = searching ? [{ group: "", items: shown }] : groupedCommands(shown);
+  const rows = Math.max(shown.length + (searching ? 0 : groups.length), 1);
   const active = selectedSlashCommand(items, selected);
+  const commandCol = slashCommandColumnWidth(items);
   return (
     <box
-      height={rows + 3}
+      height={rows + CHROME_ROWS}
       flexShrink={0}
       border
       borderStyle="rounded"
       borderColor={palette.borderActive}
       titleColor={palette.primary}
       backgroundColor={palette.panel}
-      title="commands"
+      title={title}
       flexDirection="column"
       overflow="hidden"
     >
@@ -35,30 +40,45 @@ export function SlashOverlay(props: {
           <text fg={palette.muted}>no matching command</text>
         </box>
       ) : (
-        shown.map((cmd) => {
-          const activeRow = cmd.name === active?.name;
-          return (
-            <box
-              key={cmd.name}
-              height={1}
-              flexDirection="row"
-              overflow="hidden"
-              paddingLeft={1}
-              paddingRight={1}
-              backgroundColor={activeRow ? palette.highlight : palette.panel}
-            >
-              <box width={14} flexShrink={0} overflow="hidden">
-                <text fg={activeRow ? palette.primary : palette.text} wrapMode="none">
-                  {`${activeRow ? "›" : " "} /${cmd.name}`}
-                </text>
-              </box>
-              <box flexGrow={1} overflow="hidden">
-                <text fg={activeRow ? palette.accent : palette.muted} wrapMode="none">
-                  {cmd.desc}
-                </text>
-              </box>
-            </box>
-          );
+        groups.flatMap((group) => {
+          const header =
+            group.group === ""
+              ? []
+              : [
+                  <box key={`g-${group.group}`} height={1} paddingLeft={1} overflow="hidden" backgroundColor={palette.panel}>
+                    <text fg={palette.muted} wrapMode="none">
+                      {group.group}
+                    </text>
+                  </box>,
+                ];
+          return [
+            ...header,
+            ...group.items.map((cmd) => {
+              const activeRow = slashItemKey(cmd) === (active ? slashItemKey(active) : "");
+              return (
+                <box
+                  key={slashItemKey(cmd)}
+                  height={1}
+                  flexDirection="row"
+                  overflow="hidden"
+                  paddingLeft={1}
+                  paddingRight={1}
+                  backgroundColor={activeRow ? palette.highlight : palette.panel}
+                >
+                  <box width={commandCol} flexShrink={0} overflow="hidden">
+                    <text fg={activeRow ? palette.primary : palette.text} wrapMode="none">
+                      {`${activeRow ? "›" : " "} /${slashItemLabel(cmd).slice(0, SLASH_LABEL_MAX)}`}
+                    </text>
+                  </box>
+                  <box flexGrow={1} overflow="hidden">
+                    <text fg={activeRow ? palette.accent : palette.muted} wrapMode="none">
+                      {slashItemDesc(cmd)}
+                    </text>
+                  </box>
+                </box>
+              );
+            }),
+          ];
         })
       )}
       <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.highlight} paddingLeft={1}>
@@ -69,7 +89,7 @@ export function SlashOverlay(props: {
           <input
             focused
             value={query}
-            placeholder="start auth"
+            placeholder="start  logs  settings"
             onInput={onQuery}
             onSubmit={() => onSubmit()}
             backgroundColor={palette.highlight}

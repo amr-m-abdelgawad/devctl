@@ -1,11 +1,19 @@
 import { leaderAction, lookupCommand } from "../commands.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
-import { selectedSlashCommand } from "../helpers/command-catalog.ts";
-import { isPageDownKey, isPageUpKey, overlayConsumesTyping, type KeyLike } from "../keymap.ts";
+import { selectedSlashCommand, slashCompleteQuery } from "../helpers/command-catalog.ts";
+import { isCommandChord, isPageDownKey, isPageUpKey, overlayConsumesTyping, type KeyLike } from "../keymap.ts";
+import { hasPrimaryMod } from "../tui-config.ts";
 import { scrollBoxBy } from "../layout.tsx";
 import { HELP_SCROLL_PAGE } from "../overlays/Help.tsx";
 import { THEME_NAMES } from "../themes.ts";
 import type { OverlayKeyCtx } from "./keyboard-context.ts";
+
+function openCommandOverlay(ctx: OverlayKeyCtx): void {
+  ctx.setQuery("");
+  ctx.setSlashIndex(0);
+  ctx.setSlashPicker("commands");
+  ctx.setOverlay("slash");
+}
 
 /** Returns true when an overlay consumed the key (including swallowing leftover keys). */
 export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
@@ -14,11 +22,22 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     logDetailsScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
     revertThemePreview, setPaletteIndex, setThemeName, paletteIndex, applyTheme, leaderTimer,
     setOverlay, runCommand, setConfigEditError, saveConfigBuffer, setSlashIndex, filtered,
-    setQuery, slashIndex, submitSlash, paletteItems,
+    setQuery, slashIndex, submitSlash, advanceWizard,
   } = ctx;
   const name = (key.name ?? "").toLowerCase();
   if (overlay === "none") {
     return false;
+  }
+  if (overlay === "setup-wizard") {
+    if (name === "escape") {
+      closeOverlay();
+      return true;
+    }
+    if (name === "return") {
+      advanceWizard?.();
+      return true;
+    }
+    return overlayConsumesTyping(overlay);
   }
   if (overlay === "confirm") {
     if (name === "escape") {
@@ -29,14 +48,36 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       onQuit(true);
       return true;
     }
+    if (confirmKind === "quit" && name === "k") {
+      ctx.onDown(true);
+      return true;
+    }
+    if (confirmKind === "restart-cascade" && name === "c") {
+      confirmAction("cascade");
+      return true;
+    }
     if (name === "return") {
       confirmAction();
     }
     return true;
   }
   if (overlay === "log-details" || overlay === "scroll-text") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape") {
       closeOverlay();
+      return true;
+    }
+    if (overlay === "log-details" && name === "return") {
+      const id = ctx.logDetail?.request_id?.trim() ?? "";
+      if (id !== "") {
+        ctx.setLogSearch(id);
+        ctx.setScreen("logs");
+        ctx.closeOverlay();
+        ctx.setStatus(`tracing ${id}`);
+      }
       return true;
     }
     const box = overlay === "log-details" ? logDetailsScrollRef.current : scrollTextScrollRef.current;
@@ -59,6 +100,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "route-details") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape" || name === "return") {
       closeOverlay();
       return true;
@@ -74,6 +119,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "plan") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape" || (name === "return" && !planBusy)) {
       closeOverlay();
       return true;
@@ -89,6 +138,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "help") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape") {
       closeOverlay();
       return true;
@@ -112,6 +165,11 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "themes") {
+    if (isCommandChord(key, tui)) {
+      revertThemePreview();
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (name === "escape") {
       revertThemePreview();
       closeOverlay();
@@ -148,6 +206,13 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     return true;
   }
   if (overlay === "leader") {
+    if (isCommandChord(key, tui)) {
+      if (leaderTimer.current) {
+        clearTimeout(leaderTimer.current);
+      }
+      openCommandOverlay(ctx);
+      return true;
+    }
     if (leaderTimer.current) {
       clearTimeout(leaderTimer.current);
     }
@@ -165,7 +230,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       closeOverlay();
       return true;
     }
-    if (key.ctrl && name === "s") {
+    if (hasPrimaryMod(key) && name === "s") {
       saveConfigBuffer();
       return true;
     }
@@ -191,27 +256,13 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       }
       const pick = selectedSlashCommand(filtered, slashIndex);
       if (pick) {
-        setQuery(`${pick.name} `);
+        setQuery(slashCompleteQuery(pick));
       }
       return true;
     }
     if (overlay === "slash" && name === "return") {
       submitSlash();
       return true;
-    }
-    if (overlay === "palette" && name === "down") {
-      setPaletteIndex((i) => Math.min(i + 1, Math.max(paletteItems.length - 1, 0)));
-      return true;
-    }
-    if (overlay === "palette" && name === "up") {
-      setPaletteIndex((i) => Math.max(0, i - 1));
-      return true;
-    }
-    if (overlay === "palette" && name === "return") {
-      const cmd = selectedSlashCommand(paletteItems, paletteIndex);
-      if (cmd) {
-        void runCommand(cmd, []);
-      }
     }
     return true;
   }

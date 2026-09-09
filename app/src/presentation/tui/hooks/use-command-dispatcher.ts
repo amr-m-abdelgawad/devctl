@@ -5,15 +5,16 @@ import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
-import { applyInstall, checkUpdate, DAEMON_RESTART_HINT, formatUpdateStatus } from "../../../update.ts";
+import { DAEMON_RESTART_HINT } from "../../../domain/update.ts";
 import { versionLine } from "../../../version.ts";
-import { parseExecArgs, type CommandSpec } from "../commands.ts";
+import { formatComposeImport, importComposeYaml } from "../../../application/compose-import.ts";
+import { parseExecArgs, parseRestartArgs, type CommandSpec } from "../commands.ts";
 import { formatConfigDiffText } from "../config-view.ts";
 import { logWrapLabel, nextLogWrapMode } from "../helpers/logs.ts";
 import { explicitServices } from "../helpers/services.ts";
 import { withSuspendedRenderer } from "../suspend.ts";
 import { THEME_NAMES } from "../themes.ts";
-import { type ConfirmKind, type Overlay, type Screen } from "../types.ts";
+import { type ConfirmKind, type Overlay, type Screen, type SlashPicker } from "../types.ts";
 import type { TuiWorkspace } from "../workspace.ts";
 import type { useDiagnostics } from "./use-diagnostics.ts";
 import type { useLifecycle } from "./use-lifecycle.ts";
@@ -24,10 +25,11 @@ const COMMAND_LOCK_MS = 50;
 type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
-  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs">;
-  workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents">;
+  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
+  workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
   setOverlay: Dispatch<SetStateAction<Overlay>>;
   setQuery: Dispatch<SetStateAction<string>>;
+  setSlashPicker: Dispatch<SetStateAction<SlashPicker>>;
   checked: string[];
   setConfirmKind: Dispatch<SetStateAction<ConfirmKind>>;
   setStatus: Dispatch<SetStateAction<string>>;
@@ -47,14 +49,16 @@ type Options = {
   setReveal: Dispatch<SetStateAction<boolean>>;
   resolveEnvironment: (service: string) => Promise<void>;
   openDetail: (name: string) => void;
-  copyVisibleLogs: (note?: string) => Promise<void>;
+  copySelection: () => Promise<void>;
   lastExportPath: RefObject<string>;
   openConfigBuffer: () => void;
+  onDown: (keepServices: boolean) => void;
 };
 
 export function useCommandDispatcher({
   setOverlay,
   setQuery,
+  setSlashPicker,
   checked,
   setConfirmKind,
   setStatus,
@@ -74,9 +78,10 @@ export function useCommandDispatcher({
   setReveal,
   resolveEnvironment,
   openDetail,
-  copyVisibleLogs,
+  copySelection,
   lastExportPath,
   openConfigBuffer,
+  onDown,
   workspace,
   logView,
   diagnostics,
@@ -90,12 +95,17 @@ export function useCommandDispatcher({
     bootstrapLogPath,
     fileExists,
     readTextFile,
+    writeTextFile,
+    validateConfigText,
     resolveExportPath,
     writeLogExport,
     exportsDir,
     openInFileManager,
     listSessions,
     loadSessionEvents,
+    checkUpdate,
+    applyUpdate,
+    formatUpdateStatus,
   } = workspace;
   const {
     setLogService,
@@ -117,6 +127,8 @@ export function useCommandDispatcher({
     setLogSince,
     setLogUntil,
     setLogs,
+    setLogSearch,
+    toggleSplitLogs,
   } = logView;
   const { refreshAuth, setGoogle } = diagnostics;
   const { beginStart, beginStop, beginRestart } = lifecycleActions;
@@ -139,6 +151,11 @@ export function useCommandDispatcher({
             setConfirmKind("quit");
             setOverlay("confirm");
             return;
+          case "down": {
+            const keep = args.includes("--keep-services") || args.includes("-k");
+            onDown(keep);
+            return;
+          }
           case "help":
             setOverlay("help");
             return;
@@ -157,7 +174,7 @@ export function useCommandDispatcher({
                   return;
                 }
                 setStatus(`installing ${result.current} → ${result.latest} via ${result.kind}…`);
-                const applied = await applyInstall(result.command);
+                const applied = await applyUpdate(result.command);
                 if (applied.code !== 0) {
                   setStatus(`update failed (${applied.code}): ${(applied.stderr || applied.stdout).trim() || result.hint}`);
                   return;
@@ -193,6 +210,22 @@ export function useCommandDispatcher({
             setScreen("logs");
             setLogsFullscreen((current) => (screen === "logs" ? !current : true));
             return;
+          case "split":
+            setScreen("logs");
+            toggleSplitLogs();
+            setStatus("Split log panes");
+            return;
+          case "trace": {
+            const id = args.join(" ").trim();
+            if (id === "") {
+              setStatus("usage: /trace <request-or-trace-id>");
+              return;
+            }
+            setLogSearch(id);
+            setScreen("logs");
+            setStatus(`tracing ${id}`);
+            return;
+          }
           case "auth": {
             const action = (args[0] ?? "").toLowerCase();
             if (action === "refresh") {
@@ -237,6 +270,46 @@ export function useCommandDispatcher({
           case "setup":
             setScreen(spec.name);
             return;
+          case "import": {
+            const kind = args[0] ?? "";
+            const write = args.includes("--write");
+            const path = args.find((arg) => arg !== "compose" && arg !== "--write") ?? "compose.yaml";
+            if (kind !== "compose") {
+              setStatus("usage: /import compose [path] [--write]");
+              return;
+            }
+            if (!fileExists(path)) {
+              setStatus(`compose file not found: ${path}`);
+              return;
+            }
+            const repo = cfg?.repoRoot || process.cwd();
+            const dest = cfg?.configPath || `${repo}/.devctl/config.yaml`;
+            try {
+              const result = importComposeYaml(readTextFile(path), repo.split("/").pop() ?? "imported");
+              const issues = validateConfigText(repo, dest, result.yaml);
+              const body = `${formatComposeImport(result)}${issues.length > 0 ? `\nvalidation:\n${issues.map((issue) => `  ${issue}`).join("\n")}\n` : ""}`;
+              if (write) {
+                if (issues.length > 0) {
+                  setScrollText({ title: "compose import", body });
+                  setOverlay("scroll-text");
+                  setStatus("import is invalid; not written");
+                  return;
+                }
+                if (fileExists(dest)) {
+                  setStatus(`configuration already exists at ${dest}; not overwriting`);
+                  return;
+                }
+                writeTextFile(dest, result.yaml);
+                setStatus(`wrote ${dest}; /reload to apply`);
+                return;
+              }
+              setScrollText({ title: "compose import (dry-run)", body: `${body}\nEnter is preview only. /import compose ${path} --write to save.` });
+              setOverlay("scroll-text");
+            } catch (err) {
+              setStatus(humanMessage(err));
+            }
+            return;
+          }
           case "diff":
             if (!cfg) {
               setStatus("no configuration loaded");
@@ -285,13 +358,23 @@ export function useCommandDispatcher({
           case "stop":
             await beginStop(targets);
             return;
-          case "restart":
-            await beginRestart(targets, profile);
+          case "restart": {
+            const parsed = parseRestartArgs(args);
+            const named = explicitServices(parsed.services, checked);
+            await beginRestart(named, profile, parsed.cascade);
             return;
+          }
           case "run": {
             const name = args[0] ?? "";
-            if (!controller || !name) {
-              setStatus(name ? "no daemon attached" : "usage: /run <task>");
+            if (!name) {
+              setSlashPicker("tasks");
+              setQuery("");
+              setOverlay("slash");
+              setStatus(Object.keys(cfg?.tasks ?? {}).length === 0 ? "no tasks configured" : "pick a task");
+              return;
+            }
+            if (!controller) {
+              setStatus("no daemon attached");
               return;
             }
             try {
@@ -308,8 +391,15 @@ export function useCommandDispatcher({
           }
           case "exec": {
             const parsed = parseExecArgs(args);
-            if (!controller || !parsed.service) {
-              setStatus(parsed.service ? "no daemon attached" : "usage: /exec <service> -- <command…>");
+            if (!parsed.service) {
+              setSlashPicker("services");
+              setQuery("");
+              setOverlay("slash");
+              setStatus(Object.keys(cfg?.services ?? {}).length === 0 ? "no services configured" : "pick a service");
+              return;
+            }
+            if (!controller) {
+              setStatus("no daemon attached");
               return;
             }
             if (parsed.printEnv) {
@@ -383,7 +473,7 @@ export function useCommandDispatcher({
             return;
           }
           case "copy":
-            await copyVisibleLogs();
+            await copySelection();
             return;
           case "export": {
             const dest = resolveExportPath(args[0]);
@@ -397,7 +487,7 @@ export function useCommandDispatcher({
                 source: logSource,
               });
             } else {
-              // Same reasoning as copyVisibleLogs: reuse the already-filtered
+              // Same reasoning as copyVisible: reuse the already-filtered
               // list instead of reconstructing the filter, so a local-only
               // export (no daemon attached) matches every active filter too.
               writeLogExport(dest, filteredLogs);
@@ -463,7 +553,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copyVisibleLogs, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, themeName, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
   );
   return { runCommand };
 }

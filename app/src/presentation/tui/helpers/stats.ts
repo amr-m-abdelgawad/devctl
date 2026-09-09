@@ -112,6 +112,26 @@ export function loadTone(load: number, cpuCount: number): ResourceTone {
   return resourceTone(loadPerCpu(load, cpuCount), LOAD_WARN_RATIO, LOAD_DANGER_RATIO);
 }
 
+const SPARK_BARS = "▁▂▃▄▅▆▇█";
+
+export function sparkline(values: number[], width = 24): string {
+  if (values.length === 0 || width <= 0) {
+    return "";
+  }
+  const slice = values.length > width ? values.slice(values.length - width) : values;
+  const max = Math.max(...slice, 0);
+  if (max <= 0) {
+    return SPARK_BARS[0]?.repeat(slice.length) ?? "";
+  }
+  return slice
+    .map((value) => {
+      const ratio = Number.isFinite(value) ? Math.min(1, Math.max(0, value / max)) : 0;
+      const index = Math.min(SPARK_BARS.length - 1, Math.round(ratio * (SPARK_BARS.length - 1)));
+      return SPARK_BARS[index] ?? SPARK_BARS[0];
+    })
+    .join("");
+}
+
 export function leftoverTone(leftoverKB: number, totalKB: number): ResourceTone {
   const ratio = totalKB > 0 ? leftoverKB / totalKB : 1;
   if (ratio < LEFTOVER_DANGER_RATIO) {

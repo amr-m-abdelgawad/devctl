@@ -35,6 +35,7 @@ export class Registry {
   readonly logParsers: LogParser[] = [];
   readonly proxyMiddleware: ProxyMiddleware[] = [];
   readonly loadErrors: PluginLoadError[] = [];
+  readonly pluginPaths: string[] = [];
 
   registerBuiltins(): void {
     this.tokenProviders.push(...googleTokenProviders());
@@ -68,6 +69,7 @@ export async function loadPluginPaths(paths: string[], baseDir = process.cwd()):
       const mod = (await import(href)) as PluginModule;
       if (mod.sdkVersion !== PLUGIN_SDK_VERSION) throw new Error(`plugin SDK version ${String(mod.sdkVersion ?? "missing")} is incompatible; expected ${PLUGIN_SDK_VERSION}`);
       registry.register(mod);
+      registry.pluginPaths.push(resolved);
     } catch (err) {
       registry.loadErrors.push({ path, message: err instanceof Error ? err.message : String(err) });
     }

@@ -45,9 +45,9 @@ test("daemon composition shares supplied clock, filesystem, bus, and identity de
     if (event.type === LogReceived) logTimes.push((event.payload?.event as { timestamp: string }).timestamp);
   });
   const projects: string[] = [];
-  let runtime: ReturnType<typeof createDaemon> | undefined;
+  let runtime: Awaited<ReturnType<typeof createDaemon>> | undefined;
   try {
-    runtime = createDaemon(cfg, {
+    runtime = await createDaemon(cfg, {
       clock, fs, bus, tokens, processes: new ProcessManager(),
       detectGoogle: async (project) => {
         projects.push(project);
@@ -62,7 +62,7 @@ test("daemon composition shares supplied clock, filesystem, bus, and identity de
     expect(projects).toEqual([cfg.google.project_id]);
     expect(runtime.supervisor.snapshot().identity.user).toBe("fixture@example.com");
     expect(events).toContain(AuthenticationChanged);
-    expect(logTimes.length).toBeGreaterThan(0);
+    await waitFor(() => logTimes.length > 0);
     expect(logTimes.every((time) => time === now.toISOString())).toBe(true);
   } finally {
     await runtime?.supervisor.shutdown(false);
@@ -71,3 +71,14 @@ test("daemon composition shares supplied clock, filesystem, bus, and identity de
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await Bun.sleep(10);
+  }
+  throw new Error("timed out waiting for log worker events");
+}

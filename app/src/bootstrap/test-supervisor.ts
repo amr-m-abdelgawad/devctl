@@ -9,7 +9,7 @@ import { Bus } from "../shared/events.ts";
 import { Supervisor as DaemonSupervisor } from "../adapters/daemon/supervisor.ts";
 import { healthCheckerFactory } from "../adapters/health/health.ts";
 import type { DevctlConfig } from "../domain/config/types.ts";
-import { LogManager } from "../adapters/storage/logs.ts";
+import { LogManager, inProcessLogStore } from "../adapters/storage/logs.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID } from "../adapters/storage/storage.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
@@ -27,7 +27,7 @@ export class Supervisor extends DaemonSupervisor {
     const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, [], bus, undefined, clock);
     const sessionID = deps.sessionID ?? newSessionID();
     const detector = deps.detector ?? new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
-    const logs = deps.logs ?? new LogManager(
+    const logs = deps.logs ?? inProcessLogStore(new LogManager(
       cfg.logs.max_memory_events,
       bus,
       detector,
@@ -36,7 +36,7 @@ export class Supervisor extends DaemonSupervisor {
       sessionID,
       cfg.logs.persistence.retention_days,
       cfg.logs.persistence.max_session_logs,
-    );
+    ));
     super(cfg, {
       inspectProcess,
       processAlive,

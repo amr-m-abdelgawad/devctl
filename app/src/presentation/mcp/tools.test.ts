@@ -95,6 +95,9 @@ function stubHost(): McpHost {
     reload: async () => ({ restart_required: [], changes: {} }),
     doctor: async () => ({ checks: [{ name: "ok", severity: "ok", message: "fine" }], issues: 0 }),
     exec: async (service, command, printEnv) => ({ service, code: 0, stdout: command.join(" ") + " Bearer secret-token", stderr: "", environment: printEnv ? { API_TOKEN: "secret-token", NAME: "ok" } : undefined }),
+    runTask: async (name) => ({ task: name, code: 0, stdout: `ran ${name} Bearer secret-token`, stderr: "" }),
+    startProxy: async () => undefined,
+    stopProxy: async () => undefined,
   };
 }
 
@@ -209,6 +212,24 @@ describe("mcp tools", () => {
     expect(seen).toEqual({ services: [], profile: "backend" });
     await callMcpTool(host, "start_services", {});
     expect(seen).toEqual({ services: [], profile: undefined });
+  });
+
+  test("run_task redacts stdout and start_proxy/stop_proxy call the host", async () => {
+    const host = stubHost();
+    let proxy = "idle";
+    host.startProxy = async () => {
+      proxy = "started";
+    };
+    host.stopProxy = async () => {
+      proxy = "stopped";
+    };
+    const task = (await callMcpTool(host, "run_task", { name: "seed" })) as { task: string; stdout: string };
+    expect(task.task).toBe("seed");
+    expect(task.stdout).not.toContain("secret-token");
+    await callMcpTool(host, "start_proxy", {});
+    expect(proxy).toBe("started");
+    await callMcpTool(host, "stop_proxy", {});
+    expect(proxy).toBe("stopped");
   });
 
   test("get_logs caps at 200", async () => {

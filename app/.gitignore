@@ -10,9 +10,8 @@ dist
 coverage
 *.lcov
 
-# logs
-logs
-!src/domain/logs/
+# runtime log dumps (not source modules named logs/)
+/logs
 _.log
 report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 

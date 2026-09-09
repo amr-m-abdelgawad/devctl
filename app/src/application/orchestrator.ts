@@ -5,6 +5,7 @@ import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureSt
 import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../shared/errors.ts";
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
+import { StartupPolicy } from "../domain/service/policies.ts";
 import {
   HealthHealthy,
   StateHealthy,
@@ -391,8 +392,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     // process does not lose its restart_required warning.
     s.persistState();
     s.clearRestartRequired([name]);
-    if (svc.startup.wait_for_healthy) {
-      const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
+    if (StartupPolicy.waitForHealthy(svc)) {
+      const timeout = StartupPolicy.timeoutMs(svc, DEFAULT_STARTUP_TIMEOUT_MS);
       try {
         await this.waitHealthy(name, timeout);
       } catch (err) {
@@ -409,7 +410,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       if (!svc || svc.health.type === "" || !requiredHealthy) {
         continue;
       }
-      const timeout = svc.startup.timeout_seconds > 0 ? svc.startup.timeout_seconds * 1000 : DEFAULT_STARTUP_TIMEOUT_MS;
+      const timeout = StartupPolicy.timeoutMs(svc, DEFAULT_STARTUP_TIMEOUT_MS);
       try {
         await this.waitHealthy(name, timeout);
       } catch (err) {

@@ -7,7 +7,7 @@ import type { PortHolder } from "../../../domain/net/ports.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { type CommandSpec } from "../commands.ts";
 import { type TuiConfig } from "../tui-config.ts";
-import { type ConfirmDetail, type ConfirmKind, type Overlay, type Screen } from "../types.ts";
+import { type ConfirmDetail, type ConfirmKind, type Overlay, type Screen, type SlashPicker } from "../types.ts";
 import type { useDiagnostics } from "./use-diagnostics.ts";
 import type { useLifecycle } from "./use-lifecycle.ts";
 import type { useLogView } from "./use-log-view.ts";
@@ -18,15 +18,17 @@ export type KeyboardUi = {
   screen: Screen;
   overlay: Overlay;
   onQuit: (detach?: boolean) => void;
+  onDown: (keepServices: boolean) => void;
   closeOverlay: () => void;
   confirmKind: ConfirmKind;
+  confirmDetail: ConfirmDetail | undefined;
   portTarget: PortHolder | undefined;
   profile: string;
   listCursor: number;
   names: string[];
   listCount: number;
   openDetail: (name: string) => void;
-  copyVisibleLogs: (note?: string) => Promise<void>;
+  copySelection: () => Promise<void>;
   height: number;
   paletteIndex: number;
   applyTheme: (name: string) => void;
@@ -35,10 +37,11 @@ export type KeyboardUi = {
   filtered: CommandSpec[];
   slashIndex: number;
   submitSlash: () => void;
-  paletteItems: CommandSpec[];
+  advanceWizard?: () => void;
   bootErrorMissing: boolean;
   bootError?: string;
   createStarterConfig: (repo: string) => string;
+  startWizard: () => void;
   toggleChecked: (name: string) => void;
   checked: string[];
   detailName: string;
@@ -49,11 +52,14 @@ export type KeyboardUi = {
   setConfirmDetail: Dispatch<SetStateAction<ConfirmDetail>>;
   setPortTarget: Dispatch<SetStateAction<PortHolder | undefined>>;
   setLogDetail: Dispatch<SetStateAction<LogEvent | undefined>>;
+  logDetail?: LogEvent;
+  setLogSearch: ReturnType<typeof useLogView>["setLogSearch"];
   setProfile: Dispatch<SetStateAction<string>>;
   setStatus: Dispatch<SetStateAction<string>>;
   setPaletteIndex: Dispatch<SetStateAction<number>>;
   setSlashIndex: Dispatch<SetStateAction<number>>;
   setQuery: Dispatch<SetStateAction<string>>;
+  setSlashPicker: Dispatch<SetStateAction<SlashPicker>>;
   setScreen: Dispatch<SetStateAction<Screen>>;
   setSelected: Dispatch<SetStateAction<number>>;
   setChecked: Dispatch<SetStateAction<string[]>>;
@@ -75,7 +81,7 @@ export type KeyboardRefs = {
 
 export type OverlayKeyCtx = KeyboardUi & {
   tui: TuiConfig;
-  confirmAction: () => void;
+  confirmAction: (mode?: "cascade") => void;
   planBusy: boolean;
   leaderTimer: MutableRefObject<ReturnType<typeof setTimeout> | undefined>;
   logDetailsScrollRef: MutableRefObject<ScrollBoxRenderable | null>;

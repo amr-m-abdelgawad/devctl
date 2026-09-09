@@ -119,11 +119,13 @@ entry includes the winning source file and layer (`main`, `modular_service`,
 `synthesized`) and the ordered sources it shadowed. Use `--json` for structured
 output.
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), environment references, profile references, and optional `plugins[].path`.
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), `proxy.listen.port` when `proxy.enabled` is true, environment references, profile references, and optional `plugins[].path`.
 
 The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
 
-The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, or identity changed.
+The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, identity, or `watch` changed.
+
+Changing the `plugins` **path list** hot-applies token providers, log parsers, and proxy middleware. Editing an already-imported plugin file (same path, newer mtime) still requires `devctl down && devctl start` — Bun’s module cache cannot unload it. A running service’s environment is unchanged until that service restarts.
 
 ## Related
 

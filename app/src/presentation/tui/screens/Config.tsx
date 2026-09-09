@@ -33,8 +33,14 @@ import { serviceColor,type Palette } from "../themes.ts";
 const COL_GAP = 1;
 const ROW_GAP = 1;
 
-export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; width: number; scrollRef?: Ref<ScrollBoxRenderable> }) {
-  const { palette, cfg, width } = props;
+export function ConfigScreen(props: {
+  palette: Palette;
+  cfg?: DevctlConfig;
+  width: number;
+  selectedTask?: number;
+  scrollRef?: Ref<ScrollBoxRenderable>;
+}) {
+  const { palette, cfg, width, selectedTask = 0 } = props;
   const scale = useDensity();
   if (!cfg) {
     return <EmptyState palette={palette} title="No configuration" body="Create .devctl/config.yaml or run setup." />;
@@ -93,7 +99,7 @@ export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; widt
               <ServiceList palette={palette} rows={services} width={inner} />
             </Section>
             <Section palette={palette} title={`tasks  ${tasks.length}`}>
-              <SummaryList palette={palette} rows={tasks} empty="no tasks" width={inner} />
+              <SummaryList palette={palette} rows={tasks} empty="no tasks" width={inner} selected={selectedTask} />
             </Section>
             <ColumnPair
               wide={wide}
@@ -122,6 +128,7 @@ export function ConfigScreen(props: { palette: Palette; cfg?: DevctlConfig; widt
             { key: "e", label: "open in $EDITOR" },
             { key: "/diff", label: "config sources" },
             { key: "/reload", label: "re-read .devctl after editing" },
+            { key: "enter", label: "run task" },
             { key: "j/k", label: "scroll" },
           ]}
         />
@@ -276,8 +283,14 @@ function ProfileList(props: { palette: Palette; rows: readonly ConfigProfileRow[
   );
 }
 
-function SummaryList(props: { palette: Palette; rows: readonly ConfigNamedSummary[]; empty: string; width: number }) {
-  const { palette, rows, empty, width } = props;
+function SummaryList(props: {
+  palette: Palette;
+  rows: readonly ConfigNamedSummary[];
+  empty: string;
+  width: number;
+  selected?: number;
+}) {
+  const { palette, rows, empty, width, selected } = props;
   if (rows.length === 0) {
     return <Muted palette={palette} text={empty} />;
   }
@@ -285,20 +298,23 @@ function SummaryList(props: { palette: Palette; rows: readonly ConfigNamedSummar
   const restWidth = Math.max(8, width - nameWidth - 6);
   return (
     <box flexDirection="column" overflow="hidden" flexShrink={0}>
-      {rows.map((row) => (
-        <box key={row.name} height={1} flexDirection="row" overflow="hidden">
+      {rows.map((row, index) => {
+        const active = selected === index;
+        return (
+        <box key={row.name} height={1} flexDirection="row" overflow="hidden" backgroundColor={active ? palette.highlight : undefined}>
           <box width={nameWidth} flexShrink={0} overflow="hidden">
-            <text fg={palette.text} wrapMode="none">
+            <text fg={active ? palette.primary : palette.text} wrapMode="none">
               {padClip(row.name, nameWidth)}
             </text>
           </box>
           <box width={restWidth} flexShrink={0} overflow="hidden">
-            <text fg={palette.muted} wrapMode="none">
+            <text fg={active ? palette.accent : palette.muted} wrapMode="none">
               {clipText(row.summary, restWidth)}
             </text>
           </box>
         </box>
-      ))}
+        );
+      })}
     </box>
   );
 }

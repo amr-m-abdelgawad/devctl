@@ -40,6 +40,8 @@ health check, and dependencies. Keep container-backed services out of the
 default profile when doing so preserves a repository's existing no-Docker
 onboarding path.
 
+`devctl config import compose <file>` (dry-run) prints mapped YAML and a table of dropped fields (`build`, `networks`, `deploy`, `replicas`, per-service `env_file`, `volumes`, …). `--write` saves mapped fields only under `.devctl/config.yaml` after the same decode/validate path as hand-authored configs. TUI: `/import compose [path]`. K8s import is not implemented.
+
 ### Procfile
 
 Nearly a direct translation — one line, one service:

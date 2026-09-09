@@ -221,6 +221,19 @@ export function readRepoLock(repoRoot: string): LockFile | undefined {
   return readLock(lockPath(repoRoot));
 }
 
+/** Last-resort teardown for a leaked detached supervisor (tests, failed spawn). */
+export function killRepoSupervisor(repoRoot: string): void {
+  const lock = readRepoLock(repoRoot);
+  if (!lock || !processAlive(lock.pid)) {
+    return;
+  }
+  try {
+    process.kill(lock.pid, "SIGKILL");
+  } catch {
+    // already gone
+  }
+}
+
 function readLock(path: string): LockFile | undefined {
   if (!existsSync(path)) {
     return undefined;

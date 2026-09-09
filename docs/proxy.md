@@ -2,7 +2,9 @@
 
 The local proxy injects authentication so services do not each implement Google/IAP logic. It runs **inside the supervisor**.
 
-Default listen address when enabled: `127.0.0.1:8080`. Binding to `0.0.0.0` or `::` is rejected. The demo platform uses `127.0.0.1:18080`.
+There is no implicit listen port. `proxy.listen.port` is **required** when `proxy.enabled` is true — `devctl config validate` and any load fail with `proxy.listen.port is required when proxy.enabled is true` (exit **2**). `devctl setup` writes `127.0.0.1:8080` as a starter; the demo uses `127.0.0.1:18080`. Binding to `0.0.0.0` or `::` is rejected.
+
+`devctl proxy start`, TUI `n` on the proxy screen, and MCP `start_proxy` still refuse a `0` port even when the proxy is not enabled: same wording, CLI exit **7**.
 
 ```bash
 devctl proxy start

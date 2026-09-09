@@ -75,18 +75,24 @@ devctl mcp --json
 | `stop_services` | control | Named list, or all started services when omitted. Also stops every transitive dependent of a named service — never its dependencies |
 | `restart_services` | control | Named list; touches only those services, not dependents, unless `cascade: true`. Start still expands dependencies |
 | `reload_config` | control | Reload `.devctl` |
+| `run_task` | control | Run a named task from configuration; output is also in the log ring as `task:<name>` |
+| `start_proxy` / `stop_proxy` | control | Start or stop the local reverse proxy |
 | `exec_service` | control | Run an arbitrary command in a service's resolved environment/cwd, or inspect its redacted environment with `print_env` |
 | `get_setup_guide` | setup | The onboarding guide for authoring a `.devctl`. `section`: `procedure` (default), `authoring`, `discovery`. Same text as [`skills/devctl-onboard`](../skills/devctl-onboard/SKILL.md), compiled into the binary so no skill install is needed |
 | `validate_config` | setup | Validate configuration and return the loader's exact issues. No arguments validates what is on disk; `text` validates a candidate `config.yaml` through the real load pipeline before it is written |
 
 No tool writes files. An agent authors `.devctl` with its own editing tools and uses `validate_config` to check the result.
 
+Interactive `gcloud` login stays CLI/TUI-only (`devctl auth login` / `/auth login`). MCP `run_doctor` already probes service accounts; run `devctl auth login` when ADC is missing.
+
+`get_logs` is paged (cap 200). To follow, poll with `cursor=next_cursor`. There is no blocking `follow` tool.
+
 ## Enabling and disabling tools
 
 Every tool is on by default. The TUI's **MCP** page lists them grouped by the
 `Group` column above, each marked `read` or `write`, and `space` toggles the
 highlighted one. The common case is turning off the whole `control` group —
-`start_services`, `stop_services`, `restart_services`, `reload_config`, `exec_service` — so an
+`start_services`, `stop_services`, `restart_services`, `reload_config`, `run_task`, `start_proxy`, `stop_proxy`, `exec_service` — so an
 agent can read status and logs but not start or stop anything.
 
 A disabled tool is left out of `tools/list` **and** refused if called anyway,

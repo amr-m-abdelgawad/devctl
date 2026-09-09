@@ -112,11 +112,18 @@ export type ReloadResult = {
   restart_required: string[];
   changes: Record<string, string[]>;
   // Fields the running supervisor process itself cannot pick up from a
-  // config reload (log capacity/persistence, auth refresh threshold, plugin
-  // paths) — these need the daemon itself replaced (`devctl down && devctl
-  // start`; plain `stop` leaves it running), not a service restart, so
-  // they're reported separately from restart_required.
+  // config reload (log capacity/persistence, auth refresh threshold, or a
+  // plugin file whose mtime changed). Plugin *path list* changes hot-apply.
+  // These need the daemon itself replaced (`devctl down && devctl start`;
+  // plain `stop` leaves it running), not a service restart, so they're
+  // reported separately from restart_required.
   supervisor_restart_required?: string[];
+};
+
+export type StatsSeries = {
+  interval_ms: number;
+  cpu: number[];
+  mem: number[];
 };
 
 export type SystemSnapshot = {
@@ -151,6 +158,7 @@ export type StatusSnapshot = {
   plan?: string[];
   restart_required?: string[];
   system: SystemSnapshot;
+  stats_series?: StatsSeries;
 };
 
 export type LogsResponse = {

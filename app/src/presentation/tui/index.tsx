@@ -1,11 +1,10 @@
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
-import { type DevctlConfig } from "../../domain/config/types.ts";
 import type { ClientRuntime, Controller } from "../../application/client-runtime.ts";
 import { createTuiWorkspace } from "./workspace.ts";
 import { humanMessage, isKind, KindConfigurationMissing } from "../../shared/errors.ts";
 import { App } from "./App.tsx";
-import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../warnings.ts";
+import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
 
 export async function runTuiWithController(client: ClientRuntime, controller: Controller): Promise<void> {
   const tui = client.loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);
@@ -68,20 +67,37 @@ export async function renderApp(
       }
       void controller.close({ detach, shutdownSupervisor: true }).finally(finish);
     };
+    const down = (keepServices: boolean): void => {
+      const finish = (): void => {
+        root.unmount();
+        restoreStderr();
+        renderer.destroy();
+        resolve();
+        process.exit(0);
+      };
+      if (!controller) {
+        finish();
+        return;
+      }
+      void controller
+        .shutdown({ stopServices: !keepServices })
+        .then(() => controller?.close({ detach: true }))
+        .finally(finish);
+    };
     root.render(
       <App
         workspace={createTuiWorkspace(client)}
         controller={controller}
         tui={tui}
         onQuit={quit}
+        onDown={down}
+        onAttached={(next) => {
+          controller = next;
+        }}
         bootError={bootError}
         bootErrorMissing={bootErrorMissing}
         terminalBackground={terminalBackground}
       />,
     );
   });
-}
-
-export function tuiConfigFor(client: ClientRuntime, cfg: DevctlConfig) {
-  return client.loadTuiConfig(cfg.repoRoot, cfg.ui.keymap);
 }

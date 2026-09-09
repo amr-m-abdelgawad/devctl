@@ -18,6 +18,7 @@ import {
 } from "./decode.ts";
 import {
   emptyService,
+  watchDebounceMs,
   type DevctlConfig,
   type ConfigProvenance,
   type EnvConfig,
@@ -66,7 +67,7 @@ export function recordProvenance(provenance: ConfigProvenance, raw: unknown, sou
 // Service fields that are themselves merged field-by-field rather than
 // replaced wholesale — so presence needs to be tracked one level deeper
 // than just "was this key present" for each of them too.
-const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity", "container", "hooks"] as const;
+const NESTED_OBJECT_FIELDS = ["environment", "restart", "startup", "health", "logs", "identity", "container", "watch", "hooks"] as const;
 
 export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown): void {
   const keys = presentKeys(raw);
@@ -268,6 +269,7 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     restart: mergeRestart(base.restart, raw.restart),
     startup: mergeStartup(base.startup, raw.startup),
     container: mergeContainer(base.container, raw.container),
+    watch: mergeWatch(base.watch, raw.watch),
     hooks: mergeHooks(base.hooks, raw.hooks),
   };
   if (present.has("extends")) {
@@ -298,6 +300,18 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
     out.proxy = decodeServiceProxy(raw.proxy);
   }
   return out;
+}
+
+function mergeWatch(base: ServiceConfig["watch"], raw: unknown): ServiceConfig["watch"] {
+  if (!isRecord(raw)) {
+    return base;
+  }
+  return {
+    enabled: raw.enabled !== undefined ? asBoolean(raw.enabled) : base.enabled,
+    paths: raw.paths !== undefined ? asStringArray(raw.paths) : base.paths,
+    debounce_ms: raw.debounce_ms !== undefined ? watchDebounceMs(asNumber(raw.debounce_ms)) : base.debounce_ms,
+    ignore: raw.ignore !== undefined ? asStringArray(raw.ignore) : base.ignore,
+  };
 }
 
 function mergeHooks(base: ServiceConfig["hooks"], raw: unknown): ServiceConfig["hooks"] {
@@ -505,6 +519,9 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
       env: present.has("container.env") ? container.env : baseContainer.env,
       volumes: present.has("container.volumes") ? container.volumes : baseContainer.volumes,
     } : (container ?? baseContainer);
+  }
+  if (present.has("watch")) {
+    out.watch = svc.watch;
   }
   out.hooks = {
     pre_start: present.has("hooks.pre_start") ? svc.hooks.pre_start : base.hooks.pre_start,

@@ -25,6 +25,9 @@ function hostFor(cfg: DevctlConfig): McpHost {
     restart: unused,
     reload: unused,
     doctor: unused,
+    runTask: unused,
+    startProxy: unused,
+    stopProxy: unused,
   };
 }
 

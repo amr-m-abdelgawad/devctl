@@ -15,11 +15,3 @@ export function serviceId(value: string): ServiceId {
 export function profileId(value: string): ProfileId {
   return value as ProfileId;
 }
-
-export function identityId(value: string): IdentityId {
-  return value as IdentityId;
-}
-
-export function port(value: number): Port {
-  return value as Port;
-}

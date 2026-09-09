@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { normalizeReleaseVersion } from "../src/npm-package.ts";
-import { parseSha256Sums, updateHomebrewFormula } from "../src/homebrew-formula.ts";
+import { normalizeReleaseVersion } from "./npm-package.ts";
+import { parseSha256Sums, updateHomebrewFormula } from "./homebrew-formula.ts";
 
 const requestedVersion = process.argv[2];
 const checksumArgument = process.argv[3];

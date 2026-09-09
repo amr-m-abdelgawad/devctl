@@ -18,7 +18,7 @@ complete allowlists.
 
 **Service** (and `templates.<name>`, same shape): `extends` `description`
 `command` `shell` `working_dir` `dependencies` `ports` `environment` `health`
-`identity` `logs` `restart` `startup` `capabilities` `proxy` `container` `hooks`
+`identity` `logs` `restart` `startup` `capabilities` `proxy` `container` `watch` `hooks`
 
 | Section | Allowed keys |
 |---|---|
@@ -28,6 +28,7 @@ complete allowlists.
 | `service.health` | `type` `url` `address` `command` `interval_seconds` `timeout_seconds` `start_period_seconds` `unhealthy_threshold` `healthy_reset_threshold` |
 | `service.hooks` | `pre_start` `post_start` |
 | `service.container` | `image` `runtime` `ports` `env` `volumes` |
+| `service.watch` | `enabled` `paths` `debounce_ms` `ignore` |
 | `tasks.<name>` | `command` `shell` `working_dir` `dependencies` `environment` |
 | `service.identity` | `type` `mode` `service_account` |
 | `service.restart` | `enabled` `policy` `max_retries` `backoff_seconds` |

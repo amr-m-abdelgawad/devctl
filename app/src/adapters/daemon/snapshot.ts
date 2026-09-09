@@ -2,7 +2,7 @@ import { cpus, loadavg, platform, uptime } from "node:os";
 import type { DevctlConfig } from "../config/index.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, type Runtime } from "../../domain/service/services.ts";
-import type { IdentitySnapshot, ServiceAccountStatus, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
+import type { IdentitySnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
@@ -25,6 +25,7 @@ export type SnapshotHost = {
   readonly detached: boolean;
   readonly setupMode: boolean;
   readonly restartRequired: string[];
+  readonly statsSeries?: StatsSeries;
   readonly logs: { snapshot(): { total: number; errors: number; counts: Record<string, number> } };
   readonly tokens: { storeBackend(): string };
 };
@@ -134,6 +135,7 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
     logs: host.logs.snapshot(),
     restart_required: [...host.restartRequired],
     system: systemSnapshot(),
+    stats_series: host.statsSeries,
   };
 }
 

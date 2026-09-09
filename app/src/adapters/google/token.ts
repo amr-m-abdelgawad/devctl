@@ -6,7 +6,7 @@ import { type CredentialRecord, type CredentialStatus, type CredentialStore, ope
 import { DevctlError, humanMessage, KindAuthorization, KindConfiguration, KindToken, newError } from "../../shared/errors.ts";
 import { type Bus, TokenRefreshed, TokenRefreshFailed, newEvent } from "../../shared/events.ts";
 import { classifyGoogle, ensureFetchShim } from "./google.ts";
-import { withRetry } from "../../retry.ts";
+import { withRetry } from "../../shared/retry.ts";
 import { credentialsDir, writeFileSecure } from "../storage/storage.ts";
 import type { Clock } from "../../ports/clock.ts";
 import { systemClock } from "../system/clock.ts";
@@ -210,14 +210,6 @@ function fromRecord(rec: CredentialRecord): AccessToken {
 
 export function googleTokenProviders(): TokenProvider[] {
   return [iapProvider(), serviceAccountProvider(), userProvider()];
-}
-
-export function staticTokenProvider(token: AccessToken): TokenProvider {
-  return {
-    name: "static",
-    accepts: (identity, audience) => (token.identity === "" || identity === token.identity) && (token.audience === "" || audience === token.audience),
-    fetch: async (identity, audience, scopes) => ({ ...token, identity, audience, scopes }),
-  };
 }
 
 function userProvider(): TokenProvider {

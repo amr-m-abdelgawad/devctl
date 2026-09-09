@@ -1,7 +1,6 @@
 import { RestartAlways, RestartNever, RestartOnFailure, effectiveRestartPolicy, type ServiceConfig } from "../config/types.ts";
 
 export const DEFAULT_MAX_RETRIES = 3;
-export const DEFAULT_BACKOFF_SECONDS = 2;
 export const HEALTH_RESTART_STREAK = 3;
 export const HEALTH_RESET_STREAK = 10;
 
@@ -57,17 +56,5 @@ export const StartupPolicy = {
 
   waitForHealthy(svc: ServiceConfig): boolean {
     return svc.startup.wait_for_healthy;
-  },
-};
-
-export const ShutdownPolicy = {
-  graceMs(seconds: number, fallbackMs: number): number {
-    return seconds > 0 ? seconds * 1000 : fallbackMs;
-  },
-};
-
-export const CredentialRefreshPolicy = {
-  shouldRefresh(expiresAt: Date, now: Date, thresholdMs: number): boolean {
-    return expiresAt.getTime() - now.getTime() < thresholdMs;
   },
 };

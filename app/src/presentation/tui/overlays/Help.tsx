@@ -5,7 +5,7 @@ import { useDensity } from "../density.tsx";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { isCompactScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";
-import { defaultCopyKeybind } from "../tui-config.ts";
+import { defaultCopyKeybind, displayKeybind, displayWithMod } from "../tui-config.ts";
 
 export const HELP_WIDTH = 78;
 export const HELP_STACK_BREAKPOINT = 56;
@@ -13,7 +13,7 @@ export const HELP_SECTION_BORDER = 2;
 export const HELP_OVERLAY_BORDER = 2;
 export const HELP_FOOTER_ROWS = 1;
 export const HELP_SCROLL_PAGE = 8;
-const KEY_COL_WIDTH = 16;
+const KEY_COL_GAP = 2;
 const PAIR_GAP = 2;
 const STACKED_BLOCKS = 6;
 const WIDE_BLOCKS = 4;
@@ -24,11 +24,14 @@ type Binding = {
 };
 
 export const HELP_NAVIGATION: readonly Binding[] = [
-  { key: "tab", label: "next screen" },
-  { key: "1-9,0", label: "jump to screen" },
-  { key: "s/l/a/p/d/c/u", label: "letter jump (config, setup)" },
+  { key: "tab", label: "next tab" },
+  { key: "1-4", label: "dashboard services logs proxy" },
+  { key: "s/l/a/p/d/c/u", label: "letter jump" },
+  { key: "/", label: "command overlay · other screens" },
   { key: "j/k", label: "move selection" },
-  { key: "esc", label: "back / close" },
+  { key: "esc", label: "back / close overlay" },
+  { key: "esc ×2", label: "quit" },
+  { key: "q ×2", label: "quit" },
 ];
 
 export const HELP_SERVICES: readonly Binding[] = [
@@ -37,33 +40,35 @@ export const HELP_SERVICES: readonly Binding[] = [
   { key: "n", label: "start" },
   { key: "x", label: "stop" },
   { key: "r", label: "refresh" },
-  { key: "R", label: "restart" },
+  { key: "R", label: "restart (c cascade if dependents)" },
 ];
 
 export function logBindings(copyKey: string): readonly Binding[] {
   return [
     { key: "←→", label: "filter services" },
-    { key: "1-9", label: "jump to source" },
     { key: "e", label: "ERROR+ only" },
     { key: "g", label: "jump to latest" },
     { key: "p", label: "pause stream" },
     { key: "z", label: "full-screen logs" },
+    { key: "\\", label: "split panes" },
+    { key: "|", label: "focus other pane" },
+    { key: "/trace", label: "jump to request id" },
     { key: "f", label: "search" },
     { key: "t", label: "timestamps" },
     { key: "m", label: "metadata" },
     { key: "w", label: "clip / wrap selected / wrap all" },
     { key: "j/k", label: "move and unfold" },
-    { key: copyKey, label: "copy visible logs" },
+    { key: displayKeybind(copyKey), label: "copy selection" },
     { key: "/export", label: "write ~/.devctl/exports" },
     { key: "/exports", label: "open export folder" },
-    { key: "ctrl+c ×2", label: "quit" },
   ];
 }
 
 export const HELP_COMMANDS: readonly Binding[] = [
-  { key: "/", label: "slash command" },
-  { key: "ctrl+p", label: "command palette" },
-  { key: "ctrl+x", label: "leader chord" },
+  { key: displayWithMod("c"), label: "copy highlighted selection" },
+  { key: "/", label: "command overlay" },
+  { key: displayWithMod("p"), label: "same overlay" },
+  { key: displayWithMod("x"), label: "leader chord" },
   { key: "/settings", label: "preferences · MCP page" },
   { key: "/themes", label: "preview themes" },
   { key: "/diff", label: "config sources" },
@@ -71,8 +76,8 @@ export const HELP_COMMANDS: readonly Binding[] = [
 ];
 
 export const HELP_DISPLAY: readonly Binding[] = [
-  { key: "ctrl+=", label: "larger" },
-  { key: "ctrl+-", label: "smaller" },
+  { key: displayWithMod("="), label: "larger" },
+  { key: displayWithMod("-"), label: "smaller" },
   { key: "?", label: "this overlay" },
 ];
 
@@ -200,6 +205,7 @@ function HelpSection(props: {
 }) {
   const { palette, title, bindings, stretch = false } = props;
   const height = props.height ?? helpSectionHeight(bindings.length);
+  const keyWidth = helpKeyColumnWidth(bindings);
   return (
     <box
       height={height}
@@ -216,18 +222,23 @@ function HelpSection(props: {
     >
       {bindings.map((binding) => (
         <box key={`${binding.key}-${binding.label}`} height={1} flexShrink={0} overflow="hidden" paddingLeft={1} paddingRight={1}>
-          <HelpBind palette={palette} binding={binding} />
+          <HelpBind palette={palette} binding={binding} keyWidth={keyWidth} />
         </box>
       ))}
     </box>
   );
 }
 
-function HelpBind(props: { palette: Palette; binding: Binding }) {
-  const { palette, binding } = props;
+function helpKeyColumnWidth(bindings: readonly Binding[]): number {
+  const longest = bindings.reduce((max, binding) => Math.max(max, binding.key.length), 0);
+  return longest + KEY_COL_GAP;
+}
+
+function HelpBind(props: { palette: Palette; binding: Binding; keyWidth: number }) {
+  const { palette, binding, keyWidth } = props;
   return (
     <box height={1} flexDirection="row" overflow="hidden">
-      <box width={KEY_COL_WIDTH} flexShrink={0} overflow="hidden">
+      <box width={keyWidth} flexShrink={0} overflow="hidden">
         <text fg={palette.primary} wrapMode="none">
           {binding.key}
         </text>

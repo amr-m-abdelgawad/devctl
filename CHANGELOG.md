@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-09
+
+### Added
+
+- TUI `/restart --cascade` (`-c`) and `R` confirm (`c` = cascade) restart dependents the same way CLI and MCP already do.
+- Empty TUI `/run` and `/exec` open a picker; Enter on a Config task row runs that task.
+- MCP `run_task`, `start_proxy`, and `stop_proxy` wrap the existing supervisor RPCs. Auth login and config write stay CLI/TUI-only.
+- TUI log search highlights matches (plain and regex) and the dashboard tail honors the same search.
+- TUI first-run Enter runs the 9-step setup wizard and attaches the daemon without restarting the process.
+- `devctl config import compose` (and TUI `/import compose`) maps modeled Compose fields and lists dropped ones; `--write` never invents unknown schema keys.
+- Opt-in `service.watch` restarts one service when listed paths change (debounced, ignored globs, never the whole repo by default).
+- Configuration reload hot-applies a changed `plugins` path list; editing an already-imported plugin file still asks for a supervisor restart.
+- TUI log split panes (`\\` / `/split`), `/trace <id>`, and Stats sparklines from a 60-sample supervisor ring.
+- TUI chords use **command** on macOS and **ctrl** on Linux/Windows. Help and the status bar label the OS modifier. The copy chord copies the highlighted selection; `esc` twice quits.
+- Slash overlay second-word suggestions and usage hints (`/auth`, `/restart`, `/import`, and similar).
+- Log store truncates lines over 16 KiB and skips JSON parse for payloads over 64 KiB; the daemon can keep the ring on a worker thread.
+- CI `check:coverage` fails the suite when aggregate function or line coverage drops below 86%.
+- CI `check:dead` (Knip) and `check:dup` (jscpd) reject unused files/exports and copy-paste clones.
+
+### Changed
+
+- The supervisor is split further into proxy, MCP, identity, environment, and resource-sampler coordinators plus a dedicated RPC server. CLI, TUI, and MCP still share the same commands.
+- Docs no longer claim an implicit proxy listen of `127.0.0.1:8080`. `proxy.listen.port` is required when `proxy.enabled` is true (validate exits 2); `devctl proxy start` with port `0` exits 7. Setup still writes 8080 as a starter.
+
+### Fixed
+
+- `service.watch` debounce of `0` or a negative value falls back to the default instead of disabling the debounce.
+- A detached supervisor child is reaped on shutdown and in tests so `down` does not leave an orphan listening on the session socket.
+
 ## [0.2.4] - 2026-09-08
 
 ### Added
@@ -268,7 +297,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.5...HEAD
+[0.2.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.1...v0.2.2

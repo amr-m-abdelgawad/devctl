@@ -70,7 +70,26 @@ export type ContainerConfig = {
   volumes: string[];
 };
 
+export type ServiceWatchConfig = {
+  enabled: boolean;
+  paths: string[];
+  debounce_ms: number;
+  ignore: string[];
+};
+
+export const DEFAULT_WATCH_DEBOUNCE_MS = 300;
+export const DEFAULT_WATCH_IGNORE = ["**/node_modules/**", "**/.git/**"];
+
+export function watchDebounceMs(value: number): number {
+  return value > 0 ? value : DEFAULT_WATCH_DEBOUNCE_MS;
+}
+
+export function emptyWatch(): ServiceWatchConfig {
+  return { enabled: false, paths: [], debounce_ms: DEFAULT_WATCH_DEBOUNCE_MS, ignore: [...DEFAULT_WATCH_IGNORE] };
+}
+
 export type HooksConfig = { pre_start: Command; post_start: Command };
+
 export type TaskConfig = { command: Command; shell: boolean; working_dir: string; dependencies: string[]; environment: EnvConfig };
 
 export type ServiceConfig = {
@@ -90,6 +109,7 @@ export type ServiceConfig = {
   capabilities: string[];
   proxy: RouteConfig[];
   container?: ContainerConfig;
+  watch: ServiceWatchConfig;
   hooks: HooksConfig;
 };
 
@@ -276,6 +296,7 @@ export function emptyService(): ServiceConfig {
     capabilities: [],
     proxy: [],
     container: undefined,
+    watch: emptyWatch(),
     hooks: { pre_start: emptyCommand(), post_start: emptyCommand() },
   };
 }

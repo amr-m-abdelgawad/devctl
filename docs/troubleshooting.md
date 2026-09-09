@@ -11,7 +11,7 @@
 | Port already in use | Doctor lists the holder. Stop a leftover, or change config. Running your own services will also show as “in use” |
 | Service crashes | Open Logs, filter `ERROR` (`e`), restart with `R` |
 | Health check failure | Confirm the health URL/port; `process` checks only PID liveness |
-| Proxy unavailable | `devctl proxy start` or enable `proxy.enabled`. Bind is `127.0.0.1` only |
+| Proxy unavailable / missing listen port | Pin `proxy.listen.port` (required when `proxy.enabled` is true — validate exits **2**). Then `devctl proxy start` or TUI `n`. Starting with port `0` exits **7**. Bind is loopback only |
 | Token expired | Automatic refresh uses `auth.refresh_threshold_seconds`; run `devctl auth refresh`. Open Doctor if ADC itself expired |
 | Token audience incorrect | Set `auth.audience` on the IAP route; Doctor flags missing audiences |
 | IAP used a user token for an SA route | Confirm the route identity is `service_account`; Doctor probes impersonated IAP separately |

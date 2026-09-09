@@ -235,7 +235,3 @@ function parseYamlText(data: string, path: string): Record<string, unknown> {
 function isNotFound(err: unknown): boolean {
   return typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "ENOENT";
 }
-
-export { discover } from "./discover.ts";
-export { validate } from "./validate.ts";
-export * from "../../domain/config/types.ts";

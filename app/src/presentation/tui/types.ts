@@ -14,10 +14,11 @@ export type Screen =
   | "mcp"
   | "stats";
 
+export type SlashPicker = "commands" | "tasks" | "services";
+
 export type Overlay =
   | "none"
   | "slash"
-  | "palette"
   | "themes"
   | "help"
   | "confirm"
@@ -26,16 +27,18 @@ export type Overlay =
   | "log-details"
   | "config-edit"
   | "route-details"
-  | "scroll-text";
+  | "scroll-text"
+  | "setup-wizard";
 
 export type LifecycleKind = "start" | "stop" | "restart";
 
-export type ConfirmKind = "quit" | "start-profile" | "free-port" | "reload" | "reset-prefs";
+export type ConfirmKind = "quit" | "start-profile" | "free-port" | "reload" | "reset-prefs" | "restart-cascade";
 
 export type ConfirmDetail = {
   port?: number;
   pid?: number;
   process?: string;
+  services?: string[];
 };
 
 export type FooterHint = {

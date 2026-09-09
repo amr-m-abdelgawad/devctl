@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_WATCH_DEBOUNCE_MS, emptyService } from "../../domain/config/types.ts";
 import { load } from "./load.ts";
+import { mergeService } from "./merge.ts";
 import { configDiff } from "./provenance.ts";
 
 function writeFile(dir: string, rel: string, contents: string): void {
@@ -317,6 +319,43 @@ services:
     // partially override still come from the template — nested sections
     // merge field by field, not as an all-or-nothing block.
     expect(api?.restart.policy).toBe("on_failure");
+  });
+
+  test("watch debounce_ms of 0 or negative falls back to the default on decode and merge", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-watch-debounce-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    watch:
+      enabled: true
+      paths: [src]
+      debounce_ms: 500
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/config.local.yaml",
+      `
+services:
+  api:
+    watch:
+      debounce_ms: 0
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.watch.debounce_ms).toBe(DEFAULT_WATCH_DEBOUNCE_MS);
+    expect(cfg.services.api?.watch.enabled).toBe(true);
+    expect(cfg.services.api?.watch.paths).toEqual(["src"]);
+
+    const base = emptyService();
+    base.watch = { enabled: true, paths: ["src"], debounce_ms: 500, ignore: [] };
+    expect(mergeService(base, { watch: { debounce_ms: -10 } }).watch.debounce_ms).toBe(DEFAULT_WATCH_DEBOUNCE_MS);
+    expect(mergeService(base, { watch: { debounce_ms: 800 } }).watch.debounce_ms).toBe(800);
   });
 
   test("a local overlay can explicitly disable something the main config enabled", () => {

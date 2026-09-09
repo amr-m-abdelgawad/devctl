@@ -8,7 +8,11 @@ cd app
 bun install
 bun run src/bin.ts --help
 bun test
+bun run check:coverage
 bunx tsc --noEmit
+bun run check:architecture
+bun run check:dead
+bun run check:dup
 ```
 
 From the repository root (after `bun install` in `app/`):
@@ -38,7 +42,7 @@ cd app && bun link    # optional: `devctl` on PATH
 | `app/src/adapters/rpc/controller.ts` | Local supervisor or socket / named-pipe client |
 | `app/tui.json` | Starter TUI preferences |
 
-Layer rules: [architecture.md](architecture.md). Check with `bun run check:architecture`.
+Layer rules: [architecture.md](architecture.md). Check with `bun run check:architecture`. Coverage: `bun run check:coverage` (aggregate funcs/lines; OpenTUI screens and hooks are ignored). Unused files and dependencies: `bun run check:dead` ([Knip](https://knip.dev)). Copy-paste clones: `bun run check:dup` ([jscpd](https://jscpd.dev)).
 
 There is no separate Go tree.
 
@@ -62,7 +66,7 @@ flowchart TB
 
 Settings writes go to `~/.devctl/tui.json` unless the env override is set (then changes apply for this session only).
 
-`keybinds` merge with the built-in defaults, so you only override what you change.
+`keybinds` merge with the built-in defaults, so you only override what you change. Defaults use `cmd` on macOS and `ctrl` on Linux/Windows (`command+c` / `ctrl+c` in the TUI).
 
 ```json
 {

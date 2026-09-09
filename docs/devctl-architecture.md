@@ -314,7 +314,8 @@ Navigation must support:
 - Shortcuts
 - Enter
 - Escape
-- Ctrl+C
+- Ctrl+C (copy)
+- Esc twice (quit)
 - Search
 - Filtering
 - Scrolling
@@ -2392,8 +2393,8 @@ f       filter
 enter   details
 esc     back
 space   select
-ctrl+c  interrupt (twice to quit)
-cmd+c   copy logs (macOS; ctrl+c elsewhere)
+esc     twice to quit (when nothing else is open)
+command+c / ctrl+c  copy highlighted selection (OS modifier)
 ```
 
 Shortcuts must be configurable where reasonable.

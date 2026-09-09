@@ -7,13 +7,12 @@ import type { LogEvent } from "../../domain/logs/logs.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { CommandLine, Header, NavStrip, StatusBar } from "./chrome.tsx";
+import { Header, NavStrip, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
-import { allCommands, commandArgs, filterCommands, lookupCommand, type CommandSpec } from "./commands.ts";
+import { lookupCommand } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
-import { compactChrome, confirmCopy } from "./helpers/chrome.ts";
-import { paletteOptions, selectedSlashCommand } from "./helpers/command-catalog.ts";
-import { formatLogDetails, formatLogsForClipboard } from "./helpers/logs.ts";
+import { confirmCopy } from "./helpers/chrome.ts";
+import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
 import { defaultProfileName, type ServiceEnvEntry } from "./helpers/services.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
@@ -25,16 +24,17 @@ import { useLifecycle } from "./hooks/use-lifecycle.ts";
 import { useLogView } from "./hooks/use-log-view.ts";
 import { useMcpControls } from "./hooks/use-mcp-controls.ts";
 import { usePreferences } from "./hooks/use-preferences.ts";
+import { useSetupWizard } from "./hooks/use-setup-wizard.ts";
 import { useServiceEnvironment } from "./hooks/use-service-environment.ts";
 import { ConfigEditOverlay } from "./overlays/ConfigEdit.tsx";
 import { ConfirmOverlay } from "./overlays/Confirm.tsx";
 import { HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
-import { PaletteOverlay } from "./overlays/Palette.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
 import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
 import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
+import { SetupWizardOverlay } from "./overlays/SetupWizard.tsx";
 import { SlashOverlay } from "./overlays/Slash.tsx";
 import { ThemesOverlay } from "./overlays/Themes.tsx";
 import { AuthScreen } from "./screens/Auth.tsx";
@@ -54,38 +54,41 @@ import { StatsScreen } from "./screens/Stats.tsx";
 import { uiScaleFor } from "./settings.ts";
 import { THEME_NAMES } from "./themes.ts";
 import { defaultCopyKeybind, type TuiConfig } from "./tui-config.ts";
-import { type ConfirmDetail, type ConfirmKind, type Overlay, type Screen } from "./types.ts";
+import { type ConfirmDetail, type ConfirmKind, type Overlay, type Screen, type SlashPicker } from "./types.ts";
 import { type TuiWorkspace } from "./workspace.ts";
 
 type AppProps = {
   controller?: Controller;
   tui: TuiConfig;
   onQuit: (detach?: boolean) => void;
+  onDown?: (keepServices: boolean) => void;
+  onAttached?: (controller: Controller) => void;
   bootError?: string;
   bootErrorMissing?: boolean;
   terminalBackground?: string | null;
   workspace: TuiWorkspace;
 };
 
-export function App({ controller, tui, onQuit, bootError, bootErrorMissing = false, terminalBackground, workspace }: AppProps) {
+export function App({ controller: initialController, tui, onQuit, onDown, onAttached, bootError: initialBootError, bootErrorMissing = false, terminalBackground, workspace }: AppProps) {
   const {
     saveTuiPreferences,
     resolveTuiOverridePath,
     userTuiConfigPath,
     validateConfigText,
     freePort,
-    openInFileManager,
-    exportsDir,
     readTextFile,
     writeTextFile,
     createStarterConfig,
     validate,
   } = workspace;
+  const [controller, setController] = useState(initialController);
+  const [bootError, setBootError] = useState(initialBootError);
   const renderer = useRenderer();
   const { width, height } = useTerminalDimensions();
   const [screen, setScreen] = useState<Screen>(controller ? "dashboard" : "setup");
   const [overlay, setOverlay] = useState<Overlay>("none");
   const [query, setQuery] = useState("");
+  const [slashPicker, setSlashPicker] = useState<SlashPicker>("commands");
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [slashIndex, setSlashIndex] = useState(0);
   const [selected, setSelected] = useState(0);
@@ -184,6 +187,16 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     logSince,
     logService,
     setLogService,
+    logServiceB,
+    setLogServiceB,
+    splitLogs,
+    splitFocus,
+    setSplitFocus,
+    logSliceB,
+    logWindowB,
+    logSelectedB,
+    logPinnedB,
+    pinLogViewB,
     logServices,
     logShowTimestamps,
     logShowMeta,
@@ -198,43 +211,49 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     logFacets,
     logSources,
     filteredLogs,
+    filteredLogsB,
     logWindow,
     logSlice,
     pinLogView,
-    applyLogCursor,
+    applyLogCursorA,
+    applyLogCursorB,
     jumpToLatestLogs,
-    clearLogs,
-    toggleSystemLogs,
   } = logView;
 
-  const filtered = useMemo(() => filterCommands(query), [query]);
-  const paletteItems = useMemo(() => paletteOptions(query), [query]);
+  const filtered = useMemo(() => {
+    if (slashPicker === "tasks") {
+      return namedPickerItems(Object.keys(cfg?.tasks ?? {}), query, "tasks", "run this task");
+    }
+    if (slashPicker === "services") {
+      return namedPickerItems(Object.keys(cfg?.services ?? {}), query, "services", "exec in this service");
+    }
+    return paletteOptions(query, {
+      services: Object.keys(cfg?.services ?? {}),
+      tasks: Object.keys(cfg?.tasks ?? {}),
+    });
+  }, [cfg, query, slashPicker]);
 
   useEffect(() => {
     setSlashIndex(0);
   }, [query]);
-
-  useEffect(() => {
-    if (overlay === "palette") {
-      setPaletteIndex(0);
-    }
-  }, [overlay, query]);
 
   const listCount = screenListCount(screen, {
     doctor: doctor?.checks.length ?? 0,
     settings: settingRows.length,
     profiles: Object.keys(cfg?.profiles ?? {}).length,
     services: names.length,
-    logs: logSlice.length,
+    logs: splitLogs && splitFocus === 1 ? logSliceB.length : logSlice.length,
     mcp: mcpRowCount(),
+    config: Object.keys(cfg?.tasks ?? {}).length,
   });
-  const cursorState = screen === "logs" ? logSelected : selected;
+  const cursorState = screen === "logs" ? (splitLogs && splitFocus === 1 ? logSelectedB : logSelected) : selected;
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
   const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
   const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService });
   const closeOverlay = useCallback(() => {
     setOverlay("none");
     setQuery("");
+    setSlashPicker("commands");
     setLogSearchFocused(false);
     if (leaderTimer.current) {
       clearTimeout(leaderTimer.current);
@@ -277,32 +296,18 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
 
   const lifecycleActions = useLifecycle({ controller, workspace, cfg, snap, refresh, setStatus, setOverlay });
   const { plan, planInitiallyRunning, planBusy, lifecycle } = lifecycleActions;
+  const wizard = useSetupWizard({
+    workspace,
+    renderer,
+    setOverlay,
+    setStatus,
+    setScreen,
+    onAttached,
+    setController,
+    setCfg,
+    setBootError,
+  });
 
-  const copyVisibleLogs = useCallback(async (note = "") => {
-    // filteredLogs is the exact set the list itself renders from — reusing
-    // it (rather than reconstructing the filter here) is what guarantees
-    // this matches every currently active filter, not just the ones this
-    // callback happens to remember to pass along.
-    const text =
-      overlay === "log-details" && logDetail
-        ? formatLogDetails(logDetail)
-        : overlay === "scroll-text" && scrollText
-          ? scrollText.body
-          : formatLogsForClipboard(filteredLogs);
-    const suffix = note === "" ? "" : ` · ${note}`;
-    if (text.trim() === "") {
-      setStatus(`No logs to copy${suffix}`);
-      return;
-    }
-    try {
-      await writeClipboard(text);
-      const lines = text.split("\n").length;
-      const copied = overlay === "log-details" ? "Copied log event" : overlay === "scroll-text" ? "Copied overlay text" : `Copied ${lines} log lines`;
-      setStatus(`${copied}${suffix}`);
-    } catch (err) {
-      setStatus(humanMessage(err));
-    }
-  }, [filteredLogs, logDetail, overlay, scrollText]);
   const {
     configEditRef,
     configEditText,
@@ -322,11 +327,27 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     refresh,
   });
 
+  const copySelection = useCallback(async () => {
+    const text = renderer.getSelection()?.getSelectedText() ?? "";
+    if (text.trim() === "") {
+      setStatus("Nothing selected — drag to highlight text");
+      return;
+    }
+    try {
+      await writeClipboard(text);
+      const lines = text.split("\n").length;
+      setStatus(lines === 1 ? "Copied selection" : `Copied ${lines} selected lines`);
+    } catch (err) {
+      setStatus(humanMessage(err));
+    }
+  }, [renderer]);
+
   const {
     runCommand,
   } = useCommandDispatcher({
     setOverlay,
     setQuery,
+    setSlashPicker,
     checked,
     setConfirmKind,
     setStatus,
@@ -346,32 +367,46 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     setReveal,
     resolveEnvironment,
     openDetail,
-    copyVisibleLogs,
+    copySelection,
     lastExportPath,
     openConfigBuffer,
+    onDown: onDown ?? ((keep) => onQuit(keep)),
     workspace,
     logView,
     diagnostics,
     lifecycleActions,
   });
 
-  const openExportsFolder = useCallback(() => {
-    const target = lastExportPath.current || exportsDir();
-    openInFileManager(target);
-    setStatus(`Opened ${exportsDir()}`);
-  }, []);
-
   const submitSlash = useCallback(() => {
     const spec = selectedSlashCommand(filtered, slashIndex);
+    if (slashPicker === "tasks") {
+      if (!spec) {
+        setStatus(filtered.length === 0 ? "no tasks configured" : "pick a task");
+        return;
+      }
+      setSlashPicker("commands");
+      const run = lookupCommand("run");
+      if (run) {
+        void runCommand(run, [spec.name]);
+      }
+      return;
+    }
+    if (slashPicker === "services") {
+      if (!spec) {
+        setStatus(filtered.length === 0 ? "no services configured" : "pick a service");
+        return;
+      }
+      setSlashPicker("commands");
+      setQuery(`exec ${spec.name} -- `);
+      return;
+    }
     if (!spec) {
       setStatus(query.trim() === "" ? "pick a command from the list" : `unknown command /${query}`);
       closeOverlay();
       return;
     }
-    const typed = lookupCommand(query);
-    const args = typed?.name === spec.name ? commandArgs(query) : [];
-    void runCommand(spec, args);
-  }, [closeOverlay, filtered, query, runCommand, slashIndex]);
+    void runCommand(spec, slashSubmitArgs(spec, query));
+  }, [closeOverlay, filtered, query, runCommand, slashIndex, slashPicker]);
 
   const applyTheme = useCallback(
     (name: string) => {
@@ -380,27 +415,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     },
     [closeOverlay, persistTheme],
   );
-
-  const pickPalette = useCallback(
-    (name: string) => {
-      const spec = lookupCommand(name);
-      if (spec) {
-        void runCommand(spec, []);
-      }
-    },
-    [runCommand],
-  );
-
-  const submitCommandLine = useCallback(() => {
-    if (overlay === "palette") {
-      const cmd = selectedSlashCommand(paletteItems, paletteIndex);
-      if (cmd) {
-        void runCommand(cmd, []);
-      }
-      return;
-    }
-    submitSlash();
-  }, [overlay, paletteIndex, paletteItems, runCommand, submitSlash]);
 
   useAppKeyboard({
     tui,
@@ -411,15 +425,17 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       screen,
       overlay,
       onQuit,
+      onDown: onDown ?? ((keep) => onQuit(keep)),
       closeOverlay,
       confirmKind,
+      confirmDetail,
       portTarget,
       profile,
       listCursor,
       names,
       listCount,
       openDetail,
-      copyVisibleLogs,
+      copySelection,
       height,
       paletteIndex,
       applyTheme,
@@ -428,10 +444,11 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       filtered,
       slashIndex,
       submitSlash,
-      paletteItems,
+      advanceWizard: () => void wizard.advanceWizard(),
       bootErrorMissing,
       bootError,
       createStarterConfig,
+      startWizard: wizard.startWizard,
       toggleChecked,
       checked,
       detailName,
@@ -442,11 +459,14 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       setConfirmDetail,
       setPortTarget,
       setLogDetail,
+      logDetail,
+      setLogSearch,
       setProfile,
       setStatus,
       setPaletteIndex,
       setSlashIndex,
       setQuery,
+      setSlashPicker,
       setScreen,
       setSelected,
       setChecked,
@@ -502,10 +522,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             names={names}
             selected={listCursor}
             checked={checked}
-            profile={profile}
-            google={google}
             width={width}
-            paused={paused}
             followTick={logFollow}
             logService={logService}
             errorOnly={errorOnly}
@@ -517,8 +534,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             logSources={logSources}
             onFilterService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
-            onToggleSystemLogs={toggleSystemLogs}
-            onClearLogs={clearLogs}
             onShowErrors={() => {
               setLogService("");
               setErrorOnly(true);
@@ -542,6 +557,8 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             onJumpLatest={jumpToLatestLogs}
             facets={logFacets}
             leftover={leftover}
+            search={logSearch}
+            regex={logRegex}
           />
         ) : null}
         {screen === "services" ? (
@@ -585,7 +602,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             names={names}
             logSources={logSources}
             service={logService}
-            paused={paused}
             errorOnly={errorOnly}
             showSystemLogs={showSystemLogs}
             search={logSearch}
@@ -595,8 +611,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             onSearch={setLogSearch}
             onService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
-            onToggleSystemLogs={toggleSystemLogs}
-            onClearLogs={clearLogs}
             source={logSource}
             regex={logRegex}
             services={logServices}
@@ -604,17 +618,29 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
             showMeta={logShowMeta}
             view={logSlice}
             wrapMode={logWrap}
-            selected={listCursor}
+            selected={logSelected}
             follow={!logPinned}
             newer={logWindow.newer}
             viewStart={logWindow.start}
             viewTotal={filteredLogs.length}
-            onSelect={applyLogCursor}
+            onSelect={applyLogCursorA}
             fullscreen={logsFullscreen}
             onLeaveLatest={pinLogView}
-            onOpenExports={openExportsFolder}
             onJumpLatest={jumpToLatestLogs}
             facets={logFacets}
+            split={splitLogs}
+            splitFocus={splitFocus}
+            serviceB={logServiceB}
+            viewB={logSliceB}
+            selectedB={logSelectedB}
+            followB={!logPinnedB}
+            newerB={logWindowB.newer}
+            viewStartB={logWindowB.start}
+            viewTotalB={filteredLogsB.length}
+            onServiceB={setLogServiceB}
+            onSelectB={applyLogCursorB}
+            onLeaveLatestB={pinLogViewB}
+            onFocusPane={setSplitFocus}
           />
         ) : null}
         {screen === "auth" ? <AuthScreen palette={palette} cfg={cfg} google={google} identity={snap?.identity} /> : null}
@@ -664,7 +690,7 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           />
         ) : null}
         {screen === "stats" ? <StatsScreen palette={palette} cfg={cfg} snap={snap} width={width} onRefresh={refresh} /> : null}
-        {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} scrollRef={configScrollRef} /> : null}
+        {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} selectedTask={listCursor} scrollRef={configScrollRef} /> : null}
         {screen === "profiles" ? (
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />
         ) : null}
@@ -689,19 +715,9 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           items={filtered}
           query={query}
           selected={slashIndex}
+          title={slashPicker === "tasks" ? "tasks" : slashPicker === "services" ? "services" : "commands"}
           onQuery={setQuery}
-          onSubmit={submitCommandLine}
-        />
-      ) : null}
-      {overlay === "palette" ? (
-        <PaletteOverlay
-          palette={palette}
-          items={paletteItems}
-          selected={Math.min(paletteIndex, Math.max(paletteItems.length - 1, 0))}
-          termW={width}
-          termH={height}
-          onIndex={setPaletteIndex}
-          onPick={pickPalette}
+          onSubmit={submitSlash}
         />
       ) : null}
       {overlay === "themes" ? (
@@ -721,7 +737,21 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
       ) : null}
       {overlay === "leader" ? <LeaderOverlay palette={palette} termW={width} termH={height} /> : null}
       {overlay === "confirm" ? (
-        <ConfirmOverlay palette={palette} title={confirm.title} body={confirm.body} termW={width} termH={height} />
+        <ConfirmOverlay palette={palette} title={confirm.title} body={confirm.body} kind={confirmKind} termW={width} termH={height} />
+      ) : null}
+      {overlay === "setup-wizard" ? (
+        <SetupWizardOverlay
+          palette={palette}
+          termW={width}
+          termH={height}
+          step={wizard.step}
+          answers={wizard.answers}
+          repo={wizard.repo}
+          draft={wizard.draft}
+          authStatus={wizard.authStatus}
+          onDraft={wizard.setDraft}
+          onSubmit={() => void wizard.advanceWizard()}
+        />
       ) : null}
       {overlay === "log-details" ? (
         <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} />
@@ -765,9 +795,6 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
           onDismiss={closeOverlay}
         />
       ) : null}
-      {overlay === "slash" || overlay === "plan" || overlay === "config-edit" || logsFullscreen || (compactChrome(height) && overlay === "none") ? null : (
-        <CommandLine palette={palette} overlay={overlay} query={query} onQuery={setQuery} onSubmit={submitCommandLine} />
-      )}
       {logsFullscreen ? null : (
         <StatusBar
           palette={palette}
@@ -783,8 +810,4 @@ export function App({ controller, tui, onQuit, bootError, bootErrorMissing = fal
     </box>
     </DensityContext.Provider>
   );
-}
-
-export function commandCatalog(): CommandSpec[] {
-  return allCommands();
 }

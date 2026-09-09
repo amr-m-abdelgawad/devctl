@@ -99,11 +99,8 @@ export function ServiceRows(props: {
 export function SelectionHint(props: {
   palette: Palette;
   checked: string[];
-  idle: boolean;
-  profileName: string;
-  members: string;
 }) {
-  const { palette, checked, idle, profileName } = props;
+  const { palette, checked } = props;
   const count = checked.length;
   if (count > 0) {
     return (
@@ -112,38 +109,13 @@ export function SelectionHint(props: {
         items={[{ text: `${count} selected`, tone: "primary" }]}
         hints={[
           { key: "space", label: "unmark" },
-          { key: "*", label: "all" },
-          { key: "-", label: "none" },
           { key: "n", label: "start these" },
           { key: "x", label: "stop these" },
         ]}
       />
     );
   }
-  if (idle) {
-    return (
-      <MetaBar
-        palette={palette}
-        items={[{ text: "none started", tone: "idle" }]}
-        hints={[
-          { key: "space", label: "select" },
-          { key: "enter", label: profileName ? `start ${profileName}` : "open" },
-          { key: "n", label: "start" },
-        ]}
-      />
-    );
-  }
-  return (
-    <MetaBar
-      palette={palette}
-      items={[{ text: "running", tone: "success" }]}
-      hints={[
-        { key: "space", label: "select" },
-        { key: "n", label: "start" },
-        { key: "x", label: "stop" },
-      ]}
-    />
-  );
+  return null;
 }
 
 function markColor(palette: Palette, marked: boolean, focused: boolean): string {

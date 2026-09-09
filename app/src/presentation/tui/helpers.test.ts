@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatLogsForClipboard, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, slashWindowStart, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleLogs, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
-import { defaultCopyKeybind } from "./tui-config.ts";
+import { COMMAND_FOOTER_HINT, namedPickerItems, SLASH_COL_GAP, SLASH_LABEL_MAX, SLASH_NAME_PREFIX, slashCommandColumnWidth, slashCompleteQuery, slashItemDesc, slashItemKey, slashItemLabel, slashSubmitArgs } from "./helpers/command-catalog.ts";
+import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
 
 describe("TUI helpers", () => {
   test("default profile is the first sorted name", () => {
@@ -18,7 +19,7 @@ describe("TUI helpers", () => {
     expect(noneStarted(undefined)).toBe(true);
   });
 
-  test("visibleLogs only scopes by an explicit since boundary, never by service start or stop state", () => {
+  test("appendVisibleLogs only scopes by an explicit since boundary, never by service start or stop state", () => {
     const systemEvent = {
       timestamp: "2026-08-30T00:00:00.000Z",
       service: "devctl",
@@ -30,9 +31,9 @@ describe("TUI helpers", () => {
     };
     const serviceEvent = { ...systemEvent, timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", message: "ready" };
     // Stopping every service must not clear the view — there's no `snap` parameter to react to that.
-    expect(visibleLogs([systemEvent, serviceEvent])).toEqual([systemEvent, serviceEvent]);
+    expect(appendVisibleLogs([], [systemEvent, serviceEvent], "", 50)).toEqual([systemEvent, serviceEvent]);
     const later = { ...serviceEvent, timestamp: "2026-08-30T00:01:00.000Z", message: "ready again" };
-    expect(visibleLogs([systemEvent, serviceEvent, later], "2026-08-30T00:00:30.000Z")).toEqual([later]);
+    expect(appendVisibleLogs([], [systemEvent, serviceEvent, later], "2026-08-30T00:00:30.000Z", 50)).toEqual([later]);
   });
 
   test("appendVisibleLogs keeps regular per-service logs visible after a stop", () => {
@@ -262,19 +263,26 @@ describe("TUI helpers", () => {
     expect(confirmCopy("free-port", "", { port: 18000, pid: 99, process: "node" }).title).toBe("Free port 18000");
     expect(confirmCopy("reset-prefs", "").title).toBe("Reset preferences");
     expect(confirmCopy("reset-prefs", "").body).toContain("defaults");
+    expect(confirmCopy("restart-cascade", "", { services: ["api"] }).title).toBe("Restart dependents?");
+    expect(confirmCopy("restart-cascade", "", { services: ["api"] }).body).toContain("api");
+    expect(confirmHints("restart-cascade").some((h) => h.key === "c")).toBe(true);
   });
 
-  test("nav cycles skip detail", () => {
+  test("nav cycles the four primary tabs; other screens return home", () => {
+    expect(nextScreen("dashboard")).toBe("services");
+    expect(nextScreen("services")).toBe("logs");
+    expect(nextScreen("logs")).toBe("proxy");
+    expect(nextScreen("proxy")).toBe("dashboard");
+    expect(prevScreen("dashboard")).toBe("proxy");
+    expect(nextScreen("detail")).toBe("logs");
     expect(nextScreen("settings")).toBe("dashboard");
-    expect(prevScreen("dashboard")).toBe("settings");
-    expect(nextScreen("detail")).toBe("dashboard");
-    expect(nextScreen("auth")).toBe("credentials");
+    expect(nextScreen("auth")).toBe("dashboard");
   });
 
   test("footer hints are overlay-specific", () => {
     expect(footerHints("dashboard", "confirm").some((h) => h.key === "enter")).toBe(true);
     expect(footerHints("logs", "none").some((h) => h.key === "f")).toBe(true);
-    expect(footerHints("logs", "log-details").some((h) => h.key === defaultCopyKeybind())).toBe(true);
+    expect(footerHints("logs", "log-details").some((h) => h.key === displayKeybind(defaultCopyKeybind()))).toBe(true);
     expect(footerHints("settings", "none").some((h) => h.key === "←→" && h.label === "save")).toBe(true);
     expect(footerHints("mcp", "none").some((h) => h.label === "start or copy")).toBe(true);
     expect(footerHints("auth", "none").some((h) => h.key === "/auth login")).toBe(true);
@@ -282,12 +290,54 @@ describe("TUI helpers", () => {
     expect(footerHints("dashboard", "scroll-text").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("dashboard", "plan").some((h) => h.label.includes("dashboard"))).toBe(true);
     expect(footerHints("dashboard", "help").some((h) => h.key === "j/k")).toBe(true);
-    expect(footerHints("config", "config-edit").some((h) => h.key === "ctrl+s")).toBe(true);
+    expect(footerHints("config", "config-edit").some((h) => h.key === displayWithMod("s"))).toBe(true);
   });
 
   test("grouped commands keep command groups", () => {
     const groups = groupedCommands(allCommands());
     expect(groups.map((g) => g.group)).toEqual(["services", "nav", "logs", "ui", "app"]);
+  });
+
+  test("typed slash queries rank matches instead of grouping by catalog order", () => {
+    const ranked = paletteOptions("set");
+    expect(ranked[0]?.name).toBe("settings");
+    expect(ranked.map((item) => item.name).slice(0, 2)).toEqual(["settings", "setup"]);
+  });
+
+  test("slash list keeps a gap after the longest command column", () => {
+    const items = paletteOptions("");
+    const longest = items.reduce((max, cmd) => Math.max(max, slashItemLabel(cmd).length), 0);
+    expect(slashCommandColumnWidth(items)).toBe(SLASH_NAME_PREFIX + Math.min(SLASH_LABEL_MAX, longest) + SLASH_COL_GAP);
+    expect(slashItemLabel(items.find((cmd) => cmd.name === "credentials") ?? items[0]!)).toBe("credentials");
+    expect(slashItemLabel(items.find((cmd) => cmd.name === "auth") ?? items[0]!)).toBe("auth");
+    expect(slashItemKey({ name: "auth", aliases: [], desc: "", leader: "", group: "nav", hint: "login" })).toBe("auth login");
+  });
+
+  test("slash list shows second-word suggestions", () => {
+    const idle = paletteOptions("");
+    expect(idle.filter((cmd) => cmd.name === "auth")).toHaveLength(1);
+    expect(idle.some((cmd) => cmd.hint)).toBe(false);
+    expect(slashItemLabel(idle.find((cmd) => cmd.name === "start") ?? idle[0]!)).toBe("start");
+    expect(slashItemDesc(idle.find((cmd) => cmd.name === "start") ?? idle[0]!)).toContain("<service>");
+    expect(slashItemDesc(idle.find((cmd) => cmd.name === "auth") ?? idle[0]!)).toContain("login");
+    expect(paletteOptions("auth").some((cmd) => cmd.hint === "login")).toBe(true);
+    expect(paletteOptions("auth").some((cmd) => cmd.hint === "logout")).toBe(true);
+    const auth = paletteOptions("auth logi");
+    expect(auth.some((cmd) => cmd.hint === "login")).toBe(true);
+    expect(auth.some((cmd) => cmd.hint === "logout")).toBe(false);
+    const started = paletteOptions("start ", { services: ["api", "worker"] });
+    expect(started.some((cmd) => cmd.name === "start" && cmd.hint === "api")).toBe(true);
+    expect(slashCompleteQuery({ name: "auth", aliases: [], desc: "", leader: "", group: "nav", hint: "login" })).toBe("auth login ");
+    expect(slashSubmitArgs({ name: "auth", aliases: [], desc: "", leader: "", group: "nav", hint: "login" }, "")).toEqual(["login"]);
+  });
+
+  test("visibleHints always keeps the slash command hint", () => {
+    const hints = footerHints("dashboard", "none");
+    expect(hints.some((h) => h.key === COMMAND_FOOTER_HINT.key && h.label === COMMAND_FOOTER_HINT.label)).toBe(true);
+    const shown = visibleHints(hints, 18);
+    expect(shown.some((h) => h.key === "/" && h.label === "command")).toBe(true);
+    expect(footerHints("dashboard", "help").some((h) => h.key === "/" && h.label === "command")).toBe(true);
+    expect(footerHints("logs", "themes").some((h) => h.key === "/" && h.label === "command")).toBe(true);
   });
 
   test("select options stay grouped for the palette", () => {
@@ -297,17 +347,17 @@ describe("TUI helpers", () => {
   });
 
   test("footer copy hint follows the configured shortcut", () => {
-    expect(footerHints("logs", "none", "cmd+c").some((h) => h.key === "cmd+c")).toBe(true);
+    expect(footerHints("logs", "none", "cmd+c").some((h) => h.key === "command+c")).toBe(true);
     expect(footerHints("logs", "none", "ctrl+c").some((h) => h.key === "ctrl+c")).toBe(true);
   });
 
   test("logs footer includes search and jump latest", () => {
     const keys = footerHints("logs", "none").map((h) => h.key);
     expect(keys).toContain("f");
-    expect(keys).toContain(defaultCopyKeybind());
+    expect(keys).toContain(displayKeybind(defaultCopyKeybind()));
     expect(keys).toContain("g");
     expect(keys).toContain("←→");
-    expect(keys).toContain("1-9");
+    expect(keys).not.toContain("1-9");
     expect(keys).toContain("w");
     expect(keys).toContain("j/k");
     expect(keys).toContain("z");
@@ -319,7 +369,7 @@ describe("TUI helpers", () => {
     expect(keys).toContain("g");
     expect(keys).toContain("z");
     expect(keys).toContain("space");
-    expect(keys).toContain(defaultCopyKeybind());
+    expect(keys).toContain(displayKeybind(defaultCopyKeybind()));
   });
 
   test("log clipboard text keeps time service level and message", () => {
@@ -336,7 +386,6 @@ describe("TUI helpers", () => {
     };
     expect(formatLogLine(ev)).toBe("2026-08-30T00:00:00.000Z auth INFO ready");
     expect(formatLogDetails(ev)).toContain("request   req-1");
-    expect(formatLogsForClipboard([ev, { ...ev, message: "two" }]).split("\n")).toHaveLength(2);
   });
 
   test("long log lines wrap on words and fold until expanded", () => {
@@ -468,6 +517,8 @@ describe("TUI helpers", () => {
       "text",
       "keyword",
     ]);
+    expect(logMessageSpans("ready auth worker", "auth").some((span) => span.kind === "search" && span.text === "auth")).toBe(true);
+    expect(logMessageSpans("ready ERROR worker", "ERR", true).some((span) => span.kind === "search")).toBe(true);
   });
 
   test("visibleHints drops keys that do not fit", () => {
@@ -480,6 +531,19 @@ describe("TUI helpers", () => {
     expect(slashWindowStart(0, 8, 22)).toBe(0);
     expect(slashWindowStart(9, 8, 22)).toBe(2);
     expect(selectedSlashCommand(["a", "b", "c"], 8)).toBe("c");
+  });
+
+  test("slash window budgets visual rows including group headers", () => {
+    const items = paletteOptions("");
+    const budget = 10;
+    const head = slashWindowItems(items, 0, budget);
+    expect(head[0]?.name).toBe(items[0]?.name);
+    expect(head.length + groupedCommands(head).length).toBeLessThanOrEqual(budget);
+    const last = items.length - 1;
+    const tail = slashWindowItems(items, last, budget);
+    expect(tail.at(-1)?.name).toBe(items[last]?.name);
+    expect(tail.length + groupedCommands(tail).length).toBeLessThanOrEqual(budget);
+    expect(slashWindowItems([], 0, budget)).toEqual([]);
   });
 
   test("overlayRect stays inside the terminal chrome", () => {
@@ -514,6 +578,16 @@ describe("TUI helpers", () => {
     cfg.profiles = { backend: { services: ["api"], environment: {} } };
     expect(planServices(cfg, ["api"], "missing")).toEqual({ services: ["api"], profile: "" });
     expect(planServices(cfg, [], "backend").profile).toBe("backend");
+  });
+
+  test("restartDependents lists transitive dependents only", () => {
+    const cfg = defaultConfig();
+    cfg.services = { auth: emptyService(), api: emptyService(), web: emptyService() };
+    cfg.services.api!.dependencies = ["auth"];
+    cfg.services.web!.dependencies = ["api"];
+    expect(restartDependents(cfg, ["auth"])).toEqual(["api", "web"]);
+    expect(restartDependents(cfg, ["web"])).toEqual([]);
+    expect(restartDependents(cfg, [])).toEqual([]);
   });
 
   test("service inspector labels prefer live ports and fall back cleanly", () => {
@@ -608,25 +682,25 @@ describe("TUI helpers", () => {
     expect(tabChipWidth("logs")).toBe(6);
   });
 
-  test("first-run setup and letter nav stay on the cycle", () => {
-    expect(NAV_ITEMS.some((item) => item.id === "setup")).toBe(true);
-    expect(nextScreen("setup")).toBe("stats");
-    expect(prevScreen("stats")).toBe("setup");
-    expect(NAV_ITEMS.some((item) => item.id === "credentials")).toBe(true);
+  test("first-run setup stays reachable outside the tab strip", () => {
+    expect(NAV_ITEMS.some((item) => item.id === "setup")).toBe(false);
+    expect(NAV_ITEMS.some((item) => item.id === "credentials")).toBe(false);
     expect(footerHints("setup", "none").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("config", "none").some((h) => h.key === "/reload")).toBe(true);
   });
 
-  test("nav digits cover ten tabs and chrome height matches the toolbar stack", () => {
-    expect(NAV_ITEMS).toHaveLength(12);
+  test("nav digits cover the four primary tabs and chrome height matches the toolbar stack", () => {
+    expect(NAV_ITEMS).toHaveLength(4);
+    expect(NAV_ITEMS.map((item) => item.id)).toEqual(["dashboard", "services", "logs", "proxy"]);
     expect(navItemForDigit("1")).toBe("dashboard");
-    expect(navItemForDigit("8")).toBe("config");
-    expect(navItemForDigit("9")).toBe("profiles");
-    expect(navItemForDigit("0")).toBe("setup");
+    expect(navItemForDigit("4")).toBe("proxy");
+    expect(navItemForDigit("5")).toBeUndefined();
+    expect(navItemForDigit("8")).toBeUndefined();
+    expect(navItemForDigit("0")).toBeUndefined();
     expect(navItemForDigit("a")).toBeUndefined();
-    expect(chromeReserved(120)).toBe(8);
-    expect(chromeReserved(120, false)).toBe(4);
-    expect(CHROME_RESERVED).toBe(9);
+    expect(chromeReserved(120)).toBe(6);
+    expect(chromeReserved(120, false)).toBe(3);
+    expect(CHROME_RESERVED).toBe(7);
     expect(chromeReserved(HEADER_STACK_WIDTH - 1)).toBe(CHROME_RESERVED);
     expect(compactChrome(COMPACT_CHROME_HEIGHT - 1)).toBe(true);
     expect(compactChrome(COMPACT_CHROME_HEIGHT)).toBe(false);
@@ -675,6 +749,13 @@ describe("TUI helpers", () => {
     expect(screenListCount("mcp", counts)).toBe(0);
     expect(screenListCount("mcp", { ...counts, mcp: 19 })).toBe(19);
     expect(screenListCount("setup", counts)).toBe(9);
+    expect(screenListCount("config", counts)).toBe(0);
+    expect(screenListCount("config", { ...counts, config: 4 })).toBe(4);
+  });
+
+  test("namedPickerItems filters task and service names", () => {
+    expect(namedPickerItems(["seed", "migrate"], "", "tasks", "run this task").map((item) => item.name)).toEqual(["migrate", "seed"]);
+    expect(namedPickerItems(["seed", "migrate"], "se", "tasks", "run this task").map((item) => item.name)).toEqual(["seed"]);
   });
 
   test("googleProjectDisplay prefers google.project_id from config", () => {
@@ -798,6 +879,8 @@ describe("TUI helpers", () => {
     expect(loadCopy(1, 8).meter?.label).toBe("13%");
     expect(loadCopy(16, 8).reading).toBe("overloaded");
     expect(loadCopy(16, 8).meter?.ratio).toBe(1);
+    expect(sparkline([0, 0.5, 1], 3).length).toBe(3);
+    expect(sparkline([], 8)).toBe("");
     expect(leftoverCopy(8_192, 16_384).what).toBe("RAM leftover");
     expect(leftoverCopy(8_192, 16_384).meaning).toContain("still give out");
     expect(leftoverCopy(8_192, 16_384).meter?.label).toBe("50%");
