@@ -386,6 +386,7 @@
             "client_id": { "type": "string", "description": "Optional OAuth client ID used to mint IAP ID tokens instead of ADC's default client" },
             "client_secret": { "type": "string", "description": "Optional OAuth client secret. Use ${NAME} or ${env.NAME} to read from the environment at mint time." },
             "credentials": { "type": "string", "description": "Path to a gcloud authorized_user JSON (client_id/client_secret/refresh_token) used to mint IAP tokens for client_id, instead of default ADC. Keeps ADC intact for GCS/Firestore. ~, absolute, or repo-relative. Falls back to proxy.credentials." },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Extra request headers injected alongside Authorization. ${token} in a value is replaced with the minted token (e.g. identity-token: ${token}). Applied only on iap/service_account routes." },
             "identity": {
               "oneOf": [
                 { "type": "string" },

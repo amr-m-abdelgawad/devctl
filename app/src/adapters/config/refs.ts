@@ -24,6 +24,7 @@ export function resolveString(
   value: string,
   cfg: DevctlConfig,
   assigned: Record<string, Record<string, number>>,
+  userEmail = "",
 ): string {
   let remaining = value;
   let out = "";
@@ -38,13 +39,23 @@ export function resolveString(
       throw new Error(`unclosed environment reference in "${value}"`);
     }
     const ref = remaining.slice(start + 2, start + end);
-    out += resolveRef(ref, cfg, assigned);
+    out += resolveRef(ref, cfg, assigned, userEmail);
     remaining = remaining.slice(start + end + 1);
   }
 }
 
-function resolveRef(ref: string, cfg: DevctlConfig, assigned: Record<string, Record<string, number>>): string {
+function resolveRef(ref: string, cfg: DevctlConfig, assigned: Record<string, Record<string, number>>, userEmail: string): string {
   const parts = ref.split(".");
+  // `${identity.user}` resolves to the developer's own detected Google identity
+  // (empty when none is detected). Lets a shared, committed config map the
+  // running developer's email onto a service's own variable name without a
+  // hardcoded, team-unfriendly value.
+  if (parts[0] === "identity") {
+    if (parts.length === 2 && parts[1] === "user") {
+      return userEmail;
+    }
+    throw new Error(`unsupported reference \${${ref}}`);
+  }
   if (parts.length < 3 || parts[0] !== "services") {
     throw new Error(`unsupported reference \${${ref}}`);
   }
@@ -108,10 +119,11 @@ export function resolveEnvMap(
   input: Record<string, string>,
   cfg: DevctlConfig,
   assigned: Record<string, Record<string, number>>,
+  userEmail = "",
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input)) {
-    out[key] = resolveString(value, cfg, assigned);
+    out[key] = resolveString(value, cfg, assigned, userEmail);
   }
   return out;
 }
@@ -137,6 +149,10 @@ export function refResolvable(ref: string, cfg: DevctlConfig): boolean {
   const parts = ref.split(".");
   if (parts.length < 2) {
     return false;
+  }
+  // ${identity.user} is resolved at service start from the detected identity.
+  if (parts[0] === "identity") {
+    return parts.length === 2 && parts[1] === "user";
   }
   if (parts[0] !== "services" || parts.length < 3) {
     return false;

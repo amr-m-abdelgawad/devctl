@@ -319,6 +319,7 @@ function decodeRouteAuth(value: unknown): RouteAuthConfig {
     client_id: asString(value.client_id),
     client_secret: asString(value.client_secret),
     credentials: asString(value.credentials),
+    headers: asStringMap(value.headers),
   };
 }
 

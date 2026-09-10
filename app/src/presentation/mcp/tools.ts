@@ -470,6 +470,10 @@ function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Rec
   if (credentials) {
     out.credentials = credentials;
   }
+  const headerNames = Object.keys(route.auth.headers ?? {});
+  if (headerNames.length > 0) {
+    out.headers = headerNames;
+  }
   return out;
 }
 

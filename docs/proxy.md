@@ -90,6 +90,21 @@ custom path (not the default ADC location). Notes:
 - The file is read locally at mint time; its contents are never logged. It holds
   a long-lived refresh token and client secret — keep it private (`chmod 600`).
 
+### Extra token headers
+
+Some IAP-protected upstreams want the minted token under an additional header, not just `Authorization: Bearer …`. `auth.headers` injects extra request headers on a token-minting route; `${token}` in a value is replaced with the same token used for the bearer:
+
+```yaml
+      auth:
+        type: iap
+        audience: 507686272917-0dpd...
+        headers:
+          identity-token: "${token}"      # same token, second header
+          x-forwarded-client: gateway     # a plain literal is passed through
+```
+
+Applied only on `iap` / `service_account` routes (there is no token on a `none` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
+
 ### Per-service routes
 
 Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`). Duplicate names fail validation. Runtime stays one listener.

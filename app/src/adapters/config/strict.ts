@@ -64,6 +64,9 @@ function allowArbitraryKeys(path: string): boolean {
   if (path.endsWith(".container.ports") || path.endsWith(".container.env")) {
     return true;
   }
+  if (path.endsWith(".auth.headers")) {
+    return true;
+  }
   if (path.endsWith(".identity.config") || path.includes(".identity.config.")) return true;
   return path.includes(".environment.") && !path.endsWith(".environment");
 }

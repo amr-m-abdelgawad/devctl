@@ -456,6 +456,11 @@ export async function injectIdentityHeaders(
   const ident = fromRoute(route.auth);
   const tok = await tokens.get(tokenIdentityKey(ident), route.auth.audience, [], iapOAuthClientRef(route.auth));
   headers.authorization = `Bearer ${tok.accessToken}`;
+  // Extra headers some upstreams want carrying the same token — `${token}` in a
+  // value is substituted with the minted token (e.g. `identity-token: ${token}`).
+  for (const [key, value] of Object.entries(route.auth.headers ?? {})) {
+    headers[key] = value.includes("${token}") ? value.replaceAll("${token}", tok.accessToken) : value;
+  }
 }
 
 async function pipeResponse(resp: Response, res: ServerResponse): Promise<void> {

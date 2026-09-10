@@ -81,6 +81,21 @@ describe("config refs", () => {
     expect(resolveString("${services.api.url}", cfg, { api: { http: 4100 } })).toBe("http://127.0.0.1:4100");
   });
 
+  test("resolves ${identity.user} to the detected developer email, empty when absent", () => {
+    const cfg = defaultConfig();
+    expect(resolveString("${identity.user}", cfg, {}, "dev@example.com")).toBe("dev@example.com");
+    expect(resolveString("LOCAL_USER_EMAIL=${identity.user}", cfg, {}, "dev@example.com")).toBe("LOCAL_USER_EMAIL=dev@example.com");
+    expect(resolveString("${identity.user}", cfg, {})).toBe("");
+    expect(resolveEnvMap({ LOCAL_USER_EMAIL: "${identity.user}" }, cfg, {}, "dev@example.com")).toEqual({ LOCAL_USER_EMAIL: "dev@example.com" });
+  });
+
+  test("rejects an unknown identity reference", () => {
+    const cfg = defaultConfig();
+    expect(() => resolveString("${identity.project}", cfg, {}, "x")).toThrow(/unsupported/);
+    expect(refResolvable("identity.user", cfg)).toBe(true);
+    expect(refResolvable("identity.project", cfg)).toBe(false);
+  });
+
   test("resolveEnvMap interpolates each value", () => {
     const cfg = cfgWithApi([{ name: "http", value: 3000, auto: false }]);
     expect(resolveEnvMap({ URL: "http://127.0.0.1:${services.api.port}" }, cfg, {})).toEqual({

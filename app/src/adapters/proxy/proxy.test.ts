@@ -6,15 +6,15 @@ import { fileURLToPath } from "node:url";
 import { connect } from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, type RouteAuthConfig } from "../../domain/config/types.ts";
+import { defaultConfig, type RouteAuthConfig, type RouteConfig } from "../../domain/config/types.ts";
 import { startMockIapServer } from "../google/testdata/mock-iap-server.ts";
 import { type CredentialRecord, type CredentialStore } from "../storage/credentials.ts";
 import { KindProxy } from "../../shared/errors.ts";
 import { Bus, TokenRefreshFailed, TokenRefreshed } from "../../shared/events.ts";
 import { LogManager } from "../storage/logs.ts";
-import { INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
+import { injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "../secrets/detector.ts";
-import { TokenManager, type AccessToken } from "../google/token.ts";
+import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
 // TokenManager defaults to the real OS keychain/file store when none is
 // given. Several cases below deliberately reuse the same identity+audience
@@ -154,6 +154,22 @@ describe("proxy", () => {
       await new Promise<void>((resolve) => a.server.close(() => resolve()));
       await new Promise<void>((resolve) => b.server.close(() => resolve()));
     }
+  });
+
+  test("injects auth.headers alongside Authorization, substituting ${token}", async () => {
+    const provider: TokenProvider = { name: "stub", fetch: async () => token({ accessToken: "ID-TOKEN" }) };
+    const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());
+    const route: RouteConfig = {
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:1" },
+      auth: { ...NONE_AUTH, type: "service_account", identity: { type: "service_account", service_account: "sa@x.iam.gserviceaccount.com" }, headers: { "identity-token": "${token}", "x-static": "literal" } },
+    };
+    const headers: Record<string, string> = {};
+    await injectIdentityHeaders(route, headers, tokens);
+    expect(headers.authorization).toBe("Bearer ID-TOKEN");
+    expect(headers["identity-token"]).toBe("ID-TOKEN");
+    expect(headers["x-static"]).toBe("literal");
   });
 
   test("proxies WebSocket upgrades, round-trips bytes, and closes live sockets on stop", async () => {

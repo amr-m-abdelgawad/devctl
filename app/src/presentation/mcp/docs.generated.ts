@@ -687,9 +687,10 @@ Injected when applicable:
 - \`DEVCTL_PROXY_URL\`
 - \`DEVCTL_SERVICE_NAME\`
 - \`DEVCTL_ENVIRONMENT\`
+- \`DEVCTL_USER_EMAIL\` — the developer's own detected Google identity (gcloud/ADC), so a service can key on who is running it without a hardcoded, team-unfriendly value. Omitted when no identity is detected.
 - \`DEVCTL_TOKEN_URL\` and \`DEVCTL_INTERNAL_TOKEN\` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 
-References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${env.NAME}\` is rejected there. IAP route \`auth.client_secret\` is the exception: \`\${NAME}\` and \`\${env.NAME}\` are expanded from the process environment when the token is minted, not at config load.
+References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${env.NAME}\` is rejected there. IAP route \`auth.client_secret\` is the exception: \`\${NAME}\` and \`\${env.NAME}\` are expanded from the process environment when the token is minted, not at config load.
 
 \`environment.required\` on a service fails start if those keys are still empty after the merge.
 
@@ -1685,6 +1686,21 @@ custom path (not the default ADC location). Notes:
 - The file is read locally at mint time; its contents are never logged. It holds
   a long-lived refresh token and client secret — keep it private (\`chmod 600\`).
 
+### Extra token headers
+
+Some IAP-protected upstreams want the minted token under an additional header, not just \`Authorization: Bearer …\`. \`auth.headers\` injects extra request headers on a token-minting route; \`\${token}\` in a value is replaced with the same token used for the bearer:
+
+\`\`\`yaml
+      auth:
+        type: iap
+        audience: 507686272917-0dpd...
+        headers:
+          identity-token: "\${token}"      # same token, second header
+          x-forwarded-client: gateway     # a plain literal is passed through
+\`\`\`
+
+Applied only on \`iap\` / \`service_account\` routes (there is no token on a \`none\` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
+
 ### Per-service routes
 
 Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`). Duplicate names fail validation. Runtime stays one listener.
@@ -2054,7 +2070,7 @@ services:
 
 Working directories resolve from the repository root (the directory that contains \`.devctl\`), not the process cwd.
 
-\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
+\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`\${identity.user}\` resolves to the running developer's detected Google email — handy in shared config as \`LOCAL_USER_EMAIL: \${identity.user}\` (each developer gets their own, nothing hardcoded); it is also injected automatically as \`DEVCTL_USER_EMAIL\`. \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
 String commands that contain \`|\`, \`||\`, \`&&\`, \`;\`, \`>\`, \`>>\`, \`<\`, or \`&\` fail validation unless \`shell: true\`.
 

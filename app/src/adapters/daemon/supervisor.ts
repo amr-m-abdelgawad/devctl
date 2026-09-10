@@ -162,6 +162,7 @@ export class Supervisor {
     this.env = new EnvironmentBridge({
       cfg: () => this.cfg,
       ports: () => this.ports,
+      userEmail: () => this.identity.identityCache.user,
       proxy: () => this.proxy.instance,
       tokenEndpoint: () => this.proxy.tokenEndpoint,
       boundTokenURL: () => this.proxy.boundTokenURL,

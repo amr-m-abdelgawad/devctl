@@ -195,6 +195,11 @@ export type RouteAuthConfig = {
   // path at load; only meaningful on an IAP route with a client_id. Falls back
   // to proxy.credentials when unset.
   credentials?: string;
+  // Extra request headers injected alongside Authorization, for upstreams that
+  // want the minted token under another header too. `${token}` in a value is
+  // replaced with the same token used for the Authorization bearer. Applied
+  // only on a token-minting route (iap / service_account).
+  headers?: Record<string, string>;
 };
 
 export function emptyRouteAuth(): RouteAuthConfig {
@@ -206,6 +211,7 @@ export function emptyRouteAuth(): RouteAuthConfig {
     client_id: "",
     client_secret: "",
     credentials: "",
+    headers: {},
   };
 }
 

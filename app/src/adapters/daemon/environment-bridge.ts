@@ -9,6 +9,9 @@ import type { TokenEndpoint } from "../proxy/proxy.ts";
 export type EnvironmentBridgeDeps = {
   cfg: () => DevctlConfig;
   ports: () => Map<string, Record<string, number>>;
+  // The detected developer identity (gcloud/ADC email), injected as
+  // DEVCTL_USER_EMAIL and resolved for ${identity.user}. "" when undetected.
+  userEmail: () => string;
   proxy: () => { isRunning(): boolean; address(): string } | undefined;
   tokenEndpoint: () => TokenEndpoint | undefined;
   boundTokenURL: () => string;
@@ -68,7 +71,8 @@ export class EnvironmentBridge {
     const assigned = this.deps.ports().get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     const proxy = this.deps.proxy();
     const proxyURL = proxy?.isRunning() ? `http://${proxy.address()}` : cfg.proxy.enabled ? `http://${listenAddress(cfg.proxy.listen)}` : "";
-    const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, cfg.project.name);
+    const userEmail = this.deps.userEmail();
+    const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, cfg.project.name, userEmail);
     if (!svc.container) {
       runtime.DEVCTL_INTERNAL_TOKEN = this.deps.internalTok();
       if (cfg.proxy.token_endpoint.enabled) {
@@ -82,6 +86,7 @@ export class EnvironmentBridge {
       profileEnv,
       assignedPorts: assigned,
       runtime,
+      userEmail,
       cfg,
       fetchSecret: secretManagerFetcher(async () => (await this.deps.tokens.get("user", "", [])).accessToken),
       pluginSources: this.deps.environmentSources(),
@@ -98,13 +103,15 @@ export class EnvironmentBridge {
     clientEnv: Record<string, string>,
   ): Promise<{ env: Record<string, string>; workDir: string }> {
     const cfg = this.deps.cfg();
+    const userEmail = this.deps.userEmail();
     const env = await resolveEnvironment(cfg.repoRoot, {
       service: `task:${name}`,
       profile: this.profile,
       serviceCfg,
       profileEnv: this.profileEnv,
       assignedPorts: {},
-      runtime: runtimeForService(`task:${name}`, "127.0.0.1", {}, "", cfg.project.name),
+      runtime: runtimeForService(`task:${name}`, "127.0.0.1", {}, "", cfg.project.name, userEmail),
+      userEmail,
       cfg,
       clientEnv,
       fetchSecret: secretManagerFetcher(async () => (await this.deps.tokens.get("user", "", [])).accessToken),

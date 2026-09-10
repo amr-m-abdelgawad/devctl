@@ -358,7 +358,7 @@ complete allowlists.
 | \`route\` | \`name\` \`match\` \`upstream\` \`auth\` |
 | \`route.match\` | \`host\` \`path\` |
 | \`route.upstream\` | \`url\` \`service\` \`port\` |
-| \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` \`credentials\` |
+| \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` \`credentials\` \`headers\` |
 | \`logs\` | \`max_memory_events\` \`persistence\` |
 | \`logs.persistence\` | \`enabled\` \`directory\` \`retention_days\` \`max_session_logs\` |
 | \`auth\` | \`refresh_threshold_seconds\` |
@@ -405,8 +405,10 @@ belong under \`service.container\`, not directly on the service.
 
 ## References
 
-\`\${services.<name>.ports.<portname>}\` and \`\${services.<name>.port}\` are the
-supported forms. Anything else — \`\${env.FOO}\`, \`\${project.name}\` — throws.
+\`\${services.<name>.ports.<portname>}\`, \`\${services.<name>.port}\`,
+\`\${services.<name>.url}\`, \`\${services.<name>.host}\`, and \`\${identity.user}\` (the
+running developer's detected Google email) are the supported forms. Anything
+else — \`\${env.FOO}\`, \`\${project.name}\` — throws.
 
 - The referenced service must exist and the named port must be defined, or
   validation fails with *unresolvable reference*.

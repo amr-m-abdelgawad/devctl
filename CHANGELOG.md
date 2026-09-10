@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-10
+
+### Added
+
+- `${identity.user}` resolves in configured environment values to the running developer's own detected Google identity (gcloud/ADC), so shared config can map it onto a service's own variable without a hardcoded, team-unfriendly value — e.g. `LOCAL_USER_EMAIL: ${identity.user}`. The same value is also injected automatically as the runtime variable `DEVCTL_USER_EMAIL`. Empty when no identity is detected.
+- `route.auth.headers` injects extra request headers alongside `Authorization` on a token-minting route; `${token}` in a value is replaced with the same minted token (e.g. `identity-token: ${token}`), and literals pass through. This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service. `get_config` lists the configured header names.
+
 ## [0.3.2] - 2026-09-10
 
 ### Fixed
@@ -331,7 +338,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.5...v0.3.0

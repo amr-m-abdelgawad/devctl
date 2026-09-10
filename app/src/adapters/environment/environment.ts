@@ -12,6 +12,9 @@ export type EnvRequest = {
   profileEnv: Record<string, string>;
   assignedPorts: Record<string, number>;
   runtime: Record<string, string>;
+  // The detected developer identity, resolved for ${identity.user} references
+  // in configured environment values. Empty when no identity is detected.
+  userEmail?: string;
   cfg?: DevctlConfig;
   sourceValues?: Partial<Record<string, Record<string, string>>>;
   fetchSecret?: (resource: string) => string | Promise<string>;
@@ -102,15 +105,16 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     cfg: req.cfg,
   };
   const assignedAll = collectAssigned(req);
+  const userEmail = req.userEmail ?? "";
   const layers: Record<string, Record<string, string>> = {
     process: req.includeProcess === false ? {} : (req.clientEnv ?? osEnviron()),
-    profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll),
-    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll),
+    profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail),
+    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll, userEmail),
     generated: {},
     keychain: req.sourceValues?.keychain ?? loadKeychainEnv(ctx),
     secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
-    defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll),
-    vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll),
+    defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail),
+    vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail),
     runtime: req.runtime,
   };
   for (const name of sourceOrder(req.cfg)) {
@@ -120,7 +124,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     }
     const plugin = req.pluginSources?.find((source) => source.name === name);
     if (plugin) {
-      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll));
+      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll, userEmail));
     }
   }
   for (const key of req.serviceCfg.environment.required) {
@@ -154,11 +158,12 @@ function resolveMaybe(
   input: Record<string, string>,
   cfg: DevctlConfig | undefined,
   assigned: Record<string, Record<string, number>>,
+  userEmail = "",
 ): Record<string, string> {
   if (!cfg || Object.keys(input).length === 0) {
     return input;
   }
-  return resolveEnvMap(input, cfg, assigned);
+  return resolveEnvMap(input, cfg, assigned, userEmail);
 }
 
 function loadKeychainEnv(ctx: EnvSourceContext): Record<string, string> {
@@ -249,6 +254,7 @@ export function runtimeForService(
   ports: Record<string, number>,
   proxyURL: string,
   environment: string,
+  userEmail = "",
 ): Record<string, string> {
   const out: Record<string, string> = {
     DEVCTL_SERVICE_NAME: name,
@@ -257,6 +263,13 @@ export function runtimeForService(
   };
   if (proxyURL !== "") {
     out.DEVCTL_PROXY_URL = proxyURL;
+  }
+  // The developer's own detected Google identity (gcloud/ADC), so a service
+  // can key on the person running it without a hardcoded, team-unfriendly
+  // value. Empty (omitted) when no identity is detected. Also reachable in
+  // config as ${identity.user} for mapping onto a custom-named variable.
+  if (userEmail !== "") {
+    out.DEVCTL_USER_EMAIL = userEmail;
   }
   if (ports.http !== undefined) {
     out.SERVICE_PORT = String(ports.http);

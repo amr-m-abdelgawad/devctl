@@ -159,4 +159,30 @@ describe("environment precedence", () => {
     expect(env.GRPC_PORT).toBe("9090");
     expect(env.DEVCTL_PROXY_URL).toBe("http://127.0.0.1:18080");
   });
+
+  test("runtimeForService injects DEVCTL_USER_EMAIL only when an identity is detected", () => {
+    expect(runtimeForService("api", "127.0.0.1", {}, "", "dev", "dev@example.com").DEVCTL_USER_EMAIL).toBe("dev@example.com");
+    expect(runtimeForService("api", "127.0.0.1", {}, "", "dev").DEVCTL_USER_EMAIL).toBeUndefined();
+  });
+
+  test("maps the detected developer email onto a service's own variable via ${identity.user}", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-iduser-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const svc = emptyService();
+    svc.environment.vars = { LOCAL_USER_EMAIL: "${identity.user}" };
+    const cfg = defaultConfig();
+    cfg.services.api = svc;
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: runtimeForService("api", "127.0.0.1", {}, "", "dev", "dev@example.com"),
+      userEmail: "dev@example.com",
+      cfg,
+    });
+    expect(env.LOCAL_USER_EMAIL).toBe("dev@example.com");
+    expect(env.DEVCTL_USER_EMAIL).toBe("dev@example.com");
+  });
 });
