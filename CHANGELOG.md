@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-10
+
+### Added
+
+- gRPC proxy routes (`transport: grpc`). A dedicated loopback HTTP/2 (h2c) listener forwards every gRPC stream to one `https://` upstream over HTTP/2 + TLS, injecting the route's IAP token (`Authorization` + any `auth.headers`) into each RPC via the same minting/refresh path as HTTP routes. A gRPC client — e.g. a Temporal worker behind IAP — connects plaintext to the local `listen` port (`Client.connect(host, tls=False)`) and stays entirely token-free; per-RPC injection means expiry is handled with no timer in the app. Targets self-hosted Temporal behind a GCP IAP HTTPS load balancer (Temporal Cloud's mTLS + API key is out of scope).
+
 ## [0.4.1] - 2026-09-10
 
 ### Fixed
@@ -344,7 +350,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.1...v0.3.2
