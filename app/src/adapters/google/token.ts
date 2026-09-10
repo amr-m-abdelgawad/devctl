@@ -2,7 +2,7 @@ import "./gcp-env.ts";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { GoogleAuth, Impersonated, UserRefreshClient } from "google-auth-library";
+import { GoogleAuth, Impersonated } from "google-auth-library";
 import { type CredentialRecord, type CredentialStatus, type CredentialStore, openCredentialStore } from "../storage/credentials.ts";
 import { DevctlError, hintError, humanMessage, KindAuthentication, KindAuthorization, KindConfiguration, KindToken, newError } from "../../shared/errors.ts";
 import { type Bus, TokenRefreshed, TokenRefreshFailed, newEvent } from "../../shared/events.ts";
@@ -21,6 +21,7 @@ const TOKEN_RETRY_MAX = 3;
 const TOKEN_RETRY_BACKOFF_MS = 200;
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const IAP_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
+const OAUTH2_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 export type AccessToken = {
   accessToken: string;
@@ -467,12 +468,28 @@ async function fetchUserIdTokenWithOAuthClient(identity: string, audience: strin
       );
     }
   }
-  const client = new UserRefreshClient({
-    clientId: oauth.clientId,
-    clientSecret: oauth.clientSecret,
-    refreshToken,
+  // The token exchange must send `audience` so the endpoint mints an id_token
+  // whose aud is the IAP client. google-auth-library's UserRefreshClient sends
+  // `target_audience` instead, which for a user refresh token yields aud =
+  // client_id — an "Invalid JWT audience" for IAP. So exchange directly.
+  const resp = await fetch(OAUTH2_TOKEN_URL, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: iapUserTokenParams(oauth, refreshToken, audience),
   });
-  const tok = await client.fetchIdToken(audience);
+  const text = await resp.text();
+  if (!resp.ok) {
+    // Surface Google's error text (unauthorized_client, invalid_grant, …) so
+    // the caller's classifyGoogle maps it to the right kind and hint.
+    throw new Error(`IAP token exchange failed (${resp.status}): ${text}`);
+  }
+  let data: { id_token?: string };
+  try {
+    data = JSON.parse(text) as { id_token?: string };
+  } catch {
+    throw newError(KindToken, "IAP token endpoint returned a non-JSON response");
+  }
+  const tok = data.id_token;
   if (!tok) {
     throw newError(KindToken, "empty IAP id token");
   }
@@ -484,6 +501,19 @@ async function fetchUserIdTokenWithOAuthClient(identity: string, audience: strin
     identity,
     scopes,
   };
+}
+
+// The refresh-token exchange body for an IAP id token minted with a custom
+// OAuth client. `audience` (the IAP client id) is the parameter that makes the
+// endpoint set the id_token's aud correctly — not `target_audience`.
+export function iapUserTokenParams(oauth: OAuthClientCredentials, refreshToken: string, audience: string): URLSearchParams {
+  return new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: oauth.clientId,
+    client_secret: oauth.clientSecret,
+    refresh_token: refreshToken,
+    audience,
+  });
 }
 
 async function fetchUserToken(identity: string, audience: string, scopes: string[]): Promise<AccessToken> {

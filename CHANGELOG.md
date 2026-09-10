@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `${identity.user}` resolves in configured environment values to the running developer's own detected Google identity (gcloud/ADC), so shared config can map it onto a service's own variable without a hardcoded, team-unfriendly value — e.g. `LOCAL_USER_EMAIL: ${identity.user}`. The same value is also injected automatically as the runtime variable `DEVCTL_USER_EMAIL`. Empty when no identity is detected.
 - `route.auth.headers` injects extra request headers alongside `Authorization` on a token-minting route; `${token}` in a value is replaced with the same minted token (e.g. `identity-token: ${token}`), and literals pass through. This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service. `get_config` lists the configured header names.
 
+### Fixed
+
+- IAP routes using a custom `client_id`/`client_secret` (user identity) now mint an id_token with the correct `aud`. The refresh-token exchange sends `audience` (the IAP client id) rather than google-auth-library's `target_audience`, which returned `aud = client_id` and was rejected by IAP as an invalid JWT audience.
+
 ## [0.3.2] - 2026-09-10
 
 ### Fixed

@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Bus, TokenRefreshed, TokenRefreshFailed } from "../../shared/events.ts";
-import { TokenManager, googleTokenProviders, isValidToken, resolveIapOAuthClient, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
+import { TokenManager, googleTokenProviders, iapUserTokenParams, isValidToken, resolveIapOAuthClient, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
 import { emptyRouteAuth } from "../../domain/config/types.ts";
 
 function tok(partial: Partial<AccessToken> = {}): AccessToken {
@@ -281,5 +281,19 @@ describe("googleTokenProviders", () => {
   test("cache key includes the OAuth client id when one is set", () => {
     expect(tokenCacheKey("user", "aud", [])).toBe("user|aud|");
     expect(tokenCacheKey("user", "aud", [], "desktop.apps.googleusercontent.com")).toBe("user|aud||oauth:desktop.apps.googleusercontent.com");
+  });
+});
+
+describe("iapUserTokenParams", () => {
+  test("sends audience (not target_audience) so the id_token aud is the IAP client", () => {
+    const p = iapUserTokenParams({ clientId: "cid", clientSecret: "sec" }, "rt-1", "aud-123");
+    expect(p.get("audience")).toBe("aud-123");
+    // Regression guard: google-auth-library's fetchIdToken uses target_audience,
+    // which yields aud = client_id and IAP rejects it.
+    expect(p.get("target_audience")).toBeNull();
+    expect(p.get("grant_type")).toBe("refresh_token");
+    expect(p.get("client_id")).toBe("cid");
+    expect(p.get("client_secret")).toBe("sec");
+    expect(p.get("refresh_token")).toBe("rt-1");
   });
 });
