@@ -165,6 +165,40 @@ services:
 
 Host-based addressing is for **host** clients: `<service>.local` must resolve to `127.0.0.1` on the machine that makes the request — add it to `/etc/hosts` or your resolver. A container's loopback is isolated from the host proxy, and the container schema has no host-network or extra-hosts mode, so do not point a container at `<service>.local`.
 
+## gRPC routes (Temporal, and other h2 clients behind IAP)
+
+A `grpc` route is a dedicated loopback HTTP/2 (h2c) listener that forwards every gRPC stream to one upstream over HTTP/2 + TLS, injecting the route's IAP token per RPC. It's for clients that speak gRPC and can't go through the HTTP proxy — a Temporal worker, say — so they stay entirely token-free.
+
+```yaml
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }     # the HTTP proxy (still required when enabled)
+  routes:
+    - name: temporal
+      transport: grpc
+      listen: { host: 127.0.0.1, port: 7233 }  # the local address the client dials
+      upstream: { url: "https://temporal.internal.example.com:443" }
+      auth:
+        type: iap
+        audience: 507686272917-0dpd...
+        client_id: 507686272917-4j6f...
+        credentials: ~/.devctl/iap-credentials.json
+```
+
+The client connects plaintext to the local port and does nothing else — no token, no refresh:
+
+```python
+client = await Client.connect("127.0.0.1:7233", namespace="prod", tls=False)
+```
+
+devctl adds `Authorization: Bearer <fresh id-token>` (plus any `auth.headers`) to each RPC's HTTP/2 headers, mints and refreshes it with the same machinery as HTTP routes (`audience` / `client_id` / `credentials`), and relays the response and gRPC trailers. Because every RPC carries the current token, expiry is handled with no timer in the app.
+
+Notes:
+
+- Each grpc route needs its own loopback `listen.port`, distinct from the HTTP proxy and every other grpc route, and an `https://` upstream (the IAP leg is TLS).
+- Injection only happens on an `iap` / `service_account` route; a `none` grpc route is a plain forwarder.
+- This targets a **self-hosted Temporal behind a GCP IAP HTTPS load balancer**. Temporal Cloud (mTLS + API key) is not covered by this route type.
+
 ## Token endpoint
 
 Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers.

@@ -23,6 +23,7 @@ import {
   type RouteConfig,
   dependencyName,
   dependencyCondition,
+  isGrpcRoute,
   namedPort,
 } from "../../domain/config/types.ts";
 
@@ -303,6 +304,7 @@ function validateProxy(cfg: DevctlConfig): string[] {
     issues.push("proxy.listen.port is invalid");
   }
   const seenRoutes: Record<string, boolean> = {};
+  const seenGrpcPorts = new Set<number>();
   cfg.proxy.routes.forEach((route, i) => {
     const prefix = `proxy.routes[${i}]`;
     if (route.name === "") {
@@ -311,10 +313,54 @@ function validateProxy(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}: duplicate route name ${route.name}`);
     }
     seenRoutes[route.name] = true;
+    const transport = (route.transport ?? "").toLowerCase();
+    if (transport !== "" && transport !== "http" && transport !== "grpc") {
+      issues.push(`${prefix}.transport must be "http" or "grpc"`);
+    }
     issues.push(...validateRouteUpstream(route, prefix, cfg));
     issues.push(...validateRouteAuth(route, prefix));
+    if (isGrpcRoute(route)) {
+      issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
+    }
   });
   issues.push(...validateTokenEndpoint(cfg));
+  return issues;
+}
+
+// A grpc route is a dedicated loopback HTTP/2 listener forwarding to one TLS
+// upstream, so it needs its own valid loopback port (distinct from the HTTP
+// proxy and every other grpc route) and an https upstream (the IAP leg is TLS).
+function validateGrpcRoute(route: RouteConfig, prefix: string, seenPorts: Set<number>, cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  const listen = route.listen;
+  if (!listen || listen.port === 0) {
+    issues.push(`${prefix}.listen.port is required for a grpc route`);
+  } else {
+    if (listen.port < MIN_PORT || listen.port > MAX_PORT) {
+      issues.push(`${prefix}.listen.port is invalid`);
+    }
+    if (seenPorts.has(listen.port)) {
+      issues.push(`${prefix}.listen.port ${listen.port} is already used by another grpc route`);
+    }
+    seenPorts.add(listen.port);
+    if (listen.port === cfg.proxy.listen.port) {
+      issues.push(`${prefix}.listen.port must differ from proxy.listen.port`);
+    }
+    if (cfg.proxy.token_endpoint.enabled && listen.port === cfg.proxy.token_endpoint.port) {
+      issues.push(`${prefix}.listen.port must differ from proxy.token_endpoint.port`);
+    }
+    if (listen.host !== "" && (!isHost(listen.host) || !isLoopbackBindHost(listen.host))) {
+      issues.push(`${prefix}.listen.host must be a loopback address`);
+    }
+  }
+  if (!(route.upstream.url ?? "").trim().toLowerCase().startsWith("https://")) {
+    issues.push(`${prefix}.upstream.url must be an https:// address for a grpc route`);
+  }
+  // A grpc route has its own dedicated listener; host/path matching does not
+  // apply, so a `match` here would be silently ignored — reject it instead.
+  if (route.match.host !== "" || route.match.path !== "") {
+    issues.push(`${prefix}.match is not supported on a grpc route`);
+  }
   return issues;
 }
 

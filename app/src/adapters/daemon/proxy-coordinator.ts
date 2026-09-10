@@ -1,8 +1,9 @@
-import type { DevctlConfig } from "../../domain/config/types.ts";
+import { type DevctlConfig, isGrpcRoute } from "../../domain/config/types.ts";
 import type { Bus } from "../../shared/events.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { TokenManager } from "../google/token.ts";
 import { ProxyServer, TokenEndpoint, type ProxyMiddleware } from "../proxy/proxy.ts";
+import { GrpcProxyServer } from "../proxy/grpc-proxy.ts";
 import type { Detector } from "../secrets/detector.ts";
 
 export type ProxyCoordinatorDeps = {
@@ -22,6 +23,7 @@ export type ProxyCoordinatorDeps = {
 export class ProxyCoordinator {
   private server?: ProxyServer;
   private tokenEP?: TokenEndpoint;
+  private grpc: GrpcProxyServer[] = [];
   private boundURL = "";
   // Set only by an explicit "proxy_stop" RPC, cleared only by an explicit
   // "proxy_start" one — never by reload() or an internal stop() call
@@ -79,12 +81,21 @@ export class ProxyCoordinator {
       await this.tokenEP.start();
       this.boundURL = `http://127.0.0.1:${this.tokenEP.listenPort()}/token`;
     }
+    // A dedicated loopback HTTP/2 listener per grpc route, sharing the same
+    // token/log/bus/detector plumbing as the HTTP proxy.
+    for (const route of cfg.proxy.routes.filter(isGrpcRoute)) {
+      const grpc = new GrpcProxyServer(route, this.deps.tokens, this.deps.logs, this.deps.bus, this.deps.detector);
+      await grpc.start();
+      this.grpc.push(grpc);
+    }
     this.deps.persistState();
   }
 
   async stop(): Promise<void> {
     await this.server?.stop();
     await this.tokenEP?.stop();
+    await Promise.all(this.grpc.map((grpc) => grpc.stop()));
+    this.grpc = [];
     this.deps.persistState();
   }
 }

@@ -189,6 +189,9 @@ function serviceProxyPathKnown(parts: string[]): string[] {
   if (kind === "auth") {
     return knownRouteAuth;
   }
+  if (kind === "listen") {
+    return knownListen;
+  }
   return knownRoute;
 }
 
@@ -204,6 +207,9 @@ function routePathKnown(path: string): string[] {
   }
   if (path.endsWith(".auth")) {
     return knownRouteAuth;
+  }
+  if (path.endsWith(".listen")) {
+    return knownListen;
   }
   if (path.includes("proxy.routes") && path.split(".").length === ROUTE_DOT_COUNT + 1) {
     return knownRoute;

@@ -217,10 +217,21 @@ export function emptyRouteAuth(): RouteAuthConfig {
 
 export type RouteConfig = {
   name: string;
+  // "" / "http" (default) → the shared HTTP/1.1 listener, matched by host/path.
+  // "grpc" → a dedicated loopback HTTP/2 (h2c) listener on `listen` that
+  // forwards every stream to `upstream` over h2+TLS, injecting the route's auth
+  // (so a gRPC client such as a Temporal worker stays token-free).
+  transport?: string;
   match: MatchConfig;
   upstream: UpstreamConfig;
   auth: RouteAuthConfig;
+  // Only for a grpc route: the dedicated loopback address the client dials.
+  listen?: ListenConfig;
 };
+
+export function isGrpcRoute(route: RouteConfig): boolean {
+  return (route.transport ?? "").toLowerCase() === "grpc";
+}
 
 export type ProxyConfig = {
   enabled: boolean;

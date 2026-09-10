@@ -134,6 +134,41 @@ describe("config validate", () => {
     expect(validate(cfg)).toContain("proxy.routes[0].auth.credentials requires auth.client_id");
   });
 
+  test("accepts a valid grpc route and rejects bad ones", () => {
+    const grpc = (name: string, port: number, url: string) => ({
+      name, transport: "grpc", listen: { host: "127.0.0.1", port }, match: { host: "", path: "" }, upstream: { url }, auth: emptyRouteAuth(),
+    });
+    const ok = withService("api");
+    ok.proxy.routes.push(grpc("temporal", 7233, "https://temporal.internal:443"));
+    expect(validate(ok)).toEqual([]);
+
+    const noPort = withService("api");
+    noPort.proxy.routes.push({ name: "t", transport: "grpc", match: { host: "", path: "" }, upstream: { url: "https://t:443" }, auth: emptyRouteAuth() });
+    expect(validate(noPort)).toContain("proxy.routes[0].listen.port is required for a grpc route");
+
+    const plainUpstream = withService("api");
+    plainUpstream.proxy.routes.push(grpc("t", 7233, "http://t:443"));
+    expect(validate(plainUpstream)).toContain("proxy.routes[0].upstream.url must be an https:// address for a grpc route");
+
+    const dupe = withService("api");
+    dupe.proxy.routes.push(grpc("a", 7233, "https://t:443"), grpc("b", 7233, "https://t:443"));
+    expect(validate(dupe).some((i) => i.includes("already used by another grpc route"))).toBe(true);
+
+    const typo = withService("api");
+    typo.proxy.routes.push({ ...grpc("t", 7233, "https://t:443"), transport: "gprc" });
+    expect(validate(typo)).toContain('proxy.routes[0].transport must be "http" or "grpc"');
+
+    const withMatch = withService("api");
+    withMatch.proxy.routes.push({ ...grpc("t", 7233, "https://t:443"), match: { host: "t.local", path: "" } });
+    expect(validate(withMatch)).toContain("proxy.routes[0].match is not supported on a grpc route");
+
+    const tokenClash = withService("api");
+    tokenClash.proxy.token_endpoint = { enabled: true, host: "127.0.0.1", port: 7233 };
+    tokenClash.proxy.routes.push(grpc("t", 7233, "https://t:443"));
+    expect(tokenClash.proxy.routes.length).toBe(1);
+    expect(validate(tokenClash)).toContain("proxy.routes[0].listen.port must differ from proxy.token_endpoint.port");
+  });
+
   test("rejects a mixed client_secret that is not a whole ${…} reference", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({

@@ -2,7 +2,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { request as httpsRequest } from "node:https";
 import { randomBytes } from "node:crypto";
 import { type Duplex, Readable } from "node:stream";
-import { type ProxyConfig, type RouteConfig, listenAddress } from "../config/index.ts";
+import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "../config/index.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
@@ -26,6 +26,24 @@ export type ProxyRequestRecord = {
   durationMs: number;
   error?: string;
 };
+
+// Newest-last bounded ring of recent proxy requests with a derived stats view
+// (no separate lifetime counters to keep in sync). Shared by the HTTP and gRPC
+// proxy servers so the recording/capping/error-count logic lives in one place.
+export class RequestLog {
+  private readonly items: ProxyRequestRecord[] = [];
+  constructor(private readonly cap: number = RECENT_REQUESTS_CAP) {}
+  record(item: ProxyRequestRecord): void {
+    this.items.push(item);
+    if (this.items.length > this.cap) {
+      this.items.splice(0, this.items.length - this.cap);
+    }
+  }
+  stats(): { total: number; errors: number; recent: ProxyRequestRecord[] } {
+    const errors = this.items.reduce((count, rec) => count + (rec.status >= 400 || rec.error ? 1 : 0), 0);
+    return { total: this.items.length, errors, recent: [...this.items].reverse() };
+  }
+}
 
 const HOP_BY_HOP = new Set([
   "connection",
@@ -75,10 +93,7 @@ export class ProxyServer {
   private running = false;
   private addr = "";
   private readonly upgradedSockets = new Set<Duplex>();
-  // Newest-last ring buffer, oldest entries dropped once full — same bound
-  // pattern as LogManager's in-memory event list. stats() reverses it for a
-  // newest-first view.
-  private readonly recentRequests: ProxyRequestRecord[] = [];
+  private readonly requests = new RequestLog();
 
   constructor(
     cfg: ProxyConfig,
@@ -129,19 +144,12 @@ export class ProxyServer {
     return this.running;
   }
 
-  // Derived from the same bounded buffer every time — no separate lifetime
-  // counters to keep in sync, matching how LogManager.snapshot() reports
-  // totals from whatever it's currently holding rather than an all-time count.
   stats(): { total: number; errors: number; recent: ProxyRequestRecord[] } {
-    const errors = this.recentRequests.reduce((count, rec) => count + (rec.status >= 400 || rec.error ? 1 : 0), 0);
-    return { total: this.recentRequests.length, errors, recent: [...this.recentRequests].reverse() };
+    return this.requests.stats();
   }
 
   private recordRequest(record: ProxyRequestRecord): void {
-    this.recentRequests.push(record);
-    if (this.recentRequests.length > RECENT_REQUESTS_CAP) {
-      this.recentRequests.splice(0, this.recentRequests.length - RECENT_REQUESTS_CAP);
-    }
+    this.requests.record(record);
   }
 
   start(): Promise<void> {
@@ -510,6 +518,11 @@ export function matchRoute(routes: RouteConfig[], req: IncomingMessage): RouteCo
   const host = (req.headers.host ?? "").split(":")[0] ?? "";
   const path = req.url ?? "/";
   return routes.find((route) => {
+    // grpc routes have their own dedicated listener; never let one (with its
+    // empty match) catch HTTP traffic on the shared proxy.
+    if (isGrpcRoute(route)) {
+      return false;
+    }
     const hostOk = route.match.host === "" || route.match.host === host;
     const pathOk = route.match.path === "" || path.startsWith(route.match.path);
     return hostOk && pathOk;

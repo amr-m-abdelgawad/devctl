@@ -336,9 +336,11 @@ export function decodeRoute(value: unknown): RouteConfig {
   const upstream = isRecord(value.upstream) ? value.upstream : {};
   return {
     name: asString(value.name),
+    transport: asString(value.transport),
     match: { host: asString(match.host), path: asString(match.path) },
     upstream: { url: asString(upstream.url), service: asString(upstream.service), port: asString(upstream.port) },
     auth: decodeRouteAuth(value.auth),
+    listen: isRecord(value.listen) ? { host: asString(value.listen.host), port: asNumber(value.listen.port) } : undefined,
   };
 }
 

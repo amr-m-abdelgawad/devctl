@@ -359,6 +359,16 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
+        "transport": { "type": "string", "enum": ["http", "grpc"], "description": "http (default): shared HTTP/1.1 listener matched by host/path. grpc: a dedicated loopback HTTP/2 (h2c) listener on `listen` that forwards streams to `upstream` over h2+TLS, injecting the route's auth — for gRPC clients (e.g. a Temporal worker) behind IAP." },
+        "listen": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Only for a grpc route: the loopback address the client dials.",
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
+          }
+        },
         "match": {
           "type": "object",
           "additionalProperties": false,

@@ -666,6 +666,28 @@ proxy:
     expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.headers).toEqual({ "identity-token": "${token}", "x-custom": "literal" });
   });
 
+  test("a grpc route round-trips transport + listen and passes strict validation", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-grpc-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  app: { command: [app] }
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: temporal
+      transport: grpc
+      listen: { host: 127.0.0.1, port: 7233 }
+      upstream: { url: "https://temporal.internal:443" }
+      auth: { type: iap, audience: aud, identity: { type: user } }
+`);
+    const cfg = load(dir, "");
+    const route = cfg.proxy.routes.find((r) => r.name === "temporal");
+    expect(route?.transport).toBe("grpc");
+    expect(route?.listen).toEqual({ host: "127.0.0.1", port: 7233 });
+  });
+
   test("expose is inert when the proxy is disabled", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-expose-off-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `
