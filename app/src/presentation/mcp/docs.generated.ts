@@ -819,9 +819,81 @@ layout: home
 ---
 
 <script setup>
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import TerminalHero from './.vitepress/theme/TerminalHero.vue'
+const landingRoot = ref(null)
+let revealObserver
+let motionPreference
+let pointerPreference
+let pointerFrame = 0
+let previewElement
+
+function resetPreview() {
+  cancelAnimationFrame(pointerFrame)
+  if (!previewElement) return
+  previewElement.style.removeProperty('--pointer-x')
+  previewElement.style.removeProperty('--pointer-y')
+  previewElement.style.removeProperty('--tilt-x')
+  previewElement.style.removeProperty('--tilt-y')
+  previewElement.removeAttribute('data-pointer')
+}
+
+function followPointer(event) {
+  if (motionPreference?.matches || !pointerPreference?.matches || event.pointerType === 'touch') return
+  previewElement = event.currentTarget
+  const { clientX, clientY } = event
+  cancelAnimationFrame(pointerFrame)
+  pointerFrame = requestAnimationFrame(() => {
+    const bounds = previewElement.getBoundingClientRect()
+    const x = Math.max(0, Math.min(1, (clientX - bounds.left) / bounds.width))
+    const y = Math.max(0, Math.min(1, (clientY - bounds.top) / bounds.height))
+    previewElement.style.setProperty('--pointer-x', \`\${x * 100}%\`)
+    previewElement.style.setProperty('--pointer-y', \`\${y * 100}%\`)
+    previewElement.style.setProperty('--tilt-x', \`\${(0.5 - y) * 1.2}deg\`)
+    previewElement.style.setProperty('--tilt-y', \`\${(x - 0.5) * 1.2}deg\`)
+    previewElement.setAttribute('data-pointer', '')
+  })
+}
+
+function revealAll() {
+  revealObserver?.disconnect()
+  landingRoot.value?.querySelectorAll('[data-reveal]').forEach(element => element.removeAttribute('data-reveal'))
+}
+
+function updateMotionPreference() {
+  if (motionPreference?.matches) {
+    revealAll()
+    resetPreview()
+  }
+}
+
+onMounted(() => {
+  motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)')
+  pointerPreference = window.matchMedia('(hover: hover) and (pointer: fine)')
+  motionPreference.addEventListener('change', updateMotionPreference)
+  if (motionPreference.matches || !('IntersectionObserver' in window)) return
+  revealObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue
+      entry.target.setAttribute('data-reveal', 'visible')
+      revealObserver.unobserve(entry.target)
+    }
+  }, { threshold: 0.06 })
+  landingRoot.value?.querySelectorAll('.section-heading, .surface, .workflow-panel, .setup-copy, .setup-panel, .details-section > div, .demo-band, .faq-section > div, .closing').forEach(element => {
+    // Leave content already on screen visible; enhance only upcoming sections.
+    if (element.getBoundingClientRect().top < window.innerHeight) return
+    element.setAttribute('data-reveal', 'pending')
+    revealObserver.observe(element)
+  })
+})
+
+onUnmounted(() => {
+  revealObserver?.disconnect()
+  motionPreference?.removeEventListener('change', updateMotionPreference)
+  resetPreview()
+})
+
 const copyLabel = ref('Copy command')
 const activeProfile = ref('backend')
 const profileExamples = {
@@ -839,7 +911,7 @@ async function copyInstall() {
 }
 </script>
 
-<div class="landing vp-raw">
+<div ref="landingRoot" class="landing vp-raw">
   <section class="landing-hero" aria-labelledby="hero-title">
     <div class="hero-copy">
       <p class="eyebrow"><span class="status-dot"></span> YOUR LOCAL DEVELOPMENT, IN SYNC</p>
@@ -851,7 +923,7 @@ async function copyInstall() {
       </div>
       <p class="hero-footnote">Open source. Local first. Your workflow.</p>
     </div>
-    <div class="hero-preview">
+    <div class="hero-preview" @pointermove="followPointer" @pointerleave="resetPreview" @pointercancel="resetPreview">
       <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true">↙</span></div>
       <TerminalHero />
       <div class="preview-footer"><span class="status-dot"></span> An illustrative devctl session <span class="preview-shortcut">⌘ / ctrl + p <span>command palette</span></span></div>
@@ -878,7 +950,7 @@ async function copyInstall() {
       </div>
       <div class="workflow-example" aria-live="polite" aria-atomic="true">
         <p class="eyebrow">DEMO PLATFORM / EXAMPLE PROFILE</p>
-        <p class="workflow-command"><span aria-hidden="true">$ </span><code>devctl start --profile {{ activeProfile }}</code></p>
+        <p :key="activeProfile" class="workflow-command"><span aria-hidden="true">$ </span><code>devctl start --profile {{ activeProfile }}</code></p>
         <p class="workflow-description">{{ profileExamples[activeProfile].description }}</p>
         <div class="workflow-services"><span v-for="service in profileExamples[activeProfile].services" :key="service"><i aria-hidden="true"></i>{{ service }}</span></div>
         <p class="workflow-note">Your repo, your names. Profiles are defined in your config.</p>

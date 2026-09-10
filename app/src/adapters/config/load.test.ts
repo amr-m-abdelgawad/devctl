@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WATCH_DEBOUNCE_MS, emptyService } from "../../domain/config/types.ts";
 import { load } from "./load.ts";
@@ -603,8 +603,10 @@ proxy:
     const route = (name: string) => cfg.proxy.routes.find((r) => r.name === name);
     // proxy default folded in and ~ expanded to an absolute path
     expect(route("api")?.auth.credentials).toBe(join(homedir(), ".devctl/iap.json"));
-    // a route's own path wins and resolves relative to the repo root
-    expect(route("other")?.auth.credentials).toBe(join(dir, "local-iap.json"));
+    // a route's own path wins and resolves relative to the repo root. Use
+    // resolve (not join) to match resolveUserPath, so the expectation carries
+    // the drive letter that path.resolve adds on Windows.
+    expect(route("other")?.auth.credentials).toBe(resolve(dir, "local-iap.json"));
     // a non-custom-client route is untouched
     expect(route("plain")?.auth.credentials).toBe("");
   });
