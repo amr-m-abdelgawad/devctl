@@ -1,8 +1,13 @@
-import { spawn } from "bun";
+import { spawn, type Subprocess } from "bun";
 import { processAlive, windowsTasklistLine } from "../storage/storage.ts";
 import type { ProcessIdentity, ResourceSample } from "./unix.ts";
 
 const BYTES_PER_KB = 1024;
+// PowerShell cold-starts slowly on some hosts (notably CI). Bound every helper
+// spawn so a slow launch degrades to an empty result instead of stalling the
+// resource sampler's fixed-interval poll (and its callers) indefinitely. Kept
+// at the poll interval so successive polls cannot pile up behind one slow call.
+const CAPTURE_TIMEOUT_MS = 3000;
 
 export async function killProcessTreeWindows(pid: number, _signal: "SIGTERM" | "SIGKILL"): Promise<void> {
   if (pid <= 0) {
@@ -174,12 +179,22 @@ function pickValue(text: string, key: string): string {
 }
 
 async function capture(cmd: string[]): Promise<string> {
+  let proc: Subprocess | undefined;
+  const timer = setTimeout(() => {
+    try {
+      proc?.kill();
+    } catch {
+      // already exited
+    }
+  }, CAPTURE_TIMEOUT_MS);
   try {
-    const proc = spawn({ cmd, stdout: "pipe", stderr: "ignore" });
-    const text = proc.stdout ? await new Response(proc.stdout).text() : "";
+    proc = spawn({ cmd, stdout: "pipe", stderr: "ignore" });
+    const text = proc.stdout ? await new Response(proc.stdout as ReadableStream).text() : "";
     await proc.exited;
     return text;
   } catch {
     return "";
+  } finally {
+    clearTimeout(timer);
   }
 }

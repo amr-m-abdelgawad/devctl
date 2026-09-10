@@ -75,12 +75,17 @@ describe("supervisor snapshot", () => {
       const started = Date.now();
       await sup.start({ services: ["api"] });
       expect(Date.now() - started).toBeGreaterThanOrEqual(100);
-      await sleep(30);
+      // api launches once db is healthy; wait for its marker rather than a
+      // fixed sleep — a freshly spawned process needs longer to reach its first
+      // line on slower hosts (Windows CI), so a 30ms wait was flaky there.
+      for (let i = 0; i < 150 && !existsSync(launched); i++) {
+        await sleep(20);
+      }
       expect(existsSync(launched)).toBe(true);
     } finally {
       await sup.stop([]);
     }
-  });
+  }, 20_000);
   test("runs hooks around an explicit service start and runs configured tasks", async () => {
     const dir = tmp();
     const marker = join(dir, "order.txt");
