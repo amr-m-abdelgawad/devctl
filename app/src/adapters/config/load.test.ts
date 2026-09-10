@@ -611,6 +611,38 @@ proxy:
     expect(route("plain")?.auth.credentials).toBe("");
   });
 
+  test("modular proxy/routes.yaml carries proxy.credentials (and enabled/gateway) into IAP routes", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-modcred-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  app: { command: [app] }
+`);
+    writeFile(dir, ".devctl/proxy/routes.yaml", `
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 17400 }
+  credentials: ~/.devctl/iap-credentials.json
+  routes:
+    - name: api
+      match: { path: /v1 }
+      upstream: { url: "http://127.0.0.1:17490/v1" }
+      auth:
+        type: iap
+        audience: aud
+        client_id: cid
+        client_secret: secret
+        identity: { type: user }
+`);
+    const cfg = load(dir, "");
+    // Previously these modular-file fields were silently dropped.
+    expect(cfg.proxy.enabled).toBe(true);
+    expect(cfg.proxy.credentials).toBe(join(homedir(), ".devctl/iap-credentials.json"));
+    // The proxy default is folded into the custom-client route so mint reads
+    // the file instead of ADC.
+    expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.credentials).toBe(join(homedir(), ".devctl/iap-credentials.json"));
+  });
+
   test("expose is inert when the proxy is disabled", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-expose-off-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `

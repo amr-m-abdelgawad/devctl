@@ -5,7 +5,7 @@ import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newEr
 import { homeDir } from "../storage/storage.ts";
 import { decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
 import { ConfigDirName, ConfigFileName, discover, fileExists } from "./discover.ts";
-import { applyProxyCredentials, applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
+import { applyProxy, applyProxyCredentials, applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "../../domain/config/types.ts";
@@ -169,16 +169,16 @@ function applyRoutesFile(routesPath: string, cfg: DevctlConfig, presence: Config
     });
   }
   if (isRecord(wrap.proxy)) {
+    // Merge every scalar/nested proxy field (enabled, gateway, credentials,
+    // listen, token_endpoint) exactly as the main config does — the modular
+    // routes file was previously honoring only listen + routes, silently
+    // dropping the rest. Routes are handled separately because a modular file
+    // appends to the shared list rather than replacing it.
+    const proxyFields: Record<string, unknown> = { ...wrap.proxy };
+    delete proxyFields.routes;
+    applyProxy(cfg.proxy, proxyFields);
     if (Array.isArray(wrap.proxy.routes)) {
       cfg.proxy.routes.push(...wrap.proxy.routes.map((route) => decodeRoute(route)));
-    }
-    if (isRecord(wrap.proxy.listen)) {
-      if (typeof wrap.proxy.listen.host === "string" && wrap.proxy.listen.host !== "") {
-        cfg.proxy.listen.host = wrap.proxy.listen.host;
-      }
-      if (typeof wrap.proxy.listen.port === "number" && wrap.proxy.listen.port !== 0) {
-        cfg.proxy.listen.port = wrap.proxy.listen.port;
-      }
     }
   }
   if (Array.isArray(wrap.routes)) {

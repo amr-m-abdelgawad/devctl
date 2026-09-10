@@ -210,7 +210,7 @@ export function applyRoot(
   }
 }
 
-function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {
+export function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {
   if (raw.enabled !== undefined) {
     proxy.enabled = asBoolean(raw.enabled);
   }

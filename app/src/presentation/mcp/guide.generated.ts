@@ -352,13 +352,13 @@ complete allowlists.
 | \`service.logs\` | \`stdout\` \`stderr\` |
 | \`service.environment\` | \`required\` \`defaults\` + arbitrary \`KEY: value\` pairs |
 | \`service.expose\` | \`enabled\` \`host\` \`port\` (or the \`true\` shorthand) |
-| \`proxy\` | \`enabled\` \`gateway\` \`listen\` \`token_endpoint\` \`routes\` |
+| \`proxy\` | \`enabled\` \`gateway\` \`credentials\` \`listen\` \`token_endpoint\` \`routes\` |
 | \`proxy.listen\` | \`host\` \`port\` |
 | \`proxy.token_endpoint\` | \`enabled\` \`host\` \`port\` |
 | \`route\` | \`name\` \`match\` \`upstream\` \`auth\` |
 | \`route.match\` | \`host\` \`path\` |
 | \`route.upstream\` | \`url\` \`service\` \`port\` |
-| \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` |
+| \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` \`credentials\` |
 | \`logs\` | \`max_memory_events\` \`persistence\` |
 | \`logs.persistence\` | \`enabled\` \`directory\` \`retention_days\` \`max_session_logs\` |
 | \`auth\` | \`refresh_threshold_seconds\` |

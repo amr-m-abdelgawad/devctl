@@ -443,7 +443,7 @@ function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Rec
   const out: Record<string, unknown> = {
     name: route.name,
     match: route.match,
-    upstream: route.upstream.url,
+    upstream: route.upstream.url !== "" ? route.upstream.url : nonempty(route.upstream.service ?? "") ? `service:${route.upstream.service}${route.upstream.port ? `/${route.upstream.port}` : ""}` : "",
     auth: route.auth.type,
   };
   const identity = nonempty(route.auth.identity.type);
@@ -451,6 +451,7 @@ function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Rec
   const serviceAccount = nonempty(route.auth.identity.service_account || route.auth.service_account);
   const clientId = nonempty(route.auth.client_id);
   const clientSecret = secretTemplateLabel(route.auth.client_secret);
+  const credentials = nonempty(route.auth.credentials ?? "");
   if (identity) {
     out.identity = identity;
   }
@@ -465,6 +466,9 @@ function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Rec
   }
   if (clientSecret) {
     out.client_secret = clientSecret;
+  }
+  if (credentials) {
+    out.credentials = credentials;
   }
   return out;
 }
@@ -486,6 +490,8 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     services,
     proxy: {
       enabled: cfg.proxy.enabled,
+      gateway: cfg.proxy.gateway,
+      credentials: cfg.proxy.credentials,
       listen: { host: cfg.proxy.listen.host, port: cfg.proxy.listen.port },
       routes: cfg.proxy.routes.map((route) => routeConfigSummary(route)),
     },

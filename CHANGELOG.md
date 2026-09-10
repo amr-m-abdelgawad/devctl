@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-10
+
+### Fixed
+
+- A separate IAP credentials file now works from a modular `.devctl/proxy/routes.yaml`. `proxy.credentials` (and `gateway`, `enabled`, `token_endpoint`) were silently dropped by the modular proxy loader, so routes fell back to gcloud ADC and failed with a client mismatch despite the setting. Modular proxy files now honor the same fields as the top-level `proxy` block, and `get_config` surfaces `proxy.gateway`, `proxy.credentials`, per-route `auth.credentials`, and service-reference upstreams. The authoring guide's allowlist documents `credentials` on `proxy` and `route.auth`.
+- Windows resource sampling no longer stalls the daemon's poll on a slow PowerShell launch — the helper spawn is bounded and degrades to an empty sample.
+
 ## [0.3.1] - 2026-09-10
 
 ### Added
@@ -324,7 +331,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.4...v0.2.5
