@@ -1,4 +1,5 @@
 import { mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WATCH_DEBOUNCE_MS, emptyService } from "../../domain/config/types.ts";
@@ -572,6 +573,40 @@ services:
     const names = cfg.proxy.routes.map((r) => r.name);
     expect(names).toContain("api");
     expect(names).not.toContain("private");
+  });
+
+  test("resolves and folds proxy.credentials into custom-client IAP routes", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-cred-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  app: { command: [app] }
+proxy:
+  enabled: true
+  credentials: ~/.devctl/iap.json
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: api
+      match: { host: api.local }
+      upstream: { url: "http://127.0.0.1:8000" }
+      auth: { type: iap, audience: aud, client_id: cid, identity: user }
+    - name: other
+      match: { host: other.local }
+      upstream: { url: "http://127.0.0.1:8001" }
+      auth: { type: iap, audience: aud, client_id: cid2, identity: user, credentials: ./local-iap.json }
+    - name: plain
+      match: { host: plain.local }
+      upstream: { url: "http://127.0.0.1:8002" }
+      auth: { type: none, identity: user }
+`);
+    const cfg = load(dir, "");
+    const route = (name: string) => cfg.proxy.routes.find((r) => r.name === name);
+    // proxy default folded in and ~ expanded to an absolute path
+    expect(route("api")?.auth.credentials).toBe(join(homedir(), ".devctl/iap.json"));
+    // a route's own path wins and resolves relative to the repo root
+    expect(route("other")?.auth.credentials).toBe(join(dir, "local-iap.json"));
+    // a non-custom-client route is untouched
+    expect(route("plain")?.auth.credentials).toBe("");
   });
 
   test("expose is inert when the proxy is disabled", () => {

@@ -1,5 +1,6 @@
 import "./gcp-env.ts";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { GoogleAuth, Impersonated, UserRefreshClient } from "google-auth-library";
 import { type CredentialRecord, type CredentialStatus, type CredentialStore, openCredentialStore } from "../storage/credentials.ts";
@@ -51,18 +52,75 @@ export function tokenCacheKey(identity: string, audience: string, scopes: string
   return id === "" ? base : `${base}|oauth:${id}`;
 }
 
+type AuthorizedUserFile = { clientId: string; clientSecret: string; refreshToken: string };
+
+// Load a gcloud authorized_user JSON (the same shape as ADC): client_id,
+// client_secret, refresh_token. Only refresh_token is required; the client
+// fields fall back to the route's when absent.
+function loadAuthorizedUserFile(path: string): AuthorizedUserFile {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    throw newError(KindConfiguration, `IAP credentials file not found: ${path}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw newError(KindConfiguration, `IAP credentials file is not valid JSON: ${path}`);
+  }
+  if (typeof parsed !== "object" || parsed === null) {
+    throw newError(KindConfiguration, `IAP credentials file is malformed: ${path}`);
+  }
+  const obj = parsed as Record<string, unknown>;
+  const refreshToken = typeof obj.refresh_token === "string" ? obj.refresh_token : "";
+  if (refreshToken === "") {
+    throw newError(KindConfiguration, `IAP credentials file has no refresh_token: ${path}`);
+  }
+  // A refresh token is only meaningful with its issuing client, so require the
+  // client_id — that lets resolveIapOAuthClient reject a file that belongs to a
+  // different client before it mints (and 502s with an opaque Google error).
+  const clientId = typeof obj.client_id === "string" ? obj.client_id : "";
+  if (clientId === "") {
+    throw newError(KindConfiguration, `IAP credentials file has no client_id: ${path}`);
+  }
+  return {
+    clientId,
+    clientSecret: typeof obj.client_secret === "string" ? obj.client_secret : "",
+    refreshToken,
+  };
+}
+
 export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env): OAuthClientCredentials | undefined {
   const clientId = (auth.client_id ?? "").trim();
   if (clientId === "") {
     return undefined;
   }
   const raw = (auth.client_secret ?? "").trim();
-  const { value: clientSecret, missing } = interpolateEnvRefs(raw, env);
-  if (clientSecret === "") {
+  const { value: envSecret, missing } = interpolateEnvRefs(raw, env);
+
+  const credPath = (auth.credentials ?? "").trim();
+  if (credPath !== "") {
+    // A separate authorized_user file supplies the refresh token (and, when the
+    // route omits them, the client id/secret). ADC is never consulted, so the
+    // default gcloud client stays usable for GCS/Firestore.
+    const file = loadAuthorizedUserFile(credPath);
+    if (file.clientId !== clientId) {
+      throw newError(KindConfiguration, `IAP credentials file ${credPath} is for client_id ${file.clientId}, not the route's ${clientId}`);
+    }
+    const clientSecret = envSecret !== "" ? envSecret : file.clientSecret;
+    if (clientSecret === "") {
+      throw newError(KindConfiguration, `IAP client_id ${clientId} requires a client_secret (in the route or ${credPath})`);
+    }
+    return { clientId, clientSecret, refreshToken: file.refreshToken };
+  }
+
+  if (envSecret === "") {
     const name = missing[0];
     throw newError(KindConfiguration, name ? `IAP client_secret env ${name} is empty` : `IAP client_id ${clientId} requires client_secret`);
   }
-  return { clientId, clientSecret };
+  return { clientId, clientSecret: envSecret };
 }
 
 // A lazy handle to a route's OAuth client. The token cache key needs only the
@@ -392,15 +450,22 @@ async function fetchUserIdToken(identity: string, audience: string, scopes: stri
 }
 
 async function fetchUserIdTokenWithOAuthClient(identity: string, audience: string, scopes: string[], oauth: OAuthClientCredentials): Promise<AccessToken> {
-  const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [IAP_SCOPE] });
-  const adc = await auth.getClient();
-  const refreshToken = adc.credentials.refresh_token;
+  // A route-supplied credentials file gives a refresh token issued by the
+  // custom client itself — use it directly and never touch ADC. Otherwise fall
+  // back to the ADC refresh token (which only works when ADC was itself logged
+  // in with this same client).
+  let refreshToken = oauth.refreshToken;
   if (!refreshToken) {
-    throw hintError(
-      KindAuthentication,
-      "ADC has no refresh token for a custom IAP OAuth client",
-      "run `gcloud auth application-default login` with a user account; service-account ADC cannot mint IAP ID tokens for auth.client_id",
-    );
+    const auth = new GoogleAuth({ scopes: scopes.length > 0 ? scopes : [IAP_SCOPE] });
+    const adc = await auth.getClient();
+    refreshToken = adc.credentials.refresh_token ?? undefined;
+    if (!refreshToken) {
+      throw hintError(
+        KindAuthentication,
+        "ADC has no refresh token for a custom IAP OAuth client",
+        "set auth.credentials (or proxy.credentials) to an authorized_user file whose refresh_token was issued by this client_id, or run `gcloud auth application-default login` with that client",
+      );
+    }
   }
   const client = new UserRefreshClient({
     clientId: oauth.clientId,

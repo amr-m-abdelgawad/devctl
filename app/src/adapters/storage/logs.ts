@@ -1,11 +1,10 @@
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type WriteStream } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { type Bus, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
 import type { LogStore } from "../../ports/log-store.ts";
-import { ensureDir, exportsDir, logsDir } from "./storage.ts";
+import { ensureDir, exportsDir, logsDir, resolveUserPath } from "./storage.ts";
 
 import { LevelError, LevelFatal, type LogEvent, type LogParser, parseJSONLogLine, type LogFilter, parseLevel, parseRequestID, createLogMatcher, createSearchMatcher, matchesLogDimensions, type LogPageDirection, type LogPageRequest, type LogPage, type LogFacets, clampLogPageSize, truncateLogLine } from "../../domain/logs/logs.ts";
 export * from "../../domain/logs/logs.ts";
@@ -335,8 +334,7 @@ export function resolveExportPath(input = ""): string {
   if (input === "") {
     return defaultExportPath();
   }
-  const expanded = input.startsWith("~/") ? join(homedir(), input.slice(2)) : input;
-  return isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
+  return resolveUserPath(input, process.cwd());
 }
 
 export function writeLogExport(path: string, events: LogEvent[]): void {

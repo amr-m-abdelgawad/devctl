@@ -112,6 +112,28 @@ describe("config validate", () => {
     expect(validate(cfg)).toEqual([]);
   });
 
+  test("accepts an IAP route with client_id + credentials file and no inline client_secret", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "desktop.apps.googleusercontent.com", credentials: "/abs/iap.json" },
+    });
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects auth.credentials without a client_id", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), credentials: "/abs/iap.json" },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].auth.credentials requires auth.client_id");
+  });
+
   test("rejects a mixed client_secret that is not a whole ${…} reference", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({

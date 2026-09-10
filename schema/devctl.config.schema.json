@@ -330,6 +330,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "gateway": { "type": "boolean", "description": "Expose every HTTP-capable service (one with a port named http) through the proxy, as if each declared expose: true. Sugar over per-service expose." },
+        "credentials": { "type": "string", "description": "Default authorized_user credentials file for IAP routes that omit auth.credentials (see route.auth.credentials)." },
         "listen": {
           "type": "object",
           "additionalProperties": false,
@@ -384,6 +385,7 @@
             "service_account": { "type": "string" },
             "client_id": { "type": "string", "description": "Optional OAuth client ID used to mint IAP ID tokens instead of ADC's default client" },
             "client_secret": { "type": "string", "description": "Optional OAuth client secret. Use ${NAME} or ${env.NAME} to read from the environment at mint time." },
+            "credentials": { "type": "string", "description": "Path to a gcloud authorized_user JSON (client_id/client_secret/refresh_token) used to mint IAP tokens for client_id, instead of default ADC. Keeps ADC intact for GCS/Firestore. ~, absolute, or repo-relative. Falls back to proxy.credentials." },
             "identity": {
               "oneOf": [
                 { "type": "string" },

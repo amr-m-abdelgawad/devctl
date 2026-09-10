@@ -189,6 +189,12 @@ export type RouteAuthConfig = {
   service_account: string;
   client_id: string;
   client_secret: string;
+  // Path to a gcloud authorized_user JSON (client_id/client_secret/refresh_token)
+  // used to mint IAP tokens for a custom client_id, instead of the default
+  // gcloud ADC — so ADC stays intact for GCS/Firestore. Resolved to an absolute
+  // path at load; only meaningful on an IAP route with a client_id. Falls back
+  // to proxy.credentials when unset.
+  credentials?: string;
 };
 
 export function emptyRouteAuth(): RouteAuthConfig {
@@ -199,6 +205,7 @@ export function emptyRouteAuth(): RouteAuthConfig {
     service_account: "",
     client_id: "",
     client_secret: "",
+    credentials: "",
   };
 }
 
@@ -218,6 +225,10 @@ export type ProxyConfig = {
   // Selective exposure is `gateway` off plus per-service `expose` — there is
   // no opt-out flag once gateway is on.
   gateway: boolean;
+  // Default authorized_user credentials file for every IAP route that does not
+  // set its own auth.credentials (see RouteAuthConfig.credentials). Resolved to
+  // an absolute path at load.
+  credentials: string;
   listen: ListenConfig;
   token_endpoint: TokenEndpointConfig;
   routes: RouteConfig[];
@@ -364,6 +375,7 @@ export function defaultConfig(): DevctlConfig {
     proxy: {
       enabled: false,
       gateway: false,
+      credentials: "",
       listen: { host: LOCALHOST, port: 0 },
       token_endpoint: { enabled: false, host: "", port: 0 },
       routes: [],

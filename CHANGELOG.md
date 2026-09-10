@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-10
+
+### Added
+
+- IAP routes can mint tokens for a custom `client_id` from a separate gcloud authorized_user credentials file via `auth.credentials` (or a proxy-wide `proxy.credentials` default), instead of the default gcloud ADC — so ADC stays intact for GCS/Firestore and other Google SDK calls. The path accepts `~`, absolute, or repo-relative forms; the file's `refresh_token` must belong to the route's `client_id`, and the file can supply the `client_secret` when the route omits it.
+- MCP `get_doc` returns the full text of one embedded documentation page. `search_docs` returns short snippets for discovery; pass a hit's `path` to `get_doc` to read the whole page.
+
+### Fixed
+
+- `proxy.gateway` now honors an explicit `expose: false` on a service instead of publishing it anyway; unknown keys under a service's `expose` object are rejected.
+- IAP custom-client token minting resolves the OAuth secret only when refreshing, so a still-valid cached token keeps working after its environment secret is removed rather than failing with a 502. A rejected custom-client request is now classified with IAP guidance.
+- Configuration rejects a `client_secret` that mixes literal text with an environment reference — it must be a plain literal or exactly `${NAME}` / `${env.NAME}`.
+- Proxy documentation rendering: a stray code fence that hid the per-service routes section is removed.
+
 ## [0.3.0] - 2026-09-09
 
 ### Added
@@ -310,7 +324,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.5...v0.3.0
 [0.2.5]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.4...v0.2.5
 [0.2.4]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.2.3...v0.2.4

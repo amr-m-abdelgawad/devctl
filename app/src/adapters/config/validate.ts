@@ -369,20 +369,29 @@ function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
 function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[] {
   const clientId = (auth.client_id ?? "").trim();
   const secret = (auth.client_secret ?? "").trim();
-  if (clientId === "" && secret === "") {
+  const cred = (auth.credentials ?? "").trim();
+  if (clientId === "" && secret === "" && cred === "") {
     return [];
   }
   if (auth.type.toLowerCase() !== "iap") {
-    return [`${prefix}.auth.client_id is only valid when auth.type is iap`];
+    const field = clientId !== "" ? "client_id" : secret !== "" ? "client_secret" : "credentials";
+    return [`${prefix}.auth.${field} is only valid when auth.type is iap`];
   }
   const issues: string[] = [];
   if (clientId === "") {
-    issues.push(`${prefix}.auth.client_id is required when client_secret is set`);
+    if (secret !== "") {
+      issues.push(`${prefix}.auth.client_id is required when client_secret is set`);
+    }
+    if (cred !== "") {
+      issues.push(`${prefix}.auth.credentials requires auth.client_id`);
+    }
     return issues;
   }
-  if (secret === "") {
+  // A credentials file can supply the client_secret, so an inline one is only
+  // required when no file is set.
+  if (secret === "" && cred === "") {
     issues.push(`${prefix}.auth.client_secret is required when client_id is set`);
-  } else if (envRefsIn(secret).length > 0 && !isWholeEnvRef(secret)) {
+  } else if (secret !== "" && envRefsIn(secret).length > 0 && !isWholeEnvRef(secret)) {
     // A pure literal is fine; a value that carries an environment reference
     // must be exactly ${NAME} / ${env.NAME}. A mixed value like `pre-${SECRET}`
     // would interpolate to a half-literal token — reject it up front.

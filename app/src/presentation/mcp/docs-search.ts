@@ -38,6 +38,36 @@ function guidePages(): DocPage[] {
   ];
 }
 
+function allPages(): DocPage[] {
+  return [...DOC_PAGES, ...guidePages()];
+}
+
+export type GetDocResult = {
+  path: string;
+  title: string;
+  body: string;
+};
+
+// Return a full doc page by path. search_docs returns short snippets for
+// discovery; this returns the complete page so a caller can actually read it.
+// Matches the exact path a hit reports, or a unique basename suffix (so
+// "proxy.md" resolves to "docs/proxy.md"). Throws with the available paths on a
+// miss, matching search_docs's throw-on-bad-input style.
+export function getDoc(path: string): GetDocResult {
+  const p = path.trim();
+  if (p === "") {
+    throw new Error("path is required");
+  }
+  const pages = allPages();
+  const exact = pages.find((page) => page.path === p);
+  const matches = exact ? [exact] : pages.filter((page) => page.path.endsWith(`/${p}`));
+  if (matches.length !== 1) {
+    throw new Error(`no unique doc for path "${p}"; available: ${pages.map((page) => page.path).join(", ")}`);
+  }
+  const page = matches[0]!;
+  return { path: page.path, title: page.title, body: page.body };
+}
+
 function tokens(query: string): string[] {
   return query
     .toLowerCase()
@@ -105,7 +135,7 @@ export function searchDocs(query: string, limit?: number): SearchDocsResult {
     throw new Error("query is required");
   }
   const cap = clampLimit(limit);
-  const hits = [...DOC_PAGES, ...guidePages()]
+  const hits = allPages()
     .map((page) => ({
       path: page.path,
       title: page.title,

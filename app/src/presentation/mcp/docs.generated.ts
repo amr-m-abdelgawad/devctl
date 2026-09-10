@@ -1163,7 +1163,8 @@ devctl mcp --json
 | \`start_proxy\` / \`stop_proxy\` | control | Start or stop the local reverse proxy |
 | \`exec_service\` | control | Run an arbitrary command in a service's resolved environment/cwd, or inspect its redacted environment with \`print_env\` |
 | \`get_setup_guide\` | setup | The onboarding guide for authoring a \`.devctl\`. \`section\`: \`procedure\` (default), \`authoring\`, \`discovery\`. Same text as [\`skills/devctl-onboard\`](../skills/devctl-onboard/SKILL.md), compiled into the binary so no skill install is needed |
-| \`search_docs\` | setup | Keyword search over the compiled-in product docs (\`docs/*.md\`) and the onboarding skill. Pass \`query\`; optional \`limit\` (default 5, max 10). Returns ranked pages with snippets |
+| \`search_docs\` | setup | Keyword search over the compiled-in product docs (\`docs/*.md\`) and the onboarding skill. Pass \`query\`; optional \`limit\` (default 5, max 10). Returns ranked pages with short snippets — pass a hit's \`path\` to \`get_doc\` to read the whole page |
+| \`get_doc\` | setup | Return the full text of one embedded doc page. Pass \`path\` from a \`search_docs\` hit (e.g. \`docs/proxy.md\`); an unambiguous basename like \`proxy.md\` also resolves |
 | \`validate_config\` | setup | Validate configuration and return the loader's exact issues. No arguments validates what is on disk; \`text\` validates a candidate \`config.yaml\` through the real load pipeline before it is written |
 
 No tool writes files. An agent authors \`.devctl\` with its own editing tools and uses \`validate_config\` to check the result.
@@ -1566,6 +1567,51 @@ proxy:
 \`\`\`
 
 Match is host + optional path prefix.
+
+### Custom OAuth client credentials (separate from ADC)
+
+A route can mint IAP tokens with a **custom OAuth client** via \`auth.client_id\` /
+\`auth.client_secret\`. By default the refresh token comes from gcloud ADC
+(\`~/.config/gcloud/application_default_credentials.json\`), which only works when
+ADC was itself logged in with that same client — otherwise Google rejects the
+mint as \`unauthorized_client\` ("client mismatch").
+
+To use a custom client without clobbering ADC (which GCS/Firestore and other
+Google SDKs depend on), point the route — or the whole proxy — at a **separate**
+gcloud *authorized_user* credentials file:
+
+\`\`\`yaml
+proxy:
+  credentials: ~/.devctl/iap-credentials.json   # default for every IAP route
+  routes:
+    - name: orchestrator-api
+      auth:
+        type: iap
+        audience: 507686272917-0dpd...
+        client_id: 507686272917-4j6f...
+        # client_secret optional here — the file can supply it
+        credentials: ~/.devctl/iap-credentials.json   # per-route override
+        identity: { type: user }
+\`\`\`
+
+The file is a standard gcloud authorized_user JSON (the same shape as ADC):
+
+\`\`\`json
+{ "type": "authorized_user", "client_id": "…", "client_secret": "…", "refresh_token": "…" }
+\`\`\`
+
+Generate it with a scoped \`gcloud auth application-default login\` written to a
+custom path (not the default ADC location). Notes:
+
+- The file's \`refresh_token\` must have been issued by the same \`client_id\` as the
+  route — a mismatched \`client_id\` in the file is rejected.
+- \`auth.credentials\` wins over \`proxy.credentials\`; the path may start with \`~\`,
+  be absolute, or be relative to the repository root.
+- The \`client_secret\` comes from the route when set, otherwise from the file.
+- ADC is **never read** for a file-backed route, so gcloud's default client stays
+  usable for GCS/Firestore and everything else.
+- The file is read locally at mint time; its contents are never logged. It holds
+  a long-lived refresh token and client secret — keep it private (\`chmod 600\`).
 
 ### Per-service routes
 

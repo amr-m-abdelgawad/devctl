@@ -10,6 +10,10 @@ export type AccessToken = {
 export type OAuthClientCredentials = {
   readonly clientId: string;
   readonly clientSecret: string;
+  // When set (from a route's authorized_user credentials file), the IAP token
+  // is minted with this refresh token instead of the default gcloud ADC one —
+  // so a custom client_id no longer requires clobbering ADC.
+  readonly refreshToken?: string;
 };
 
 export type CredentialProvider = {

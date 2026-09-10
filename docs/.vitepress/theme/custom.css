@@ -166,3 +166,35 @@
   .VPHome .landing .workflow-description, .VPHome .landing .workflow-services { min-height: 0; }
   .VPHome .landing .faq-list summary { font-size: 15px; }
 }
+
+/* Restrained motion: one-time reveals, a gentle preview tilt, and directional cues. */
+@media (prefers-reduced-motion: no-preference) {
+  .VPHome .landing [data-reveal] { transition: opacity .55s ease, transform .65s cubic-bezier(.2,.7,.2,1); }
+  .VPHome .landing [data-reveal="pending"] { opacity: 0; transform: translateY(18px); }
+  .VPHome .landing [data-reveal="visible"], .VPHome .landing [data-reveal="pending"]:focus-within { opacity: 1; transform: none; }
+  .VPHome .landing .surface:nth-child(2)[data-reveal] { transition-delay: 65ms; }
+  .VPHome .landing .surface:nth-child(3)[data-reveal] { transition-delay: 130ms; }
+  .VPHome .landing .hero-copy > * { animation: landing-arrive .65s both cubic-bezier(.2,.7,.2,1); }
+  .VPHome .landing .hero-copy h1 { animation-delay: 50ms; }
+  .VPHome .landing .hero-description { animation-delay: 100ms; }
+  .VPHome .landing .hero-actions { animation-delay: 150ms; }
+  .VPHome .landing .hero-footnote { animation-delay: 200ms; }
+  .VPHome .landing .workflow-command { animation: landing-arrive .3s both ease-out; }
+  .VPHome .landing .primary-link > span, .VPHome .landing .text-link > span, .VPHome .landing .surface-link > span, .VPHome .landing .detail-list a > span:last-child { display: inline-block; transition: transform .2s ease; }
+  .VPHome .landing .primary-link:hover > span, .VPHome .landing .text-link:hover > span, .VPHome .landing .surface:hover .surface-link > span, .VPHome .landing .detail-list a:hover > span:last-child { transform: translate(2px, -2px); }
+  .VPHome .landing .primary-link:active { transform: translateY(0) scale(.98); }
+  .VPHome .landing .faq-list details[open] p { animation: landing-arrive .25s ease-out; }
+}
+@media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
+  .VPHome .landing .hero-preview { position: relative; isolation: isolate; transform: perspective(1100px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)); transition: transform .3s ease-out, border-color .3s ease; }
+  .VPHome .landing .hero-preview::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; opacity: 0; background: radial-gradient(340px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #77ddba12, transparent 75%); transition: opacity .35s ease; }
+  .VPHome .landing .hero-preview[data-pointer]::after { opacity: 1; }
+  .VPHome .landing .hero-preview[data-pointer] { border-color: var(--vp-c-brand-1); }
+}
+@keyframes landing-arrive {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media print {
+  .VPHome .landing [data-reveal="pending"] { opacity: 1; transform: none; }
+}

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DOC_PAGES } from "./docs.generated.ts";
-import { searchDocs } from "./docs-search.ts";
+import { getDoc, searchDocs } from "./docs-search.ts";
 import { callMcpTool, MCP_TOOLS, type McpHost } from "./tools.ts";
 
 const repoRoot = dirname(dirname(dirname(dirname(import.meta.dir))));
@@ -39,6 +39,52 @@ describe("searchDocs", () => {
   test("rejects an empty query", () => {
     expect(() => searchDocs("")).toThrow(/query is required/);
     expect(() => searchDocs("   ")).toThrow(/query is required/);
+  });
+});
+
+describe("getDoc", () => {
+  test("returns the full page body, not a truncated snippet", () => {
+    const doc = getDoc("docs/proxy.md");
+    expect(doc.path).toBe("docs/proxy.md");
+    const onDisk = readFileSync(join(repoRoot, "docs/proxy.md"), "utf8").replace(/\r\n/g, "\n");
+    expect(doc.body).toBe(onDisk);
+    // The whole page, well beyond a search snippet's 400-char cap.
+    expect(doc.body.length).toBeGreaterThan(400);
+  });
+
+  test("resolves an unambiguous basename", () => {
+    expect(getDoc("proxy.md").path).toBe("docs/proxy.md");
+  });
+
+  test("throws with the available paths on a miss or empty path", () => {
+    expect(() => getDoc("")).toThrow(/path is required/);
+    expect(() => getDoc("does-not-exist.md")).toThrow(/no unique doc for path/);
+  });
+});
+
+describe("get_doc tool", () => {
+  test("is advertised and returns a full page through callMcpTool", async () => {
+    expect(MCP_TOOLS.some((tool) => tool.name === "get_doc")).toBe(true);
+    const unused = (): never => {
+      throw new Error("get_doc must not touch the supervisor");
+    };
+    const host: McpHost = {
+      config: unused,
+      validateConfigText: unused,
+      status: unused,
+      logsPage: unused,
+      start: unused,
+      stop: unused,
+      restart: unused,
+      reload: unused,
+      doctor: unused,
+      runTask: unused,
+      startProxy: unused,
+      stopProxy: unused,
+    };
+    const result = (await callMcpTool(host, "get_doc", { path: "docs/proxy.md" })) as { path: string; body: string };
+    expect(result.path).toBe("docs/proxy.md");
+    expect(result.body.length).toBeGreaterThan(400);
   });
 });
 

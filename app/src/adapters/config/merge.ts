@@ -17,6 +17,7 @@ import {
   isRecord,
   presentKeys,
 } from "./decode.ts";
+import { resolveUserPath } from "../storage/storage.ts";
 import {
   emptyService,
   emptyRouteAuth,
@@ -215,6 +216,9 @@ function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {
   }
   if (raw.gateway !== undefined) {
     proxy.gateway = asBoolean(raw.gateway);
+  }
+  if (raw.credentials !== undefined) {
+    proxy.credentials = asString(raw.credentials);
   }
   if (isRecord(raw.listen)) {
     if (raw.listen.host !== undefined) {
@@ -450,6 +454,25 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigPr
     });
   }
   synthesizeExposeRoutes(cfg, provenance);
+}
+
+// Resolve IAP credentials-file paths to absolute and fold the proxy-level
+// default into each custom-client route that doesn't set its own. After this,
+// a route that should mint from a separate credentials file carries an absolute
+// `auth.credentials`, so the token layer reads one field and needs no repo-root
+// plumbing. Only custom-client (client_id) routes are eligible — the file is
+// only ever consulted when minting for a custom OAuth client.
+export function applyProxyCredentials(cfg: DevctlConfig): void {
+  const base = cfg.repoRoot || process.cwd();
+  const proxyDefault = cfg.proxy.credentials.trim() === "" ? "" : resolveUserPath(cfg.proxy.credentials.trim(), base);
+  cfg.proxy.credentials = proxyDefault;
+  for (const route of cfg.proxy.routes) {
+    if (route.auth.client_id.trim() === "") {
+      continue;
+    }
+    const own = (route.auth.credentials ?? "").trim();
+    route.auth.credentials = own === "" ? proxyDefault : resolveUserPath(own, base);
+  }
 }
 
 // Auto-generate a host-based proxy route for each service opted in via

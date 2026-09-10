@@ -4,7 +4,7 @@ import { secretTemplateLabel } from "../../domain/config/env-ref.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
 import { Detector } from "../../shared/redaction.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { searchDocs } from "./docs-search.ts";
+import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
@@ -258,7 +258,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Search the embedded product documentation",
     category: "setup",
     description:
-      "Search the compiled-in product documentation (docs/*.md plus the onboarding skill). Returns ranked pages with short snippets. Use this for IAP, proxy, MCP, configuration, and similar topics; use get_setup_guide for the full onboarding procedure.",
+      "Search the compiled-in product documentation (docs/*.md plus the onboarding skill). Returns ranked pages with short snippets for discovery. To read a full page, pass a hit's `path` to get_doc. Use this for IAP, proxy, MCP, configuration, and similar topics; use get_setup_guide for the full onboarding procedure.",
     inputSchema: {
       type: "object",
       properties: {
@@ -266,6 +266,22 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         limit: { type: "integer", description: "Maximum hits to return (default 5, max 10)" },
       },
       required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_doc",
+    label: "Get doc",
+    summary: "Read a full documentation page",
+    category: "setup",
+    description:
+      "Return the complete text of one embedded documentation page. Pass the `path` from a search_docs hit (e.g. docs/proxy.md) — search_docs only returns short snippets, so use this to read the whole page. A basename like proxy.md also resolves when unambiguous.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Doc path from a search_docs hit, e.g. docs/proxy.md" },
+      },
+      required: ["path"],
       additionalProperties: false,
     },
   },
@@ -561,6 +577,8 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return getSetupGuide(args);
     case "search_docs":
       return searchDocs(typeof args.query === "string" ? args.query : "", typeof args.limit === "number" ? args.limit : undefined);
+    case "get_doc":
+      return getDoc(typeof args.path === "string" ? args.path : "");
     case "validate_config":
       return validateConfig(host, args);
     default:

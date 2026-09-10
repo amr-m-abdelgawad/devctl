@@ -6,10 +6,18 @@ import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
+
+// Resolve a user-supplied path to an absolute one: "~/..." expands to the home
+// directory, an already-absolute path is left as-is, and a relative path is
+// resolved against baseDir (typically the repo root).
+export function resolveUserPath(input: string, baseDir: string): string {
+  const expanded = input.startsWith("~/") ? join(homedir(), input.slice(2)) : input;
+  return isAbsolute(expanded) ? expanded : resolve(baseDir, expanded);
+}
 
 export function homeDir(): string {
   const override = process.env.DEVCTL_HOME;

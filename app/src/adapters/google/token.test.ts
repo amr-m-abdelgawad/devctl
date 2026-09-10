@@ -1,6 +1,6 @@
 import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { Bus, TokenRefreshed, TokenRefreshFailed } from "../../shared/events.ts";
 import { TokenManager, googleTokenProviders, isValidToken, resolveIapOAuthClient, tokenCacheKey, tokenMetaPath, type AccessToken, type TokenProvider } from "./token.ts";
 import { emptyRouteAuth } from "../../domain/config/types.ts";
@@ -220,6 +220,38 @@ describe("resolveIapOAuthClient", () => {
   test("throws when client_id is set and the env secret is empty", () => {
     const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" };
     expect(() => resolveIapOAuthClient(auth, {})).toThrow(/IAP client_secret env IAP_OAUTH_CLIENT_SECRET is empty/);
+  });
+
+  test("reads the refresh token from a credentials file, keeping the route's inline secret", () => {
+    const path = `${process.env.TMPDIR ?? "/tmp"}/devctl-cred-${Date.now()}-a.json`;
+    writeFileSync(path, JSON.stringify({ type: "authorized_user", client_id: "cid", client_secret: "file-secret", refresh_token: "rt-123" }));
+    const auth = { ...emptyRouteAuth(), client_id: "cid", client_secret: "route-secret", credentials: path };
+    expect(resolveIapOAuthClient(auth, {})).toEqual({ clientId: "cid", clientSecret: "route-secret", refreshToken: "rt-123" });
+  });
+
+  test("falls back to the file's client_secret when the route omits one", () => {
+    const path = `${process.env.TMPDIR ?? "/tmp"}/devctl-cred-${Date.now()}-b.json`;
+    writeFileSync(path, JSON.stringify({ client_id: "cid", client_secret: "file-secret", refresh_token: "rt-1" }));
+    const auth = { ...emptyRouteAuth(), client_id: "cid", credentials: path };
+    expect(resolveIapOAuthClient(auth, {})).toEqual({ clientId: "cid", clientSecret: "file-secret", refreshToken: "rt-1" });
+  });
+
+  test("rejects a credentials file whose client_id does not match the route", () => {
+    const path = `${process.env.TMPDIR ?? "/tmp"}/devctl-cred-${Date.now()}-c.json`;
+    writeFileSync(path, JSON.stringify({ client_id: "other", client_secret: "s", refresh_token: "rt" }));
+    const auth = { ...emptyRouteAuth(), client_id: "cid", credentials: path };
+    expect(() => resolveIapOAuthClient(auth, {})).toThrow(/is for client_id other, not the route's cid/);
+  });
+
+  test("throws on a missing file, or one without a refresh_token or client_id", () => {
+    const missing = { ...emptyRouteAuth(), client_id: "cid", credentials: "/no/such/devctl-iap.json" };
+    expect(() => resolveIapOAuthClient(missing, {})).toThrow(/credentials file not found/);
+    const noToken = `${process.env.TMPDIR ?? "/tmp"}/devctl-cred-${Date.now()}-d.json`;
+    writeFileSync(noToken, JSON.stringify({ client_id: "cid", client_secret: "s" }));
+    expect(() => resolveIapOAuthClient({ ...emptyRouteAuth(), client_id: "cid", credentials: noToken }, {})).toThrow(/no refresh_token/);
+    const noClient = `${process.env.TMPDIR ?? "/tmp"}/devctl-cred-${Date.now()}-e.json`;
+    writeFileSync(noClient, JSON.stringify({ refresh_token: "rt", client_secret: "s" }));
+    expect(() => resolveIapOAuthClient({ ...emptyRouteAuth(), client_id: "cid", credentials: noClient }, {})).toThrow(/no client_id/);
   });
 });
 

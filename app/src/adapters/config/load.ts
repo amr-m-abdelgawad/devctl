@@ -5,7 +5,7 @@ import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newEr
 import { homeDir } from "../storage/storage.ts";
 import { decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
 import { ConfigDirName, ConfigFileName, discover, fileExists } from "./discover.ts";
-import { applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
+import { applyProxyCredentials, applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "../../domain/config/types.ts";
@@ -88,6 +88,7 @@ export function loadPath(repoRoot: string, configPath: string, opts?: { candidat
     throw wrapError(KindConfiguration, "template merge failed", err);
   }
   mergeServiceProxyRoutes(cfg, presence.provenance);
+  applyProxyCredentials(cfg);
   cfg.provenance = presence.provenance;
   const issues = validate(cfg);
   if (issues.length > 0) {
