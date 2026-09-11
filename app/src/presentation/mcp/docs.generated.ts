@@ -898,7 +898,7 @@ onUnmounted(() => {
 const copyLabel = ref('Copy command')
 const activeProfile = ref('minimal')
 const profileExamples = {
-  minimal: { label: 'Keep it focused', description: 'The profile shown in the screenshots: identity, the invoices API, and telemetry.', services: ['identity', 'invoices-api', 'telemetry'] },
+  minimal: { label: 'Keep it focused', description: 'The profile shown in the demo above: identity, the invoices API, and telemetry.', services: ['identity', 'invoices-api', 'telemetry'] },
   backend: { label: 'Build an API', description: 'Focus on the backend. Bring up identity, the API, its worker, and telemetry as a single group.', services: ['identity', 'invoices-api', 'invoices-worker', 'telemetry'] },
   full: { label: 'Work end to end', description: 'Bring the console into the picture when your work crosses the frontend and backend.', services: ['identity', 'invoices-api', 'invoices-worker', 'billing-console', 'telemetry'] },
   data: { label: 'Start with data', description: 'Run the demo’s optional PostgreSQL container when you need a local database.', services: ['postgres'] }
@@ -953,7 +953,14 @@ async function copyInstall() {
         <p class="eyebrow">DEMO PLATFORM / EXAMPLE PROFILE</p>
         <p :key="activeProfile" class="workflow-command"><span aria-hidden="true">$ </span><code>devctl start --profile {{ activeProfile }}</code></p>
         <p class="workflow-description">{{ profileExamples[activeProfile].description }}</p>
-        <div class="workflow-services"><span v-for="service in profileExamples[activeProfile].services" :key="service"><i aria-hidden="true"></i>{{ service }}</span></div>
+        <div class="workflow-tui" role="img" :aria-label="\`devctl profiles screen — \${activeProfile}: \${profileExamples[activeProfile].services.join(', ')}\`">
+          <div class="wt-box" :key="activeProfile">
+            <span class="wt-title">{{ activeProfile }}</span>
+            <div class="wt-head"><span class="wt-dot" aria-hidden="true">●</span> current profile&nbsp;·&nbsp;{{ profileExamples[activeProfile].services.length }} {{ profileExamples[activeProfile].services.length === 1 ? 'service' : 'services' }}</div>
+            <div class="wt-services"><span v-for="service in profileExamples[activeProfile].services" :key="service"><span class="wt-check" aria-hidden="true">✓</span>{{ service }}</span></div>
+          </div>
+          <div class="wt-hint" aria-hidden="true">space set current&nbsp;·&nbsp;enter set and start</div>
+        </div>
         <p class="workflow-note">Your repo, your names. Profiles are defined in your config.</p>
       </div>
     </div>
