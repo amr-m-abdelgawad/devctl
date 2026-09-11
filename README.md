@@ -47,6 +47,12 @@ npx @amr-m-abdelgawad/devctl@latest
 
 A multi-service repo usually means five terminals, a forgotten `.env`, and a proxy nobody remembers how to start. `devctl` reads `.devctl/` and runs the whole environment as one session.
 
+**What's different**
+
+- **Runs your real services, not images.** `npm`, `uv`, `python` start as native host processes — fast reloads, a debugger you can attach directly, no Dockerfile — with Docker/Podman services opt-in when a dependency needs them.
+- **Handles the auth you'd otherwise hand-roll.** A loopback proxy mints and injects Google / IAP tokens on both HTTP and gRPC, so local code reaches IAP-protected backends with no token logic of its own. Tokens never touch the logs.
+- **One session, three ways in.** The TUI, the CLI, and an MCP endpoint for your agent all drive the same supervisor — not three tools that each half-know the state.
+
 Nothing in the app knows your services by name. Add YAML, not code.
 
 | You get | What that means |
