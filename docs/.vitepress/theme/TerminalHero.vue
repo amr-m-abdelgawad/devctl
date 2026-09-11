@@ -78,7 +78,7 @@ const profiles = [
 ]
 
 const screens = [
-  { name: 'Dashboard', tab: 'dashboard', foot: 'dashboard', hints: '/ command   space select   * all   – none', title: 'Your running stack, in one view.', description: 'Services and their combined logs, side by side. Here the minimal profile has identity, invoices-api, and telemetry healthy.', alt: 'devctl 0.5.0 dashboard: a services pane listing six services with three healthy in the minimal profile, next to their combined live logs.' },
+  { name: 'Dashboard', tab: 'dashboard', foot: 'dashboard', hints: '/ command   space select   * all   – none', title: 'Your running stack, in one view.', description: 'Services and their combined logs, side by side. Here the minimal profile has identity, invoices-api, and telemetry healthy.', alt: 'devctl 0.6.0 dashboard: a services pane listing six services with three healthy in the minimal profile, next to their combined live logs.' },
   { name: 'Logs', tab: 'logs', foot: 'logs', hints: '/ command   ↔ filter   e errors   i internal logs', title: 'Follow the output across services.', description: 'One stream with timestamps, service names, levels, and messages — filter by service, jump to errors, page through history.', alt: 'devctl centralized logs screen with per-service filter tabs and timestamped output from identity, invoices-api, and telemetry.' },
   { name: 'Profiles', tab: '', foot: 'profiles', hints: '/ command   space set current   enter set and start', title: 'Choose the services for your task.', description: 'The demo defines backend, data, full, and minimal. minimal is current — its three services start together.', alt: 'devctl profiles screen listing backend, data, full, and minimal, with minimal current and its three services checked.' }
 ]
@@ -94,7 +94,7 @@ const screen = computed(() => screens[selected.value])
 
     <div id="tui-window" class="tui" role="img" :aria-label="screen.alt">
       <div class="tui-top">
-        <span class="tui-brand">devctl <span class="tk-dim">0.5.0</span></span>
+        <span class="tui-brand">devctl <span class="tk-dim">0.6.0</span></span>
         <span class="tk-dim">demo-platform</span>
         <span class="tk-dim">minimal</span>
         <span class="tui-gap" aria-hidden="true"></span>

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-11
+
+### Added
+
+- `route.response_headers` adds headers to every response on the route, overriding whatever the upstream sent — most often CORS `Access-Control-Allow-*` for a browser that loads a micro-frontend, Module Federation remote, or iframe from another origin and then calls back through the proxy. A CORS preflight (`OPTIONS` carrying `Access-Control-Request-Method`) is answered directly with those headers and a `204`; it is not forwarded, since the upstream may not handle `OPTIONS` and IAP would reject an unauthenticated preflight. Any other `OPTIONS` is proxied normally, still with the headers applied. Rejected on a gRPC route.
+
 ## [0.5.0] - 2026-09-10
 
 ### Added
@@ -350,7 +356,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.3.2...v0.4.0
