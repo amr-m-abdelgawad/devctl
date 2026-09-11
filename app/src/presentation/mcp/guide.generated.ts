@@ -355,7 +355,7 @@ complete allowlists.
 | \`proxy\` | \`enabled\` \`gateway\` \`credentials\` \`listen\` \`token_endpoint\` \`routes\` |
 | \`proxy.listen\` | \`host\` \`port\` |
 | \`proxy.token_endpoint\` | \`enabled\` \`host\` \`port\` |
-| \`route\` | \`name\` \`transport\` \`listen\` \`match\` \`upstream\` \`auth\` |
+| \`route\` | \`name\` \`transport\` \`listen\` \`match\` \`upstream\` \`auth\` \`response_headers\` |
 | \`route.match\` | \`host\` \`path\` |
 | \`route.upstream\` | \`url\` \`service\` \`port\` |
 | \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` \`credentials\` \`headers\` |

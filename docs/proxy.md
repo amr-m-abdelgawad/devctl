@@ -105,6 +105,19 @@ Some IAP-protected upstreams want the minted token under an additional header, n
 
 Applied only on `iap` / `service_account` routes (there is no token on a `none` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
 
+### Response headers and CORS
+
+`route.response_headers` adds headers to every response on the route, overriding whatever the upstream sent — most often CORS headers for a browser that loads a micro-frontend, Module Federation remote, or iframe from another origin and then calls back through the proxy:
+
+```yaml
+      response_headers:
+        Access-Control-Allow-Origin: "*"
+        Access-Control-Allow-Methods: "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers: "Authorization, Content-Type, X-Devctl-Request-ID"
+```
+
+A CORS **preflight** (an `OPTIONS` carrying `Access-Control-Request-Method`) is answered directly with these headers and a `204` — it is **not** forwarded, since the upstream may not handle `OPTIONS` and IAP would reject an unauthenticated preflight. Any other `OPTIONS` is proxied normally, and the headers are still applied. This makes the proxy the single entry point for both CORS and auth, instead of a separate CORS sidecar that can't inject IAP tokens.
+
 ### Per-service routes
 
 Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`). Duplicate names fail validation. Runtime stays one listener.

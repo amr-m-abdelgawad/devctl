@@ -61,7 +61,7 @@ const NONE_AUTH: RouteAuthConfig = { type: "none", identity: { type: "user", ser
 
 async function setupProxy(
   handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
-  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus } = {},
+  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus; responseHeaders?: Record<string, string> } = {},
 ) {
   const upstream = createServer(handler);
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
@@ -79,6 +79,7 @@ async function setupProxy(
     match: { host: "", path: "" },
     upstream: { url: `http://127.0.0.1:${upPort}` },
     auth: opts.auth ?? NONE_AUTH,
+    response_headers: opts.responseHeaders,
   });
   const server = new ProxyServer(cfg, opts.tokens, opts.logs, opts.bus);
   await server.start();
@@ -170,6 +171,64 @@ describe("proxy", () => {
     expect(headers.authorization).toBe("Bearer ID-TOKEN");
     expect(headers["identity-token"]).toBe("ID-TOKEN");
     expect(headers["x-static"]).toBe("literal");
+  });
+
+  test("injects configured response_headers, overriding the upstream's", async () => {
+    const { proxyPort, close } = await setupProxy(
+      (_req, res) => {
+        res.setHeader("access-control-allow-origin", "http://upstream-value");
+        res.end("ok");
+      },
+      { responseHeaders: { "Access-Control-Allow-Origin": "*" } },
+    );
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/`);
+      expect(await resp.text()).toBe("ok");
+      expect(resp.headers.get("access-control-allow-origin")).toBe("*");
+    } finally {
+      await close();
+    }
+  });
+
+  test("answers a CORS preflight directly with response_headers, not forwarding", async () => {
+    let upstreamHit = false;
+    const { proxyPort, close } = await setupProxy(
+      (_req, res) => {
+        upstreamHit = true;
+        res.end("ok");
+      },
+      { responseHeaders: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" } },
+    );
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/`, { method: "OPTIONS", headers: { "Access-Control-Request-Method": "POST", Origin: "http://app" } });
+      expect(resp.status).toBe(204);
+      expect(resp.headers.get("access-control-allow-origin")).toBe("*");
+      expect(resp.headers.get("access-control-allow-methods")).toBe("GET, POST, OPTIONS");
+      await resp.arrayBuffer();
+      expect(upstreamHit).toBe(false);
+    } finally {
+      await close();
+    }
+  });
+
+  test("forwards a non-preflight OPTIONS to the upstream (still injecting headers)", async () => {
+    let upstreamHit = false;
+    const { proxyPort, close } = await setupProxy(
+      (_req, res) => {
+        upstreamHit = true;
+        res.statusCode = 200;
+        res.end("from-upstream");
+      },
+      { responseHeaders: { "Access-Control-Allow-Origin": "*" } },
+    );
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/`, { method: "OPTIONS" });
+      expect(await resp.text()).toBe("from-upstream");
+      expect(upstreamHit).toBe(true);
+      expect(resp.headers.get("access-control-allow-origin")).toBe("*");
+    } finally {
+      await close();
+    }
   });
 
   test("proxies WebSocket upgrades, round-trips bytes, and closes live sockets on stop", async () => {

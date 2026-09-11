@@ -361,6 +361,10 @@ function validateGrpcRoute(route: RouteConfig, prefix: string, seenPorts: Set<nu
   if (route.match.host !== "" || route.match.path !== "") {
     issues.push(`${prefix}.match is not supported on a grpc route`);
   }
+  // response_headers is applied by the HTTP proxy path only.
+  if (route.response_headers && Object.keys(route.response_headers).length > 0) {
+    issues.push(`${prefix}.response_headers is not supported on a grpc route`);
+  }
   return issues;
 }
 

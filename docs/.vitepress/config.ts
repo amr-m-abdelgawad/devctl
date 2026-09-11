@@ -4,7 +4,7 @@ const repo = 'https://github.com/amr-m-abdelgawad/devctl'
 const blob = `${repo}/blob/main`
 
 // https://vitepress.dev/reference/site-config
-export default withMermaid({
+const siteConfig = withMermaid({
   title: 'devctl',
   description:
     'One terminal for your local stack. Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.',
@@ -24,7 +24,7 @@ export default withMermaid({
 
   head: [
     ['link', { rel: 'icon', href: '/devctl/favicon.svg', type: 'image/svg+xml' }],
-    ['meta', { name: 'theme-color', content: '#0d9488' }],
+    ['meta', { name: 'theme-color', content: '#087568' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'devctl — One terminal for your local stack' }],
     [
@@ -52,8 +52,8 @@ export default withMermaid({
     siteTitle: 'devctl',
 
     nav: [
-      { text: 'Overview', link: '/overview' },
       { text: 'Quick start', link: '/quickstart' },
+      { text: 'Docs', link: '/overview' },
       {
         text: 'Guides',
         items: [
@@ -62,10 +62,11 @@ export default withMermaid({
           { text: 'MCP', link: '/mcp' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Services', link: '/services' },
-          { text: 'Proxy', link: '/proxy' }
+          { text: 'Proxy', link: '/proxy' },
+          { text: 'Architecture', link: '/architecture' }
         ]
       },
-      { text: 'Architecture', link: '/architecture' },
+      { text: 'GitHub', link: repo },
       {
         text: 'v0.5.0',
         items: [
@@ -198,3 +199,13 @@ export default withMermaid({
     }
   }
 })
+
+// Keep the plugin's Markdown and virtual-config support, but let the theme
+// register Mermaid lazily so diagram engines do not load on the landing page.
+for (const plugin of siteConfig.vite?.plugins ?? []) {
+  if (plugin && typeof plugin === 'object' && 'name' in plugin && plugin.name === 'vite-plugin-mermaid') {
+    delete plugin.transform
+  }
+}
+
+export default siteConfig

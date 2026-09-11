@@ -167,6 +167,10 @@ describe("config validate", () => {
     tokenClash.proxy.routes.push(grpc("t", 7233, "https://t:443"));
     expect(tokenClash.proxy.routes.length).toBe(1);
     expect(validate(tokenClash)).toContain("proxy.routes[0].listen.port must differ from proxy.token_endpoint.port");
+
+    const respHeaders = withService("api");
+    respHeaders.proxy.routes.push({ ...grpc("t", 7233, "https://t:443"), response_headers: { "Access-Control-Allow-Origin": "*" } });
+    expect(validate(respHeaders)).toContain("proxy.routes[0].response_headers is not supported on a grpc route");
   });
 
   test("rejects a mixed client_secret that is not a whole ${…} reference", () => {

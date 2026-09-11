@@ -411,6 +411,11 @@
               ]
             }
           }
+        },
+        "response_headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Headers added to every response on this route (overriding the upstream's), e.g. CORS Access-Control-Allow-*. A CORS preflight (OPTIONS with Access-Control-Request-Method) is answered directly with these headers instead of being forwarded to the upstream."
         }
       }
     },

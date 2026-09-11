@@ -896,15 +896,16 @@ onUnmounted(() => {
 })
 
 const copyLabel = ref('Copy command')
-const activeProfile = ref('backend')
+const activeProfile = ref('minimal')
 const profileExamples = {
-  backend: { label: 'Build an API', description: 'Focus on the backend. Bring up identity, the API, and its worker as a single group.', services: ['identity', 'invoices-api', 'invoices-worker'] },
-  full: { label: 'Work end to end', description: 'Bring the console into the picture when your work crosses the frontend and backend.', services: ['identity', 'invoices-api', 'invoices-worker', 'billing-console'] },
+  minimal: { label: 'Keep it focused', description: 'The profile shown in the screenshots: identity, the invoices API, and telemetry.', services: ['identity', 'invoices-api', 'telemetry'] },
+  backend: { label: 'Build an API', description: 'Focus on the backend. Bring up identity, the API, its worker, and telemetry as a single group.', services: ['identity', 'invoices-api', 'invoices-worker', 'telemetry'] },
+  full: { label: 'Work end to end', description: 'Bring the console into the picture when your work crosses the frontend and backend.', services: ['identity', 'invoices-api', 'invoices-worker', 'billing-console', 'telemetry'] },
   data: { label: 'Start with data', description: 'Run the demo’s optional PostgreSQL container when you need a local database.', services: ['postgres'] }
 }
 async function copyInstall() {
   try {
-    await navigator.clipboard.writeText('npx @amr-m-abdelgawad/devctl@latest')
+    await navigator.clipboard.writeText('npm install --global @amr-m-abdelgawad/devctl')
     copyLabel.value = 'Copied!'
   } catch {
     copyLabel.value = 'Select the command to copy'
@@ -915,7 +916,7 @@ async function copyInstall() {
 <div ref="landingRoot" class="landing vp-raw">
   <section class="landing-hero" aria-labelledby="hero-title">
     <div class="hero-copy">
-      <p class="eyebrow"><span class="status-dot"></span> YOUR LOCAL DEVELOPMENT, IN SYNC</p>
+      <p class="eyebrow"><span class="status-dot"></span> THE LOCAL DEVELOPMENT ORCHESTRATOR</p>
       <h1 id="hero-title">More building.<br>Less <span>tab juggling.</span></h1>
       <p class="hero-description">Your services, logs, and local stack. Together in one terminal. Keep everything in view with devctl — from the first process to the last request.</p>
       <div class="hero-actions">
@@ -927,7 +928,6 @@ async function copyInstall() {
     <div class="hero-preview" @pointermove="followPointer" @pointerleave="resetPreview" @pointercancel="resetPreview">
       <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true">↙</span></div>
       <TerminalHero />
-      <div class="preview-footer"><span class="status-dot"></span> An illustrative devctl session <span class="preview-shortcut">⌘ / ctrl + p <span>command palette</span></span></div>
     </div>
   </section>
 
@@ -962,8 +962,9 @@ async function copyInstall() {
   <section class="setup-section landing-section" aria-labelledby="setup-title">
     <div class="setup-copy"><p class="eyebrow">03 / FROM REPO TO RUNNING</p><h2 id="setup-title">Small setup.<br>Clear head.</h2><p>Start with Node.js. The npm package includes its own Bun runtime. Google Cloud is optional.</p><a class="text-link" :href="withBase('/installation')">Installation guide <span aria-hidden="true">↗</span></a></div>
     <div class="setup-panel">
-      <div class="install-heading"><span>TRY IT IN YOUR TERMINAL</span><button type="button" @click="copyInstall" aria-live="polite">{{ copyLabel }}</button></div>
-      <div class="install-command"><span aria-hidden="true">$</span><code>npx @amr-m-abdelgawad/devctl@latest</code></div>
+      <div class="install-heading"><span>INSTALL ONCE. USE IN ANY REPO.</span><button type="button" @click="copyInstall" aria-live="polite">{{ copyLabel }}</button></div>
+      <div class="install-command"><span aria-hidden="true">$</span><code>npm install --global @amr-m-abdelgawad/devctl</code></div>
+      <p class="install-context">Then, from the repo you want to run:</p>
       <ol class="setup-steps"><li><span>01</span><div><code>devctl setup</code><p>Describe your services in a single config.</p></div></li><li><span>02</span><div><code>devctl doctor</code><p>See what’s missing before you start.</p></div></li><li><span>03</span><div><code>devctl</code><p>Open your dashboard. Press enter to start a profile.</p></div></li></ol>
     </div>
   </section>
@@ -1700,6 +1701,19 @@ Some IAP-protected upstreams want the minted token under an additional header, n
 \`\`\`
 
 Applied only on \`iap\` / \`service_account\` routes (there is no token on a \`none\` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
+
+### Response headers and CORS
+
+\`route.response_headers\` adds headers to every response on the route, overriding whatever the upstream sent — most often CORS headers for a browser that loads a micro-frontend, Module Federation remote, or iframe from another origin and then calls back through the proxy:
+
+\`\`\`yaml
+      response_headers:
+        Access-Control-Allow-Origin: "*"
+        Access-Control-Allow-Methods: "GET, POST, PUT, DELETE, OPTIONS"
+        Access-Control-Allow-Headers: "Authorization, Content-Type, X-Devctl-Request-ID"
+\`\`\`
+
+A CORS **preflight** (an \`OPTIONS\` carrying \`Access-Control-Request-Method\`) is answered directly with these headers and a \`204\` — it is **not** forwarded, since the upstream may not handle \`OPTIONS\` and IAP would reject an unauthenticated preflight. Any other \`OPTIONS\` is proxied normally, and the headers are still applied. This makes the proxy the single entry point for both CORS and auth, instead of a separate CORS sidecar that can't inject IAP tokens.
 
 ### Per-service routes
 

@@ -225,6 +225,11 @@ export type RouteConfig = {
   match: MatchConfig;
   upstream: UpstreamConfig;
   auth: RouteAuthConfig;
+  // Headers added to every response on this route (overriding the upstream's),
+  // e.g. CORS `Access-Control-Allow-*`. A CORS preflight (OPTIONS carrying
+  // Access-Control-Request-Method) is answered directly with these headers, not
+  // forwarded — so the proxy is the single entry point for both CORS and auth.
+  response_headers?: Record<string, string>;
   // Only for a grpc route: the dedicated loopback address the client dials.
   listen?: ListenConfig;
 };

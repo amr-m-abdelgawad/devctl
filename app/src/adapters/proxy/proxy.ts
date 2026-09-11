@@ -152,6 +152,14 @@ export class ProxyServer {
     this.requests.record(record);
   }
 
+  // Configured response headers (e.g. CORS Access-Control-Allow-*), applied to
+  // every response on the route and overriding whatever the upstream sent.
+  private applyResponseHeaders(res: ServerResponse, route: RouteConfig): void {
+    for (const [key, value] of Object.entries(route.response_headers ?? {})) {
+      res.setHeader(key, value);
+    }
+  }
+
   start(): Promise<void> {
     const host = this.cfg.listen.host || "127.0.0.1";
     if (!isLoopbackBindHost(host)) {
@@ -330,6 +338,19 @@ export class ProxyServer {
       });
       return;
     }
+    // Answer a CORS preflight directly with the route's response headers: the
+    // upstream may not handle OPTIONS, and IAP would reject an unauthenticated
+    // preflight. Only a genuine preflight (Access-Control-Request-Method) on a
+    // route that configures response_headers short-circuits; any other OPTIONS
+    // is forwarded normally.
+    if (method === "OPTIONS" && req.headers["access-control-request-method"] !== undefined && Object.keys(route.response_headers ?? {}).length > 0) {
+      this.applyResponseHeaders(res, route);
+      res.statusCode = 204;
+      res.setHeader("content-length", "0");
+      res.end();
+      this.recordRequest({ timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath, route: route.name, identity: "", status: 204, durationMs: Date.now() - started });
+      return;
+    }
     const ident = fromRoute(route.auth);
     const identityKey = tokenIdentityKey(ident);
     let status = 0;
@@ -404,6 +425,8 @@ export class ProxyServer {
         }
         res.setHeader(key, this.detector ? this.detector.redactText(value) : value);
       });
+      // Configured response headers win over whatever the upstream sent.
+      this.applyResponseHeaders(res, route);
       await pipeResponse(resp, res);
       const duration = Date.now() - started;
       this.logs?.append({
@@ -431,6 +454,8 @@ export class ProxyServer {
         request_id: requestID,
         identity: identityKey,
       });
+      // Apply CORS/response headers to the error too, so the browser can read it.
+      this.applyResponseHeaders(res, route);
       writePlain(res, 502, "proxy error");
     } finally {
       this.recordRequest({

@@ -133,9 +133,20 @@
 .VPHome .landing .workflow-command > span { color: var(--vp-c-brand-1); }
 .VPHome .landing .workflow-command code { padding: 0; background: none; color: var(--vp-c-text-1); }
 .VPHome .landing .workflow-description { min-height: 52px; font-size: 14px; line-height: 1.8; color: var(--vp-c-text-2); margin: 0; }
-.VPHome .landing .workflow-services { display: flex; flex-wrap: wrap; align-content: start; gap: 8px; min-height: 82px; margin: 22px 0 10px; }
-.VPHome .landing .workflow-services > span { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--vp-c-divider); border-radius: 4px; background: var(--vp-c-bg); font: 10px/1.7 var(--vp-font-family-mono); }
-.VPHome .landing .workflow-services i { width: 4px; height: 4px; border-radius: 50%; background: var(--vp-c-brand-1); }
+/* A faithful HTML replica of the real devctl profiles screen (see
+   docs/public/screenshots/profiles.png): a bordered profile card with a
+   name legend on the top border, a "current profile · N services" head, and
+   the services as ✓ rows. Fixed terminal palette so it reads as a terminal in
+   both site themes, like the screenshots. */
+.VPHome .landing .workflow-tui { min-height: 132px; margin: 22px 0 10px; }
+.VPHome .landing .wt-box { position: relative; padding: 16px 16px 14px; border: 1px solid #4f7d68; border-radius: 6px; background: #15201d; font: 12px/1.7 var(--vp-font-family-mono); }
+.VPHome .landing .wt-title { position: absolute; top: -0.72em; left: 14px; padding: 0 7px; background: #15201d; color: #8fdcb6; }
+.VPHome .landing .wt-head { color: #9fb3aa; }
+.VPHome .landing .wt-dot { color: #8fdcb6; }
+.VPHome .landing .wt-services { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 8px; color: #d8e6df; }
+.VPHome .landing .wt-services > span { display: inline-flex; align-items: baseline; gap: 7px; }
+.VPHome .landing .wt-check { color: #6bd39a; }
+.VPHome .landing .wt-hint { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vp-c-divider); color: var(--vp-c-text-2); font: 10px/1.6 var(--vp-font-family-mono); letter-spacing: .02em; }
 .VPHome .landing .workflow-note { font-size: 11px; color: var(--vp-c-text-2); margin: 0; }
 .VPHome .landing .demo-band { display: flex; align-items: center; justify-content: space-between; gap: 40px; padding: 42px; border-block: 1px solid var(--vp-c-divider); background: var(--landing-paper); }
 .VPHome .landing .demo-band h2 { font-size: clamp(28px, 3vw, 36px); }
@@ -163,7 +174,7 @@
   .VPHome .landing .workflow-options { padding: 14px; }
   .VPHome .landing .workflow-example, .VPHome .landing .demo-band { padding: 24px; }
   .VPHome .landing .workflow-command { font-size: 12px; }
-  .VPHome .landing .workflow-description, .VPHome .landing .workflow-services { min-height: 0; }
+  .VPHome .landing .workflow-description, .VPHome .landing .workflow-tui { min-height: 0; }
   .VPHome .landing .faq-list summary { font-size: 15px; }
 }
 
@@ -198,3 +209,13 @@
 @media print {
   .VPHome .landing [data-reveal="pending"] { opacity: 1; transform: none; }
 }
+
+/* VitePress uses gutter for the shell borders; match the landing dividers. */
+.dark .Layout:has(.VPHome) {
+  --vp-c-gutter: var(--vp-c-divider);
+}
+
+.VPHome .landing .install-context { margin: 0 0 18px; font-size: 12px; color: var(--vp-c-text-2); }
+.VPHome .landing .hero-preview .preview-footer { line-height: 1.7; }
+.VPHome .landing .install-heading button { min-height: 36px; }
+.VPHome .landing .workflow-options button { min-height: 44px; }

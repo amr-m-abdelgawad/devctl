@@ -340,6 +340,7 @@ export function decodeRoute(value: unknown): RouteConfig {
     match: { host: asString(match.host), path: asString(match.path) },
     upstream: { url: asString(upstream.url), service: asString(upstream.service), port: asString(upstream.port) },
     auth: decodeRouteAuth(value.auth),
+    response_headers: asStringMap(value.response_headers),
     listen: isRecord(value.listen) ? { host: asString(value.listen.host), port: asNumber(value.listen.port) } : undefined,
   };
 }
