@@ -148,6 +148,7 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
     }
     writeOut(`\nPROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}\n`);
     writeOut(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}\n`);
+    writeOut(`WEB         ${snap.web?.running ? "RUNNING" : "STOPPED"}     ${snap.web?.address ?? ""}\n`);
     writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
     writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
   } finally {
