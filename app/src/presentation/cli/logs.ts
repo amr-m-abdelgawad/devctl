@@ -1,11 +1,28 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import type { LogEvent, LogPage } from "../../domain/logs/logs.ts";
+import { formatBodySummary, type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
 function formatLogLineForCli(ev: LogEvent): string {
-  return `${ev.timestamp.slice(11, 19)} ${ev.service.padEnd(10)} ${String(ev.level).padEnd(6)} ${ev.message}\n`;
+  return `${ev.timestamp.slice(11, 19)} ${ev.service.padEnd(10)} ${ev.severityText.padEnd(6)} ${formatBodySummary(ev)}\n`;
+}
+
+function writeJsonLogs(events: readonly LogEvent[]): void {
+  for (const ev of events) {
+    writeOut(`${JSON.stringify(ev)}\n`);
+  }
+}
+
+function parseAttribute(raw?: string): { key: string; value: string } | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const eq = raw.indexOf("=");
+  if (eq <= 0) {
+    return undefined;
+  }
+  return { key: raw.slice(0, eq), value: raw.slice(eq + 1) };
 }
 
 // Prints the latest page once, then keeps polling forward from where it
@@ -46,13 +63,43 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
     .option("--source <source>", "filter by source")
     .option("--since <timestamp>", "only events at or after this ISO timestamp")
     .option("--until <timestamp>", "only events at or before this ISO timestamp")
+    .option("--trace <id>", "print a trace's spans and correlated logs")
+    .option("--request-id <id>", "filter by request id")
+    .option("--attribute <key=value>", "filter by a single attribute")
     .option("--output <path>", "export path")
-    .option("--json", "machine-readable output")
+    .option("--json", "JSONL LogRecord output")
     .option("-f, --follow", "keep printing new matching events until interrupted")
     .option("--all", "print the full matching history instead of the latest page")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean }) => {
+    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean; trace?: string; requestId?: string; attribute?: string }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
+        if (opts.trace) {
+          const result = await ctrl.getTrace(opts.trace);
+          if (opts.json) {
+            writeOut(`${JSON.stringify(result)}\n`);
+            return;
+          }
+          for (const span of result.tree.spans) {
+            writeOut(`${span.name} ${span.kind} ${span.status.code} ${span.spanId}\n`);
+          }
+          for (const ev of result.events) {
+            writeOut(formatLogLineForCli(ev));
+          }
+          return;
+        }
+        const attribute = parseAttribute(opts.attribute);
+        const filter = {
+          services,
+          level: opts.level,
+          search: opts.search,
+          regex: opts.regex,
+          source: opts.source,
+          since: opts.since,
+          until: opts.until,
+          requestId: opts.requestId,
+          traceId: opts.trace,
+          attribute,
+        };
         // Resolved against this process's own cwd before it crosses the RPC
         // boundary: the daemon may be a long-running background process with
         // an unrelated cwd, so a relative path must not be resolved there.
@@ -66,13 +113,7 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
             await followLogs(
               (cursor) =>
                 ctrl.logsPage({
-                  services,
-                  level: opts.level,
-                  search: opts.search,
-                  regex: opts.regex,
-                  source: opts.source,
-                  since: opts.since,
-                  until: opts.until,
+                  ...filter,
                   cursor,
                   direction: "forward",
                 }),
@@ -87,13 +128,7 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
         }
         if (exportPath || opts.all === true) {
           const events = await ctrl.logs({
-            services,
-            level: opts.level,
-            search: opts.search,
-            regex: opts.regex,
-            source: opts.source,
-            since: opts.since,
-            until: opts.until,
+            ...filter,
             export: exportPath,
           });
           if (exportPath) {
@@ -101,7 +136,7 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
             return;
           }
           if (opts.json) {
-            writeOut(JSON.stringify(events, null, 2) + "\n");
+            writeJsonLogs(events);
             return;
           }
           for (const ev of events) {
@@ -110,17 +145,11 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
           return;
         }
         const page = await ctrl.logsPage({
-          services,
-          level: opts.level,
-          search: opts.search,
-          regex: opts.regex,
-          source: opts.source,
-          since: opts.since,
-          until: opts.until,
+          ...filter,
           direction: "backward",
         });
         if (opts.json) {
-          writeOut(JSON.stringify(page.events, null, 2) + "\n");
+          writeJsonLogs(page.events);
           return;
         }
         for (const ev of page.events) {

@@ -36,6 +36,7 @@ import {
   type ServiceLogConfig,
   type StartupConfig,
   type TaskConfig,
+  type TelemetryConfig,
 } from "../../domain/config/types.ts";
 
 // Field names ever explicitly set, per service or template name, by any
@@ -206,6 +207,27 @@ export function applyRoot(
     }
     if (isRecord(raw.environment.secrets)) {
       cfg.environment.secrets = { ...cfg.environment.secrets, ...asStringMap(raw.environment.secrets) };
+    }
+  }
+  if (isRecord(raw.telemetry)) {
+    applyTelemetry(cfg.telemetry, raw.telemetry);
+  }
+}
+
+export function applyTelemetry(telemetry: TelemetryConfig, raw: Record<string, unknown>): void {
+  if (!isRecord(raw.otlp)) {
+    return;
+  }
+  const otlp = raw.otlp;
+  if (otlp.enabled !== undefined) {
+    telemetry.otlp.enabled = asBoolean(otlp.enabled);
+  }
+  if (isRecord(otlp.listen)) {
+    if (otlp.listen.host !== undefined) {
+      telemetry.otlp.listen.host = asString(otlp.listen.host);
+    }
+    if (otlp.listen.port !== undefined) {
+      telemetry.otlp.listen.port = asNumber(otlp.listen.port);
     }
   }
 }

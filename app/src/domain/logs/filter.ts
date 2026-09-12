@@ -1,13 +1,16 @@
-import { LEVEL_ORDER, type LogEvent, type LogFilter } from "./types.ts";
+import { stringifyAnyValue } from "./any-value.ts";
+import { recordSearchText, requestIdOf } from "./display.ts";
 import { compileLogSearch } from "./regex.ts";
+import { meetsMinLevel } from "./severity.ts";
+import type { LogFilter, LogRecord } from "./types.ts";
 
-export type LogMatcher = (ev: LogEvent) => boolean;
+export type LogMatcher = (ev: LogRecord) => boolean;
 
-export function matchesLogDimensions(filter: LogFilter, ev: LogEvent): boolean {
+export function matchesLogDimensions(filter: LogFilter, ev: LogRecord): boolean {
   if (filter.services && filter.services.length > 0 && !filter.services.includes(ev.service)) {
     return false;
   }
-  if (filter.level && (LEVEL_ORDER[ev.level] ?? 2) < (LEVEL_ORDER[filter.level] ?? 2)) {
+  if (filter.level && !meetsMinLevel(ev.severityNumber, filter.level)) {
     return false;
   }
   if (filter.source && ev.source !== filter.source) {
@@ -19,6 +22,18 @@ export function matchesLogDimensions(filter: LogFilter, ev: LogEvent): boolean {
   if (filter.until && ev.timestamp > filter.until) {
     return false;
   }
+  if (filter.traceId && ev.traceId !== filter.traceId) {
+    return false;
+  }
+  if (filter.requestId && requestIdOf(ev) !== filter.requestId && ev.traceId !== filter.requestId) {
+    return false;
+  }
+  if (filter.attribute) {
+    const actual = ev.attributes[filter.attribute.key];
+    if (stringifyAnyValue(actual ?? null) !== filter.attribute.value) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -29,11 +44,11 @@ export function createSearchMatcher(filter: LogFilter): LogMatcher {
   if (filter.regex) {
     const re = compileLogSearch(filter.search);
     if (re) {
-      return (ev) => re.test(ev.message) || (ev.raw !== undefined && re.test(ev.raw));
+      return (ev) => re.test(recordSearchText(ev));
     }
   }
   const needle = filter.search.toLowerCase();
-  return (ev) => ev.message.toLowerCase().includes(needle) || (ev.raw !== undefined && ev.raw.toLowerCase().includes(needle));
+  return (ev) => recordSearchText(ev).toLowerCase().includes(needle);
 }
 
 export function createLogMatcher(filter: LogFilter): LogMatcher {
@@ -41,6 +56,6 @@ export function createLogMatcher(filter: LogFilter): LogMatcher {
   return (ev) => matchesLogDimensions(filter, ev) && search(ev);
 }
 
-export function matchLog(filter: LogFilter, ev: LogEvent): boolean {
+export function matchLog(filter: LogFilter, ev: LogRecord): boolean {
   return createLogMatcher(filter)(ev);
 }

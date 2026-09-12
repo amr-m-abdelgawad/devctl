@@ -1,4 +1,4 @@
-import { compileLogSearch, LevelUnknown, type LogEvent, type LogFacets } from "../../../domain/logs/logs.ts";
+import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
 import { clipText } from "./format.ts";
 import { SERVICE_NAME_MAX } from "./services.ts";
 
@@ -6,13 +6,11 @@ export const LOG_META_COL = 8;
 
 export const LOG_TIME_COL = 9;
 
-export const LOG_LEVEL_COL = 7;
+export const LOG_LEVEL_COL = 8;
 
 export const LOG_SERVICE_MIN = 10;
 
 export const LOG_MSG_MIN = 16;
-
-export const LOG_ROW_GUTTER = 2;
 
 export const LOG_COL_GAP = 1;
 
@@ -29,7 +27,7 @@ export const LOG_FOLD_MARK = "▸";
 // something being wrong. A dash matches how the rest of the UI already shows
 // "no value" (pid —, port —, identity —).
 export function displayLogLevel(level: string): string {
-  return level === LevelUnknown ? "—" : level;
+  return displaySeverityText(level === "" ? LevelUnknown : level);
 }
 
 const LOG_GAPS = 2;
@@ -84,6 +82,10 @@ export function prettyPrintLogRaw(raw: string): string {
   }
 }
 
+export function prettyPrintLogRecord(record: LogRecord): string {
+  return prettyPrintStructured(record.body, record.attributes);
+}
+
 export function wrapLogMessage(message: string, width: number): string[] {
   const max = Math.max(1, width);
   const paragraphs = stripAnsi(message).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
@@ -125,11 +127,11 @@ export function nextLogWrapMode(mode: LogWrapMode): LogWrapMode {
 
 export type LogViewWindow = {
   readonly start: number;
-  readonly items: LogEvent[];
+  readonly items: LogRecord[];
   readonly newer: number;
 };
 
-export function logViewWindow(events: LogEvent[], pinned: boolean, pinStart: number, tail = LOG_LIST_TAIL): LogViewWindow {
+export function logViewWindow(events: LogRecord[], pinned: boolean, pinStart: number, tail = LOG_LIST_TAIL): LogViewWindow {
   if (events.length === 0) {
     return { start: 0, items: [], newer: 0 };
   }
@@ -292,23 +294,28 @@ export function logMessageSpans(message: string, search = "", regex = false): Lo
   return searchRe ? applySearchSpans(base, searchRe) : base;
 }
 
-export function logMessageWidth(opts: {
-  width: number;
+export function logChromeWidth(opts: {
   serviceWidth: number;
   showTimestamps: boolean;
   showMeta: boolean;
 }): number {
   const time = opts.showTimestamps ? LOG_TIME_COL : 0;
   const meta = opts.showMeta ? LOG_META_COL : 0;
-  return Math.max(
-    LOG_MSG_MIN,
-    opts.width - time - opts.serviceWidth - LOG_LEVEL_COL - meta - LOG_ROW_GUTTER - LOG_COL_GAP * LOG_GAPS,
-  );
+  return time + opts.serviceWidth + LOG_LEVEL_COL + meta + LOG_COL_GAP * LOG_GAPS;
+}
+
+export function logMessageWidth(opts: {
+  width: number;
+  serviceWidth: number;
+  showTimestamps: boolean;
+  showMeta: boolean;
+}): number {
+  return Math.max(LOG_MSG_MIN, opts.width - logChromeWidth(opts));
 }
 
 export function logServiceColumnWidth(paneWidth: number, names: string[]): number {
   const longest = names.reduce((max, name) => Math.max(max, name.length), 0);
-  const reserved = LOG_TIME_COL + LOG_LEVEL_COL + LOG_ROW_GUTTER + LOG_MSG_MIN + LOG_COL_GAP * LOG_GAPS;
+  const reserved = LOG_TIME_COL + LOG_LEVEL_COL + LOG_MSG_MIN + LOG_COL_GAP * LOG_GAPS;
   const available = Math.max(LOG_SERVICE_MIN, paneWidth - reserved);
   const wanted = Math.max(LOG_SERVICE_MIN, longest);
   return Math.min(SERVICE_NAME_MAX, available, wanted);
@@ -329,7 +336,7 @@ export function isSystemLogSource(source: string): boolean {
 // is no stale cross-session data to protect against here — only `since` (the log-view boundary set
 // by an explicit clear or filter command) should ever hide events. Starting or stopping services
 // must not clear the view; see the `clear` command / Clear button for that.
-export function appendVisibleLogs(current: LogEvent[], incoming: LogEvent[], since: string, cap: number): LogEvent[] {
+export function appendVisibleLogs(current: LogRecord[], incoming: LogRecord[], since: string, cap: number): LogRecord[] {
   const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
   if (accepted.length === 0) {
     return current;
@@ -347,7 +354,7 @@ export function appendVisibleLogs(current: LogEvent[], incoming: LogEvent[], sin
 // own tail sequence, so only already-held events strictly newer than that
 // (arrived live while the page request was in flight) are kept alongside
 // it — never both, which is what would show a duplicate.
-export function mergeLoadedPage(current: LogEvent[], page: LogEvent[]): LogEvent[] {
+export function mergeLoadedPage(current: LogRecord[], page: LogRecord[]): LogRecord[] {
   const tailSeq = page.length > 0 ? page[page.length - 1]!.seq : -1;
   const newer = current.filter((ev) => ev.seq > tailSeq);
   return [...page, ...newer];
@@ -355,7 +362,7 @@ export function mergeLoadedPage(current: LogEvent[], page: LogEvent[]): LogEvent
 
 // Prepends a page fetched by scrolling back past the currently loaded
 // window. De-duplicates by seq in case the two pages touch at the boundary.
-export function prependOlderPage(current: LogEvent[], older: LogEvent[]): LogEvent[] {
+export function prependOlderPage(current: LogRecord[], older: LogRecord[]): LogRecord[] {
   if (older.length === 0) {
     return current;
   }
@@ -372,29 +379,34 @@ export function needsOlderLogPage(pinned: boolean, windowStart: number, hasPrev:
   return pinned && windowStart <= 0 && hasPrev;
 }
 
-export function visibleLogErrorCount(events: readonly LogEvent[]): number {
-  return events.filter((event) => event.level === "ERROR" || event.level === "FATAL").length;
+export function visibleLogErrorCount(events: readonly LogRecord[]): number {
+  return events.filter((event) => isErrorSeverity(event.severityNumber)).length;
 }
 
-export function formatLogLine(ev: LogEvent): string {
-  return `${ev.timestamp} ${ev.service} ${ev.level} ${stripAnsi(ev.message)}`;
+export function formatLogLine(ev: LogRecord): string {
+  return `${ev.timestamp} ${ev.service} ${ev.severityText} ${stripAnsi(formatBodySummary(ev))}`;
 }
 
-export function formatLogDetails(ev: LogEvent): string {
+export function formatLogDetails(ev: LogRecord): string {
+  const attrLines = Object.entries(ev.attributes).map(([key, value]) => `  ${key}  ${typeof value === "string" ? value : JSON.stringify(value)}`);
   return [
-    stripAnsi(ev.message),
+    stripAnsi(formatBodySummary(ev)),
     `time      ${ev.timestamp}`,
     `service   ${ev.service}`,
     `source    ${ev.source}${ev.stream ? ` / ${ev.stream}` : ""}`,
-    `level     ${ev.level}`,
-    `pid       ${ev.pid || "—"}`,
-    `request   ${ev.request_id || "—"}`,
+    `level     ${ev.severityText} (${ev.severityNumber})`,
+    `pid       ${typeof ev.resource["process.pid"] === "number" && ev.resource["process.pid"] > 0 ? ev.resource["process.pid"] : "—"}`,
+    `trace     ${ev.traceId || "—"}`,
+    `span      ${ev.spanId || "—"}`,
+    `request   ${requestIdOf(ev) || "—"}`,
     `identity  ${ev.identity || "—"}`,
-  ].join("\n");
+    attrLines.length === 0 ? "" : "attributes",
+    ...attrLines,
+  ].filter((line) => line !== "").join("\n");
 }
 
 export function filterLogs(
-  events: LogEvent[],
+  events: LogRecord[],
   opts: {
     service?: string;
     services?: string[];
@@ -405,8 +417,9 @@ export function filterLogs(
     since?: string;
     until?: string;
     systemLogs?: boolean;
+    traceId?: string;
   },
-): LogEvent[] {
+): LogRecord[] {
   const services = opts.services?.filter((name) => name !== "") ?? [];
   const service = opts.service ?? "";
   const search = (opts.search ?? "").trim();
@@ -446,13 +459,16 @@ export function filterLogs(
     if (until !== "" && ev.timestamp > until) {
       return false;
     }
-    if (opts.errorOnly === true && ev.level !== "ERROR" && ev.level !== "FATAL") {
+    if (opts.traceId && ev.traceId !== opts.traceId) {
+      return false;
+    }
+    if (opts.errorOnly === true && !isErrorSeverity(ev.severityNumber)) {
       return false;
     }
     if (!matcher) {
       return true;
     }
-    return matcher(ev.message) || matcher(ev.service);
+    return matcher(recordSearchText(ev)) || matcher(ev.service);
   });
 }
 

@@ -839,6 +839,7 @@ services:
       expect(snap.proxy.recentRequests?.[0]?.route).toBe("stub");
       expect(snap.proxy.recentRequests?.[0]?.status).toBe(200);
       expect(snap.proxy.recentRequests?.[0]?.requestId).toBe(echoedId);
+      expect(snap.proxy.recentRequests?.[0]?.traceId).toBeTruthy();
     } finally {
       await sup.shutdown(false);
       await new Promise<void>((resolve) => upstream.close(() => resolve()));

@@ -9,7 +9,7 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import { type Plan } from "../../domain/service/services.ts";
 import { bootstrapLogPath, rotateBootstrapLog, socketPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
-import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../../domain/status.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 const DIAL_RETRY_MS = 50;
@@ -383,6 +383,14 @@ export class Controller {
   // re-fetching (and re-transferring) events it already has.
   async logsStats(req: LogFilter): Promise<LogFacets> {
     return (await this.call("logs_stats", req)) as LogFacets;
+  }
+
+  async getTrace(traceId: string): Promise<TraceResponse> {
+    return (await this.call("get_trace", { trace_id: traceId })) as TraceResponse;
+  }
+
+  async traceRequest(requestId: string): Promise<TraceResponse> {
+    return (await this.call("trace_request", { request_id: requestId })) as TraceResponse;
   }
 
   async proxyStart(): Promise<void> {

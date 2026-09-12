@@ -2,6 +2,7 @@ import { type Ref } from "react";
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { versionLine } from "../../../version.ts";
 import { useDensity } from "../density.tsx";
+import { padClip } from "../helpers/format.ts";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { isCompactScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";
@@ -56,8 +57,8 @@ export function logBindings(copyKey: string): readonly Binding[] {
     { key: "f", label: "search" },
     { key: "t", label: "timestamps" },
     { key: "m", label: "metadata" },
-    { key: "w", label: "clip / wrap selected / wrap all" },
-    { key: "j/k", label: "move and unfold" },
+    { key: "w", label: "wrap all / clip / wrap selected" },
+    { key: "j/k", label: "move selection" },
     { key: displayKeybind(copyKey), label: "copy selection" },
     { key: "/export", label: "write ~/.devctl/exports" },
     { key: "/exports", label: "open export folder" },
@@ -240,7 +241,7 @@ function HelpBind(props: { palette: Palette; binding: Binding; keyWidth: number 
     <box height={1} flexDirection="row" overflow="hidden">
       <box width={keyWidth} flexShrink={0} overflow="hidden">
         <text fg={palette.primary} wrapMode="none">
-          {binding.key}
+          {padClip(binding.key, keyWidth)}
         </text>
       </box>
       <box flexGrow={1} overflow="hidden">

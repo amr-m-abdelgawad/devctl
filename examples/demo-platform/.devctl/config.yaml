@@ -139,6 +139,17 @@ proxy:
           type: service_account
           service_account: invoices-worker-dev@company-dev.iam.gserviceaccount.com
 
+# Opt-in here (off in a normal repo) so the telemetry service can POST
+# OTLP/HTTP+JSON logs and traces. Host services get OTEL_EXPORTER_OTLP_ENDPOINT
+# injected automatically. Port is in the demo 18xxx band so it does not collide
+# with a collector someone already has on 4318. Loopback only.
+telemetry:
+  otlp:
+    enabled: true
+    listen:
+      host: 127.0.0.1
+      port: 18418
+
 logs:
   max_memory_events: 50000
   persistence:

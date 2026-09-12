@@ -181,6 +181,12 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "help") {
     return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: "esc", label: "close" }];
   }
+  if (overlay === "trace") {
+    return [COMMAND_FOOTER_HINT, { key: "j/k", label: "span" }, { key: "enter", label: "logs" }, { key: displayKeybind(copyKey), label: "copy" }, { key: "esc", label: "close" }];
+  }
+  if (overlay === "span-details") {
+    return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: "esc", label: "back" }, { key: displayKeybind(copyKey), label: "copy" }];
+  }
   if (overlay === "log-details" || overlay === "scroll-text") {
     return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: displayKeybind(copyKey), label: "copy" }, { key: "esc", label: "close" }];
   }

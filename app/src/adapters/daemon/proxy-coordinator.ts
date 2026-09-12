@@ -1,6 +1,7 @@
 import { type DevctlConfig, isGrpcRoute } from "../../domain/config/types.ts";
 import type { Bus } from "../../shared/events.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { SpanStore } from "../../ports/span-store.ts";
 import type { TokenManager } from "../google/token.ts";
 import { ProxyServer, TokenEndpoint, type ProxyMiddleware } from "../proxy/proxy.ts";
 import { GrpcProxyServer } from "../proxy/grpc-proxy.ts";
@@ -13,6 +14,7 @@ export type ProxyCoordinatorDeps = {
   ports: () => Map<string, Record<string, number>>;
   tokens: TokenManager;
   logs: LogStore;
+  spans: SpanStore;
   bus: Bus;
   detector: Detector;
   internalTok: () => string;
@@ -68,6 +70,7 @@ export class ProxyCoordinator {
       this.deps.detector,
       this.deps.middleware(),
       (service, port) => this.deps.ports().get(service)?.[port || "http"],
+      this.deps.spans,
     );
     await this.server.start();
     const cfg = this.deps.cfg();
@@ -84,7 +87,7 @@ export class ProxyCoordinator {
     // A dedicated loopback HTTP/2 listener per grpc route, sharing the same
     // token/log/bus/detector plumbing as the HTTP proxy.
     for (const route of cfg.proxy.routes.filter(isGrpcRoute)) {
-      const grpc = new GrpcProxyServer(route, this.deps.tokens, this.deps.logs, this.deps.bus, this.deps.detector);
+      const grpc = new GrpcProxyServer(route, this.deps.tokens, this.deps.logs, this.deps.bus, this.deps.detector, this.deps.spans);
       await grpc.start();
       this.grpc.push(grpc);
     }

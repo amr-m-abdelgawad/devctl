@@ -1,5 +1,5 @@
-import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest, LogParser } from "../../domain/logs/logs.ts";
-import type { LogEntry, LogSnapshot, LogStore } from "../../ports/log-store.ts";
+import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../../domain/logs/logs.ts";
+import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { LogReceived, newEvent, type Bus } from "../../shared/events.ts";
 import { Detector } from "../secrets/detector.ts";
 import { inProcessLogStore, LogManager } from "./logs.ts";
@@ -14,7 +14,7 @@ export const WORKER_CLOSE_TIMEOUT_MS = 2_000;
 const DEFAULT_WORKER_SCRIPT = new URL("./log-worker.ts", import.meta.url);
 
 type Pending = {
-  readonly resolve: (value: LogEvent[] | LogPage | LogFacets | null) => void;
+  readonly resolve: (value: LogRecord[] | LogPage | LogFacets | null) => void;
   readonly reject: (error: Error) => void;
   readonly timer: ReturnType<typeof setTimeout>;
 };
@@ -81,7 +81,7 @@ export class WorkerLogStore implements LogStore {
     });
   }
 
-  append(event: LogEntry): void {
+  append(event: LogIngest): void {
     if (this.dead) {
       return;
     }
@@ -92,7 +92,7 @@ export class WorkerLogStore implements LogStore {
     }
   }
 
-  async query(filter: LogFilter): Promise<LogEvent[]> {
+  async query(filter: LogFilter): Promise<LogRecord[]> {
     const result = await this.rpc({ type: "query", filter });
     if (!Array.isArray(result)) {
       throw new Error("log worker query returned a non-array");
@@ -151,7 +151,7 @@ export class WorkerLogStore implements LogStore {
     }
   }
 
-  private rpc(body: WorkerRpcBody, timeoutMs = WORKER_RPC_TIMEOUT_MS): Promise<LogEvent[] | LogPage | LogFacets | null> {
+  private rpc(body: WorkerRpcBody, timeoutMs = WORKER_RPC_TIMEOUT_MS): Promise<LogRecord[] | LogPage | LogFacets | null> {
     this.assertAlive();
     const id = this.nextId;
     this.nextId += 1;
@@ -183,7 +183,7 @@ export class WorkerLogStore implements LogStore {
     }
     if (message.type === "appended") {
       this.stats = message.stats;
-      this.bus?.publish(newEvent(LogReceived, message.event.service, { event: message.event, level: message.event.level }));
+      this.bus?.publish(newEvent(LogReceived, message.event.service, { event: message.event, level: message.event.severityText }));
       return;
     }
     const pending = this.pending.get(message.id);
@@ -239,14 +239,14 @@ export class WorkerLogStore implements LogStore {
   }
 }
 
-function isLogPage(value: LogEvent[] | LogPage | LogFacets | null): value is LogPage {
+function isLogPage(value: LogRecord[] | LogPage | LogFacets | null): value is LogPage {
   if (value === null || Array.isArray(value) || !("events" in value)) {
     return false;
   }
   return Array.isArray(value.events);
 }
 
-function isLogFacets(value: LogEvent[] | LogPage | LogFacets | null): value is LogFacets {
+function isLogFacets(value: LogRecord[] | LogPage | LogFacets | null): value is LogFacets {
   return value !== null && !Array.isArray(value) && "byService" in value;
 }
 

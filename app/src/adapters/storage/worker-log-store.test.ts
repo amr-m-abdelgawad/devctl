@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { Detector } from "../secrets/detector.ts";
 import { Bus, LogReceived } from "../../shared/events.ts";
-import { defaultLogParser } from "./logs.ts";
+import { defaultLogParser, logMessage } from "./logs.ts";
 import { createDaemonLogStore, WorkerLogStore } from "./worker-log-store.ts";
 
 function tmp(): string {
@@ -30,7 +30,7 @@ describe("WorkerLogStore", () => {
     const received: string[] = [];
     bus.subscribe((event) => {
       if (event.type === LogReceived) {
-        received.push(String((event.payload?.event as { message?: string } | undefined)?.message ?? ""));
+        received.push(logMessage(event.payload?.event as Parameters<typeof logMessage>[0]));
       }
     });
     const store = new WorkerLogStore(config(), bus);
@@ -47,8 +47,8 @@ describe("WorkerLogStore", () => {
       });
       const page = await store.queryPage({}, { limit: 10 });
       expect(page.events).toHaveLength(1);
-      expect(page.events[0]?.message).toBe("listening");
-      expect(page.events[0]?.level).toBe("INFO");
+      expect(logMessage(page.events[0]!)).toBe("listening");
+      expect(page.events[0]?.severityText).toBe("INFO");
       expect(store.snapshot().total).toBe(1);
       expect(received).toContain("listening");
     } finally {
@@ -92,7 +92,7 @@ describe("createDaemonLogStore", () => {
         pid: 1,
       });
       const page = await logs.queryPage({}, { limit: 10 });
-      expect(page.events[0]?.message).toBe("hello");
+      expect(logMessage(page.events[0]!)).toBe("hello");
     } finally {
       await logs.close();
     }
@@ -116,7 +116,7 @@ describe("createDaemonLogStore", () => {
         pid: 1,
       });
       const page = await logs.queryPage({}, { limit: 10 });
-      expect(page.events[0]?.message).toBe("fallback");
+      expect(logMessage(page.events[0]!)).toBe("fallback");
     } finally {
       await logs.close();
     }

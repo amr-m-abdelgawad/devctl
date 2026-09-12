@@ -53,11 +53,8 @@ function identityBadge(palette: Palette, identity: string): { label: string; col
   return { label: "—", color: palette.muted };
 }
 
-// Every column carries at least one character of slack over its realistic
-// max content — padClip only pads when content is shorter than the column,
-// so a value that exactly fills its width would glue onto the next column
-// with no gap (e.g. the 7-char method OPTIONS, or a route name sized to fit
-// exactly).
+// padClip keeps a trailing gutter in every cell. Column widths still need
+// room for realistic content plus that gutter (OPTIONS is 7, so METHOD is 8).
 const REQ_TIME_COL = 9;
 const REQ_METHOD_COL = 8;
 const REQ_STATUS_COL = 4;
@@ -74,17 +71,24 @@ type ReqColumns = {
   routeCol: number;
 };
 
-function RequestRow(props: { palette: Palette; req: ProxyRequestSnapshot; cols: ReqColumns }) {
-  const { palette, req, cols } = props;
+function RequestRow(props: { palette: Palette; req: ProxyRequestSnapshot; cols: ReqColumns; onOpenTrace?: (traceId: string) => void }) {
+  const { palette, req, cols, onOpenTrace } = props;
   const color = statusColor(palette, req.status, req.error);
   const statusLabel = req.status > 0 ? String(req.status) : "ERR";
   const badge = identityBadge(palette, req.identity);
   const routeLabel = req.route || NO_ROUTE_LABEL;
   const detail = req.error ? `${req.path} — ${clipText(req.error, REQ_ERROR_MAX)}` : req.path;
+  const traceId = req.traceId;
   return (
-    <box height={1} flexDirection="row" overflow="hidden" flexShrink={0}>
+    <box
+      height={1}
+      flexDirection="row"
+      overflow="hidden"
+      flexShrink={0}
+      onMouseDown={traceId && onOpenTrace ? () => onOpenTrace(traceId) : undefined}
+    >
       <box width={REQ_TIME_COL} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{req.timestamp.slice(11, 19)}</text>
+        <text fg={palette.muted}>{padClip(req.timestamp.slice(11, 19), REQ_TIME_COL)}</text>
       </box>
       {cols.showMethod ? (
         <box width={REQ_METHOD_COL} flexShrink={0} overflow="hidden">
@@ -206,8 +210,9 @@ export function ProxyScreen(props: {
   snap?: StatusSnapshot;
   width: number;
   onSelectRoute?: (route: RouteDetailInfo) => void;
+  onOpenTrace?: (traceId: string) => void;
 }) {
-  const { palette, cfg, snap, width, onSelectRoute } = props;
+  const { palette, cfg, snap, width, onSelectRoute, onOpenTrace } = props;
   const routes = snap?.proxy.routes ?? [];
   const routeCfgByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r]));
   const matchByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r.match]));
@@ -338,7 +343,7 @@ export function ProxyScreen(props: {
               <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
                 <box flexDirection="column" overflow="hidden">
                   {recentRequests.map((req) => (
-                    <RequestRow key={req.requestId} palette={palette} req={req} cols={cols} />
+                    <RequestRow key={req.requestId} palette={palette} req={req} cols={cols} onOpenTrace={onOpenTrace} />
                   ))}
                 </box>
               </scrollbox>

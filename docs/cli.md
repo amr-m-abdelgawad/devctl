@@ -14,7 +14,7 @@ devctl exec <service> --print-env [--reveal] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--attribute key=value] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl daemon logs [-f|--follow]
 devctl reload

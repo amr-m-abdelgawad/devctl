@@ -69,7 +69,7 @@ export function LogsScreen(props: {
     onService,
     onToggleErrors,
     onSelect,
-    wrapMode = "focus",
+    wrapMode = "all",
     selected = -1,
     follow = true,
     newer = 0,

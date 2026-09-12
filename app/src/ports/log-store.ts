@@ -1,22 +1,10 @@
-import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest, LogParser } from "../domain/logs/logs.ts";
-
-export type LogEntry = {
-  timestamp: string;
-  service: string;
-  source: string;
-  stream?: "stdout" | "stderr";
-  level: string;
-  message: string;
-  pid: number;
-  request_id?: string;
-  identity?: string;
-};
+import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../domain/logs/logs.ts";
 
 export type LogSnapshot = { total: number; errors: number; counts: Record<string, number> };
 
 export type LogStore = {
-  append(event: LogEntry): void;
-  query(filter: LogFilter): Promise<LogEvent[]>;
+  append(event: LogIngest): void;
+  query(filter: LogFilter): Promise<LogRecord[]>;
   queryPage(filter: LogFilter, page?: LogPageRequest): Promise<LogPage>;
   queryFacets(filter: LogFilter): Promise<LogFacets>;
   snapshot(): LogSnapshot;

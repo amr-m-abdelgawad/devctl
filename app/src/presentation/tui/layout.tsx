@@ -2,6 +2,7 @@ import { type ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode,useEffect,useRef } from "react";
 import { useDensity } from "./density.tsx";
 import { overlayRect } from "./helpers/chrome.ts";
+import { padClip } from "./helpers/format.ts";
 import { tabChipWidth,visibleTabRange } from "./helpers/navigation.ts";
 import { isCompactScale,isTightScale } from "./settings.ts";
 import { CHIP_DARK_INK,chipForeground,isLightPalette,type Palette } from "./themes.ts";
@@ -326,7 +327,7 @@ export function FieldRow(props: { palette: Palette; label: string; value: string
   return (
     <box height={scale.rowH} flexDirection="row" overflow="hidden">
       <box width={14} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{label}</text>
+        <text fg={palette.muted}>{padClip(label, 14)}</text>
       </box>
       <box flexGrow={1} overflow="hidden">
         <text fg={valueFg} wrapMode="none">

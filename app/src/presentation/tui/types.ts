@@ -28,7 +28,9 @@ export type Overlay =
   | "config-edit"
   | "route-details"
   | "scroll-text"
-  | "setup-wizard";
+  | "setup-wizard"
+  | "trace"
+  | "span-details";
 
 export type LifecycleKind = "start" | "stop" | "restart";
 

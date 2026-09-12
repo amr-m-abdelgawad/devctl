@@ -93,7 +93,7 @@ export function useLogView({
   const [logLevel] = useState("");
   const [logSource] = useState("");
   const [logRegex, setLogRegex] = useState(false);
-  const [logWrap, setLogWrap] = useState<LogWrapMode>("focus");
+  const [logWrap, setLogWrap] = useState<LogWrapMode>("all");
   const [logPinned, setLogPinned] = useState(false);
   const [logSelected, setLogSelected] = useState(LOG_LIST_TAIL - 1);
   const [logsFullscreen, setLogsFullscreen] = useState(false);
@@ -159,12 +159,23 @@ export function useLogView({
     [filteredLogsB, logPinnedB, logViewStartB],
   );
   const logSliceB = logWindowB.items;
+  const filteredLenRef = useRef(0);
+  filteredLenRef.current = filteredLogs.length;
+  const filteredLenBRef = useRef(0);
+  filteredLenBRef.current = filteredLogsB.length;
+  const pinnedRef = useRef(false);
+  pinnedRef.current = logPinned;
+  const pinnedBRef = useRef(false);
+  pinnedBRef.current = logPinnedB;
+
   useEffect(() => {
     setDashboardLogCursor(-1);
+    pinnedRef.current = false;
     setLogPinned(false);
     setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
   }, [errorOnly, logSearch, logService, showSystemLogs]);
   useEffect(() => {
+    pinnedBRef.current = false;
     setLogPinnedB(false);
     setLogSelectedB(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogsB.length) - 1));
   }, [errorOnly, logSearch, logServiceB, showSystemLogs]);
@@ -190,18 +201,22 @@ export function useLogView({
   }, [filteredLogsB.length, logPinnedB, screen]);
 
   const pinLogView = useCallback(() => {
-    if (!logPinned) {
-      setLogViewStart(logPinStart(filteredLogs.length));
-      setLogPinned(true);
+    if (pinnedRef.current) {
+      return;
     }
-  }, [filteredLogs.length, logPinned]);
+    pinnedRef.current = true;
+    setLogViewStart(logPinStart(filteredLenRef.current));
+    setLogPinned(true);
+  }, []);
 
   const pinLogViewB = useCallback(() => {
-    if (!logPinnedB) {
-      setLogViewStartB(logPinStart(filteredLogsB.length));
-      setLogPinnedB(true);
+    if (pinnedBRef.current) {
+      return;
     }
-  }, [filteredLogsB.length, logPinnedB]);
+    pinnedBRef.current = true;
+    setLogViewStartB(logPinStart(filteredLenBRef.current));
+    setLogPinnedB(true);
+  }, []);
 
   const paneCursorA = useMemo(
     () => ({
@@ -257,6 +272,8 @@ export function useLogView({
   );
 
   const jumpToLatestLogs = useCallback(() => {
+    pinnedRef.current = false;
+    pinnedBRef.current = false;
     setLogPinned(false);
     setLogPinnedB(false);
     setDashboardLogCursor(-1);
@@ -318,6 +335,8 @@ export function useLogView({
   // without touching the daemon's shared log buffer — other attached
   // clients (another TUI session, the CLI, MCP) keep their own history.
   const clearLogs = useCallback(() => {
+    pinnedRef.current = false;
+    pinnedBRef.current = false;
     setLogs([]);
     setLogSince(new Date().toISOString());
     setLogPinned(false);

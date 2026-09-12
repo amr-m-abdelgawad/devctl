@@ -83,7 +83,7 @@ export function ServiceRows(props: {
             <box width={2} flexShrink={0}>
               <text fg={stateColor(palette, state)}>{stateGlyph(state)}</text>
             </box>
-            <Col width={nameWidth} fg={focused ? palette.primary : serviceColor(name, palette)} text={padClip(name, nameWidth)} />
+            <Col width={nameWidth} fg={focused ? palette.primary : serviceColor(name, palette)} text={name} />
             <Col width={SERVICE_COL_GAP} fg={palette.muted} text="" />
             <Col width={SERVICE_STATE_COL} fg={stateColor(palette, state)} text={state} />
             {showHealth ? <Col width={SERVICE_HEALTH_COL} fg={stateColor(palette, health)} text={health} /> : null}
@@ -132,7 +132,7 @@ function Col(props: { width: number; fg: string; text: string }) {
   return (
     <box width={props.width} flexShrink={0} overflow="hidden">
       <text fg={props.fg} wrapMode="none">
-        {props.text}
+        {padClip(props.text, props.width)}
       </text>
     </box>
   );

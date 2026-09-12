@@ -71,7 +71,7 @@ export function Dashboard(props: {
     onFilterService,
     onToggleErrors,
     onShowErrors,
-    wrapMode = "clip",
+    wrapMode = "all",
     view,
     follow = true,
     onLeaveLatest,

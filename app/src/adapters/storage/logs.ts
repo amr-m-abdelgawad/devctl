@@ -6,20 +6,37 @@ import { type Detector } from "../secrets/detector.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import { ensureDir, exportsDir, logsDir, resolveUserPath } from "./storage.ts";
 
-import { LevelError, LevelFatal, type LogEvent, type LogParser, parseJSONLogLine, type LogFilter, parseLevel, parseRequestID, createLogMatcher, createSearchMatcher, matchesLogDimensions, type LogPageDirection, type LogPageRequest, type LogPage, type LogFacets, clampLogPageSize, truncateLogLine } from "../../domain/logs/logs.ts";
+import {
+  buildLogRecord,
+  clampLogPageSize,
+  createLogMatcher,
+  createSearchMatcher,
+  isErrorSeverity,
+  isPlainObject,
+  matchesLogDimensions,
+  parseJSONLogLine,
+  parseLogLine,
+  redactLogRecord,
+  truncateLogLine,
+  type LogFacets,
+  type LogFilter,
+  type LogIngest,
+  type LogPage,
+  type LogPageDirection,
+  type LogPageRequest,
+  type LogParser,
+  type LogRecord,
+  type ParsedLog,
+} from "../../domain/logs/logs.ts";
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
 const SESSION_PREFIX = "session-";
-
+const SESSION_FORMAT_FILE = "FORMAT";
+const SESSION_FORMAT_JSONL = "jsonl";
 
 type LogCursor = { session: string; seq: number };
 
-// Opaque to callers: they carry a cursor from one page's nextCursor/prevCursor
-// straight into the next request without inspecting it. Encoding it (rather
-// than exposing the raw session+seq pair) keeps that contract enforceable —
-// a client can't construct or mutate a cursor into pointing somewhere the
-// server didn't hand it.
 function encodeLogCursor(c: LogCursor): string {
   return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
 }
@@ -48,7 +65,7 @@ function withoutFilterDimension(filter: LogFilter, dimension: "services" | "leve
 }
 
 export class LogManager {
-  private events: LogEvent[] = [];
+  private events: LogRecord[] = [];
   private eventStart = 0;
   private nextSeq = 1;
   private readonly max: number;
@@ -80,6 +97,7 @@ export class LogManager {
     this.persistDir = this.persist ? join(root, `${SESSION_PREFIX}${sessionID}`) : "";
     if (this.persist) {
       mkdirSync(this.persistDir, { recursive: true, mode: 0o700 });
+      writeFileSync(join(this.persistDir, SESSION_FORMAT_FILE), `${SESSION_FORMAT_JSONL}\n`, { mode: 0o600 });
       pruneSessions(root, retentionDays, maxSessionLogs);
     }
   }
@@ -88,65 +106,44 @@ export class LogManager {
     return this.persistDir;
   }
 
-  // Plugin log parsers are loaded asynchronously after this manager is
-  // constructed (loadPluginPaths runs after the Supervisor wires up
-  // logging), so they're pushed in here rather than taken as a constructor
-  // argument.
   setParsers(parsers: LogParser[]): void {
     this.parsers = parsers;
   }
 
-  append(ev: Omit<LogEvent, "seq">): LogEvent {
-    const message = truncateLogLine(ev.message);
-    const parsed = this.parseLine(message);
-    const redact = (text: string) => (this.detector ? this.detector.redactText(text) : text);
-    const structured = parsed.raw !== undefined;
-    const rawText = redact(message);
-    const extracted = parsed.message !== undefined ? redact(truncateLogLine(parsed.message)) : undefined;
-    const next: LogEvent = {
-      ...ev,
-      timestamp: ev.timestamp || new Date().toISOString(),
-      level: ev.level || parsed.level || parseLevel(message),
-      request_id: ev.request_id || parsed.request_id || parseRequestID(message),
-      message: structured && extracted !== undefined ? extracted : rawText,
-      raw: structured ? rawText : undefined,
-      seq: this.nextSeq++,
-    };
+  append(ev: LogIngest): LogRecord {
+    const skipParse = ev.body !== undefined || ev.source === "otlp";
+    const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
+    const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
+    const built = buildLogRecord(ev, parsed, this.nextSeq);
+    this.nextSeq += 1;
+    const next = this.detector ? redactLogRecord(this.detector, built) : built;
     if (this.events.length < this.max) {
       this.events.push(next);
     } else {
       this.events[this.eventStart] = next;
       this.eventStart = (this.eventStart + 1) % this.max;
     }
-    this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.level }));
+    this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.severityText }));
     if (this.persist) {
-      const line = `${next.timestamp} ${next.service} ${next.level} ${next.raw ?? next.message}\n`;
+      const text = `${JSON.stringify(next)}\n`;
       const key = safeServiceFile(next.service);
       const stream = this.streamFor(key);
-      // fs.WriteStream.write() queues the write asynchronously instead of
-      // blocking the event loop the way appendFileSync() does; writes to a
-      // given stream are still delivered in order, so tracking only the
-      // most recent one is enough for flush() to know everything queued
-      // before it has landed.
       this.lastWrite.set(
         key,
         new Promise((resolve) => {
-          stream.write(line, () => resolve());
+          stream.write(text, () => resolve());
         }),
       );
     }
     return next;
   }
 
-  // Waits for all writes queued so far to land on disk. Persistence is
-  // asynchronous during normal operation; call this where code needs the
-  // on-disk file to be current (tests, and close()).
   async flush(): Promise<void> {
     await Promise.all([...this.lastWrite.values()]);
   }
 
-  private parseLine(line: string): Partial<LogEvent> {
-    let out: Partial<LogEvent> = {};
+  private parseLine(line: string): ParsedLog {
+    let out: ParsedLog = parseLogLine(line);
     for (const parser of this.parsers) {
       try {
         const result = parser.parse(line);
@@ -163,18 +160,15 @@ export class LogManager {
   private streamFor(key: string): WriteStream {
     let stream = this.streams.get(key);
     if (stream === undefined) {
-      stream = createWriteStream(join(this.persistDir, `${key}.log`), { flags: "a", mode: 0o600 });
-      // A write stream with no error listener crashes the process on error
-      // (e.g. disk full, file removed underneath us); we have no better
-      // channel to report it from inside the logger itself, so drop it.
-      stream.on("error", () => {});
+      stream = createWriteStream(join(this.persistDir, `${key}.jsonl`), { flags: "a", mode: 0o600 });
+      stream.on("error", () => {
+        // disk full / file removed; ingest must not crash the daemon
+      });
       this.streams.set(key, stream);
     }
     return stream;
   }
 
-  // Flushes pending writes and releases the per-service file handles kept
-  // open by append(). Call on supervisor shutdown.
   async close(): Promise<void> {
     await this.flush();
     await Promise.all(
@@ -189,9 +183,9 @@ export class LogManager {
     this.lastWrite.clear();
   }
 
-  query(filter: LogFilter): LogEvent[] {
+  query(filter: LogFilter): LogRecord[] {
     const matches = createLogMatcher(filter);
-    const out: LogEvent[] = [];
+    const out: LogRecord[] = [];
     this.forEachEvent((event) => {
       if (matches(event)) {
         out.push(event);
@@ -200,9 +194,6 @@ export class LogManager {
     return out;
   }
 
-  // Bounded, cursor-paged counterpart to query() — query() itself stays
-  // unbounded on purpose (export, and anything else that legitimately wants
-  // every matching event, must not be silently truncated by a page size).
   queryPage(filter: LogFilter, page: LogPageRequest = {}): LogPage {
     const limit = clampLogPageSize(page.limit);
     const requested = page.cursor ? decodeLogCursor(page.cursor) : undefined;
@@ -211,14 +202,14 @@ export class LogManager {
     const direction: LogPageDirection = cursor ? (page.direction ?? "backward") : "backward";
 
     const matchesFilter = createLogMatcher(filter);
-    const matches: LogEvent[] = [];
+    const matches: LogRecord[] = [];
     this.forEachEvent((event) => {
       if (matchesFilter(event)) {
         matches.push(event);
       }
     });
 
-    let windowed: LogEvent[];
+    let windowed: LogRecord[];
     if (!cursor) {
       windowed = matches.slice(Math.max(0, matches.length - limit));
     } else if (direction === "forward") {
@@ -243,10 +234,6 @@ export class LogManager {
     };
   }
 
-  // Lightweight on purpose: no event payload, just counts, so a client
-  // following logs can poll this every couple of seconds for live facet
-  // counts without re-fetching (and re-transferring) the page it already
-  // has.
   queryFacets(filter: LogFilter): LogFacets {
     const withoutServices = withoutFilterDimension(filter, "services");
     const withoutLevel = withoutFilterDimension(filter, "level");
@@ -267,7 +254,7 @@ export class LogManager {
         byService[ev.service] = (byService[ev.service] ?? 0) + 1;
       }
       if (matchesLogDimensions(withoutLevel, ev)) {
-        byLevel[ev.level] = (byLevel[ev.level] ?? 0) + 1;
+        byLevel[ev.severityText] = (byLevel[ev.severityText] ?? 0) + 1;
       }
       if (matchesLogDimensions(withoutSource, ev)) {
         bySource[ev.source] = (bySource[ev.source] ?? 0) + 1;
@@ -281,14 +268,14 @@ export class LogManager {
     let errors = 0;
     this.forEachEvent((ev) => {
       counts[ev.service] = (counts[ev.service] ?? 0) + 1;
-      if (ev.level === LevelError || ev.level === LevelFatal) {
+      if (isErrorSeverity(ev.severityNumber)) {
         errors += 1;
       }
     });
     return { total: this.events.length, errors, counts };
   }
 
-  private forEachEvent(visit: (event: LogEvent) => void): void {
+  private forEachEvent(visit: (event: LogRecord) => void): void {
     const count = this.events.length;
     for (let offset = 0; offset < count; offset += 1) {
       const event = this.events[(this.eventStart + offset) % count];
@@ -301,6 +288,25 @@ export class LogManager {
   exportTo(path: string, filter: LogFilter): void {
     writeLogExport(path, this.query(filter));
   }
+}
+
+function ingestAsParsed(ev: LogIngest): ParsedLog {
+  return {
+    body: ev.body,
+    attributes: ev.attributes,
+    severityNumber: ev.severityNumber,
+    severityText: ev.severityText ?? ev.level,
+    traceId: ev.traceId,
+    spanId: ev.spanId,
+    traceFlags: ev.traceFlags,
+    timeUnixNano: ev.timeUnixNano,
+    observedTimeUnixNano: ev.observedTimeUnixNano,
+    scope: ev.scope,
+    resource: ev.resource,
+    raw: ev.raw,
+    message: ev.message,
+    request_id: ev.request_id,
+  };
 }
 
 export function inProcessLogStore(mgr: LogManager): LogStore {
@@ -327,7 +333,7 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
 
 export function defaultExportPath(now = new Date()): string {
   const stamp = now.toISOString().replace(/[:.]/g, "-");
-  return join(exportsDir(), `devctl-logs-${stamp}.log`);
+  return join(exportsDir(), `devctl-logs-${stamp}.jsonl`);
 }
 
 export function resolveExportPath(input = ""): string {
@@ -337,9 +343,9 @@ export function resolveExportPath(input = ""): string {
   return resolveUserPath(input, process.cwd());
 }
 
-export function writeLogExport(path: string, events: LogEvent[]): void {
+export function writeLogExport(path: string, events: LogRecord[]): void {
   ensureDir(dirname(path));
-  const lines = events.map((ev) => `${ev.timestamp} ${ev.service} ${ev.level} ${ev.raw ?? ev.message}`);
+  const lines = events.map((ev) => JSON.stringify(ev));
   writeFileSync(path, `${lines.join("\n")}\n`, { mode: 0o600 });
 }
 
@@ -368,12 +374,50 @@ export function listSessions(root = logsDir()): string[] {
     .reverse();
 }
 
-export function loadSessionEvents(sessionName: string, root = logsDir()): LogEvent[] {
+export function isJsonlSessionDir(dir: string): boolean {
+  const marker = join(dir, SESSION_FORMAT_FILE);
+  if (existsSync(marker)) {
+    return readFileSync(marker, "utf8").trim() === SESSION_FORMAT_JSONL;
+  }
+  if (!existsSync(dir)) {
+    return false;
+  }
+  return readdirSync(dir).some((name) => name.endsWith(".jsonl"));
+}
+
+export function loadSessionEvents(sessionName: string, root = logsDir()): LogRecord[] {
   const dir = join(root, sessionName);
   if (!existsSync(dir)) {
     return [];
   }
-  const events: LogEvent[] = [];
+  if (isJsonlSessionDir(dir)) {
+    return loadJsonlSession(dir);
+  }
+  return loadLegacySession(dir);
+}
+
+function loadJsonlSession(dir: string): LogRecord[] {
+  const events: LogRecord[] = [];
+  for (const name of readdirSync(dir)) {
+    if (!name.endsWith(".jsonl")) {
+      continue;
+    }
+    const text = readFileSync(join(dir, name), "utf8");
+    for (const line of text.split("\n")) {
+      if (line.trim() === "") {
+        continue;
+      }
+      const record = parseStoredLogRecord(line);
+      if (record) {
+        events.push(record);
+      }
+    }
+  }
+  return events.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
+}
+
+function loadLegacySession(dir: string): LogRecord[] {
+  const events: LogRecord[] = [];
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".log")) {
       continue;
@@ -386,20 +430,18 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogEve
       const parts = line.split(" ");
       const rawMessage = parts.slice(3).join(" ");
       const structured = parseJSONLogLine(rawMessage);
-      events.push({
-        timestamp: parts[0] ?? "",
-        service: parts[1] ?? name.replace(/\.log$/, ""),
-        source: "history",
-        level: parts[2] ?? "INFO",
-        message: structured?.message ?? rawMessage,
-        raw: structured ? rawMessage : undefined,
-        pid: 0,
-        // A past session's own sequence numbers aren't recoverable from the
-        // persisted text format, and these are a read-only historical view,
-        // never paginated against the live session — index order after the
-        // chronological sort below is a fine, locally-consistent stand-in.
-        seq: 0,
-      });
+      events.push(buildLogRecord(
+        {
+          timestamp: parts[0] ?? "",
+          service: parts[1] ?? name.replace(/\.log$/, ""),
+          source: "history",
+          pid: 0,
+          level: parts[2] ?? "INFO",
+          message: rawMessage,
+        },
+        structured ?? { body: rawMessage, raw: rawMessage },
+        0,
+      ));
     }
   }
   const sorted = events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
@@ -407,6 +449,18 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogEve
     ev.seq = i + 1;
   });
   return sorted;
+}
+
+export function parseStoredLogRecord(line: string): LogRecord | undefined {
+  try {
+    const value: unknown = JSON.parse(line);
+    if (!isPlainObject(value) || typeof value.service !== "string" || typeof value.seq !== "number") {
+      return undefined;
+    }
+    return value as LogRecord;
+  } catch {
+    return undefined;
+  }
 }
 
 export function safeServiceFile(service: string): string {

@@ -11,6 +11,7 @@ import { startMockIapServer } from "../google/testdata/mock-iap-server.ts";
 import { type CredentialRecord, type CredentialStore } from "../storage/credentials.ts";
 import { KindProxy } from "../../shared/errors.ts";
 import { Bus, TokenRefreshFailed, TokenRefreshed } from "../../shared/events.ts";
+import { formatBodySummary } from "../../domain/logs/logs.ts";
 import { LogManager } from "../storage/logs.ts";
 import { injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
 import { Detector } from "../secrets/detector.ts";
@@ -510,7 +511,7 @@ describe("proxy", () => {
       headers: { Authorization: "Bearer secret-header-token" },
     });
     expect(resp.status).toBe(200);
-    const messages = logs.query({}).map((ev) => ev.message).join("\n");
+    const messages = logs.query({}).map((ev) => formatBodySummary(ev)).join("\n");
     expect(messages).toContain("GET /ping");
     expect(messages).toContain("route=local");
     expect(messages).toContain("duration=");
@@ -874,6 +875,9 @@ describe("proxy identity and token wiring", () => {
     const withoutId = await fetch(`http://127.0.0.1:${proxyPort}/b`);
     expect(withoutId.headers.get(REQUEST_ID_HEADER)).toBeTruthy();
     expect(withoutId.headers.get(REQUEST_ID_HEADER)).not.toBe("caller-supplied-id");
+    expect(withoutId.headers.get(REQUEST_ID_HEADER)).toHaveLength(32);
+    expect(withoutId.headers.get("traceparent")).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
+    expect(withId.headers.get("traceparent")).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/);
     await close();
   });
 

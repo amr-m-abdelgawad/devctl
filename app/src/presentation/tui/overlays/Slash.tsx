@@ -1,5 +1,6 @@
 import { commandSearchToken, type CommandSpec } from "../commands.ts";
 import { groupedCommands, selectedSlashCommand, SLASH_LABEL_MAX, slashCommandColumnWidth, slashItemDesc, slashItemKey, slashItemLabel, slashWindowItems, slashWindowStart } from "../helpers/command-catalog.ts";
+import { padClip } from "../helpers/format.ts";
 import { type Palette } from "../themes.ts";
 
 const MAX_VISUAL_ROWS = 10;
@@ -67,7 +68,7 @@ export function SlashOverlay(props: {
                 >
                   <box width={commandCol} flexShrink={0} overflow="hidden">
                     <text fg={activeRow ? palette.primary : palette.text} wrapMode="none">
-                      {`${activeRow ? "›" : " "} /${slashItemLabel(cmd).slice(0, SLASH_LABEL_MAX)}`}
+                      {padClip(`${activeRow ? "›" : " "} /${slashItemLabel(cmd).slice(0, SLASH_LABEL_MAX)}`, commandCol)}
                     </text>
                   </box>
                   <box flexGrow={1} overflow="hidden">

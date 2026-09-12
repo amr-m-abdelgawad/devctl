@@ -40,3 +40,6 @@ docs/.vitepress/cache/
 
 # Cache / build artifacts
 Library/
+
+# PyCache
+__pycache__/

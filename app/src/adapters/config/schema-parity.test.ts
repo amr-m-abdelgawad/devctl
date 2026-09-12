@@ -31,6 +31,8 @@ import {
   knownTool,
   knownTopLevel,
   knownTask,
+  knownTelemetry,
+  knownTelemetryOtlp,
   knownUI,
   knownUpstream,
   knownWatch,
@@ -101,6 +103,8 @@ describe("config allowlist/schema parity", () => {
       ["knownPlugin", knownPlugin, at("plugins", "items")],
       ["knownProjectEnvironment", knownProjectEnvironment, at("environment")],
       ["knownProfile", knownProfile, defs.profile ?? {}],
+      ["knownTelemetry", knownTelemetry, defs.telemetry ?? {}],
+      ["knownTelemetryOtlp", knownTelemetryOtlp, defs.telemetry?.properties?.otlp ?? {}],
     ];
     for (const [name, known, node] of cases) expectParity(name, known, node);
   });

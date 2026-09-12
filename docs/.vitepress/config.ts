@@ -63,12 +63,13 @@ const siteConfig = withMermaid({
           { text: 'Configuration', link: '/configuration' },
           { text: 'Services', link: '/services' },
           { text: 'Proxy', link: '/proxy' },
+          { text: 'Telemetry', link: '/telemetry' },
           { text: 'Architecture', link: '/architecture' }
         ]
       },
       { text: 'GitHub', link: repo },
       {
-        text: 'v0.6.0',
+        text: 'v0.7.0',
         items: [
           { text: 'Changelog', link: `${blob}/CHANGELOG.md` },
           { text: 'npm package', link: 'https://www.npmjs.com/package/@amr-m-abdelgawad/devctl' },
@@ -98,6 +99,7 @@ const siteConfig = withMermaid({
           { text: 'CLI', link: '/cli' },
           { text: 'MCP', link: '/mcp' },
           { text: 'Logs', link: '/logs' },
+          { text: 'Telemetry', link: '/telemetry' },
           { text: 'Doctor', link: '/doctor' },
           { text: 'Troubleshooting', link: '/troubleshooting' }
         ]

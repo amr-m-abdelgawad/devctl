@@ -77,6 +77,9 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
   if (JSON.stringify(prev.logs) !== JSON.stringify(next.logs)) {
     supervisorRestart.push("logs");
   }
+  if (JSON.stringify(prev.telemetry) !== JSON.stringify(next.telemetry)) {
+    supervisorRestart.push("telemetry");
+  }
   if (JSON.stringify(prev.auth) !== JSON.stringify(next.auth)) {
     supervisorRestart.push("auth");
   }

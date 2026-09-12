@@ -313,7 +313,7 @@ devctl exec <service> --print-env [--reveal] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--attribute key=value] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl daemon logs [-f|--follow]
 devctl reload
@@ -482,6 +482,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`profiles\` | Named service sets + extra env |
 | \`proxy\` | Listen address, token endpoint, routes |
 | \`logs\` | In-memory cap and persistence |
+| \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
 | \`shutdown\` | \`stop_services_on_exit\`, \`grace_seconds\` |
 | \`ui\` | Optional theme / keymap hints in YAML (TUI prefs still win from \`tui.json\`) |
@@ -525,7 +526,7 @@ entry includes the winning source file and layer (\`main\`, \`modular_service\`,
 \`synthesized\`) and the ordered sources it shadowed. Use \`--json\` for structured
 output.
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, and optional \`plugins[].path\`.
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, and \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports).
 
 The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before writing. Invalid YAML is not saved. \`e\` still opens \`$EDITOR\`.
 
@@ -1108,7 +1109,9 @@ The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and W
 
 All service stdout/stderr, proxy events, health checks, authentication events, and \`devctl\` internal lines go through one log manager on the supervisor.
 
-Sources you will see: \`stdout\`, \`stderr\`, \`health\`, \`auth\`, \`devctl\`, plus proxy lines.
+Sources you will see: \`stdout\`, \`stderr\`, \`health\`, \`auth\`, \`devctl\`, \`proxy\`, and \`otlp\` (when \`telemetry.otlp.enabled\` is on).
+
+Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional \`traceId\`/\`spanId\` — so structured JSON keeps its fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
 ## Buffer and persistence
 
@@ -1132,28 +1135,29 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - \`p\` / \`/pause\` — freeze the live stream.
 - \`z\` / \`/fullscreen\` — hide header and nav so the stream fills a small editor terminal. \`z\` or \`esc\` exits.
 - \`t\` / \`m\` — timestamp and metadata columns (persist in \`tui.json\`).
-- \`w\` / \`/wrap\` — clip → unwrap the selected row → wrap every long line.
+- \`w\` / \`/wrap\` — wrap every line (default) → clip with ellipsis → unwrap only the selected row.
 - \`g\` — jump to latest. Leaving the tail pins the view (\`pinned · +N new\`).
 - \`←\`/\`→\` or click a chip — cycle service filters. Digits \`1\`–\`4\` jump nav tabs, not log sources.
 - \`\\\\\` / \`/split\` — second pane on the same live stream, with its own service filter. Shared search. \`|\` focuses the other pane.
+- \`enter\` — details overlay (body summary, attributes table, severity number, \`traceId\`/\`spanId\`). A ◎ marker on the list means the row has a trace; enter again (or **view trace**) opens a full-width waterfall. The solid block is the span; the dim track is unused time in the window. \`j\`/\`k\` selects a span; Enter or double-click opens that span's logs overlay (\`esc\` returns to the waterfall).
 - \`/trace <id>\` — set search to that request/trace id. Enter in the details overlay on a row that has an id does the same.
-- \`enter\` — details overlay (full message, pid, stream, request_id, identity).
 - \`command+c\` (macOS) or \`ctrl+c\` (Linux/Windows) — copy the highlighted selection. Remap with \`keybinds.copy\`.
 - \`/export [path]\` — write the **current** filters. Default file: \`~/.devctl/exports/devctl-logs-<timestamp>.log\`.
 - \`/exports\` or the **open folder** chip — reveal that directory.
 - \`/history [id]\` — load a persisted session (\`LogManager.listSessions\`).
 - \`/regex\`, \`/since\`, \`/until\` — search and time range (\`until\` is exclusive of later lines).
 
-Long lines fold with a \`▸N\` marker. \`j\`/\`k\` moves the highlight and unwraps that row.
+Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. \`j\`/\`k\` moves the highlight.
 
 ## CLI
 
 \`\`\`bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--attribute key=value] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
 devctl logs export --output FILE   # explicit export subcommand
+devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 \`\`\`
 
@@ -1231,7 +1235,11 @@ devctl mcp --json
 | \`list_services\` | inspect | Name, state, health, ports, pid, last error |
 | \`get_service\` | inspect | One service plus command/cwd/ports (env redacted or left as \`\${…}\` refs) |
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
-| \`get_logs\` | logs | Filtered logs, capped at 200 events per page, secrets redacted. Pass \`cursor\` from the previous \`next_cursor\` to page forward with no duplicate or same-millisecond-lost lines; \`since\`/\`until\` are plain timestamp filters for a fresh query |
+| \`get_logs\` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from the previous \`next_cursor\` to page forward with no duplicate or same-millisecond-lost lines; \`since\`/\`until\` are plain timestamp filters for a fresh query |
+| \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
+| \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
+| \`get_requests\` | logs | The proxy's recent requests — method, route, status, duration, identity, and request/trace ids |
+| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\` |
 | \`list_profiles\` | inspect | Config profiles and members |
 | \`get_config\` | inspect | Merged summary: project, services, routes, proxy paths |
 | \`get_config_sources\` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |
@@ -1837,6 +1845,10 @@ The proxy keeps the last 100 requests in memory — method, path, matched route 
 
 Paths are redacted the same way response header values already are, since a query string can carry secrets. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart.
 
+## Tracing
+
+Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a \`traceparent\` and \`X-Devctl-Request-ID\` to the upstream, so a service's own spans and logs share the request's trace. An incoming \`traceparent\` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, \`devctl logs --trace <id>\`, or the MCP \`get_trace\` / \`trace_request\` tools. See [Telemetry](telemetry.md).
+
 ## Request flow
 
 \`\`\`mermaid
@@ -2278,6 +2290,120 @@ Plugins can register extra health types. \`capabilities\` document intent (\`loc
 - [Configuration](configuration.md)
 - [Logs](logs.md)
 ` },
+  { path: "docs/telemetry.md", title: "Telemetry", body: `# Telemetry
+
+devctl models logs, and now **traces**, on the OpenTelemetry data model, and can
+receive OTLP directly. This gives every log a structured shape, correlates a
+request across the proxy and your services, and lets a coding agent debug the
+running stack over MCP instead of grepping text. It is local-first: the receiver
+binds loopback only and is **off by default**.
+
+## The record model
+
+Every log is an OpenTelemetry-style record, not a flat string:
+
+- **body** — the message; a string, or a structured object when the source emits one.
+- **attributes** — the structured fields, preserved as key/values (never flattened away).
+- **severityNumber** (1–24) + **severityText** — the level; filtering and coloring use the number.
+- **traceId / spanId** — set when the line carries them, so a log joins its trace.
+- **resource** — \`service.name\` (the devctl service) plus \`process.pid\` and any OTLP resource attributes.
+
+Two ingestion lanes feed one model:
+
+- **stdout / stderr (best-effort).** Plain text becomes the body; JSON from pino,
+  bunyan, zap, logrus, structlog, ECS, GELF, or an OTLP-shaped line is mapped
+  into body + attributes + severity + ids. A leading timestamp before the JSON
+  is stripped and retried. An unrecognized JSON object is kept as structured
+  data and shown as a \`key=value\` summary — never as raw braces.
+- **OTLP (lossless).** Anything sent to the receiver maps 1:1.
+
+In the TUI, \`enter\` on a log opens the details overlay: the body, an
+**attributes table**, the severity, and \`traceId\`/\`spanId\`. See [Logs](logs.md).
+
+## OTLP receiver
+
+An opt-in loopback endpoint that accepts **OTLP/HTTP + JSON** for logs and
+traces. It is off until you enable it, and rejects any non-loopback bind (both
+at \`devctl config validate\` and at listen time).
+
+\`\`\`yaml
+telemetry:
+  otlp:
+    enabled: true                 # default: false
+    listen:
+      host: 127.0.0.1             # loopback only; 0.0.0.0 / :: are rejected
+      port: 4318                  # default 4318 (standard OTLP/HTTP)
+\`\`\`
+
+It serves \`POST /v1/logs\` and \`POST /v1/traces\` (JSON only; other methods and
+paths are rejected). Its port must differ from the proxy, token-endpoint, and
+any gRPC route port — a collision is reported at config-validation time.
+
+When the receiver is enabled, devctl injects the standard exporter variables
+into every managed **host process** (not containers, whose loopback is
+isolated), and never overrides one you set yourself:
+
+\`\`\`
+OTEL_EXPORTER_OTLP_ENDPOINT   http://127.0.0.1:<port>
+OTEL_EXPORTER_OTLP_PROTOCOL   http/json
+OTEL_SERVICE_NAME             <service>
+\`\`\`
+
+So a service instrumented with an OpenTelemetry SDK exports to devctl with no
+per-service configuration. Only OTLP/HTTP+JSON is accepted (no protobuf/gRPC).
+
+## Traces and correlation
+
+devctl's own signals are telemetry too. The proxy emits one **span per request**
+(method, route, status, duration, identity), and propagates a \`traceparent\` plus
+\`X-Devctl-Request-ID\` to the upstream — so a service's own spans and logs share
+the request's trace. A \`traceparent\` on an incoming request is honored; a bare
+request-id header is **not** adopted as the trace id, so unrelated requests are
+never merged into one trace.
+
+View a trace two ways:
+
+- **TUI** — a ◎ marker on a log row means it has a trace; \`enter\` (or **view
+  trace**) opens a full-width waterfall. \`j\`/\`k\` selects a span; Enter opens that
+  span's logs.
+- **CLI** — \`devctl logs --trace <id>\` prints the span tree plus the correlated
+  logs; add \`--json\` for JSONL. See [CLI](cli.md).
+
+## Redaction
+
+Records and spans are redacted at **ingestion**, before anything is stored,
+persisted, or served — the walk recurses into nested body/attributes, span
+events, and status messages, using the same markers as the rest of devctl (add
+your own under \`secrets\`). MCP output redacts again on top. So OTLP-received or
+structured stdout data cannot carry a secret into the TUI, CLI, MCP, or the
+on-disk log files. See [Security](security.md).
+
+## Debugging with an agent (MCP)
+
+The model is what makes "debug, don't grep" possible over [MCP](mcp.md):
+
+- \`get_logs\` — filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value, and receive body + attributes + severity.
+- \`get_trace <trace_id>\` / \`trace_request <request_id>\` — the span tree plus the correlated logs.
+- \`get_requests\` — the proxy's recent requests (with ids), and \`recent_errors\` — the latest error/fatal records.
+
+An agent can ask "why did this request fail", resolve the request id to its
+trace, and read the responsible service's span and logs — all redacted.
+
+## Notes
+
+- \`*UnixNano\` timestamps are held as JS numbers, so precision is **millisecond**
+  granular (fine for display, ordering, and durations ≥ ~1 ms); do not rely on
+  exact-nanosecond equality.
+- No new runtime dependency: the OTLP/JSON decode and the model are built in.
+
+## Related
+
+- [Logs](logs.md)
+- [MCP](mcp.md)
+- [Proxy](proxy.md)
+- [Configuration](configuration.md)
+- [Security](security.md)
+` },
   { path: "docs/troubleshooting.md", title: "Troubleshooting", body: `# Troubleshooting
 
 | Symptom | What to do |
@@ -2388,7 +2514,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`esc\` | Back / close overlay. Twice (when nothing else is open) asks to quit |
 | \`f\` | Focus log search (\`g\` jumps to latest). Remap with \`keybinds.search\` |
 | \`z\` | Expand logs to fill the terminal. \`z\` or \`esc\` exits |
-| \`w\` | Cycle log wrap: clip, unwrap the selected row, or wrap every long line |
+| \`w\` | Cycle log wrap: wrap every line (default), clip with ellipsis, or unwrap only the selected row |
 | \`command+c\` / \`ctrl+c\` | Copy the highlighted selection (drag with the mouse). Remap with \`keybinds.copy\` |
 | \`command+=\` / \`ctrl+=\` (and \`-\` / \`0\`) | Display size (padding/row height, not the terminal font) |
 | \`esc\` \`esc\` | Twice to quit when no overlay or back target is open. The OS copy chord does not quit |
@@ -2407,7 +2533,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Dashboard** — services, proxy, live log tail. Identity lives on \`/auth\`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data \`devctl status\` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. \`enter\` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so \`j\`/\`k\` scroll. \`/reveal\` shows secrets. \`n\`/\`x\`/\`R\`/\`l\`
-- **Logs** — ANSI color codes are stripped so wrap uses visible width; \`w\` cycles clip / wrap selected / wrap all. \`\\\\\` / \`/split\` opens a second pane on the same live stream (independent service filter, shared search). \`/trace <id>\` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
+- **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. \`w\` cycles wrap all / clip / wrap selected. \`\\\\\` / \`/split\` opens a second pane on the same live stream (independent service filter, shared search). \`/trace <id>\` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). \`/auth login\` suspends the TUI, runs \`gcloud auth application-default login\` on the real terminal, then restores the TUI. \`/auth logout\` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or \`~/.devctl/credentials\`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. \`n\` start / \`x\` stop
@@ -2443,7 +2569,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 /filter               toggle ERROR+
 /pause                freeze the live log stream
 /reveal               show or hide secret env values
-/wrap                 cycle log wrap (selected / all / clip)
+/wrap                 cycle log wrap (all / clip / selected)
 /copy                 copy visible logs to the clipboard
 /export [path]        write filtered logs to ~/.devctl/exports (or the given path)
 /exports              open the export folder

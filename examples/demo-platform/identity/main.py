@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Identity service — session login, token issuance, whoami. stdlib only."""
+"""Identity service — session login, token issuance, whoami. stdlib only.
+
+Doctor /health stays instant. When a request arrives with a W3C traceparent
+(the telemetry showcase via invoices-api), /health sleeps briefly and
+exports nested OTLP spans so the waterfall has a real downstream hop.
+"""
 
 from __future__ import annotations
 
@@ -11,10 +16,14 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import traceutil as otel
+
 NAME = os.environ.get("DEVCTL_SERVICE_NAME", "identity")
 PORT = int(os.environ.get("SERVICE_PORT") or os.environ.get("HTTP_PORT") or "18001")
 TOKENS: dict[str, str] = {}
 FAILED_LOOKUPS = 0
+TRACE_HEALTH_S = 0.018
 
 
 def log(message: str, level: str = "INFO") -> None:
@@ -32,8 +41,70 @@ def audit_line(event: str, user: str, remote: str, user_agent: str) -> None:
     )
 
 
+def emit_json(record: dict[str, object]) -> None:
+    sys.stdout.write(json.dumps(record) + "\n")
+    sys.stdout.flush()
+
+
+def maybe_trace_health(handler: BaseHTTPRequestHandler) -> None:
+    trace_id, parent_span = otel.parse_traceparent(handler.headers.get("traceparent", ""))
+    if not trace_id:
+        return
+    server_id = otel.hex_id(8)
+    lookup_id = otel.hex_id(8)
+    setattr(handler, "_local_span", server_id)
+    t0 = otel.time_ns()
+    emit_json({
+        "msg": "session.store.lookup",
+        "level": "INFO",
+        "shape": "traced",
+        "trace_id": trace_id,
+        "span_id": lookup_id,
+        "session_store": "in-memory",
+    })
+    time.sleep(TRACE_HEALTH_S)
+    end = otel.time_ns()
+    otel.export_spans(NAME, [
+        otel.span(
+            trace_id=trace_id, span_id=server_id, parent_span_id=parent_span,
+            name="GET /health", kind=otel.KIND_SERVER, start=t0, end=end,
+            attrs={"http.request.method": "GET", "url.path": "/health", "http.route": "/health"},
+        ),
+        otel.span(
+            trace_id=trace_id, span_id=lookup_id, parent_span_id=server_id,
+            name="session.store.lookup", kind=otel.KIND_INTERNAL,
+            start=otel.ms(t0, 2), end=otel.ms(t0, 14),
+            attrs={"session.store": "in-memory", "session.active": len(TOKENS)},
+            events=[otel.event("session.hit", otel.ms(t0, 8), {"cache": "local"})],
+        ),
+    ])
+    otel.export_log(
+        NAME,
+        "session lookup on traced health probe",
+        trace_id=trace_id,
+        span_id=server_id,
+        attrs={"shape": "otlp-http", "http.route": "/health"},
+    )
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
+        trace_id, parent_span = otel.parse_traceparent(self.headers.get("traceparent", ""))
+        if trace_id:
+            status_raw = str(args[1]) if len(args) > 1 else "0"
+            try:
+                status = int(status_raw)
+            except ValueError:
+                status = 0
+            emit_json({
+                "method": self.command,
+                "path": urlparse(self.path).path,
+                "status": status,
+                "trace_id": trace_id,
+                "span_id": getattr(self, "_local_span", "") or parent_span,
+                "shape": "traced",
+            })
+            return
         log(f"{self.address_string()} {fmt % args}")
 
     def _cors(self) -> None:
@@ -59,6 +130,7 @@ class Handler(BaseHTTPRequestHandler):
         global FAILED_LOOKUPS
         path = urlparse(self.path).path
         if path == "/health":
+            maybe_trace_health(self)
             self._json(200, {"status": "ok", "service": NAME})
             return
         if path == "/whoami":

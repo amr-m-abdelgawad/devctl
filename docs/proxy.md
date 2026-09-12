@@ -233,6 +233,10 @@ The proxy keeps the last 100 requests in memory — method, path, matched route 
 
 Paths are redacted the same way response header values already are, since a query string can carry secrets. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart.
 
+## Tracing
+
+Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md).
+
 ## Request flow
 
 ```mermaid

@@ -21,6 +21,8 @@ describe("demo-platform config", () => {
     expect(cfg.services.postgres?.container?.image).toBe("postgres:16");
     expect(cfg.proxy.listen.port).toBe(18080);
     expect(cfg.proxy.token_endpoint.enabled).toBe(true);
+    expect(cfg.telemetry.otlp.enabled).toBe(true);
+    expect(cfg.telemetry.otlp.listen.port).toBe(18418);
 
     // Three routes at the same upstream (invoices-worker), one per
     // non-"none" auth pattern — see config.yaml's comments for why.
