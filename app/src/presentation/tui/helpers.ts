@@ -8,3 +8,4 @@ export * from "./helpers/logs.ts";
 export * from "./helpers/navigation.ts";
 export * from "./helpers/services.ts";
 export * from "./helpers/stats.ts";
+export * from "./helpers/traces.ts";

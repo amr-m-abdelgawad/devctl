@@ -1,6 +1,5 @@
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { randomBytes } from "node:crypto";
 import { type Duplex, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "../config/index.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
@@ -8,6 +7,9 @@ import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { SpanStore } from "../../ports/span-store.ts";
+import { formatTraceparent } from "../../domain/logs/ids.ts";
+import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager, iapOAuthClientRef } from "../google/token.ts";
 
@@ -25,6 +27,9 @@ export type ProxyRequestRecord = {
   status: number;
   durationMs: number;
   error?: string;
+  traceId?: string;
+  spanId?: string;
+  parentSpanId?: string;
 };
 
 // Newest-last bounded ring of recent proxy requests with a derived stats view
@@ -81,6 +86,7 @@ export class ProxyServer {
   private readonly cfg: ProxyConfig;
   private readonly tokens?: TokenManager;
   private readonly logs?: Pick<LogStore, "append">;
+  private readonly spans?: SpanStore;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
   // Resolves a service-reference upstream (route.upstream.service) to its
@@ -103,6 +109,7 @@ export class ProxyServer {
     detector?: Detector,
     middleware: ProxyMiddleware[] = [],
     resolvePort?: (service: string, port: string) => number | undefined,
+    spans?: SpanStore,
   ) {
     this.cfg = cfg;
     this.tokens = tokens;
@@ -111,6 +118,7 @@ export class ProxyServer {
     this.detector = detector;
     this.middleware = middleware;
     this.resolvePort = resolvePort;
+    this.spans = spans;
   }
 
   // The effective upstream base URL for a route. A hand-written route uses its
@@ -150,6 +158,9 @@ export class ProxyServer {
 
   private recordRequest(record: ProxyRequestRecord): void {
     this.requests.record(record);
+    if (this.spans && (record.traceId || record.requestId)) {
+      this.spans.append(proxyRecordToSpan(record));
+    }
   }
 
   // Configured response headers (e.g. CORS Access-Control-Allow-*), applied to
@@ -206,7 +217,11 @@ export class ProxyServer {
 
   private async serveUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
     const started = Date.now();
-    const requestID = req.headers[REQUEST_ID_HEADER]?.toString() || randomBytes(8).toString("hex");
+    const ctx = beginProxyTrace({
+      traceparent: req.headers[TRACEPARENT_HEADER]?.toString(),
+      requestId: req.headers[REQUEST_ID_HEADER]?.toString(),
+    });
+    const requestID = ctx.requestId;
     const method = req.method ?? "GET";
     const path = req.url ?? "/";
     const recordedPath = this.detector ? this.detector.redactText(path) : path;
@@ -216,6 +231,7 @@ export class ProxyServer {
       this.recordRequest({
         timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath,
         route: "", identity: "", status: 404, durationMs: Date.now() - started,
+        traceId: ctx.traceId, spanId: ctx.spanId, parentSpanId: ctx.parentSpanId,
       });
       return;
     }
@@ -231,6 +247,7 @@ export class ProxyServer {
       this.recordRequest({
         timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath,
         route: route.name, identity: identityKey, status, durationMs: duration, error,
+        traceId: ctx.traceId, spanId: ctx.spanId, parentSpanId: ctx.parentSpanId,
       });
       this.logs?.append({
         timestamp: new Date().toISOString(), service: "proxy", source: "proxy",
@@ -260,7 +277,7 @@ export class ProxyServer {
       headers["x-forwarded-host"] = originalHost;
       headers["x-forwarded-proto"] = "http";
       delete headers.host;
-      headers[REQUEST_ID_HEADER] = requestID;
+      applyTraceHeaders(headers, ctx, REQUEST_ID_HEADER);
       if (this.middleware.length === 0) await injectIdentityHeaders(route, headers, this.tokens);
       for (const hook of this.middleware) {
         await hook.apply({ route, headers, tokens: this.tokens, req, method, path, upgrade: true });
@@ -315,11 +332,16 @@ export class ProxyServer {
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const started = Date.now();
-    const requestID = req.headers[REQUEST_ID_HEADER]?.toString() || randomBytes(8).toString("hex");
+    const ctx = beginProxyTrace({
+      traceparent: req.headers[TRACEPARENT_HEADER]?.toString(),
+      requestId: req.headers[REQUEST_ID_HEADER]?.toString(),
+    });
+    const requestID = ctx.requestId;
     // Echo back so a caller can correlate its own request with the matching
     // row in stats().recent (and the "auth" log line) without having had to
     // supply the id itself.
     res.setHeader(REQUEST_ID_HEADER, requestID);
+    res.setHeader(TRACEPARENT_HEADER, formatTraceparent(ctx));
     const method = req.method ?? "GET";
     const path = req.url ?? "/";
     const recordedPath = this.detector ? this.detector.redactText(path) : path;
@@ -335,6 +357,9 @@ export class ProxyServer {
         identity: "",
         status: 404,
         durationMs: Date.now() - started,
+        traceId: ctx.traceId,
+        spanId: ctx.spanId,
+        parentSpanId: ctx.parentSpanId,
       });
       return;
     }
@@ -348,7 +373,7 @@ export class ProxyServer {
       res.statusCode = 204;
       res.setHeader("content-length", "0");
       res.end();
-      this.recordRequest({ timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath, route: route.name, identity: "", status: 204, durationMs: Date.now() - started });
+      this.recordRequest({ timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath, route: route.name, identity: "", status: 204, durationMs: Date.now() - started, traceId: ctx.traceId, spanId: ctx.spanId, parentSpanId: ctx.parentSpanId });
       return;
     }
     const ident = fromRoute(route.auth);
@@ -382,7 +407,7 @@ export class ProxyServer {
       // but still reports the *compressed* content-encoding/content-length
       // on the Response object — see the header-stripping logic after fetch.
       headers["accept-encoding"] = "gzip, deflate, br";
-      headers[REQUEST_ID_HEADER] = requestID;
+      applyTraceHeaders(headers, ctx, REQUEST_ID_HEADER);
       if (this.middleware.length === 0) {
         await injectIdentityHeaders(route, headers, this.tokens);
       }
@@ -468,6 +493,9 @@ export class ProxyServer {
         status,
         durationMs: Date.now() - started,
         error: errorDetail,
+        traceId: ctx.traceId,
+        spanId: ctx.spanId,
+        parentSpanId: ctx.parentSpanId,
       });
     }
   }

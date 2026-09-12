@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { formatBodySummary, logRecord } from "../../domain/logs/logs.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { COMMAND_FOOTER_HINT, namedPickerItems, SLASH_COL_GAP, SLASH_LABEL_MAX, SLASH_NAME_PREFIX, slashCommandColumnWidth, slashCompleteQuery, slashItemDesc, slashItemKey, slashItemLabel, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
+import { clampTraceSpanIndex, fitTraceChips, formatSpanDuration, isTraceDoubleClick, orderTraceRows, spanBarColumns, spanBarPlacement, TRACE_DOUBLE_CLICK_MS, TRACE_KIND_LEGEND, TRACE_SPAN_PAGE, traceAxisLabel, traceBodyLayout, traceColumnWidths, traceFacts, traceGutterWidth, traceHeaderCells, traceKindGlyph, traceKindLegend, traceMaxDepth, traceOverlayPreferSize, traceServicesLine, traceSummaryChips, traceTreeCell, traceTreeWidth, traceWaterfallBar, traceWaterfallSegments } from "./helpers/traces.ts";
+import type { Span, TraceTree } from "../../domain/telemetry/types.ts";
+function logEv(draft: Parameters<typeof logRecord>[0]) {
+  return logRecord(draft);
+}
 
 describe("TUI helpers", () => {
   test("default profile is the first sorted name", () => {
@@ -20,7 +26,7 @@ describe("TUI helpers", () => {
   });
 
   test("appendVisibleLogs only scopes by an explicit since boundary, never by service start or stop state", () => {
-    const systemEvent = {
+    const systemEvent = logEv({
       timestamp: "2026-08-30T00:00:00.000Z",
       service: "devctl",
       source: "devctl",
@@ -28,51 +34,51 @@ describe("TUI helpers", () => {
       message: "supervisor started session=abc",
       pid: 0,
       seq: 1,
-    };
-    const serviceEvent = { ...systemEvent, timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", message: "ready" };
+    });
+    const serviceEvent = logEv({ timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", level: "INFO", message: "ready", pid: 0, seq: 1 });
     // Stopping every service must not clear the view — there's no `snap` parameter to react to that.
     expect(appendVisibleLogs([], [systemEvent, serviceEvent], "", 50)).toEqual([systemEvent, serviceEvent]);
-    const later = { ...serviceEvent, timestamp: "2026-08-30T00:01:00.000Z", message: "ready again" };
+    const later = logEv({ timestamp: "2026-08-30T00:01:00.000Z", service: "api", source: "api", level: "INFO", message: "ready again", pid: 0, seq: 1 });
     expect(appendVisibleLogs([], [systemEvent, serviceEvent, later], "2026-08-30T00:00:30.000Z", 50)).toEqual([later]);
   });
 
   test("appendVisibleLogs keeps regular per-service logs visible after a stop", () => {
-    const sys = (ts: string, message: string) => ({ timestamp: ts, service: "devctl", source: "devctl", level: "INFO", message, pid: 0 });
-    const svc = (ts: string, message: string) => ({ timestamp: ts, service: "api", source: "api", level: "INFO", message, pid: 0 });
+    const sys = (ts: string, message: string) => logEv({ timestamp: ts, service: "devctl", source: "devctl", level: "INFO", message, pid: 0 });
+    const svc = (ts: string, message: string) => logEv({ timestamp: ts, service: "api", source: "api", level: "INFO", message, pid: 0 });
     const current = [sys("2026-08-30T00:00:00.000Z", "old-sys"), svc("2026-08-30T00:00:01.000Z", "old-svc")];
     const next = appendVisibleLogs(
-      current as never,
-      [svc("2026-08-30T00:00:02.000Z", "new-svc"), sys("2026-08-30T00:00:03.000Z", "new-sys")] as never,
+      current,
+      [svc("2026-08-30T00:00:02.000Z", "new-svc"), sys("2026-08-30T00:00:03.000Z", "new-sys")],
       "",
       50,
     );
-    expect(next.map((event) => event.message)).toEqual(["old-sys", "old-svc", "new-svc", "new-sys"]);
+    expect(next.map((event) => formatBodySummary(event))).toEqual(["old-sys", "old-svc", "new-svc", "new-sys"]);
   });
 
   test("visible error count matches rows the dashboard can open", () => {
     expect(visibleLogErrorCount([
-      { timestamp: "2026-08-30T00:00:00.000Z", service: "api", level: "INFO", message: "ready" },
-      { timestamp: "2026-08-30T00:00:01.000Z", service: "api", level: "ERROR", message: "failed" },
-      { timestamp: "2026-08-30T00:00:02.000Z", service: "api", level: "FATAL", message: "stopped" },
-    ] as never)).toBe(2);
+      logEv({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", level: "INFO", message: "ready" }),
+      logEv({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", level: "ERROR", message: "failed" }),
+      logEv({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", level: "FATAL", message: "stopped" }),
+    ])).toBe(2);
   });
 
   test("live log append filters only the incoming batch and keeps the cap", () => {
-    const event = (timestamp: string, message: string) => ({ timestamp, service: "api", level: "INFO", message });
+    const event = (timestamp: string, message: string) => logEv({ timestamp, service: "api", level: "INFO", message });
     const current = [event("2026-08-30T00:00:01.000Z", "one"), event("2026-08-30T00:00:02.000Z", "two")];
     const next = appendVisibleLogs(
-      current as never,
-      [event("2026-08-30T00:00:00.000Z", "old"), event("2026-08-30T00:00:03.000Z", "three")] as never,
+      current,
+      [event("2026-08-30T00:00:00.000Z", "old"), event("2026-08-30T00:00:03.000Z", "three")],
       "2026-08-30T00:00:01.000Z",
       3,
     );
-    expect(next.map((item) => item.message)).toEqual(["one", "two", "three"]);
+    expect(next.map((item) => formatBodySummary(item))).toEqual(["one", "two", "three"]);
   });
 
   test("log filters keep all services until a chip is chosen", () => {
     const events = [
-      { timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1, seq: 1 },
-      { timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2, seq: 2 },
+      logEv({ timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1, seq: 1 }),
+      logEv({ timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2, seq: 2 }),
     ];
     expect(filterLogs(events, {}).map((ev) => ev.service)).toEqual(["auth", "api"]);
     expect(filterLogs(events, { service: "api" }).map((ev) => ev.service)).toEqual(["api"]);
@@ -95,9 +101,9 @@ describe("TUI helpers", () => {
   test("log filter catalog keeps extras and totals when the view is filtered", () => {
     const names = ["auth", "api"];
     const events = [
-      { timestamp: "t", service: "devctl", source: "devctl", level: "INFO", message: "session", pid: 0, seq: 1 },
-      { timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1, seq: 2 },
-      { timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2, seq: 3 },
+      logEv({ timestamp: "t", service: "devctl", source: "devctl", level: "INFO", message: "session", pid: 0, seq: 1 }),
+      logEv({ timestamp: "t", service: "auth", source: "auth", level: "INFO", message: "up", pid: 1, seq: 2 }),
+      logEv({ timestamp: "t", service: "api", source: "api", level: "ERROR", message: "boom", pid: 2, seq: 3 }),
     ];
     const catalog = logFilterCatalog(names, events);
     expect(catalog.map((row) => row.name)).toEqual(["", "auth", "api", "devctl"]);
@@ -115,7 +121,7 @@ describe("TUI helpers", () => {
   });
 
   test("mergeLoadedPage keeps the page and only strictly-newer already-held events", () => {
-    const ev = (seq: number) => ({ timestamp: "t", service: "api", source: "api", level: "INFO", message: `m${seq}`, pid: 1, seq });
+    const ev = (seq: number) => logEv({ timestamp: "t", service: "api", source: "api", level: "INFO", message: `m${seq}`, pid: 1, seq });
     const page = [ev(1), ev(2), ev(3)];
     // "current" simulates events already held client-side before the page
     // resolved: seq 1-3 duplicate what the page now covers, seq 4 arrived
@@ -126,7 +132,7 @@ describe("TUI helpers", () => {
   });
 
   test("prependOlderPage adds older events without duplicating ones already loaded", () => {
-    const ev = (seq: number) => ({ timestamp: "t", service: "api", source: "api", level: "INFO", message: `m${seq}`, pid: 1, seq });
+    const ev = (seq: number) => logEv({ timestamp: "t", service: "api", source: "api", level: "INFO", message: `m${seq}`, pid: 1, seq });
     const current = [ev(3), ev(4)];
     expect(prependOlderPage(current, [ev(1), ev(2), ev(3)]).map((e) => e.seq)).toEqual([1, 2, 3, 4]);
     expect(prependOlderPage(current, [])).toBe(current);
@@ -160,7 +166,7 @@ describe("TUI helpers", () => {
     // still accumulate that many events client-side via live streaming, and
     // filterLogs/logViewWindow re-run on every relevant render.
     const services = ["api", "worker", "auth"];
-    const events = Array.from({ length: 50_000 }, (_, i) => ({
+    const events = Array.from({ length: 50_000 }, (_, i) => logEv({
       timestamp: new Date(2026, 7, 30, 0, 0, 0, i).toISOString(),
       service: services[i % services.length]!,
       source: "stdout",
@@ -174,7 +180,7 @@ describe("TUI helpers", () => {
     const window = logViewWindow(filtered, false, 0);
     const elapsed = performance.now() - started;
     expect(filtered.length).toBeGreaterThan(0);
-    expect(filtered.every((ev) => ev.service === "api" && ev.message.includes("4"))).toBe(true);
+    expect(filtered.every((ev) => ev.service === "api" && formatBodySummary(ev).includes("4"))).toBe(true);
     expect(window.items.length).toBeGreaterThan(0);
     expect(elapsed).toBeLessThan(2000);
   });
@@ -290,6 +296,9 @@ describe("TUI helpers", () => {
     expect(footerHints("dashboard", "scroll-text").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("dashboard", "plan").some((h) => h.label.includes("dashboard"))).toBe(true);
     expect(footerHints("dashboard", "help").some((h) => h.key === "j/k")).toBe(true);
+    expect(footerHints("logs", "trace").some((h) => h.label === "span")).toBe(true);
+    expect(footerHints("logs", "trace").some((h) => h.label === "logs")).toBe(true);
+    expect(footerHints("logs", "span-details").some((h) => h.label === "back")).toBe(true);
     expect(footerHints("config", "config-edit").some((h) => h.key === displayWithMod("s"))).toBe(true);
   });
 
@@ -373,7 +382,7 @@ describe("TUI helpers", () => {
   });
 
   test("log clipboard text keeps time service level and message", () => {
-    const ev = {
+    const ev = logEv({
       timestamp: "2026-08-30T00:00:00.000Z",
       service: "auth",
       source: "auth",
@@ -383,7 +392,7 @@ describe("TUI helpers", () => {
       request_id: "req-1",
       identity: "user",
       seq: 1,
-    };
+    });
     expect(formatLogLine(ev)).toBe("2026-08-30T00:00:00.000Z auth INFO ready");
     expect(formatLogDetails(ev)).toContain("request   req-1");
   });
@@ -426,7 +435,7 @@ describe("TUI helpers", () => {
     expect(wrapLogMessage(`\x1b[1;32m${"x".repeat(30)}\x1b[0m`, 10).every((line) => line.length <= 10)).toBe(true);
     expect(logMessageSpans(csi).every((span) => !span.text.includes("\x1b"))).toBe(true);
     expect(logMessageSpans(csi).map((span) => span.kind)).toContain("keyword");
-    expect(formatLogLine({ timestamp: "t", service: "api", source: "api", level: "INFO", message: csi, pid: 1, request_id: "", identity: "", seq: 1 })).not.toContain("\x1b");
+    expect(formatLogLine(logEv({ timestamp: "t", service: "api", source: "api", level: "INFO", message: csi, pid: 1, identity: "", seq: 1 }))).not.toContain("\x1b");
   });
 
   test("previous session leftover is hidden when it is the live session", () => {
@@ -448,23 +457,22 @@ describe("TUI helpers", () => {
   });
 
   test("pinned log window stays put while newer events arrive", () => {
-    const ev = (n: number) =>
-      ({
-        timestamp: `2026-08-30T00:00:00.00${n}Z`,
-        service: "api",
-        source: "api",
-        level: "INFO",
-        message: `line ${n}`,
-        pid: 1,
-        seq: n,
-      }) as const;
+    const ev = (n: number) => logEv({
+      timestamp: `2026-08-30T00:00:00.00${n}Z`,
+      service: "api",
+      source: "api",
+      level: "INFO",
+      message: `line ${n}`,
+      pid: 1,
+      seq: n,
+    });
     const first = [0, 1, 2, 3, 4].map(ev);
     const live = logViewWindow(first, false, 0, 3);
-    expect(live.items.map((item) => item.message)).toEqual(["line 2", "line 3", "line 4"]);
+    expect(live.items.map((item) => formatBodySummary(item))).toEqual(["line 2", "line 3", "line 4"]);
     expect(live.newer).toBe(0);
     const pinnedStart = logPinStart(first.length, 3);
     const pinned = logViewWindow([...first, ev(5), ev(6)], true, pinnedStart, 3);
-    expect(pinned.items.map((item) => item.message)).toEqual(["line 2", "line 3", "line 4"]);
+    expect(pinned.items.map((item) => formatBodySummary(item))).toEqual(["line 2", "line 3", "line 4"]);
     expect(pinned.newer).toBe(2);
   });
 
@@ -486,7 +494,11 @@ describe("TUI helpers", () => {
     expect(clipText("ok", 8)).toBe("ok");
     expect(padClip("ports", 9)).toBe("ports    ");
     expect(padClip("identity", 9)).toBe("identity ");
-    expect(padClip("verylonglabel", 9)).toBe("verylong…");
+    expect(padClip("verylonglabel", 9)).toBe("verylon… ");
+    expect(padClip("WARNING", 8)).toBe("WARNING ");
+    expect(padClip("ERR", 4)).toBe("ERR ");
+    expect(padClip("x", 2)).toBe("x ");
+    expect(padClip("ab", 1)).toBe("…");
   });
 
   test("service name column grows with the list pane", () => {
@@ -507,6 +519,7 @@ describe("TUI helpers", () => {
       logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: true }),
     );
     expect(logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: false }) - logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: false, showMeta: false })).toBe(-LOG_TIME_COL);
+    expect(logChromeWidth({ serviceWidth: 10, showTimestamps: true, showMeta: true }) + logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: true })).toBe(80);
     expect(headerStatusChips({ width: HEADER_NARROW_WIDTH - 1, running: 0, total: 3, proxyOn: false, proxyAddress: "", mcpOn: false, adc: false, reveal: false }).some((chip) => chip.label === "!ADC")).toBe(true);
     expect(planOverlayHeight(20, 40)).toBeLessThanOrEqual(14);
     expect(logMessageSpans(`ready "auth" on 18001 ERROR`).map((span) => span.kind)).toEqual([
@@ -910,5 +923,142 @@ describe("reloadFailureMessage", () => {
     expect(reloadFailureMessage({ type: ConfigurationReloadFailed, timestamp: "" })).toBe("configuration reload failed");
     expect(reloadFailureMessage({ type: ConfigurationReloadFailed, timestamp: "", payload: { error: 42 } })).toBe("configuration reload failed");
     expect(reloadFailureMessage({ type: ConfigurationReloadFailed, timestamp: "", payload: { error: "" } })).toBe("configuration reload failed");
+  });
+});
+
+describe("trace waterfall helpers", () => {
+  const traceId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+  function span(draft: Partial<Span> & Pick<Span, "spanId" | "name">): Span {
+    return {
+      seq: 1,
+      traceId,
+      parentSpanId: undefined,
+      kind: "internal",
+      startUnixNano: 0,
+      endUnixNano: 1_000_000,
+      status: { code: "ok" },
+      attributes: {},
+      events: [],
+      links: [],
+      resource: { "service.name": "api" },
+      ...draft,
+    };
+  }
+
+  function tree(spans: Span[]): TraceTree {
+    const ids = new Set(spans.map((item) => item.spanId));
+    return {
+      traceId,
+      spans,
+      roots: spans.filter((item) => !item.parentSpanId || !ids.has(item.parentSpanId)),
+    };
+  }
+
+  test("orders children under parents and reports facts", () => {
+    const parent = span({ spanId: "bbbbbbbbbbbbbbbb", name: "GET /health", kind: "client", startUnixNano: 0, endUnixNano: 12_000_000, seq: 1 });
+    const child = span({ spanId: "cccccccccccccccc", name: "render", kind: "internal", parentSpanId: parent.spanId, startUnixNano: 1_000_000, endUnixNano: 9_000_000, seq: 2, status: { code: "error" } });
+    const sibling = span({ spanId: "dddddddddddddddd", name: "proxy", kind: "server", parentSpanId: parent.spanId, startUnixNano: 2_000_000, endUnixNano: 6_000_000, seq: 3, resource: { "service.name": "proxy" } });
+    const rows = orderTraceRows(tree([child, sibling, parent]));
+    expect(rows.map((row) => row.span.name)).toEqual(["GET /health", "render", "proxy"]);
+    expect(rows.map((row) => row.depth)).toEqual([0, 1, 1]);
+    const facts = traceFacts(tree([child, sibling, parent]));
+    expect(facts.spanCount).toBe(3);
+    expect(facts.serviceCount).toBe(2);
+    expect(facts.errorCount).toBe(1);
+    expect(facts.durationMs).toBe(12);
+  });
+
+  test("trace rows keep cyclic and inverted spans instead of dropping them", () => {
+    const a = span({ spanId: "bbbbbbbbbbbbbbbb", name: "cycle-a", parentSpanId: "cccccccccccccccc", startUnixNano: 0, endUnixNano: 4_000_000, seq: 1 });
+    const b = span({ spanId: "cccccccccccccccc", name: "cycle-b", parentSpanId: "bbbbbbbbbbbbbbbb", startUnixNano: 1_000_000, endUnixNano: 3_000_000, seq: 2 });
+    const inverted = span({ spanId: "dddddddddddddddd", name: "flipped", startUnixNano: 9_000_000, endUnixNano: 1_000_000, seq: 3 });
+    const rows = orderTraceRows(tree([a, b, inverted]));
+    expect(rows.map((row) => row.span.name).sort()).toEqual(["cycle-a", "cycle-b", "flipped"]);
+    expect(traceFacts(tree([inverted])).durationMs).toBe(8);
+  });
+
+  test("waterfall bars map time to columns without overlap or overflow", () => {
+    expect(traceWaterfallBar(0, 1, 8)).toBe("█".repeat(8));
+    expect(traceWaterfallBar(0.5, 0.25, 8)).toBe(`${"░".repeat(4)}${"█".repeat(2)}${"░".repeat(2)}`);
+    expect(traceWaterfallBar(0, 0, 0)).toBe("");
+    const parts = traceWaterfallSegments(0.5, 0.25, 8);
+    expect(parts.lead).toBe("░".repeat(4));
+    expect(parts.fill).toBe("█".repeat(2));
+    expect(parts.trail).toBe("░".repeat(2));
+    expect(parts.lead.length + parts.fill.length + parts.trail.length).toBe(8);
+    const left = spanBarColumns(0, 0.5, 8);
+    const right = spanBarColumns(0.5, 0.5, 8);
+    expect(left).toEqual({ start: 0, end: 4 });
+    expect(right).toEqual({ start: 4, end: 8 });
+    const overflow = spanBarColumns(0.9, 0.3, 10);
+    expect(overflow.start).toBeGreaterThanOrEqual(0);
+    expect(overflow.end).toBe(10);
+    expect(overflow.end - overflow.start).toBeGreaterThanOrEqual(1);
+    const late = span({ spanId: "bbbbbbbbbbbbbbbb", name: "late", startUnixNano: 8_000_000, endUnixNano: 12_000_000 });
+    const latePlace = spanBarPlacement(late, 0, 12_000_000);
+    expect(latePlace.offset).toBeCloseTo(8 / 12);
+    expect(latePlace.width).toBeCloseTo(4 / 12);
+    const clipped = span({ spanId: "bbbbbbbbbbbbbbbb", name: "over", startUnixNano: 9_000_000, endUnixNano: 14_000_000 });
+    const clippedPlace = spanBarPlacement(clipped, 0, 10_000_000);
+    expect(clippedPlace.offset).toBeCloseTo(0.9);
+    expect(clippedPlace.width).toBeCloseTo(0.1);
+    const flipped = span({ spanId: "cccccccccccccccc", name: "flip", startUnixNano: 8_000_000, endUnixNano: 2_000_000 });
+    const flippedPlace = spanBarPlacement(flipped, 0, 10_000_000);
+    expect(flippedPlace.offset).toBeCloseTo(0.2);
+    expect(flippedPlace.width).toBeCloseTo(0.6);
+  });
+
+  test("axis sits on the bar column and row widths fill the pane", () => {
+    expect(formatSpanDuration(0.4)).toBe("0.4ms");
+    expect(formatSpanDuration(12.2)).toBe("12ms");
+    expect(formatSpanDuration(1500)).toBe("1.50s");
+    expect(traceAxisLabel(12, 20).length).toBe(20);
+    expect(traceKindGlyph("client")).toBe("▶");
+    expect(traceTreeCell(1, "server").includes("◀")).toBe(true);
+    expect(traceTreeCell(0, "internal", 4, true).startsWith("▸")).toBe(true);
+    expect(clampTraceSpanIndex(9, 3)).toBe(2);
+    expect(clampTraceSpanIndex(0, 0)).toBe(0);
+    expect(TRACE_SPAN_PAGE).toBe(5);
+    const cols = traceColumnWidths(80);
+    expect(cols.tree + cols.service + cols.name + cols.duration + cols.bar).toBe(80);
+    expect(traceGutterWidth(cols) + cols.bar).toBe(80);
+    const deep = traceColumnWidths(80, 6, 18);
+    expect(deep.tree).toBe(traceTreeWidth(6));
+    expect(deep.tree).toBeGreaterThan(cols.tree);
+    expect(deep.tree + deep.service + deep.name + deep.duration + deep.bar).toBe(80);
+    const head = traceHeaderCells(cols);
+    expect(head.service.trim()).toBe("SERVICE");
+    expect(head.bar.trim()).toBe("TIME");
+  });
+
+  test("trace page layout fills the terminal and keeps chips readable", () => {
+    const size = traceOverlayPreferSize(120, 40);
+    expect(size.w).toBeGreaterThanOrEqual(118);
+    expect(size.h).toBeGreaterThanOrEqual(16);
+    const layout = traceBodyLayout(80, 28);
+    expect(layout.listWidth).toBe(80);
+    expect(layout.listHeight + layout.headerLines).toBe(28);
+    const wide = traceBodyLayout(120, 24);
+    expect(wide.listWidth).toBe(120);
+    expect(wide.listHeight + wide.headerLines).toBe(24);
+    expect(isTraceDoubleClick(2, 1000, 2, 1000 + TRACE_DOUBLE_CLICK_MS)).toBe(true);
+    expect(isTraceDoubleClick(2, 1000, 2, 1000 + TRACE_DOUBLE_CLICK_MS + 1)).toBe(false);
+    expect(isTraceDoubleClick(2, 1000, 3, 1100)).toBe(false);
+    const chips = fitTraceChips(traceSummaryChips({
+      durationMs: 95,
+      spanCount: 15,
+      serviceCount: 4,
+      errorCount: 1,
+      services: ["telemetry", "proxy"],
+      startUnixNano: 0,
+      endUnixNano: 95_000_000,
+    }), 24);
+    expect(chips.length).toBeGreaterThan(0);
+    expect(chips.reduce((sum, chip) => sum + chip.label.length + 2, 0)).toBeLessThanOrEqual(24);
+    expect(traceKindLegend(12).length).toBeLessThanOrEqual(12);
+    expect(TRACE_KIND_LEGEND.includes("server")).toBe(true);
+    expect(traceServicesLine(["telemetry", "proxy"], 10).length).toBeLessThanOrEqual(10);
+    expect(traceMaxDepth([{ span: span({ spanId: "bbbbbbbbbbbbbbbb", name: "root" }), depth: 0 }, { span: span({ spanId: "cccccccccccccccc", name: "child" }), depth: 4 }])).toBe(4);
   });
 });

@@ -62,7 +62,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | `esc` | Back / close overlay. Twice (when nothing else is open) asks to quit |
 | `f` | Focus log search (`g` jumps to latest). Remap with `keybinds.search` |
 | `z` | Expand logs to fill the terminal. `z` or `esc` exits |
-| `w` | Cycle log wrap: clip, unwrap the selected row, or wrap every long line |
+| `w` | Cycle log wrap: wrap every line (default), clip with ellipsis, or unwrap only the selected row |
 | `command+c` / `ctrl+c` | Copy the highlighted selection (drag with the mouse). Remap with `keybinds.copy` |
 | `command+=` / `ctrl+=` (and `-` / `0`) | Display size (padding/row height, not the terminal font) |
 | `esc` `esc` | Twice to quit when no overlay or back target is open. The OS copy chord does not quit |
@@ -81,7 +81,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Dashboard** — services, proxy, live log tail. Identity lives on `/auth`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so `j`/`k` scroll. `/reveal` shows secrets. `n`/`x`/`R`/`l`
-- **Logs** — ANSI color codes are stripped so wrap uses visible width; `w` cycles clip / wrap selected / wrap all. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
+- **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. `w` cycles wrap all / clip / wrap selected. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. `n` start / `x` stop
@@ -117,7 +117,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 /filter               toggle ERROR+
 /pause                freeze the live log stream
 /reveal               show or hide secret env values
-/wrap                 cycle log wrap (selected / all / clip)
+/wrap                 cycle log wrap (all / clip / selected)
 /copy                 copy visible logs to the clipboard
 /export [path]        write filtered logs to ~/.devctl/exports (or the given path)
 /exports              open the export folder

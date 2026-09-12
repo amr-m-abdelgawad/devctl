@@ -2,6 +2,7 @@ import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
+import { padClip } from "../helpers/format.ts";
 import { googleProjectDisplay } from "../helpers/identity.ts";
 import { Chip,KeyHints,ScreenFrame } from "../layout.tsx";
 import { stateColor,stateGlyph,type Palette } from "../themes.ts";
@@ -90,7 +91,7 @@ export function SetupScreen(props: {
               <text fg={isSelected ? palette.primary : palette.muted}>{String(index + 1).padStart(2, " ")}</text>
             </box>
             <box width={20} flexShrink={0} overflow="hidden">
-              <text fg={isSelected ? palette.primary : palette.text}>{row.name}</text>
+              <text fg={isSelected ? palette.primary : palette.text}>{padClip(row.name, 20)}</text>
             </box>
             <box flexGrow={1} overflow="hidden">
               <text fg={isSelected ? palette.text : palette.muted} wrapMode="none">

@@ -4,21 +4,10 @@
 
 **One terminal for your local stack.**
 
-Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.
-
-Published on npm as **[`@amr-m-abdelgawad/devctl`](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)**. Node.js is the only prerequisite — the package brings its own official Bun runtime.
-
-> **Disclaimer:** This project is ~90% vibe-coded, so a large portion of the code was AI-generated rather than written manually by me. 😄
->
-> Until `devctl` reaches **v1.0.0**, consider it a work in progress. Reaching **v1.0.0** will mean that I have personally reviewed, tested, and validated the codebase and consider the project stable for general use.
-
-
-```bash
-npx @amr-m-abdelgawad/devctl@latest
-```
+Start services, follow logs, trace requests, and inject cloud auth — from a keyboard-first TUI, the CLI, or an AI agent over MCP.
 
 [![npm](https://img.shields.io/npm/v/%40amr-m-abdelgawad%2Fdevctl?style=flat-square&logo=npm&color=cb3837&label=npm)](https://www.npmjs.com/package/@amr-m-abdelgawad/devctl)
-[![Socket Badge](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.6.0)](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.6.0)
+[![Socket Badge](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.7.0)](https://badge.socket.dev/npm/package/@amr-m-abdelgawad/devctl/0.7.0)
 [![CI](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml/badge.svg)](https://github.com/amr-m-abdelgawad/devctl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-0d9488?style=flat-square)](LICENSE)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f59e0b?style=flat-square)](https://bun.sh)
@@ -26,15 +15,15 @@ npx @amr-m-abdelgawad/devctl@latest
 [![OpenTUI](https://img.shields.io/badge/TUI-OpenTUI-06b6d4?style=flat-square)](https://opentui.com/docs/)
 
 <p>
-  <a href="#install"><strong>Install</strong></a>
+  <a href="#quick-start"><strong>Quick start</strong></a>
   ·
-  <a href="#try-it">Try the demo</a>
+  <a href="#features">Features</a>
   ·
-  <a href="docs/README.md">Wiki</a>
-  ·
-  <a href="https://github.com/amr-m-abdelgawad/devctl/wiki">GitHub Wiki</a>
+  <a href="docs/README.md">Documentation</a>
   ·
   <a href="docs/mcp.md">MCP</a>
+  ·
+  <a href="examples/demo-platform/README.md">Demo</a>
 </p>
 
 <img width="1470" height="851" alt="devctl TUI — dashboard with services, identity, proxy, and live logs" src="https://github.com/user-attachments/assets/60824954-8d8e-46de-8377-8c250aee555b" />
@@ -43,24 +32,42 @@ npx @amr-m-abdelgawad/devctl@latest
 
 ---
 
-## Why it exists
+## Contents
 
-A multi-service repo usually means five terminals, a forgotten `.env`, and a proxy nobody remembers how to start. `devctl` reads `.devctl/` and runs the whole environment as one session.
+- [Why devctl](#why-devctl)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Install](#install)
+- [Set up your repo](#set-up-your-repo)
+- [Architecture](#architecture)
+- [Documentation](#documentation)
+- [Security model](#security-model)
+- [Project status](#project-status)
 
-**What's different**
+---
+
+## Why devctl
+
+A multi-service repo usually means five terminals, a forgotten `.env`, and a proxy nobody remembers how to start. `devctl` reads `.devctl/` and runs the whole environment as one session — and nothing in the app knows your services by name. **You add YAML, not code.**
+
+What sets it apart:
 
 - **Runs your real services, not images.** `npm`, `uv`, `python` start as native host processes — fast reloads, a debugger you can attach directly, no Dockerfile — with Docker/Podman services opt-in when a dependency needs them.
-- **Handles the auth you'd otherwise hand-roll.** A loopback proxy mints and injects Google / IAP tokens on both HTTP and gRPC, so local code reaches IAP-protected backends with no token logic of its own. Tokens never touch the logs.
+- **Handles the cloud auth you'd otherwise hand-roll.** A loopback proxy mints and injects Google / IAP tokens on both HTTP and gRPC, so local code reaches IAP-protected backends with no token logic of its own. Tokens never touch the logs.
+- **Structured logs and traces, built in.** Every log is an OpenTelemetry-shaped record; an opt-in OTLP receiver and per-request tracing let you follow a request across services — and let an agent debug it.
 - **One session, three ways in.** The TUI, the CLI, and an MCP endpoint for your agent all drive the same supervisor — not three tools that each half-know the state.
 
-Nothing in the app knows your services by name. Add YAML, not code.
+---
 
-| You get | What that means |
-|---------|-----------------|
-| **TUI** | Dashboard, services, logs, identity, credentials, proxy, doctor, settings |
+## Features
+
+| Surface | What you get |
+|---------|--------------|
+| **TUI** | Dashboard, services, logs, traces, identity, credentials, proxy, doctor, settings |
 | **CLI** | Start/stop, tasks, service-context exec, logs, Doctor, config provenance |
-| **MCP** | Localhost URL so Claude, Cursor, Codex, or Kilo can operate the stack |
-| **Proxy** | Loopback routes that inject Google / IAP tokens — bind `127.0.0.1` only |
+| **MCP** | Localhost endpoint so Claude, Cursor, Codex, or Kilo can operate and debug the stack |
+| **Proxy** | Loopback routes that inject Google / IAP tokens over HTTP and gRPC — bind `127.0.0.1` only |
+| **Telemetry** | OpenTelemetry-shaped logs, request traces, and an opt-in loopback OTLP receiver |
 | **Runtime** | Host processes plus opt-in Docker/Podman services, hooks, and health-gated dependencies |
 | **Plugins** | Versioned SDK and a generic OIDC client-credentials reference provider |
 | **Doctor** | Ports, containers, tools, ADC, impersonation — reported, never auto-enabled |
@@ -69,7 +76,7 @@ Google Cloud is optional. The [demo platform](examples/demo-platform/README.md) 
 
 ---
 
-## Try it
+## Quick start
 
 Node.js 18 or later. The npm package installs its own Bun runtime; no `gcloud` is needed for the local demo.
 
@@ -87,14 +94,14 @@ Profiles: `minimal` · `backend` · `full` (includes the React console on [local
 
 ## Install
 
-For regular use, install the public npm package globally. Node.js is the only prerequisite; devctl installs an official Bun runtime inside its package.
+Node.js is the only prerequisite — devctl bundles an official Bun runtime inside its npm package. For regular use, install it globally:
 
 ```bash
 npm install --global @amr-m-abdelgawad/devctl
 devctl version
 ```
 
-Try it without a global install:
+Or run it without installing:
 
 ```bash
 npx @amr-m-abdelgawad/devctl@latest
@@ -106,7 +113,7 @@ Unsigned standalone binaries and the repository's Homebrew formula remain availa
 
 ---
 
-## Your repo, 60 seconds
+## Set up your repo
 
 ```bash
 cd your-repo
@@ -120,11 +127,11 @@ devctl
 3. Empty dashboard: `enter` starts the first profile (alphabetically).
 4. Leave the TUI and keep working: `devctl start --profile backend` then `devctl attach`. The daemon already outlives `start`; `--detach` is deprecated and does nothing.
 
-TUI prefs: `~/.devctl/tui.json` or `DEVCTL_TUI_CONFIG`. Built on [OpenTUI](https://opentui.com/docs/).
+TUI prefs live in `~/.devctl/tui.json` or `DEVCTL_TUI_CONFIG`. Built on [OpenTUI](https://opentui.com/docs/).
 
 ---
 
-## How the pieces fit
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -133,36 +140,49 @@ flowchart LR
   MCP["MCP · 127.0.0.1"] --> Supervisor
   Supervisor --> Runtime["Host processes + containers"]
   Supervisor --> Proxy
-  Supervisor --> Logs
+  Supervisor --> Logs["Logs + traces"]
 ```
 
-The **supervisor** owns host processes, optional Docker/Podman containers, the proxy, the log buffer, and `~/.devctl/state/<repo>/`. The TUI is a client. Agents talk HTTP to the same process — a stdio child of the TUI would die on quit. Default MCP is **off**. See [how it fits together](docs/overview.md).
+The **supervisor** owns host processes, optional Docker/Podman containers, the proxy, the log and trace buffers, and `~/.devctl/state/<repo>/`. The TUI is a client. Agents talk HTTP to the same process — a stdio child of the TUI would die on quit. MCP is **off by default**. See [how it fits together](docs/overview.md).
 
 ---
 
-## Wiki
+## Documentation
 
 | Start | Use | Configure | Identity |
 |-------|-----|-----------|----------|
 | [Overview](docs/overview.md) | [TUI](docs/tui.md) | [Configuration](docs/configuration.md) | [Auth](docs/authentication.md) |
 | [Install](docs/installation.md) | [CLI](docs/cli.md) | [Services](docs/services.md) | [Impersonation](docs/impersonation.md) |
 | [Quick start](docs/quickstart.md) | [MCP](docs/mcp.md) | [Profiles](docs/profiles.md) | [IAP](docs/iap.md) |
-| [Demo](examples/demo-platform/README.md) · [Skills](skills/README.md) | [Logs](docs/logs.md) · [Doctor](docs/doctor.md) · [Troubleshooting](docs/troubleshooting.md) | [Environment](docs/environment.md) · [Plugins](docs/plugins.md) | [Security](docs/security.md) |
+| [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Telemetry](docs/telemetry.md) | [Environment](docs/environment.md) | [Proxy](docs/proxy.md) |
+| [Agent skills](skills/README.md) | [Doctor](docs/doctor.md) · [Troubleshooting](docs/troubleshooting.md) | [Plugins](docs/plugins.md) | [Security](docs/security.md) |
+
+The full documentation site is also published as a [GitHub Wiki](https://github.com/amr-m-abdelgawad/devctl/wiki).
 
 ---
 
-## Ground rules
+## Security model
 
-- No hard-coded services, ports, profiles, or service accounts
-- User identity and service identity are never silently swapped
-- Tokens stay out of the TUI, logs, and MCP output
-- Proxy, token endpoint, and MCP bind **127.0.0.1** only
-- Local services run with zero Google Cloud
+- No hard-coded services, ports, profiles, or service accounts.
+- User identity and service identity are never silently swapped.
+- Tokens stay out of the TUI, logs, traces, and MCP output.
+- Proxy, token endpoint, OTLP receiver, and MCP bind **`127.0.0.1`** only; MCP and the OTLP receiver are **off by default**.
+- Local services run with zero Google Cloud.
+
+See [Security](docs/security.md) for the full model.
+
+---
+
+## Project status
+
+devctl is pre-1.0 and under active development. A large portion of the codebase is AI-generated ("vibe-coded") rather than hand-written, so treat it as a work in progress. Reaching **v1.0.0** will mean the codebase has been personally reviewed, tested, and validated, and the project is considered stable for general use.
+
+Issues and contributions are welcome — see [Contributing](CONTRIBUTING.md).
 
 ---
 
 <div align="center">
 
-[MIT](LICENSE) © 2026 Amr MOUSA · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+[MIT](LICENSE) © 2026 Amr MOUSA · [Contributing](CONTRIBUTING.md) · [Security policy](SECURITY.md)
 
 </div>

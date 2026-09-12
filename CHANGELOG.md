@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-12
+
+### Added
+
+- OpenTelemetry-aligned telemetry. Logs are now OTel-shaped records — body, attributes, `severityNumber`/`severityText`, optional `traceId`/`spanId`, and a `resource` — instead of a flat message. Structured JSON from pino, bunyan, zap, logrus, structlog, ECS, GELF, and OTLP-shaped lines is mapped into body + attributes + severity + ids; a leading timestamp before the JSON is stripped and retried; and an unrecognized JSON object renders as a `key=value` summary rather than raw braces. See [Telemetry](docs/telemetry.md).
+- Opt-in OTLP/HTTP+JSON receiver (`telemetry.otlp`, off by default, loopback-only, default port `4318`). Accepts `POST /v1/logs` and `/v1/traces`; when enabled, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL=http/json`, and `OTEL_SERVICE_NAME` are injected into managed host processes (containers and any value you set yourself are left alone). The listen port is validated against the proxy, token-endpoint, and gRPC-route ports.
+- Request tracing. The proxy (HTTP and gRPC) emits one span per request — method, route, status, duration, identity — and propagates a `traceparent` plus `X-Devctl-Request-ID`, so a service's own OTLP spans and logs join the request's trace. An in-memory span store correlates spans and logs by trace id and resolves a request id to its trace.
+- TUI. The log details overlay shows an attributes table, severity, and `traceId`/`spanId`; a `◎` marker flags rows that have a trace; and a full-width Trace waterfall overlay renders the span tree (Enter or double-click a span opens its logs).
+- CLI. `devctl logs` gains `--trace <id>` (span tree plus correlated logs), `--request-id`, `--attribute key=value`, and `--json` (JSONL records).
+- MCP. New `get_trace`, `trace_request`, `get_requests`, and `recent_errors` tools; `get_logs` gains `trace_id`, `request_id`, and `attribute` filters and returns body/attributes/severity. All output is redacted.
+- Docs. New [Telemetry](docs/telemetry.md) page; Logs, MCP, Proxy, and Configuration updated for the record model, the receiver, and the trace tools.
+
+### Changed
+
+- Log persistence is now JSONL (one OTel record per line) instead of space-delimited text, so reload is lossless (attributes, ids, severity). The format is detected per session directory, and older space-delimited sessions still load.
+- Secret redaction now walks nested `body`/`attributes`, span events, and span status messages, and runs at ingestion — so nothing unredacted reaches the TUI, CLI, MCP, or the on-disk log files.
+- The demo platform's `telemetry` service now cycles the awkward JSON shapes the parser accepts (no severity, no message key, GELF, prefixed JSON, access logs, nested secrets), posts OTLP/HTTP+JSON logs and traces, and probes the proxy with a W3C `traceparent` so the Logs ◎ marker, attributes table, Trace overlay, and Proxy request traces have live data. `telemetry.otlp` is enabled on `127.0.0.1:18418`.
+
+### Fixed
+
+- Log list headlines no longer clip at the pane edge. Messages wrap to the column using OpenTUI word wrap, clip mode uses ellipsis, and wrapping every line is the default.
+- The trace overlay waterfall uses the full width. Enter or double-click a span opens its logs overlay; `esc` returns to the timeline.
+- Table columns keep a one-character gutter, so a value that fills its cell no longer runs into the next column.
+- Trace waterfall bars use a muted track for unused time; only the solid block is the span. Proxy request spans start at request begin (the recorded timestamp is completion), so they line up with OTLP spans.
+- OTLP severity decoding keeps valid OTLP severity numbers (e.g. 10/`INFO2`, 20/`ERROR4`) and enum-name strings (`SEVERITY_NUMBER_ERROR`) instead of remapping them through pino's numeric convention, which had turned some OTLP levels into TRACE/DEBUG or UNKNOWN and could disagree with the shown severity text.
+- A JSON log carrying a top-level `body` field is no longer dropped for non-OTLP records; its value is used as the message.
+- OTLP body and attribute strings are length-capped like the stdout lane, and int64 attribute values beyond `Number.MAX_SAFE_INTEGER` are preserved as strings rather than silently rounded.
+- Proxy spans always carry valid W3C ids, and a bare `X-Devctl-Request-ID` is no longer adopted as a trace id (only a real `traceparent` sets one), so unrelated requests are not merged into one trace.
+
 ## [0.6.0] - 2026-09-11
 
 ### Added
@@ -356,7 +385,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.0...v0.4.1

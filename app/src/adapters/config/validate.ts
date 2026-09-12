@@ -67,6 +67,7 @@ export function validate(cfg: DevctlConfig): string[] {
   issues.push(...validateCycles(cfg));
   issues.push(...validateProfiles(cfg));
   issues.push(...validateProxy(cfg));
+  issues.push(...validateTelemetry(cfg));
   for (const [index, plugin] of cfg.plugins.entries()) {
     if (plugin.path === "") issues.push(`plugins.${index}.path is required`);
     else {
@@ -450,6 +451,34 @@ function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[]
   const identType = auth.identity.type.toLowerCase();
   if (identType === "service" || identType === "service_account") {
     issues.push(`${prefix}.auth.client_id is only valid with identity.type user`);
+  }
+  return issues;
+}
+
+function validateTelemetry(cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  const host = cfg.telemetry.otlp.listen.host || LOCALHOST;
+  if (!isLoopbackBindHost(host)) {
+    issues.push("telemetry.otlp.listen.host must be a loopback address");
+  }
+  const port = cfg.telemetry.otlp.listen.port;
+  if (port !== 0 && (port < MIN_PORT || port > MAX_PORT)) {
+    issues.push("telemetry.otlp.listen.port is invalid");
+  }
+  // Reject a collision with any other loopback listener at config time rather
+  // than surfacing it as an EADDRINUSE bind failure at startup.
+  if (port !== 0) {
+    if (cfg.proxy.listen.port === port) {
+      issues.push("telemetry.otlp.listen.port must differ from proxy.listen.port");
+    }
+    if (cfg.proxy.token_endpoint.enabled && cfg.proxy.token_endpoint.port === port) {
+      issues.push("telemetry.otlp.listen.port must differ from proxy.token_endpoint.port");
+    }
+    cfg.proxy.routes.forEach((route, i) => {
+      if (isGrpcRoute(route) && route.listen && route.listen.port === port) {
+        issues.push(`telemetry.otlp.listen.port must differ from proxy.routes[${i}].listen.port`);
+      }
+    });
   }
   return issues;
 }

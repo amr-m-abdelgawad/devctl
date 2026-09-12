@@ -18,7 +18,7 @@ import { McpCoordinator } from "./mcp-coordinator.ts";
 import { ProxyCoordinator } from "./proxy-coordinator.ts";
 import { ResourceSampler } from "./resource-sampler.ts";
 import { buildSnapshot, formatStatusFromSnapshot, type SnapshotHost } from "./snapshot.ts";
-import { asStringArray, asStringRecord, isRecord } from "../rpc/params.ts";
+import { asLogFilter, asStringArray, asStringRecord, isRecord } from "../rpc/params.ts";
 import { RpcServer } from "../rpc/server.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
 import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
@@ -38,7 +38,9 @@ import { type GoogleStatus } from "../google/google.ts";
 import type { HealthCheckerFactory } from "../../ports/health-checker.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { SpanStore } from "../../ports/span-store.ts";
 import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../domain/logs/logs.ts";
+import { isTraceId } from "../../domain/logs/ids.ts";
 import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
@@ -59,8 +61,10 @@ import {
   type ServiceState,
 } from "../../domain/service/services.ts";
 import { randomSecret, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { SpanManager } from "../storage/spans.ts";
+import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import type { TokenManager } from "../google/token.ts";
-import type { LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../../domain/status.ts";
+import type { LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 export class Supervisor {
@@ -69,11 +73,13 @@ export class Supervisor {
   private readonly internalTok: string;
   private readonly bus: Bus;
   private readonly logs: LogStore;
+  private readonly spans: SpanStore;
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
   private readonly detector: Detector;
   private readonly env: EnvironmentBridge;
   private readonly proxy: ProxyCoordinator;
+  private readonly telemetry: TelemetryCoordinator;
   private readonly mcp: McpCoordinator;
   private readonly resources: ResourceSampler;
   private readonly runtimes = new Map<string, Runtime>();
@@ -145,14 +151,22 @@ export class Supervisor {
     this.unlinkSocketFn = deps.unlinkSocket;
     this.detector = deps.detector;
     this.logs = deps.logs;
+    this.spans = new SpanManager(undefined, this.detector);
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;
     this.tokens = deps.tokens;
+    this.telemetry = new TelemetryCoordinator({
+      cfg: () => this.cfg,
+      logs: this.logs,
+      spans: this.spans,
+      log: (service, level, message) => this.log(service, level, message),
+    });
     this.proxy = new ProxyCoordinator({
       cfg: () => this.cfg,
       ports: () => this.ports,
       tokens: this.tokens,
       logs: this.logs,
+      spans: this.spans,
       bus: this.bus,
       detector: this.detector,
       internalTok: () => this.internalTok,
@@ -169,6 +183,7 @@ export class Supervisor {
       internalTok: () => this.internalTok,
       tokens: this.tokens,
       environmentSources: () => this.registry?.environmentSources,
+      otlpEndpoint: () => this.telemetry.endpoint(),
     });
     this.mcp = new McpCoordinator({
       repoRoot: () => this.cfg.repoRoot,
@@ -345,6 +360,7 @@ export class Supervisor {
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
     void this.refreshIdentity();
     this.resources.start();
+    await this.telemetry.start();
     await this.mcp.bootFromPreferences();
     // Lazy, sticky proxy policy: startup never binds it. The first start()
     // call auto-starts it (see start() below) unless the user has
@@ -395,38 +411,22 @@ export class Supervisor {
         return this.snapshot();
       case "logs":
         return await this.queryLogs({
-          services: asStringArray(rec.services),
-          level: typeof rec.level === "string" ? rec.level : "",
-          search: typeof rec.search === "string" ? rec.search : "",
-          regex: rec.regex === true,
-          source: typeof rec.source === "string" ? rec.source : "",
-          since: typeof rec.since === "string" ? rec.since : "",
-          until: typeof rec.until === "string" ? rec.until : "",
+          ...asLogFilter(rec),
           export: typeof rec.export === "string" ? rec.export : "",
         });
       case "logs_page":
         return await this.queryLogsPage({
-          services: asStringArray(rec.services),
-          level: typeof rec.level === "string" ? rec.level : "",
-          search: typeof rec.search === "string" ? rec.search : "",
-          regex: rec.regex === true,
-          source: typeof rec.source === "string" ? rec.source : "",
-          since: typeof rec.since === "string" ? rec.since : "",
-          until: typeof rec.until === "string" ? rec.until : "",
+          ...asLogFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           direction: rec.direction === "forward" ? "forward" : "backward",
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
         });
       case "logs_stats":
-        return await this.queryLogsFacets({
-          services: asStringArray(rec.services),
-          level: typeof rec.level === "string" ? rec.level : "",
-          search: typeof rec.search === "string" ? rec.search : "",
-          regex: rec.regex === true,
-          source: typeof rec.source === "string" ? rec.source : "",
-          since: typeof rec.since === "string" ? rec.since : "",
-          until: typeof rec.until === "string" ? rec.until : "",
-        });
+        return await this.queryLogsFacets(asLogFilter(rec));
+      case "get_trace":
+        return await this.queryTrace(typeof rec.trace_id === "string" ? rec.trace_id : typeof rec.traceId === "string" ? rec.traceId : "");
+      case "trace_request":
+        return await this.queryTraceByRequest(typeof rec.request_id === "string" ? rec.request_id : typeof rec.requestId === "string" ? rec.requestId : "");
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
         // itself is also called from start() and reload(), which must not
@@ -709,6 +709,8 @@ export class Supervisor {
       runTask: (name) => this.runTask(name, {}),
       startProxy: () => this.startProxy(),
       stopProxy: () => this.stopProxy(),
+      getTrace: (traceId) => this.queryTrace(traceId),
+      traceRequest: (requestId) => this.queryTraceByRequest(requestId),
     };
   }
 
@@ -733,6 +735,8 @@ export class Supervisor {
     }
     this.orchestrator.health.dispose();
     await this.stopProxy();
+    await this.telemetry.stop();
+    this.spans.close();
     await this.stopMcp();
     this.configWatcher?.close();
     this.serviceWatchers.close();
@@ -754,25 +758,10 @@ export class Supervisor {
   }
 
   async queryLogs(req: LogsRequest): Promise<{ events: LogEvent[] }> {
-    const events = await this.logs.query({
-      services: req.services,
-      level: req.level,
-      search: req.search,
-      regex: req.regex,
-      source: req.source,
-      since: req.since,
-      until: req.until,
-    });
+    const filter = this.logFilter(req);
+    const events = await this.logs.query(filter);
     if (req.export) {
-      await this.logs.exportTo(req.export, {
-        services: req.services,
-        level: req.level,
-        search: req.search,
-        regex: req.regex,
-        source: req.source,
-        since: req.since,
-        until: req.until,
-      });
+      await this.logs.exportTo(req.export, filter);
     }
     return { events };
   }
@@ -782,22 +771,28 @@ export class Supervisor {
   // one at a time; queryLogs()/the plain "logs" RPC still returns everything
   // matching, unbounded, until every consumer has moved off it.
   async queryLogsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
-    return this.logs.queryPage(
-      {
-        services: req.services,
-        level: req.level,
-        search: req.search,
-        regex: req.regex,
-        source: req.source,
-        since: req.since,
-        until: req.until,
-      },
-      { cursor: req.cursor, direction: req.direction, limit: req.limit },
-    );
+    return this.logs.queryPage(this.logFilter(req), { cursor: req.cursor, direction: req.direction, limit: req.limit });
   }
 
   async queryLogsFacets(req: LogFilter): Promise<LogFacets> {
-    return this.logs.queryFacets({
+    return this.logs.queryFacets(this.logFilter(req));
+  }
+
+  async queryTrace(traceId: string): Promise<TraceResponse> {
+    const tree = this.spans.getTrace(traceId);
+    const events = traceId === "" ? [] : await this.logs.query({ traceId });
+    return { traceId, tree, events };
+  }
+
+  async queryTraceByRequest(requestId: string): Promise<TraceResponse> {
+    const mapped = this.spans.findTraceIdByRequestId(requestId);
+    const traceId = mapped ?? (isTraceId(requestId) ? requestId.toLowerCase() : "");
+    const result = await this.queryTrace(traceId);
+    return { ...result, requestId };
+  }
+
+  private logFilter(req: LogFilter | LogsRequest): LogFilter {
+    return {
       services: req.services,
       level: req.level,
       search: req.search,
@@ -805,7 +800,10 @@ export class Supervisor {
       source: req.source,
       since: req.since,
       until: req.until,
-    });
+      traceId: req.traceId,
+      requestId: req.requestId,
+      attribute: req.attribute,
+    };
   }
 
   subscribe(handler: (event: import("../../shared/events.ts").BusEvent) => void): () => void {

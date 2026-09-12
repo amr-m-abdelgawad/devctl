@@ -7,7 +7,7 @@ import type { Plan } from "../domain/service/services.ts";
 import type { LogEvent, LogFilter, LogPageRequest, LogPage, LogFacets } from "../domain/logs/logs.ts";
 import type { PortHolder } from "../domain/net/ports.ts";
 import type { BusEvent } from "../shared/events.ts";
-import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
+import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../domain/status.ts";
 import type { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "./commands.ts";
 import type { Report } from "../domain/doctor/types.ts";
 import type { UpdateCheck } from "../domain/update.ts";
@@ -36,6 +36,8 @@ export type Controller = {
   logs(req: LogsRequest): Promise<LogEvent[]>;
   logsPage(req: LogFilter & LogPageRequest): Promise<LogPage>;
   logsStats(req: LogFilter): Promise<LogFacets>;
+  getTrace(traceId: string): Promise<TraceResponse>;
+  traceRequest(requestId: string): Promise<TraceResponse>;
   proxyStart(): Promise<void>;
   proxyStop(): Promise<void>;
   mcpStart(opts?: { port?: number }): Promise<void>;

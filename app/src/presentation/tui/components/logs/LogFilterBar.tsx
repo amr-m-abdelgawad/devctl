@@ -1,4 +1,4 @@
-import { type LogEvent, type LogFacets } from "../../../../domain/logs/logs.ts";
+import { type LogRecord, type LogFacets } from "../../../../domain/logs/logs.ts";
 import { facetFilterCatalog, logFilterCatalog } from "../../helpers/logs.ts";
 import { tabChipWidth } from "../../helpers/navigation.ts";
 import { Chip, TabStrip, Toolbar } from "../../layout.tsx";
@@ -6,7 +6,7 @@ import { serviceColor, type Palette } from "../../themes.ts";
 
 export function LogFilterBar(props: {
   palette: Palette;
-  logs: LogEvent[];
+  logs: LogRecord[];
   names: string[];
   service: string;
   errorOnly: boolean;

@@ -228,6 +228,8 @@ export function useAppKeyboard({
     if (handleOverlayKey({
       ...ui, tui, confirmAction, planBusy, leaderTimer,
       logDetailsScrollRef: refs.logDetailsScrollRef,
+      traceScrollRef: refs.traceScrollRef,
+      traceDetailScrollRef: refs.traceDetailScrollRef,
       scrollTextScrollRef: refs.scrollTextScrollRef,
       routeDetailsScrollRef: refs.routeDetailsScrollRef,
       planScrollRef: refs.planScrollRef,

@@ -1,6 +1,7 @@
 import { isAbsolute, join } from "node:path";
 import type { DevctlConfig, ServiceConfig } from "../../domain/config/types.ts";
 import { listenAddress } from "../config/index.ts";
+import { applyOtelExporterEnv } from "../../domain/telemetry/otel-env.ts";
 import { envList, resolveEnvironment, runtimeForService, type EnvironmentSource } from "../environment/environment.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { TokenManager } from "../google/token.ts";
@@ -18,6 +19,7 @@ export type EnvironmentBridgeDeps = {
   internalTok: () => string;
   tokens: TokenManager;
   environmentSources: () => EnvironmentSource[] | undefined;
+  otlpEndpoint: () => string;
 };
 
 export class EnvironmentBridge {
@@ -94,7 +96,11 @@ export class EnvironmentBridge {
       includeProcess,
     });
     const workDir = svc.working_dir && !isAbsolute(svc.working_dir) ? join(cfg.repoRoot, svc.working_dir) : svc.working_dir;
-    return { env: envList(resolved), workDir };
+    const env = envList(resolved);
+    if (!svc.container) {
+      applyOtelExporterEnv(env, name, this.deps.otlpEndpoint());
+    }
+    return { env, workDir };
   }
 
   async resolveTaskEnvironment(

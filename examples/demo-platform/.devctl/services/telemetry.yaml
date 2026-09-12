@@ -1,4 +1,4 @@
-description: Telemetry agent — emits structured JSON-per-line logs for the Logs screen
+description: Telemetry agent — cycles awkward JSON log shapes, OTLP/HTTP, and W3C traces for the Logs and Trace screens
 command:
   - python3
   - main.py

@@ -1,4 +1,5 @@
 import { useDensity } from "../density.tsx";
+import { padClip } from "../helpers/format.ts";
 import { Chip, KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from "../layout.tsx";
 import { agentColor, onAgentColor, type Palette } from "../themes.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
@@ -261,12 +262,12 @@ function ControlRow(props: {
       </box>
       <box width={LABEL_WIDTH} flexShrink={0} overflow="hidden">
         <text fg={active ? palette.primary : palette.text} wrapMode="none">
-          {label}
+          {padClip(label, LABEL_WIDTH)}
         </text>
       </box>
       <box width={VALUE_WIDTH} flexShrink={0} overflow="hidden">
         <text fg={valueFg} wrapMode="none">
-          {value}
+          {padClip(value, VALUE_WIDTH)}
         </text>
       </box>
       <box flexGrow={1} overflow="hidden">
@@ -303,7 +304,7 @@ function SnippetRow(props: {
       </box>
       <box width={LABEL_WIDTH} flexShrink={0} overflow="hidden">
         <text fg={brand} wrapMode="none">
-          {snippet.title}
+          {padClip(snippet.title, LABEL_WIDTH)}
         </text>
       </box>
       <box flexGrow={1} overflow="hidden">
@@ -362,12 +363,12 @@ function ToolRow(props: {
       </box>
       <box width={LABEL_WIDTH + 4} flexShrink={0} overflow="hidden">
         <text fg={active ? palette.primary : enabled ? palette.text : palette.muted} wrapMode="none">
-          {tool.label}
+          {padClip(tool.label, LABEL_WIDTH + 4)}
         </text>
       </box>
       <box width={7} flexShrink={0} overflow="hidden">
         <text fg={tool.mutates ? palette.warning : palette.muted} wrapMode="none">
-          {tool.mutates ? "write" : "read"}
+          {padClip(tool.mutates ? "write" : "read", 7)}
         </text>
       </box>
       <box flexGrow={1} overflow="hidden">

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { followLogs } from "./cli.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
-import { type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
+import { formatBodySummary, logRecord, type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
 import { killRepoSupervisor, processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
 
 function tmp(): string {
@@ -294,7 +294,7 @@ describe("devctl status --watch piped into a reader that closes early", () => {
 });
 
 function fakeLogEvent(message: string): LogEvent {
-  return { timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message, pid: 1, seq: 1 };
+  return logRecord({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message, pid: 1, seq: 1 });
 }
 
 function fakePage(events: LogEvent[], nextCursor: string, prevCursor = ""): LogPage {
@@ -332,7 +332,7 @@ describe("followLogs", () => {
       }
       throw new Error(`fetchPage should not be called a 4th time (cursor=${cursor})`);
     };
-    await followLogs(fetchPage, (ev) => printed.push(ev.message), abort.signal, 1);
+    await followLogs(fetchPage, (ev) => printed.push(formatBodySummary(ev)), abort.signal, 1);
     expect(printed).toEqual(["one", "two", "three"]);
     expect(call).toBe(3);
   });

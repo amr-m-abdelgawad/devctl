@@ -66,7 +66,11 @@ devctl mcp --json
 | `list_services` | inspect | Name, state, health, ports, pid, last error |
 | `get_service` | inspect | One service plus command/cwd/ports (env redacted or left as `${…}` refs) |
 | `get_status` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
-| `get_logs` | logs | Filtered logs, capped at 200 events per page, secrets redacted. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
+| `get_logs` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
+| `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |
+| `trace_request` | logs | Resolve a proxy `X-Devctl-Request-ID` to its trace, then return the span tree and correlated logs |
+| `get_requests` | logs | The proxy's recent requests — method, route, status, duration, identity, and request/trace ids |
+| `recent_errors` | logs | The latest error and fatal log records, capped at 200, same paging as `get_logs` |
 | `list_profiles` | inspect | Config profiles and members |
 | `get_config` | inspect | Merged summary: project, services, routes, proxy paths |
 | `get_config_sources` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |

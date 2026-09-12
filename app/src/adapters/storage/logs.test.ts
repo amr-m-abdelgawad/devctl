@@ -9,13 +9,20 @@ import {
   DEFAULT_LOG_PAGE_SIZE,
   defaultExportPath,
   defaultLogParser,
+  isJsonlSessionDir,
+  loadSessionEvents,
   LogManager,
   MAX_JSON_LOG_BYTES,
   MAX_LOG_LINE_CHARS,
   MAX_LOG_PAGE_SIZE,
   matchLog,
   createLogMatcher,
+  logMessage,
+  logRecord,
   parseJSONLogLine,
+  REQUEST_ID_ATTR,
+  SeverityError,
+  SeverityWarn,
   pruneSessions,
   resolveExportPath,
   writeLogExport,
@@ -42,7 +49,7 @@ describe("LogManager persistence", () => {
       });
     }
 
-    expect(mgr.query({}).map((event) => event.message)).toEqual(["line 3", "line 4", "line 5"]);
+    expect(mgr.query({}).map((event) => logMessage(event))).toEqual(["line 3", "line 4", "line 5"]);
     expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 } });
   });
 
@@ -57,8 +64,8 @@ describe("LogManager persistence", () => {
       pid: 1,
     });
     const stored = mgr.query({})[0];
-    expect(stored?.message).toHaveLength(MAX_LOG_LINE_CHARS);
-    expect(stored?.message).toBe("a".repeat(MAX_LOG_LINE_CHARS));
+    expect(logMessage(stored!)).toHaveLength(MAX_LOG_LINE_CHARS);
+    expect(logMessage(stored!)).toBe("a".repeat(MAX_LOG_LINE_CHARS));
   });
 
   test("writes redacted lines to the session file", async () => {
@@ -75,11 +82,13 @@ describe("LogManager persistence", () => {
     // Persistence is asynchronous now (no more blocking appendFileSync per
     // line); flush() waits for the write to actually land before we read it back.
     await mgr.flush();
-    const file = join(mgr.sessionDir(), "api.log");
+    const file = join(mgr.sessionDir(), "api.jsonl");
     expect(existsSync(file)).toBe(true);
     const body = readFileSync(file, "utf8");
     expect(body).toContain("********");
     expect(body).not.toContain("super-secret-token");
+    expect(existsSync(join(mgr.sessionDir(), "FORMAT"))).toBe(true);
+    expect(isJsonlSessionDir(mgr.sessionDir())).toBe(true);
   });
 
   test("pruneSessions drops old and over-cap sessions", () => {
@@ -113,15 +122,14 @@ describe("LogManager persistence", () => {
       pid: 1,
     });
     const [ev] = mgr.query({});
-    expect(ev?.message).toBe("db connection refused");
-    expect(ev?.level).toBe("ERROR");
-    expect(ev?.request_id).toBe("req-42");
+    expect(logMessage(ev!)).toContain("db connection refused");
+    expect(ev?.severityText).toBe("ERROR");
+    expect(ev?.attributes[REQUEST_ID_ATTR]).toBe("req-42");
     expect(ev?.raw).toBe('{"level":"error","msg":"db connection refused","request_id":"req-42"}');
 
-    // the persisted session file keeps the full raw JSON, not the shortened message
     await mgr.flush();
-    const body = readFileSync(join(mgr.sessionDir(), "api.log"), "utf8");
-    expect(body).toContain('"msg":"db connection refused"');
+    const body = readFileSync(join(mgr.sessionDir(), "api.jsonl"), "utf8");
+    expect(body).toContain('"body":"db connection refused"');
   });
 
   test("pino's numeric level convention maps to named levels", () => {
@@ -135,63 +143,65 @@ describe("LogManager persistence", () => {
       message: '{"level":30,"msg":"listening"}',
       pid: 1,
     });
-    expect(mgr.query({})[0]?.level).toBe("INFO");
+    expect(mgr.query({})[0]?.severityText).toBe("INFO");
   });
 
-  test("non-JSON and unrecognized JSON lines pass through unchanged", () => {
+  test("non-JSON lines are not parsed as JSON; unrecognized objects stay structured", () => {
     expect(parseJSONLogLine("plain text line")).toBeUndefined();
     expect(parseJSONLogLine("[1, 2, 3]")).toBeUndefined();
     expect(parseJSONLogLine("{not valid json}")).toBeUndefined();
-    expect(parseJSONLogLine('{"foo":"bar"}')).toBeUndefined();
+    const odd = parseJSONLogLine('{"foo":"bar"}');
+    expect(odd?.body).toEqual({ foo: "bar" });
+    expect(odd?.attributes?.foo).toBe("bar");
   });
 
   test("metric telemetry JSON becomes a readable line instead of a raw blob", () => {
     const line = '{"timestamp":"2026-09-08T19:23:10.000Z","metric_name":"http.server.request.duration","metric_type":"histogram","value":142.5,"unit":"ms","attributes":{"http.method":"POST","http.route":"/api/v1/orders","http.status_code":201}}';
     const parsed = parseJSONLogLine(line);
-    expect(parsed?.message).toBe("http.server.request.duration histogram 142.5 ms POST /api/v1/orders 201");
+    expect(parsed?.body).toBe("http.server.request.duration histogram 142.5 ms POST /api/v1/orders 201");
     expect(parsed?.raw).toBe(line);
   });
 
   test("nginx-style access JSON becomes a readable line", () => {
     const line = '{"time":"2026-09-08T19:23:10+00:00","remote_ip":"192.168.1.50","request_method":"GET","request_uri":"/api/v1/health","status":200,"body_bytes_sent":42,"request_time":0.004}';
     const parsed = parseJSONLogLine(line);
-    expect(parsed?.message).toBe("192.168.1.50 GET /api/v1/health 200 42B 0.004s");
-    expect(parsed?.level).toBeUndefined();
+    expect(parsed?.body).toBe("192.168.1.50 GET /api/v1/health 200 42B 0.004s");
+    expect(parsed?.severityNumber).toBeUndefined();
     expect(parsed?.raw).toBe(line);
   });
 
   test("access logs with 4xx/5xx status map to WARN/ERROR", () => {
-    expect(parseJSONLogLine('{"request_method":"GET","request_uri":"/missing","status":404}')?.level).toBe("WARN");
-    expect(parseJSONLogLine('{"request_method":"GET","request_uri":"/boom","status":502}')?.level).toBe("ERROR");
+    expect(parseJSONLogLine('{"request_method":"GET","request_uri":"/missing","status":404}')?.severityNumber).toBe(SeverityWarn);
+    expect(parseJSONLogLine('{"request_method":"GET","request_uri":"/boom","status":502}')?.severityNumber).toBe(SeverityError);
   });
 
   test("a combined nginx request field still parses", () => {
-    expect(parseJSONLogLine('{"remote_addr":"10.0.0.1","request":"POST /orders HTTP/1.1","status":201}')?.message).toBe(
+    expect(parseJSONLogLine('{"remote_addr":"10.0.0.1","request":"POST /orders HTTP/1.1","status":201}')?.body).toBe(
       "10.0.0.1 POST /orders 201",
     );
   });
 
   test("an application log that also has method/path/status keeps its message", () => {
     const parsed = parseJSONLogLine('{"level":"info","msg":"handled request","method":"GET","path":"/x","status":200}');
-    expect(parsed?.message).toBe("handled request");
-    expect(parsed?.level).toBe("INFO");
+    expect(parsed?.body).toBe("handled request");
+    expect(parsed?.severityText?.toUpperCase()).toBe("INFO");
   });
 
   test("OTLP log records use body.stringValue and keep the full payload as raw", () => {
     const line = '{"timeUnixNano":"1788902590000000000","body":{"stringValue":"HTTP request processed"},"attributes":[{"key":"http.status_code","value":{"intValue":404}},{"key":"http.method","value":{"stringValue":"GET"}},{"key":"url.path","value":{"stringValue":"/missing-page"}}]}';
     const parsed = parseJSONLogLine(line);
-    expect(parsed?.message).toBe("HTTP request processed");
+    expect(parsed?.body).toBe("HTTP request processed");
     expect(parsed?.raw).toBe(line);
   });
 
   test("OTLP records without a body fall back to HTTP attributes", () => {
     const line = '{"timeUnixNano":"1","attributes":[{"key":"http.method","value":{"stringValue":"GET"}},{"key":"url.path","value":{"stringValue":"/missing-page"}},{"key":"http.status_code","value":{"intValue":404}}]}';
-    expect(parseJSONLogLine(line)?.message).toBe("GET /missing-page 404");
-    expect(parseJSONLogLine(line)?.level).toBeUndefined();
+    expect(parseJSONLogLine(line)?.body).toBe("GET /missing-page 404");
+    expect(parseJSONLogLine(line)?.severityNumber).toBeUndefined();
   });
 
   test("matchLog searches the raw JSON payload as well as the extracted message", () => {
-    const ev = {
+    const ev = logRecord({
       timestamp: "2026-08-30T00:00:00.000Z",
       service: "api",
       source: "stdout",
@@ -200,14 +210,14 @@ describe("LogManager persistence", () => {
       raw: '{"level":"error","msg":"db connection refused","host":"pg-primary"}',
       pid: 1,
       seq: 1,
-    };
+    });
     expect(matchLog({ search: "pg-primary" }, ev)).toBe(true);
     expect(matchLog({ search: "connection refused" }, ev)).toBe(true);
     expect(matchLog({ search: "no match here" }, ev)).toBe(false);
   });
 
   test("matchLog filters identity time range and source", () => {
-    const ev = {
+    const ev = logRecord({
       timestamp: "2026-08-30T12:00:00.000Z",
       service: "api",
       source: "proxy",
@@ -216,13 +226,13 @@ describe("LogManager persistence", () => {
       pid: 1,
       identity: "user",
       seq: 1,
-    };
+    });
     expect(matchLog({ source: "proxy", since: "2026-08-30T00:00:00.000Z", until: "2026-08-30T23:00:00.000Z" }, ev)).toBe(true);
     expect(matchLog({ source: "stdout" }, ev)).toBe(false);
     expect(matchLog({ since: "2026-08-31T00:00:00.000Z" }, ev)).toBe(false);
     expect(matchLog({ regex: true, search: "^ok" }, ev)).toBe(true);
     expect(matchLog({ regex: true, search: "^fail" }, ev)).toBe(false);
-    expect(matchLog({ regex: true, search: "(a+)+" }, { ...ev, message: "aaaa" })).toBe(false);
+    expect(matchLog({ regex: true, search: "(a+)+" }, logRecord({ ...ev, message: "aaaa", body: "aaaa" }))).toBe(false);
     expect(createLogMatcher({ regex: true, search: "^ok" })(ev)).toBe(true);
   });
 
@@ -240,7 +250,7 @@ describe("LogManager persistence", () => {
     const over = `{"msg":"${"x".repeat(MAX_JSON_LOG_BYTES)}"}`;
     expect(over.length).toBeGreaterThan(MAX_JSON_LOG_BYTES);
     expect(parseJSONLogLine(over)).toBeUndefined();
-    expect(parseJSONLogLine('{"msg":"ok"}')?.message).toBe("ok");
+    expect(parseJSONLogLine('{"msg":"ok"}')?.body).toBe("ok");
   });
 });
 
@@ -268,7 +278,7 @@ describe("LogManager pagination", () => {
   test("with no cursor, returns the latest page and reports more history behind it", () => {
     const mgr = seeded();
     const page = mgr.queryPage({}, { limit: 5 });
-    expect(page.events.map((ev) => ev.message)).toEqual(["line 6", "line 7", "line 8", "line 9", "line 10"]);
+    expect(page.events.map((ev) => logMessage(ev))).toEqual(["line 6", "line 7", "line 8", "line 9", "line 10"]);
     expect(page.hasPrev).toBe(true);
     expect(page.hasNext).toBe(false);
     expect(page.sessionChanged).toBe(false);
@@ -280,7 +290,7 @@ describe("LogManager pagination", () => {
     const older = mgr.queryPage({}, { cursor: latest.prevCursor, direction: "backward", limit: 5 });
     // line 4 and 5 share line 6's exact timestamp but must still land in the
     // earlier page, not be re-included here or dropped entirely.
-    expect(older.events.map((ev) => ev.message)).toEqual(["line 1", "line 2", "line 3", "line 4", "line 5"]);
+    expect(older.events.map((ev) => logMessage(ev))).toEqual(["line 1", "line 2", "line 3", "line 4", "line 5"]);
     expect(older.hasPrev).toBe(false);
     expect(older.hasNext).toBe(true);
   });
@@ -294,7 +304,7 @@ describe("LogManager pagination", () => {
     // exactly the newer page already fetched — no repeat of line 5, no skip
     // of line 6, despite the tied timestamp straddling the boundary.
     const caughtUp = mgr.queryPage({}, { cursor: older.nextCursor, direction: "forward", limit: 5 });
-    expect(caughtUp.events.map((ev) => ev.message)).toEqual(latest.events.map((ev) => ev.message));
+    expect(caughtUp.events.map((ev) => logMessage(ev))).toEqual(latest.events.map((ev) => logMessage(ev)));
     expect(caughtUp.hasNext).toBe(false);
   });
 
@@ -304,7 +314,7 @@ describe("LogManager pagination", () => {
     const page = restarted.queryPage({}, { cursor: before.nextCursor, direction: "forward", limit: 3 });
     expect(page.sessionChanged).toBe(true);
     // Ignored, not rejected: falls back to the latest page of the new session.
-    expect(page.events.map((ev) => ev.message)).toEqual(["line 8", "line 9", "line 10"]);
+    expect(page.events.map((ev) => logMessage(ev))).toEqual(["line 8", "line 9", "line 10"]);
   });
 
   test("filters apply before pagination, so a page respects them like an unbounded query would", () => {
@@ -320,7 +330,7 @@ describe("LogManager pagination", () => {
       });
     }
     const page = mgr.queryPage({ services: ["api"] }, { limit: 10 });
-    expect(page.events.map((ev) => ev.message)).toEqual(["line 2", "line 4", "line 6"]);
+    expect(page.events.map((ev) => logMessage(ev))).toEqual(["line 2", "line 4", "line 6"]);
     expect(page.hasPrev).toBe(false);
   });
 
@@ -408,8 +418,8 @@ describe("LogManager at scale", () => {
     const page = mgr.queryPage({}, { limit: 500 });
     const elapsed = performance.now() - started;
     expect(page.events).toHaveLength(500);
-    expect(page.events[0]?.message).toBe("line 49500");
-    expect(page.events[499]?.message).toBe("line 49999");
+    expect(logMessage(page.events[0]!)).toBe("line 49500");
+    expect(logMessage(page.events[499]!)).toBe("line 49999");
     expect(page.hasPrev).toBe(true);
     expect(page.hasNext).toBe(false);
     expect(elapsed).toBeLessThan(2000);
@@ -450,7 +460,7 @@ describe("LogManager at scale", () => {
     while (hasPrev) {
       const page = mgr.queryPage({}, { cursor, direction: "backward", limit: 5000 });
       for (const ev of page.events) {
-        const n = Number(ev.message.replace("line ", ""));
+        const n = Number(logMessage(ev).replace("line ", ""));
         expect(seen.has(n)).toBe(false);
         seen.add(n);
       }
@@ -471,7 +481,7 @@ describe("log export paths", () => {
     process.env.DEVCTL_HOME = home;
     try {
       const now = new Date("2026-08-30T12:34:56.789Z");
-      expect(defaultExportPath(now)).toBe(join(home, "exports", "devctl-logs-2026-08-30T12-34-56-789Z.log"));
+      expect(defaultExportPath(now)).toBe(join(home, "exports", "devctl-logs-2026-08-30T12-34-56-789Z.jsonl"));
     } finally {
       if (prev === undefined) {
         delete process.env.DEVCTL_HOME;
@@ -488,7 +498,7 @@ describe("log export paths", () => {
     try {
       const dest = resolveExportPath("");
       expect(dest.startsWith(join(exportsDir(), "devctl-logs-"))).toBe(true);
-      expect(dest.endsWith(".log")).toBe(true);
+      expect(dest.endsWith(".jsonl")).toBe(true);
       expect(resolveExportPath("~/out.log")).toBe(join(homedir(), "out.log"));
       expect(resolveExportPath("out.log")).toBe(join(process.cwd(), "out.log"));
       expect(resolveExportPath("/abs/out.log")).toBe("/abs/out.log");
@@ -502,21 +512,22 @@ describe("log export paths", () => {
   });
 
   test("writeLogExport and exportTo create the parent directory", () => {
-    const dest = join(tmp(), "nested", "out.log");
-    writeLogExport(dest, [
-      {
-        timestamp: "2026-08-30T00:00:00.000Z",
-        service: "api",
-        source: "stdout",
-        level: "INFO",
-        message: "hello",
-        pid: 1,
-        seq: 1,
-      },
-    ]);
-    expect(readFileSync(dest, "utf8")).toBe("2026-08-30T00:00:00.000Z api INFO hello\n");
+    const dest = join(tmp(), "nested", "out.jsonl");
+    const exported = logRecord({
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      level: "INFO",
+      message: "hello",
+      pid: 1,
+      seq: 1,
+    });
+    writeLogExport(dest, [exported]);
+    const written = JSON.parse(readFileSync(dest, "utf8").trim()) as { body: string; service: string };
+    expect(written.body).toBe("hello");
+    expect(written.service).toBe("api");
 
-    const nested = join(tmp(), "also", "nested", "session.log");
+    const nested = join(tmp(), "also", "nested", "session.jsonl");
     const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "export", 0, 0);
     mgr.append({
       timestamp: "2026-08-30T00:00:01.000Z",
@@ -527,6 +538,35 @@ describe("log export paths", () => {
       pid: 2,
     });
     mgr.exportTo(nested, {});
-    expect(readFileSync(nested, "utf8")).toContain("api WARN late");
+    expect(readFileSync(nested, "utf8")).toContain("late");
+  });
+
+  test("JSONL session round-trips attributes and ids; legacy dirs still load", async () => {
+    const dir = tmp();
+    const mgr = new LogManager(100, undefined, new Detector([], []), true, dir, "round", 0, 0);
+    mgr.setParsers([defaultLogParser()]);
+    mgr.append({
+      timestamp: "2026-08-30T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      level: "",
+      message: '{"msg":"hello","trace_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","user":"ada"}',
+      pid: 7,
+    });
+    await mgr.flush();
+    const reloaded = loadSessionEvents(`session-round`, dir);
+    expect(reloaded).toHaveLength(1);
+    expect(logMessage(reloaded[0]!)).toContain("hello");
+    expect(reloaded[0]?.traceId).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    expect(reloaded[0]?.attributes.user).toBe("ada");
+    expect(reloaded[0]?.resource["process.pid"]).toBe(7);
+
+    const legacy = join(dir, "session-old");
+    mkdirSync(legacy);
+    writeFileSync(join(legacy, "api.log"), "2026-08-30T00:00:00.000Z api INFO leftover message\n");
+    const old = loadSessionEvents("session-old", dir);
+    expect(isJsonlSessionDir(legacy)).toBe(false);
+    expect(logMessage(old[0]!)).toBe("leftover message");
+    expect(old[0]?.source).toBe("history");
   });
 });

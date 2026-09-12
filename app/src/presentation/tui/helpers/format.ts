@@ -13,14 +13,16 @@ export function clipText(value: string, max: number): string {
   return `${value.slice(0, max - 1)}…`;
 }
 
+// Column cell: clip to width-1 and keep a trailing space so a value that
+// fills the column does not glue onto the next one.
 export function padClip(value: string, width: number): string {
   if (width <= 0) {
     return "";
   }
-  if (value.length >= width) {
-    return clipText(value, width);
+  if (width === 1) {
+    return clipText(value, 1);
   }
-  return value.padEnd(width);
+  return clipText(value, width - 1).padEnd(width);
 }
 
 // Shared gauge glyph: a block-character bar. Color selection stays at each

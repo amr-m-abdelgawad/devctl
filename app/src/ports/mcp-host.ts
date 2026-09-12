@@ -1,7 +1,7 @@
 import type { DevctlConfig } from "../domain/config/types.ts";
 import type { Report } from "../domain/doctor/types.ts";
 import type { LogFilter, LogPage, LogPageRequest } from "../domain/logs/logs.ts";
-import type { ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
+import type { ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../domain/status.ts";
 
 export type McpHost = {
   status(): StatusSnapshot;
@@ -17,6 +17,8 @@ export type McpHost = {
   runTask(name: string): Promise<{ task: string; code: number; stdout: string; stderr: string }>;
   startProxy(): Promise<void>;
   stopProxy(): Promise<void>;
+  getTrace?(traceId: string): TraceResponse | Promise<TraceResponse>;
+  traceRequest?(requestId: string): TraceResponse | Promise<TraceResponse>;
 };
 
 export type McpListener = {

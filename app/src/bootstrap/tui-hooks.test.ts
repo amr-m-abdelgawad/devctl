@@ -4,7 +4,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { createClient } from "./client.ts";
 import { defaultConfig } from "../domain/config/types.ts";
 import type { DoctorProgress, Report } from "../domain/doctor/types.ts";
-import type { LogEvent } from "../domain/logs/logs.ts";
+import { logRecord, type LogEvent } from "../domain/logs/logs.ts";
 import { defaultTuiConfig } from "../domain/ui/preferences.ts";
 import { createTuiWorkspace } from "../presentation/tui/workspace.ts";
 import { useDiagnostics } from "../presentation/tui/hooks/use-diagnostics.ts";
@@ -73,7 +73,7 @@ test("log view keeps a pinned window stable as new logs arrive and clears only i
     tui: defaultTuiConfig(), names: ["api"], screen: "logs", refresh: async () => undefined,
     setStatus: (status: string) => { statuses.push(status); },
   });
-  const events = Array.from({ length: 230 }, (_, i): LogEvent => ({ timestamp: new Date(1000 + i).toISOString(), service: "api", level: "INFO", message: `line ${i}`, source: "stdout", pid: 1, seq: i + 1, raw: `line ${i}` }));
+  const events = Array.from({ length: 230 }, (_, i): LogEvent => logRecord({ timestamp: new Date(1000 + i).toISOString(), service: "api", level: "INFO", message: `line ${i}`, source: "stdout", pid: 1, seq: i + 1, raw: `line ${i}` }));
   try {
     await act(async () => mounted.value.setLogs(events.slice(0, 220)));
     expect(mounted.value.logSlice).toHaveLength(200);
@@ -83,6 +83,9 @@ test("log view keeps a pinned window stable as new logs arrive and clears only i
     await act(async () => mounted.value.setLogs(events));
     expect(mounted.value.logSlice[0]).toBe(first);
     expect(mounted.value.logWindow.newer).toBe(10);
+    const pin = mounted.value.pinLogView;
+    await act(async () => mounted.value.setLogs(events.slice()));
+    expect(mounted.value.pinLogView).toBe(pin);
     await act(async () => mounted.value.jumpToLatestLogs());
     expect(mounted.value.logPinned).toBe(false);
     expect(mounted.value.logSlice.at(-1)).toBe(events.at(-1));

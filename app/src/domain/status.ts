@@ -1,5 +1,6 @@
 import { type LogEvent } from "./logs/logs.ts";
 import { type Runtime } from "./service/services.ts";
+import type { TraceTree } from "./telemetry/types.ts";
 
 export type StartRequest = {
   services?: string[];
@@ -33,6 +34,9 @@ export type LogsRequest = {
   since?: string;
   until?: string;
   export?: string;
+  traceId?: string;
+  requestId?: string;
+  attribute?: { key: string; value: string };
 };
 
 export type RouteSnapshot = {
@@ -54,6 +58,8 @@ export type ProxyRequestSnapshot = {
   status: number;
   durationMs: number;
   error?: string;
+  traceId?: string;
+  spanId?: string;
 };
 
 export type ProxySnapshot = {
@@ -163,5 +169,12 @@ export type StatusSnapshot = {
 };
 
 export type LogsResponse = {
+  events: LogEvent[];
+};
+
+export type TraceResponse = {
+  traceId: string;
+  requestId?: string;
+  tree: TraceTree;
   events: LogEvent[];
 };

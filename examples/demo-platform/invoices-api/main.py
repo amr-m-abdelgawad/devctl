@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Invoices API — job queue for invoice generation. stdlib only, talks to identity."""
+"""Invoices API — job queue for invoice generation. stdlib only, talks to identity.
+
+HTTP access lines are JSON (method/path/status, no message key) so the Logs
+screen can summarize them and attach W3C trace ids when the request arrived
+through the proxy. GET /fulfill is the telemetry showcase: real sleeps plus
+nested OTLP spans (db lock, identity hop, pdf render) so the waterfall is
+wide. Doctor /health stays instant. Heartbeats stay plain text.
+"""
 
 from __future__ import annotations
 
@@ -15,12 +22,17 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import traceutil as otel
+
 NAME = os.environ.get("DEVCTL_SERVICE_NAME", "invoices-api")
 PORT = int(os.environ.get("SERVICE_PORT") or os.environ.get("HTTP_PORT") or "18000")
 AUTH_URL = os.environ.get("AUTH_URL", "http://127.0.0.1:18001").rstrip("/")
 JOBS: list[dict[str, object]] = []
 NEXT_ID = 1
 IDENTITY_FAILURES = 0
+FULFILL_DB_S = 0.012
+FULFILL_PDF_S = 0.022
 
 
 def log(message: str, level: str = "INFO") -> None:
@@ -54,6 +66,20 @@ def queue_job(title: str, user: str, content_length: int, user_agent: str) -> di
     return job
 
 
+def emit_json(record: dict[str, object]) -> None:
+    sys.stdout.write(json.dumps(record) + "\n")
+    sys.stdout.flush()
+
+
+def ping_identity_health(trace_id: str, parent_span: str) -> None:
+    req = urllib.request.Request(f"{AUTH_URL}/health", method="GET")
+    req.add_header("traceparent", otel.format_traceparent(trace_id, parent_span))
+    try:
+        urllib.request.urlopen(req, timeout=2).read()
+    except (urllib.error.URLError, TimeoutError):
+        pass
+
+
 def whoami(token: str) -> dict[str, object] | None:
     global IDENTITY_FAILURES
     req = urllib.request.Request(
@@ -74,7 +100,35 @@ def whoami(token: str) -> dict[str, object] | None:
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:
-        log(f"{self.address_string()} {fmt % args}")
+        # Access-log JSON (no `msg` key) so the Logs screen summarizes
+        # method/path/status itself. When the request arrived through the
+        # proxy with a W3C traceparent, the ids ride along and the row
+        # shows ◎ — enter then "view trace" lands on the same tree the
+        # telemetry agent exported.
+        requestline = str(args[0]) if args else self.requestline
+        status_raw = str(args[1]) if len(args) > 1 else "0"
+        try:
+            status = int(status_raw)
+        except ValueError:
+            status = 0
+        bits = requestline.strip('"').split()
+        method = bits[0] if bits else self.command
+        path = bits[1] if len(bits) > 1 else urlparse(self.path).path
+        record: dict[str, object] = {
+            "method": method,
+            "path": path,
+            "status": status,
+            "remote_ip": self.address_string(),
+        }
+        trace_id, parent_span = otel.parse_traceparent(self.headers.get("traceparent", ""))
+        if trace_id:
+            record["trace_id"] = trace_id
+            record["span_id"] = getattr(self, "_local_span", "") or parent_span
+        request_id = self.headers.get("x-devctl-request-id", "")
+        if request_id:
+            record["request_id"] = request_id
+        sys.stdout.write(json.dumps(record) + "\n")
+        sys.stdout.flush()
 
     def _cors(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -110,10 +164,95 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/health":
             self._json(200, {"status": "ok", "service": NAME, "auth": AUTH_URL})
             return
+        if path == "/fulfill":
+            self._fulfill()
+            return
         if path == "/jobs":
             self._json(200, {"jobs": JOBS})
             return
         self._json(404, {"error": "not found"})
+
+    def _fulfill(self) -> None:
+        trace_id, parent_span = otel.parse_traceparent(self.headers.get("traceparent", ""))
+        if not trace_id:
+            self._json(200, {"status": "ok", "service": NAME, "path": "/fulfill"})
+            return
+        server_id = otel.hex_id(8)
+        db_id = otel.hex_id(8)
+        ident_id = otel.hex_id(8)
+        pdf_id = otel.hex_id(8)
+        self._local_span = server_id
+        t0 = otel.time_ns()
+        emit_json({
+            "msg": "locking invoice row",
+            "level": "INFO",
+            "shape": "traced",
+            "trace_id": trace_id,
+            "span_id": db_id,
+        })
+        time.sleep(FULFILL_DB_S)
+        db_end = otel.time_ns()
+        emit_json({
+            "msg": "GET identity/health",
+            "level": "INFO",
+            "shape": "traced",
+            "trace_id": trace_id,
+            "span_id": ident_id,
+            "peer.service": "identity",
+        })
+        ident_start = otel.time_ns()
+        ping_identity_health(trace_id, ident_id)
+        ident_end = otel.time_ns()
+        emit_json({
+            "msg": "rendering invoice pdf",
+            "level": "INFO",
+            "shape": "traced",
+            "trace_id": trace_id,
+            "span_id": pdf_id,
+            "bytes": 48211,
+        })
+        time.sleep(FULFILL_PDF_S)
+        pdf_end = otel.time_ns()
+        otel.export_spans(NAME, [
+            otel.span(
+                trace_id=trace_id, span_id=server_id, parent_span_id=parent_span,
+                name="GET /fulfill", kind=otel.KIND_SERVER, start=t0, end=pdf_end,
+                attrs={"http.request.method": "GET", "url.path": "/fulfill", "http.route": "/fulfill"},
+            ),
+            otel.span(
+                trace_id=trace_id, span_id=db_id, parent_span_id=server_id,
+                name="db.invoice.lock", kind=otel.KIND_INTERNAL, start=t0, end=db_end,
+                attrs={"db.system": "postgres", "db.operation": "SELECT FOR UPDATE"},
+                events=[otel.event("db.query", otel.ms(t0, 4), {"db.statement": "SELECT id FROM invoices WHERE id=$1 FOR UPDATE"})],
+            ),
+            otel.span(
+                trace_id=trace_id, span_id=ident_id, parent_span_id=server_id,
+                name="GET identity/health", kind=otel.KIND_CLIENT,
+                start=ident_start, end=ident_end,
+                attrs={
+                    "http.request.method": "GET",
+                    "url.full": f"{AUTH_URL}/health",
+                    "peer.service": "identity",
+                },
+            ),
+            otel.span(
+                trace_id=trace_id, span_id=pdf_id, parent_span_id=server_id,
+                name="pdf.render", kind=otel.KIND_INTERNAL, start=ident_end, end=pdf_end,
+                attrs={"invoice.format": "pdf", "bytes": 48211},
+                events=[
+                    otel.event("pdf.page.raster", otel.ms(ident_end, 8), {"page": 1}),
+                    otel.event("pdf.font.embed", otel.ms(ident_end, 16), {"font": "Inter"}),
+                ],
+            ),
+        ])
+        otel.export_log(
+            NAME,
+            "invoice fulfill complete",
+            trace_id=trace_id,
+            span_id=server_id,
+            attrs={"shape": "otlp-http", "http.route": "/fulfill"},
+        )
+        self._json(200, {"status": "fulfilled", "service": NAME, "bytes": 48211})
 
     def do_POST(self) -> None:  # noqa: N802
         global NEXT_ID

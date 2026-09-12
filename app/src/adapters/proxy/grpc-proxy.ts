@@ -1,5 +1,4 @@
 import * as http2 from "node:http2";
-import { randomBytes } from "node:crypto";
 import type { Http2Server, ServerHttp2Stream, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
 import type { RouteConfig } from "../config/index.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
@@ -7,9 +6,11 @@ import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { SpanStore } from "../../ports/span-store.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
-import { injectIdentityHeaders, RequestLog } from "./proxy.ts";
+import { injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
+import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 
 // gRPC status codes we synthesize when the request never reaches the upstream,
 // or when the client abandons it.
@@ -38,6 +39,7 @@ export class GrpcProxyServer {
     private readonly logs?: Pick<LogStore, "append">,
     private readonly bus?: Bus,
     private readonly detector?: Detector,
+    private readonly spans?: SpanStore,
   ) {}
 
   address(): string {
@@ -123,7 +125,11 @@ export class GrpcProxyServer {
 
   private async serve(front: ServerHttp2Stream, headers: IncomingHttpHeaders): Promise<void> {
     const started = Date.now();
-    const requestID = randomBytes(8).toString("hex");
+    const ctx = beginProxyTrace({
+      traceparent: headerString(headers, TRACEPARENT_HEADER),
+      requestId: headerString(headers, REQUEST_ID_HEADER),
+    });
+    const requestID = ctx.requestId;
     const method = String(headers[":path"] ?? "/"); // the gRPC method path
     const ident = fromRoute(this.route.auth);
     const identityKey = tokenIdentityKey(ident);
@@ -136,7 +142,22 @@ export class GrpcProxyServer {
       // A non-OK grpc-status is a failure even though the HTTP status is 200;
       // surface it as the record's error so stats().errors counts it.
       const failure = error ?? (grpcStatus !== "0" ? `grpc-status ${grpcStatus}` : undefined);
-      this.requests.record({ timestamp: new Date().toISOString(), requestId: requestID, method: "POST", path: recordedPath, route: this.route.name, identity: identityKey, status, durationMs: duration, error: failure });
+      const record: ProxyRequestRecord = {
+        timestamp: new Date().toISOString(),
+        requestId: requestID,
+        method: "POST",
+        path: recordedPath,
+        route: this.route.name,
+        identity: identityKey,
+        status,
+        durationMs: duration,
+        error: failure,
+        traceId: ctx.traceId,
+        spanId: ctx.spanId,
+        parentSpanId: ctx.parentSpanId,
+      };
+      this.requests.record(record);
+      this.spans?.append(proxyRecordToSpan(record));
       this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${this.route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
       this.bus?.publish(newEvent(ProxyRequest, this.route.name, { status, request_id: requestID, duration, identity: identityKey }));
     };
@@ -154,6 +175,7 @@ export class GrpcProxyServer {
     let out: Record<string, string>;
     try {
       out = this.buildUpstreamHeaders(headers);
+      applyTraceHeaders(out, ctx, REQUEST_ID_HEADER);
       await injectIdentityHeaders(this.route, out, this.tokens);
     } catch (err) {
       fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
@@ -271,4 +293,15 @@ export class GrpcProxyServer {
   private log(level: "INFO" | "WARN" | "ERROR", message: string, requestID = "", identity = ""): void {
     this.logs?.append({ timestamp: new Date().toISOString(), service: "proxy", source: "proxy", level, message, pid: 0, request_id: requestID, identity });
   }
+}
+
+function headerString(headers: IncomingHttpHeaders, name: string): string | undefined {
+  const value = headers[name];
+  if (typeof value === "string" && value !== "") {
+    return value;
+  }
+  if (Array.isArray(value) && typeof value[0] === "string" && value[0] !== "") {
+    return value[0];
+  }
+  return undefined;
 }

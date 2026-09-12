@@ -1,5 +1,5 @@
 import { useDensity } from "../density.tsx";
-import { clipText } from "../helpers/format.ts";
+import { clipText, padClip } from "../helpers/format.ts";
 import { scrollboxStyle,useScrollSelectedIntoView } from "../layout.tsx";
 import { groupedSettings,selectedSettingsItem,settingsIndex,sizeMeter,type SettingsItem,type UiScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";
@@ -155,7 +155,7 @@ function SettingsRow(props: {
       </box>
       <box width={NAME_WIDTH} flexShrink={0} overflow="hidden">
         <text fg={active ? palette.primary : palette.text} wrapMode="none">
-          {item.name}
+          {padClip(item.name, NAME_WIDTH)}
         </text>
       </box>
       <box flexGrow={1} overflow="hidden">

@@ -15,6 +15,7 @@ export const knownTopLevel = [
   "doctor",
   "plugins",
   "environment",
+  "telemetry",
 ];
 
 export const knownService = [
@@ -71,6 +72,8 @@ export const knownContainer = ["image", "runtime", "ports", "env", "volumes"];
 export const knownWatch = ["enabled", "paths", "debounce_ms", "ignore"];
 export const knownHooks = ["pre_start", "post_start"];
 export const knownTask = ["command", "shell", "working_dir", "dependencies", "environment"];
+export const knownTelemetry = ["otlp"];
+export const knownTelemetryOtlp = ["enabled", "listen"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];
 

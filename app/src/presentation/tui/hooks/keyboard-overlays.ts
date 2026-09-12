@@ -1,4 +1,5 @@
 import { leaderAction, lookupCommand } from "../commands.ts";
+import { TRACE_SPAN_PAGE } from "../helpers/traces.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
 import { selectedSlashCommand, slashCompleteQuery } from "../helpers/command-catalog.ts";
 import { isCommandChord, isPageDownKey, isPageUpKey, overlayConsumesTyping, type KeyLike } from "../keymap.ts";
@@ -6,6 +7,7 @@ import { hasPrimaryMod } from "../tui-config.ts";
 import { scrollBoxBy } from "../layout.tsx";
 import { HELP_SCROLL_PAGE } from "../overlays/Help.tsx";
 import { THEME_NAMES } from "../themes.ts";
+import { requestIdOf } from "../../../domain/logs/logs.ts";
 import type { OverlayKeyCtx } from "./keyboard-context.ts";
 
 function openCommandOverlay(ctx: OverlayKeyCtx): void {
@@ -19,7 +21,7 @@ function openCommandOverlay(ctx: OverlayKeyCtx): void {
 export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
   const {
     overlay, tui, height, closeOverlay, confirmKind, onQuit, confirmAction, planBusy,
-    logDetailsScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
+    logDetailsScrollRef, traceScrollRef, traceDetailScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
     revertThemePreview, setPaletteIndex, setThemeName, paletteIndex, applyTheme, leaderTimer,
     setOverlay, runCommand, setConfigEditError, saveConfigBuffer, setSlashIndex, filtered,
     setQuery, slashIndex, submitSlash, advanceWizard,
@@ -61,7 +63,34 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     }
     return true;
   }
-  if (overlay === "log-details" || overlay === "scroll-text") {
+  if (overlay === "span-details") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
+    if (name === "escape") {
+      ctx.setOverlay("trace");
+      return true;
+    }
+    if (name === "down" || name === "j") {
+      scrollBoxBy(traceDetailScrollRef.current, tui.scroll_speed);
+      return true;
+    }
+    if (name === "up" || name === "k") {
+      scrollBoxBy(traceDetailScrollRef.current, -tui.scroll_speed);
+      return true;
+    }
+    if (isPageDownKey(key)) {
+      scrollBoxBy(traceDetailScrollRef.current, pageScrollAmount(height));
+      return true;
+    }
+    if (isPageUpKey(key)) {
+      scrollBoxBy(traceDetailScrollRef.current, -pageScrollAmount(height));
+      return true;
+    }
+    return true;
+  }
+  if (overlay === "log-details" || overlay === "scroll-text" || overlay === "trace") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
       return true;
@@ -71,7 +100,12 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       return true;
     }
     if (overlay === "log-details" && name === "return") {
-      const id = ctx.logDetail?.request_id?.trim() ?? "";
+      const traceId = ctx.logDetail?.traceId?.trim() ?? "";
+      if (traceId !== "") {
+        ctx.openTrace(traceId);
+        return true;
+      }
+      const id = ctx.logDetail ? requestIdOf(ctx.logDetail).trim() : "";
       if (id !== "") {
         ctx.setLogSearch(id);
         ctx.setScreen("logs");
@@ -80,20 +114,40 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       }
       return true;
     }
-    const box = overlay === "log-details" ? logDetailsScrollRef.current : scrollTextScrollRef.current;
-    if (name === "down" || name === "j") {
+    if (overlay === "trace" && name === "return") {
+      ctx.openSpanLogs();
+      return true;
+    }
+    if (overlay === "trace" && (name === "down" || name === "j")) {
+      ctx.setTraceSpanIndex((index) => Math.min(Math.max(0, ctx.traceSpanCount - 1), index + 1));
+      return true;
+    }
+    if (overlay === "trace" && (name === "up" || name === "k")) {
+      ctx.setTraceSpanIndex((index) => Math.max(0, index - 1));
+      return true;
+    }
+    const box = overlay === "log-details" ? logDetailsScrollRef.current : overlay === "trace" ? traceScrollRef.current : scrollTextScrollRef.current;
+    if (overlay !== "trace" && (name === "down" || name === "j")) {
       scrollBoxBy(box, tui.scroll_speed);
       return true;
     }
-    if (name === "up" || name === "k") {
+    if (overlay !== "trace" && (name === "up" || name === "k")) {
       scrollBoxBy(box, -tui.scroll_speed);
       return true;
     }
     if (isPageDownKey(key)) {
+      if (overlay === "trace") {
+        ctx.setTraceSpanIndex((index) => Math.min(Math.max(0, ctx.traceSpanCount - 1), index + TRACE_SPAN_PAGE));
+        return true;
+      }
       scrollBoxBy(box, pageScrollAmount(height));
       return true;
     }
     if (isPageUpKey(key)) {
+      if (overlay === "trace") {
+        ctx.setTraceSpanIndex((index) => Math.max(0, index - TRACE_SPAN_PAGE));
+        return true;
+      }
       scrollBoxBy(box, -pageScrollAmount(height));
       return true;
     }

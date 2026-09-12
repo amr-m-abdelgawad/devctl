@@ -260,6 +260,13 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
   });
 
+  test("rejects OTLP listen on 0.0.0.0", () => {
+    const cfg = withService("api");
+    cfg.telemetry.otlp.enabled = true;
+    cfg.telemetry.otlp.listen.host = "0.0.0.0";
+    expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
+  });
+
   test("validates plugin paths relative to the repository root", () => {
     const root = join(process.env.TMPDIR ?? "/tmp", `devctl-validate-${Date.now()}-${Math.random()}`);
     mkdirSync(root, { recursive: true });

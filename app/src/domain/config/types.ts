@@ -268,6 +268,17 @@ export type LogConfig = {
   persistence: PersistenceConfig;
 };
 
+export type TelemetryOtlpConfig = {
+  enabled: boolean;
+  listen: ListenConfig;
+};
+
+export type TelemetryConfig = {
+  otlp: TelemetryOtlpConfig;
+};
+
+export const DEFAULT_OTLP_HTTP_PORT = 4318;
+
 export type AuthConfig = {
   refresh_threshold_seconds: number;
 };
@@ -322,6 +333,7 @@ export type DevctlConfig = {
   tasks: Record<string, TaskConfig>;
   proxy: ProxyConfig;
   logs: LogConfig;
+  telemetry: TelemetryConfig;
   auth: AuthConfig;
   shutdown: ShutdownConfig;
   ui: UIConfig;
@@ -409,6 +421,12 @@ export function defaultConfig(): DevctlConfig {
         directory: "~/.devctl/logs",
         retention_days: DEFAULT_RETENTION_DAYS,
         max_session_logs: 0,
+      },
+    },
+    telemetry: {
+      otlp: {
+        enabled: false,
+        listen: { host: LOCALHOST, port: DEFAULT_OTLP_HTTP_PORT },
       },
     },
     auth: { refresh_threshold_seconds: DEFAULT_REFRESH_THRESHOLD_SECONDS },

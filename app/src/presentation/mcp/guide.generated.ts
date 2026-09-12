@@ -330,7 +330,7 @@ complete allowlists.
 
 **Top level:** \`version\` \`project\` \`google\` \`profiles\` \`templates\` \`services\`
 \`tasks\` \`proxy\` \`logs\` \`auth\` \`shutdown\` \`ui\` \`secrets\` \`doctor\` \`plugins\`
-\`environment\`
+\`environment\` \`telemetry\`
 
 **Service** (and \`templates.<name>\`, same shape): \`extends\` \`description\`
 \`command\` \`shell\` \`working_dir\` \`dependencies\` \`ports\` \`environment\` \`health\`
@@ -361,6 +361,8 @@ complete allowlists.
 | \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` \`credentials\` \`headers\` |
 | \`logs\` | \`max_memory_events\` \`persistence\` |
 | \`logs.persistence\` | \`enabled\` \`directory\` \`retention_days\` \`max_session_logs\` |
+| \`telemetry\` | \`otlp\` |
+| \`telemetry.otlp\` | \`enabled\` \`listen\` |
 | \`auth\` | \`refresh_threshold_seconds\` |
 | \`shutdown\` | \`stop_services_on_exit\` \`grace_seconds\` |
 | \`ui\` | \`theme\` \`keymap\` |
@@ -509,6 +511,7 @@ Anything else is rejected.
 - \`proxy.listen.port\` is **required** when \`proxy.enabled: true\`.
 - \`proxy.listen.host\` must be loopback (\`127.0.0.1\`, \`localhost\`, \`::1\`, or \`127.0.0.0/8\`). \`0.0.0.0\` and \`::\` are rejected.
 - \`proxy.token_endpoint.host\` must be loopback; \`0.0.0.0\` and \`::\` are rejected.
+- \`telemetry.otlp\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get \`OTEL_EXPORTER_OTLP_ENDPOINT\` / \`OTEL_EXPORTER_OTLP_PROTOCOL=http/json\` / \`OTEL_SERVICE_NAME\` only when those variables are unset. JSON only — no protobuf or gRPC.
 - Every route needs a \`name\` and either \`upstream.url\` or \`upstream.service\`.
   A service reference must name a real service and an existing port (default
   port name is \`http\`). \`service.expose\` and \`proxy.gateway\` synthesize

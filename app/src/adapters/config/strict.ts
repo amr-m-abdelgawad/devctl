@@ -30,6 +30,8 @@ import {
   knownTool,
   knownTopLevel,
   knownTask,
+  knownTelemetry,
+  knownTelemetryOtlp,
   knownUI,
   knownUpstream,
   knownWatch,
@@ -101,6 +103,12 @@ function knownForPath(path: string): string[] {
       return knownDoctor;
     case "environment":
       return knownProjectEnvironment;
+    case "telemetry":
+      return knownTelemetry;
+    case "telemetry.otlp":
+      return knownTelemetryOtlp;
+    case "telemetry.otlp.listen":
+      return knownListen;
     default:
       return nestedKnown(path);
   }

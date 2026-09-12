@@ -1,5 +1,5 @@
-import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../domain/logs/logs.ts";
-import type { LogEntry, LogSnapshot } from "../../ports/log-store.ts";
+import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogRecord } from "../../domain/logs/logs.ts";
+import type { LogSnapshot } from "../../ports/log-store.ts";
 
 export type WorkerLogConfig = {
   max: number;
@@ -14,7 +14,7 @@ export type WorkerLogConfig = {
 
 export type WorkerRequest =
   | { type: "init"; config: WorkerLogConfig }
-  | { type: "append"; event: LogEntry }
+  | { type: "append"; event: LogIngest }
   | { id: number; type: "query"; filter: LogFilter }
   | { id: number; type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
   | { id: number; type: "queryFacets"; filter: LogFilter }
@@ -32,6 +32,6 @@ export type WorkerRpcBody =
 
 export type WorkerResponse =
   | { type: "ready" }
-  | { type: "appended"; event: LogEvent; stats: LogSnapshot }
-  | { id: number; type: "result"; result: LogEvent[] | LogPage | LogFacets | null }
+  | { type: "appended"; event: LogRecord; stats: LogSnapshot }
+  | { id: number; type: "result"; result: LogRecord[] | LogPage | LogFacets | null }
   | { id: number; type: "error"; error: string };

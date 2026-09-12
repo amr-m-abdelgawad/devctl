@@ -3,7 +3,8 @@ import type { DevctlConfig } from "../../domain/config/types.ts";
 import { secretTemplateLabel } from "../../domain/config/env-ref.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
 import { Detector } from "../../shared/redaction.ts";
-import { type StatusSnapshot } from "../../domain/status.ts";
+import { formatBodySummary, redactLogRecord, redactSpan, type LogRecord } from "../../domain/logs/logs.ts";
+import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
 import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
@@ -80,7 +81,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Filtered log pages, secrets redacted",
     category: "logs",
     description:
-      "Recent log lines, optionally filtered. Capped at 200 events per page. Secrets are redacted. Pass cursor=next_cursor to page forward with no duplicate or same-millisecond-lost events; since/until are plain timestamp filters for a fresh query, not a follow cursor.",
+      "Recent log records, optionally filtered. Capped at 200 events per page. Secrets are redacted. Pass cursor=next_cursor to page forward with no duplicate or same-millisecond-lost events; since/until are plain timestamp filters for a fresh query, not a follow cursor.",
     inputSchema: {
       type: "object",
       properties: {
@@ -91,6 +92,65 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         since: { type: "string", description: "Only events at or after this timestamp" },
         until: { type: "string", description: "Only events at or before this timestamp" },
         cursor: { type: "string", description: "Opaque cursor from a previous response's next_cursor; continues forward from exactly there" },
+        request_id: { type: "string", description: "Filter by X-Devctl-Request-ID / devctl.request_id" },
+        trace_id: { type: "string", description: "Filter by W3C trace id" },
+        attribute_key: { type: "string", description: "Attribute key to match (with attribute_value)" },
+        attribute_value: { type: "string", description: "Attribute value to match (with attribute_key)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_trace",
+    label: "Get trace",
+    summary: "Span tree and correlated logs",
+    category: "logs",
+    description: "Return the span tree and correlated log records for a W3C trace id. Secrets are redacted.",
+    inputSchema: {
+      type: "object",
+      properties: { trace_id: { type: "string" } },
+      required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "trace_request",
+    label: "Trace request",
+    summary: "Trace for a proxy request id",
+    category: "logs",
+    description: "Resolve a proxy X-Devctl-Request-ID to its trace, then return the span tree and correlated logs. Secrets are redacted.",
+    inputSchema: {
+      type: "object",
+      properties: { request_id: { type: "string" } },
+      required: ["request_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_requests",
+    label: "Recent requests",
+    summary: "Proxy request ring with trace ids",
+    category: "inspect",
+    description: "Recent proxy requests with method, path, status, duration, request id, and trace id.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "recent_errors",
+    label: "Recent errors",
+    summary: "Latest error-severity log records",
+    category: "logs",
+    description: "Latest error and fatal log records, capped at 200, secrets redacted. Same paging fields as get_logs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        search: { type: "string" },
+        source: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        cursor: { type: "string" },
+        request_id: { type: "string" },
+        trace_id: { type: "string" },
       },
       additionalProperties: false,
     },
@@ -379,6 +439,19 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
       running: snap.proxy.running,
       address: snap.proxy.address,
       routes: snap.proxy.routes,
+      requestTotal: snap.proxy.requestTotal,
+      requestErrors: snap.proxy.requestErrors,
+      recentRequests: (snap.proxy.recentRequests ?? []).slice(0, 20).map((req) => ({
+        timestamp: req.timestamp,
+        request_id: req.requestId,
+        trace_id: req.traceId,
+        method: req.method,
+        path: req.path,
+        route: req.route,
+        status: req.status,
+        duration_ms: req.durationMs,
+        error: req.error,
+      })),
     },
     logs: snap.logs,
     mcp: snap.mcp
@@ -396,6 +469,8 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
   // ordinary inclusive filters for a fresh query; they are not this tool's
   // follow mechanism.
   const cursor = typeof args.cursor === "string" ? args.cursor : undefined;
+  const attributeKey = typeof args.attribute_key === "string" ? args.attribute_key : "";
+  const attributeValue = typeof args.attribute_value === "string" ? args.attribute_value : "";
   const page = await host.logsPage({
     services: service === "" ? [] : [service],
     level: typeof args.level === "string" ? args.level : "",
@@ -403,20 +478,16 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
     source: typeof args.source === "string" ? args.source : "",
     since,
     until: typeof args.until === "string" ? args.until : "",
+    requestId: typeof args.request_id === "string" ? args.request_id : undefined,
+    traceId: typeof args.trace_id === "string" ? args.trace_id : undefined,
+    attribute: attributeKey !== "" && attributeValue !== "" ? { key: attributeKey, value: attributeValue } : undefined,
     cursor,
     direction: cursor ? "forward" : undefined,
     limit: MCP_LOG_CAP,
   });
   const detector = detectorFor(host.config());
   return {
-    events: page.events.map((ev) => ({
-      timestamp: ev.timestamp,
-      service: ev.service,
-      source: ev.source,
-      level: ev.level,
-      message: detector.redactText(ev.message),
-      pid: ev.pid,
-    })),
+    events: page.events.map((ev) => mcpLogRecord(detector, ev)),
     // Same meaning it always had: more (older) history exists than this
     // capped page shows. has_more is the complementary forward-looking
     // signal for a cursor-following caller — events already waiting beyond
@@ -426,6 +497,76 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
     next_since: page.events[page.events.length - 1]?.timestamp ?? since,
     next_cursor: page.nextCursor,
     session_changed: page.sessionChanged,
+  };
+}
+
+function mcpLogRecord(detector: Detector, ev: LogRecord): Record<string, unknown> {
+  const redacted = redactLogRecord(detector, ev);
+  const pid = redacted.resource["process.pid"];
+  return {
+    timestamp: redacted.timestamp,
+    service: redacted.service,
+    source: redacted.source,
+    severityText: redacted.severityText,
+    severityNumber: redacted.severityNumber,
+    body: redacted.body,
+    attributes: redacted.attributes,
+    traceId: redacted.traceId,
+    spanId: redacted.spanId,
+    seq: redacted.seq,
+    level: redacted.severityText,
+    message: formatBodySummary(redacted),
+    pid: typeof pid === "number" ? pid : 0,
+  };
+}
+
+function mcpTrace(detector: Detector, result: TraceResponse): Record<string, unknown> {
+  return {
+    trace_id: result.traceId,
+    request_id: result.requestId,
+    spans: result.tree.spans.map((span) => redactSpan(detector, span)),
+    logs: result.events.map((ev) => mcpLogRecord(detector, ev)),
+  };
+}
+
+async function getTraceTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  const traceId = typeof args.trace_id === "string" ? args.trace_id : "";
+  if (traceId === "") {
+    throw new Error("trace_id is required");
+  }
+  if (!host.getTrace) {
+    throw new Error("trace store is unavailable");
+  }
+  return mcpTrace(detectorFor(host.config()), await host.getTrace(traceId));
+}
+
+async function traceRequestTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  const requestId = typeof args.request_id === "string" ? args.request_id : "";
+  if (requestId === "") {
+    throw new Error("request_id is required");
+  }
+  if (!host.traceRequest) {
+    throw new Error("trace store is unavailable");
+  }
+  return mcpTrace(detectorFor(host.config()), await host.traceRequest(requestId));
+}
+
+function getRequests(snap: StatusSnapshot): unknown {
+  return {
+    running: snap.proxy.running,
+    total: snap.proxy.requestTotal ?? 0,
+    errors: snap.proxy.requestErrors ?? 0,
+    requests: (snap.proxy.recentRequests ?? []).map((req) => ({
+      timestamp: req.timestamp,
+      request_id: req.requestId,
+      trace_id: req.traceId,
+      method: req.method,
+      path: req.path,
+      route: req.route,
+      status: req.status,
+      duration_ms: req.durationMs,
+      error: req.error,
+    })),
   };
 }
 
@@ -532,6 +673,14 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return getStatusSummary(host.status());
     case "get_logs":
       return getLogs(host, args);
+    case "get_trace":
+      return getTraceTool(host, args);
+    case "trace_request":
+      return traceRequestTool(host, args);
+    case "get_requests":
+      return getRequests(host.status());
+    case "recent_errors":
+      return getLogs(host, { ...args, level: "ERROR" });
     case "list_profiles":
       return listProfiles(host.config());
     case "get_config":

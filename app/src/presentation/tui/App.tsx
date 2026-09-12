@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../domain/config/types.ts";
 import type { LogEvent } from "../../domain/logs/logs.ts";
+import type { TraceResponse } from "../../domain/status.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
@@ -15,6 +16,7 @@ import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
 import { defaultProfileName, type ServiceEnvEntry } from "./helpers/services.ts";
+import { clampTraceSpanIndex, orderTraceRows } from "./helpers/traces.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
 import { useCommandDispatcher } from "./hooks/use-command-dispatcher.ts";
 import { useConfigEditor } from "./hooks/use-config-editor.ts";
@@ -37,6 +39,7 @@ import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
 import { SetupWizardOverlay } from "./overlays/SetupWizard.tsx";
 import { SlashOverlay } from "./overlays/Slash.tsx";
 import { ThemesOverlay } from "./overlays/Themes.tsx";
+import { SpanDetailsOverlay, TraceOverlay } from "./overlays/TraceView.tsx";
 import { AuthScreen } from "./screens/Auth.tsx";
 import { ConfigScreen } from "./screens/Config.tsx";
 import { CredentialsScreen } from "./screens/Credentials.tsx";
@@ -101,12 +104,16 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const [detailName, setDetailName] = useState("");
   const [reveal, setReveal] = useState(false);
   const [logDetail, setLogDetail] = useState<LogEvent | undefined>();
+  const [traceDetail, setTraceDetail] = useState<TraceResponse | undefined>();
+  const [traceSpanIndex, setTraceSpanIndex] = useState(0);
   const [routeDetail, setRouteDetail] = useState<RouteDetailInfo | undefined>();
   const [scrollText, setScrollText] = useState<{ title: string; body: string } | undefined>();
   const configScrollRef = useRef<ScrollBoxRenderable>(null);
   const helpScrollRef = useRef<ScrollBoxRenderable>(null);
   const detailScrollRef = useRef<ScrollBoxRenderable>(null);
   const logDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
+  const traceScrollRef = useRef<ScrollBoxRenderable>(null);
+  const traceDetailScrollRef = useRef<ScrollBoxRenderable>(null);
   const routeDetailsScrollRef = useRef<ScrollBoxRenderable>(null);
   const scrollTextScrollRef = useRef<ScrollBoxRenderable>(null);
   const planScrollRef = useRef<ScrollBoxRenderable>(null);
@@ -250,6 +257,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
   const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
   const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService });
+  const traceRows = useMemo(() => (traceDetail ? orderTraceRows(traceDetail.tree) : []), [traceDetail]);
+  const activeTraceSpan = traceRows[clampTraceSpanIndex(traceSpanIndex, traceRows.length)]?.span;
   const closeOverlay = useCallback(() => {
     setOverlay("none");
     setQuery("");
@@ -286,6 +295,26 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const openDetail = useCallback((name: string) => {
     setDetailName(name);
     setScreen("detail");
+  }, []);
+
+  const openTrace = useCallback((traceId: string) => {
+    if (traceId === "" || !controller) {
+      return;
+    }
+    void controller.getTrace(traceId).then((result) => {
+      setTraceSpanIndex(0);
+      setTraceDetail(result);
+      setOverlay("trace");
+    }).catch((err: unknown) => {
+      setStatus(humanMessage(err));
+    });
+  }, [controller]);
+
+  const openSpanLogs = useCallback((index?: number) => {
+    if (index !== undefined) {
+      setTraceSpanIndex(index);
+    }
+    setOverlay("span-details");
   }, []);
 
   const openEnvDetail = useCallback((entry: ServiceEnvEntry) => {
@@ -460,6 +489,10 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setPortTarget,
       setLogDetail,
       logDetail,
+      openTrace,
+      openSpanLogs,
+      traceSpanCount: traceRows.length,
+      setTraceSpanIndex,
       setLogSearch,
       setProfile,
       setStatus,
@@ -482,6 +515,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       interruptArmedAt,
       leaderTimer,
       logDetailsScrollRef,
+      traceScrollRef,
+      traceDetailScrollRef,
       scrollTextScrollRef,
       routeDetailsScrollRef,
       planScrollRef,
@@ -655,6 +690,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
               setRouteDetail(route);
               setOverlay("route-details");
             }}
+            onOpenTrace={openTrace}
           />
         ) : null}
         {screen === "mcp" ? (
@@ -754,7 +790,13 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
         />
       ) : null}
       {overlay === "log-details" ? (
-        <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} />
+        <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
+      ) : null}
+      {overlay === "trace" || overlay === "span-details" ? (
+        <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} />
+      ) : null}
+      {overlay === "span-details" ? (
+        <SpanDetailsOverlay palette={palette} span={activeTraceSpan} records={traceDetail?.events} termW={width} termH={height} scrollRef={traceDetailScrollRef} />
       ) : null}
       {overlay === "route-details" ? (
         <RouteDetailsOverlay palette={palette} route={routeDetail} termW={width} termH={height} scrollRef={routeDetailsScrollRef} />

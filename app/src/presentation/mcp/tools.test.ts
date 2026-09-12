@@ -1,7 +1,8 @@
 import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
-import { matchLog, type LogEvent, type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
+import { matchLog, type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
+import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
@@ -40,11 +41,11 @@ function sampleSnap(): StatusSnapshot {
 // getLogs()'s own request shaping and response handling can be tested
 // against a bounded host without pulling in the real daemon-side log
 // manager.
-function fakeLogsPage(logs: LogEvent[], req: LogFilter & LogPageRequest): LogPage {
+function fakeLogsPage(logs: ReturnType<typeof logRecord>[], req: LogFilter & LogPageRequest): LogPage {
   const matches = logs.filter((ev) => matchLog(req, ev));
   const limit = req.limit && req.limit > 0 ? req.limit : matches.length;
   const cursorSeq = req.cursor ? Number(req.cursor) : undefined;
-  let windowed: LogEvent[];
+  let windowed: ReturnType<typeof logRecord>[];
   if (cursorSeq === undefined) {
     windowed = matches.slice(Math.max(0, matches.length - limit));
   } else if (req.direction === "forward") {
@@ -80,9 +81,9 @@ function stubHost(): McpHost {
     { source: "/repo/.devctl/config.local.yaml", layer: "repo_local" },
   ];
   const logs = [
-    { timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 },
-    { timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 },
-    { timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2, seq: 3 },
+    logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 }),
+    logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 }),
+    logRecord({ timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2, seq: 3 }),
   ];
   return {
     status: () => sampleSnap(),
@@ -288,7 +289,7 @@ describe("mcp tools", () => {
 
   test("get_logs caps at 200", async () => {
     const host = stubHost();
-    const many: LogEvent[] = Array.from({ length: MCP_LOG_CAP + 20 }, (_, i) => ({
+    const many = Array.from({ length: MCP_LOG_CAP + 20 }, (_, i) => logRecord({
       timestamp: String(i),
       service: "api",
       source: "stdout",
@@ -302,5 +303,61 @@ describe("mcp tools", () => {
     expect(result.events).toHaveLength(MCP_LOG_CAP);
     expect(result.truncated).toBe(true);
     expect(result.has_more).toBe(false);
+  });
+
+  test("get_logs returns body attributes and severityNumber", async () => {
+    const result = (await callMcpTool(stubHost(), "get_logs", { service: "api" })) as {
+      events: Array<{ body: unknown; attributes: Record<string, unknown>; severityNumber: number; traceId?: string }>;
+    };
+    expect(result.events[0]?.body).toBe("hello");
+    expect(result.events[0]?.severityNumber).toBeGreaterThan(0);
+  });
+
+  test("get_trace and trace_request return a redacted span tree", async () => {
+    const host = stubHost();
+    const traceId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    host.getTrace = async (id) => ({
+      traceId: id,
+      tree: {
+        traceId: id,
+        spans: [{
+          seq: 1,
+          traceId: id,
+          spanId: "bbbbbbbbbbbbbbbb",
+          name: "GET /",
+          kind: "server",
+          startUnixNano: 1,
+          endUnixNano: 2,
+          status: { code: "ok" },
+          attributes: { "http.request.method": "GET", token: "super-secret" },
+          events: [],
+          links: [],
+          resource: { "service.name": "proxy" },
+        }],
+        roots: [],
+      },
+      events: [logRecord({ service: "api", message: "Authorization: Bearer super-secret", traceId: id, seq: 1 })],
+    });
+    host.traceRequest = async (requestId) => ({ ...(await host.getTrace!(traceId)), requestId });
+    const byTrace = (await callMcpTool(host, "get_trace", { trace_id: traceId })) as {
+      trace_id: string;
+      spans: Array<{ attributes: Record<string, unknown> }>;
+      logs: Array<{ message: string }>;
+    };
+    expect(byTrace.trace_id).toBe(traceId);
+    expect(byTrace.spans).toHaveLength(1);
+    expect(JSON.stringify(byTrace.spans)).not.toContain("super-secret");
+    expect(byTrace.logs[0]?.message).not.toContain("super-secret");
+    const byReq = (await callMcpTool(host, "trace_request", { request_id: "caller-id" })) as { request_id: string };
+    expect(byReq.request_id).toBe("caller-id");
+  });
+
+  test("get_requests and recent_errors use status and error logs", async () => {
+    const host = stubHost();
+    const requests = (await callMcpTool(host, "get_requests", {})) as { requests: unknown[] };
+    expect(requests.requests).toEqual([]);
+    const errors = (await callMcpTool(host, "recent_errors", {})) as { events: Array<{ service: string; severityText: string }> };
+    expect(errors.events.every((ev) => ev.severityText === "ERROR" || ev.severityText === "FATAL")).toBe(true);
+    expect(errors.events.some((ev) => ev.service === "api")).toBe(true);
   });
 });
