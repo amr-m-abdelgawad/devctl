@@ -64,7 +64,9 @@ function inlineAssets(html: string, dir: string): string {
     const rest = attrs.replace(/\bsrc="[^"]+"/i, "").replace(/\s+/g, " ").trim();
     return `<script${rest ? ` ${rest}` : ""}>${body}</script>`;
   });
-  return out.replace(/https?:\/\/[^\s"'`<>\\]+/g, "");
+  // Drop network URLs from the blob, but keep SVG/MathML namespace URIs —
+  // stripping those makes React create generic Elements with no .style.
+  return out.replace(/https?:\/\/(?!www\.w3\.org\/)[^\s"'`<>\\]+/g, "");
 }
 
 export function renderWebAssetsModule(html: string, sourcesHash: string): string {

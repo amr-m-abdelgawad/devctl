@@ -17,7 +17,8 @@ describe("embedded web assets", () => {
     expect(WEB_INDEX_HTML).not.toMatch(/<(?:script|link|img|iframe)[^>]+\s(?:src|href)=["']\/\//i);
     expect(WEB_INDEX_HTML).not.toMatch(/fetch\s*\(\s*["']https?:/i);
     expect(WEB_INDEX_HTML).not.toMatch(/fetch\s*\(\s*["']\/\//i);
-    expect(WEB_INDEX_HTML).not.toMatch(/https?:\/\//);
+    const urls = WEB_INDEX_HTML.match(/https?:\/\/[^\s"'`<>\\]+/g) ?? [];
+    expect(urls.every((url) => url.startsWith("http://www.w3.org/"))).toBe(true);
     expect(WEB_INDEX_HTML.toLowerCase().split("</script").length).toBe(2);
   });
 });
