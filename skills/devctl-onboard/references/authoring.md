@@ -14,7 +14,7 @@ complete allowlists.
 
 **Top level:** `version` `project` `google` `profiles` `templates` `services`
 `tasks` `proxy` `logs` `auth` `shutdown` `ui` `secrets` `doctor` `plugins`
-`environment` `telemetry`
+`environment` `telemetry` `web`
 
 **Service** (and `templates.<name>`, same shape): `extends` `description`
 `command` `shell` `working_dir` `dependencies` `ports` `environment` `health`
@@ -47,6 +47,7 @@ complete allowlists.
 | `logs.persistence` | `enabled` `directory` `retention_days` `max_session_logs` |
 | `telemetry` | `otlp` |
 | `telemetry.otlp` | `enabled` `listen` |
+| `web` | `enabled` `listen` |
 | `auth` | `refresh_threshold_seconds` |
 | `shutdown` | `stop_services_on_exit` `grace_seconds` |
 | `ui` | `theme` `keymap` |
@@ -196,6 +197,7 @@ Anything else is rejected.
 - `proxy.listen.host` must be loopback (`127.0.0.1`, `localhost`, `::1`, or `127.0.0.0/8`). `0.0.0.0` and `::` are rejected.
 - `proxy.token_endpoint.host` must be loopback; `0.0.0.0` and `::` are rejected.
 - `telemetry.otlp` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` / `OTEL_SERVICE_NAME` only when those variables are unset. JSON only — no protobuf or gRPC.
+- `web` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected). Default listen port is **18900**. It must not collide with `proxy.listen`, `proxy.token_endpoint`, `telemetry.otlp`, or a gRPC route listen port. The listener is GET-only and serves the local telemetry UI.
 - Every route needs a `name` and either `upstream.url` or `upstream.service`.
   A service reference must name a real service and an existing port (default
   port name is `http`). `service.expose` and `proxy.gateway` synthesize

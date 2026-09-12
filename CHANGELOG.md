@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in loopback Telemetry & Trace Explorer (`web`, off by default, port `18900`). Read-only GET API (no token, no CORS, Host allowlist) serving a bundled SPA: services dashboard, SVG trace waterfall, dependency graph, and client-derived rate/latency/CPU charts. `devctl web status|start|stop`; `devctl status` prints a `WEB` line. See [Telemetry](docs/telemetry.md).
+
 ## [0.7.0] - 2026-09-12
 
 ### Added

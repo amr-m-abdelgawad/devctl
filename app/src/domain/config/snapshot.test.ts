@@ -35,4 +35,12 @@ describe("config snapshot", () => {
     expect(diff.restart_required).toContain("api");
     expect(diff.supervisor_restart_required ?? []).not.toContain("plugins");
   });
+
+  test("web config changes require a supervisor restart", () => {
+    const prev = defaultConfig();
+    const next = defaultConfig();
+    next.web.enabled = true;
+    const diff = configSnapshotDiff(prev, next);
+    expect(diff.supervisor_restart_required).toContain("web");
+  });
 });

@@ -68,6 +68,7 @@ export function validate(cfg: DevctlConfig): string[] {
   issues.push(...validateProfiles(cfg));
   issues.push(...validateProxy(cfg));
   issues.push(...validateTelemetry(cfg));
+  issues.push(...validateWeb(cfg));
   for (const [index, plugin] of cfg.plugins.entries()) {
     if (plugin.path === "") issues.push(`plugins.${index}.path is required`);
     else {
@@ -477,6 +478,35 @@ function validateTelemetry(cfg: DevctlConfig): string[] {
     cfg.proxy.routes.forEach((route, i) => {
       if (isGrpcRoute(route) && route.listen && route.listen.port === port) {
         issues.push(`telemetry.otlp.listen.port must differ from proxy.routes[${i}].listen.port`);
+      }
+    });
+  }
+  return issues;
+}
+
+function validateWeb(cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  const host = cfg.web.listen.host || LOCALHOST;
+  if (!isLoopbackBindHost(host)) {
+    issues.push("web.listen.host must be a loopback address");
+  }
+  const port = cfg.web.listen.port;
+  if (port !== 0 && (port < MIN_PORT || port > MAX_PORT)) {
+    issues.push("web.listen.port is invalid");
+  }
+  if (port !== 0) {
+    if (cfg.proxy.listen.port === port) {
+      issues.push("web.listen.port must differ from proxy.listen.port");
+    }
+    if (cfg.proxy.token_endpoint.enabled && cfg.proxy.token_endpoint.port === port) {
+      issues.push("web.listen.port must differ from proxy.token_endpoint.port");
+    }
+    if (cfg.telemetry.otlp.listen.port === port) {
+      issues.push("web.listen.port must differ from telemetry.otlp.listen.port");
+    }
+    cfg.proxy.routes.forEach((route, i) => {
+      if (isGrpcRoute(route) && route.listen && route.listen.port === port) {
+        issues.push(`web.listen.port must differ from proxy.routes[${i}].listen.port`);
       }
     });
   }

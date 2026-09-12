@@ -150,6 +150,14 @@ telemetry:
       host: 127.0.0.1
       port: 18418
 
+# Opt-in here (off in a normal repo) so the Telemetry & Trace Explorer is
+# available on the demo. Port 18900 is the product default. Loopback only.
+web:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 18900
+
 logs:
   max_memory_events: 50000
   persistence:

@@ -9,7 +9,8 @@ bun install
 bun run src/bin.ts --help
 bun test
 bun run check:coverage
-bunx tsc --noEmit
+bun run typecheck
+bun run typecheck:web
 bun run check:architecture
 bun run check:dead
 bun run check:dup
@@ -34,6 +35,7 @@ cd app && bun link    # optional: `devctl` on PATH
 | `app/src/presentation/tui/hooks/` | Client queries, command execution, and TUI state |
 | `app/src/presentation/tui/helpers/` | Screen-specific formatting, navigation, logs, and plan helpers |
 | `app/src/presentation/mcp/` | Streamable HTTP MCP server |
+| `app/src/presentation/web/` | Loopback telemetry web UI (SPA is authored in `app/web/` and embedded here) |
 | `app/src/domain/` | Service, identity, config, log, session, and preference types and policies |
 | `app/src/adapters/config/` | Discover, decode, merge, validate |
 | `app/src/adapters/process/` | Host process runtime |

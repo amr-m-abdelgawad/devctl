@@ -23,7 +23,9 @@
     "test": "bun test",
     "check:coverage": "bun scripts/check-coverage.ts",
     "test:npm-launcher": "node --test ../packaging/npm/devctl.test.cjs",
-    "typecheck": "bunx tsc --noEmit",
+    "typecheck": "bunx tsc --noEmit && bun run typecheck:web",
+    "typecheck:web": "bunx tsc --noEmit -p web/tsconfig.json",
+    "build:web": "bun run scripts/build-web-assets.ts",
     "check:architecture": "bun scripts/check-architecture.ts",
     "check:dead": "knip-bun",
     "check:dup": "jscpd src scripts",
@@ -34,9 +36,12 @@
   "devDependencies": {
     "@types/bun": "latest",
     "@types/react": "^19.2.18",
+    "@types/react-dom": "19.2.3",
     "jscpd": "^5.2.0",
     "knip": "^6.35.0",
-    "typescript": "^5.9.3"
+    "react-dom": "19.2.8",
+    "typescript": "^5.9.3",
+    "uplot": "^1.6.32"
   },
   "dependencies": {
     "@opentui/core": "^0.5.9",
