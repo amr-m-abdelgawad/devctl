@@ -50,7 +50,7 @@ function inlineAssets(html: string, dir: string): string {
     if (!href?.[1]) {
       return all;
     }
-    const body = readFileSync(join(dir, href[1]), "utf8");
+    const body = readFileSync(join(dir, href[1]), "utf8").replace(/<\/style/gi, "<\\/style");
     return `<style>${body}</style>`;
   });
   out = out.replace(/<script\b([^>]*)><\/script>/gi, (all, attrs: string) => {
@@ -58,7 +58,9 @@ function inlineAssets(html: string, dir: string): string {
     if (!src?.[1]) {
       return all;
     }
-    const body = readFileSync(join(dir, src[1]), "utf8");
+    // An inlined bundle that contains `"</script>"` (React's createElement
+    // probe) would otherwise close this tag early and dump the rest as text.
+    const body = readFileSync(join(dir, src[1]), "utf8").replace(/<\/script/gi, "<\\/script");
     const rest = attrs.replace(/\bsrc="[^"]+"/i, "").replace(/\s+/g, " ").trim();
     return `<script${rest ? ` ${rest}` : ""}>${body}</script>`;
   });
@@ -85,6 +87,9 @@ if (import.meta.main) {
       minify: true,
       outdir,
       sourcemap: "none",
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+      },
     });
     if (!result.success) {
       const logs = result.logs.map((log) => String(log)).join("\n");

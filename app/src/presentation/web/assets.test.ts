@@ -18,5 +18,6 @@ describe("embedded web assets", () => {
     expect(WEB_INDEX_HTML).not.toMatch(/fetch\s*\(\s*["']https?:/i);
     expect(WEB_INDEX_HTML).not.toMatch(/fetch\s*\(\s*["']\/\//i);
     expect(WEB_INDEX_HTML).not.toMatch(/https?:\/\//);
+    expect(WEB_INDEX_HTML.toLowerCase().split("</script").length).toBe(2);
   });
 });
