@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { hashWebSources } from "../../../scripts/build-web-assets.ts";
 import { WEB_INDEX_HTML, WEB_SOURCES_HASH } from "./assets.generated.ts";
@@ -9,6 +11,21 @@ const webRoot = join(appRoot, "web");
 describe("embedded web assets", () => {
   test("source hash matches WEB_SOURCES_HASH", () => {
     expect(WEB_SOURCES_HASH).toBe(hashWebSources(webRoot));
+  });
+
+  // Same reason as guide.test.ts: a Windows checkout with core.autocrlf=true
+  // has CRLF on disk while the Linux-built WEB_SOURCES_HASH is LF. Hash the
+  // logical source, not the checkout's line endings.
+  test("source hash is stable across CRLF checkouts", () => {
+    const dir = mkdtempSync(join(tmpdir(), "devctl-web-hash-"));
+    try {
+      writeFileSync(join(dir, "a.ts"), "export const x = 1;\n");
+      const lf = hashWebSources(dir);
+      writeFileSync(join(dir, "a.ts"), "export const x = 1;\r\n");
+      expect(hashWebSources(dir)).toBe(lf);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("the blob is a self-contained HTML document", () => {

@@ -28,12 +28,20 @@ export function listWebSources(root = webRoot): string[] {
   return out.sort();
 }
 
+// Hash LF-normalized UTF-8, not raw bytes. Windows checkouts with
+// core.autocrlf=true would otherwise disagree with the Linux-built
+// WEB_SOURCES_HASH even when the files are the same. Paths use `/` so a
+// nested source on Windows cannot drift the hash either.
+function normalizeEol(text: string): string {
+  return text.replace(/\r\n/g, "\n");
+}
+
 export function hashWebSources(root = webRoot): string {
   const hash = createHash("sha256");
   for (const file of listWebSources(root)) {
-    hash.update(relative(root, file));
+    hash.update(relative(root, file).replaceAll("\\", "/"));
     hash.update("\0");
-    hash.update(readFileSync(file));
+    hash.update(normalizeEol(readFileSync(file, "utf8")));
     hash.update("\0");
   }
   return hash.digest("hex");
