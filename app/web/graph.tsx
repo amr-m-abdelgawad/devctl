@@ -93,7 +93,13 @@ export function DependencyGraph(props: { config: ConfigService[]; services: Serv
   }
   return (
     <div className="graph-wrap">
-      <svg width={Math.max(width, 320)} height={Math.max(height, 120)} role="img" aria-label="service dependency graph">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width={Math.max(width, 320)}
+        height={Math.max(height, 120)}
+        role="img"
+        aria-label="service dependency graph"
+      >
         {edges.map((edge) => {
           const a = positions.get(edge.from);
           const b = positions.get(edge.to);
@@ -116,7 +122,7 @@ export function DependencyGraph(props: { config: ConfigService[]; services: Serv
           const fill = tone(rt?.state ?? "", rt?.health ?? "");
           return (
             <g key={svc.name} transform={`translate(${pos.x}, ${pos.y})`}>
-              <rect width={NODE_W} height={NODE_H} rx={8} fill="#293b32" stroke={fill} />
+              <rect width={NODE_W} height={NODE_H} rx={8} fill="#293b32" stroke={fill} strokeWidth={2} />
               <circle cx={14} cy={NODE_H / 2} r={5} fill={fill} />
               <text className="node-label" x={26} y={22}>{svc.name}</text>
             </g>

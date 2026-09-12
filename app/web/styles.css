@@ -139,8 +139,10 @@ tbody tr:hover { background: color-mix(in srgb, var(--highlight) 55%, transparen
 .waterfall svg { display: block; }
 .span-label { fill: var(--text); font-size: 11px; }
 .axis { fill: var(--muted); font-size: 10px; }
+.span-hit { cursor: pointer; }
 
 .graph-wrap { width: 100%; overflow: auto; }
+.graph-wrap svg { display: block; min-height: 120px; }
 .node-label { fill: var(--text); font-size: 12px; }
 .edge { stroke: var(--border); fill: none; stroke-width: 1.5; }
 

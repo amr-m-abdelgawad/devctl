@@ -73,7 +73,7 @@ export function Waterfall(props: { spans: SpanRow[]; selected?: string; onSelect
 
   return (
     <div className="waterfall">
-      <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="trace waterfall">
+      <svg xmlns="http://www.w3.org/2000/svg" width={width} height={height} viewBox={`0 0 ${width} ${height}`} role="img" aria-label="trace waterfall">
         <text className="axis" x={LABEL_W} y={12}>0</text>
         <text className="axis" x={LABEL_W + plotW} y={12} textAnchor="end">{formatNs(range)}</text>
         {lanes.map((lane, index) => {
@@ -85,9 +85,9 @@ export function Waterfall(props: { spans: SpanRow[]; selected?: string; onSelect
               {ordered.filter((span) => serviceName(span) === lane).map((span) => {
                 const x = LABEL_W + ((span.startUnixNano - t0) / range) * plotW;
                 const w = Math.max(2, ((Math.max(span.endUnixNano, span.startUnixNano) - span.startUnixNano) / range) * plotW);
-                const fill = STATUS_FILL[span.status.code] ?? STATUS_FILL.unset;
+                const fill = STATUS_FILL[span.status?.code ?? "unset"] ?? STATUS_FILL.unset;
                 return (
-                  <g key={span.spanId} onClick={() => onSelect(span.spanId)} style={{ cursor: "pointer" }}>
+                  <g key={span.spanId} className="span-hit" onClick={() => onSelect(span.spanId)}>
                     <rect
                       x={x}
                       y={y + 4}
@@ -97,8 +97,8 @@ export function Waterfall(props: { spans: SpanRow[]; selected?: string; onSelect
                       fill={fill}
                       opacity={selected === span.spanId ? 1 : 0.82}
                       stroke={selected === span.spanId ? "#deeee5" : "transparent"}
+                      aria-label={`${span.name} ${formatNs(Math.max(0, span.endUnixNano - span.startUnixNano))}`}
                     />
-                    <title>{`${span.name} · ${formatNs(Math.max(0, span.endUnixNano - span.startUnixNano))}`}</title>
                   </g>
                 );
               })}
