@@ -15,6 +15,7 @@ import { ServiceWatchers } from "./service-watch.ts";
 import { EnvironmentBridge } from "./environment-bridge.ts";
 import { IdentityCoordinator } from "./identity-coordinator.ts";
 import { McpCoordinator } from "./mcp-coordinator.ts";
+import { WebCoordinator } from "./web-coordinator.ts";
 import { ProxyCoordinator } from "./proxy-coordinator.ts";
 import { ResourceSampler } from "./resource-sampler.ts";
 import { buildSnapshot, formatStatusFromSnapshot, type SnapshotHost } from "./snapshot.ts";
@@ -23,6 +24,7 @@ import { RpcServer } from "../rpc/server.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
 import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
 import type { McpHost, McpListenerFactory } from "../../ports/mcp-host.ts";
+import type { WebListenerFactory } from "../../ports/web-host.ts";
 import { configSnapshotDiff } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
 import type { Clock } from "../../ports/clock.ts";
@@ -81,6 +83,7 @@ export class Supervisor {
   private readonly proxy: ProxyCoordinator;
   private readonly telemetry: TelemetryCoordinator;
   private readonly mcp: McpCoordinator;
+  private readonly web: WebCoordinator;
   private readonly resources: ResourceSampler;
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
@@ -132,6 +135,7 @@ export class Supervisor {
       detector: Detector;
       sessionID: string;
       createMcpListener: McpListenerFactory;
+      createWebListener: WebListenerFactory;
       isKnownTool: (name: string) => boolean;
       createCommands: (host: DaemonCommandHost) => DaemonCommands;
     },
@@ -193,6 +197,12 @@ export class Supervisor {
       log: (service, level, message) => this.log(service, level, message),
       persistState: () => this.persistState(),
     });
+    this.web = new WebCoordinator({
+      cfg: () => this.cfg,
+      createListener: deps.createWebListener,
+      hostApi: () => this.asMcpHost(),
+      log: (service, level, message) => this.log(service, level, message),
+    });
     this.resources = new ResourceSampler({
       clock: this.clock,
       runtimes: () => this.runtimes,
@@ -251,6 +261,7 @@ export class Supervisor {
       get clientEnv() { return self.clientEnv; },
       get proxy() { return self.proxy.instance; },
       get mcp() { return self.mcp.instance; },
+      get web() { return self.web.instance; },
       get mcpToken() { return self.mcp.token; },
       get mcpDisabledTools() { return self.mcp.disabledTools; },
       get identityCache() { return self.identity.identityCache; },
@@ -361,6 +372,7 @@ export class Supervisor {
     void this.refreshIdentity();
     this.resources.start();
     await this.telemetry.start();
+    await this.web.start();
     await this.mcp.bootFromPreferences();
     // Lazy, sticky proxy policy: startup never binds it. The first start()
     // call auto-starts it (see start() below) unless the user has
@@ -450,6 +462,12 @@ export class Supervisor {
       }
       case "mcp_stop":
         await this.stopMcp();
+        return null;
+      case "web_start":
+        await this.web.startExplicit();
+        return null;
+      case "web_stop":
+        await this.web.stop();
         return null;
       case "mcp_set_tools": {
         // The client sends the whole deny-list, not a delta: it already
@@ -738,6 +756,7 @@ export class Supervisor {
     await this.telemetry.stop();
     this.spans.close();
     await this.stopMcp();
+    await this.web.stop();
     this.configWatcher?.close();
     this.serviceWatchers.close();
     if (this.watchTimer) {

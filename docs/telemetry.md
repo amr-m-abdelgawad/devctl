@@ -69,13 +69,37 @@ the request's trace. A `traceparent` on an incoming request is honored; a bare
 request-id header is **not** adopted as the trace id, so unrelated requests are
 never merged into one trace.
 
-View a trace two ways:
+View a trace three ways:
 
 - **TUI** — a ◎ marker on a log row means it has a trace; `enter` (or **view
   trace**) opens a full-width waterfall. `j`/`k` selects a span; Enter opens that
   span's logs.
 - **CLI** — `devctl logs --trace <id>` prints the span tree plus the correlated
   logs; add `--json` for JSONL. See [CLI](cli.md).
+- **Web UI** — an opt-in loopback explorer (below) with a waterfall, correlated
+  logs, dependency graph, and rate/latency charts.
+
+## Web UI
+
+A read-only Telemetry & Trace Explorer, off until you enable it. Control stays
+in the TUI/CLI. It binds loopback only (no token, no CORS, Host allowlist) and
+serves a bundled SPA plus `GET /api/*` shapers that match MCP redaction.
+
+```yaml
+web:
+  enabled: true                  # default: false
+  listen:
+    host: 127.0.0.1              # loopback only; 0.0.0.0 / :: are rejected
+    port: 18900                  # default 18900
+```
+
+Then `devctl web start` (or boot with `enabled: true`) and open the printed URL.
+`devctl web status|stop` and `devctl status` (the `WEB` line) report the listener.
+Hash routes: `#/services`, `#/traces`, `#/graph`, `#/logs`. Rebuild the embed with
+`cd app && bun run build:web` after editing `app/web/`.
+
+Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
+route port.
 
 ## Redaction
 

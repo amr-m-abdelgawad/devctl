@@ -279,6 +279,13 @@ export type TelemetryConfig = {
 
 export const DEFAULT_OTLP_HTTP_PORT = 4318;
 
+export type WebConfig = {
+  enabled: boolean;
+  listen: ListenConfig;
+};
+
+export const DEFAULT_WEB_PORT = 18900;
+
 export type AuthConfig = {
   refresh_threshold_seconds: number;
 };
@@ -334,6 +341,7 @@ export type DevctlConfig = {
   proxy: ProxyConfig;
   logs: LogConfig;
   telemetry: TelemetryConfig;
+  web: WebConfig;
   auth: AuthConfig;
   shutdown: ShutdownConfig;
   ui: UIConfig;
@@ -428,6 +436,10 @@ export function defaultConfig(): DevctlConfig {
         enabled: false,
         listen: { host: LOCALHOST, port: DEFAULT_OTLP_HTTP_PORT },
       },
+    },
+    web: {
+      enabled: false,
+      listen: { host: LOCALHOST, port: DEFAULT_WEB_PORT },
     },
     auth: { refresh_threshold_seconds: DEFAULT_REFRESH_THRESHOLD_SECONDS },
     shutdown: { grace_seconds: DEFAULT_GRACE_SECONDS },

@@ -33,6 +33,7 @@ import {
   knownTelemetry,
   knownTelemetryOtlp,
   knownUI,
+  knownWeb,
   knownUpstream,
   knownWatch,
 } from "./known.ts";
@@ -108,6 +109,10 @@ function knownForPath(path: string): string[] {
     case "telemetry.otlp":
       return knownTelemetryOtlp;
     case "telemetry.otlp.listen":
+      return knownListen;
+    case "web":
+      return knownWeb;
+    case "web.listen":
       return knownListen;
     default:
       return nestedKnown(path);

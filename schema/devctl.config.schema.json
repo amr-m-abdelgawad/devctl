@@ -46,6 +46,7 @@
     "proxy": { "$ref": "#/$defs/proxy" },
     "logs": { "$ref": "#/$defs/logs" },
     "telemetry": { "$ref": "#/$defs/telemetry" },
+    "web": { "$ref": "#/$defs/web" },
     "auth": {
       "type": "object",
       "additionalProperties": false,
@@ -454,6 +455,21 @@
                 "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
               }
             }
+          }
+        }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "description": "Opt-in loopback telemetry web UI. Off by default. Read-only. Loopback only." },
+        "listen": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string" },
+            "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
           }
         }
       }

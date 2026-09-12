@@ -4,6 +4,7 @@ import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, type Runtime } from "../../domain/service/services.ts";
 import type { IdentitySnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
+import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
 
@@ -17,6 +18,7 @@ export type SnapshotHost = {
   readonly clientEnv: Map<string, Record<string, string>>;
   readonly proxy?: ProxyServer;
   readonly mcp?: McpListener;
+  readonly web?: WebListener;
   readonly mcpToken: string;
   readonly mcpDisabledTools: string[];
   readonly identityCache: IdentitySnapshot;
@@ -122,6 +124,11 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
       token: host.mcpToken,
       disabled_tools: [...host.mcpDisabledTools],
     },
+    web: {
+      running: host.web?.isRunning() ?? false,
+      address: host.web?.isRunning() ? `http://${host.web.address()}/` : undefined,
+      port: host.web?.isRunning() ? host.web.listenPort() : undefined,
+    },
     // service_accounts/service_account_status come from the live cache,
     // not identityCache's snapshot — a first-use probe (startOne) or a
     // doctor inspection updates serviceAccountStatus directly without
@@ -147,5 +154,6 @@ export function formatStatusFromSnapshot(snap: StatusSnapshot): string {
   }
   lines.push("", `PROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}`);
   lines.push(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}`);
+  lines.push(`WEB         ${snap.web?.running ? "RUNNING" : "STOPPED"}     ${snap.web?.address ?? ""}`);
   return lines.join("\n") + "\n";
 }

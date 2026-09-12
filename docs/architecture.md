@@ -6,7 +6,7 @@
 
 ```text
 app/src/
-  presentation/    cli, tui, mcp
+  presentation/    cli, tui, mcp, web
   application/     commands, queries, orchestrator
   domain/          service, identity, health, config types
   ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, …
@@ -34,7 +34,7 @@ Forbidden: domain → adapters/application/presentation; application → adapter
 
 There is exactly one composition root **per process**:
 
-- `bootstrap/daemon.ts` — supervisor, orchestrator, adapters, MCP, proxy
+- `bootstrap/daemon.ts` — supervisor, orchestrator, adapters, MCP, proxy, web UI
 - `bootstrap/client.ts` — CLI/TUI, Controller, offline commands
 
 No DI container. Constructor injection only. Bootstrap is allowed to be ugly.

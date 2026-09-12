@@ -911,6 +911,55 @@ services:
     }
   }, 15_000);
 
+  test("web stays off at boot unless enabled, and web_start/web_stop round-trip", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.web.listen.port = port;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      expect(sup.snapshot().web?.running).toBe(false);
+      await sup.dispatch("web_start", null);
+      const started = sup.snapshot();
+      expect(started.web?.running).toBe(true);
+      expect(started.web?.port).toBe(port);
+      expect(started.web?.address).toContain(`127.0.0.1:${port}`);
+      const page = await fetch(`http://127.0.0.1:${port}/`);
+      expect(page.status).toBe(200);
+      expect(page.headers.get("access-control-allow-origin")).toBeNull();
+      await sup.dispatch("web_stop", null);
+      expect(sup.snapshot().web?.running).toBe(false);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("web.enabled starts the web UI at daemon boot", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.web.enabled = true;
+    cfg.web.listen.port = port;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      const snap = sup.snapshot();
+      expect(snap.web?.running).toBe(true);
+      expect(snap.web?.port).toBe(port);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("logs_clear is no longer a valid RPC method — a client cannot wipe the daemon's shared log buffer", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

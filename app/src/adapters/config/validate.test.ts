@@ -267,6 +267,60 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("loopback"))).toBe(true);
   });
 
+  test("rejects web listen on 0.0.0.0", () => {
+    const cfg = withService("api");
+    cfg.web.enabled = true;
+    cfg.web.listen.host = "0.0.0.0";
+    expect(validate(cfg).some((issue) => issue.includes("web.listen.host must be a loopback address"))).toBe(true);
+  });
+
+  test("rejects web listen on ::", () => {
+    const cfg = withService("api");
+    cfg.web.listen.host = "::";
+    expect(validate(cfg).some((issue) => issue.includes("web.listen.host must be a loopback address"))).toBe(true);
+  });
+
+  test("rejects an invalid web listen port", () => {
+    const cfg = withService("api");
+    cfg.web.listen.port = 70000;
+    expect(validate(cfg).some((issue) => issue.includes("web.listen.port is invalid"))).toBe(true);
+  });
+
+  test("rejects web port colliding with proxy listen", () => {
+    const cfg = withService("api");
+    cfg.proxy.listen.port = 18900;
+    cfg.web.listen.port = 18900;
+    expect(validate(cfg)).toContain("web.listen.port must differ from proxy.listen.port");
+  });
+
+  test("rejects web port colliding with token endpoint", () => {
+    const cfg = withService("api");
+    cfg.proxy.token_endpoint = { enabled: true, host: "127.0.0.1", port: 18900 };
+    cfg.web.listen.port = 18900;
+    expect(validate(cfg)).toContain("web.listen.port must differ from proxy.token_endpoint.port");
+  });
+
+  test("rejects web port colliding with OTLP", () => {
+    const cfg = withService("api");
+    cfg.telemetry.otlp.listen.port = 18900;
+    cfg.web.listen.port = 18900;
+    expect(validate(cfg)).toContain("web.listen.port must differ from telemetry.otlp.listen.port");
+  });
+
+  test("rejects web port colliding with a gRPC route listen port", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "worker",
+      transport: "grpc",
+      match: { host: "worker.local", path: "" },
+      upstream: { url: "https://127.0.0.1:9000" },
+      auth: emptyRouteAuth(),
+      listen: { host: "127.0.0.1", port: 18900 },
+    });
+    cfg.web.listen.port = 18900;
+    expect(validate(cfg)).toContain("web.listen.port must differ from proxy.routes[0].listen.port");
+  });
+
   test("validates plugin paths relative to the repository root", () => {
     const root = join(process.env.TMPDIR ?? "/tmp", `devctl-validate-${Date.now()}-${Math.random()}`);
     mkdirSync(root, { recursive: true });

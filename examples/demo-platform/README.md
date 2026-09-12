@@ -31,6 +31,7 @@ bun run ../../app/src/bin.ts start --profile full
 bun run ../../app/src/bin.ts status
 # Billing console UI: http://127.0.0.1:18003
 # Proxy: 127.0.0.1:18080
+# Telemetry UI: http://127.0.0.1:18900
 bun run ../../app/src/bin.ts mcp --on        # optional agent URL
 bun run ../../app/src/bin.ts stop
 ```

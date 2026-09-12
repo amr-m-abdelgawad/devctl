@@ -81,6 +81,12 @@ export type McpSnapshot = {
   disabled_tools?: string[];
 };
 
+export type WebSnapshot = {
+  running: boolean;
+  address?: string;
+  port?: number;
+};
+
 export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
 
 export type IdentitySnapshot = {
@@ -152,6 +158,7 @@ export type StatusSnapshot = {
   services: Record<string, Runtime>;
   proxy: ProxySnapshot;
   mcp?: McpSnapshot;
+  web?: WebSnapshot;
   identity: IdentitySnapshot;
   credentials?: CredentialsSnapshot;
   detached?: boolean;

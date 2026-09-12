@@ -21,8 +21,10 @@ import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID } from "../adapters/storage/storage.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
 import { McpHttpServer } from "../presentation/mcp/server.ts";
+import { WebHttpServer } from "../presentation/web/server.ts";
 import { isKnownToolName } from "../presentation/mcp/tools.ts";
 import type { McpListener, McpListenerFactory } from "../ports/mcp-host.ts";
+import type { WebListener, WebListenerFactory } from "../ports/web-host.ts";
 
 export type DaemonDeps = {
   healthCheckers?: HealthCheckerFactory;
@@ -33,6 +35,7 @@ export type DaemonDeps = {
   tokens?: Tokens;
   detectGoogle?: (project: string) => Promise<GoogleStatus>;
   createMcpListener?: McpListenerFactory;
+  createWebListener?: WebListenerFactory;
 };
 
 export type DaemonRuntime = {
@@ -44,6 +47,9 @@ export type DaemonRuntime = {
 
 export const defaultMcpListener: McpListenerFactory = (opts): McpListener =>
   new McpHttpServer({ host: "127.0.0.1", ...opts });
+
+export const defaultWebListener: WebListenerFactory = (opts): WebListener =>
+  new WebHttpServer({ host: "127.0.0.1", ...opts });
 
 export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Promise<DaemonRuntime> {
   const clock = deps.clock ?? systemClock;
@@ -98,6 +104,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
     detector,
     sessionID,
     createMcpListener: deps.createMcpListener ?? defaultMcpListener,
+    createWebListener: deps.createWebListener ?? defaultWebListener,
     isKnownTool: isKnownToolName,
     createCommands: (host) => commandsForHost(host, createDoctorRunner(createDoctorHost({ tokens })), orchestrator),
   });
