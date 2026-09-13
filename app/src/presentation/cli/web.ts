@@ -11,6 +11,10 @@ export function addWeb(root: Command, runtime: ClientRuntime): void {
       const ctrl = await runtime.openController("", configFlag(root), false);
       try {
         if (!ctrl.client) {
+          if (opts.json) {
+            writeOut(`${JSON.stringify({ running: false }, null, 2)}\n`);
+            return;
+          }
           writeOut("WEB  STOPPED\n");
           return;
         }

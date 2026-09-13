@@ -44,8 +44,12 @@ export function OverviewPage(props: {
     ? profileName
     : (profiles.some((row) => row.name === profile) ? profile : profiles[0]?.name ?? "");
   const liveNames = useMemo(() => services.filter((row) => isLiveState(row.state)).map((row) => row.name), [services]);
-  const selectedSet = new Set(selected);
-  const allSelected = services.length > 0 && selected.length === services.length;
+  const selectedNames = useMemo(() => {
+    const names = new Set(services.map((row) => row.name));
+    return selected.filter((name) => names.has(name));
+  }, [selected, services]);
+  const selectedSet = new Set(selectedNames);
+  const allSelected = services.length > 0 && selectedNames.length === services.length;
   const healthTone = summary.total === 0 ? "muted" : summary.healthy === summary.total ? "success" : summary.healthy === 0 ? "destructive" : "warning";
   const noneLive = liveNames.length === 0 && services.length > 0;
 
@@ -92,13 +96,13 @@ export function OverviewPage(props: {
               profile={chosenProfile}
               tasks={tasks}
               busy={busy}
-              selectedCount={selected.length}
+              selectedCount={selectedNames.length}
               liveCount={liveNames.length}
               onProfile={setProfileName}
               onStartProfile={() => onControl("start_services", { profile: chosenProfile }, `Starting ${chosenProfile}…`)}
-              onStartSelected={() => onControl("start_services", { services: selected }, "Starting selected…")}
-              onStopSelected={() => onControl("stop_services", { services: selected }, "Stopping selected…")}
-              onRestartSelected={() => onControl("restart_services", { services: selected }, "Restarting selected…")}
+              onStartSelected={() => onControl("start_services", { services: selectedNames }, "Starting selected…")}
+              onStopSelected={() => onControl("stop_services", { services: selectedNames }, "Stopping selected…")}
+              onRestartSelected={() => onControl("restart_services", { services: selectedNames }, "Restarting selected…")}
               onStopAll={() => setConfirmStopAll(true)}
               onReload={() => onControl("reload_config", {}, "Reloading config…")}
               onRunTask={(name) => onControl("run_task", { name }, `Running ${name}…`)}

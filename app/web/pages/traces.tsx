@@ -125,8 +125,9 @@ export function TracesPage(props: {
     );
   }
 
-  const span = trace?.spans.find((s) => s.spanId === selectedSpan);
-  const spanLogs = selectedSpan ? (trace?.logs ?? []).filter((row) => row.spanId === selectedSpan) : (trace?.logs ?? []);
+  const shown = trace?.trace_id === traceId ? trace : undefined;
+  const span = shown?.spans.find((s) => s.spanId === selectedSpan);
+  const spanLogs = selectedSpan ? (shown?.logs ?? []).filter((row) => row.spanId === selectedSpan) : (shown?.logs ?? []);
   const proxy = traceId ? requests?.requests.find((row) => row.trace_id === traceId) : undefined;
 
   return (
@@ -139,11 +140,11 @@ export function TracesPage(props: {
             </a>
             <span className="truncate font-mono text-xs text-muted-foreground" title={traceId}>{traceId}</span>
           </div>
-          {trace ? <TraceSummary trace={trace} proxy={proxy} /> : null}
+          {shown ? <TraceSummary trace={shown} proxy={proxy} /> : null}
         </CardHeader>
         <CardContent className="pt-0">
           {error ? <div className="mb-2 text-sm text-destructive">{error}</div> : null}
-          {trace ? <Waterfall spans={trace.spans} selected={selectedSpan} onSelect={onSelectSpan} /> : <Empty>Loading trace…</Empty>}
+          {shown ? <Waterfall spans={shown.spans} selected={selectedSpan} onSelect={onSelectSpan} /> : <Empty>Loading trace…</Empty>}
         </CardContent>
       </Card>
 
@@ -155,7 +156,7 @@ export function TracesPage(props: {
         <Card>
           <CardHeader>
             <CardTitle>Correlated logs</CardTitle>
-            {selectedSpan ? <Badge variant="muted">selected span</Badge> : trace ? <Badge variant="muted">whole trace</Badge> : null}
+            {selectedSpan ? <Badge variant="muted">selected span</Badge> : shown ? <Badge variant="muted">whole trace</Badge> : null}
           </CardHeader>
           <CardContent className="pt-0"><LogTable events={spanLogs} showTrace={false} /></CardContent>
         </Card>

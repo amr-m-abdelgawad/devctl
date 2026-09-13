@@ -93,11 +93,14 @@ export function App() {
   const busyRef = useRef(false);
   const traceMsRef = useRef<Record<string, number>>({});
   const requestLifeRef = useRef(emptyRingCounter());
+  const pollGenRef = useRef(0);
   useEffect(() => {
     traceMsRef.current = traceMsById;
   }, [traceMsById]);
 
   const poll = useCallback(async () => {
+    const gen = pollGenRef.current + 1;
+    pollGenRef.current = gen;
     const [nextStatus, nextServices, nextRequests, nextConfig, nextErrors, nextProfiles] = await Promise.all([
       fetchStatus(),
       fetchServices(),
@@ -106,6 +109,9 @@ export function App() {
       fetchLogs({ level: "ERROR" }),
       fetchProfiles(),
     ]);
+    if (gen !== pollGenRef.current) {
+      return;
+    }
     requestLifeRef.current = advanceRingCounter(
       requestLifeRef.current,
       (nextRequests.requests ?? []).map((row) => row.request_id),
@@ -165,11 +171,20 @@ export function App() {
 
   useEffect(() => {
     const run = (): void => {
-      void poll().catch((err: unknown) => setPollError(err instanceof Error ? err.message : "poll failed"));
+      const gen = pollGenRef.current + 1;
+      void poll().catch((err: unknown) => {
+        if (gen !== pollGenRef.current) {
+          return;
+        }
+        setPollError(err instanceof Error ? err.message : "poll failed");
+      });
     };
     run();
     const timer = window.setInterval(run, POLL_MS);
-    return () => window.clearInterval(timer);
+    return () => {
+      pollGenRef.current += 1;
+      window.clearInterval(timer);
+    };
   }, [poll]);
 
   useEffect(() => {
@@ -183,9 +198,19 @@ export function App() {
     if (logFilter.level) {
       params.level = logFilter.level;
     }
-    void fetchLogs(params).then(setLogs).catch((err: unknown) => {
-      setPollError(err instanceof Error ? err.message : "logs failed");
+    let cancelled = false;
+    void fetchLogs(params).then((payload) => {
+      if (!cancelled) {
+        setLogs(payload);
+      }
+    }).catch((err: unknown) => {
+      if (!cancelled) {
+        setPollError(err instanceof Error ? err.message : "logs failed");
+      }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [route.name, logFilter, requests?.total, status?.logs.total, status?.logs.seen]);
 
   useEffect(() => {
@@ -194,14 +219,26 @@ export function App() {
       setTraceError("");
       return;
     }
+    const requested = route.traceId;
     setSelectedSpan("");
-    void fetchTrace(route.traceId).then((payload) => {
+    setTrace(undefined);
+    let cancelled = false;
+    void fetchTrace(requested).then((payload) => {
+      if (cancelled) {
+        return;
+      }
       setTrace(payload);
       setTraceError("");
     }).catch((err: unknown) => {
+      if (cancelled) {
+        return;
+      }
       setTrace(undefined);
       setTraceError(err instanceof Error ? err.message : "trace failed");
     });
+    return () => {
+      cancelled = true;
+    };
   }, [route.name, route.traceId]);
 
   useEffect(() => {

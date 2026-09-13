@@ -9,6 +9,7 @@ import type { RunControl } from "../control.ts";
 
 const CHART_HEIGHT = 168;
 const LATENCY_FAST_MS = 100;
+const LATENCY_CEILING_STEP_MS = 50;
 const LATENCY_SLOW_MS = 500;
 const LATENCY_TAIL_RATIO = 3;
 const CPU_BUSY = 80;
@@ -40,7 +41,8 @@ export function GraphPage(props: {
   const cpu = host[0] ?? 0;
   const mem = host[1] ?? 0;
   const ready = ratePoints.length >= 2;
-  const latCeiling = Math.max(LATENCY_FAST_MS, Math.ceil((p95 || 0) / 50) * 50);
+  const peakP95 = latPoints.reduce((max, point) => Math.max(max, point.values[1] ?? 0), 0);
+  const latCeiling = Math.max(LATENCY_FAST_MS, Math.ceil(peakP95 / LATENCY_CEILING_STEP_MS) * LATENCY_CEILING_STEP_MS);
 
   const rateStats: ChartStat[] = [
     { label: "requests / s", value: req.toFixed(1), color: "#7ce0bd" },

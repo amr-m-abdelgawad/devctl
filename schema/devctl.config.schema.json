@@ -463,7 +463,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean", "description": "Opt-in loopback telemetry web UI. Off by default. Read-only. Loopback only." },
+        "enabled": { "type": "boolean", "description": "Opt-in loopback telemetry web UI. Off by default. Loopback only. Lifecycle controls via POST /api/control." },
         "listen": {
           "type": "object",
           "additionalProperties": false,

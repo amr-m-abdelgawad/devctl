@@ -107,7 +107,7 @@ See [examples/admin-iam.yaml](../examples/admin-iam.yaml) for a permission-distr
 ` },
   { path: "docs/architecture.md", title: "Architecture", body: `# Architecture
 
-\`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: TUI, CLI, MCP, and the web UI talk to a long-lived supervisor over a local socket. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
+\`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: the CLI and TUI talk to a long-lived supervisor over a local socket; MCP and the web UI use supervisor-managed HTTP listeners. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
 
 ## Layers
 
@@ -1356,7 +1356,7 @@ npm provenance shows that the JavaScript package was published by this repositor
 ` },
   { path: "docs/overview.md", title: "How it fits together", body: `# How it fits together
 
-\`devctl\` is one product with five faces on the same supervisor.
+\`devctl\` is one product with four faces on the same supervisor.
 
 \`\`\`mermaid
 flowchart TB
@@ -2382,10 +2382,11 @@ View a trace three ways:
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
-It is off until you enable it. It binds loopback only (no token, no CORS, Host
-allowlist) and serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
-redaction. Mutations go through \`POST /api/control\` to the same MCP tools
-(except \`exec_service\`).
+It is off until you enable it. It binds loopback only (no login or token, no
+CORS, Host allowlist). Mutating \`POST /api/control\` requires a same-origin
+\`Origin\` or \`Referer\` and \`Content-Type: application/json\`. The listener serves
+a bundled SPA plus \`GET /api/*\` shapers that match MCP redaction. Mutations go
+through \`POST /api/control\` to the same MCP tools (except \`exec_service\`).
 
 \`\`\`yaml
 web:

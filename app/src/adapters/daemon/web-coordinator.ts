@@ -1,4 +1,4 @@
-import type { DevctlConfig } from "../../domain/config/types.ts";
+import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
 
 export type WebCoordinatorDeps = {
@@ -51,6 +51,7 @@ export class WebCoordinator {
     }
     const listen = this.deps.cfg().web.listen;
     this.listener = this.deps.createListener({
+      host: listen.host || LOCALHOST,
       port: listen.port,
       hostApi: this.deps.hostApi(),
       onEvent: (level, message) => this.deps.log("web", level, `web ${message}`),

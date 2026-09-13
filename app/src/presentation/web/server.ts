@@ -101,7 +101,7 @@ export class WebHttpServer {
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!hostAllowed(req.headers.host, this.boundPort)) {
+    if (!hostAllowed(req.headers.host, this.boundPort, this.opts.host)) {
       writeJson(res, 403, { error: "forbidden" });
       return;
     }
@@ -178,6 +178,8 @@ export class WebHttpServer {
       writeMethodNotAllowed(res, path === "/" || path.startsWith("/api/") ? ALLOW_GET : ALLOW_GET_POST);
       return;
     }
+    assertSameOriginControl(req, this.boundPort, this.opts.host);
+    assertJsonContentType(req.headers["content-type"]);
     const body = await readJsonBody(req);
     const tool = typeof body.tool === "string" ? body.tool : "";
     if (!isWebControlTool(tool)) {
@@ -188,10 +190,54 @@ export class WebHttpServer {
   }
 }
 
-function hostAllowed(header: string | string[] | undefined, port: number): boolean {
+function headerValue(header: string | string[] | undefined): string {
   const raw = Array.isArray(header) ? header[0] : header;
-  const host = (raw ?? "").split(",")[0]?.trim().toLowerCase() ?? "";
-  return host === `127.0.0.1:${port}` || host === `localhost:${port}`;
+  return (raw ?? "").split(",")[0]?.trim() ?? "";
+}
+
+function loopbackHostHeaders(port: number, bindHost: string): Set<string> {
+  const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+  const host = bindHost.trim().toLowerCase();
+  if (host !== "" && host !== "127.0.0.1" && host !== "localhost") {
+    hosts.add(host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`);
+  }
+  return hosts;
+}
+
+function hostAllowed(header: string | string[] | undefined, port: number, bindHost: string): boolean {
+  return loopbackHostHeaders(port, bindHost).has(headerValue(header).toLowerCase());
+}
+
+function originHostAllowed(value: string, allowed: Set<string>): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" && allowed.has(url.host.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+function assertSameOriginControl(req: IncomingMessage, port: number, bindHost: string): void {
+  const allowed = loopbackHostHeaders(port, bindHost);
+  const origin = headerValue(req.headers.origin);
+  if (origin !== "") {
+    if (!originHostAllowed(origin, allowed)) {
+      throw new HttpError(403, "cross-origin request rejected");
+    }
+    return;
+  }
+  const referer = headerValue(req.headers.referer);
+  if (referer !== "" && originHostAllowed(referer, allowed)) {
+    return;
+  }
+  throw new HttpError(403, "cross-origin request rejected");
+}
+
+function assertJsonContentType(header: string | string[] | undefined): void {
+  const media = headerValue(header).split(";")[0]?.trim().toLowerCase() ?? "";
+  if (media !== JSON_CONTENT) {
+    throw new HttpError(415, "JSON content type required");
+  }
 }
 
 function matchParam(path: string, prefix: string): string | undefined {
@@ -245,10 +291,12 @@ function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
       reject(err);
     };
     req.on("data", (chunk: Buffer) => {
+      if (settled) {
+        return;
+      }
       size += chunk.length;
       if (size > MAX_JSON_BODY_BYTES) {
         fail(new HttpError(413, "payload too large"));
-        req.destroy();
         return;
       }
       chunks.push(chunk);

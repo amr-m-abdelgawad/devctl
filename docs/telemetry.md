@@ -85,10 +85,11 @@ View a trace three ways:
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (`start` / `stop` / `restart` / profile start / proxy / reload / run task).
-It is off until you enable it. It binds loopback only (no token, no CORS, Host
-allowlist) and serves a bundled SPA plus `GET /api/*` shapers that match MCP
-redaction. Mutations go through `POST /api/control` to the same MCP tools
-(except `exec_service`).
+It is off until you enable it. It binds loopback only (no login or token, no
+CORS, Host allowlist). Mutating `POST /api/control` requires a same-origin
+`Origin` or `Referer` and `Content-Type: application/json`. The listener serves
+a bundled SPA plus `GET /api/*` shapers that match MCP redaction. Mutations go
+through `POST /api/control` to the same MCP tools (except `exec_service`).
 
 ```yaml
 web:

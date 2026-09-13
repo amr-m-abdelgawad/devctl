@@ -90,14 +90,49 @@ async function listen(api: McpHost = host()): Promise<WebHttpServer> {
   return server;
 }
 
-function rawGet(port: number, path: string, headers: Record<string, string>): Promise<number> {
+function rawRequest(port: number, opts: {
+  method?: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = httpRequest({ host: "127.0.0.1", port, path, headers }, (res) => {
-      res.resume();
-      res.on("end", () => resolve(res.statusCode ?? 0));
+    const req = httpRequest({
+      host: "127.0.0.1",
+      port,
+      path: opts.path,
+      method: opts.method ?? "GET",
+      headers: opts.headers,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
     });
     req.on("error", reject);
+    if (opts.body !== undefined) {
+      req.write(opts.body);
+    }
     req.end();
+  });
+}
+
+function rawGet(port: number, path: string, headers: Record<string, string>): Promise<number> {
+  return rawRequest(port, { path, headers }).then((res) => res.status);
+}
+
+function controlHeaders(port: number, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    Origin: `http://127.0.0.1:${port}`,
+    ...extra,
+  };
+}
+
+async function postControl(port: number, payload: unknown, extra: Record<string, string> = {}): Promise<Response> {
+  return fetch(`http://127.0.0.1:${port}/api/control`, {
+    method: "POST",
+    headers: controlHeaders(port, extra),
+    body: typeof payload === "string" ? payload : JSON.stringify(payload),
   });
 }
 
@@ -179,27 +214,16 @@ describe("web http server", () => {
   test("POST /api/control runs the same mutating MCP tools", async () => {
     const api = host();
     const server = await listen(api);
-    const base = `http://127.0.0.1:${server.listenPort()}`;
     try {
-      const started = await fetch(`${base}/api/control`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ tool: "start_services", args: { profile: "local" } }),
-      });
+      const started = await postControl(server.listenPort(), { tool: "start_services", args: { profile: "local" } });
       expect(started.status).toBe(200);
       expect(await started.json()).toEqual({ profile: "local", waves: [[]], steps: [] });
 
-      const stopped = await fetch(`${base}/api/control`, {
-        method: "POST",
-        body: JSON.stringify({ tool: "stop_services", args: { services: ["api"] } }),
-      });
+      const stopped = await postControl(server.listenPort(), { tool: "stop_services", args: { services: ["api"] } });
       expect(stopped.status).toBe(200);
       expect(await stopped.json()).toEqual({ ok: true });
 
-      const proxy = await fetch(`${base}/api/control`, {
-        method: "POST",
-        body: JSON.stringify({ tool: "stop_proxy" }),
-      });
+      const proxy = await postControl(server.listenPort(), { tool: "stop_proxy" });
       expect(proxy.status).toBe(200);
 
       expect(api.calls.map((call) => call.tool)).toEqual(["start_services", "stop_services", "stop_proxy"]);
@@ -215,26 +239,90 @@ describe("web http server", () => {
     const server = await listen(api);
     const base = `http://127.0.0.1:${server.listenPort()}`;
     try {
-      const inspect = await fetch(`${base}/api/control`, {
-        method: "POST",
-        body: JSON.stringify({ tool: "list_services" }),
-      });
+      const inspect = await postControl(server.listenPort(), { tool: "list_services" });
       expect(inspect.status).toBe(400);
       expect((await inspect.json() as { error: string }).error).toContain("non-mutating");
 
-      const exec = await fetch(`${base}/api/control`, {
-        method: "POST",
-        body: JSON.stringify({ tool: "exec_service", args: { service: "api", command: ["true"] } }),
-      });
+      const exec = await postControl(server.listenPort(), { tool: "exec_service", args: { service: "api", command: ["true"] } });
       expect(exec.status).toBe(400);
 
-      const invalid = await fetch(`${base}/api/control`, { method: "POST", body: "not-json" });
+      const invalid = await postControl(server.listenPort(), "not-json");
       expect(invalid.status).toBe(400);
 
       const getControl = await fetch(`${base}/api/control`);
       expect(getControl.status).toBe(405);
       expect(getControl.headers.get("allow")).toBe("POST");
 
+      expect(api.calls).toEqual([]);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("POST /api/control rejects cross-origin and non-JSON requests", async () => {
+    const api = host();
+    const server = await listen(api);
+    const port = server.listenPort();
+    const body = JSON.stringify({ tool: "stop_services", args: { services: ["api"] } });
+    try {
+      const missing = await rawRequest(port, {
+        method: "POST",
+        path: "/api/control",
+        headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) },
+        body,
+      });
+      expect(missing.status).toBe(403);
+
+      const remote = await rawRequest(port, {
+        method: "POST",
+        path: "/api/control",
+        headers: {
+          "content-type": "application/json",
+          Origin: "https://evil.example",
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(remote.status).toBe(403);
+
+      const referer = await rawRequest(port, {
+        method: "POST",
+        path: "/api/control",
+        headers: {
+          "content-type": "application/json",
+          Referer: `http://127.0.0.1:${port}/`,
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(referer.status).toBe(200);
+
+      const form = await postControl(port, { tool: "stop_proxy" }, { "content-type": "text/plain" });
+      expect(form.status).toBe(415);
+
+      expect(api.calls.map((call) => call.tool)).toEqual(["stop_services"]);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("POST /api/control returns 413 for an oversized body", async () => {
+    const api = host();
+    const server = await listen(api);
+    const port = server.listenPort();
+    const body = `{"tool":"stop_proxy","pad":"${"x".repeat(70 * 1024)}"}`;
+    try {
+      const oversized = await rawRequest(port, {
+        method: "POST",
+        path: "/api/control",
+        headers: {
+          ...controlHeaders(port),
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(oversized.status).toBe(413);
+      expect(JSON.parse(oversized.body)).toEqual({ error: "payload too large" });
       expect(api.calls).toEqual([]);
     } finally {
       await server.stop();

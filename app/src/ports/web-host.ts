@@ -10,6 +10,7 @@ export type WebListener = {
 
 export type WebListenerFactory = (opts: {
   port: number;
+  host?: string;
   hostApi: McpHost;
   onEvent: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 }) => WebListener;

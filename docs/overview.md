@@ -1,6 +1,6 @@
 # How it fits together
 
-`devctl` is one product with five faces on the same supervisor.
+`devctl` is one product with four faces on the same supervisor.
 
 ```mermaid
 flowchart TB
