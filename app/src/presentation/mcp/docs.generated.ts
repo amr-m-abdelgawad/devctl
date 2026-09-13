@@ -2483,7 +2483,7 @@ trace, and read the responsible service's span and logs — all redacted.
 | Config on disk is broken but the TUI still opens fine | Expected: it attached to an already-running daemon and is showing its \`config_snapshot\` (last-known-good), not a fresh reparse of the broken file. Fix the file and \`/reload\` |
 | \`devctl update\` says unavailable | GitHub Releases API could not be reached. For npm: \`npm install --global @amr-m-abdelgawad/devctl@latest\`. Homebrew and GitHub binaries: see [installation](installation.md) |
 | MCP agent cannot connect | Listener is off by default. \`/mcp\` or \`devctl mcp --on\`. URL is loopback only; snippets include the bearer token |
-| Web UI shows \`{"error":"forbidden"}\` | The page Host header was not a loopback name. Use the printed \`http://127.0.0.1:<port>/\` (or \`localhost\` / \`[::1]\`), not a machine or Dev Container hostname. 0.8.0 required the Host port to match exactly, so WSL / Dev Container port forwarding and IPv6 \`localhost\` 403'd; upgrade for those |
+| Web UI shows \`{"error":"forbidden"}\` | The page Host header was not a loopback name. Use the printed \`http://127.0.0.1:<port>/\` (or \`localhost\` / \`[::1]\`), not a machine or Dev Container hostname. 0.8.0 required the Host port to match exactly, so WSL / Dev Container port forwarding and IPv6 \`localhost\` 403'd; upgrade to 0.8.1 |
 | \`devctl: command not found\` | Run \`npm install --global @amr-m-abdelgawad/devctl\`, then ensure npm's global binary directory is on \`PATH\`. See [Installation](installation.md) |
 | Bundled Bun runtime was not installed | Reinstall the npm package without \`--ignore-scripts\`; Bun uses its install script to select the correct platform runtime |
 

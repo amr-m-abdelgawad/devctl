@@ -69,7 +69,7 @@ const siteConfig = withMermaid({
       },
       { text: 'GitHub', link: repo },
       {
-        text: 'v0.8.0',
+        text: 'v0.8.1',
         items: [
           { text: 'Changelog', link: `${blob}/CHANGELOG.md` },
           { text: 'npm package', link: 'https://www.npmjs.com/package/@amr-m-abdelgawad/devctl' },
