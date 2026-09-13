@@ -1,7 +1,7 @@
 import { createRoot } from "react-dom/client";
 import { App } from "./app.tsx";
 import "uplot/dist/uPlot.min.css";
-import "./styles.css";
+import "./globals.css";
 
 const root = document.getElementById("root");
 if (!root) {

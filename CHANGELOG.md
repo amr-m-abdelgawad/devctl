@@ -9,7 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Opt-in loopback Telemetry & Trace Explorer (`web`, off by default, port `18900`). Read-only GET API (no token, no CORS, Host allowlist) serving a bundled SPA: services dashboard, SVG trace waterfall, dependency graph, and client-derived rate/latency/CPU charts. `devctl web status|start|stop`; `devctl status` prints a `WEB` line. See [Telemetry](docs/telemetry.md).
+- Opt-in loopback Telemetry & Trace Explorer (`web`, off by default, port `18900`). Loopback GET API plus `POST /api/control` for the same mutating MCP tools the TUI uses (start/stop/restart, profile start, proxy, reload, run task; not exec). No token, no CORS, Host allowlist. Bundled SPA: services dashboard with lifecycle buttons, SVG trace waterfall, dependency graph, and client-derived rate/latency/CPU charts. `devctl web status|start|stop`; `devctl status` prints a `WEB` line. See [Telemetry](docs/telemetry.md).
+
+### Changed
+
+- Web UI uses the same logo and favicon as the GitHub Pages site.
+
+### Fixed
+
+- Web request and error KPIs no longer freeze at ring size. Proxy `requestTotal` / `requestErrors` were already lifetime counts; log snapshots now also expose `seen` / `seenErrors` for ingested lines. The request table still shows the last 100, and log pages still show a bounded slice.
+- Web traces and proxy-request tables list newest first, matching Logs.
 
 ## [0.7.0] - 2026-09-12
 

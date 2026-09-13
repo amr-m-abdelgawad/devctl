@@ -365,6 +365,15 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
 ];
 
+// Loopback web UI may call mutating MCP tools except exec: that takes an
+// arbitrary command, which the SPA never offers and should not expose as HTTP.
+const WEB_EXCLUDED_TOOLS = new Set(["exec_service"]);
+
+export function isWebControlTool(name: string): boolean {
+  const def = MCP_TOOLS.find((tool) => tool.name === name);
+  return def?.mutates === true && !WEB_EXCLUDED_TOOLS.has(name);
+}
+
 // A deny-list, deliberately: everything is on unless it was explicitly turned
 // off, so a tool added in a later version is available to existing users
 // instead of silently missing because their saved list predates it.
@@ -450,6 +459,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
         route: req.route,
         status: req.status,
         duration_ms: req.durationMs,
+        trace_duration_ms: req.traceDurationMs,
         error: req.error,
       })),
     },
@@ -569,6 +579,7 @@ export function getRequests(snap: StatusSnapshot): unknown {
       route: req.route,
       status: req.status,
       duration_ms: req.durationMs,
+      trace_duration_ms: req.traceDurationMs,
       error: req.error,
     })),
   };
@@ -637,6 +648,9 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     config_path: cfg.configPath,
     repo_root: cfg.repoRoot,
     services,
+    tasks: Object.entries(cfg.tasks)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, task]) => ({ name, dependencies: task.dependencies })),
     proxy: {
       enabled: cfg.proxy.enabled,
       gateway: cfg.proxy.gateway,

@@ -1,4 +1,5 @@
 import { REQUEST_ID_ATTR } from "../../domain/logs/ids.ts";
+import { NANOS_PER_MS } from "../../domain/logs/types.ts";
 import { redactSpan } from "../../domain/logs/redact.ts";
 import type { Span, SpanIngest, TraceTree } from "../../domain/telemetry/types.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
@@ -43,6 +44,26 @@ export class SpanManager implements SpanStore {
     const ids = new Set(spans.map((span) => span.spanId));
     const roots = spans.filter((span) => !span.parentSpanId || !ids.has(span.parentSpanId));
     return { traceId, spans, roots };
+  }
+
+  envelopeMs(traceId: string): number | undefined {
+    const spans = this.byTrace.get(traceId);
+    if (!spans || spans.length === 0) {
+      return undefined;
+    }
+    let start = Number.POSITIVE_INFINITY;
+    let end = Number.NEGATIVE_INFINITY;
+    for (const span of spans) {
+      const lo = Math.min(span.startUnixNano, span.endUnixNano || span.startUnixNano);
+      const hi = Math.max(span.startUnixNano, span.endUnixNano || span.startUnixNano);
+      if (lo < start) {
+        start = lo;
+      }
+      if (hi > end) {
+        end = hi;
+      }
+    }
+    return Math.max(0, (end - start) / NANOS_PER_MS);
   }
 
   findTraceIdByRequestId(requestId: string): string | undefined {

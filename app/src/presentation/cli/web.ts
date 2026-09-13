@@ -3,7 +3,7 @@ import type { ClientRuntime } from "../../application/client-runtime.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
 export function addWeb(root: Command, runtime: ClientRuntime): void {
-  const web = root.command("web").description("Local read-only telemetry web UI");
+  const web = root.command("web").description("Local loopback telemetry and control web UI");
   web
     .command("status")
     .option("--json")

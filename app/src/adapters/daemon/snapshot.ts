@@ -2,7 +2,7 @@ import { cpus, loadavg, platform, uptime } from "node:os";
 import type { DevctlConfig } from "../config/index.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, type Runtime } from "../../domain/service/services.ts";
-import type { IdentitySnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
+import type { IdentitySnapshot, LogSnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
 import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
@@ -28,8 +28,9 @@ export type SnapshotHost = {
   readonly setupMode: boolean;
   readonly restartRequired: string[];
   readonly statsSeries?: StatsSeries;
-  readonly logs: { snapshot(): { total: number; errors: number; counts: Record<string, number> } };
+  readonly logs: { snapshot(): LogSnapshot };
   readonly tokens: { storeBackend(): string };
+  readonly traceDurationMs?: (traceId: string) => number | undefined;
 };
 
 export function emptyIdentitySnapshot(cfg?: DevctlConfig): IdentitySnapshot {
@@ -92,7 +93,10 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
   const proxyStats = {
     requestTotal: proxyStatsRaw?.total ?? 0,
     requestErrors: proxyStatsRaw?.errors ?? 0,
-    recentRequests: proxyStatsRaw?.recent ?? [],
+    recentRequests: (proxyStatsRaw?.recent ?? []).map((req) => ({
+      ...req,
+      traceDurationMs: req.traceId && host.traceDurationMs ? host.traceDurationMs(req.traceId) : undefined,
+    })),
   };
   return {
     session_id: host.sessionID,

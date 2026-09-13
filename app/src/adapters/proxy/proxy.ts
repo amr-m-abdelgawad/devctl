@@ -32,21 +32,26 @@ export type ProxyRequestRecord = {
   parentSpanId?: string;
 };
 
-// Newest-last bounded ring of recent proxy requests with a derived stats view
-// (no separate lifetime counters to keep in sync). Shared by the HTTP and gRPC
-// proxy servers so the recording/capping/error-count logic lives in one place.
+// Newest-last bounded ring of recent proxy requests. `total` / `errors` are
+// lifetime counts so they keep growing after the ring fills; `recent` is the
+// capped window used by the TUI and web request tables.
 export class RequestLog {
   private readonly items: ProxyRequestRecord[] = [];
+  private recorded = 0;
+  private errorCount = 0;
   constructor(private readonly cap: number = RECENT_REQUESTS_CAP) {}
   record(item: ProxyRequestRecord): void {
+    this.recorded += 1;
+    if (item.status >= 400 || item.error) {
+      this.errorCount += 1;
+    }
     this.items.push(item);
     if (this.items.length > this.cap) {
       this.items.splice(0, this.items.length - this.cap);
     }
   }
   stats(): { total: number; errors: number; recent: ProxyRequestRecord[] } {
-    const errors = this.items.reduce((count, rec) => count + (rec.status >= 400 || rec.error ? 1 : 0), 0);
-    return { total: this.items.length, errors, recent: [...this.items].reverse() };
+    return { total: this.recorded, errors: this.errorCount, recent: [...this.items].reverse() };
   }
 }
 

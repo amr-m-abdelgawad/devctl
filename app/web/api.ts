@@ -1,5 +1,7 @@
 import type {
   ConfigSummary,
+  ControlArgs,
+  ControlTool,
   LogsPayload,
   ProfileRow,
   RequestsPayload,
@@ -54,4 +56,28 @@ export function fetchTrace(traceId: string): Promise<TracePayload> {
 
 export function fetchRequestTrace(requestId: string): Promise<TracePayload> {
   return getJson(`/api/request/${encodeURIComponent(requestId)}`);
+}
+
+export async function postControl(tool: ControlTool, args: ControlArgs = {}): Promise<unknown> {
+  const res = await fetch("/api/control", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ tool, args }),
+  });
+  const text = await res.text();
+  let body: unknown = {};
+  if (text !== "") {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(text || `${res.status} /api/control`);
+    }
+  }
+  if (!res.ok) {
+    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
+      ? body.error
+      : `${res.status} /api/control`;
+    throw new Error(message);
+  }
+  return body;
 }

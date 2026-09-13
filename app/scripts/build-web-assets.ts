@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
+import tailwind from "bun-plugin-tailwind";
 
 const appRoot = dirname(import.meta.dir);
 const webRoot = join(appRoot, "web");
@@ -47,19 +48,30 @@ export function hashWebSources(root = webRoot): string {
   return hash.digest("hex");
 }
 
+function readLinkedFile(dir: string, href: string): string {
+  const file = href.startsWith("/") || href.includes(":") ? href : join(dir, href);
+  return readFileSync(file, "utf8");
+}
+
 function inlineAssets(html: string, dir: string): string {
   // Stylesheets first: inlined JS contains fake <link href="%s"> strings that
   // must not be treated as real tags.
   let out = html.replace(/<link\b([^>]*)\/?>/gi, (all, attrs: string) => {
-    if (!/\brel="stylesheet"/i.test(attrs)) {
+    const href = /\bhref="([^"]+)"/.exec(attrs)?.[1];
+    if (!href || href.startsWith("data:")) {
       return all;
     }
-    const href = /\bhref="([^"]+)"/.exec(attrs);
-    if (!href?.[1]) {
-      return all;
+    if (/\brel="stylesheet"/i.test(attrs)) {
+      const body = readLinkedFile(dir, href).replace(/<\/style/gi, "<\\/style");
+      return `<style>${body}</style>`;
     }
-    const body = readFileSync(join(dir, href[1]), "utf8").replace(/<\/style/gi, "<\\/style");
-    return `<style>${body}</style>`;
+    if (/\brel="[^"]*\bicon\b[^"]*"/i.test(attrs)) {
+      const type = /\btype="([^"]+)"/.exec(attrs)?.[1] ?? "image/svg+xml";
+      const data = `data:${type},${encodeURIComponent(readLinkedFile(dir, href))}`;
+      const rest = attrs.replace(/\bhref="[^"]+"/i, `href="${data}"`);
+      return `<link${rest}>`;
+    }
+    return all;
   });
   out = out.replace(/<script\b([^>]*)><\/script>/gi, (all, attrs: string) => {
     const src = /\bsrc="([^"]+)"/.exec(attrs);
@@ -97,6 +109,7 @@ if (import.meta.main) {
       minify: true,
       outdir,
       sourcemap: "none",
+      plugins: [tailwind],
       define: {
         "process.env.NODE_ENV": JSON.stringify("production"),
       },

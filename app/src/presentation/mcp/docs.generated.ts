@@ -107,7 +107,7 @@ See [examples/admin-iam.yaml](../examples/admin-iam.yaml) for a permission-distr
 ` },
   { path: "docs/architecture.md", title: "Architecture", body: `# Architecture
 
-\`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: TUI, CLI, and MCP talk to a long-lived supervisor over a local socket. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
+\`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: TUI, CLI, MCP, and the web UI talk to a long-lived supervisor over a local socket. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
 
 ## Layers
 
@@ -1118,7 +1118,7 @@ Each line is stored as an OpenTelemetry-style record — body, attributes, sever
 
 ## Buffer and persistence
 
-- In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills.
+- In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status \`logs.total\` / \`logs.errors\` are how many of those lines are still in the ring; \`logs.seen\` / \`logs.seenErrors\` are lifetime ingest counts so dashboards do not freeze at the cap.
 - The live ring lives in a Bun Worker behind \`LogStore\` when running from source or npm, so parse and search do not stall the supervisor event loop. The main thread only receives page/facet/export results (and a cached snapshot for \`status\`). Compiled standalone binaries (\`bun build --compile\`) keep the ring in-process — Bun 1.4.0 cannot resolve the worker script inside a single-file executable. If the worker fails to start, the daemon falls back to the in-process store rather than hanging.
 - Ingest truncates lines longer than 16 KiB and skips \`JSON.parse\` on payloads larger than 64 KiB. Regex search is already capped (pattern length, nested quantifiers).
 - Optional persistence under \`~/.devctl/logs/\` (\`persistence.enabled\`, \`directory\`, \`retention_days\`, \`max_session_logs\`).
@@ -1356,19 +1356,21 @@ npm provenance shows that the JavaScript package was published by this repositor
 ` },
   { path: "docs/overview.md", title: "How it fits together", body: `# How it fits together
 
-\`devctl\` is one product with four faces on the same supervisor.
+\`devctl\` is one product with five faces on the same supervisor.
 
 \`\`\`mermaid
 flowchart TB
   tui["TUI — OpenTUI screens and keys"]
   cli["CLI — start / stop / logs / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
+  web["Web — loopback explorer and control"]
   sup["Supervisor"]
   disk["~/.devctl/state/repoID/"]
 
   tui --> sup
   cli --> sup
   mcp --> sup
+  web --> sup
   sup --> runtime["Host processes + containers"]
   sup --> proxy["Proxy + token endpoint"]
   sup --> logs["Log buffer"]
@@ -2376,9 +2378,12 @@ View a trace three ways:
 
 ## Web UI
 
-A read-only Telemetry & Trace Explorer, off until you enable it. Control stays
-in the TUI/CLI. It binds loopback only (no token, no CORS, Host allowlist) and
-serves a bundled SPA plus \`GET /api/*\` shapers that match MCP redaction.
+A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
+TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
+It is off until you enable it. It binds loopback only (no token, no CORS, Host
+allowlist) and serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
+redaction. Mutations go through \`POST /api/control\` to the same MCP tools
+(except \`exec_service\`).
 
 \`\`\`yaml
 web:
@@ -2392,6 +2397,10 @@ Then \`devctl web start\` (or boot with \`enabled: true\`) and open the printed 
 \`devctl web status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener.
 Hash routes: \`#/services\`, \`#/traces\`, \`#/graph\`, \`#/logs\`. Rebuild the embed with
 \`cd app && bun run build:web\` after editing \`app/web/\`.
+
+Overview KPIs use lifetime totals (\`proxy.requestTotal\`, \`logs.seen\` /
+\`logs.seenErrors\`). Tables and the graph stay windowed: last 100 proxy
+requests, last 200 log rows from MCP, last 10s for rate/latency.
 
 Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
 route port.

@@ -1,18 +1,20 @@
 # How it fits together
 
-`devctl` is one product with four faces on the same supervisor.
+`devctl` is one product with five faces on the same supervisor.
 
 ```mermaid
 flowchart TB
   tui["TUI — OpenTUI screens and keys"]
   cli["CLI — start / stop / logs / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
+  web["Web — loopback explorer and control"]
   sup["Supervisor"]
   disk["~/.devctl/state/repoID/"]
 
   tui --> sup
   cli --> sup
   mcp --> sup
+  web --> sup
   sup --> runtime["Host processes + containers"]
   sup --> proxy["Proxy + token endpoint"]
   sup --> logs["Log buffer"]

@@ -13,7 +13,7 @@ import { KindProxy } from "../../shared/errors.ts";
 import { Bus, TokenRefreshFailed, TokenRefreshed } from "../../shared/events.ts";
 import { formatBodySummary } from "../../domain/logs/logs.ts";
 import { LogManager } from "../storage/logs.ts";
-import { injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, resolveProxyTarget, TokenEndpoint } from "./proxy.ts";
+import { injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, RequestLog, resolveProxyTarget, TokenEndpoint, type ProxyRequestRecord } from "./proxy.ts";
 import { Detector } from "../secrets/detector.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
@@ -909,5 +909,35 @@ describe("proxy identity and token wiring", () => {
     expect(noRouteStats.recent[0]?.route).toBe("");
     expect(noRouteStats.recent[0]?.status).toBe(404);
     await noRouteServer.stop();
+  });
+});
+
+describe("RequestLog", () => {
+  function rec(status: number, error?: string): ProxyRequestRecord {
+    return {
+      timestamp: new Date().toISOString(),
+      requestId: "r",
+      method: "GET",
+      path: "/",
+      route: "x",
+      identity: "",
+      status,
+      durationMs: 1,
+      error,
+    };
+  }
+
+  test("stats().total and errors keep growing after the recent ring fills", () => {
+    const log = new RequestLog(2);
+    log.record(rec(200));
+    log.record(rec(500));
+    log.record(rec(200));
+    log.record(rec(404, "missing"));
+    const stats = log.stats();
+    expect(stats.total).toBe(4);
+    expect(stats.errors).toBe(2);
+    expect(stats.recent).toHaveLength(2);
+    expect(stats.recent[0]?.status).toBe(404);
+    expect(stats.recent[1]?.status).toBe(200);
   });
 });

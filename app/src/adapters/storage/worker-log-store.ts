@@ -34,7 +34,7 @@ export class WorkerLogStore implements LogStore {
   private readonly bus?: Bus;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
-  private stats: LogSnapshot = { total: 0, errors: 0, counts: {} };
+  private stats: LogSnapshot = { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 };
   private dead = false;
   private readySettled = false;
   private readonly ready: Promise<void>;

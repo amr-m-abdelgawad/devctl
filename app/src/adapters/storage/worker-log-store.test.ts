@@ -50,6 +50,7 @@ describe("WorkerLogStore", () => {
       expect(logMessage(page.events[0]!)).toBe("listening");
       expect(page.events[0]?.severityText).toBe("INFO");
       expect(store.snapshot().total).toBe(1);
+      expect(store.snapshot().seen).toBe(1);
       expect(received).toContain("listening");
     } finally {
       await store.close();

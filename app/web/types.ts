@@ -17,7 +17,7 @@ export type StatusSummary = {
     requestErrors?: number;
     recentRequests?: RequestRow[];
   };
-  logs: { total: number; errors: number; counts: Record<string, number> };
+  logs: { total: number; errors: number; counts: Record<string, number>; seen?: number; seenErrors?: number };
   mcp: { running: boolean; address?: string; port?: number };
   web: { running: boolean; address?: string; port?: number };
   stats_series?: { interval_ms: number; cpu: number[]; mem: number[] };
@@ -41,6 +41,7 @@ export type RequestRow = {
   route: string;
   status: number;
   duration_ms: number;
+  trace_duration_ms?: number;
   error?: string;
 };
 
@@ -55,14 +56,35 @@ export type ConfigService = {
   name: string;
   description: string;
   dependencies: Array<string | { service: string; condition?: string }>;
+  ports?: Array<{ name: string; value: number; auto?: boolean }>;
+  container?: { image?: string; runtime?: string };
 };
+
+export type TaskRow = { name: string; dependencies: string[] };
 
 export type ConfigSummary = {
   project: string;
   services: ConfigService[];
+  tasks?: TaskRow[];
 };
 
 export type ProfileRow = { name: string; services: string[] };
+
+export type ControlTool =
+  | "start_services"
+  | "stop_services"
+  | "restart_services"
+  | "reload_config"
+  | "run_task"
+  | "start_proxy"
+  | "stop_proxy";
+
+export type ControlArgs = {
+  services?: string[];
+  profile?: string;
+  cascade?: boolean;
+  name?: string;
+};
 
 export type LogRow = {
   timestamp: string;

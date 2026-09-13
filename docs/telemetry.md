@@ -81,9 +81,12 @@ View a trace three ways:
 
 ## Web UI
 
-A read-only Telemetry & Trace Explorer, off until you enable it. Control stays
-in the TUI/CLI. It binds loopback only (no token, no CORS, Host allowlist) and
-serves a bundled SPA plus `GET /api/*` shapers that match MCP redaction.
+A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
+TUI (`start` / `stop` / `restart` / profile start / proxy / reload / run task).
+It is off until you enable it. It binds loopback only (no token, no CORS, Host
+allowlist) and serves a bundled SPA plus `GET /api/*` shapers that match MCP
+redaction. Mutations go through `POST /api/control` to the same MCP tools
+(except `exec_service`).
 
 ```yaml
 web:
@@ -97,6 +100,10 @@ Then `devctl web start` (or boot with `enabled: true`) and open the printed URL.
 `devctl web status|stop` and `devctl status` (the `WEB` line) report the listener.
 Hash routes: `#/services`, `#/traces`, `#/graph`, `#/logs`. Rebuild the embed with
 `cd app && bun run build:web` after editing `app/web/`.
+
+Overview KPIs use lifetime totals (`proxy.requestTotal`, `logs.seen` /
+`logs.seenErrors`). Tables and the graph stay windowed: last 100 proxy
+requests, last 200 log rows from MCP, last 10s for rate/latency.
 
 Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
 route port.

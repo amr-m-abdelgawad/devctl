@@ -19,6 +19,27 @@ function ingest(partial: Partial<SpanIngest> & Pick<SpanIngest, "traceId" | "spa
 }
 
 describe("SpanManager", () => {
+  test("envelopeMs is first-start to last-end, not a single span", () => {
+    const spans = new SpanManager(10);
+    const traceId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    spans.append(ingest({
+      traceId,
+      spanId: "1111111111111111",
+      name: "root",
+      startUnixNano: 1_000_000_000,
+      endUnixNano: 1_090_000_000,
+    }));
+    spans.append(ingest({
+      traceId,
+      spanId: "2222222222222222",
+      name: "child",
+      startUnixNano: 1_010_000_000,
+      endUnixNano: 1_040_000_000,
+    }));
+    expect(spans.envelopeMs(traceId)).toBe(90);
+    expect(spans.envelopeMs("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")).toBeUndefined();
+  });
+
   test("indexes spans by trace and request id", () => {
     const spans = new SpanManager(10);
     const traceId = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

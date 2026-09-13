@@ -1,6 +1,6 @@
 # Architecture
 
-`devctl` is a modular monolith with ports-and-adapters layering. The process model is unchanged: TUI, CLI, and MCP talk to a long-lived supervisor over a local socket. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
+`devctl` is a modular monolith with ports-and-adapters layering. The process model is unchanged: TUI, CLI, MCP, and the web UI talk to a long-lived supervisor over a local socket. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
 
 ## Layers
 

@@ -275,6 +275,7 @@ export class Supervisor {
       },
       logs: { snapshot: () => self.logs.snapshot() },
       tokens: { storeBackend: () => self.tokens.storeBackend() },
+      traceDurationMs: (traceId) => self.spans.envelopeMs(traceId),
     };
   }
 

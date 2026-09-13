@@ -50,7 +50,19 @@ describe("LogManager persistence", () => {
     }
 
     expect(mgr.query({}).map((event) => logMessage(event))).toEqual(["line 3", "line 4", "line 5"]);
-    expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 } });
+    expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 }, seen: 6, seenErrors: 1 });
+  });
+
+  test("snapshot seen/seenErrors keep growing after the ring fills", () => {
+    const mgr = new LogManager(2, undefined, new Detector([], []), false, tmp(), "cap", 0, 0);
+    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message: "ok", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", source: "stdout", level: "ERROR", message: "nope", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", source: "stdout", level: "ERROR", message: "still", pid: 1 });
+    const snap = mgr.snapshot();
+    expect(snap.total).toBe(2);
+    expect(snap.errors).toBe(2);
+    expect(snap.seen).toBe(3);
+    expect(snap.seenErrors).toBe(2);
   });
 
   test("append truncates lines longer than MAX_LOG_LINE_CHARS", () => {

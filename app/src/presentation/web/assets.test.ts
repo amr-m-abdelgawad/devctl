@@ -37,5 +37,7 @@ describe("embedded web assets", () => {
     const urls = WEB_INDEX_HTML.match(/https?:\/\/[^\s"'`<>\\]+/g) ?? [];
     expect(urls.every((url) => url.startsWith("http://www.w3.org/"))).toBe(true);
     expect(WEB_INDEX_HTML.toLowerCase().split("</script").length).toBe(2);
+    expect(WEB_INDEX_HTML).toMatch(/rel="icon"/);
+    expect(WEB_INDEX_HTML).toMatch(/data:image\/svg\+xml/);
   });
 });
