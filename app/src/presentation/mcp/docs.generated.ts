@@ -1996,15 +1996,17 @@ flowchart TB
   ok --> proxy["Proxy"]
   ok --> token["GET /token"]
   ok --> mcp["MCP /mcp"]
+  ok --> web["Web UI"]
 \`\`\`
 
-Three listeners, same rule:
+Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopback name (\`127.0.0.0/8\`, \`localhost\`, \`::1\`) — the port may differ, so WSL / Dev Container forwarding still works — and \`POST /api/control\` needs a loopback \`http\` or \`https\` Origin or Referer. No login or token.
 
 | Listener | Auth at the door |
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
 | **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer only. Returns \`access_token\` to that caller |
 | **MCP** | Off by default. Mutating tools need \`Authorization: Bearer\` (session token). Copied snippets include it; \`get_status\` does not |
+| **Web UI** | Loopback bind + loopback Host. Mutations need a loopback Origin/Referer |
 
 Host child processes always get \`DEVCTL_INTERNAL_TOKEN\`. They only get \`DEVCTL_TOKEN_URL\` when \`proxy.token_endpoint.enabled\` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 
@@ -2383,10 +2385,14 @@ View a trace three ways:
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
 It is off until you enable it. It binds loopback only (no login or token, no
-CORS, Host allowlist). Mutating \`POST /api/control\` requires a same-origin
-\`Origin\` or \`Referer\` and \`Content-Type: application/json\`. The listener serves
-a bundled SPA plus \`GET /api/*\` shapers that match MCP redaction. Mutations go
-through \`POST /api/control\` to the same MCP tools (except \`exec_service\`).
+CORS). The Host allowlist accepts loopback names (\`127.0.0.0/8\`, \`localhost\`,
+\`::1\`, including \`[::1]\`, a missing or remapped port, and \`https://localhost\`)
+so WSL, Dev Containers, and forwarded ports work; it still rejects machine
+hostnames and public origins. Mutating \`POST /api/control\` requires a loopback
+\`http\` or \`https\` \`Origin\` or \`Referer\` and \`Content-Type: application/json\`.
+The listener serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
+redaction. Mutations go through \`POST /api/control\` to the same MCP tools
+(except \`exec_service\`).
 
 \`\`\`yaml
 web:
@@ -2477,6 +2483,7 @@ trace, and read the responsible service's span and logs — all redacted.
 | Config on disk is broken but the TUI still opens fine | Expected: it attached to an already-running daemon and is showing its \`config_snapshot\` (last-known-good), not a fresh reparse of the broken file. Fix the file and \`/reload\` |
 | \`devctl update\` says unavailable | GitHub Releases API could not be reached. For npm: \`npm install --global @amr-m-abdelgawad/devctl@latest\`. Homebrew and GitHub binaries: see [installation](installation.md) |
 | MCP agent cannot connect | Listener is off by default. \`/mcp\` or \`devctl mcp --on\`. URL is loopback only; snippets include the bearer token |
+| Web UI shows \`{"error":"forbidden"}\` | The page Host header was not a loopback name. Use the printed \`http://127.0.0.1:<port>/\` (or \`localhost\` / \`[::1]\`), not a machine or Dev Container hostname. 0.8.0 required the Host port to match exactly, so WSL / Dev Container port forwarding and IPv6 \`localhost\` 403'd; upgrade to 0.8.1 |
 | \`devctl: command not found\` | Run \`npm install --global @amr-m-abdelgawad/devctl\`, then ensure npm's global binary directory is on \`PATH\`. See [Installation](installation.md) |
 | Bundled Bun runtime was not installed | Reinstall the npm package without \`--ignore-scripts\`; Bun uses its install script to select the correct platform runtime |
 

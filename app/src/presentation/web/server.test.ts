@@ -328,4 +328,101 @@ describe("web http server", () => {
       await server.stop();
     }
   });
+
+  test("GET / allows loopback Host variants used by WSL and port forwarding", async () => {
+    const server = await listen();
+    const port = server.listenPort();
+    try {
+      const allowed = [
+        `127.0.0.1:${port}`,
+        `localhost:${port}`,
+        "127.0.0.1",
+        "localhost",
+        `[::1]:${port}`,
+        "[::1]",
+        "::1",
+        `::1:${port}`,
+        `[::ffff:127.0.0.1]:${port}`,
+        `localhost.:${port}`,
+        `127.0.0.2:${port}`,
+        "localhost:8080",
+        `[0:0:0:0:0:0:0:1]:${port}`,
+      ];
+      for (const host of allowed) {
+        expect(await rawGet(port, "/", { Host: host })).toBe(200);
+      }
+
+      const denied = [
+        "evil.example",
+        "cursor:18900",
+        "host.docker.internal:18900",
+        "0.0.0.0:18900",
+        " ",
+      ];
+      for (const host of denied) {
+        const res = await rawRequest(port, { path: "/", headers: { Host: host } });
+        expect(res.status).toBe(403);
+        expect(JSON.parse(res.body)).toEqual({ error: "forbidden" });
+      }
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("POST /api/control allows loopback Origin with remapped ports, IPv6, and https", async () => {
+    const api = host();
+    const server = await listen(api);
+    const port = server.listenPort();
+    const body = JSON.stringify({ tool: "stop_proxy" });
+    try {
+      const allowedOrigins = [
+        `http://127.0.0.1:${port}`,
+        "http://localhost:8080",
+        `http://[::1]:${port}`,
+        `https://127.0.0.1:${port}`,
+        "https://localhost",
+        "http://127.0.0.1",
+      ];
+      for (const origin of allowedOrigins) {
+        const res = await rawRequest(port, {
+          method: "POST",
+          path: "/api/control",
+          headers: {
+            "content-type": "application/json",
+            Origin: origin,
+            "content-length": String(Buffer.byteLength(body)),
+          },
+          body,
+        });
+        expect(res.status).toBe(200);
+      }
+
+      const remote = await rawRequest(port, {
+        method: "POST",
+        path: "/api/control",
+        headers: {
+          "content-type": "application/json",
+          Origin: "https://evil.example",
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(remote.status).toBe(403);
+      expect(JSON.parse(remote.body)).toEqual({ error: "cross-origin request rejected" });
+
+      const referer = await rawRequest(port, {
+        method: "POST",
+        path: "/api/control",
+        headers: {
+          "content-type": "application/json",
+          Referer: "http://localhost:8080/",
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(referer.status).toBe(200);
+    } finally {
+      await server.stop();
+    }
+  });
 });
