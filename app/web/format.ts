@@ -2,11 +2,6 @@
 
 export const NANOS_PER_MS = 1_000_000;
 
-/** HH:MM:SS from an ISO timestamp, falling back to the raw string. */
-export function clock(ts: string): string {
-  return ts.slice(11, 19) || ts;
-}
-
 /** HH:MM:SS.mmm from an ISO timestamp — for ordering dense request/log rows. */
 export function clockMs(ts: string): string {
   return ts.slice(11, 23) || ts;
@@ -86,9 +81,4 @@ export function durationMs(ms: number): string {
     return `${Math.round(ms)}ms`;
   }
   return `${(ms / 1000).toFixed(2)}s`;
-}
-
-/** Compact integer with a thousands separator. */
-export function count(n: number): string {
-  return n.toLocaleString("en-US");
 }
