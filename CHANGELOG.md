@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Web UI `{"error":"forbidden"}` on loopback Host/Origin variants used by WSL, Dev Containers, and forwarded ports (`[::1]`, Host without a port, remapped `localhost:<forwardedPort>`, `https://localhost`). Allowlist is still loopback-only; no login or token.
+
 ## [0.8.0] - 2026-09-13
 
 ### Added

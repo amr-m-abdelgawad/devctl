@@ -86,10 +86,14 @@ View a trace three ways:
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (`start` / `stop` / `restart` / profile start / proxy / reload / run task).
 It is off until you enable it. It binds loopback only (no login or token, no
-CORS, Host allowlist). Mutating `POST /api/control` requires a same-origin
-`Origin` or `Referer` and `Content-Type: application/json`. The listener serves
-a bundled SPA plus `GET /api/*` shapers that match MCP redaction. Mutations go
-through `POST /api/control` to the same MCP tools (except `exec_service`).
+CORS). The Host allowlist accepts loopback names (`127.0.0.0/8`, `localhost`,
+`::1`, including `[::1]`, a missing or remapped port, and `https://localhost`)
+so WSL, Dev Containers, and forwarded ports work; it still rejects machine
+hostnames and public origins. Mutating `POST /api/control` requires a loopback
+`http` or `https` `Origin` or `Referer` and `Content-Type: application/json`.
+The listener serves a bundled SPA plus `GET /api/*` shapers that match MCP
+redaction. Mutations go through `POST /api/control` to the same MCP tools
+(except `exec_service`).
 
 ```yaml
 web:

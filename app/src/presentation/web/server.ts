@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname } from "../../domain/net/hosts.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
 import { LOCALHOST } from "../../domain/config/types.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
@@ -71,7 +71,7 @@ export class WebHttpServer {
       this.server.listen(this.opts.port, host, () => {
         const addr = this.server?.address();
         this.boundPort = typeof addr === "object" && addr ? addr.port : this.opts.port;
-        this.addr = `${host}:${this.boundPort}`;
+        this.addr = formatHostPort(host, this.boundPort);
         this.running = true;
         this.opts.onEvent?.("INFO", `listening on ${this.addr}`);
         resolve();
@@ -101,7 +101,7 @@ export class WebHttpServer {
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!hostAllowed(req.headers.host, this.boundPort, this.opts.host)) {
+    if (!hostAllowed(req.headers.host)) {
       writeJson(res, 403, { error: "forbidden" });
       return;
     }
@@ -178,7 +178,7 @@ export class WebHttpServer {
       writeMethodNotAllowed(res, path === "/" || path.startsWith("/api/") ? ALLOW_GET : ALLOW_GET_POST);
       return;
     }
-    assertSameOriginControl(req, this.boundPort, this.opts.host);
+    assertSameOriginControl(req);
     assertJsonContentType(req.headers["content-type"]);
     const body = await readJsonBody(req);
     const tool = typeof body.tool === "string" ? body.tool : "";
@@ -195,39 +195,30 @@ function headerValue(header: string | string[] | undefined): string {
   return (raw ?? "").split(",")[0]?.trim() ?? "";
 }
 
-function loopbackHostHeaders(port: number, bindHost: string): Set<string> {
-  const hosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
-  const host = bindHost.trim().toLowerCase();
-  if (host !== "" && host !== "127.0.0.1" && host !== "localhost") {
-    hosts.add(host.includes(":") ? `[${host}]:${port}` : `${host}:${port}`);
-  }
-  return hosts;
+function hostAllowed(header: string | string[] | undefined): boolean {
+  const hostname = hostnameFromHostHeader(headerValue(header));
+  return hostname !== undefined && isLoopbackHostname(hostname);
 }
 
-function hostAllowed(header: string | string[] | undefined, port: number, bindHost: string): boolean {
-  return loopbackHostHeaders(port, bindHost).has(headerValue(header).toLowerCase());
-}
-
-function originHostAllowed(value: string, allowed: Set<string>): boolean {
+function originIsLoopback(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "http:" && allowed.has(url.host.toLowerCase());
+    return (url.protocol === "http:" || url.protocol === "https:") && isLoopbackHostname(url.hostname);
   } catch {
     return false;
   }
 }
 
-function assertSameOriginControl(req: IncomingMessage, port: number, bindHost: string): void {
-  const allowed = loopbackHostHeaders(port, bindHost);
+function assertSameOriginControl(req: IncomingMessage): void {
   const origin = headerValue(req.headers.origin);
   if (origin !== "") {
-    if (!originHostAllowed(origin, allowed)) {
+    if (!originIsLoopback(origin)) {
       throw new HttpError(403, "cross-origin request rejected");
     }
     return;
   }
   const referer = headerValue(req.headers.referer);
-  if (referer !== "" && originHostAllowed(referer, allowed)) {
+  if (referer !== "" && originIsLoopback(referer)) {
     return;
   }
   throw new HttpError(403, "cross-origin request rejected");
