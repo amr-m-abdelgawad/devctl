@@ -259,6 +259,10 @@ jobs:
       contents: read
       actions: read
       security-events: write
+    env:
+      # Overlay-base on main failed this job after queries succeeded (SARIF
+      # upload never finished; init post-step treats that as ##[error]).
+      CODEQL_OVERLAY_DATABASE_MODE: none
     steps:
       - uses: actions/checkout@v7
       - uses: github/codeql-action/init@v4
