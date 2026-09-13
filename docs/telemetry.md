@@ -20,9 +20,11 @@ Two ingestion lanes feed one model:
 
 - **stdout / stderr (best-effort).** Plain text becomes the body; JSON from pino,
   bunyan, zap, logrus, structlog, ECS, GELF, or an OTLP-shaped line is mapped
-  into body + attributes + severity + ids. A leading timestamp before the JSON
-  is stripped and retried. An unrecognized JSON object is kept as structured
-  data and shown as a `key=value` summary — never as raw braces.
+  into body + attributes + severity + ids. Python `str(dict)` / `repr(mapping)`
+  lines (`{'key': 'value', ...}`) are parsed the same way. A leading timestamp
+  or log prefix before the object is stripped and retried. An unrecognized
+  object is kept as structured data and shown as a `key=value` summary — never
+  as raw braces.
 - **OTLP (lossless).** Anything sent to the receiver maps 1:1.
 
 In the TUI, `enter` on a log opens the details overlay: the body, an

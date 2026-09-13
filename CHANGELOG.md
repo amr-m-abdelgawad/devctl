@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Python `str(dict)` stdout (`{'key': 'value', ...}`) is parsed as a structured log instead of rendering as raw braces in the TUI.
 - Web request and error KPIs no longer freeze at ring size. Proxy `requestTotal` / `requestErrors` were already lifetime counts; log snapshots now also expose `seen` / `seenErrors` for ingested lines. The request table still shows the last 100, and log pages still show a bounded slice.
 - Web traces and proxy-request tables list newest first, matching Logs.
 

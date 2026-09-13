@@ -1114,7 +1114,7 @@ All service stdout/stderr, proxy events, health checks, authentication events, a
 
 Sources you will see: \`stdout\`, \`stderr\`, \`health\`, \`auth\`, \`devctl\`, \`proxy\`, and \`otlp\` (when \`telemetry.otlp.enabled\` is on).
 
-Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional \`traceId\`/\`spanId\` — so structured JSON keeps its fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
+Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional \`traceId\`/\`spanId\` — so structured JSON (and Python \`{'key': 'value'}\` dicts) keep their fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
 ## Buffer and persistence
 
@@ -2317,9 +2317,11 @@ Two ingestion lanes feed one model:
 
 - **stdout / stderr (best-effort).** Plain text becomes the body; JSON from pino,
   bunyan, zap, logrus, structlog, ECS, GELF, or an OTLP-shaped line is mapped
-  into body + attributes + severity + ids. A leading timestamp before the JSON
-  is stripped and retried. An unrecognized JSON object is kept as structured
-  data and shown as a \`key=value\` summary — never as raw braces.
+  into body + attributes + severity + ids. Python \`str(dict)\` / \`repr(mapping)\`
+  lines (\`{'key': 'value', ...}\`) are parsed the same way. A leading timestamp
+  or log prefix before the object is stripped and retried. An unrecognized
+  object is kept as structured data and shown as a \`key=value\` summary — never
+  as raw braces.
 - **OTLP (lossless).** Anything sent to the receiver maps 1:1.
 
 In the TUI, \`enter\` on a log opens the details overlay: the body, an

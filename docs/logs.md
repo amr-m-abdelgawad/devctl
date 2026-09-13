@@ -4,7 +4,7 @@ All service stdout/stderr, proxy events, health checks, authentication events, a
 
 Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, `proxy`, and `otlp` (when `telemetry.otlp.enabled` is on).
 
-Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional `traceId`/`spanId` — so structured JSON keeps its fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
+Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional `traceId`/`spanId` — so structured JSON (and Python `{'key': 'value'}` dicts) keep their fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
 ## Buffer and persistence
 

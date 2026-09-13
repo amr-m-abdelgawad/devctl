@@ -122,6 +122,24 @@ describe("LogManager persistence", () => {
     expect(left.length).toBe(1);
   });
 
+  test("Python str(dict) stdout is ingested as a structured line, not raw braces", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "python-dict", 0, 0);
+    const line =
+      "{'email': 'unknown', 'referer_url': 'unknown', 'api_url': 'http://127.0.0.1:17490/v1/health', 'start_time': '2026-09-13 11:39:46', 'end_time': '2026-09-13 11:39:46', 'duration_seconds': 0.0005826950073242188, 'response_status': 200}";
+    mgr.append({
+      timestamp: "2026-09-13T11:39:46.000Z",
+      service: "workflows-orchestrator",
+      source: "stdout",
+      level: "",
+      message: line,
+      pid: 1,
+    });
+    const [ev] = mgr.query({});
+    expect(logMessage(ev!)).toBe("http://127.0.0.1:17490/v1/health 200 0.0005826950073242188s");
+    expect(ev?.attributes.email).toBe("unknown");
+    expect(ev?.raw).toBe(line);
+  });
+
   test("structured JSON log lines show the extracted message, not the raw blob", async () => {
     const mgr = new LogManager(100, undefined, new Detector([], []), true, tmp(), "json", 0, 0);
     mgr.setParsers([defaultLogParser()]);
