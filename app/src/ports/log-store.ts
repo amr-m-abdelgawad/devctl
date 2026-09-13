@@ -1,6 +1,7 @@
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../domain/logs/logs.ts";
+import type { LogSnapshot } from "../domain/status.ts";
 
-export type LogSnapshot = { total: number; errors: number; counts: Record<string, number> };
+export type { LogSnapshot };
 
 export type LogStore = {
   append(event: LogIngest): void;

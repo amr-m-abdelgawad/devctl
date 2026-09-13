@@ -42,6 +42,8 @@ export type Controller = {
   proxyStop(): Promise<void>;
   mcpStart(opts?: { port?: number }): Promise<void>;
   mcpStop(): Promise<void>;
+  webStart(): Promise<void>;
+  webStop(): Promise<void>;
   mcpSetTools(disabled: readonly string[]): Promise<string[]>;
   reload(): Promise<ReloadResult>;
   invalidateAuth(): Promise<void>;

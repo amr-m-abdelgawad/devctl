@@ -4,11 +4,11 @@ All service stdout/stderr, proxy events, health checks, authentication events, a
 
 Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, `proxy`, and `otlp` (when `telemetry.otlp.enabled` is on).
 
-Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional `traceId`/`spanId` — so structured JSON keeps its fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
+Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional `traceId`/`spanId` — so structured JSON (and Python `{'key': 'value'}` dicts) keep their fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
 ## Buffer and persistence
 
-- In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills.
+- In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status `logs.total` / `logs.errors` are how many of those lines are still in the ring; `logs.seen` / `logs.seenErrors` are lifetime ingest counts so dashboards do not freeze at the cap.
 - The live ring lives in a Bun Worker behind `LogStore` when running from source or npm, so parse and search do not stall the supervisor event loop. The main thread only receives page/facet/export results (and a cached snapshot for `status`). Compiled standalone binaries (`bun build --compile`) keep the ring in-process — Bun 1.4.0 cannot resolve the worker script inside a single-file executable. If the worker fails to start, the daemon falls back to the in-process store rather than hanging.
 - Ingest truncates lines longer than 16 KiB and skips `JSON.parse` on payloads larger than 64 KiB. Regex search is already capped (pattern length, nested quantifiers).
 - Optional persistence under `~/.devctl/logs/` (`persistence.enabled`, `directory`, `retention_days`, `max_session_logs`).

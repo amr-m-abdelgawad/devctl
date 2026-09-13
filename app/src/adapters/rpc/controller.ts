@@ -409,6 +409,14 @@ export class Controller {
     await this.call("mcp_stop", null);
   }
 
+  async webStart(): Promise<void> {
+    await this.call("web_start", null);
+  }
+
+  async webStop(): Promise<void> {
+    await this.call("web_stop", null);
+  }
+
   // Local RPC only, deliberately: this is not reachable through McpHost, so a
   // connected agent cannot re-enable a tool its operator turned off.
   async mcpSetTools(disabled: readonly string[]): Promise<string[]> {

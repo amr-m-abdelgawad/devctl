@@ -365,6 +365,15 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   },
 ];
 
+// Loopback web UI may call mutating MCP tools except exec: that takes an
+// arbitrary command, which the SPA never offers and should not expose as HTTP.
+const WEB_EXCLUDED_TOOLS = new Set(["exec_service"]);
+
+export function isWebControlTool(name: string): boolean {
+  const def = MCP_TOOLS.find((tool) => tool.name === name);
+  return def?.mutates === true && !WEB_EXCLUDED_TOOLS.has(name);
+}
+
 // A deny-list, deliberately: everything is on unless it was explicitly turned
 // off, so a tool added in a later version is available to existing users
 // instead of silently missing because their saved list predates it.
@@ -450,6 +459,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
         route: req.route,
         status: req.status,
         duration_ms: req.durationMs,
+        trace_duration_ms: req.traceDurationMs,
         error: req.error,
       })),
     },
@@ -457,6 +467,10 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
     mcp: snap.mcp
       ? { running: snap.mcp.running, address: snap.mcp.address, port: snap.mcp.port }
       : { running: false },
+    web: snap.web
+      ? { running: snap.web.running, address: snap.web.address, port: snap.web.port }
+      : { running: false },
+    stats_series: snap.stats_series,
   };
 }
 
@@ -520,7 +534,7 @@ function mcpLogRecord(detector: Detector, ev: LogRecord): Record<string, unknown
   };
 }
 
-function mcpTrace(detector: Detector, result: TraceResponse): Record<string, unknown> {
+export function mcpTrace(detector: Detector, result: TraceResponse): Record<string, unknown> {
   return {
     trace_id: result.traceId,
     request_id: result.requestId,
@@ -529,7 +543,7 @@ function mcpTrace(detector: Detector, result: TraceResponse): Record<string, unk
   };
 }
 
-async function getTraceTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+export async function getTraceTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
   const traceId = typeof args.trace_id === "string" ? args.trace_id : "";
   if (traceId === "") {
     throw new Error("trace_id is required");
@@ -540,7 +554,7 @@ async function getTraceTool(host: McpHost, args: Record<string, unknown>): Promi
   return mcpTrace(detectorFor(host.config()), await host.getTrace(traceId));
 }
 
-async function traceRequestTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+export async function traceRequestTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
   const requestId = typeof args.request_id === "string" ? args.request_id : "";
   if (requestId === "") {
     throw new Error("request_id is required");
@@ -551,7 +565,7 @@ async function traceRequestTool(host: McpHost, args: Record<string, unknown>): P
   return mcpTrace(detectorFor(host.config()), await host.traceRequest(requestId));
 }
 
-function getRequests(snap: StatusSnapshot): unknown {
+export function getRequests(snap: StatusSnapshot): unknown {
   return {
     running: snap.proxy.running,
     total: snap.proxy.requestTotal ?? 0,
@@ -565,6 +579,7 @@ function getRequests(snap: StatusSnapshot): unknown {
       route: req.route,
       status: req.status,
       duration_ms: req.durationMs,
+      trace_duration_ms: req.traceDurationMs,
       error: req.error,
     })),
   };
@@ -633,6 +648,9 @@ export function getConfigSummary(cfg: DevctlConfig): unknown {
     config_path: cfg.configPath,
     repo_root: cfg.repoRoot,
     services,
+    tasks: Object.entries(cfg.tasks)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, task]) => ({ name, dependencies: task.dependencies })),
     proxy: {
       enabled: cfg.proxy.enabled,
       gateway: cfg.proxy.gateway,

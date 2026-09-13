@@ -3,7 +3,7 @@ import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rm
 import { dirname, join } from "node:path";
 import { type Bus, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
-import type { LogStore } from "../../ports/log-store.ts";
+import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { ensureDir, exportsDir, logsDir, resolveUserPath } from "./storage.ts";
 
 import {
@@ -68,6 +68,8 @@ export class LogManager {
   private events: LogRecord[] = [];
   private eventStart = 0;
   private nextSeq = 1;
+  private recorded = 0;
+  private errorCount = 0;
   private readonly max: number;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
@@ -117,6 +119,10 @@ export class LogManager {
     const built = buildLogRecord(ev, parsed, this.nextSeq);
     this.nextSeq += 1;
     const next = this.detector ? redactLogRecord(this.detector, built) : built;
+    this.recorded += 1;
+    if (isErrorSeverity(next.severityNumber)) {
+      this.errorCount += 1;
+    }
     if (this.events.length < this.max) {
       this.events.push(next);
     } else {
@@ -263,7 +269,7 @@ export class LogManager {
     return { total, byService, byLevel, bySource };
   }
 
-  snapshot(): { total: number; errors: number; counts: Record<string, number> } {
+  snapshot(): LogSnapshot {
     const counts: Record<string, number> = {};
     let errors = 0;
     this.forEachEvent((ev) => {
@@ -272,7 +278,13 @@ export class LogManager {
         errors += 1;
       }
     });
-    return { total: this.events.length, errors, counts };
+    return {
+      total: this.events.length,
+      errors,
+      counts,
+      seen: this.recorded,
+      seenErrors: this.errorCount,
+    };
   }
 
   private forEachEvent(visit: (event: LogRecord) => void): void {

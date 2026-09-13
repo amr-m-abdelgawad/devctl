@@ -57,6 +57,7 @@ export type ProxyRequestSnapshot = {
   identity: string;
   status: number;
   durationMs: number;
+  traceDurationMs?: number;
   error?: string;
   traceId?: string;
   spanId?: string;
@@ -81,6 +82,12 @@ export type McpSnapshot = {
   disabled_tools?: string[];
 };
 
+export type WebSnapshot = {
+  running: boolean;
+  address?: string;
+  port?: number;
+};
+
 export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
 
 export type IdentitySnapshot = {
@@ -98,9 +105,15 @@ export type IdentitySnapshot = {
 };
 
 export type LogSnapshot = {
+  /** Events still in the in-memory ring. */
   total: number;
+  /** Error/fatal events still in the ring. */
   errors: number;
   counts: Record<string, number>;
+  /** Events ingested this daemon lifetime, including those rotated out of the ring. */
+  seen: number;
+  /** Error/fatal events ingested this daemon lifetime. */
+  seenErrors: number;
 };
 
 export type CredentialEntrySnapshot = {
@@ -152,6 +165,7 @@ export type StatusSnapshot = {
   services: Record<string, Runtime>;
   proxy: ProxySnapshot;
   mcp?: McpSnapshot;
+  web?: WebSnapshot;
   identity: IdentitySnapshot;
   credentials?: CredentialsSnapshot;
   detached?: boolean;

@@ -191,6 +191,8 @@ export function StatsScreen(props: {
 
   const logsTotal = snap?.logs.total ?? 0;
   const logsErrors = snap?.logs.errors ?? 0;
+  const logsSeen = snap?.logs.seen ?? logsTotal;
+  const logsSeenErrors = snap?.logs.seenErrors ?? logsErrors;
   const sources = topLogSources(snap?.logs.counts ?? {});
 
   const routes = snap?.proxy.routes ?? [];
@@ -248,11 +250,14 @@ export function StatsScreen(props: {
 
   const logFacts: StatsFact[] = [
     { what: "Lines kept", reading: String(logsTotal), meaning: "log lines still in memory", tone: "text" },
+    ...(logsSeen > logsTotal
+      ? [{ what: "Lines seen", reading: String(logsSeen), meaning: "ingested this session, including rotated-out lines", tone: "text" as const }]
+      : []),
     {
       what: "Error lines",
-      reading: String(logsErrors),
-      meaning: logsErrors > 0 ? "open Logs and press e to see only errors" : "no ERROR or FATAL lines",
-      tone: logsErrors > 0 ? "error" : "muted",
+      reading: String(logsSeenErrors),
+      meaning: logsSeenErrors > 0 ? "open Logs and press e to see only errors" : "no ERROR or FATAL lines",
+      tone: logsSeenErrors > 0 ? "error" : "muted",
     },
     ...sources.map(([name, count]) => ({
       what: name,

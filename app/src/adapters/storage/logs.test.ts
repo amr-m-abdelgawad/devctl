@@ -50,7 +50,19 @@ describe("LogManager persistence", () => {
     }
 
     expect(mgr.query({}).map((event) => logMessage(event))).toEqual(["line 3", "line 4", "line 5"]);
-    expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 } });
+    expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 }, seen: 6, seenErrors: 1 });
+  });
+
+  test("snapshot seen/seenErrors keep growing after the ring fills", () => {
+    const mgr = new LogManager(2, undefined, new Detector([], []), false, tmp(), "cap", 0, 0);
+    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message: "ok", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", source: "stdout", level: "ERROR", message: "nope", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", source: "stdout", level: "ERROR", message: "still", pid: 1 });
+    const snap = mgr.snapshot();
+    expect(snap.total).toBe(2);
+    expect(snap.errors).toBe(2);
+    expect(snap.seen).toBe(3);
+    expect(snap.seenErrors).toBe(2);
   });
 
   test("append truncates lines longer than MAX_LOG_LINE_CHARS", () => {
@@ -108,6 +120,24 @@ describe("LogManager persistence", () => {
     pruneSessions(dir, 0, 1);
     const left = [oldDir, newDir].filter((path) => existsSync(path));
     expect(left.length).toBe(1);
+  });
+
+  test("Python str(dict) stdout is ingested as a structured line, not raw braces", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "python-dict", 0, 0);
+    const line =
+      "{'email': 'unknown', 'referer_url': 'unknown', 'api_url': 'http://127.0.0.1:17490/v1/health', 'start_time': '2026-09-13 11:39:46', 'end_time': '2026-09-13 11:39:46', 'duration_seconds': 0.0005826950073242188, 'response_status': 200}";
+    mgr.append({
+      timestamp: "2026-09-13T11:39:46.000Z",
+      service: "workflows-orchestrator",
+      source: "stdout",
+      level: "",
+      message: line,
+      pid: 1,
+    });
+    const [ev] = mgr.query({});
+    expect(logMessage(ev!)).toBe("http://127.0.0.1:17490/v1/health 200 0.0005826950073242188s");
+    expect(ev?.attributes.email).toBe("unknown");
+    expect(ev?.raw).toBe(line);
   });
 
   test("structured JSON log lines show the extracted message, not the raw blob", async () => {

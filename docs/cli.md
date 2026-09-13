@@ -23,6 +23,7 @@ devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--json]
+devctl web status|start|stop
 devctl config validate|show|diff [--json]
 devctl attach
 devctl completion zsh|bash|fish
@@ -45,7 +46,7 @@ devctl update [--json] [--check]
 - `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
 - `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
-- `status` also prints proxy and MCP listen lines when a supervisor is up.
+- `status` also prints proxy, MCP, and WEB listen lines when a supervisor is up.
 - `status --watch` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (`ctrl+c`).
 - `logs -f` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details.
 - `devctl daemon logs [-f]` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when `start`/`attach` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. `-f` follows it live the same way `logs -f` does. The TUI equivalent is `/daemon`.
@@ -102,5 +103,6 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 - [TUI](tui.md)
 - [MCP](mcp.md)
+- [Telemetry](telemetry.md)
 - [Logs](logs.md)
 - [How it fits together](overview.md)

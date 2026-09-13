@@ -20,9 +20,11 @@ Two ingestion lanes feed one model:
 
 - **stdout / stderr (best-effort).** Plain text becomes the body; JSON from pino,
   bunyan, zap, logrus, structlog, ECS, GELF, or an OTLP-shaped line is mapped
-  into body + attributes + severity + ids. A leading timestamp before the JSON
-  is stripped and retried. An unrecognized JSON object is kept as structured
-  data and shown as a `key=value` summary — never as raw braces.
+  into body + attributes + severity + ids. Python `str(dict)` / `repr(mapping)`
+  lines (`{'key': 'value', ...}`) are parsed the same way. A leading timestamp
+  or log prefix before the object is stripped and retried. An unrecognized
+  object is kept as structured data and shown as a `key=value` summary — never
+  as raw braces.
 - **OTLP (lossless).** Anything sent to the receiver maps 1:1.
 
 In the TUI, `enter` on a log opens the details overlay: the body, an
@@ -69,13 +71,45 @@ the request's trace. A `traceparent` on an incoming request is honored; a bare
 request-id header is **not** adopted as the trace id, so unrelated requests are
 never merged into one trace.
 
-View a trace two ways:
+View a trace three ways:
 
 - **TUI** — a ◎ marker on a log row means it has a trace; `enter` (or **view
   trace**) opens a full-width waterfall. `j`/`k` selects a span; Enter opens that
   span's logs.
 - **CLI** — `devctl logs --trace <id>` prints the span tree plus the correlated
   logs; add `--json` for JSONL. See [CLI](cli.md).
+- **Web UI** — an opt-in loopback explorer (below) with a waterfall, correlated
+  logs, dependency graph, and rate/latency charts.
+
+## Web UI
+
+A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
+TUI (`start` / `stop` / `restart` / profile start / proxy / reload / run task).
+It is off until you enable it. It binds loopback only (no login or token, no
+CORS, Host allowlist). Mutating `POST /api/control` requires a same-origin
+`Origin` or `Referer` and `Content-Type: application/json`. The listener serves
+a bundled SPA plus `GET /api/*` shapers that match MCP redaction. Mutations go
+through `POST /api/control` to the same MCP tools (except `exec_service`).
+
+```yaml
+web:
+  enabled: true                  # default: false
+  listen:
+    host: 127.0.0.1              # loopback only; 0.0.0.0 / :: are rejected
+    port: 18900                  # default 18900
+```
+
+Then `devctl web start` (or boot with `enabled: true`) and open the printed URL.
+`devctl web status|stop` and `devctl status` (the `WEB` line) report the listener.
+Hash routes: `#/services`, `#/traces`, `#/graph`, `#/logs`. Rebuild the embed with
+`cd app && bun run build:web` after editing `app/web/`.
+
+Overview KPIs use lifetime totals (`proxy.requestTotal`, `logs.seen` /
+`logs.seenErrors`). Tables and the graph stay windowed: last 100 proxy
+requests, last 200 log rows from MCP, last 10s for rate/latency.
+
+Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
+route port.
 
 ## Redaction
 

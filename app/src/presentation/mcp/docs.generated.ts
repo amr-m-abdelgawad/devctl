@@ -107,13 +107,13 @@ See [examples/admin-iam.yaml](../examples/admin-iam.yaml) for a permission-distr
 ` },
   { path: "docs/architecture.md", title: "Architecture", body: `# Architecture
 
-\`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: TUI, CLI, and MCP talk to a long-lived supervisor over a local socket. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
+\`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: the CLI and TUI talk to a long-lived supervisor over a local socket; MCP and the web UI use supervisor-managed HTTP listeners. This page is the living layer map. The older Manager-centric sketch in [devctl-architecture.md](devctl-architecture.md) §3–4 is historical.
 
 ## Layers
 
 \`\`\`text
 app/src/
-  presentation/    cli, tui, mcp
+  presentation/    cli, tui, mcp, web
   application/     commands, queries, orchestrator
   domain/          service, identity, health, config types
   ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, …
@@ -141,7 +141,7 @@ Forbidden: domain → adapters/application/presentation; application → adapter
 
 There is exactly one composition root **per process**:
 
-- \`bootstrap/daemon.ts\` — supervisor, orchestrator, adapters, MCP, proxy
+- \`bootstrap/daemon.ts\` — supervisor, orchestrator, adapters, MCP, proxy, web UI
 - \`bootstrap/client.ts\` — CLI/TUI, Controller, offline commands
 
 No DI container. Constructor injection only. Bootstrap is allowed to be ugly.
@@ -322,6 +322,7 @@ devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--json]
+devctl web status|start|stop
 devctl config validate|show|diff [--json]
 devctl attach
 devctl completion zsh|bash|fish
@@ -344,7 +345,7 @@ devctl update [--json] [--check]
 - \`down\` stops the daemon's services and the daemon itself; \`--keep-services\` stops only the daemon, leaving services running to be adopted later. \`--repo\` targets a repository directly, without needing a loadable configuration there; the global \`--config\` also resolves it (by file location, not by parsing) when \`--repo\` is not given.
 - \`status\` and \`down\` resolve their target the same way: \`--repo\` wins outright, else the global \`--config\` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - \`status\` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
-- \`status\` also prints proxy and MCP listen lines when a supervisor is up.
+- \`status\` also prints proxy, MCP, and WEB listen lines when a supervisor is up.
 - \`status --watch\` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (\`ctrl+c\`).
 - \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details.
 - \`devctl daemon logs [-f]\` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when \`start\`/\`attach\` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. \`-f\` follows it live the same way \`logs -f\` does. The TUI equivalent is \`/daemon\`.
@@ -401,6 +402,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 - [TUI](tui.md)
 - [MCP](mcp.md)
+- [Telemetry](telemetry.md)
 - [Logs](logs.md)
 - [How it fits together](overview.md)
 ` },
@@ -483,6 +485,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`proxy\` | Listen address, token endpoint, routes |
 | \`logs\` | In-memory cap and persistence |
 | \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
+| \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Telemetry](telemetry.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
 | \`shutdown\` | \`stop_services_on_exit\`, \`grace_seconds\` |
 | \`ui\` | Optional theme / keymap hints in YAML (TUI prefs still win from \`tui.json\`) |
@@ -526,7 +529,7 @@ entry includes the winning source file and layer (\`main\`, \`modular_service\`,
 \`synthesized\`) and the ordered sources it shadowed. Use \`--json\` for structured
 output.
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, and \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports).
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
 
 The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before writing. Invalid YAML is not saved. \`e\` still opens \`$EDITOR\`.
 
@@ -1111,11 +1114,11 @@ All service stdout/stderr, proxy events, health checks, authentication events, a
 
 Sources you will see: \`stdout\`, \`stderr\`, \`health\`, \`auth\`, \`devctl\`, \`proxy\`, and \`otlp\` (when \`telemetry.otlp.enabled\` is on).
 
-Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional \`traceId\`/\`spanId\` — so structured JSON keeps its fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
+Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional \`traceId\`/\`spanId\` — so structured JSON (and Python \`{'key': 'value'}\` dicts) keep their fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
 ## Buffer and persistence
 
-- In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills.
+- In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status \`logs.total\` / \`logs.errors\` are how many of those lines are still in the ring; \`logs.seen\` / \`logs.seenErrors\` are lifetime ingest counts so dashboards do not freeze at the cap.
 - The live ring lives in a Bun Worker behind \`LogStore\` when running from source or npm, so parse and search do not stall the supervisor event loop. The main thread only receives page/facet/export results (and a cached snapshot for \`status\`). Compiled standalone binaries (\`bun build --compile\`) keep the ring in-process — Bun 1.4.0 cannot resolve the worker script inside a single-file executable. If the worker fails to start, the daemon falls back to the in-process store rather than hanging.
 - Ingest truncates lines longer than 16 KiB and skips \`JSON.parse\` on payloads larger than 64 KiB. Regex search is already capped (pattern length, nested quantifiers).
 - Optional persistence under \`~/.devctl/logs/\` (\`persistence.enabled\`, \`directory\`, \`retention_days\`, \`max_session_logs\`).
@@ -1360,12 +1363,14 @@ flowchart TB
   tui["TUI — OpenTUI screens and keys"]
   cli["CLI — start / stop / logs / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
+  web["Web — loopback explorer and control"]
   sup["Supervisor"]
   disk["~/.devctl/state/repoID/"]
 
   tui --> sup
   cli --> sup
   mcp --> sup
+  web --> sup
   sup --> runtime["Host processes + containers"]
   sup --> proxy["Proxy + token endpoint"]
   sup --> logs["Log buffer"]
@@ -2312,9 +2317,11 @@ Two ingestion lanes feed one model:
 
 - **stdout / stderr (best-effort).** Plain text becomes the body; JSON from pino,
   bunyan, zap, logrus, structlog, ECS, GELF, or an OTLP-shaped line is mapped
-  into body + attributes + severity + ids. A leading timestamp before the JSON
-  is stripped and retried. An unrecognized JSON object is kept as structured
-  data and shown as a \`key=value\` summary — never as raw braces.
+  into body + attributes + severity + ids. Python \`str(dict)\` / \`repr(mapping)\`
+  lines (\`{'key': 'value', ...}\`) are parsed the same way. A leading timestamp
+  or log prefix before the object is stripped and retried. An unrecognized
+  object is kept as structured data and shown as a \`key=value\` summary — never
+  as raw braces.
 - **OTLP (lossless).** Anything sent to the receiver maps 1:1.
 
 In the TUI, \`enter\` on a log opens the details overlay: the body, an
@@ -2361,13 +2368,45 @@ the request's trace. A \`traceparent\` on an incoming request is honored; a bare
 request-id header is **not** adopted as the trace id, so unrelated requests are
 never merged into one trace.
 
-View a trace two ways:
+View a trace three ways:
 
 - **TUI** — a ◎ marker on a log row means it has a trace; \`enter\` (or **view
   trace**) opens a full-width waterfall. \`j\`/\`k\` selects a span; Enter opens that
   span's logs.
 - **CLI** — \`devctl logs --trace <id>\` prints the span tree plus the correlated
   logs; add \`--json\` for JSONL. See [CLI](cli.md).
+- **Web UI** — an opt-in loopback explorer (below) with a waterfall, correlated
+  logs, dependency graph, and rate/latency charts.
+
+## Web UI
+
+A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
+TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
+It is off until you enable it. It binds loopback only (no login or token, no
+CORS, Host allowlist). Mutating \`POST /api/control\` requires a same-origin
+\`Origin\` or \`Referer\` and \`Content-Type: application/json\`. The listener serves
+a bundled SPA plus \`GET /api/*\` shapers that match MCP redaction. Mutations go
+through \`POST /api/control\` to the same MCP tools (except \`exec_service\`).
+
+\`\`\`yaml
+web:
+  enabled: true                  # default: false
+  listen:
+    host: 127.0.0.1              # loopback only; 0.0.0.0 / :: are rejected
+    port: 18900                  # default 18900
+\`\`\`
+
+Then \`devctl web start\` (or boot with \`enabled: true\`) and open the printed URL.
+\`devctl web status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener.
+Hash routes: \`#/services\`, \`#/traces\`, \`#/graph\`, \`#/logs\`. Rebuild the embed with
+\`cd app && bun run build:web\` after editing \`app/web/\`.
+
+Overview KPIs use lifetime totals (\`proxy.requestTotal\`, \`logs.seen\` /
+\`logs.seenErrors\`). Tables and the graph stay windowed: last 100 proxy
+requests, last 200 log rows from MCP, last 10s for rate/latency.
+
+Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
+route port.
 
 ## Redaction
 
@@ -2642,7 +2681,8 @@ bun install
 bun run src/bin.ts --help
 bun test
 bun run check:coverage
-bunx tsc --noEmit
+bun run typecheck
+bun run typecheck:web
 bun run check:architecture
 bun run check:dead
 bun run check:dup
@@ -2667,6 +2707,7 @@ cd app && bun link    # optional: \`devctl\` on PATH
 | \`app/src/presentation/tui/hooks/\` | Client queries, command execution, and TUI state |
 | \`app/src/presentation/tui/helpers/\` | Screen-specific formatting, navigation, logs, and plan helpers |
 | \`app/src/presentation/mcp/\` | Streamable HTTP MCP server |
+| \`app/src/presentation/web/\` | Loopback telemetry web UI (SPA is authored in \`app/web/\` and embedded here) |
 | \`app/src/domain/\` | Service, identity, config, log, session, and preference types and policies |
 | \`app/src/adapters/config/\` | Discover, decode, merge, validate |
 | \`app/src/adapters/process/\` | Host process runtime |

@@ -36,6 +36,7 @@ import {
   knownUI,
   knownUpstream,
   knownWatch,
+  knownWeb,
 } from "./known.ts";
 import { servicePathKnown } from "./strict.ts";
 
@@ -105,6 +106,7 @@ describe("config allowlist/schema parity", () => {
       ["knownProfile", knownProfile, defs.profile ?? {}],
       ["knownTelemetry", knownTelemetry, defs.telemetry ?? {}],
       ["knownTelemetryOtlp", knownTelemetryOtlp, defs.telemetry?.properties?.otlp ?? {}],
+      ["knownWeb", knownWeb, defs.web ?? {}],
     ];
     for (const [name, known, node] of cases) expectParity(name, known, node);
   });

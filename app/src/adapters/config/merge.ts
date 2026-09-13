@@ -37,6 +37,7 @@ import {
   type StartupConfig,
   type TaskConfig,
   type TelemetryConfig,
+  type WebConfig,
 } from "../../domain/config/types.ts";
 
 // Field names ever explicitly set, per service or template name, by any
@@ -212,6 +213,9 @@ export function applyRoot(
   if (isRecord(raw.telemetry)) {
     applyTelemetry(cfg.telemetry, raw.telemetry);
   }
+  if (isRecord(raw.web)) {
+    applyWeb(cfg.web, raw.web);
+  }
 }
 
 export function applyTelemetry(telemetry: TelemetryConfig, raw: Record<string, unknown>): void {
@@ -228,6 +232,20 @@ export function applyTelemetry(telemetry: TelemetryConfig, raw: Record<string, u
     }
     if (otlp.listen.port !== undefined) {
       telemetry.otlp.listen.port = asNumber(otlp.listen.port);
+    }
+  }
+}
+
+export function applyWeb(web: WebConfig, raw: Record<string, unknown>): void {
+  if (raw.enabled !== undefined) {
+    web.enabled = asBoolean(raw.enabled);
+  }
+  if (isRecord(raw.listen)) {
+    if (raw.listen.host !== undefined) {
+      web.listen.host = asString(raw.listen.host);
+    }
+    if (raw.listen.port !== undefined) {
+      web.listen.port = asNumber(raw.listen.port);
     }
   }
 }

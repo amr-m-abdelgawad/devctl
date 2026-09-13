@@ -3,6 +3,7 @@
   // Reserved hexagonal port: adapters are expected to implement this later.
   // plugin-sdk.ts is a public entry; its re-exports have no in-repo importer.
   "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts"],
+  "entry": ["web/main.tsx"],
   // Host tools spawned at runtime, not npm packages.
   "ignoreBinaries": ["explorer", "xdg-open", "vm_stat"],
   "ignoreExportsUsedInFile": true,

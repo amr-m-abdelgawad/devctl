@@ -14,7 +14,7 @@ import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID } from "../adapters/storage/storage.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
 import { isKnownToolName } from "../presentation/mcp/tools.ts";
-import { defaultMcpListener } from "./daemon.ts";
+import { defaultMcpListener, defaultWebListener } from "./daemon.ts";
 export { diffReload } from "../adapters/daemon/supervisor.ts";
 
 /** Integration fixtures use real local processes and fake Google access unless explicitly overridden. */
@@ -43,9 +43,10 @@ export class Supervisor extends DaemonSupervisor {
       acquireLock,
       socketExists: existsSync,
       unlinkSocket: unlinkSync,
-      createMcpListener: defaultMcpListener,
       isKnownTool: isKnownToolName,
       ...deps,
+      createMcpListener: deps.createMcpListener ?? defaultMcpListener,
+      createWebListener: deps.createWebListener ?? defaultWebListener,
       healthCheckers: deps.healthCheckers ?? healthCheckerFactory([]),
       clock,
       fs: deps.fs ?? osFileSystem,

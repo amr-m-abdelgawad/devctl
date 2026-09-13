@@ -6,7 +6,7 @@ import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { callMcpTool, MCP_LOG_CAP, type McpHost } from "./tools.ts";
+import { callMcpTool, isWebControlTool, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -19,7 +19,7 @@ function sampleSnap(): StatusSnapshot {
     repo_root: "/repo",
     profile: "local",
     services: { api },
-    proxy: { running: false, routes: [] },
+    proxy: { running: false, routes: [], requestTotal: 250, requestErrors: 4, recentRequests: [] },
     mcp: { running: true, address: "http://127.0.0.1:18721/mcp", port: 18721, token: "secret-session" },
     identity: {
       user: "dev@example.com",
@@ -30,7 +30,7 @@ function sampleSnap(): StatusSnapshot {
       service_account_status: {},
       iap: false,
     },
-    logs: { total: 3, errors: 0, counts: { api: 3 } },
+    logs: { total: 3, errors: 0, counts: { api: 3 }, seen: 3, seenErrors: 0 },
     system: { platform: "test", cpuCount: 1, loadAvg1: 0, loadAvg5: 0, loadAvg15: 0, memTotalKB: 0, memFreeKB: 0, memAvailableKB: 0, hostUptimeSec: 0 },
   };
 }
@@ -138,6 +138,13 @@ describe("mcp tools", () => {
       client_id: "desktop.apps.googleusercontent.com",
     });
     expect(JSON.stringify(result)).not.toContain("inline-secret");
+  });
+
+  test("web control allows mutating tools except exec", () => {
+    expect(isWebControlTool("start_services")).toBe(true);
+    expect(isWebControlTool("stop_proxy")).toBe(true);
+    expect(isWebControlTool("list_services")).toBe(false);
+    expect(isWebControlTool("exec_service")).toBe(false);
   });
 
   test("get_config shows an env-ref client_secret template and never a resolved secret", async () => {
@@ -354,7 +361,9 @@ describe("mcp tools", () => {
 
   test("get_requests and recent_errors use status and error logs", async () => {
     const host = stubHost();
-    const requests = (await callMcpTool(host, "get_requests", {})) as { requests: unknown[] };
+    const requests = (await callMcpTool(host, "get_requests", {})) as { total: number; errors: number; requests: unknown[] };
+    expect(requests.total).toBe(250);
+    expect(requests.errors).toBe(4);
     expect(requests.requests).toEqual([]);
     const errors = (await callMcpTool(host, "recent_errors", {})) as { events: Array<{ service: string; severityText: string }> };
     expect(errors.events.every((ev) => ev.severityText === "ERROR" || ev.severityText === "FATAL")).toBe(true);

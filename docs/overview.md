@@ -7,12 +7,14 @@ flowchart TB
   tui["TUI — OpenTUI screens and keys"]
   cli["CLI — start / stop / logs / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
+  web["Web — loopback explorer and control"]
   sup["Supervisor"]
   disk["~/.devctl/state/repoID/"]
 
   tui --> sup
   cli --> sup
   mcp --> sup
+  web --> sup
   sup --> runtime["Host processes + containers"]
   sup --> proxy["Proxy + token endpoint"]
   sup --> logs["Log buffer"]

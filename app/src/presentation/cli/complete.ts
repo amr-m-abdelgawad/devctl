@@ -57,6 +57,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     "auth",
     "proxy",
     "mcp",
+    "web",
     "config",
     "reload",
     "attach",
@@ -85,6 +86,9 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     return filterPrefix(["validate", "show", "diff"], tail);
   }
   if (cmd === "proxy") {
+    return filterPrefix(["status", "start", "stop"], tail);
+  }
+  if (cmd === "web") {
     return filterPrefix(["status", "start", "stop"], tail);
   }
   return filterPrefix(commands, tail);

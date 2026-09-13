@@ -80,6 +80,9 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
   if (JSON.stringify(prev.telemetry) !== JSON.stringify(next.telemetry)) {
     supervisorRestart.push("telemetry");
   }
+  if (JSON.stringify(prev.web) !== JSON.stringify(next.web)) {
+    supervisorRestart.push("web");
+  }
   if (JSON.stringify(prev.auth) !== JSON.stringify(next.auth)) {
     supervisorRestart.push("auth");
   }

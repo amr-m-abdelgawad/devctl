@@ -111,6 +111,33 @@ describe("structured log parse table", () => {
     expect(parsed.attributes).toEqual({});
   });
 
+  test("Python str(dict) stdout is structured, not raw braces", () => {
+    const line =
+      "{'email': 'unknown', 'referer_url': 'unknown', 'api_url': 'http://127.0.0.1:17490/v1/health', 'start_time': '2026-09-13 11:39:46', 'end_time': '2026-09-13 11:39:46', 'duration_seconds': 0.0005826950073242188, 'response_status': 200}";
+    const parsed = parseJSONLogLine(line);
+    expect(parsed).toBeDefined();
+    expect(parsed?.body).toBe("http://127.0.0.1:17490/v1/health 200 0.0005826950073242188s");
+    expect(parsed?.attributes?.email).toBe("unknown");
+    expect(parsed?.attributes?.response_status).toBe(200);
+    expect(summary(line)).toBe("http://127.0.0.1:17490/v1/health 200 0.0005826950073242188s");
+    expect(structuredBodyLooksLikeBraces(summary(line))).toBe(false);
+  });
+
+  test("a logger prefix before a Python dict is stripped and retried", () => {
+    const parsed = parseJSONLogLine("INFO:workflows {'event': 'user_login', 'user_id': 'u-9'}");
+    expect(parsed?.body).toBe("user_login");
+    expect(parsed?.attributes?.user_id).toBe("u-9");
+  });
+
+  test("Python dict without HTTP fields renders logfmt, not braces", () => {
+    const line = "{'foo': 'bar', 'count': 2}";
+    const parsed = parseJSONLogLine(line);
+    expect(parsed?.body).toEqual({ foo: "bar", count: 2 });
+    expect(summary(line)).toContain("foo=bar");
+    expect(summary(line)).not.toBe(line);
+    expect(structuredBodyLooksLikeBraces(summary(line))).toBe(false);
+  });
+
   test("none of the acceptance inputs render as raw braces", () => {
     const lines = [
       '{"level":30,"msg":"listening"}',
@@ -122,6 +149,8 @@ describe("structured log parse table", () => {
       '{"foo":"bar","count":2}',
       '{"body":"hello world","user":1}',
       '2026-09-08T19:23:10.000Z {"msg":"booted"}',
+      "{'email': 'unknown', 'api_url': 'http://127.0.0.1:17490/v1/health', 'response_status': 200}",
+      "{'foo': 'bar', 'count': 2}",
       '{"timeUnixNano":"1","body":{"stringValue":"HTTP request processed"},"attributes":[{"key":"http.method","value":{"stringValue":"GET"}}]}',
       "plain text line",
     ];

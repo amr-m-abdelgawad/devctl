@@ -2,6 +2,7 @@ import { coerceAnyValue, coerceAttributes, isPlainObject, type AnyValue, type At
 import { REQUEST_ID_ATTR, SPAN_ID_HEX_LENGTH, TRACE_ID_HEX_LENGTH, isSpanId, isTraceId, parseTraceparent } from "./ids.ts";
 import { decodeOtlpAnyValue, flattenOtlpAttributes, isOtlpAttributeList, unixNanoFromUnknown } from "./otlp-value.ts";
 import { httpSummaryParts } from "./display.ts";
+import { parsePythonLiteralObject } from "./python-literal.ts";
 import { SeverityError, SeverityUnspecified, SeverityWarn, severityNumberFromUnknown, severityTextFromNumber, syslogSeverity } from "./severity.ts";
 import { MAX_JSON_LOG_BYTES, MAX_LOG_LINE_CHARS, NANOS_PER_MS, type LogParser, type ParsedLog } from "./types.ts";
 
@@ -43,29 +44,20 @@ export function parseLogLine(line: string): ParsedLog {
 }
 
 export function parseJSONLogLine(line: string): ParsedLog | undefined {
-  const extracted = extractJsonObject(line);
+  const extracted = extractStructuredObject(line);
   if (!extracted) {
     return undefined;
   }
-  let value: unknown;
-  try {
-    value = JSON.parse(extracted.json);
-  } catch {
-    return undefined;
-  }
-  if (!isPlainObject(value)) {
-    return undefined;
-  }
-  return parseOtlpLog(value, extracted.raw) ?? parseMetricLog(value, extracted.raw) ?? parseAccessLog(value, extracted.raw) ?? parseApplicationJsonLog(value, extracted.raw);
+  return parseOtlpLog(extracted.value, extracted.raw) ?? parseMetricLog(extracted.value, extracted.raw) ?? parseAccessLog(extracted.value, extracted.raw) ?? parseApplicationJsonLog(extracted.value, extracted.raw);
 }
 
-function extractJsonObject(line: string): { json: string; raw: string } | undefined {
+function extractStructuredObject(line: string): { value: Record<string, unknown>; raw: string } | undefined {
   const trimmed = line.trim();
   if (trimmed.length > MAX_JSON_LOG_BYTES) {
     return undefined;
   }
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return { json: trimmed, raw: trimmed };
+    return objectFromCandidate(trimmed, trimmed);
   }
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
@@ -76,15 +68,24 @@ function extractJsonObject(line: string): { json: string; raw: string } | undefi
   if (candidate.length > MAX_JSON_LOG_BYTES) {
     return undefined;
   }
+  return objectFromCandidate(candidate, trimmed);
+}
+
+function objectFromCandidate(candidate: string, raw: string): { value: Record<string, unknown>; raw: string } | undefined {
+  const value = parseJsonObject(candidate) ?? parsePythonLiteralObject(candidate);
+  if (!value) {
+    return undefined;
+  }
+  return { value, raw };
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | undefined {
   try {
-    const value = JSON.parse(candidate);
-    if (!isPlainObject(value)) {
-      return undefined;
-    }
+    const value: unknown = JSON.parse(text);
+    return isPlainObject(value) ? value : undefined;
   } catch {
     return undefined;
   }
-  return { json: candidate, raw: trimmed };
 }
 
 function parseOtlpLog(obj: Record<string, unknown>, raw: string): ParsedLog | undefined {
@@ -153,17 +154,16 @@ function parseAccessLog(obj: Record<string, unknown>, raw: string): ParsedLog | 
   const requestLine = stringish(obj.request);
   const fromRequest = requestLine === undefined ? {} : splitRequestLine(requestLine);
   const method = stringish(firstPresent(obj, ["request_method", "method", "http_method", "verb"])) ?? fromRequest.method;
-  const uri = stringish(firstPresent(obj, ["request_uri", "uri", "url", "path", "request_path"])) ?? fromRequest.uri;
-  const status = numeric(firstPresent(obj, ["status", "status_code", "statusCode", "http_status"]));
+  const uri = stringish(firstPresent(obj, ["request_uri", "uri", "url", "path", "request_path", "api_url"])) ?? fromRequest.uri;
+  const status = numeric(firstPresent(obj, ["status", "status_code", "statusCode", "http_status", "response_status"]));
   const ip = stringish(firstPresent(obj, ["remote_ip", "remote_addr", "client_ip"]));
-  if (method === undefined || uri === undefined) {
-    return undefined;
-  }
-  if (status === undefined && ip === undefined && requestLine === undefined) {
+  const requestShape = method !== undefined && uri !== undefined && (status !== undefined || ip !== undefined || requestLine !== undefined);
+  const statusShape = uri !== undefined && status !== undefined;
+  if (!requestShape && !statusShape) {
     return undefined;
   }
   const bytes = numeric(firstPresent(obj, ["body_bytes_sent", "bytes_sent", "bytes"]));
-  const seconds = numeric(firstPresent(obj, ["request_time", "duration"]));
+  const seconds = numeric(firstPresent(obj, ["request_time", "duration", "duration_seconds"]));
   const millis = numeric(firstPresent(obj, ["request_time_ms", "latency_ms", "duration_ms"]));
   const size = bytes === undefined ? undefined : `${bytes}B`;
   const elapsed = millis !== undefined ? `${millis}ms` : seconds === undefined ? undefined : `${seconds}s`;
