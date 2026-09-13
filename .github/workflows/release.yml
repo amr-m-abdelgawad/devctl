@@ -81,7 +81,7 @@ jobs:
             devctl-npm-package.tgz > SHA256SUMS
 
       - name: Upload release artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: devctl-release-${{ steps.version.outputs.version }}
           if-no-files-found: error

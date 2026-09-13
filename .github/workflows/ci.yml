@@ -172,7 +172,7 @@ jobs:
           mv "dist/$packed" dist/devctl-npm-package.tgz
           npm pack ./dist/npm --dry-run --json > dist/npm-pack-dry-run.json
           node .github/scripts/verify-npm-pack.cjs dist/npm-pack-dry-run.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: devctl-npm-ci-${{ steps.version.outputs.version }}
           if-no-files-found: error
