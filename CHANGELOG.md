@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-13
+
 ### Added
 
-- Opt-in loopback Telemetry & Trace Explorer (`web`, off by default, port `18900`). Loopback GET API plus `POST /api/control` for the same mutating MCP tools the TUI uses (start/stop/restart, profile start, proxy, reload, run task; not exec). No token, no CORS, Host allowlist. Bundled SPA: services dashboard with lifecycle buttons, SVG trace waterfall, dependency graph, and client-derived rate/latency/CPU charts. `devctl web status|start|stop`; `devctl status` prints a `WEB` line. See [Telemetry](docs/telemetry.md).
+- Opt-in loopback Telemetry & Trace Explorer (`web`, off by default, port `18900`). Loopback GET API plus `POST /api/control` for the same mutating MCP tools the TUI uses (start/stop/restart, profile start, proxy, reload, run task; not exec). No login or token, no CORS, Host allowlist; mutating `POST /api/control` requires a same-origin `Origin` or `Referer` and `Content-Type: application/json`. Bundled SPA: services dashboard with lifecycle buttons, SVG trace waterfall, dependency graph, and client-derived rate/latency/CPU charts. `devctl web status|start|stop`; `devctl status` prints a `WEB` line. See [Telemetry](docs/telemetry.md).
 
 ### Changed
 
@@ -399,7 +401,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.4.1...v0.5.0
