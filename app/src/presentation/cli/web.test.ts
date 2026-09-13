@@ -25,7 +25,7 @@ function stubRuntime(): ClientRuntime {
         client: undefined,
         close: async () => {},
       }) as unknown as Controller,
-  } as ClientRuntime;
+  } as unknown as ClientRuntime;
 }
 
 async function parseWeb(args: string[]): Promise<string> {
