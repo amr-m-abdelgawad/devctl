@@ -10,6 +10,10 @@ import {
   knownGoogle,
   knownHealth,
   knownHooks,
+  knownHttp,
+  knownHttpCache,
+  knownHttpExpose,
+  knownHttpRequest,
   knownIdentity,
   knownListen,
   knownLogs,
@@ -34,6 +38,11 @@ import {
   knownTelemetryOtlp,
   knownUI,
   knownWeb,
+  knownLlm,
+  knownLlmSource,
+  knownLlmAuth,
+  knownLlmVia,
+  knownLlmCapture,
   knownUpstream,
   knownWatch,
 } from "./known.ts";
@@ -58,7 +67,7 @@ export function collectUnknownFields(value: unknown, path: string): string[] {
 }
 
 function allowArbitraryKeys(path: string): boolean {
-  if (path === "services" || path === "profiles" || path === "templates" || path === "tasks") {
+  if (path === "services" || path === "profiles" || path === "templates" || path === "tasks" || path === "http") {
     return true;
   }
   if (path.endsWith(".environment") || path.endsWith(".defaults") || path.endsWith(".keymap")) {
@@ -67,7 +76,7 @@ function allowArbitraryKeys(path: string): boolean {
   if (path.endsWith(".container.ports") || path.endsWith(".container.env")) {
     return true;
   }
-  if (path.endsWith(".auth.headers") || path.endsWith(".response_headers")) {
+  if (path.endsWith(".auth.headers") || path.endsWith(".response_headers") || path.endsWith(".headers") || path.endsWith(".outputs") || path.endsWith(".form")) {
     return true;
   }
   if (path.endsWith(".identity.config") || path.includes(".identity.config.")) return true;
@@ -114,6 +123,8 @@ function knownForPath(path: string): string[] {
       return knownWeb;
     case "web.listen":
       return knownListen;
+    case "llm":
+      return knownLlm;
     default:
       return nestedKnown(path);
   }
@@ -138,6 +149,12 @@ function nestedKnown(path: string): string[] {
     if (parts.length === 2) return knownTask;
     if (parts[2] === "environment") return knownEnvStructured;
   }
+  if (path === "http") {
+    return [];
+  }
+  if (path.startsWith("http.")) {
+    return httpPathKnown(path);
+  }
   if (path.includes("routes")) {
     return routePathKnown(path);
   }
@@ -149,6 +166,29 @@ function nestedKnown(path: string): string[] {
   }
   if (path.startsWith("plugins.") && path.split(".").length === 2) {
     return knownPlugin;
+  }
+  if (path === "llm.sources") {
+    return [];
+  }
+  if (path.startsWith("llm.sources.")) {
+    return llmSourcePathKnown(path);
+  }
+  return [];
+}
+
+function llmSourcePathKnown(path: string): string[] {
+  const parts = path.split(".");
+  if (parts.length === 3) {
+    return knownLlmSource;
+  }
+  if (parts[3] === "auth") {
+    return knownLlmAuth;
+  }
+  if (parts[3] === "via") {
+    return knownLlmVia;
+  }
+  if (parts[3] === "capture") {
+    return knownLlmCapture;
   }
   return [];
 }
@@ -226,6 +266,29 @@ function routePathKnown(path: string): string[] {
   }
   if (path.includes("proxy.routes") && path.split(".").length === ROUTE_DOT_COUNT + 1) {
     return knownRoute;
+  }
+  return [];
+}
+
+function httpPathKnown(path: string): string[] {
+  const parts = path.split(".");
+  if (parts.length === 2) {
+    return knownHttp;
+  }
+  if (parts[2] === "request") {
+    if (parts.length === 3) {
+      return knownHttpRequest;
+    }
+    if (parts[3] === "auth") {
+      return knownRouteAuth;
+    }
+    return [];
+  }
+  if (parts[2] === "cache") {
+    return knownHttpCache;
+  }
+  if (parts[2] === "expose") {
+    return knownHttpExpose;
   }
   return [];
 }

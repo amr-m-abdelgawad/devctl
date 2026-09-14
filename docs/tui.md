@@ -52,7 +52,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | `command+p` / `ctrl+p` | Same command overlay as `/` |
 | `command+x` / `ctrl+x` | Leader key (2s), then a shortcut — keymap overlay |
 | `?` | Grouped help — `j`/`k` scroll when the list is taller than the terminal |
-| `tab` / `shift+tab` / `1`–`4` | Cycle or jump the **four nav tabs**. Other screens are `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`, `/mcp`. On a secondary screen, `tab` returns to the dashboard. When the strip is wider than the terminal it slides (`‹` `›`). |
+| `tab` / `shift+tab` / `1`–`5` | Cycle or jump the **five nav tabs**. Other screens are `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`, `/mcp`. On a secondary screen, `tab` returns to the dashboard. When the strip is wider than the terminal it slides (`‹` `›`). |
 | `s` `l` `a` `p` `d` `c` `u` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
 | `r` | Refresh snapshot (doctor `r` re-runs checks) |
 | `R` | Restart selected services |
@@ -70,9 +70,9 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 
 The status bar only lists keys that work **on the current screen**. There is no idle command row — `/` and the OS palette chord open the command overlay.
 
-## Nav tabs (4)
+## Nav tabs (5)
 
-1. dashboard · 2. services · 3. logs · 4. proxy
+1. dashboard · 2. services · 3. logs · 4. proxy · 5. llm
 
 Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`. **MCP** is `/mcp`, `/agent`, or Settings → **MCP → Settings page**.
 
@@ -84,7 +84,8 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. `w` cycles wrap all / clip / wrap selected. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
-- **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. `n` start / `x` stop
+- **Proxy** — status + routes (match and upstream wrap instead of clipping); request paths wrap in the live feed. **REQ** is the full request when a trace exists; **HOP** is the proxy hop (same split as the web UI). Click a route for full details. `n` start / `x` stop. If `proxy.listen.port` is missing, the screen says so and `n` reports the bind error in the status bar instead of crashing
+- **LLM** — recent calls from configured `llm.sources` (model, status, tokens, cost, latency). `enter` opens detail (messages, usage, attributes); `enter` again jumps to a trace when one is present. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. `enter` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. `r` reruns
 - **Config** — merged view including **tasks**. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/diff` shows provenance (`devctl config diff`). `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
@@ -107,7 +108,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
                       empty /exec opens a service picker, then type the command
 /exec <service> --print-env [--reveal]
                       resolved env (dotenv, profile, secrets, plugins, ports), not config-only vars
-/logs /services /auth /credentials /proxy /mcp /doctor /config /profiles /setup
+/logs /services /auth /credentials /proxy /llm /mcp /doctor /config /profiles /setup
 /stats                system and service statistics (sparklines when the supervisor has samples)
 /split                second log pane (`\\`); `|` focuses the other pane
 /trace <id>           set log search to a request_id / trace_id
@@ -152,7 +153,7 @@ Override in `tui.json` (`keybinds`) or `DEVCTL_TUI_CONFIG`.
 ## Layout
 
 - **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
-- **Nav** — the four primary tabs; the active tab is highlighted, not filled
+- **Nav** — the five primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
 - **Command overlay** — `/` and `command+p` / `ctrl+p` open the same grouped list with a real OpenTUI input
 - **Status bar** — live/paused, last human result, contextual keys

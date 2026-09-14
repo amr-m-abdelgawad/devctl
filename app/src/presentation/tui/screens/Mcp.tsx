@@ -1,10 +1,11 @@
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { useDensity } from "../density.tsx";
 import { padClip } from "../helpers/format.ts";
 import { Chip, KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from "../layout.tsx";
 import { agentColor, onAgentColor, type Palette } from "../themes.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { MCP_TOOL_CATEGORIES, MCP_TOOLS, toolEnabled, type McpToolDef } from "../../mcp/tools.ts";
-import { type StatusSnapshot } from "../../../domain/status.ts";
+import { formatMcpTokenAge, MCP_TOKEN_TTL_DAYS } from "../../../shared/mcp-token.ts";
 
 export const MCP_TOGGLE_ROW = 0;
 export const MCP_PORT_ROW = 1;
@@ -73,6 +74,7 @@ export function McpScreen(props: {
   const disabled = snap?.mcp?.disabled_tools ?? [];
   const tools = mcpToolRows();
   const offCount = tools.filter((tool) => !toolEnabled(tool.name, disabled)).length;
+  const tokenAge = snap?.mcp?.token_age_ms;
   const selectedSnippet = snippets[mcpSnippetIndexAtRow(selected) ?? -1];
   const preview = selectedSnippet ?? snippets[0];
   return (
@@ -82,6 +84,9 @@ export function McpScreen(props: {
         items={[
           { text: running ? "RUNNING" : "STOPPED", tone: running ? "success" : "idle" },
           { text: `127.0.0.1:${livePort}`, tone: "info" },
+          ...(tokenAge !== undefined
+            ? [{ text: `token ${formatMcpTokenAge(tokenAge)} / ${MCP_TOKEN_TTL_DAYS}d`, tone: "muted" as const }]
+            : []),
         ]}
       />
       <box flexGrow={1} overflow="hidden">

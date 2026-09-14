@@ -1,5 +1,5 @@
 import { configDiff } from "../../domain/config/provenance.ts";
-import { dependencyLabel,emptyService,listenAddress,refreshThreshold,type DevctlConfig,type RouteConfig,type ServiceConfig } from "../../domain/config/types.ts";
+import { dependencyLabel,emptyService,hasListenPort,listenAddress,refreshThreshold,type DevctlConfig,type RouteConfig,type ServiceConfig } from "../../domain/config/types.ts";
 import { Detector } from "../../shared/redaction.ts";
 import { serviceCommandText,serviceHealthText,serviceIdentityText,servicePortsText,serviceRestartText } from "./helpers/services.ts";
 
@@ -104,8 +104,9 @@ export function configLogFacts(cfg: DevctlConfig): ConfigFact[] {
 }
 
 export function configProxyFacts(cfg: DevctlConfig): ConfigFact[] {
+  const listenSet = hasListenPort(cfg.proxy.listen);
   return [
-    { label: "listen", value: listenAddress(cfg.proxy.listen), tone: cfg.proxy.enabled ? "text" : "muted" },
+    { label: "listen", value: listenSet ? listenAddress(cfg.proxy.listen) : "no port", tone: listenSet ? (cfg.proxy.enabled ? "text" : "muted") : "warning" },
     { label: "token", value: tokenEndpointText(cfg), tone: cfg.proxy.token_endpoint.enabled ? "text" : "muted" },
   ];
 }

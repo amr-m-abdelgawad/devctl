@@ -66,6 +66,14 @@ describe("security", () => {
     cfg.listen = { host: "::", port: 18998 };
     await expect(new ProxyServer(cfg).start()).rejects.toMatchObject({ kind: KindProxy });
   });
+
+  test("proxy refuses to start without listen.port", async () => {
+    const cfg = defaultConfig().proxy;
+    cfg.enabled = true;
+    cfg.listen = { host: "127.0.0.1", port: 0 };
+    const start = new ProxyServer(cfg).start();
+    await expect(start).rejects.toThrow(/proxy\.listen\.port is required/);
+  });
 });
 
 describe("isolated home", () => {

@@ -189,15 +189,17 @@ async function fuserPortHolder(port: number): Promise<PortHolder | undefined> {
 }
 
 export function parseNetstat(text: string, port: number): PortHolder | undefined {
+  const localSuffix = `:${port}`;
   for (const line of text.split("\n")) {
     if (!line.includes("LISTENING") && !line.includes("LISTEN")) {
       continue;
     }
-    if (!line.includes(`:${port}`) && !line.includes(` ${port} `)) {
+    const parts = line.trim().split(/\s+/);
+    const local = parts[1] ?? "";
+    if (!local.endsWith(localSuffix) && local !== String(port)) {
       continue;
     }
-    const pidMatch = line.trim().match(/(\d+)\s*$/);
-    const pid = pidMatch ? Number(pidMatch[1]) : 0;
+    const pid = Number(parts.at(-1));
     if (Number.isInteger(pid) && pid > 0) {
       return { port, pid, command: "process" };
     }

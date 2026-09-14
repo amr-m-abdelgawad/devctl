@@ -9,6 +9,10 @@ import {
   knownGoogle,
   knownHealth,
   knownHooks,
+  knownHttp,
+  knownHttpCache,
+  knownHttpExpose,
+  knownHttpRequest,
   knownIdentity,
   knownListen,
   knownLogs,
@@ -37,6 +41,11 @@ import {
   knownUpstream,
   knownWatch,
   knownWeb,
+  knownLlm,
+  knownLlmSource,
+  knownLlmAuth,
+  knownLlmVia,
+  knownLlmCapture,
 } from "./known.ts";
 import { servicePathKnown } from "./strict.ts";
 
@@ -85,6 +94,10 @@ describe("config allowlist/schema parity", () => {
       ["knownHooks", knownHooks, service.properties?.hooks ?? {}],
       ["knownExpose", knownExpose, (service.properties?.expose?.oneOf ?? []).find((node) => node.properties) ?? {}],
       ["knownTask", knownTask, defs.task ?? {}],
+      ["knownHttp", knownHttp, defs.httpRecipe ?? {}],
+      ["knownHttpRequest", knownHttpRequest, defs.httpRecipe?.properties?.request ?? {}],
+      ["knownHttpCache", knownHttpCache, defs.httpRecipe?.properties?.cache ?? {}],
+      ["knownHttpExpose", knownHttpExpose, (defs.httpRecipe?.properties?.expose?.oneOf ?? []).find((node) => node.properties) ?? {}],
       ["knownEnvStructured", knownEnvStructured, defs.serviceEnvironment ?? {}],
       ["knownProxy", knownProxy, proxy],
       ["knownListen", knownListen, proxy.properties?.listen ?? {}],
@@ -107,6 +120,11 @@ describe("config allowlist/schema parity", () => {
       ["knownTelemetry", knownTelemetry, defs.telemetry ?? {}],
       ["knownTelemetryOtlp", knownTelemetryOtlp, defs.telemetry?.properties?.otlp ?? {}],
       ["knownWeb", knownWeb, defs.web ?? {}],
+      ["knownLlm", knownLlm, defs.llm ?? {}],
+      ["knownLlmSource", knownLlmSource, defs.llmSource ?? {}],
+      ["knownLlmAuth", knownLlmAuth, defs.llmAuth ?? {}],
+      ["knownLlmVia", knownLlmVia, defs.llmVia ?? {}],
+      ["knownLlmCapture", knownLlmCapture, defs.llmCapture ?? {}],
     ];
     for (const [name, known, node] of cases) expectParity(name, known, node);
   });

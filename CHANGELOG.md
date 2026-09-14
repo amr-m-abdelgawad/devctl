@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-14
+
+### Added
+
+- HTTP recipes (`http.<name>`): named outbound calls with interpolation, JWT-aware cache, and optional loopback expose. See [Custom HTTP APIs](docs/http.md).
+- LLM inspector (`llm.sources`, off by default): LiteLLM spend logs in MCP, web `#/llm`, TUI, and CLI. See [LLM inspector](docs/llm.md).
+- Proxy request table shows duration and proxy hop timing.
+- TUI log follow stays pinned to the bottom while new lines arrive, and lets go when you scroll away.
+
+### Changed
+
+- Supervisor RPC is protocol **2** and requires a per-checkout `rpc-token`. Existing daemons need `devctl down` then start.
+- Web UI `POST /api/control` requires `Authorization: Bearer` (per-bind token from `devctl web start`) plus a loopback `http`/`https` Origin or Referer. HTML is not framed. Loopback Host still allows remapped WSL / Dev Container ports.
+- MCP rejects a spoofed Host and loopback peer miss, advertises no CORS, expires bearer tokens after 7 days (`devctl mcp --rotate`), and keeps `exec_service` off until opted in.
+- Token endpoint mints must match a declared identity/audience pair and are rate-limited. A missing peer address is treated as non-loopback.
+- Managed containers default to 1g RAM, 1 CPU, and 256 PIDs; Doctor warns on root images.
+- Free-text logs also redact raw JWTs and Google access tokens. MCP request bodies are capped at 1 MiB.
+
+### Fixed
+
+- Proxy refuses to start without `listen.port` and surfaces that in the TUI instead of crashing.
+- Host trailing-dot stripping no longer uses a ReDoS-prone regex; the web-asset inliner matches spaced `</script>` end tags.
+
 ## [0.8.1] - 2026-09-13
 
 ### Fixed
@@ -407,7 +430,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.6.0...v0.7.0

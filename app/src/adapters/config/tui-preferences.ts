@@ -90,6 +90,9 @@ export function saveTuiPreferences(partial: TuiPreferencePatch): string {
     // back on" is distinguished from "I never touched this".
     next.mcp_disabled_tools = partial.mcp_disabled_tools;
   }
+  if (partial.mcp_enabled_tools !== undefined) {
+    next.mcp_enabled_tools = partial.mcp_enabled_tools;
+  }
   writeFileSecure(path, `${JSON.stringify(next, null, 2)}\n`);
   return path;
 }
@@ -182,6 +185,9 @@ export function mergeTuiConfig(base: TuiConfig, raw: unknown, path: string): Tui
     mcp_disabled_tools: Array.isArray(rec.mcp_disabled_tools)
       ? rec.mcp_disabled_tools.filter((name): name is string => typeof name === "string")
       : base.mcp_disabled_tools,
+    mcp_enabled_tools: Array.isArray(rec.mcp_enabled_tools)
+      ? rec.mcp_enabled_tools.filter((name): name is string => typeof name === "string")
+      : base.mcp_enabled_tools,
     path,
   };
 }

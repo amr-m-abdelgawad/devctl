@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
-import { assignPorts, findPortHolder, occupiedFixedPorts, parseLsof, portBusyErrorFromHolder } from "./ports.ts";
+import { assignPorts, findPortHolder, occupiedFixedPorts, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
 
 function listen(port = 0): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve, reject) => {
@@ -43,6 +43,16 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
 
   test("returns nothing when lsof is empty", () => {
     expect(parseLsof("COMMAND   PID USER\n", 18080)).toBeUndefined();
+  });
+
+  test("parses Windows netstat listen rows by local address, not a foreign port", () => {
+    const text = [
+      "  TCP    127.0.0.1:54321        127.0.0.1:53220       ESTABLISHED     99",
+      "  TCP    127.0.0.1:53220        0.0.0.0:0             LISTENING       1052",
+      "  TCP    [::1]:53220            [::]:0                LISTENING       1052",
+    ].join("\n");
+    expect(parseNetstat(text, 53220)).toEqual({ port: 53220, pid: 1052, command: "process" });
+    expect(parseNetstat(text, 54321)).toBeUndefined();
   });
 
   test.skipIf(process.platform === "win32")("findPortHolder degrades to undefined when lsof/fuser are missing from $PATH", async () => {

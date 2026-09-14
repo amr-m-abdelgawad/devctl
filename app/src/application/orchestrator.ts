@@ -6,6 +6,7 @@ import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, hu
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
 import { StartupPolicy } from "../domain/service/policies.ts";
+import { resolvedContainerLimits } from "../domain/service/container-limits.ts";
 import {
   HealthHealthy,
   StateHealthy,
@@ -30,6 +31,7 @@ import type { ProcessRuntime } from "../ports/process-runtime.ts";
 import type { StartRequest } from "../domain/status.ts";
 import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
 import type { LifecycleSession } from "../ports/lifecycle-session.ts";
+import { recipesNeededForEnv } from "../domain/http/recipes.ts";
 
 const HEALTH_POLL_MS = 100;
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
@@ -305,6 +307,10 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     try {
       await s.prepareServiceIdentity(name, svc);
       assigned = s.ports.get(name) ?? {};
+      const needed = recipesNeededForEnv(s.cfg, svc.environment, launchEnv);
+      if (needed.length > 0) {
+        await s.ensureHttpRecipes(needed);
+      }
       const resolved = await s.resolveServiceExecution(name, svc, launchProfile, launchEnv, s.clientEnv.get(name), !svc.container);
       env = resolved.env;
       workDir = resolved.workDir;
@@ -338,6 +344,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             targetPorts: svc.container.ports,
             volumes: svc.container.volumes,
             workDir,
+            limits: resolvedContainerLimits(svc.container),
             onLine,
             onExit,
           })

@@ -3,12 +3,15 @@ import type {
   ControlArgs,
   ControlTool,
   LogsPayload,
+  LlmCallRow,
+  LlmCallsPayload,
   ProfileRow,
   RequestsPayload,
   ServiceRow,
   StatusSummary,
   TracePayload,
 } from "./types.ts";
+import { controlAuthHeaders } from "./session.ts";
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
@@ -58,10 +61,25 @@ export function fetchRequestTrace(requestId: string): Promise<TracePayload> {
   return getJson(`/api/request/${encodeURIComponent(requestId)}`);
 }
 
+export function fetchLlmCalls(params: Record<string, string> = {}): Promise<LlmCallsPayload> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== "") {
+      query.set(key, value);
+    }
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return getJson(`/api/llm${suffix}`);
+}
+
+export function fetchLlmCall(id: string): Promise<LlmCallRow> {
+  return getJson(`/api/llm/${encodeURIComponent(id)}`);
+}
+
 export async function postControl(tool: ControlTool, args: ControlArgs = {}): Promise<unknown> {
   const res = await fetch("/api/control", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...controlAuthHeaders() },
     body: JSON.stringify({ tool, args }),
   });
   const text = await res.text();

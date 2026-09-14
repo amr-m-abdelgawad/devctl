@@ -53,10 +53,13 @@ function readLinkedFile(dir: string, href: string): string {
   return readFileSync(file, "utf8");
 }
 
-function inlineAssets(html: string, dir: string): string {
+const SCRIPT_OPEN = "<script";
+const SCRIPT_CLOSE = "</script";
+
+export function inlineAssets(html: string, dir: string): string {
   // Stylesheets first: inlined JS contains fake <link href="%s"> strings that
   // must not be treated as real tags.
-  let out = html.replace(/<link\b([^>]*)\/?>/gi, (all, attrs: string) => {
+  const withSheets = html.replace(/<link\b([^>]*)\/?>/gi, (all, attrs: string) => {
     const href = /\bhref="([^"]+)"/.exec(attrs)?.[1];
     if (!href || href.startsWith("data:")) {
       return all;
@@ -73,20 +76,96 @@ function inlineAssets(html: string, dir: string): string {
     }
     return all;
   });
-  out = out.replace(/<script\b([^>]*)><\/script>/gi, (all, attrs: string) => {
-    const src = /\bsrc="([^"]+)"/.exec(attrs);
-    if (!src?.[1]) {
-      return all;
-    }
-    // An inlined bundle that contains `"</script>"` (React's createElement
-    // probe) would otherwise close this tag early and dump the rest as text.
-    const body = readFileSync(join(dir, src[1]), "utf8").replace(/<\/script/gi, "<\\/script");
-    const rest = attrs.replace(/\bsrc="[^"]+"/i, "").replace(/\s+/g, " ").trim();
-    return `<script${rest ? ` ${rest}` : ""}>${body}</script>`;
-  });
+  const withScripts = inlineExternalScripts(withSheets, dir);
   // Drop network URLs from the blob, but keep SVG/MathML namespace URIs —
   // stripping those makes React create generic Elements with no .style.
-  return out.replace(/https?:\/\/(?!www\.w3\.org\/)[^\s"'`<>\\]+/g, "");
+  return withScripts.replace(/https?:\/\/(?!www\.w3\.org\/)[^\s"'`<>\\]+/g, "");
+}
+
+function inlineExternalScripts(html: string, dir: string): string {
+  const chunks: string[] = [];
+  let cursor = 0;
+  while (cursor < html.length) {
+    const start = findScriptOpen(html, cursor);
+    if (start === -1) {
+      chunks.push(html.slice(cursor));
+      break;
+    }
+    const replacement = replacementForEmptySrcScript(html, dir, start);
+    if (replacement === undefined) {
+      chunks.push(html.slice(cursor));
+      break;
+    }
+    chunks.push(html.slice(cursor, start), replacement.html);
+    cursor = replacement.end;
+  }
+  return chunks.join("");
+}
+
+function replacementForEmptySrcScript(
+  html: string,
+  dir: string,
+  start: number,
+): { html: string; end: number } | undefined {
+  const gt = html.indexOf(">", start);
+  if (gt === -1) {
+    return undefined;
+  }
+  const attrs = html.slice(start + SCRIPT_OPEN.length, gt);
+  const innerStart = gt + 1;
+  const close = findScriptClose(html, innerStart);
+  if (close === undefined) {
+    return undefined;
+  }
+  const src = /\bsrc="([^"]+)"/.exec(attrs)?.[1];
+  const keep = html.slice(start, close.end);
+  if (src === undefined || innerStart !== close.start) {
+    return { html: keep, end: close.end };
+  }
+  // An inlined bundle that contains `"</script>"` (React's createElement
+  // probe) would otherwise close this tag early and dump the rest as text.
+  const body = readFileSync(join(dir, src), "utf8").replace(/<\/script/gi, "<\\/script");
+  const rest = attrs.replace(/\bsrc="[^"]+"/i, "").replace(/\s+/g, " ").trim();
+  return { html: `<script${rest ? ` ${rest}` : ""}>${body}</script>`, end: close.end };
+}
+
+function findScriptOpen(html: string, from: number): number {
+  const lower = html.toLowerCase();
+  let pos = from;
+  while (pos < html.length) {
+    const start = lower.indexOf(SCRIPT_OPEN, pos);
+    if (start === -1) {
+      return -1;
+    }
+    const after = start + SCRIPT_OPEN.length;
+    if (isScriptNameBoundary(html[after])) {
+      return start;
+    }
+    pos = after;
+  }
+  return -1;
+}
+
+function findScriptClose(html: string, from: number): { start: number; end: number } | undefined {
+  const lower = html.toLowerCase();
+  let pos = from;
+  while (pos < html.length) {
+    const start = lower.indexOf(SCRIPT_CLOSE, pos);
+    if (start === -1) {
+      return undefined;
+    }
+    const after = start + SCRIPT_CLOSE.length;
+    const gt = isScriptNameBoundary(html[after]) ? html.indexOf(">", after) : -1;
+    if (gt !== -1) {
+      return { start, end: gt + 1 };
+    }
+    pos = after;
+  }
+  return undefined;
+}
+
+function isScriptNameBoundary(char: string | undefined): boolean {
+  return char === ">" || char === "/" || char === " " || char === "\t" || char === "\n" || char === "\r" || char === "\f";
 }
 
 export function renderWebAssetsModule(html: string, sourcesHash: string): string {

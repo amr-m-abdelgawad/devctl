@@ -31,9 +31,8 @@ export function addWeb(root: Command, runtime: ClientRuntime): void {
   web.command("start").action(async () => {
     const ctrl = await runtime.openController("", configFlag(root), true);
     try {
-      await ctrl.webStart();
-      const snap = await ctrl.status();
-      writeOut(`${snap.web?.address ?? ""}\n`);
+      const started = await ctrl.webStart();
+      writeOut(`${started.url}\n`);
     } finally {
       await ctrl.close();
     }

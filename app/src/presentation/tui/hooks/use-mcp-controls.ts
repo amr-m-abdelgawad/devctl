@@ -9,7 +9,7 @@ import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { toolEnabled, type McpToolDef } from "../../mcp/tools.ts";
 import { writeClipboard } from "../clipboard.ts";
 import { mcpSnippetIndexAtRow } from "../screens/Mcp.tsx";
-import { type TuiConfig, type TuiPreferencePatch } from "../tui-config.ts";
+import { type TuiConfig, type TuiPreferencePatch, mcpToolPreferenceLists } from "../tui-config.ts";
 
 type Options = {
   tui: TuiConfig;
@@ -83,7 +83,7 @@ export function useMcpControls({
     const next = turningOff ? [...current, tool.name] : current.filter((name) => name !== tool.name);
     try {
       const applied = await controller.mcpSetTools(next);
-      persistPrefs({ mcp_disabled_tools: applied }, `${tool.label} ${turningOff ? "disabled" : "enabled"}`);
+      persistPrefs(mcpToolPreferenceLists(applied), `${tool.label} ${turningOff ? "disabled" : "enabled"}`);
       await refresh();
     } catch (err) {
       setStatus(humanMessage(err));

@@ -6,6 +6,7 @@ import {
   load,
   unresolvedHealthTypes,
   unresolvedIdentityTypes,
+  unresolvedLlmSourceTypes,
 } from "../config/index.ts";
 import { ENV_SOURCE_ORDER } from "../environment/environment.ts";
 import { configSnapshotDiff, replaceSnapshot } from "../../domain/config/snapshot.ts";
@@ -19,7 +20,9 @@ import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import type { Detector } from "../secrets/detector.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { LlmSourceFactory } from "../../ports/llm-source.ts";
 import type { ProxyMiddleware } from "../proxy/proxy.ts";
+import { llmSourceFactory } from "../llm/factory.ts";
 
 const WATCH_DEBOUNCE_MS = 200;
 
@@ -38,7 +41,9 @@ export type ReloadHost = {
   readonly runtimes: Map<string, Runtime>;
   readonly tokens: TokenManager;
   readonly logs: LogStore;
+  readonly llm?: { applyConfig(): Promise<void>; setFactory(factory: LlmSourceFactory): void };
   readonly proxy?: { isRunning(): boolean; setMiddleware?(middleware: ProxyMiddleware[]): void };
+  readonly recipes?: { reset(): void };
   persistState(): void;
   log(service: string, level: string, message: string): void;
   refreshIdentity(): Promise<void>;
@@ -143,6 +148,21 @@ export function checkPluginIdentityTypes(registry: Registry | undefined, cfg: De
   }
 }
 
+export function checkPluginLlmSourceTypes(registry: Registry | undefined, cfg: DevctlConfig): void {
+  const unresolved = unresolvedLlmSourceTypes(cfg);
+  if (unresolved.length === 0) {
+    return;
+  }
+  const known = new Set((registry?.llmSources ?? []).map((source) => source.name.toLowerCase()));
+  const stillUnknown = unresolved.filter((entry) => !known.has(entry.type.toLowerCase()));
+  if (stillUnknown.length > 0) {
+    throw newError(
+      KindConfiguration,
+      `unknown llm source type(s): ${stillUnknown.map((entry) => `${entry.source}.type=${entry.type}`).join(", ")}`,
+    );
+  }
+}
+
 export function checkPluginEnvironmentSources(registry: Registry | undefined, cfg: DevctlConfig): void {
   const builtin = new Set<string>(ENV_SOURCE_ORDER);
   const registered = new Set((registry?.environmentSources ?? []).map((source) => source.name));
@@ -218,6 +238,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
     checkPluginHealthTypes(host.registry, next);
     checkPluginIdentityTypes(host.registry, next);
     checkPluginEnvironmentSources(host.registry, next);
+    checkPluginLlmSourceTypes(host.registry, next);
   } catch (err) {
     host.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
     host.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
@@ -237,9 +258,11 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   const result = configSnapshotDiff(host.cfg, next);
   const proxyChanged = JSON.stringify(host.cfg.proxy) !== JSON.stringify(next.proxy);
   const secretsChanged = JSON.stringify(host.cfg.secrets) !== JSON.stringify(next.secrets);
+  const llmChanged = JSON.stringify(host.cfg.llm) !== JSON.stringify(next.llm);
   const prevPluginPaths = host.cfg.plugins.map((plugin) => plugin.path);
   const prevServices = host.cfg.services;
   host.cfg = replaceSnapshot(host.cfg, next);
+  host.recipes?.reset();
   reconcileServices(host, prevServices, next.services);
   const restartRequired = mergeRestartRequired(host.restartRequired, result.restart_required, Object.keys(next.services));
   host.restartRequired = restartRequired;
@@ -259,6 +282,10 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   if (secretsChanged) {
     host.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns);
     host.logs.setSecrets(next.secrets.extra_markers, next.secrets.extra_patterns);
+  }
+  host.llm?.setFactory(llmSourceFactory(host.registry?.llmSources ?? []));
+  if (llmChanged) {
+    await host.llm?.applyConfig();
   }
   if (proxyChanged) {
     const wasRunning = host.proxy?.isRunning() ?? false;

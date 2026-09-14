@@ -152,49 +152,37 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
   const first = Object.values(occupied)[0];
   const holder = first === undefined ? undefined : await findPortHolder(first);
   const pid = holder?.pid ?? 0;
-  if (pid > 0 && pid !== process.pid) {
-    const persistedRec = readPersistedState(host.cfg.repoRoot)?.processes.find((rec) => rec.name === name && rec.pid === pid);
-    if (!persistedRec) {
-      // No prior record ties this pid to this service. Matching on
-      // command + cwd alone isn't enough to safely adopt — a same-command
-      // process started independently of devctl would satisfy that too —
-      // so without a persisted start-time to corroborate identity, treat
-      // the port as unavailable rather than adopting.
-      host.log(name, "WARN", `port ${first} is held by pid ${pid} with no persisted record for ${name}; not adopting`);
-      return false;
-    }
-    const observed = await host.inspectProcessFn(pid);
-    const identityOk =
-      observed !== undefined &&
-      observed.command !== "" &&
-      sameProcess(
-        {
-          args: [...svc.command.args],
-          workDir: host.serviceWorkDir(svc),
-          startTime: new Date(persistedRec.startTime),
-        },
-        observed,
-      );
-    if (identityOk) {
-      host.ports.set(name, occupied);
-      // Use the persisted start time, not "now" — this process has been
-      // running since persistedRec.startTime (that's exactly what
-      // sameProcess() above just verified); reporting "now" would both
-      // show a bogus near-zero uptime and, once this adoption is itself
-      // persisted, poison the record a future adoption verifies identity
-      // against.
-      const gen = attachProcess(host, name, pid, [...svc.command.args], host.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? host.orchestrator.health.bumpGeneration(name);
-      rememberLaunchContext(host, name, persistedProfileFor(host, persistedRec));
-      host.setState(name, StateRunning, HealthUnknown, pid, "");
-      host.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
-      const workDir = host.serviceWorkDir(svc);
-      const healthEnv = await resolveAdoptedHealthEnv(host, name, svc, occupied);
-      host.orchestrator.health.startHealth(name, svc, pid, occupied, workDir, healthEnv, gen);
-      return true;
-    }
-    host.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
+  if (pid <= 0 || pid === process.pid) {
+    return false;
   }
-  return false;
+  const persistedRec = readPersistedState(host.cfg.repoRoot)?.processes.find((rec) => rec.name === name && rec.pid === pid);
+  if (!persistedRec) {
+    // No prior record ties this pid to this service. Matching on
+    // command + cwd alone isn't enough to safely adopt — a same-command
+    // process started independently of devctl would satisfy that too —
+    // so without a persisted start-time to corroborate identity, treat
+    // the port as unavailable rather than adopting.
+    host.log(name, "WARN", `port ${first} is held by pid ${pid} with no persisted record for ${name}; not adopting`);
+    return false;
+  }
+  if (!(await persistedHolderMatches(host, svc, persistedRec.startTime, pid))) {
+    host.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
+    return false;
+  }
+  host.ports.set(name, occupied);
+  // Use the persisted start time, not "now" — this process has been
+  // running since persistedRec.startTime; reporting "now" would both
+  // show a bogus near-zero uptime and, once this adoption is itself
+  // persisted, poison the record a future adoption verifies identity
+  // against.
+  const gen = attachProcess(host, name, pid, [...svc.command.args], host.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? host.orchestrator.health.bumpGeneration(name);
+  rememberLaunchContext(host, name, persistedProfileFor(host, persistedRec));
+  host.setState(name, StateRunning, HealthUnknown, pid, "");
+  host.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
+  const workDir = host.serviceWorkDir(svc);
+  const healthEnv = await resolveAdoptedHealthEnv(host, name, svc, occupied);
+  host.orchestrator.health.startHealth(name, svc, pid, occupied, workDir, healthEnv, gen);
+  return true;
 }
 
 export async function recoverSession(host: RecoverHost): Promise<void> {
@@ -283,4 +271,23 @@ function rememberLaunchContext(host: RecoverHost, name: string, profileName: str
 
 function persistedProfileFor(host: RecoverHost, rec?: { profile?: string }): string {
   return rec?.profile ?? host.profile;
+}
+
+async function persistedHolderMatches(host: RecoverHost, svc: ServiceConfig, startTime: string, pid: number): Promise<boolean> {
+  if (!host.processAliveFn(pid)) {
+    return false;
+  }
+  const observed = await host.inspectProcessFn(pid);
+  if (observed === undefined || observed.command === "") {
+    // The listen pid is the one we persisted. Inspect is best-effort —
+    // Windows PowerShell often times out in CI — and refusing here would
+    // turn our own leftover process into a port conflict.
+    return true;
+  }
+  // Skip cwd: Windows inspect reports the image directory, not the process
+  // working directory. Pid already matched the persisted record.
+  return sameProcess(
+    { args: [...svc.command.args], workDir: "", startTime: new Date(startTime) },
+    observed,
+  );
 }

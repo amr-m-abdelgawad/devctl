@@ -2,6 +2,8 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { Bus } from "../../shared/events.ts";
 import { humanMessage, serializeError } from "../../shared/errors.ts";
 import type { Envelope } from "../../types.ts";
+import { KindAuthorization } from "../../shared/errors.ts";
+import { secretMatches } from "../../shared/bearer.ts";
 
 export type RpcDispatch = (method: string, params: unknown) => Promise<unknown>;
 
@@ -11,6 +13,7 @@ export type RpcServerDeps = {
   log: (service: string, level: string, message: string) => void;
   socketExists: (socket: string) => boolean;
   unlinkSocket: (socket: string) => void;
+  token: string;
 };
 
 const MAX_QUEUED_EVENTS = 2000;
@@ -59,6 +62,8 @@ export class RpcServer {
 
   private handleConn(socketConn: Socket): void {
     let buf = "";
+    let authed = false;
+    let unsub = (): void => undefined;
     // Bound the outgoing queue so a slow reader under a high-frequency log
     // stream can't grow memory without limit. Only pure event pushes (no
     // `id`) are droppable — an RPC response always carries an `id` and the
@@ -97,7 +102,6 @@ export class RpcServer {
         pump();
       }
     };
-    const unsub = this.deps.subscribe((event) => write({ event }));
     // Without a listener here, Node's default behavior for an unhandled
     // socket 'error' (ECONNRESET/EPIPE from a client that disconnected
     // abruptly — killed, crashed, network blip — mid-write) is to throw,
@@ -113,16 +117,20 @@ export class RpcServer {
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        if (line.trim() === "") {
-          continue;
+        if (line.trim() !== "") {
+          void this.dispatchLine(line, write, () => {
+            if (!authed) {
+              unsub = this.deps.subscribe((event) => write({ event }));
+              authed = true;
+            }
+          });
         }
-        void this.dispatchLine(line, write);
       }
     });
     socketConn.on("close", () => unsub());
   }
 
-  private async dispatchLine(line: string, write: (env: Envelope) => void): Promise<void> {
+  private async dispatchLine(line: string, write: (env: Envelope) => void, onAuthed: () => void): Promise<void> {
     let env: Envelope;
     try {
       env = JSON.parse(line) as Envelope;
@@ -130,6 +138,11 @@ export class RpcServer {
       write({ error: "invalid json" });
       return;
     }
+    if (!secretMatches(env.auth ?? "", this.deps.token)) {
+      write({ id: env.id, error: "unauthorized", kind: KindAuthorization });
+      return;
+    }
+    onAuthed();
     try {
       const result = await this.deps.dispatch(env.method ?? "", env.params);
       write({ id: env.id, result });

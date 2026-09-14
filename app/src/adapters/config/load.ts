@@ -3,9 +3,9 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { parse } from "yaml";
 import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newError, wrapError } from "../../shared/errors.ts";
 import { homeDir } from "../storage/storage.ts";
-import { decodeProfile, decodeRoute, decodeService, isRecord } from "./decode.ts";
+import { decodeProfile, decodeRoute, decodeService, decodeHttpRecipe, isRecord } from "./decode.ts";
 import { ConfigDirName, ConfigFileName, discover, fileExists } from "./discover.ts";
-import { applyProxy, applyProxyCredentials, applyRoot, applyTemplates, mergeService, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
+import { applyProxy, applyProxyCredentials, applyRoot, applyTemplates, mergeService, mergeHttpRecipe, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "../../domain/config/types.ts";
@@ -139,6 +139,15 @@ function loadModular(dir: string, cfg: DevctlConfig, presence: ConfigPresence): 
     }
     cfg.profiles[name] = decodeProfile(node);
     recordProvenance(presence.provenance, node, source, "modular_profile", `profiles.${name}`);
+  });
+  loadYAMLDir(join(dir, "http"), (name, node, source) => {
+    const unknown = collectUnknownFields(node, `http.${name}`);
+    if (unknown.length > 0) {
+      throw newError(KindConfiguration, formatUnknown(unknown));
+    }
+    const existing = cfg.http[name];
+    cfg.http[name] = existing ? mergeHttpRecipe(existing, node) : decodeHttpRecipe(node);
+    recordProvenance(presence.provenance, node, source, "modular_http", `http.${name}`);
   });
   const routesPath = join(dir, "proxy", "routes.yaml");
   if (fileExists(routesPath)) {

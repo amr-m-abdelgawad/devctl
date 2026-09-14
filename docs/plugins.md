@@ -16,7 +16,7 @@ import { PLUGIN_SDK_VERSION } from "../../app/src/plugin-sdk.ts";
 export const sdkVersion = PLUGIN_SDK_VERSION;
 ```
 
-An incompatible, malformed, or throwing plugin is skipped and reported in the devctl log instead of crashing the daemon. Configuration that depends on an extension from the skipped plugin still fails with a focused “unknown …” error; devctl never silently ignores an unknown health check, identity type, or environment source.
+An incompatible, malformed, or throwing plugin is skipped and reported in the devctl log instead of crashing the daemon. Configuration that depends on an extension from the skipped plugin still fails with a focused “unknown …” error; devctl never silently ignores an unknown health check, identity type, environment source, or LLM source type.
 
 ## Extension points
 
@@ -30,6 +30,7 @@ A module may export any combination of these named arrays:
 | `tokenProviders` | `{ name, accepts(identity), fetch(identity, audience, scopes, oauth?) }` | Mint and refresh access tokens |
 | `logParsers` | `{ name, parse(line) }` | Parse service log lines |
 | `proxyMiddleware` | `{ name, apply(ctx) }` | Participate in proxy request handling |
+| `llmSources` | `{ name, capabilities(cfg), fetch(cfg, ctx) }` | Pull LLM calls into the inspector (`llm.sources[].type`) |
 
 The TypeScript contracts and SDK constant are exported by [`app/src/plugin-sdk.ts`](../app/src/plugin-sdk.ts). A plugin must export arrays, each entry must have a non-empty `name`, and the methods shown above must be functions. Keep plugin startup code small: top-level exceptions cause the whole module to be skipped.
 

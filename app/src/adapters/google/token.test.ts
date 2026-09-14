@@ -192,6 +192,57 @@ describe("TokenManager", () => {
     const secretGone = { clientId: "client-x", resolve: (): never => { throw new Error("IAP client_secret env is empty"); } };
     expect((await mgr.get("user", "aud", [], secretGone)).accessToken).toBe("minted");
   });
+
+  test("caps Google mints per identity and audience in a one-minute window", async () => {
+    home();
+    let calls = 0;
+    const mgr = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async () => {
+            calls += 1;
+            return tok({ accessToken: `n${calls}` });
+          },
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      2,
+    );
+    expect((await mgr.get("user", "", [])).accessToken).toBe("n1");
+    expect((await mgr.refresh("user", "", [])).accessToken).toBe("n2");
+    await expect(mgr.refresh("user", "", [])).rejects.toThrow(/rate limit exceeded/);
+    expect(calls).toBe(2);
+    expect(mgr.mintRateHotspot()).toEqual({ identity: "user", audience: "", count: 2 });
+  });
+
+  test("get reuses a not-yet-expired cache when a remint is rate limited", async () => {
+    home();
+    let calls = 0;
+    const soon = new Date(Date.now() + 10_000);
+    const mgr = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async () => {
+            calls += 1;
+            return tok({ accessToken: "stale", expiresAt: soon });
+          },
+        },
+      ],
+      undefined,
+      undefined,
+      undefined,
+      1,
+    );
+    expect((await mgr.get("user", "", [])).accessToken).toBe("stale");
+    expect((await mgr.get("user", "", [])).accessToken).toBe("stale");
+    expect(calls).toBe(1);
+  });
 });
 
 describe("resolveIapOAuthClient", () => {

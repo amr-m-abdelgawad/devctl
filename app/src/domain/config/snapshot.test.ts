@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "./types.ts";
+import { defaultConfig, emptyHttpRecipe, emptyLlmSource, emptyService } from "./types.ts";
 import { configSnapshotDiff, replaceSnapshot } from "./snapshot.ts";
 
 describe("config snapshot", () => {
@@ -42,5 +42,28 @@ describe("config snapshot", () => {
     next.web.enabled = true;
     const diff = configSnapshotDiff(prev, next);
     expect(diff.supervisor_restart_required).toContain("web");
+  });
+
+  test("llm config changes do not require a supervisor restart", () => {
+    const prev = defaultConfig();
+    const next = defaultConfig();
+    next.llm.enabled = true;
+    next.llm.sources = [{ ...emptyLlmSource(), name: "platform", type: "litellm", service: "litellm" }];
+    const diff = configSnapshotDiff(prev, next);
+    expect(diff.supervisor_restart_required ?? []).not.toContain("llm");
+  });
+
+  test("http recipe changes require a restart of services that interpolate them", () => {
+    const prev = defaultConfig();
+    prev.services.api = emptyService();
+    prev.services.api.environment.vars.TOKEN = "${http.login.token}";
+    prev.http.login = { ...emptyHttpRecipe(), request: { ...emptyHttpRecipe().request, url: "https://a.example/token" }, outputs: { token: "access_token" } };
+    const next = defaultConfig();
+    next.services.api = emptyService();
+    next.services.api.environment.vars.TOKEN = "${http.login.token}";
+    next.http.login = { ...emptyHttpRecipe(), request: { ...emptyHttpRecipe().request, url: "https://b.example/token" }, outputs: { token: "access_token" } };
+    const diff = configSnapshotDiff(prev, next);
+    expect(diff.restart_required).toContain("api");
+    expect(diff.changes.api).toContain("http");
   });
 });

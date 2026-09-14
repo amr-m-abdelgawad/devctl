@@ -38,3 +38,20 @@ export function secretTemplateLabel(value: string): string | undefined {
 export function isWholeEnvRef(value: string): boolean {
   return /^\$\{(?:env\.)?[A-Za-z_][A-Za-z0-9_]*\}$/.test(value.trim());
 }
+
+export function findTemplateRefs(value: string): string[] {
+  const refs: string[] = [];
+  let remaining = value;
+  for (;;) {
+    const start = remaining.indexOf("${");
+    if (start < 0) {
+      return refs;
+    }
+    const end = remaining.slice(start).indexOf("}");
+    if (end < 0) {
+      return refs;
+    }
+    refs.push(remaining.slice(start + 2, start + end));
+    remaining = remaining.slice(start + end + 1);
+  }
+}

@@ -9,10 +9,11 @@ import { addAuth } from "./auth.ts";
 import { addConfig, addReload } from "./config.ts";
 import { addAttach, addDown, addExec, addRestart, addRun, addStart, addStatus, addStop } from "./lifecycle.ts";
 import { addDaemon, addLogs } from "./logs.ts";
+import { addLlm } from "./llm.ts";
 import { addMcp, addProxy } from "./listeners.ts";
 import { addWeb } from "./web.ts";
 import { addUpdate } from "./update.ts";
-import { configFlag, writeOut } from "./shared.ts";
+import { configFlag, isStdoutClosed, writeOut } from "./shared.ts";
 
 export { followLogs } from "./logs.ts";
 
@@ -39,6 +40,7 @@ export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): C
   addStatus(root, runtime);
   addDown(root, runtime);
   addLogs(root, runtime);
+  addLlm(root, runtime);
   addDaemon(root, runtime);
   addDoctor(root, runtime);
   addSetup(root, runtime);
@@ -117,7 +119,7 @@ function addSupervisor(root: Command, launchDaemon: DaemonLauncher): void {
 
 export async function execute(runtime: ClientRuntime, launchDaemon: DaemonLauncher): Promise<void> {
   process.stdout.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EPIPE") {
+    if (isStdoutClosed(err)) {
       process.exit(0);
     }
   });

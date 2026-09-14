@@ -162,6 +162,10 @@ A hand-written route or `proxy:` fragment of the same name always wins over a sy
 
 **Auth is always `none` on synthesized routes.** An internal service-to-service hop never silently acquires a service's identity token — injecting credentials stays an explicit choice you make with a hand-written route.
 
+### HTTP recipe endpoints
+
+`http.<name>.expose` synthesizes a **recipe** route (`upstream.recipe`, inbound auth `none`). It does not forward the caller's body. Any non-preflight request returns the cached outbound recipe response (status, content-type, body). CORS preflight is answered locally and does not trigger the outbound call — see [Custom HTTP APIs](http.md).
+
 ### Referencing an exposed service — `${services.<name>.url}`
 
 `${services.<name>.url}` and `${services.<name>.host}` give a service a stable logical address in another service's environment:
@@ -214,7 +218,7 @@ Notes:
 
 ## Token endpoint
 
-Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers.
+Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers. Query `identity` and `audience` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting. Google mints are capped at 10 per identity/audience per minute; over the cap, a still-valid cached token is reused, otherwise the endpoint returns 429.
 
 ```json
 {
@@ -235,7 +239,7 @@ Paths are redacted the same way response header values already are, since a quer
 
 ## Tracing
 
-Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md).
+Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md). The proxy request ring is metadata-only; LLM prompts, tokens, and cost live on the [LLM inspector](llm.md).
 
 ## Request flow
 
@@ -263,4 +267,5 @@ A missing `identity.type` on an IAP route is a configuration error.
 - [IAP](iap.md)
 - [Impersonation](impersonation.md)
 - [Security](security.md)
+- [Custom HTTP APIs](http.md)
 - [TUI](tui.md)

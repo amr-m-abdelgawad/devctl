@@ -1,4 +1,5 @@
 import type { DevctlConfig } from "./types.ts";
+import { recipesReferencedInEnv } from "../http/recipes.ts";
 import type { ReloadResult } from "../status.ts";
 
 export type ConfigSnapshot = DevctlConfig;
@@ -85,6 +86,20 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
   }
   if (JSON.stringify(prev.auth) !== JSON.stringify(next.auth)) {
     supervisorRestart.push("auth");
+  }
+  if (JSON.stringify(prev.http) !== JSON.stringify(next.http)) {
+    for (const [name, svc] of Object.entries(next.services)) {
+      const refs = recipesReferencedInEnv(svc.environment);
+      const recipeChanged = refs.some((recipeName) => JSON.stringify(prev.http[recipeName]) !== JSON.stringify(next.http[recipeName]));
+      if (recipeChanged) {
+        const fields = changes[name] ?? [];
+        if (!fields.includes("http")) {
+          fields.push("http");
+        }
+        changes[name] = fields;
+        restart.add(name);
+      }
+    }
   }
   // Plugin *path list* hot-applies on reload. Same-path mtime still needs a
   // supervisor restart (Bun module cache) — that check lives in the adapter.

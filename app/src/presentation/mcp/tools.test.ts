@@ -109,6 +109,13 @@ describe("mcp tools", () => {
     expect(result.environment.API_TOKEN).toBe(REDACTED_VALUE);
     expect(result.environment.NAME).toBe("ok");
   });
+
+  test("exec_service requires confirm: true to run a command", async () => {
+    const host = stubHost();
+    await expect(callMcpTool(host, "exec_service", { service: "api", command: ["echo", "ok"] })).rejects.toThrow("confirm: true");
+    const result = (await callMcpTool(host, "exec_service", { service: "api", command: ["echo", "ok"], confirm: true })) as { stdout: string };
+    expect(result.stdout).toContain("echo ok");
+  });
   test("get_config exposes IAP client_id and never the client secret", async () => {
     const host = stubHost();
     const cfg = host.config();
@@ -209,6 +216,7 @@ describe("mcp tools", () => {
     expect(status.profile).toBe("local");
     expect(status.mcp.running).toBe(true);
     expect(status.mcp.token).toBeUndefined();
+    expect((status.mcp as { token_age_ms?: number }).token_age_ms).toBeUndefined();
   });
 
   test("get_logs filters by service and redacts", async () => {
@@ -357,6 +365,45 @@ describe("mcp tools", () => {
     expect(byTrace.logs[0]?.message).not.toContain("super-secret");
     const byReq = (await callMcpTool(host, "trace_request", { request_id: "caller-id" })) as { request_id: string };
     expect(byReq.request_id).toBe("caller-id");
+  });
+
+  test("get_llm_calls and get_llm_call redact secrets and omit bodies on the list", async () => {
+    const host = stubHost();
+    const call = {
+      seq: 1,
+      id: "chatcmpl-secret",
+      source: "platform",
+      sourceType: "litellm",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      status: "ok" as const,
+      model: "gpt-4o",
+      operation: "chat" as const,
+      usage: { promptTokens: 12, completionTokens: 4, totalTokens: 16 },
+      cost: 0.01,
+      request: { messages: [{ role: "user", content: "Authorization: Bearer super-secret" }] },
+      response: { choices: [{ message: { content: "ok" } }] },
+      attributes: { token: "super-secret" },
+    };
+    host.llmCallsPage = () => ({
+      calls: [call],
+      nextCursor: "next",
+      hasNext: false,
+      errors: [],
+    });
+    host.getLlmCall = (id) => (id === call.id ? call : undefined);
+    const page = (await callMcpTool(host, "get_llm_calls", {})) as {
+      calls: Array<{ id: string; request?: unknown; attributes: Record<string, unknown> }>;
+    };
+    expect(page.calls).toHaveLength(1);
+    expect(page.calls[0]?.id).toBe(call.id);
+    expect(page.calls[0]?.request).toBeUndefined();
+    expect(JSON.stringify(page.calls)).not.toContain("super-secret");
+    const detail = (await callMcpTool(host, "get_llm_call", { id: call.id })) as {
+      request: unknown;
+      attributes: Record<string, unknown>;
+    };
+    expect(JSON.stringify(detail)).not.toContain("super-secret");
+    expect(JSON.stringify(detail.request)).toContain(REDACTED_VALUE);
   });
 
   test("get_requests and recent_errors use status and error logs", async () => {

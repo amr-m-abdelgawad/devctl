@@ -6,3 +6,4 @@ export type { Identity, IdentityProvider } from "./domain/identity/identity.ts";
 export type { AccessToken, TokenProvider } from "./adapters/google/token.ts";
 export type { LogParser } from "./adapters/storage/logs.ts";
 export type { ProxyMiddleware, ProxyMiddlewareContext } from "./adapters/proxy/proxy.ts";
+export type { LlmSourceDriver, LlmSourceContext } from "./ports/llm-source.ts";

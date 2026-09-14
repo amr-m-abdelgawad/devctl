@@ -68,7 +68,29 @@ export type ContainerConfig = {
   ports: Record<string, number>;
   env: Record<string, string>;
   volumes: string[];
+  user: string;
+  memory: string;
+  cpus: string;
+  read_only: boolean;
+  cap_drop: string[];
+  pids_limit: number;
 };
+
+export function emptyContainer(): ContainerConfig {
+  return {
+    image: "",
+    runtime: "",
+    ports: {},
+    env: {},
+    volumes: [],
+    user: "",
+    memory: "",
+    cpus: "",
+    read_only: false,
+    cap_drop: [],
+    pids_limit: 0,
+  };
+}
 
 export type ServiceWatchConfig = {
   enabled: boolean;
@@ -175,6 +197,9 @@ export type UpstreamConfig = {
   // a proxy reload. Hand-written routes omit both and use `url`.
   service?: string;
   port?: string;
+  // A route synthesized from `http.<name>.expose` returns the cached recipe
+  // response instead of forwarding to a url or service.
+  recipe?: string;
 };
 
 export type RouteIdentity = {
@@ -290,6 +315,87 @@ export type AuthConfig = {
   refresh_threshold_seconds: number;
 };
 
+export const HTTP_RESERVED_OUTPUTS = ["body", "url", "status"] as const;
+export const DEFAULT_HTTP_TIMEOUT_SECONDS = 10;
+
+export type HttpRequestConfig = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  form: Record<string, string>;
+  auth: RouteAuthConfig;
+  timeout_seconds: number;
+};
+
+export type HttpCacheConfig = {
+  jwt: boolean;
+  expires_in: string;
+};
+
+export type HttpExposeConfig = {
+  enabled: boolean;
+  host: string;
+  response_headers: Record<string, string>;
+};
+
+export type HttpRecipeConfig = {
+  request: HttpRequestConfig;
+  outputs: Record<string, string>;
+  cache: HttpCacheConfig;
+  expose: HttpExposeConfig;
+};
+
+export function emptyHttpRequest(): HttpRequestConfig {
+  return {
+    method: "",
+    url: "",
+    headers: {},
+    body: "",
+    form: {},
+    auth: emptyRouteAuth(),
+    timeout_seconds: 0,
+  };
+}
+
+export function emptyHttpCache(): HttpCacheConfig {
+  return { jwt: false, expires_in: "" };
+}
+
+export function emptyHttpExpose(): HttpExposeConfig {
+  return { enabled: false, host: "", response_headers: {} };
+}
+
+export function emptyHttpRecipe(): HttpRecipeConfig {
+  return {
+    request: emptyHttpRequest(),
+    outputs: {},
+    cache: emptyHttpCache(),
+    expose: emptyHttpExpose(),
+  };
+}
+
+export function httpCacheEnabled(recipe: HttpRecipeConfig): boolean {
+  return recipe.cache.jwt || recipe.cache.expires_in !== "";
+}
+
+export function isReservedHttpOutput(name: string): boolean {
+  return (HTTP_RESERVED_OUTPUTS as readonly string[]).includes(name);
+}
+
+export function httpRecipeEnvUrlKey(name: string): string {
+  return `DEVCTL_HTTP_${name.replaceAll("-", "_").toUpperCase()}_URL`;
+}
+
+export function httpRecipeLocalUrl(cfg: Pick<DevctlConfig, "http" | "proxy">, name: string): string {
+  const host = cfg.http[name]?.expose.host || `${name}.local`;
+  return `http://${host}:${cfg.proxy.listen.port}`;
+}
+
+export function httpTimeoutSeconds(recipe: HttpRecipeConfig): number {
+  return recipe.request.timeout_seconds > 0 ? recipe.request.timeout_seconds : DEFAULT_HTTP_TIMEOUT_SECONDS;
+}
+
 export type ShutdownConfig = {
   stop_services_on_exit?: boolean;
   grace_seconds: number;
@@ -323,6 +429,95 @@ export type ProjectEnvironmentConfig = {
   secrets: Record<string, string>;
 };
 
+export const LLM_SOURCE_TYPE_LITELLM = "litellm";
+export const LLM_AUTH_BEARER = "bearer";
+export const DEFAULT_LLM_AUTH_HEADER = "Authorization";
+export const DEFAULT_LLM_POLL_SECONDS = 5;
+export const DEFAULT_LLM_PORT_NAME = "http";
+
+export type LlmAuthConfig = {
+  type: string;
+  token_env: string;
+  header: string;
+};
+
+export type LlmViaConfig = {
+  route: string;
+};
+
+export type LlmCaptureConfig = {
+  prompts: boolean;
+};
+
+export type LlmSourceConfig = {
+  name: string;
+  type: string;
+  service: string;
+  port: string;
+  endpoint: string;
+  path_prefix: string;
+  headers: Record<string, string>;
+  via: LlmViaConfig;
+  management_endpoint: string;
+  management_service: string;
+  management_port: string;
+  auth: LlmAuthConfig;
+  capture: LlmCaptureConfig;
+  poll_seconds: number;
+};
+
+export type LlmConfig = {
+  enabled: boolean;
+  sources: LlmSourceConfig[];
+};
+
+export function emptyLlmAuth(): LlmAuthConfig {
+  return { type: "", token_env: "", header: "" };
+}
+
+export function emptyLlmVia(): LlmViaConfig {
+  return { route: "" };
+}
+
+export function emptyLlmCapture(): LlmCaptureConfig {
+  return { prompts: true };
+}
+
+export function emptyLlmSource(): LlmSourceConfig {
+  return {
+    name: "",
+    type: "",
+    service: "",
+    port: "",
+    endpoint: "",
+    path_prefix: "",
+    headers: {},
+    via: emptyLlmVia(),
+    management_endpoint: "",
+    management_service: "",
+    management_port: "",
+    auth: emptyLlmAuth(),
+    capture: emptyLlmCapture(),
+    poll_seconds: 0,
+  };
+}
+
+export function emptyLlm(): LlmConfig {
+  return { enabled: false, sources: [] };
+}
+
+export function llmAuthHeader(auth: LlmAuthConfig): string {
+  return auth.header.trim() === "" ? DEFAULT_LLM_AUTH_HEADER : auth.header.trim();
+}
+
+export function llmSourcePort(source: LlmSourceConfig): string {
+  return source.port.trim() === "" ? DEFAULT_LLM_PORT_NAME : source.port.trim();
+}
+
+export function llmManagementPort(source: LlmSourceConfig): string {
+  return source.management_port.trim() === "" ? DEFAULT_LLM_PORT_NAME : source.management_port.trim();
+}
+
 export type ConfigOrigin = {
   source: string;
   layer: string;
@@ -338,6 +533,7 @@ export type DevctlConfig = {
   templates: Record<string, ServiceConfig>;
   services: Record<string, ServiceConfig>;
   tasks: Record<string, TaskConfig>;
+  http: Record<string, HttpRecipeConfig>;
   proxy: ProxyConfig;
   logs: LogConfig;
   telemetry: TelemetryConfig;
@@ -349,6 +545,7 @@ export type DevctlConfig = {
   doctor: DoctorConfig;
   plugins: PluginConfig[];
   environment: ProjectEnvironmentConfig;
+  llm: LlmConfig;
   provenance: ConfigProvenance;
   repoRoot: string;
   configPath: string;
@@ -414,6 +611,7 @@ export function defaultConfig(): DevctlConfig {
     templates: {},
     services: {},
     tasks: {},
+    http: {},
     proxy: {
       enabled: false,
       gateway: false,
@@ -448,6 +646,7 @@ export function defaultConfig(): DevctlConfig {
     doctor: { tools: [] },
     plugins: [],
     environment: { sources: [], secrets: {} },
+    llm: emptyLlm(),
     provenance: {},
     repoRoot: "",
     configPath: "",
@@ -490,10 +689,14 @@ export function effectiveRestartPolicy(r: RestartConfig): RestartPolicy {
 
 export function listenAddress(listen: ListenConfig): string {
   const host = listen.host === "" ? LOCALHOST : listen.host;
-  if (listen.port === 0) {
+  if (!hasListenPort(listen)) {
     return host;
   }
   return `${host}:${listen.port}`;
+}
+
+export function hasListenPort(listen?: ListenConfig): boolean {
+  return (listen?.port ?? 0) > 0;
 }
 
 export function refreshThreshold(auth: AuthConfig): number {

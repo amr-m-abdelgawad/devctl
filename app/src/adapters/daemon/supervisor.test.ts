@@ -924,14 +924,24 @@ services:
     try {
       await sup.run();
       expect(sup.snapshot().web?.running).toBe(false);
-      await sup.dispatch("web_start", null);
+      const startedRpc = await sup.dispatch("web_start", null) as { url?: string };
       const started = sup.snapshot();
       expect(started.web?.running).toBe(true);
       expect(started.web?.port).toBe(port);
       expect(started.web?.address).toContain(`127.0.0.1:${port}`);
+      expect(started.web?.address).not.toContain("token=");
+      expect(startedRpc.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?token=[0-9a-f]{48}$`));
+      const token = new URL(startedRpc.url ?? "").searchParams.get("token") ?? "";
       const page = await fetch(`http://127.0.0.1:${port}/`);
       expect(page.status).toBe(200);
       expect(page.headers.get("access-control-allow-origin")).toBeNull();
+      expect(await page.text()).not.toContain(token);
+      const denied = await fetch(`http://127.0.0.1:${port}/api/control`, {
+        method: "POST",
+        headers: { "content-type": "application/json", Origin: `http://127.0.0.1:${port}` },
+        body: JSON.stringify({ tool: "stop_proxy" }),
+      });
+      expect(denied.status).toBe(401);
       await sup.dispatch("web_stop", null);
       expect(sup.snapshot().web?.running).toBe(false);
     } finally {
@@ -1369,6 +1379,7 @@ describe("persisted state durability", () => {
     const sup2 = new Supervisor(cfg2, stub);
     try {
       await sup1.start({ services: ["api"] });
+      await waitFor(async () => !(await available(port)), 3000);
       const originalStart = sup1.snapshot().services.api?.startTime;
       expect(originalStart).toBeTruthy();
 

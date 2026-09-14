@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TB
   tui["TUI — OpenTUI screens and keys"]
-  cli["CLI — start / stop / logs / auth"]
+  cli["CLI — start / stop / logs / llm / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
   web["Web — loopback explorer and control"]
   sup["Supervisor"]
@@ -30,7 +30,7 @@ The supervisor is the long-lived process. It:
 - Starts, stops, and restarts host processes and optional Docker/Podman containers in dependency waves
 - Optionally starts the proxy and the MCP listener
 - Ingests stdout/stderr, health, auth, and proxy events into one log buffer
-- Persists session state under `~/.devctl/state/<repoID>/` (`state.json`, `devctl.lock`, and on Unix `devctl.sock`)
+- Persists session state under `~/.devctl/state/<repoID>/` (`state.json`, `devctl.lock`, `rpc-token`, and on Unix `devctl.sock`)
 
 `repoID` is the first 16 hex characters of `sha256(absolute repo root)`. Two checkouts get two state directories. A leftover `~/.devctl/sessions/<id>/` is migrated once.
 
@@ -56,7 +56,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 
 | What | Where |
 |------|--------|
-| Services, profiles, proxy, Google project | `.devctl/config.yaml` and modular YAML |
+| Services, profiles, HTTP recipes, proxy, Google project | `.devctl/config.yaml` and modular YAML |
 | Machine overlay (gitignored) | `.devctl/config.local.yaml` and `~/.devctl/config.local.yaml` |
 | TUI theme, keys, MCP listen flag | `~/.devctl/tui.json` (or `DEVCTL_TUI_CONFIG`) |
 | Session / lock / socket | `~/.devctl/state/<repoID>/` |
@@ -84,3 +84,4 @@ Local-only services (the [demo platform](../examples/demo-platform/README.md)) r
 - [TUI](tui.md)
 - [CLI](cli.md)
 - [MCP](mcp.md)
+- [LLM inspector](llm.md)

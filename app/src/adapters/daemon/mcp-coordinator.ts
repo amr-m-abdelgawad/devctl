@@ -1,8 +1,9 @@
 import { humanMessage } from "../../shared/errors.ts";
+import { effectiveMcpDisabledTools } from "../../domain/ui/preferences.ts";
 import type { McpHost, McpListener, McpListenerFactory } from "../../ports/mcp-host.ts";
 import { loadTuiConfig } from "../config/tui-preferences.ts";
 import { resolveMcpPort } from "../net/mcp-port.ts";
-import { readOrCreateMcpToken } from "../storage/storage.ts";
+import { readOrCreateMcpToken, rotateMcpToken, mcpTokenAgeMs } from "../storage/storage.ts";
 
 export type McpCoordinatorDeps = {
   repoRoot: () => string;
@@ -16,16 +17,24 @@ export type McpCoordinatorDeps = {
 export class McpCoordinator {
   private listener?: McpListener;
   private disabled: string[] = [];
-  readonly token: string;
+  private currentToken: string;
   private readonly deps: McpCoordinatorDeps;
 
   constructor(deps: McpCoordinatorDeps) {
     this.deps = deps;
-    this.token = readOrCreateMcpToken(deps.repoRoot());
+    this.currentToken = readOrCreateMcpToken(deps.repoRoot());
   }
 
   get instance(): McpListener | undefined {
     return this.listener;
+  }
+
+  get token(): string {
+    return this.currentToken;
+  }
+
+  tokenAgeMs(): number | undefined {
+    return mcpTokenAgeMs(this.deps.repoRoot());
   }
 
   get disabledTools(): string[] {
@@ -40,7 +49,7 @@ export class McpCoordinator {
     // Same reasoning as mcp_enabled/mcp_port: the deny-list is a saved user
     // preference, so the daemon applies it itself at boot whether a CLI or
     // TUI client spawned it, rather than waiting for a client to push it.
-    this.setDisabledTools(prefs.mcp_disabled_tools ?? []);
+    this.setDisabledTools(effectiveMcpDisabledTools(prefs.mcp_disabled_tools, prefs.mcp_enabled_tools));
     if (prefs.mcp_enabled) {
       await this.start(prefs.mcp_port).catch((err) => this.deps.log("devctl", "ERROR", humanMessage(err)));
     }
@@ -53,7 +62,7 @@ export class McpCoordinator {
     const resolved = await resolveMcpPort(this.deps.repoRoot(), port);
     this.listener = this.deps.createListener({
       port: resolved,
-      token: this.token,
+      token: this.currentToken,
       hostApi: this.deps.hostApi(),
       onEvent: (level, message) => this.deps.log("mcp", level, `mcp ${message}`),
       disabledTools: () => this.disabled,
@@ -78,6 +87,19 @@ export class McpCoordinator {
     this.deps.log("devctl", "INFO", this.disabled.length === 0
       ? "all MCP tools enabled"
       : `MCP tools disabled: ${this.disabled.join(", ")}`);
+  }
+
+  async rotate(): Promise<void> {
+    const running = this.listener?.isRunning() === true;
+    const port = this.listener?.listenPort();
+    if (running) {
+      await this.stop();
+    }
+    this.currentToken = rotateMcpToken(this.deps.repoRoot());
+    this.deps.log("devctl", "INFO", "MCP bearer token rotated");
+    if (running) {
+      await this.start(port);
+    }
   }
 
   async stop(): Promise<void> {

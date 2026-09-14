@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../../domain/service/container-limits.ts";
 import { containerEnvironment, containerRunArgs, type ContainerLaunchSpec } from "./containers.ts";
 
 describe("container runtime", () => {
@@ -13,10 +14,26 @@ describe("container runtime", () => {
     const args = containerRunArgs(spec);
     expect(args).toEqual([
       "run", "--detach", "--name", "devctl-repo-postgres", "--label", "devctl.managed=true",
+      "--memory", DEFAULT_CONTAINER_MEMORY, "--cpus", DEFAULT_CONTAINER_CPUS, "--pids-limit", String(DEFAULT_CONTAINER_PIDS_LIMIT),
       "--publish", "127.0.0.1:15432:5432", "--env", "POSTGRES_PASSWORD", "--env", "Z_VALUE",
       "--volume", "pgdata:/var/lib/postgresql/data", "postgres:16",
     ]);
     expect(args.join(" ")).not.toContain("do-not-leak");
+  });
+
+  test("applies declared user, read-only root, and dropped capabilities", () => {
+    const spec: ContainerLaunchSpec = {
+      name: "app", runtime: "docker", containerName: "devctl-repo-app",
+      image: "app:local", command: [], workDir: "/repo",
+      env: {}, ports: {}, targetPorts: {}, volumes: [],
+      limits: { user: "65534:65534", memory: "512m", cpus: "0.5", readOnly: true, capDrop: ["ALL"], pidsLimit: 64 },
+    };
+    expect(containerRunArgs(spec)).toEqual([
+      "run", "--detach", "--name", "devctl-repo-app", "--label", "devctl.managed=true",
+      "--user", "65534:65534", "--read-only", "--cap-drop", "ALL",
+      "--memory", "512m", "--cpus", "0.5", "--pids-limit", "64",
+      "app:local",
+    ]);
   });
 
   test("preserves image-owned environment such as PATH", () => {

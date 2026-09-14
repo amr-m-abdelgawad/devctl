@@ -8,4 +8,6 @@ export type Envelope = {
   hint?: string;
   service?: string;
   event?: unknown;
+  // Client → supervisor only. Never echoed on responses or events.
+  auth?: string;
 };

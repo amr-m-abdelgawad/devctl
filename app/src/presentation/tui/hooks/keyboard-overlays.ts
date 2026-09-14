@@ -90,7 +90,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     }
     return true;
   }
-  if (overlay === "log-details" || overlay === "scroll-text" || overlay === "trace") {
+  if (overlay === "log-details" || overlay === "llm-details" || overlay === "scroll-text" || overlay === "trace") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
       return true;
@@ -114,6 +114,13 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       }
       return true;
     }
+    if (overlay === "llm-details" && name === "return") {
+      const traceId = ctx.llmDetail?.traceId?.trim() ?? "";
+      if (traceId !== "") {
+        ctx.openTrace(traceId);
+      }
+      return true;
+    }
     if (overlay === "trace" && name === "return") {
       ctx.openSpanLogs();
       return true;
@@ -126,7 +133,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       ctx.setTraceSpanIndex((index) => Math.max(0, index - 1));
       return true;
     }
-    const box = overlay === "log-details" ? logDetailsScrollRef.current : overlay === "trace" ? traceScrollRef.current : scrollTextScrollRef.current;
+    const box = overlay === "log-details" || overlay === "llm-details" ? logDetailsScrollRef.current : overlay === "trace" ? traceScrollRef.current : scrollTextScrollRef.current;
     if (overlay !== "trace" && (name === "down" || name === "j")) {
       scrollBoxBy(box, tui.scroll_speed);
       return true;

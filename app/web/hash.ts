@@ -8,15 +8,18 @@ export function parseHash(hash: string): Route {
   if (head === "traces") {
     return { name: "traces", traceId: parts[1] };
   }
+  if (head === "llm") {
+    return { name: "llm", llmId: parts[1] };
+  }
   if (head === "graph" || head === "logs" || head === "services") {
     return { name: head };
   }
   return { name: "services" };
 }
 
-export function hrefFor(name: RouteName, traceId?: string): string {
-  if (name === "traces" && traceId) {
-    return `#/traces/${traceId}`;
+export function hrefFor(name: RouteName, id?: string): string {
+  if ((name === "traces" || name === "llm") && id) {
+    return `#/${name}/${id}`;
   }
   return `#/${name}`;
 }

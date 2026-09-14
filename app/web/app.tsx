@@ -1,6 +1,6 @@
-import { LayoutDashboard, Network, Play, RefreshCw, ScrollText, Square, Waypoints } from "lucide-react";
+import { Bot, LayoutDashboard, Network, Play, RefreshCw, ScrollText, Square, Waypoints } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchConfig, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, postControl } from "./api.ts";
+import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, postControl } from "./api.ts";
 import { percentile, type SeriesPoint } from "./charts.tsx";
 import { ControlNotice } from "./components/controls.tsx";
 import { noticeFor, type RunControl } from "./control.ts";
@@ -14,11 +14,14 @@ import { advanceRingCounter, emptyRingCounter, lifetimeTotal, logLifetime } from
 import { OverviewPage, type OverviewSummary } from "./pages/overview.tsx";
 import { GraphPage } from "./pages/graph.tsx";
 import { LogsPage } from "./pages/logs.tsx";
+import { LlmPage } from "./pages/llm.tsx";
 import { TracesPage } from "./pages/traces.tsx";
 import type {
   ConfigSummary,
   ControlArgs,
   ControlTool,
+  LlmCallRow,
+  LlmCallsPayload,
   LogRow,
   LogsPayload,
   ProfileRow,
@@ -36,6 +39,7 @@ const RATE_LOOKBACK_MS = 10_000;
 const NAV: Array<{ name: RouteName; label: string; icon: typeof LayoutDashboard }> = [
   { name: "services", label: "Overview", icon: LayoutDashboard },
   { name: "traces", label: "Traces", icon: Waypoints },
+  { name: "llm", label: "LLM", icon: Bot },
   { name: "graph", label: "Graph", icon: Network },
   { name: "logs", label: "Logs", icon: ScrollText },
 ];
@@ -81,6 +85,9 @@ export function App() {
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [errors, setErrors] = useState<LogRow[]>([]);
   const [logs, setLogs] = useState<LogsPayload | undefined>(undefined);
+  const [llmCalls, setLlmCalls] = useState<LlmCallsPayload | undefined>(undefined);
+  const [llmDetail, setLlmDetail] = useState<LlmCallRow | undefined>(undefined);
+  const [llmError, setLlmError] = useState("");
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
@@ -240,6 +247,64 @@ export function App() {
       cancelled = true;
     };
   }, [route.name, route.traceId]);
+
+  useEffect(() => {
+    if (route.name !== "llm" || route.llmId) {
+      if (route.name !== "llm") {
+        setLlmCalls(undefined);
+        setLlmDetail(undefined);
+        setLlmError("");
+      }
+      return;
+    }
+    let cancelled = false;
+    const run = (): void => {
+      void fetchLlmCalls().then((payload) => {
+        if (!cancelled) {
+          setLlmCalls(payload);
+          setLlmError("");
+        }
+      }).catch((err: unknown) => {
+        if (!cancelled) {
+          setLlmError(err instanceof Error ? err.message : "llm calls failed");
+        }
+      });
+    };
+    run();
+    const timer = window.setInterval(run, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [route.name, route.llmId]);
+
+  useEffect(() => {
+    if (route.name !== "llm" || !route.llmId) {
+      if (!route.llmId) {
+        setLlmDetail(undefined);
+      }
+      return;
+    }
+    const requested = route.llmId;
+    setLlmDetail(undefined);
+    let cancelled = false;
+    void fetchLlmCall(requested).then((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setLlmDetail(payload);
+      setLlmError("");
+    }).catch((err: unknown) => {
+      if (cancelled) {
+        return;
+      }
+      setLlmDetail(undefined);
+      setLlmError(err instanceof Error ? err.message : "llm call failed");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [route.name, route.llmId]);
 
   useEffect(() => {
     if (!trace?.trace_id || trace.spans.length === 0) {
@@ -452,6 +517,9 @@ export function App() {
               filter={logFilter}
               onFilter={setLogFilter}
             />
+          ) : null}
+          {route.name === "llm" ? (
+            <LlmPage payload={llmCalls} detail={llmDetail} llmId={route.llmId} error={llmError} />
           ) : null}
         </main>
       </div>

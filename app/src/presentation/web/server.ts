@@ -2,13 +2,17 @@ import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname } from "../../domain/net/hosts.ts";
+import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
+import { headerValue } from "../../shared/headers.ts";
 import { LOCALHOST } from "../../domain/config/types.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
 import {
   callMcpTool,
   getConfigSummary,
   getLogs,
+  getLlmCallTool,
+  getLlmCalls,
   getRequests,
   getStatusSummary,
   getTraceTool,
@@ -22,6 +26,10 @@ import { WEB_INDEX_HTML } from "./assets.generated.ts";
 const JSON_CONTENT = "application/json";
 const HTML_CONTENT = "text/html; charset=utf-8";
 const NOSNIFF = { "X-Content-Type-Options": "nosniff" } as const;
+const FRAME_GUARD = {
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+} as const;
 const HTML_BLOB = /export const WEB_INDEX_HTML = ("(?:\\.|[^"\\])*")/;
 const ALLOW_GET = "GET";
 const ALLOW_GET_POST = "GET, POST";
@@ -31,6 +39,7 @@ const MAX_JSON_BODY_BYTES = 64 * 1024;
 export type WebListenOptions = {
   host: string;
   port: number;
+  token: string;
   hostApi: McpHost;
   onEvent?: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 };
@@ -59,6 +68,9 @@ export class WebHttpServer {
   }
 
   start(): Promise<void> {
+    if (this.opts.token.trim() === "") {
+      return Promise.reject(newError(KindGeneral, "web UI control token is required"));
+    }
     const host = this.opts.host || LOCALHOST;
     if (!isLoopbackBindHost(host)) {
       return Promise.reject(newError(KindGeneral, `refusing to bind web UI to ${host}`));
@@ -160,6 +172,15 @@ export class WebHttpServer {
       writeJson(res, 200, await getLogs(host, queryArgs(query)));
       return;
     }
+    if (path === "/api/llm") {
+      writeJson(res, 200, await getLlmCalls(host, queryArgs(query)));
+      return;
+    }
+    const llmId = matchParam(path, "/api/llm/");
+    if (llmId !== undefined) {
+      writeJson(res, 200, await getLlmCallTool(host, { id: decodeURIComponent(llmId) }));
+      return;
+    }
     const traceId = matchParam(path, "/api/trace/");
     if (traceId !== undefined) {
       writeJson(res, 200, await getTraceTool(host, { trace_id: decodeURIComponent(traceId) }));
@@ -178,6 +199,7 @@ export class WebHttpServer {
       writeMethodNotAllowed(res, path === "/" || path.startsWith("/api/") ? ALLOW_GET : ALLOW_GET_POST);
       return;
     }
+    assertControlAuthorized(req, this.opts.token);
     assertSameOriginControl(req);
     assertJsonContentType(req.headers["content-type"]);
     const body = await readJsonBody(req);
@@ -188,11 +210,6 @@ export class WebHttpServer {
     const result = await callMcpTool(this.opts.hostApi, tool, objectArgs(body.args));
     writeJson(res, 200, result ?? { ok: true });
   }
-}
-
-function headerValue(header: string | string[] | undefined): string {
-  const raw = Array.isArray(header) ? header[0] : header;
-  return (raw ?? "").split(",")[0]?.trim() ?? "";
 }
 
 function hostAllowed(header: string | string[] | undefined): boolean {
@@ -206,6 +223,12 @@ function originIsLoopback(value: string): boolean {
     return (url.protocol === "http:" || url.protocol === "https:") && isLoopbackHostname(url.hostname);
   } catch {
     return false;
+  }
+}
+
+function assertControlAuthorized(req: IncomingMessage, token: string): void {
+  if (!bearerMatches(headerValue(req.headers.authorization), token)) {
+    throw new HttpError(401, "unauthorized");
   }
 }
 
@@ -337,6 +360,7 @@ function writeHtml(res: ServerResponse, html: string): void {
     "Content-Length": Buffer.byteLength(html),
     "Cache-Control": "no-store",
     ...NOSNIFF,
+    ...FRAME_GUARD,
   });
   res.end(html);
 }

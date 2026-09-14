@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "../../domain/net/hosts.ts";
+import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
+import { headerValue } from "../../shared/headers.ts";
 import { VERSION } from "../../version.ts";
 import {
   callMcpTool,
@@ -20,6 +22,7 @@ const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
+const MAX_BODY_BYTES = 1024 * 1024;
 export function isLoopbackHost(host: string): boolean {
   return host !== "" && isLoopbackBindHost(host);
 }
@@ -120,8 +123,21 @@ export class McpHttpServer {
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, corsHeaders());
+    if (!hostAllowed(req.headers.host)) {
+      json(res, 403, { error: "forbidden" });
+      return;
+    }
+    if (!isLoopbackPeer(req.socket.remoteAddress)) {
+      json(res, 403, { error: "forbidden" });
+      return;
+    }
+    const path = requestPath(req);
+    if (path !== "/mcp") {
+      json(res, 404, { error: "not found" });
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405, { Allow: "POST" });
       res.end();
       return;
     }
@@ -130,25 +146,15 @@ export class McpHttpServer {
       json(res, 401, { error: "unauthorized" });
       return;
     }
-    const path = requestPath(req);
-    if (path !== "/mcp") {
-      json(res, 404, { error: "not found" });
-      return;
-    }
-    if (req.method === "GET" || req.method === "DELETE") {
-      res.writeHead(405, { Allow: "POST, OPTIONS", ...corsHeaders() });
-      res.end();
-      return;
-    }
-    if (req.method !== "POST") {
-      res.writeHead(405, { Allow: "POST, OPTIONS", ...corsHeaders() });
-      res.end();
-      return;
-    }
     let raw: string;
     try {
       raw = await readBody(req);
     } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        json(res, 413, rpcError(null, PARSE_ERROR, "payload too large"));
+        req.destroy();
+        return;
+      }
       json(res, 400, rpcError(null, PARSE_ERROR, err instanceof Error ? err.message : "invalid body"));
       return;
     }
@@ -173,7 +179,7 @@ export class McpHttpServer {
     }
     const reply = await this.dispatch(parsed, addr);
     if (reply === undefined) {
-      res.writeHead(202, corsHeaders());
+      res.writeHead(202);
       res.end();
       return;
     }
@@ -184,8 +190,7 @@ export class McpHttpServer {
     if (this.opts.token === "") {
       return true;
     }
-    const header = req.headers.authorization ?? "";
-    return header === `Bearer ${this.opts.token}`;
+    return bearerMatches(headerValue(req.headers.authorization), this.opts.token);
   }
 
   private async dispatch(raw: unknown, addr: string): Promise<unknown | undefined> {
@@ -306,6 +311,11 @@ function extractClientInfo(params: Record<string, unknown>): string {
   return version === "" ? name : `${name} ${version}`;
 }
 
+function hostAllowed(header: string | string[] | undefined): boolean {
+  const hostname = hostnameFromHostHeader(headerValue(header));
+  return hostname !== undefined && isLoopbackHostname(hostname);
+}
+
 function remoteAddr(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
@@ -319,20 +329,11 @@ class McpRpcError extends Error {
   }
 }
 
-function corsHeaders(): Record<string, string> {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
-}
-
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(payload),
-    ...corsHeaders(),
   });
   res.end(payload);
 }
@@ -350,14 +351,42 @@ function requestPath(req: IncomingMessage): string {
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const fail = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(err);
+    };
     req.on("data", (chunk: Buffer) => {
+      if (settled) {
+        return;
+      }
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        chunks.length = 0;
+        fail(new PayloadTooLargeError());
+        return;
+      }
       chunks.push(chunk);
     });
     req.on("end", () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       resolve(Buffer.concat(chunks).toString("utf8"));
     });
-    req.on("error", reject);
+    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
   });
+}
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("payload too large");
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

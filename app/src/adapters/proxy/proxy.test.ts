@@ -212,6 +212,48 @@ describe("proxy", () => {
     }
   });
 
+  test("serves a cached http recipe and answers CORS preflight without fetching", async () => {
+    let fetches = 0;
+    const recipes = {
+      ensure: async () => {
+        fetches += 1;
+        return { status: 200, body: "{\"access_token\":\"abc\"}", contentType: "application/json", values: { body: "{\"access_token\":\"abc\"}", status: "200", token: "abc" } };
+      },
+      snapshot: () => undefined,
+      start: () => {},
+      stop: () => {},
+      reset: () => {},
+    };
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", () => resolve()));
+    const reservedAddr = reserved.address();
+    const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({
+      name: "login.local",
+      match: { host: "", path: "" },
+      upstream: { url: "", recipe: "login" },
+      auth: NONE_AUTH,
+      response_headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" },
+    });
+    const server = new ProxyServer(cfg, undefined, undefined, undefined, undefined, [], undefined, undefined, recipes);
+    await server.start();
+    try {
+      const preflight = await fetch(`http://127.0.0.1:${proxyPort}/`, { method: "OPTIONS", headers: { "Access-Control-Request-Method": "GET", Origin: "http://app" } });
+      expect(preflight.status).toBe(204);
+      expect(fetches).toBe(0);
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/`);
+      expect(resp.status).toBe(200);
+      expect(await resp.text()).toBe("{\"access_token\":\"abc\"}");
+      expect(resp.headers.get("access-control-allow-origin")).toBe("*");
+      expect(fetches).toBe(1);
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("forwards a non-preflight OPTIONS to the upstream (still injecting headers)", async () => {
     let upstreamHit = false;
     const { proxyPort, close } = await setupProxy(
@@ -430,7 +472,7 @@ describe("proxy", () => {
 
   test("token endpoint rejects missing internal header", async () => {
     const tokens = new TokenManager(60_000, [{ name: "stub", fetch: async () => token() }]);
-    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens);
+    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens, [{ identity: "user", audience: "" }]);
     await ep.start();
     const port = ep.listenPort();
     expect(port).toBeGreaterThan(0);
@@ -466,17 +508,72 @@ describe("proxy", () => {
       undefined,
       memoryStore(),
     );
-    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens);
-    await ep.start();
-    const port = ep.listenPort();
     const identity = "sa:test-389@company-dev.iam.gserviceaccount.com";
     const audience = "https://invoices-worker.local";
+    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens, [{ identity, audience }]);
+    await ep.start();
+    const port = ep.listenPort();
     const query = new URLSearchParams({ identity, audience }).toString();
     const resp = await fetch(`http://127.0.0.1:${port}/token?${query}`, { headers: { [INTERNAL_TOKEN_HEADER]: "s3cret" } });
     expect(resp.status).toBe(200);
     const body = await resp.json();
     expect(body.identity).toBe(identity);
     expect(calls).toEqual([{ identity, audience }]);
+    await ep.stop();
+  });
+
+  test("token endpoint refuses an identity/audience pair that is not declared", async () => {
+    const calls: { identity: string; audience: string }[] = [];
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async (identity, audience) => {
+            calls.push({ identity, audience });
+            return token({ identity, audience });
+          },
+        },
+      ],
+      undefined,
+      memoryStore(),
+    );
+    const identity = "sa:test-389@company-dev.iam.gserviceaccount.com";
+    const audience = "https://invoices-worker.local";
+    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens, [{ identity, audience }]);
+    await ep.start();
+    const port = ep.listenPort();
+    const denied = await fetch(`http://127.0.0.1:${port}/token?identity=user&audience=${encodeURIComponent(audience)}`, {
+      headers: { [INTERNAL_TOKEN_HEADER]: "s3cret" },
+    });
+    expect(denied.status).toBe(403);
+    expect(calls).toEqual([]);
+    await ep.stop();
+  });
+
+  test("token endpoint returns 429 when Google minting is rate limited", async () => {
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async () => token({ expiresAt: new Date(Date.now() - 1_000) }),
+        },
+      ],
+      undefined,
+      memoryStore(),
+      undefined,
+      1,
+    );
+    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens, [{ identity: "user", audience: "" }]);
+    await ep.start();
+    const port = ep.listenPort();
+    const headers = { [INTERNAL_TOKEN_HEADER]: "s3cret" };
+    const first = await fetch(`http://127.0.0.1:${port}/token`, { headers });
+    expect(first.status).toBe(200);
+    const limited = await fetch(`http://127.0.0.1:${port}/token`, { headers });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("60");
     await ep.stop();
   });
 

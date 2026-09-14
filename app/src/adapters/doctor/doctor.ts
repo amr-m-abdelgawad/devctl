@@ -4,9 +4,10 @@ import { versionLine } from "../../version.ts";
 import { DevctlError, humanMessage } from "../../shared/errors.ts";
 import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
+import { isImageUserRoot } from "../../domain/service/container-limits.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
-import { TokenManager, googleTokenProviders, iapOAuthClientRef, type OAuthClientRef } from "../google/token.ts";
+import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
 export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
@@ -24,6 +25,8 @@ export type DoctorHost = {
   mintToken?: (identity: string, audience: string, oauth?: OAuthClientRef) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
   containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
+  mintRateWarning?: () => TokenMintHotspot | undefined;
+  inspectImageUser?: (runtime: string, image: string) => Promise<string | undefined>;
 };
 
 export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
@@ -41,6 +44,7 @@ export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
     mintToken: async (identity, audience, oauth) => {
       await manager().get(identity, audience, [], oauth);
     },
+    mintRateWarning: () => manager().mintRateHotspot(),
     probeServiceUsage: async (project, service) => {
       const tok = await withTimeout(manager().get("user", "", []), LIVE_PROBE_MS);
       const url = `https://serviceusage.googleapis.com/v1/projects/${project}/services/${service}`;
@@ -60,6 +64,23 @@ export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
         return (await proc.exited) === 0;
       } catch {
         return false;
+      }
+    },
+    inspectImageUser: async (runtime, image) => {
+      try {
+        const proc = Bun.spawn({
+          cmd: [runtime, "image", "inspect", "--format", "{{.Config.User}}", image],
+          stdout: "pipe",
+          stderr: "ignore",
+          stdin: "ignore",
+        });
+        const [text, code] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), proc.exited]);
+        if (code !== 0) {
+          return undefined;
+        }
+        return text.trim();
+      } catch {
+        return undefined;
       }
     },
   };
@@ -101,6 +122,21 @@ export async function runDoctor(
     add(reachable
       ? { name: `${runtimeName} container runtime`, severity: "ok", message: `${runtimeName} daemon reachable` }
       : { name: `${runtimeName} container runtime`, severity: "error", message: installed ? `${runtimeName} daemon is not reachable` : `${runtimeName} not found`, hint: `install and start ${runtimeName}` });
+  }
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const container = svc.container;
+    if (container && isImageUserRoot(container.user)) {
+      const imageUser = container.user !== "" ? container.user : await host.inspectImageUser?.(container.runtime || "docker", container.image);
+      if (imageUser !== undefined && isImageUserRoot(imageUser)) {
+        checking(`${name} container user`);
+        add({
+          name: `${name} container user`,
+          severity: "warn",
+          message: "image user is root",
+          hint: "set container.user to a non-root uid, or rebuild the image with USER",
+        });
+      }
+    }
   }
   checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {
@@ -164,6 +200,17 @@ export async function runDoctor(
     } finally {
       liveOpen = false;
     }
+  }
+  const hotspot = host.mintRateWarning?.();
+  if (hotspot && hotspot.count >= TOKEN_MINT_WARN_COUNT) {
+    checking("Google token mint rate");
+    const audience = hotspot.audience === "" ? "no audience" : hotspot.audience;
+    add({
+      name: "Google token mint rate",
+      severity: "warn",
+      message: `${hotspot.count} mints in the last minute for ${hotspot.identity} (${audience})`,
+      hint: "cached tokens are reused until they expire; slow token-endpoint polling if a service is looping GET /token",
+    });
   }
   for (const tool of cfg.doctor.tools) {
     const cmd = tool.command || tool.name;

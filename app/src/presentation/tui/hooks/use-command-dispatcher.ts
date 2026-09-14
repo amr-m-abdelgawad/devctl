@@ -264,6 +264,7 @@ export function useCommandDispatcher({
           }
           case "credentials":
           case "proxy":
+          case "llm":
           case "mcp":
           case "config":
           case "profiles":

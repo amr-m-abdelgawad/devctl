@@ -43,10 +43,16 @@
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/task" }
     },
+    "http": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/httpRecipe" },
+      "description": "Named outbound HTTP recipes. Modular files: .devctl/http/<name>.yaml"
+    },
     "proxy": { "$ref": "#/$defs/proxy" },
     "logs": { "$ref": "#/$defs/logs" },
     "telemetry": { "$ref": "#/$defs/telemetry" },
     "web": { "$ref": "#/$defs/web" },
+    "llm": { "$ref": "#/$defs/llm" },
     "auth": {
       "type": "object",
       "additionalProperties": false,
@@ -294,7 +300,13 @@
             "runtime": { "type": "string", "enum": ["docker", "podman"] },
             "ports": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
-            "volumes": { "type": "array", "items": { "type": "string" } }
+            "volumes": { "type": "array", "items": { "type": "string" } },
+            "user": { "type": "string", "description": "Container user (uid or name). Empty keeps the image USER." },
+            "memory": { "type": "string", "description": "Memory cap passed to docker/podman --memory. Default 1g when omitted." },
+            "cpus": { "type": ["string", "number"], "description": "CPU cap passed to --cpus. Default 1 when omitted." },
+            "read_only": { "type": "boolean", "description": "When true, the container root filesystem is read-only." },
+            "cap_drop": { "type": "array", "items": { "type": "string" }, "description": "Capabilities to drop, e.g. ALL." },
+            "pids_limit": { "type": "integer", "minimum": 0, "description": "PID cap. Default 256 when omitted or 0." }
           }
         },
         "watch": {
@@ -385,7 +397,8 @@
           "properties": {
             "url": { "type": "string" },
             "service": { "type": "string", "description": "Address the upstream by service name instead of a fixed url; the proxy resolves the service's live port at request time." },
-            "port": { "type": "string", "description": "Named port of the referenced service to forward to (default http)." }
+            "port": { "type": "string", "description": "Named port of the referenced service to forward to (default http)." },
+            "recipe": { "type": "string", "description": "Serve the cached response of a named http recipe instead of forwarding. Synthesized from http.<name>.expose." }
           }
         },
         "auth": {
@@ -418,6 +431,89 @@
           "type": "object",
           "additionalProperties": { "type": "string" },
           "description": "Headers added to every response on this route (overriding the upstream's), e.g. CORS Access-Control-Allow-*. A CORS preflight (OPTIONS with Access-Control-Request-Method) is answered directly with these headers instead of being forwarded to the upstream."
+        }
+      }
+    },
+    "httpRecipe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request"],
+      "properties": {
+        "request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url"],
+          "properties": {
+            "method": { "type": "string", "description": "HTTP method (default GET)" },
+            "url": { "type": "string" },
+            "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+            "body": { "type": "string", "description": "Raw request body. Mutually exclusive with form." },
+            "form": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "application/x-www-form-urlencoded fields. Mutually exclusive with body."
+            },
+            "auth": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Outbound auth for this recipe (same shape as a proxy route). iap/service_account mint ${token}; Authorization is not overwritten when request.headers already sets it.",
+              "properties": {
+                "type": { "type": "string", "description": "none, iap, or service_account" },
+                "audience": { "type": "string" },
+                "service_account": { "type": "string" },
+                "client_id": { "type": "string" },
+                "client_secret": { "type": "string" },
+                "credentials": { "type": "string" },
+                "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+                "identity": {
+                  "oneOf": [
+                    { "type": "string" },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "type": { "type": "string" },
+                        "service_account": { "type": "string" }
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            "timeout_seconds": { "type": "number", "minimum": 0, "description": "Fetch timeout (default 10)" }
+          }
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Named JSON dotted paths. Reserved names body, url, and status cannot be used."
+        },
+        "cache": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "jwt": { "type": "boolean", "description": "Cache from JWT exp on string outputs or access_token/id_token/token" },
+            "expires_in": { "type": "string", "description": "Dotted JSON path to OAuth expires_in seconds" }
+          }
+        },
+        "expose": {
+          "description": "Serve the cached recipe response on a local proxy host. Requires proxy.enabled. true, or an object with host/CORS headers.",
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "host": { "type": "string", "description": "Match host (default <name>.local)" },
+                "response_headers": {
+                  "type": "object",
+                  "additionalProperties": { "type": "string" },
+                  "description": "Inbound CORS/response headers on the synthesized route"
+                }
+              }
+            }
+          ]
         }
       }
     },
@@ -472,6 +568,64 @@
             "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
           }
         }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in LLM traffic inspector. Off by default. LiteLLM is the first source type; a custom proxy in front of it is reachability, not a new type.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llmSource" }
+        }
+      }
+    },
+    "llmSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "Source driver. Built-in: litellm." },
+        "service": { "type": "string", "description": "Managed service whose assigned port is the management hop." },
+        "port": { "type": "string", "description": "Named service port (default http)." },
+        "endpoint": { "type": "string", "description": "Literal management URL when the source is not a managed service." },
+        "path_prefix": { "type": "string", "description": "Mount prefix so spend logs become {prefix}/spend/logs." },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "via": { "$ref": "#/$defs/llmVia" },
+        "management_endpoint": { "type": "string" },
+        "management_service": { "type": "string" },
+        "management_port": { "type": "string" },
+        "auth": { "$ref": "#/$defs/llmAuth" },
+        "capture": { "$ref": "#/$defs/llmCapture" },
+        "poll_seconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "llmAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "description": "bearer" },
+        "token_env": { "type": "string", "description": "Environment variable holding the LiteLLM master key. Never inline." },
+        "header": { "type": "string", "description": "Header for the LiteLLM key. Defaults to Authorization. Use another name when a proxy already owns Authorization." }
+      }
+    },
+    "llmVia": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "route": { "type": "string", "description": "Existing proxy.routes[].name used to mint identity headers." }
+      }
+    },
+    "llmCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompts": { "type": "boolean", "description": "Ingest request/response bodies when the gateway stores them. Default true. Secrets are still redacted." }
       }
     }
   }

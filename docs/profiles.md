@@ -37,6 +37,7 @@ Per-repo state lives under `~/.devctl/state/<repoID>/`:
 | `state.json` | session id, profile, pid / command / cwd / startTime / ports |
 | `devctl.lock` | supervisor lock (stale locks from dead PIDs are replaced) |
 | `devctl.sock` | JSON-RPC socket for TUI, CLI, and attach (Unix) |
+| `rpc-token` | Per-checkout secret on every RPC frame (Windows named-pipe mitigation; also used on Unix) |
 | `\\.\pipe\devctl-<repoID>` | Named pipe used instead of the socket on Windows |
 
 A leftover `~/.devctl/sessions/<repoID>/` is migrated once.

@@ -273,15 +273,26 @@ describe("devctl status --watch piped into a reader that closes early", () => {
     try {
       await run(["--config", configFile(dir), "start", "api", "--detach"]);
 
-      // A real bash pipe (not an in-process stream) so closing the reader
-      // produces a genuine OS-level EPIPE on the writer's next write, the
-      // same condition a real `devctl status --watch | head -1` hits.
-      const script = `set -o pipefail; ${JSON.stringify(process.execPath)} ${JSON.stringify(binPath)} --config ${JSON.stringify(configFile(dir))} status --watch | head -1`;
-      const proc = Bun.spawn({ cmd: ["bash", "-c", script], stdout: "pipe", stderr: "pipe" });
-      const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+      // Spawn bun directly (not `bash | head`). Git Bash on Windows rewrites
+      // path-like env such as DEVCTL_HOME, so the child would talk to the
+      // named pipe with the wrong rpc-token and exit 4 (unauthorized).
+      const env: Record<string, string> = {};
+      for (const [key, value] of Object.entries(process.env)) {
+        if (value !== undefined) {
+          env[key] = value;
+        }
+      }
+      const proc = Bun.spawn({
+        cmd: [process.execPath, binPath, "--config", configFile(dir), "status", "--watch"],
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "ignore",
+        env,
+      });
+      const stderrDone = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
+      const stdout = proc.stdout ? await readFirstLineThenClose(proc.stdout) : "";
+      const [stderr, exitCode] = await Promise.all([stderrDone, proc.exited]);
 
-      // head -1 only ever sees the very first line devctl wrote (the
-      // "--- <timestamp> ---" tick header) before closing the pipe.
       expect(stdout).toMatch(/^--- .+ ---\n$/);
       expect(stderr).not.toContain("EPIPE");
       expect(exitCode).toBe(0);
@@ -292,6 +303,25 @@ describe("devctl status --watch piped into a reader that closes early", () => {
     }
   }, 20_000);
 });
+
+async function readFirstLineThenClose(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  try {
+    while (!buf.includes("\n")) {
+      const { value, done } = await reader.read();
+      if (done) {
+        break;
+      }
+      buf += decoder.decode(value, { stream: true });
+    }
+    const end = buf.indexOf("\n");
+    return end >= 0 ? buf.slice(0, end + 1) : buf;
+  } finally {
+    await reader.cancel();
+  }
+}
 
 function fakeLogEvent(message: string): LogEvent {
   return logRecord({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message, pid: 1, seq: 1 });

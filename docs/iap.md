@@ -52,7 +52,7 @@ flowchart LR
 
 The local proxy mints the token and injects `Authorization: Bearer …`. Services do not implement IAP themselves.
 
-Tokens refresh when `expires_at - now < auth.refresh_threshold_seconds` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request.
+Tokens refresh when `expires_at - now < auth.refresh_threshold_seconds` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request. Google minting is also capped at 10 refreshes per identity and audience per minute.
 
 Doctor probes IAP audiences (including SA impersonation and a configured OAuth client) even if the rest of the repo looks local-only.
 

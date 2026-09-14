@@ -26,7 +26,7 @@ type Binding = {
 
 export const HELP_NAVIGATION: readonly Binding[] = [
   { key: "tab", label: "next tab" },
-  { key: "1-4", label: "dashboard services logs proxy" },
+  { key: "1-5", label: "dashboard services logs proxy llm" },
   { key: "s/l/a/p/d/c/u", label: "letter jump" },
   { key: "/", label: "command overlay · other screens" },
   { key: "j/k", label: "move selection" },

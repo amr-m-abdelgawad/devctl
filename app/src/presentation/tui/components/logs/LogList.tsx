@@ -4,19 +4,21 @@ import { formatBodySummary, type LogRecord } from "../../../../domain/logs/logs.
 import { padClip } from "../../helpers/format.ts";
 import {
   displayLogLevel,
+  isLogFollowBottom,
   LOG_COL_GAP,
   LOG_LEVEL_COL,
   LOG_META_COL,
   LOG_TIME_COL,
+  logFollowMaxScroll,
   logMessageSpans,
   logRowExpanded,
   logServiceColumnWidth,
+  nextLogFollowAction,
   type LogWrapMode,
 } from "../../helpers/logs.ts";
 import { logSpanColor, serviceColor, stateColor, type Palette } from "../../themes.ts";
 
 const FOLLOW_POLL_MS = 200;
-const FOLLOW_SLACK = 2;
 const TRACE_MARK = "◎";
 
 export function LogList(props: {
@@ -75,7 +77,8 @@ export function LogList(props: {
     box.stickyScroll = follow;
     if (follow) {
       box.stickyStart = "bottom";
-      box.scrollTo({ x: box.scrollLeft, y: Math.max(0, box.scrollHeight) });
+      const maxY = logFollowMaxScroll(box.scrollHeight, box.viewport.height);
+      box.scrollTo({ x: box.scrollLeft, y: maxY });
     }
   }, [follow, followTick, tailKey]);
 
@@ -105,11 +108,12 @@ export function LogList(props: {
       return;
     }
     let armed = false;
+    let left = false;
     let lastHeight = 0;
     let lastScrollTop = 0;
     const id = setInterval(() => {
       const box = scrollRef.current;
-      if (!box) {
+      if (!box || left) {
         return;
       }
       const viewH = box.viewport.height;
@@ -118,28 +122,28 @@ export function LogList(props: {
       }
       const height = box.scrollHeight;
       const scrollTop = box.scrollTop;
-      if (scrollTop < lastScrollTop) {
-        box.stickyScroll = false;
-        lastScrollTop = scrollTop;
-        lastHeight = height;
-        onLeaveLatestRef.current?.();
-        return;
-      }
+      const next = nextLogFollowAction({
+        follow: true,
+        armed,
+        atBottom: isLogFollowBottom(scrollTop, viewH, height),
+        scrolledUp: scrollTop < lastScrollTop,
+        contentGrew: height > lastHeight,
+        contentShrunk: height < lastHeight,
+      });
+      armed = next.armed;
+      lastHeight = height;
       lastScrollTop = scrollTop;
-      const atBottom = scrollTop + viewH >= height - FOLLOW_SLACK;
-      if (atBottom) {
-        armed = true;
-        lastHeight = height;
-        return;
-      }
-      if (height > lastHeight) {
+      if (next.action === "snap") {
+        const maxY = logFollowMaxScroll(height, viewH);
         box.stickyScroll = true;
         box.stickyStart = "bottom";
-        box.scrollTo({ x: box.scrollLeft, y: Math.max(0, height) });
-        lastHeight = height;
+        box.scrollTo({ x: box.scrollLeft, y: maxY });
+        lastScrollTop = box.scrollTop;
         return;
       }
-      if (armed) {
+      if (next.action === "pin") {
+        left = true;
+        box.stickyScroll = false;
         onLeaveLatestRef.current?.();
       }
     }, FOLLOW_POLL_MS);

@@ -35,10 +35,11 @@ When the main file lives in `.devctl/`, modular files merge in:
 flowchart TB
   main[".devctl/config.yaml"] --> services[".devctl/services/*.yaml"]
   main --> profiles[".devctl/profiles/*.yaml"]
+  main --> http[".devctl/http/*.yaml"]
   main --> routes[".devctl/proxy/routes.yaml"]
 ```
 
-Service and profile filenames become keys (`identity.yaml` → service `identity`).
+Service, profile, and HTTP recipe filenames become keys (`identity.yaml` → service `identity`, `login.yaml` → `http.login`).
 Files within each modular directory are loaded in sorted filename order, making
 overrides deterministic even when both `.yaml` and `.yml` fragments resolve to
 the same key.
@@ -73,11 +74,13 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `templates` | Named service bases (`extends`) |
 | `services` | Process definitions |
 | `tasks` | Named transient commands run with `devctl run` |
+| `http` | Named outbound HTTP recipes — see [Custom HTTP APIs](http.md) |
 | `profiles` | Named service sets + extra env |
 | `proxy` | Listen address, token endpoint, routes |
 | `logs` | In-memory cap and persistence |
 | `telemetry.otlp` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
 | `web` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Telemetry](telemetry.md) |
+| `llm` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | `auth.refresh_threshold_seconds` | Token refresh window (default 300) |
 | `shutdown` | `stop_services_on_exit`, `grace_seconds` |
 | `ui` | Optional theme / keymap hints in YAML (TUI prefs still win from `tui.json`) |
@@ -121,7 +124,7 @@ entry includes the winning source file and layer (`main`, `modular_service`,
 `synthesized`) and the ordered sources it shadowed. Use `--json` for structured
 output.
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments merged at load), `proxy.listen.port` when `proxy.enabled` is true, environment references, profile references, optional `plugins[].path`, `telemetry.otlp.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and `web.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, `${http.*}` / `${token}` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments and synthesized `expose` / `http.*.expose` routes merged at load), `proxy.listen.port` when `proxy.enabled` is true, environment references, profile references, optional `plugins[].path`, `telemetry.otlp.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and `web.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
 
 The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
 
@@ -132,6 +135,7 @@ Changing the `plugins` **path list** hot-applies token providers, log parsers, a
 ## Related
 
 - [Services](services.md)
+- [Custom HTTP APIs](http.md)
 - [Profiles](profiles.md)
 - [Environment](environment.md)
 - [Plugins](plugins.md)

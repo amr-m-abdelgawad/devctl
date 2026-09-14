@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { configuredServiceAccounts, needsCloudFeatures } from "../../domain/identity/identity.ts";
+import { configuredServiceAccounts, declaredTokenMints, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { load } from "./load.ts";
 
 describe("demo-platform config", () => {
@@ -48,5 +48,11 @@ describe("demo-platform config", () => {
 
     expect(configuredServiceAccounts(cfg)).toEqual([sa]);
     expect(needsCloudFeatures(cfg)).toBe(true);
+    expect(declaredTokenMints(cfg)).toEqual([
+      { identity: `sa:${sa}`, audience: "" },
+      { identity: `sa:${sa}`, audience: "https://invoices-worker.local" },
+      { identity: "user", audience: "" },
+      { identity: "user", audience: "https://invoices-worker.local" },
+    ]);
   });
 });

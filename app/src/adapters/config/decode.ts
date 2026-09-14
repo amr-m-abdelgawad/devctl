@@ -1,5 +1,6 @@
 import {
   emptyCommand,
+  emptyContainer,
   emptyEnv,
   emptyHealth,
   emptyIdentity,
@@ -24,6 +25,10 @@ import {
   type ServiceConfig,
   type StartupConfig,
   type TaskConfig,
+  type HttpRecipeConfig,
+  type HttpExposeConfig,
+  emptyHttpRecipe,
+  emptyHttpExpose,
 } from "../../domain/config/types.ts";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -247,11 +252,18 @@ export function decodeContainer(value: unknown): import("../../domain/config/typ
     for (const [name, port] of Object.entries(value.ports)) ports[name] = asNumber(port);
   }
   return {
+    ...emptyContainer(),
     image: asString(value.image),
     runtime: asString(value.runtime),
     ports,
     env: asStringMap(value.env),
     volumes: asStringArray(value.volumes),
+    user: asString(value.user),
+    memory: asString(value.memory),
+    cpus: asString(value.cpus),
+    read_only: asBoolean(value.read_only),
+    cap_drop: asStringArray(value.cap_drop),
+    pids_limit: asNumber(value.pids_limit),
   };
 }
 
@@ -307,7 +319,7 @@ function decodeRouteIdentity(value: unknown): RouteIdentity {
   return { type: asString(value.type), service_account: asString(value.service_account) };
 }
 
-function decodeRouteAuth(value: unknown): RouteAuthConfig {
+export function decodeRouteAuth(value: unknown): RouteAuthConfig {
   if (!isRecord(value)) {
     return emptyRouteAuth();
   }
@@ -338,10 +350,52 @@ export function decodeRoute(value: unknown): RouteConfig {
     name: asString(value.name),
     transport: asString(value.transport),
     match: { host: asString(match.host), path: asString(match.path) },
-    upstream: { url: asString(upstream.url), service: asString(upstream.service), port: asString(upstream.port) },
+    upstream: { url: asString(upstream.url), service: asString(upstream.service), port: asString(upstream.port), recipe: asString(upstream.recipe) },
     auth: decodeRouteAuth(value.auth),
     response_headers: asStringMap(value.response_headers),
     listen: isRecord(value.listen) ? { host: asString(value.listen.host), port: asNumber(value.listen.port) } : undefined,
+  };
+}
+
+export function decodeHttpExpose(value: unknown): HttpExposeConfig {
+  if (value === true) {
+    return { enabled: true, host: "", response_headers: {} };
+  }
+  if (value === false) {
+    return { enabled: false, host: "", response_headers: {} };
+  }
+  if (isRecord(value)) {
+    return {
+      enabled: value.enabled !== undefined ? asBoolean(value.enabled) : true,
+      host: asString(value.host),
+      response_headers: asStringMap(value.response_headers),
+    };
+  }
+  return emptyHttpExpose();
+}
+
+export function decodeHttpRecipe(value: unknown): HttpRecipeConfig {
+  if (!isRecord(value)) {
+    return emptyHttpRecipe();
+  }
+  const request = isRecord(value.request) ? value.request : {};
+  const cache = isRecord(value.cache) ? value.cache : {};
+  return {
+    request: {
+      method: asString(request.method),
+      url: asString(request.url),
+      headers: asStringMap(request.headers),
+      body: asString(request.body),
+      form: asStringMap(request.form),
+      auth: decodeRouteAuth(request.auth),
+      timeout_seconds: asNumber(request.timeout_seconds),
+    },
+    outputs: asStringMap(value.outputs),
+    cache: {
+      jwt: asBoolean(cache.jwt),
+      expires_in: asString(cache.expires_in),
+    },
+    expose: decodeHttpExpose(value.expose),
   };
 }
 

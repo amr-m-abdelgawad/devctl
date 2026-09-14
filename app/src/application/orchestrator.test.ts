@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../domain/config/types.ts";
+import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyService } from "../domain/config/types.ts";
+import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../domain/service/container-limits.ts";
 import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { HealthCheckerFactory, HealthCheckResult } from "../ports/health-checker.ts";
@@ -64,6 +65,7 @@ function harness(checkers: HealthCheckerFactory = { lookup: () => undefined }) {
     containerPrefix: "devctl-test-", logs: { append: () => {} }, bus: new Bus(32), healthCheckers: checkers,
     prepareServiceIdentity: async () => {},
     resolveServiceExecution: async (_name, _svc, profile, env) => ({ env: { ...env, PROFILE: profile }, workDir: "/work" }),
+    ensureHttpRecipes: async () => {},
     detectGoogle: async () => ({ adcAvailable: true }), startProxy: async () => {},
     fail: async (name) => {
       orch.health.clearHealthWatch(name);
@@ -111,9 +113,29 @@ describe("ServiceOrchestrator", () => {
     expect(assigned).toEqual(["api"]);
   });
 
+  test("ensures http recipes before resolving the environment snapshot", async () => {
+    const { orch, session } = harness();
+    const order: string[] = [];
+    session.ensureHttpRecipes = async () => {
+      order.push("ensure");
+    };
+    session.resolveServiceExecution = async () => {
+      order.push("resolve");
+      return { env: {}, workDir: "/work" };
+    };
+    session.cfg.http.login = {
+      ...emptyHttpRecipe(),
+      request: { ...emptyHttpRecipe().request, method: "GET", url: "https://idp.example/token" },
+      outputs: { token: "access_token" },
+    };
+    session.cfg.services.api!.environment.vars.TOKEN = "${http.login.token}";
+    await orch.start({ services: ["api"] });
+    expect(order).toEqual(["ensure", "resolve"]);
+  });
+
   test("container launch uses its runtime configuration and process health", async () => {
     const { orch, svc, session, processes } = harness({ lookup: () => { throw new Error("host probe must not check a container pid"); } });
-    svc.container = { runtime: "podman", image: "test:local", env: { FLAG: "container" }, ports: { http: 80 }, volumes: ["/data:/data"] };
+    svc.container = { ...emptyContainer(), runtime: "podman", image: "test:local", env: { FLAG: "container" }, ports: { http: 80 }, volumes: ["/data:/data"] };
     svc.health.type = "process";
     session.ports.set("api", { http: 8080 });
     await orch.start({ services: ["api"] });
@@ -122,6 +144,7 @@ describe("ServiceOrchestrator", () => {
       runtime: "podman", containerName: "devctl-test-api", image: "test:local",
       command: ["api"], env: { PROFILE: "", FLAG: "container" },
       ports: { http: 8080 }, targetPorts: { http: 80 }, volumes: ["/data:/data"],
+      limits: { user: "", memory: DEFAULT_CONTAINER_MEMORY, cpus: DEFAULT_CONTAINER_CPUS, readOnly: false, capDrop: [], pidsLimit: DEFAULT_CONTAINER_PIDS_LIMIT },
     });
   });
 

@@ -6,6 +6,15 @@ import { fileURLToPath } from "node:url";
 import { findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
+  directedCycleIssues,
+  effectiveStartupDependencies,
+  parseHttpRef,
+  recipeAuthMintsToken,
+  recipeCycleIssues,
+  recipeRequestTexts,
+  recipeUsesToken,
+} from "../../domain/http/recipes.ts";
+import {
   commandEmpty,
   CurrentVersion,
   effectiveRestartPolicy,
@@ -21,16 +30,23 @@ import {
   type IdentityConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type LlmSourceConfig,
   dependencyName,
   dependencyCondition,
   isGrpcRoute,
+  LLM_AUTH_BEARER,
+  LLM_SOURCE_TYPE_LITELLM,
+  llmManagementPort,
+  llmSourcePort,
   namedPort,
+  isReservedHttpOutput,
 } from "../../domain/config/types.ts";
 
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
 
 export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command"];
+export const BUILTIN_LLM_SOURCE_TYPES = [LLM_SOURCE_TYPE_LITELLM];
 
 // Health types outside BUILTIN_HEALTH_TYPES are only valid if a plugin
 // registers a matching health check. validateHealth() can't confirm that —
@@ -48,9 +64,16 @@ export function unresolvedHealthTypes(cfg: DevctlConfig): Array<{ service: strin
   return unresolved;
 }
 
-const unseen = 0;
-const active = 1;
-const done = 2;
+export function unresolvedLlmSourceTypes(cfg: DevctlConfig): Array<{ source: string; type: string }> {
+  const unresolved: Array<{ source: string; type: string }> = [];
+  for (const source of cfg.llm.sources) {
+    const type = source.type;
+    if (type !== "" && !BUILTIN_LLM_SOURCE_TYPES.includes(type.toLowerCase())) {
+      unresolved.push({ source: source.name || type, type });
+    }
+  }
+  return unresolved;
+}
 
 export function validate(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
@@ -66,9 +89,11 @@ export function validate(cfg: DevctlConfig): string[] {
   issues.push(...validateTasks(cfg));
   issues.push(...validateCycles(cfg));
   issues.push(...validateProfiles(cfg));
+  issues.push(...validateHttp(cfg));
   issues.push(...validateProxy(cfg));
   issues.push(...validateTelemetry(cfg));
   issues.push(...validateWeb(cfg));
+  issues.push(...validateLlm(cfg));
   for (const [index, plugin] of cfg.plugins.entries()) {
     if (plugin.path === "") issues.push(`plugins.${index}.path is required`);
     else {
@@ -155,6 +180,7 @@ function validateServices(cfg: DevctlConfig): string[] {
         if (!svc.ports.some((port) => port.name === portName)) issues.push(`${prefix}.container.ports.${portName}: no matching service port`);
         if (target < MIN_PORT || target > MAX_PORT) issues.push(`${prefix}.container.ports.${portName}: invalid container port ${target}`);
       }
+      if (svc.container.pids_limit < 0) issues.push(`${prefix}.container.pids_limit must be >= 0`);
     }
   }
   return issues;
@@ -228,36 +254,11 @@ export function unresolvedIdentityTypes(cfg: DevctlConfig): Array<{ service: str
 }
 
 function validateCycles(cfg: DevctlConfig): string[] {
-  const state: Record<string, number> = {};
-  const issues: string[] = [];
-  const stack: string[] = [];
-  const visit = (name: string): void => {
-    const current = state[name] ?? unseen;
-    if (current === done) {
-      return;
-    }
-    if (current === active) {
-      issues.push(`dependency cycle: ${[...stack, name].join(" → ")}`);
-      return;
-    }
-    state[name] = active;
-    stack.push(name);
-    const svc = cfg.services[name];
-    if (svc) {
-      for (const dependency of svc.dependencies) {
-        const dep = dependencyName(dependency);
-        if (cfg.services[dep]) {
-          visit(dep);
-        }
-      }
-    }
-    stack.pop();
-    state[name] = done;
-  };
-  for (const name of Object.keys(cfg.services)) {
-    visit(name);
-  }
-  return issues;
+  return directedCycleIssues(
+    Object.keys(cfg.services),
+    (name) => effectiveStartupDependencies(cfg, name).map((dependency) => dependencyName(dependency)).filter((dep) => Boolean(cfg.services[dep])),
+    (cycle) => `dependency cycle: ${cycle.join(" → ")}`,
+  );
 }
 
 function validateEnvRefs(prefix: string, env: EnvConfig, cfg: DevctlConfig): string[] {
@@ -274,6 +275,45 @@ function validateEnvRefs(prefix: string, env: EnvConfig, cfg: DevctlConfig): str
   }
   for (const [key, value] of Object.entries(env.defaults)) {
     check(key, value);
+  }
+  return issues;
+}
+
+function validateHttp(cfg: DevctlConfig): string[] {
+  const issues = [...recipeCycleIssues(cfg)];
+  for (const [name, recipe] of Object.entries(cfg.http)) {
+    const prefix = `http.${name}`;
+    if (recipe.request.url === "") {
+      issues.push(`${prefix}.request.url is required`);
+    }
+    const hasBody = recipe.request.body !== "";
+    const hasForm = Object.keys(recipe.request.form).length > 0;
+    if (hasBody && hasForm) {
+      issues.push(`${prefix}.request cannot set both body and form`);
+    }
+    for (const output of Object.keys(recipe.outputs)) {
+      if (isReservedHttpOutput(output)) {
+        issues.push(`${prefix}.outputs.${output} is reserved`);
+      }
+    }
+    if (recipe.expose.enabled && !cfg.proxy.enabled) {
+      issues.push(`${prefix}.expose requires proxy.enabled`);
+    }
+    const mints = recipeAuthMintsToken(recipe);
+    if (recipeUsesToken(recipe) && !mints) {
+      issues.push(`${prefix}: \${token} requires request.auth.type iap or service_account`);
+    }
+    issues.push(...validateAuthConfig(recipe.request.auth, `${prefix}.request`));
+    for (const text of recipeRequestTexts(recipe)) {
+      for (const ref of findRefs(text)) {
+        const parsed = parseHttpRef(ref);
+        if (parsed?.recipe === name) {
+          issues.push(`${prefix}: recipe cannot reference itself via \${${ref}}`);
+        } else if (!refResolvable(ref, cfg, { allowProcessEnv: true, allowToken: mints })) {
+          issues.push(`${prefix}: unresolvable reference \${${ref}}`);
+        }
+      }
+    }
   }
   return issues;
 }
@@ -379,9 +419,22 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
   const issues: string[] = [];
   const hasUrl = route.upstream.url !== "";
   const svcName = route.upstream.service ?? "";
+  const recipeName = route.upstream.recipe ?? "";
+  if (recipeName !== "") {
+    if (hasUrl || svcName !== "") {
+      issues.push(`${prefix}.upstream.recipe cannot be combined with url or service`);
+    }
+    if (isGrpcRoute(route)) {
+      issues.push(`${prefix}.upstream.recipe is not supported on a grpc route`);
+    }
+    if (!cfg.http[recipeName]) {
+      issues.push(`${prefix}.upstream.recipe references unknown http recipe ${recipeName}`);
+    }
+    return issues;
+  }
   if (svcName === "") {
     if (!hasUrl) {
-      issues.push(`${prefix}.upstream requires either url or service`);
+      issues.push(`${prefix}.upstream requires either url, service, or recipe`);
     }
     return issues;
   }
@@ -398,19 +451,23 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
 }
 
 function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
+  return validateAuthConfig(route.auth, prefix);
+}
+
+function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
   const issues: string[] = [];
-  if (route.auth.type.toLowerCase() === "iap") {
-    if (route.auth.audience.trim() === "") {
+  if (auth.type.toLowerCase() === "iap") {
+    if (auth.audience.trim() === "") {
       issues.push(`${prefix}.auth.audience is required when auth.type is iap`);
     }
-    if (route.auth.identity.type.trim() === "") {
+    if (auth.identity.type.trim() === "") {
       issues.push(`${prefix}.auth.identity.type is required when auth.type is iap`);
     }
   }
-  issues.push(...validateIapOAuthClient(route.auth, prefix));
-  const identType = route.auth.identity.type.toLowerCase();
+  issues.push(...validateIapOAuthClient(auth, prefix));
+  const identType = auth.identity.type.toLowerCase();
   if (identType === "service" || identType === "service_account" || isServiceAccountIdentity({ type: identType, mode: "", service_account: "" })) {
-    const sa = route.auth.identity.service_account || route.auth.service_account;
+    const sa = auth.identity.service_account || auth.service_account;
     if (sa === "") {
       issues.push(`${prefix}.auth.identity.service_account is required`);
     }
@@ -511,6 +568,95 @@ function validateWeb(cfg: DevctlConfig): string[] {
     });
   }
   return issues;
+}
+
+function validateLlm(cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  if (cfg.llm.enabled && cfg.llm.sources.length === 0) {
+    issues.push("llm.sources must list at least one source when llm.enabled is true");
+  }
+  const names = new Set<string>();
+  for (const [index, source] of cfg.llm.sources.entries()) {
+    const prefix = `llm.sources[${index}]`;
+    issues.push(...validateLlmSource(cfg, source, prefix));
+    if (source.name === "") {
+      issues.push(`${prefix}.name is required`);
+    } else if (names.has(source.name)) {
+      issues.push(`${prefix}.name duplicates ${source.name}`);
+    } else {
+      names.add(source.name);
+    }
+  }
+  return issues;
+}
+
+function validateLlmSource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  if (source.type === "") {
+    issues.push(`${prefix}.type is required`);
+  } else if (!BUILTIN_LLM_SOURCE_TYPES.includes(source.type.toLowerCase()) && cfg.plugins.length === 0) {
+    issues.push(`${prefix}.type must be ${LLM_SOURCE_TYPE_LITELLM}`);
+  }
+  issues.push(...validateLlmManagementHop(cfg, source, prefix));
+  issues.push(...validateLlmAuth(source, prefix));
+  if (source.poll_seconds < 0) {
+    issues.push(`${prefix}.poll_seconds must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLlmManagementHop(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  const hasManagementEndpoint = source.management_endpoint.trim() !== "";
+  const hasManagementService = source.management_service.trim() !== "";
+  if (hasManagementEndpoint && hasManagementService) {
+    issues.push(`${prefix}: set only one of management_endpoint or management_service`);
+  }
+  if (hasManagementService) {
+    issues.push(...validateLlmServiceRef(cfg, source.management_service, llmManagementPort(source), `${prefix}.management_service`));
+  }
+  if (source.service.trim() !== "") {
+    issues.push(...validateLlmServiceRef(cfg, source.service, llmSourcePort(source), `${prefix}.service`));
+  }
+  if (source.via.route.trim() !== "") {
+    const route = cfg.proxy.routes.find((item) => item.name === source.via.route);
+    if (!route) {
+      issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+    }
+  }
+  if (!hasManagementEndpoint && !hasManagementService) {
+    const hops = [source.service.trim() !== "", source.endpoint.trim() !== "", source.via.route.trim() !== ""];
+    const count = hops.filter(Boolean).length;
+    if (count !== 1) {
+      issues.push(`${prefix}: set exactly one management hop (service, endpoint, or via.route)`);
+    }
+  }
+  return issues;
+}
+
+function validateLlmServiceRef(cfg: DevctlConfig, serviceName: string, portName: string, prefix: string): string[] {
+  const svc = cfg.services[serviceName];
+  if (!svc) {
+    return [`${prefix} references unknown service ${serviceName}`];
+  }
+  if (!namedPort(svc.ports, portName)) {
+    return [`${prefix}: service ${serviceName} has no port named ${portName}`];
+  }
+  return [];
+}
+
+function validateLlmAuth(source: LlmSourceConfig, prefix: string): string[] {
+  const kind = source.auth.type.trim().toLowerCase();
+  if (kind === "" && source.auth.token_env.trim() === "") {
+    return [];
+  }
+  if (kind !== "" && kind !== LLM_AUTH_BEARER) {
+    return [`${prefix}.auth.type must be ${LLM_AUTH_BEARER}`];
+  }
+  if (source.auth.token_env.trim() === "") {
+    return [`${prefix}.auth.token_env is required when auth.type is ${LLM_AUTH_BEARER}`];
+  }
+  return [];
 }
 
 function validateTokenEndpoint(cfg: DevctlConfig): string[] {
