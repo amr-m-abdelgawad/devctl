@@ -149,6 +149,51 @@ export function logPinStart(total: number, tail = LOG_LIST_TAIL): number {
   return Math.max(0, total - tail);
 }
 
+export const LOG_FOLLOW_SLACK = 2;
+
+export type LogFollowAction = "snap" | "pin" | "wait";
+
+export function isLogFollowBottom(scrollTop: number, viewHeight: number, scrollHeight: number, slack = LOG_FOLLOW_SLACK): boolean {
+  if (viewHeight <= 0) {
+    return true;
+  }
+  return scrollTop + viewHeight >= scrollHeight - slack;
+}
+
+export function logFollowMaxScroll(scrollHeight: number, viewHeight: number): number {
+  return Math.max(0, scrollHeight - Math.max(0, viewHeight));
+}
+
+// Stick-to-bottom must ignore wrap/reflow. A wrapped line changes scrollHeight and
+// can dip scrollTop by a row even though the user never left the tail. Pin only when
+// the viewport moved up and the content size did not change.
+export function nextLogFollowAction(input: {
+  readonly follow: boolean;
+  readonly armed: boolean;
+  readonly atBottom: boolean;
+  readonly scrolledUp: boolean;
+  readonly contentGrew: boolean;
+  readonly contentShrunk: boolean;
+}): { action: LogFollowAction; armed: boolean } {
+  if (!input.follow) {
+    return { action: "wait", armed: false };
+  }
+  if (input.atBottom) {
+    return { action: "wait", armed: true };
+  }
+  const layoutChanged = input.contentGrew || input.contentShrunk;
+  if (input.scrolledUp && !layoutChanged) {
+    return { action: "pin", armed: true };
+  }
+  if (layoutChanged) {
+    return { action: "snap", armed: true };
+  }
+  if (!input.armed) {
+    return { action: "wait", armed: false };
+  }
+  return { action: "pin", armed: true };
+}
+
 export function logCursorStep(
   next: number,
   listCount: number,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { formatBodySummary, logRecord } from "../../domain/logs/logs.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logFollowMaxScroll, isLogFollowBottom, nextLogFollowAction, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { COMMAND_FOOTER_HINT, namedPickerItems, SLASH_COL_GAP, SLASH_LABEL_MAX, SLASH_NAME_PREFIX, slashCommandColumnWidth, slashCompleteQuery, slashItemDesc, slashItemKey, slashItemLabel, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
@@ -477,6 +477,29 @@ describe("TUI helpers", () => {
     const pinned = logViewWindow([...first, ev(5), ev(6)], true, pinnedStart, 3);
     expect(pinned.items.map((item) => formatBodySummary(item))).toEqual(["line 2", "line 3", "line 4"]);
     expect(pinned.newer).toBe(2);
+  });
+
+  test("log follow treats wrap height changes as stick-to-bottom, not a user scroll", () => {
+    expect(isLogFollowBottom(80, 20, 100)).toBe(true);
+    expect(isLogFollowBottom(80, 20, 102)).toBe(true);
+    expect(isLogFollowBottom(80, 20, 103)).toBe(false);
+    expect(logFollowMaxScroll(100, 20)).toBe(80);
+    expect(logFollowMaxScroll(10, 20)).toBe(0);
+    const following = {
+      follow: true,
+      armed: true,
+      atBottom: false,
+      scrolledUp: false,
+      contentGrew: false,
+      contentShrunk: false,
+    };
+    expect(nextLogFollowAction({ ...following, atBottom: true, scrolledUp: true, contentGrew: true }).action).toBe("wait");
+    expect(nextLogFollowAction({ ...following, scrolledUp: true, contentGrew: true })).toEqual({ action: "snap", armed: true });
+    expect(nextLogFollowAction({ ...following, scrolledUp: true, contentShrunk: true })).toEqual({ action: "snap", armed: true });
+    expect(nextLogFollowAction({ ...following, scrolledUp: true })).toEqual({ action: "pin", armed: true });
+    expect(nextLogFollowAction({ ...following, armed: false })).toEqual({ action: "wait", armed: false });
+    expect(nextLogFollowAction({ ...following })).toEqual({ action: "pin", armed: true });
+    expect(nextLogFollowAction({ ...following, follow: false, scrolledUp: true }).action).toBe("wait");
   });
 
   test("log cursor steps the window when the highlight hits either edge", () => {
