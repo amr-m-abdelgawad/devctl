@@ -1,5 +1,6 @@
 import { profileId, type ProfileId } from "../ids.ts";
 import { dependencyName, type Dependency, type DevctlConfig, type ServiceConfig } from "../config/types.ts";
+import { effectiveStartupDependencies } from "../http/recipes.ts";
 import { KindConfiguration, KindDependency, KindServiceNotFound, newError } from "../../shared/errors.ts";
 
 export const StateUnknown = "UNKNOWN";
@@ -106,14 +107,14 @@ export type Plan = {
 // same set, all come out in an earlier wave). Shared by startupPlan (whose
 // "needed" set is a dependency closure) and shutdownPlan/shutdownPlanExact
 // (whose "needed" set is a dependents closure, or the exact selection).
-function wavesForSet(cfg: DevctlConfig, needed: Record<string, boolean>): string[][] {
+function wavesForSet(cfg: DevctlConfig, needed: Record<string, boolean>, depsOf: (name: string) => Dependency[] = (name) => cfg.services[name]?.dependencies ?? []): string[][] {
   const indegree: Record<string, number> = {};
   const edges: Record<string, string[]> = {};
   for (const name of Object.keys(needed)) {
     indegree[name] = 0;
   }
   for (const name of Object.keys(needed)) {
-    const deps = cfg.services[name]?.dependencies ?? [];
+    const deps = depsOf(name);
     for (const dependency of deps) {
       const dep = dependencyName(dependency);
       if (!needed[dep]) {
@@ -153,6 +154,8 @@ function requireKnown(cfg: DevctlConfig, name: string): void {
 }
 
 export function startupPlan(cfg: DevctlConfig, selected: string[], profile: string): Plan {
+  const profileEnv = profile !== "" ? (cfg.profiles[profile]?.environment ?? {}) : {};
+  const depsOf = (name: string): Dependency[] => effectiveStartupDependencies(cfg, name, profileEnv);
   const needed: Record<string, boolean> = {};
   const visit = (name: string): void => {
     if (needed[name]) {
@@ -160,21 +163,21 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
     }
     requireKnown(cfg, name);
     needed[name] = true;
-    for (const dep of cfg.services[name]?.dependencies ?? []) {
+    for (const dep of depsOf(name)) {
       visit(dependencyName(dep));
     }
   };
   for (const name of selected) {
     visit(name);
   }
-  const waves = wavesForSet(cfg, needed);
+  const waves = wavesForSet(cfg, needed, depsOf);
   const steps: PlanStep[] = [];
   waves.forEach((wave, i) => {
     for (const name of wave) {
       steps.push({
         name,
         wave: i + 1,
-        dependencies: [...(cfg.services[name]?.dependencies ?? [])],
+        dependencies: [...depsOf(name)],
       });
     }
   });

@@ -56,7 +56,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 
 | What | Where |
 |------|--------|
-| Services, profiles, proxy, Google project | `.devctl/config.yaml` and modular YAML |
+| Services, profiles, HTTP recipes, proxy, Google project | `.devctl/config.yaml` and modular YAML |
 | Machine overlay (gitignored) | `.devctl/config.local.yaml` and `~/.devctl/config.local.yaml` |
 | TUI theme, keys, MCP listen flag | `~/.devctl/tui.json` (or `DEVCTL_TUI_CONFIG`) |
 | Session / lock / socket | `~/.devctl/state/<repoID>/` |

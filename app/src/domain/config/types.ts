@@ -175,6 +175,9 @@ export type UpstreamConfig = {
   // a proxy reload. Hand-written routes omit both and use `url`.
   service?: string;
   port?: string;
+  // A route synthesized from `http.<name>.expose` returns the cached recipe
+  // response instead of forwarding to a url or service.
+  recipe?: string;
 };
 
 export type RouteIdentity = {
@@ -290,6 +293,87 @@ export type AuthConfig = {
   refresh_threshold_seconds: number;
 };
 
+export const HTTP_RESERVED_OUTPUTS = ["body", "url", "status"] as const;
+export const DEFAULT_HTTP_TIMEOUT_SECONDS = 10;
+
+export type HttpRequestConfig = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+  form: Record<string, string>;
+  auth: RouteAuthConfig;
+  timeout_seconds: number;
+};
+
+export type HttpCacheConfig = {
+  jwt: boolean;
+  expires_in: string;
+};
+
+export type HttpExposeConfig = {
+  enabled: boolean;
+  host: string;
+  response_headers: Record<string, string>;
+};
+
+export type HttpRecipeConfig = {
+  request: HttpRequestConfig;
+  outputs: Record<string, string>;
+  cache: HttpCacheConfig;
+  expose: HttpExposeConfig;
+};
+
+export function emptyHttpRequest(): HttpRequestConfig {
+  return {
+    method: "",
+    url: "",
+    headers: {},
+    body: "",
+    form: {},
+    auth: emptyRouteAuth(),
+    timeout_seconds: 0,
+  };
+}
+
+export function emptyHttpCache(): HttpCacheConfig {
+  return { jwt: false, expires_in: "" };
+}
+
+export function emptyHttpExpose(): HttpExposeConfig {
+  return { enabled: false, host: "", response_headers: {} };
+}
+
+export function emptyHttpRecipe(): HttpRecipeConfig {
+  return {
+    request: emptyHttpRequest(),
+    outputs: {},
+    cache: emptyHttpCache(),
+    expose: emptyHttpExpose(),
+  };
+}
+
+export function httpCacheEnabled(recipe: HttpRecipeConfig): boolean {
+  return recipe.cache.jwt || recipe.cache.expires_in !== "";
+}
+
+export function isReservedHttpOutput(name: string): boolean {
+  return (HTTP_RESERVED_OUTPUTS as readonly string[]).includes(name);
+}
+
+export function httpRecipeEnvUrlKey(name: string): string {
+  return `DEVCTL_HTTP_${name.replaceAll("-", "_").toUpperCase()}_URL`;
+}
+
+export function httpRecipeLocalUrl(cfg: Pick<DevctlConfig, "http" | "proxy">, name: string): string {
+  const host = cfg.http[name]?.expose.host || `${name}.local`;
+  return `http://${host}:${cfg.proxy.listen.port}`;
+}
+
+export function httpTimeoutSeconds(recipe: HttpRecipeConfig): number {
+  return recipe.request.timeout_seconds > 0 ? recipe.request.timeout_seconds : DEFAULT_HTTP_TIMEOUT_SECONDS;
+}
+
 export type ShutdownConfig = {
   stop_services_on_exit?: boolean;
   grace_seconds: number;
@@ -338,6 +422,7 @@ export type DevctlConfig = {
   templates: Record<string, ServiceConfig>;
   services: Record<string, ServiceConfig>;
   tasks: Record<string, TaskConfig>;
+  http: Record<string, HttpRecipeConfig>;
   proxy: ProxyConfig;
   logs: LogConfig;
   telemetry: TelemetryConfig;
@@ -414,6 +499,7 @@ export function defaultConfig(): DevctlConfig {
     templates: {},
     services: {},
     tasks: {},
+    http: {},
     proxy: {
       enabled: false,
       gateway: false,

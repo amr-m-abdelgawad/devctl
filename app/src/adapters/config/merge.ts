@@ -14,6 +14,7 @@ import {
   decodeTask,
   decodeServiceProxy,
   decodeExpose,
+  decodeHttpRecipe,
   isRecord,
   presentKeys,
 } from "./decode.ts";
@@ -31,6 +32,7 @@ import {
   type ProfileConfig,
   type ProxyConfig,
   type RestartConfig,
+  type RouteAuthConfig,
   type RouteConfig,
   type ServiceConfig,
   type ServiceLogConfig,
@@ -38,6 +40,7 @@ import {
   type TaskConfig,
   type TelemetryConfig,
   type WebConfig,
+  type HttpRecipeConfig,
 } from "../../domain/config/types.ts";
 
 // Field names ever explicitly set, per service or template name, by any
@@ -142,6 +145,12 @@ export function applyRoot(
   }
   if (isRecord(raw.tasks)) {
     for (const [name, value] of Object.entries(raw.tasks)) cfg.tasks[name] = cfg.tasks[name] ? mergeTask(cfg.tasks[name]!, value) : decodeTask(value);
+  }
+  if (isRecord(raw.http)) {
+    for (const [name, value] of Object.entries(raw.http)) {
+      const existing = cfg.http[name];
+      cfg.http[name] = existing ? mergeHttpRecipe(existing, value) : decodeHttpRecipe(value);
+    }
   }
   if (isRecord(raw.proxy)) {
     applyProxy(cfg.proxy, raw.proxy);
@@ -292,6 +301,38 @@ function mergeProfile(base: ProfileConfig, raw: unknown): ProfileConfig {
   return {
     services: raw.services !== undefined ? asStringArray(raw.services) : base.services,
     environment: raw.environment !== undefined ? { ...base.environment, ...asStringMap(raw.environment) } : base.environment,
+  };
+}
+
+export function mergeHttpRecipe(base: HttpRecipeConfig, raw: unknown): HttpRecipeConfig {
+  if (!isRecord(raw)) {
+    return base;
+  }
+  const decoded = decodeHttpRecipe(raw);
+  const present = presentKeys(raw);
+  const reqPresent = presentKeys(raw.request);
+  const cachePresent = presentKeys(raw.cache);
+  const exposePresent = presentKeys(raw.expose);
+  return {
+    request: {
+      method: reqPresent.has("method") ? decoded.request.method : base.request.method,
+      url: reqPresent.has("url") ? decoded.request.url : base.request.url,
+      headers: reqPresent.has("headers") ? { ...base.request.headers, ...decoded.request.headers } : base.request.headers,
+      body: reqPresent.has("body") ? decoded.request.body : base.request.body,
+      form: reqPresent.has("form") ? { ...base.request.form, ...decoded.request.form } : base.request.form,
+      auth: reqPresent.has("auth") ? decoded.request.auth : base.request.auth,
+      timeout_seconds: reqPresent.has("timeout_seconds") ? decoded.request.timeout_seconds : base.request.timeout_seconds,
+    },
+    outputs: present.has("outputs") ? { ...base.outputs, ...decoded.outputs } : base.outputs,
+    cache: {
+      jwt: cachePresent.has("jwt") ? decoded.cache.jwt : base.cache.jwt,
+      expires_in: cachePresent.has("expires_in") ? decoded.cache.expires_in : base.cache.expires_in,
+    },
+    expose: {
+      enabled: exposePresent.has("enabled") || raw.expose === true || raw.expose === false ? decoded.expose.enabled : base.expose.enabled,
+      host: exposePresent.has("host") ? decoded.expose.host : base.expose.host,
+      response_headers: exposePresent.has("response_headers") ? { ...base.expose.response_headers, ...decoded.expose.response_headers } : base.expose.response_headers,
+    },
   };
 }
 
@@ -494,6 +535,7 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigPr
     });
   }
   synthesizeExposeRoutes(cfg, provenance);
+  synthesizeHttpExposeRoutes(cfg, provenance);
 }
 
 // Resolve IAP credentials-file paths to absolute and fold the proxy-level
@@ -507,11 +549,26 @@ export function applyProxyCredentials(cfg: DevctlConfig): void {
   const proxyDefault = cfg.proxy.credentials.trim() === "" ? "" : resolveUserPath(cfg.proxy.credentials.trim(), base);
   cfg.proxy.credentials = proxyDefault;
   for (const route of cfg.proxy.routes) {
-    if (route.auth.client_id.trim() === "") {
-      continue;
-    }
-    const own = (route.auth.credentials ?? "").trim();
-    route.auth.credentials = own === "" ? proxyDefault : resolveUserPath(own, base);
+    applyCredentialsToAuth(route.auth, proxyDefault, base);
+  }
+  for (const recipe of Object.values(cfg.http)) {
+    applyCredentialsToAuth(recipe.request.auth, proxyDefault, base);
+  }
+}
+
+function applyCredentialsToAuth(auth: RouteAuthConfig, proxyDefault: string, base: string): void {
+  if (auth.client_id.trim() === "") {
+    return;
+  }
+  const own = (auth.credentials ?? "").trim();
+  auth.credentials = own === "" ? proxyDefault : resolveUserPath(own, base);
+}
+
+function appendSynthesizedRoute(cfg: DevctlConfig, route: RouteConfig, via: string, provenance?: ConfigProvenance): void {
+  const index = cfg.proxy.routes.length;
+  cfg.proxy.routes.push(route);
+  if (provenance) {
+    recordProvenance(provenance, route, `synthesized from ${via}`, "synthesized", `proxy.routes.${index}`);
   }
 }
 
@@ -539,18 +596,36 @@ function synthesizeExposeRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance
     if (!exposed || claimed.has(name)) {
       continue;
     }
-    const route: RouteConfig = {
+    const via = svc.expose.enabled === true ? `services.${name}.expose` : "proxy.gateway";
+    appendSynthesizedRoute(cfg, {
       name,
       match: { host: svc.expose.host || `${name}.local`, path: "" },
       upstream: { url: "", service: name, port: svc.expose.port || "http" },
       auth: emptyRouteAuth(),
-    };
-    const index = cfg.proxy.routes.length;
-    cfg.proxy.routes.push(route);
+    }, via, provenance);
     claimed.add(name);
-    if (provenance) {
-      const via = svc.expose.enabled === true ? `services.${name}.expose` : "proxy.gateway";
-      recordProvenance(provenance, route, `synthesized from ${via}`, "synthesized", `proxy.routes.${index}`);
+  }
+}
+
+function synthesizeHttpExposeRoutes(cfg: DevctlConfig, provenance?: ConfigProvenance): void {
+  if (!cfg.proxy.enabled) {
+    return;
+  }
+  const claimed = new Set(cfg.proxy.routes.map((route) => route.name));
+  for (const name of Object.keys(cfg.http).sort()) {
+    const recipe = cfg.http[name];
+    if (recipe?.expose.enabled) {
+      const routeName = claimed.has(`${name}.local`) ? `http:${name}` : `${name}.local`;
+      if (!claimed.has(routeName)) {
+        appendSynthesizedRoute(cfg, {
+          name: routeName,
+          match: { host: recipe.expose.host || `${name}.local`, path: "" },
+          upstream: { url: "", recipe: name },
+          auth: emptyRouteAuth(),
+          response_headers: { ...recipe.expose.response_headers },
+        }, `http.${name}.expose`, provenance);
+        claimed.add(routeName);
+      }
     }
   }
 }

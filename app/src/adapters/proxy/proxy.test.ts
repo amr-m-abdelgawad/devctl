@@ -212,6 +212,48 @@ describe("proxy", () => {
     }
   });
 
+  test("serves a cached http recipe and answers CORS preflight without fetching", async () => {
+    let fetches = 0;
+    const recipes = {
+      ensure: async () => {
+        fetches += 1;
+        return { status: 200, body: "{\"access_token\":\"abc\"}", contentType: "application/json", values: { body: "{\"access_token\":\"abc\"}", status: "200", token: "abc" } };
+      },
+      snapshot: () => undefined,
+      start: () => {},
+      stop: () => {},
+      reset: () => {},
+    };
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", () => resolve()));
+    const reservedAddr = reserved.address();
+    const proxyPort = typeof reservedAddr === "object" && reservedAddr ? reservedAddr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({
+      name: "login.local",
+      match: { host: "", path: "" },
+      upstream: { url: "", recipe: "login" },
+      auth: NONE_AUTH,
+      response_headers: { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS" },
+    });
+    const server = new ProxyServer(cfg, undefined, undefined, undefined, undefined, [], undefined, undefined, recipes);
+    await server.start();
+    try {
+      const preflight = await fetch(`http://127.0.0.1:${proxyPort}/`, { method: "OPTIONS", headers: { "Access-Control-Request-Method": "GET", Origin: "http://app" } });
+      expect(preflight.status).toBe(204);
+      expect(fetches).toBe(0);
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/`);
+      expect(resp.status).toBe(200);
+      expect(await resp.text()).toBe("{\"access_token\":\"abc\"}");
+      expect(resp.headers.get("access-control-allow-origin")).toBe("*");
+      expect(fetches).toBe(1);
+    } finally {
+      await server.stop();
+    }
+  });
+
   test("forwards a non-preflight OPTIONS to the upstream (still injecting headers)", async () => {
     let upstreamHit = false;
     const { proxyPort, close } = await setupProxy(

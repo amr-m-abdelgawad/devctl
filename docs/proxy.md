@@ -162,6 +162,10 @@ A hand-written route or `proxy:` fragment of the same name always wins over a sy
 
 **Auth is always `none` on synthesized routes.** An internal service-to-service hop never silently acquires a service's identity token — injecting credentials stays an explicit choice you make with a hand-written route.
 
+### HTTP recipe endpoints
+
+`http.<name>.expose` synthesizes a **recipe** route (`upstream.recipe`, inbound auth `none`). It does not forward the caller's body. Any non-preflight request returns the cached outbound recipe response (status, content-type, body). CORS preflight is answered locally and does not trigger the outbound call — see [Custom HTTP APIs](http.md).
+
 ### Referencing an exposed service — `${services.<name>.url}`
 
 `${services.<name>.url}` and `${services.<name>.host}` give a service a stable logical address in another service's environment:
@@ -263,4 +267,5 @@ A missing `identity.type` on an IAP route is a configuration error.
 - [IAP](iap.md)
 - [Impersonation](impersonation.md)
 - [Security](security.md)
+- [Custom HTTP APIs](http.md)
 - [TUI](tui.md)

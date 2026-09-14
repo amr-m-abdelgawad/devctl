@@ -13,7 +13,7 @@ Not warned about — rejected, with the offending path named. These are the
 complete allowlists.
 
 **Top level:** `version` `project` `google` `profiles` `templates` `services`
-`tasks` `proxy` `logs` `auth` `shutdown` `ui` `secrets` `doctor` `plugins`
+`tasks` `http` `proxy` `logs` `auth` `shutdown` `ui` `secrets` `doctor` `plugins`
 `environment` `telemetry` `web`
 
 **Service** (and `templates.<name>`, same shape): `extends` `description`
@@ -41,8 +41,12 @@ complete allowlists.
 | `proxy.token_endpoint` | `enabled` `host` `port` |
 | `route` | `name` `transport` `listen` `match` `upstream` `auth` `response_headers` |
 | `route.match` | `host` `path` |
-| `route.upstream` | `url` `service` `port` |
+| `route.upstream` | `url` `service` `port` `recipe` |
 | `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
+| `http.<name>` | `request` `outputs` `cache` `expose` |
+| `http.<name>.request` | `method` `url` `headers` `body` `form` `auth` `timeout_seconds` |
+| `http.<name>.cache` | `jwt` `expires_in` |
+| `http.<name>.expose` | `enabled` `host` `response_headers` (or the `true`/`false` shorthand) |
 | `logs` | `max_memory_events` `persistence` |
 | `logs.persistence` | `enabled` `directory` `retention_days` `max_session_logs` |
 | `telemetry` | `otlp` |
@@ -93,27 +97,41 @@ belong under `service.container`, not directly on the service.
 ## References
 
 `${services.<name>.ports.<portname>}`, `${services.<name>.port}`,
-`${services.<name>.url}`, `${services.<name>.host}`, and `${identity.user}` (the
-running developer's detected Google email) are the supported forms. Anything
-else — `${env.FOO}`, `${project.name}` — throws.
+`${services.<name>.url}`, `${services.<name>.host}`, `${identity.user}` (the
+running developer's detected Google email), and `${http.<name>.<output>}`
+(a named HTTP recipe snapshot — reserved outputs are `body`, `url`, `status`)
+are the supported forms in service/task/profile env. Anything else —
+`${env.FOO}`, `${project.name}` — throws there.
 
 - The referenced service must exist and the named port must be defined, or
   validation fails with *unresolvable reference*.
+- `${http.<name>.<output>}` must name a defined recipe and output (or a
+  reserved output). Named outputs must not use the reserved names.
 - References resolve inside service `environment` values, `defaults`, profile
   environments and dotenv values, before the process starts.
 - Use them for every cross-service URL. Hard-coded ports silently break when a
   port changes or is switched to `auto`.
 
+HTTP **recipe request** fields (`url`, `headers`, `form`, `body`) are the
+exception: they also expand `${token}` (the token minted for that recipe's
+`auth` block), `${NAME}`, and `${env.NAME}` from the supervisor process
+environment at fetch time. `${token}` requires `request.auth.type` `iap` or
+`service_account`. Service env still rejects `${env.NAME}` and `${token}`.
+
 ## Dependencies
 
 - Must name a service that exists.
 - A service may not depend on itself.
-- Cycles are rejected: *dependency cycle: a → b → a*.
+- Cycles are rejected: *dependency cycle: a → b → a*. Recipe-to-recipe cycles
+  are rejected separately: *http recipe cycle: a → b → a*.
 - Direction: `dependencies` means "start these first". `start x` walks **up**
   and starts x's dependencies; `stop x` walks **down** and stops x's
-  *dependents*, never its dependencies.
+  *dependents*, never its dependencies. Implicit recipe→service edges are
+  startup-only: they do not cascade on stop.
 - A string dependency uses `service_started`. Use `{ service: db, condition:
   service_healthy }` to wait for the dependency's configured health check.
+  A recipe that interpolates `${services.X.url}` implies the same condition
+  (`service_healthy` when X has a health check, otherwise `service_started`).
 
 ## Commands and `shell`
 
@@ -198,11 +216,12 @@ Anything else is rejected.
 - `proxy.token_endpoint.host` must be loopback; `0.0.0.0` and `::` are rejected.
 - `telemetry.otlp` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` / `OTEL_SERVICE_NAME` only when those variables are unset. JSON only — no protobuf or gRPC.
 - `web` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected). Default listen port is **18900**. It must not collide with `proxy.listen`, `proxy.token_endpoint`, `telemetry.otlp`, or a gRPC route listen port. The listener serves the local telemetry UI (`GET /api/*`) and loopback lifecycle control (`POST /api/control`, same mutating MCP tools except `exec_service`). Request `Host` must be a loopback name; the port in `Host` may differ from the listen port (WSL / Dev Container forwarding).
-- Every route needs a `name` and either `upstream.url` or `upstream.service`.
-  A service reference must name a real service and an existing port (default
-  port name is `http`). `service.expose` and `proxy.gateway` synthesize
-  service-reference routes; they do nothing unless `proxy.enabled` is true.
-  A hand-written route of the same name wins.
+- Every route needs a `name` and exactly one of `upstream.url`,
+  `upstream.service`, or `upstream.recipe`. A service reference must name a
+  real service and an existing port (default port name is `http`).
+  `service.expose` and `proxy.gateway` synthesize service-reference routes;
+  `http.<name>.expose` synthesizes a recipe route. They do nothing unless
+  `proxy.enabled` is true. A hand-written route of the same name wins.
 - **Route names must be unique** — including names generated from per-service
   `proxy` fragments.
 - `auth.type: iap` requires **both** `audience` and `auth.identity.type`. A
@@ -242,6 +261,25 @@ stripping: the matched path is forwarded to the upstream as-is.
 
 ---
 
+## HTTP recipes (`http.<name>`)
+
+Named outbound calls the supervisor makes — not reverse-proxy forwards. Full
+shape and Apigee example: [Custom HTTP APIs](../../../docs/http.md).
+
+- `request.url` is required.
+- `body` and `form` cannot both be set. `form` is encoded as
+  `application/x-www-form-urlencoded`.
+- `outputs` keys must not be `body`, `url`, or `status` (those are reserved).
+- `expose.enabled` (including `expose: true`) requires `proxy.enabled`.
+- `${token}` in the recipe request requires `request.auth.type` `iap` or
+  `service_account`. When `Authorization` is already set on the recipe,
+  Bearer is not injected (Apigee Basic + `subject_token=${token}`).
+- A recipe cannot reference itself. Recipe-to-recipe cycles fail validate.
+- Modular files: `.devctl/http/<name>.yaml` — filename is the recipe name,
+  body only (no `http:` wrapper).
+
+---
+
 ## Modular layout
 
 When the main file is `.devctl/config.yaml`, these merge in automatically:
@@ -249,12 +287,13 @@ When the main file is `.devctl/config.yaml`, these merge in automatically:
 ```
 .devctl/services/<name>.yaml   → services.<name>          (FILENAME is the key)
 .devctl/profiles/<name>.yaml   → profiles.<name>
+.devctl/http/<name>.yaml       → http.<name>              (FILENAME is the key)
 .devctl/proxy/routes.yaml      → proxy.routes             (see the wrapper below)
 ```
 
-A service or profile file contains that object's body **only** — no `services:`
-wrapper, no `version:`. Getting this wrong reads oddly: a `services:` wrapper
-inside `.devctl/services/api.yaml` reports
+A service, profile, or HTTP recipe file contains that object's body **only** —
+no `services:` / `http:` wrapper, no `version:`. Getting this wrong reads
+oddly: a `services:` wrapper inside `.devctl/services/api.yaml` reports
 `unknown fields: services.api.services`.
 
 `proxy/routes.yaml` is the exception: it accepts either a full `proxy:` wrapper
@@ -313,7 +352,8 @@ replace it, and it does not reorder anything.
 
 Runtime values devctl injects: `SERVICE_PORT`, `SERVICE_HOST`,
 `DEVCTL_PROXY_URL`, `DEVCTL_SERVICE_NAME`, `DEVCTL_ENVIRONMENT`,
-`DEVCTL_TOKEN_URL`, `DEVCTL_INTERNAL_TOKEN`. Do not define these yourself.
+`DEVCTL_TOKEN_URL`, `DEVCTL_INTERNAL_TOKEN`, and `DEVCTL_HTTP_<NAME>_URL` for
+each exposed HTTP recipe (host services only). Do not define these yourself.
 
 ---
 
@@ -352,6 +392,13 @@ Every message names its path. Fix the path it names.
 | `services.X.command contains shell metacharacters` | add `shell: true` or use argv |
 | `services.X.dependencies: unknown service "Y"` | typo, or Y lives in a file you did not create |
 | `dependency cycle: a → b → a` | remove an edge |
+| `http recipe cycle: a → b → a` | two recipes interpolate each other |
+| `http.X.request.url is required` | recipe has no url |
+| `http.X.request cannot set both body and form` | pick one |
+| `http.X.outputs.Y is reserved` | do not name outputs `body`, `url`, or `status` |
+| `http.X.expose requires proxy.enabled` | expose needs a running proxy |
+| `http.X: ${token} requires request.auth.type iap or service_account` | minting auth is required for `${token}` |
+| `proxy.routes[i].upstream requires either url, service, or recipe` | every route needs exactly one upstream kind |
 | `services.X.health.url is required for http health checks` | add `url`, or change the type |
 | `services.X.identity.service_account must be an email` | placeholder left unresolved |
 | `services.X.environment.K: unresolvable reference ${…}` | referenced service or port name does not exist |

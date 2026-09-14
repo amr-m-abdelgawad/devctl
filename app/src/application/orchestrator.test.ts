@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../domain/config/types.ts";
+import { defaultConfig, emptyHttpRecipe, emptyService } from "../domain/config/types.ts";
 import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { HealthCheckerFactory, HealthCheckResult } from "../ports/health-checker.ts";
@@ -64,6 +64,7 @@ function harness(checkers: HealthCheckerFactory = { lookup: () => undefined }) {
     containerPrefix: "devctl-test-", logs: { append: () => {} }, bus: new Bus(32), healthCheckers: checkers,
     prepareServiceIdentity: async () => {},
     resolveServiceExecution: async (_name, _svc, profile, env) => ({ env: { ...env, PROFILE: profile }, workDir: "/work" }),
+    ensureHttpRecipes: async () => {},
     detectGoogle: async () => ({ adcAvailable: true }), startProxy: async () => {},
     fail: async (name) => {
       orch.health.clearHealthWatch(name);
@@ -109,6 +110,26 @@ describe("ServiceOrchestrator", () => {
     expect(processes.started.map((s) => s.name)).toEqual(["api"]);
     expect(processes.hooks).toEqual(["api:pre_start", "api:post_start"]);
     expect(assigned).toEqual(["api"]);
+  });
+
+  test("ensures http recipes before resolving the environment snapshot", async () => {
+    const { orch, session } = harness();
+    const order: string[] = [];
+    session.ensureHttpRecipes = async () => {
+      order.push("ensure");
+    };
+    session.resolveServiceExecution = async () => {
+      order.push("resolve");
+      return { env: {}, workDir: "/work" };
+    };
+    session.cfg.http.login = {
+      ...emptyHttpRecipe(),
+      request: { ...emptyHttpRecipe().request, method: "GET", url: "https://idp.example/token" },
+      outputs: { token: "access_token" },
+    };
+    session.cfg.services.api!.environment.vars.TOKEN = "${http.login.token}";
+    await orch.start({ services: ["api"] });
+    expect(order).toEqual(["ensure", "resolve"]);
   });
 
   test("container launch uses its runtime configuration and process health", async () => {

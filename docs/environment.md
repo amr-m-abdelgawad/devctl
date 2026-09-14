@@ -41,8 +41,9 @@ Injected when applicable:
 - `DEVCTL_ENVIRONMENT`
 - `DEVCTL_USER_EMAIL` — the developer's own detected Google identity (gcloud/ADC), so a service can key on who is running it without a hardcoded, team-unfriendly value. Omitted when no identity is detected.
 - `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
+- `DEVCTL_HTTP_<NAME>_URL` for each exposed `http` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
 
-References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). `${env.NAME}` is rejected there. IAP route `auth.client_secret` is the exception: `${NAME}` and `${env.NAME}` are expanded from the process environment when the token is minted, not at config load.
+References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). `${http.<name>.<output>}` resolves from a recipe snapshot after the daemon has fetched that recipe; `${http.name.url}` is the local expose URL. `${env.NAME}` is rejected in service env. Recipe `url` / `headers` / `form` / `body` are the exception: `${NAME}` and `${env.NAME}` expand from the supervisor process environment at fetch time. IAP route `auth.client_secret` is the other exception: `${NAME}` and `${env.NAME}` are expanded from the process environment when the token is minted, not at config load.
 
 `environment.required` on a service fails start if those keys are still empty after the merge.
 
@@ -64,5 +65,6 @@ flowchart LR
 ## Related
 
 - [Services](services.md)
+- [Custom HTTP APIs](http.md)
 - [Configuration](configuration.md)
 - [Security](security.md)

@@ -87,7 +87,7 @@ describe("config validate", () => {
       upstream: { url: "", service: "", port: "" },
       auth: emptyRouteAuth(),
     });
-    expect(validate(cfg)).toContain("proxy.routes[0].upstream requires either url or service");
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream requires either url, service, or recipe");
   });
 
   test("rejects IAP routes without identity type", () => {
@@ -331,5 +331,67 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("plugins.0.path"))).toBe(false);
     cfg.plugins = [{ path: "./missing.ts" }];
     expect(validate(cfg)).toContain("plugins.0.path does not exist: ./missing.ts");
+  });
+
+  test("rejects reserved http outputs, expose without proxy, missing outputs, and recipe cycles", () => {
+    const missing = withService("api");
+    missing.services.api!.environment.vars.TOKEN = "${http.login.token}";
+    expect(validate(missing).some((issue) => issue.includes("unresolvable reference ${http.login.token}"))).toBe(true);
+
+    const reserved = withService("api");
+    reserved.http.login = {
+      request: { method: "POST", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 10 },
+      outputs: { body: "access_token" },
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    expect(validate(reserved)).toContain("http.login.outputs.body is reserved");
+
+    const expose = withService("api");
+    expose.http.login = {
+      request: { method: "GET", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 0 },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: true, host: "", response_headers: {} },
+    };
+    expect(validate(expose)).toContain("http.login.expose requires proxy.enabled");
+
+    const cycle = withService("api");
+    const auth = emptyRouteAuth();
+    cycle.http.a = {
+      request: { method: "GET", url: "https://a.example/${http.b.token}", headers: {}, body: "", form: {}, auth, timeout_seconds: 0 },
+      outputs: { token: "access_token" },
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    cycle.http.b = {
+      request: { method: "GET", url: "https://b.example/${http.a.token}", headers: {}, body: "", form: {}, auth, timeout_seconds: 0 },
+      outputs: { token: "access_token" },
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    expect(validate(cycle).some((issue) => issue.includes("http recipe cycle"))).toBe(true);
+  });
+
+  test("rejects both body and form, and ${token} without minting auth", () => {
+    const cfg = withService("api");
+    cfg.http.login = {
+      request: {
+        method: "POST",
+        url: "https://idp.example/token",
+        headers: {},
+        body: "raw",
+        form: { grant_type: "client_credentials" },
+        auth: emptyRouteAuth(),
+        timeout_seconds: 0,
+      },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    expect(validate(cfg)).toContain("http.login.request cannot set both body and form");
+    cfg.http.login.request.body = "";
+    cfg.http.login.request.form = { subject_token: "${token}" };
+    expect(validate(cfg)).toContain("http.login: ${token} requires request.auth.type iap or service_account");
   });
 });

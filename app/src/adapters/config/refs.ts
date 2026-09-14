@@ -1,4 +1,14 @@
+import { findTemplateRefs } from "../../domain/config/env-ref.ts";
+import { httpOutputDefined, isProcessEnvRef, parseHttpRef, processEnvName } from "../../domain/http/recipes.ts";
 import { firstPort, namedPort, type DevctlConfig, type ServiceConfig } from "../../domain/config/types.ts";
+
+export type HttpValueMap = Record<string, Record<string, string>>;
+
+export type ResolveExtras = {
+  http?: HttpValueMap;
+  token?: string;
+  processEnv?: Record<string, string | undefined>;
+};
 
 // The direct loopback port for a service: an assigned http port, else the
 // first assigned port, else a declared non-auto port. Undefined when only an
@@ -25,6 +35,7 @@ export function resolveString(
   cfg: DevctlConfig,
   assigned: Record<string, Record<string, number>>,
   userEmail = "",
+  extras: ResolveExtras = {},
 ): string {
   let remaining = value;
   let out = "";
@@ -39,24 +50,67 @@ export function resolveString(
       throw new Error(`unclosed environment reference in "${value}"`);
     }
     const ref = remaining.slice(start + 2, start + end);
-    out += resolveRef(ref, cfg, assigned, userEmail);
+    out += resolveRef(ref, cfg, assigned, userEmail, extras);
     remaining = remaining.slice(start + end + 1);
   }
 }
 
-function resolveRef(ref: string, cfg: DevctlConfig, assigned: Record<string, Record<string, number>>, userEmail: string): string {
+function resolveRef(
+  ref: string,
+  cfg: DevctlConfig,
+  assigned: Record<string, Record<string, number>>,
+  userEmail: string,
+  extras: ResolveExtras,
+): string {
   const parts = ref.split(".");
-  // `${identity.user}` resolves to the developer's own detected Google identity
-  // (empty when none is detected). Lets a shared, committed config map the
-  // running developer's email onto a service's own variable name without a
-  // hardcoded, team-unfriendly value.
+  if (ref === "token") {
+    if (extras.token === undefined) {
+      throw new Error(`unsupported reference \${${ref}}`);
+    }
+    return extras.token;
+  }
   if (parts[0] === "identity") {
     if (parts.length === 2 && parts[1] === "user") {
       return userEmail;
     }
     throw new Error(`unsupported reference \${${ref}}`);
   }
-  if (parts.length < 3 || parts[0] !== "services") {
+  if (parts[0] === "http") {
+    return resolveHttpRef(ref, extras.http);
+  }
+  if (parts[0] === "services") {
+    return resolveServiceRef(ref, parts, cfg, assigned);
+  }
+  if (extras.processEnv && isProcessEnvRef(ref)) {
+    const name = processEnvName(ref);
+    const resolved = extras.processEnv[name];
+    if (resolved === undefined || resolved === "") {
+      throw new Error(`unresolvable reference \${${ref}}: environment ${name} is empty`);
+    }
+    return resolved;
+  }
+  throw new Error(`unsupported reference \${${ref}}`);
+}
+
+function resolveHttpRef(ref: string, http: HttpValueMap | undefined): string {
+  const parsed = parseHttpRef(ref);
+  if (!parsed) {
+    throw new Error(`unsupported reference \${${ref}}`);
+  }
+  const values = http?.[parsed.recipe];
+  if (!values || values[parsed.output] === undefined) {
+    throw new Error(`unresolvable reference \${${ref}}`);
+  }
+  return values[parsed.output] ?? "";
+}
+
+function resolveServiceRef(
+  ref: string,
+  parts: string[],
+  cfg: DevctlConfig,
+  assigned: Record<string, Record<string, number>>,
+): string {
+  if (parts.length < 3) {
     throw new Error(`unsupported reference \${${ref}}`);
   }
   const svcName = parts[1] ?? "";
@@ -120,39 +174,36 @@ export function resolveEnvMap(
   cfg: DevctlConfig,
   assigned: Record<string, Record<string, number>>,
   userEmail = "",
+  extras: ResolveExtras = {},
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input)) {
-    out[key] = resolveString(value, cfg, assigned, userEmail);
+    out[key] = resolveString(value, cfg, assigned, userEmail, extras);
   }
   return out;
 }
 
 export function findRefs(value: string): string[] {
-  const refs: string[] = [];
-  let remaining = value;
-  for (;;) {
-    const start = remaining.indexOf("${");
-    if (start < 0) {
-      return refs;
-    }
-    const end = remaining.slice(start).indexOf("}");
-    if (end < 0) {
-      return refs;
-    }
-    refs.push(remaining.slice(start + 2, start + end));
-    remaining = remaining.slice(start + end + 1);
-  }
+  return findTemplateRefs(value);
 }
 
-export function refResolvable(ref: string, cfg: DevctlConfig): boolean {
+export function refResolvable(ref: string, cfg: DevctlConfig, opts: { allowProcessEnv?: boolean; allowToken?: boolean } = {}): boolean {
   const parts = ref.split(".");
-  if (parts.length < 2) {
+  if (parts.length < 1) {
     return false;
   }
-  // ${identity.user} is resolved at service start from the detected identity.
+  if (ref === "token") {
+    return opts.allowToken === true;
+  }
   if (parts[0] === "identity") {
     return parts.length === 2 && parts[1] === "user";
+  }
+  if (parts[0] === "http") {
+    const parsed = parseHttpRef(ref);
+    return parsed !== undefined && httpOutputDefined(cfg, parsed.recipe, parsed.output);
+  }
+  if (opts.allowProcessEnv && isProcessEnvRef(ref)) {
+    return true;
   }
   if (parts[0] !== "services" || parts.length < 3) {
     return false;

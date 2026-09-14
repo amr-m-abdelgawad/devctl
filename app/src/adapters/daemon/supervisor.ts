@@ -8,6 +8,7 @@ import {
   graceSeconds,
   validateConfigText,
   stopOnExit,
+  dependencyName,
 } from "../config/index.ts";
 import { claimIfAlreadyUp as claimAdoptedService, recoverSession as recoverPersistedSession, type RecoverHost } from "./recover.ts";
 import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, pluginMtimes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
@@ -27,6 +28,7 @@ import type { McpHost, McpListenerFactory } from "../../ports/mcp-host.ts";
 import type { WebListenerFactory } from "../../ports/web-host.ts";
 import { configSnapshotDiff } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
+import { implicitServiceDependencies, recipesNeededForEnv } from "../../domain/http/recipes.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import { DevctlError, KindGeneral, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../../shared/errors.ts";
@@ -37,6 +39,7 @@ import {
   newEvent,
 } from "../../shared/events.ts";
 import { type GoogleStatus } from "../google/google.ts";
+import { TokenManager } from "../google/token.ts";
 import type { HealthCheckerFactory } from "../../ports/health-checker.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
@@ -65,7 +68,8 @@ import {
 import { randomSecret, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
-import type { TokenManager } from "../google/token.ts";
+import { RecipeRuntime } from "../http/runtime.ts";
+import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
@@ -78,6 +82,7 @@ export class Supervisor {
   private readonly spans: SpanStore;
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
+  private readonly recipes: HttpRecipeRuntime;
   private readonly detector: Detector;
   private readonly env: EnvironmentBridge;
   private readonly proxy: ProxyCoordinator;
@@ -159,6 +164,15 @@ export class Supervisor {
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;
     this.tokens = deps.tokens;
+    this.recipes = new RecipeRuntime({
+      cfg: () => this.cfg,
+      tokens: this.tokens,
+      clock: this.clock,
+      userEmail: () => this.identity.identityCache.user,
+      ports: () => this.ports,
+      processEnv: () => process.env,
+      log: (message) => this.log("devctl", "INFO", message),
+    });
     this.telemetry = new TelemetryCoordinator({
       cfg: () => this.cfg,
       logs: this.logs,
@@ -169,6 +183,7 @@ export class Supervisor {
       cfg: () => this.cfg,
       ports: () => this.ports,
       tokens: this.tokens,
+      recipes: this.recipes,
       logs: this.logs,
       spans: this.spans,
       bus: this.bus,
@@ -186,6 +201,7 @@ export class Supervisor {
       boundTokenURL: () => this.proxy.boundTokenURL,
       internalTok: () => this.internalTok,
       tokens: this.tokens,
+      recipes: this.recipes,
       environmentSources: () => this.registry?.environmentSources,
       otlpEndpoint: () => this.telemetry.endpoint(),
     });
@@ -304,6 +320,7 @@ export class Supervisor {
       get tokens() { return self.tokens; },
       get logs() { return self.logs; },
       get proxy() { return self.proxy.instance; },
+      get recipes() { return self.recipes; },
       persistState: () => self.persistState(),
       log: (service, level, message) => self.log(service, level, message),
       refreshIdentity: () => self.refreshIdentity(),
@@ -566,6 +583,11 @@ export class Supervisor {
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot)}-`; },
       prepareServiceIdentity: (name, svc) => self.identity.prepareServiceIdentity(name, svc),
       resolveServiceExecution: (name, svc, profile, env, clientEnv, includeProcess) => self.env.resolveServiceExecution(name, svc, profile, env, clientEnv, includeProcess),
+      ensureHttpRecipes: async (names) => {
+        for (const recipeName of names) {
+          await self.recipes.ensure(recipeName);
+        }
+      },
       detectGoogle: (project) => self.detectGoogleFn(project),
       startProxy: () => self.startProxy(),
       fail: (name, err) => self.fail(name, err),
@@ -607,8 +629,13 @@ export class Supervisor {
   async runTask(name: string, clientEnv: Record<string, string>): Promise<{ task: string; code: number; stdout: string; stderr: string }> {
     const task = this.cfg.tasks[name];
     if (!task) throw newError(KindGeneral, `unknown task ${name}`);
-    if (task.dependencies.length > 0) {
-      await this.start({ services: task.dependencies, client_env: clientEnv });
+    const implicit = implicitServiceDependencies(this.cfg, task.environment).map((dep) => dependencyName(dep));
+    const deps = [...new Set([...task.dependencies, ...implicit])];
+    if (deps.length > 0) {
+      await this.start({ services: deps, client_env: clientEnv });
+    }
+    for (const recipeName of recipesNeededForEnv(this.cfg, task.environment)) {
+      await this.recipes.ensure(recipeName);
     }
     const serviceCfg: ServiceConfig = { ...emptyService(), command: task.command, shell: task.shell, working_dir: task.working_dir, dependencies: task.dependencies, environment: task.environment };
     const { env, workDir } = await this.env.resolveTaskEnvironment(name, serviceCfg, clientEnv);
@@ -621,6 +648,9 @@ export class Supervisor {
     if (!svc) throw newError(KindServiceNotFound, `unknown service ${service}`);
     const profile = this.env.serviceProfile.get(service) ?? this.env.profile;
     const profileEnv = profile !== "" ? profileEnvironment(this.cfg, profile) : this.env.profileEnv;
+    for (const recipeName of recipesNeededForEnv(this.cfg, svc.environment, profileEnv)) {
+      await this.recipes.ensure(recipeName);
+    }
     const { env, workDir } = await this.env.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv, !svc.container);
     if (printEnv) return { service, code: 0, stdout: "", stderr: "", environment: env };
     if (command.length === 0) throw newError(KindGeneral, "exec command is required");
@@ -753,6 +783,7 @@ export class Supervisor {
       await this.stop([]);
     }
     this.orchestrator.health.dispose();
+    this.recipes.stop();
     await this.stopProxy();
     await this.telemetry.stop();
     this.spans.close();

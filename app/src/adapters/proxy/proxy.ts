@@ -11,7 +11,9 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import { formatTraceparent } from "../../domain/logs/ids.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import { type Detector } from "../secrets/detector.ts";
-import { type TokenManager, iapOAuthClientRef } from "../google/token.ts";
+import { applyExtraAuthHeaders, mintAuthToken } from "../http/identity.ts";
+import { type TokenManager } from "../google/token.ts";
+import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
@@ -99,6 +101,7 @@ export class ProxyServer {
   // live assigned-ports map, so a synthesized `expose`/`gateway` route follows
   // a service that restarts on a new auto-assigned port without a proxy reload.
   private readonly resolvePort?: (service: string, port: string) => number | undefined;
+  private readonly recipes?: HttpRecipeRuntime;
   private middleware: ProxyMiddleware[];
   private server?: Server;
   private running = false;
@@ -115,6 +118,7 @@ export class ProxyServer {
     middleware: ProxyMiddleware[] = [],
     resolvePort?: (service: string, port: string) => number | undefined,
     spans?: SpanStore,
+    recipes?: HttpRecipeRuntime,
   ) {
     this.cfg = cfg;
     this.tokens = tokens;
@@ -124,6 +128,7 @@ export class ProxyServer {
     this.middleware = middleware;
     this.resolvePort = resolvePort;
     this.spans = spans;
+    this.recipes = recipes;
   }
 
   // The effective upstream base URL for a route. A hand-written route uses its
@@ -268,6 +273,11 @@ export class ProxyServer {
     };
 
     try {
+      if ((route.upstream.recipe ?? "") !== "") {
+        socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        finish(502, "http recipe routes do not support protocol upgrade");
+        return;
+      }
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
         const lower = key.toLowerCase();
@@ -373,12 +383,16 @@ export class ProxyServer {
     // preflight. Only a genuine preflight (Access-Control-Request-Method) on a
     // route that configures response_headers short-circuits; any other OPTIONS
     // is forwarded normally.
-    if (method === "OPTIONS" && req.headers["access-control-request-method"] !== undefined && Object.keys(route.response_headers ?? {}).length > 0) {
+    if (method === "OPTIONS" && req.headers["access-control-request-method"] !== undefined && (Object.keys(route.response_headers ?? {}).length > 0 || (route.upstream.recipe ?? "") !== "")) {
       this.applyResponseHeaders(res, route);
       res.statusCode = 204;
       res.setHeader("content-length", "0");
       res.end();
       this.recordRequest({ timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath, route: route.name, identity: "", status: 204, durationMs: Date.now() - started, traceId: ctx.traceId, spanId: ctx.spanId, parentSpanId: ctx.parentSpanId });
+      return;
+    }
+    if ((route.upstream.recipe ?? "") !== "") {
+      await this.serveRecipe(route, res, method, recordedPath, requestID, started, ctx);
       return;
     }
     const ident = fromRoute(route.auth);
@@ -474,35 +488,99 @@ export class ProxyServer {
       const detail = err instanceof Error ? err.message : "proxy error";
       errorDetail = detail;
       status = 502;
-      this.logs?.append({
-        timestamp: new Date().toISOString(),
-        service: "proxy",
-        source: "proxy",
-        level: "ERROR",
-        message: `${method} ${path} route=${route.name} identity=${identityKey} error=${detail}`,
-        pid: 0,
-        request_id: requestID,
-        identity: identityKey,
-      });
+      this.logProxyFailure(method, path, route.name, requestID, detail, "", identityKey);
       // Apply CORS/response headers to the error too, so the browser can read it.
       this.applyResponseHeaders(res, route);
       writePlain(res, 502, "proxy error");
     } finally {
-      this.recordRequest({
-        timestamp: new Date().toISOString(),
-        requestId: requestID,
-        method,
-        path: recordedPath,
-        route: route.name,
-        identity: identityKey,
-        status,
-        durationMs: Date.now() - started,
-        error: errorDetail,
-        traceId: ctx.traceId,
-        spanId: ctx.spanId,
-        parentSpanId: ctx.parentSpanId,
-      });
+      this.recordProxyHit(method, recordedPath, route.name, requestID, started, status, identityKey, errorDetail, ctx);
     }
+  }
+
+  private async serveRecipe(
+    route: RouteConfig,
+    res: ServerResponse,
+    method: string,
+    recordedPath: string,
+    requestID: string,
+    started: number,
+    ctx: { traceId?: string; spanId?: string; parentSpanId?: string },
+  ): Promise<void> {
+    const recipeName = route.upstream.recipe ?? "";
+    let status = 0;
+    let errorDetail: string | undefined;
+    try {
+      if (!this.recipes) {
+        throw newError(KindProxy, `route ${route.name} addresses http recipe ${recipeName} but this proxy has no recipe runtime`);
+      }
+      const snapshot = await this.recipes.ensure(recipeName);
+      res.statusCode = snapshot.status;
+      status = snapshot.status;
+      if (snapshot.contentType !== "") {
+        res.setHeader("content-type", snapshot.contentType);
+      }
+      this.applyResponseHeaders(res, route);
+      res.end(snapshot.body);
+      const duration = Date.now() - started;
+      this.logs?.append({
+        timestamp: new Date().toISOString(),
+        service: "proxy",
+        source: "proxy",
+        level: snapshot.status >= 400 ? "WARN" : "INFO",
+        message: `${method} ${recordedPath} route=${route.name} recipe=${recipeName} status=${snapshot.status} duration=${duration}ms`,
+        pid: 0,
+        request_id: requestID,
+      });
+      this.bus?.publish(newEvent(ProxyRequest, route.name, { status: snapshot.status, request_id: requestID, duration, identity: "" }));
+    } catch (err) {
+      errorDetail = err instanceof Error ? err.message : "proxy error";
+      status = 502;
+      this.logProxyFailure(method, recordedPath, route.name, requestID, errorDetail, ` recipe=${recipeName}`);
+      this.applyResponseHeaders(res, route);
+      writePlain(res, 502, "proxy error");
+    } finally {
+      this.recordProxyHit(method, recordedPath, route.name, requestID, started, status, "", errorDetail, ctx);
+    }
+  }
+
+  private logProxyFailure(method: string, path: string, route: string, requestID: string, detail: string, extra = "", identity = ""): void {
+    this.logs?.append({
+      timestamp: new Date().toISOString(),
+      service: "proxy",
+      source: "proxy",
+      level: "ERROR",
+      message: `${method} ${path} route=${route}${identity ? ` identity=${identity}` : ""}${extra} error=${detail}`,
+      pid: 0,
+      request_id: requestID,
+      identity,
+    });
+  }
+
+  private recordProxyHit(
+    method: string,
+    path: string,
+    route: string,
+    requestID: string,
+    started: number,
+    status: number,
+    identity: string,
+    error: string | undefined,
+    ctx: { traceId?: string; spanId?: string; parentSpanId?: string },
+  ): void {
+    this.recordRequest({
+      timestamp: new Date().toISOString(),
+      requestId: requestID,
+      method,
+      path,
+      route,
+      identity,
+      status,
+      durationMs: Date.now() - started,
+      error,
+      traceId: ctx.traceId,
+      spanId: ctx.spanId,
+      parentSpanId: ctx.parentSpanId,
+    });
   }
 
 }
@@ -512,21 +590,12 @@ export async function injectIdentityHeaders(
   headers: Record<string, string>,
   tokens?: TokenManager,
 ): Promise<void> {
-  const authType = route.auth.type.toLowerCase();
-  if (authType === "" || authType === "none") {
+  const token = await mintAuthToken(route.auth, tokens);
+  if (!token) {
     return;
   }
-  if (!tokens) {
-    throw newError(KindProxy, "token manager unavailable");
-  }
-  const ident = fromRoute(route.auth);
-  const tok = await tokens.get(tokenIdentityKey(ident), route.auth.audience, [], iapOAuthClientRef(route.auth));
-  headers.authorization = `Bearer ${tok.accessToken}`;
-  // Extra headers some upstreams want carrying the same token — `${token}` in a
-  // value is substituted with the minted token (e.g. `identity-token: ${token}`).
-  for (const [key, value] of Object.entries(route.auth.headers ?? {})) {
-    headers[key] = value.includes("${token}") ? value.replaceAll("${token}", tok.accessToken) : value;
-  }
+  headers.authorization = `Bearer ${token}`;
+  applyExtraAuthHeaders(headers, route.auth.headers, token);
 }
 
 async function pipeResponse(resp: Response, res: ServerResponse): Promise<void> {

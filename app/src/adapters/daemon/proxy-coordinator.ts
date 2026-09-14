@@ -3,8 +3,9 @@ import type { Bus } from "../../shared/events.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
 import type { TokenManager } from "../google/token.ts";
-import { ProxyServer, TokenEndpoint, type ProxyMiddleware } from "../proxy/proxy.ts";
+import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import { GrpcProxyServer } from "../proxy/grpc-proxy.ts";
+import { ProxyServer, TokenEndpoint, type ProxyMiddleware } from "../proxy/proxy.ts";
 import type { Detector } from "../secrets/detector.ts";
 
 export type ProxyCoordinatorDeps = {
@@ -13,6 +14,7 @@ export type ProxyCoordinatorDeps = {
   // proxy's request-time resolution of service-reference upstreams.
   ports: () => Map<string, Record<string, number>>;
   tokens: TokenManager;
+  recipes: HttpRecipeRuntime;
   logs: LogStore;
   spans: SpanStore;
   bus: Bus;
@@ -71,6 +73,7 @@ export class ProxyCoordinator {
       this.deps.middleware(),
       (service, port) => this.deps.ports().get(service)?.[port || "http"],
       this.deps.spans,
+      this.deps.recipes,
     );
     await this.server.start();
     const cfg = this.deps.cfg();

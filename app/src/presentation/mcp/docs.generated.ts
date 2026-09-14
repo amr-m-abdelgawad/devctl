@@ -46,6 +46,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Services](services.md) | Commands, ports, health, restart, dependencies |
 | [Profiles](profiles.md) | Named sets, session recovery |
 | [Environment](environment.md) | Source order, \`\${…}\` refs, secrets |
+| [Custom HTTP APIs](http.md) | Named outbound recipes, token cache, local expose |
 | [Plugins](plugins.md) | SDK contract, extension points, generic OIDC provider |
 
 ## Identity and proxy
@@ -55,7 +56,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Authentication](authentication.md) | ADC, project source, \`devctl auth\` |
 | [Impersonation](impersonation.md) | Service-account tokens without keys |
 | [IAP](iap.md) | Audience, user vs SA identity tokens |
-| [Proxy](proxy.md) | Loopback routes, token endpoint |
+| [Proxy](proxy.md) | Loopback routes, token endpoint, recipe expose |
 | [Admin setup](admin-setup.md) | IAM and APIs administrators own |
 | [Security](security.md) | Redaction, bind rules, credential files |
 
@@ -116,9 +117,9 @@ app/src/
   presentation/    cli, tui, mcp, web
   application/     commands, queries, orchestrator
   domain/          service, identity, health, config types
-  ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, …
+  ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, HttpRecipeRuntime, …
   adapters/        daemon, rpc, doctor, environment, plugins, net, secrets, system,
-                   process, google, config, health, proxy, storage, containers
+                   process, google, config, health, proxy, http, storage, containers
   shared/          events, errors, retry, warnings
   bootstrap/       one composition root per process
 \`\`\`
@@ -186,7 +187,10 @@ routing live in \`adapters/rpc/server.ts\` (paired with the existing controller
 client). Identity cache, credential entries, and service-account probes live in
 \`adapters/daemon/identity-coordinator.ts\`. Client/profile environment resolution
 lives in \`adapters/daemon/environment-bridge.ts\`. Proxy and token-endpoint bind
-live in \`adapters/daemon/proxy-coordinator.ts\`. MCP listen and the tool deny-list
+live in \`adapters/daemon/proxy-coordinator.ts\`. Named outbound HTTP recipes
+(\`HttpRecipeRuntime\`) live in \`adapters/http/\`; the supervisor constructs
+\`RecipeRuntime\`, reuses \`TokenManager\`, and passes it into the environment
+bridge and proxy. MCP listen and the tool deny-list
 live in \`adapters/daemon/mcp-coordinator.ts\`. Host CPU/memory sampling lives in
 \`adapters/daemon/resource-sampler.ts\`. Supervisor still owns persistence,
 adoption, config watch, and the host facades that bind those slices.
@@ -443,10 +447,11 @@ When the main file lives in \`.devctl/\`, modular files merge in:
 flowchart TB
   main[".devctl/config.yaml"] --> services[".devctl/services/*.yaml"]
   main --> profiles[".devctl/profiles/*.yaml"]
+  main --> http[".devctl/http/*.yaml"]
   main --> routes[".devctl/proxy/routes.yaml"]
 \`\`\`
 
-Service and profile filenames become keys (\`identity.yaml\` → service \`identity\`).
+Service, profile, and HTTP recipe filenames become keys (\`identity.yaml\` → service \`identity\`, \`login.yaml\` → \`http.login\`).
 Files within each modular directory are loaded in sorted filename order, making
 overrides deterministic even when both \`.yaml\` and \`.yml\` fragments resolve to
 the same key.
@@ -481,6 +486,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`templates\` | Named service bases (\`extends\`) |
 | \`services\` | Process definitions |
 | \`tasks\` | Named transient commands run with \`devctl run\` |
+| \`http\` | Named outbound HTTP recipes — see [Custom HTTP APIs](http.md) |
 | \`profiles\` | Named service sets + extra env |
 | \`proxy\` | Listen address, token endpoint, routes |
 | \`logs\` | In-memory cap and persistence |
@@ -529,7 +535,7 @@ entry includes the winning source file and layer (\`main\`, \`modular_service\`,
 \`synthesized\`) and the ordered sources it shadowed. Use \`--json\` for structured
 output.
 
-Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
+Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, \`\${http.*}\` / \`\${token}\` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments and synthesized \`expose\` / \`http.*.expose\` routes merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
 
 The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before writing. Invalid YAML is not saved. \`e\` still opens \`$EDITOR\`.
 
@@ -540,6 +546,7 @@ Changing the \`plugins\` **path list** hot-applies token providers, log parsers,
 ## Related
 
 - [Services](services.md)
+- [Custom HTTP APIs](http.md)
 - [Profiles](profiles.md)
 - [Environment](environment.md)
 - [Plugins](plugins.md)
@@ -693,8 +700,9 @@ Injected when applicable:
 - \`DEVCTL_ENVIRONMENT\`
 - \`DEVCTL_USER_EMAIL\` — the developer's own detected Google identity (gcloud/ADC), so a service can key on who is running it without a hardcoded, team-unfriendly value. Omitted when no identity is detected.
 - \`DEVCTL_TOKEN_URL\` and \`DEVCTL_INTERNAL_TOKEN\` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
+- \`DEVCTL_HTTP_<NAME>_URL\` for each exposed \`http\` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
 
-References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${env.NAME}\` is rejected there. IAP route \`auth.client_secret\` is the exception: \`\${NAME}\` and \`\${env.NAME}\` are expanded from the process environment when the token is minted, not at config load.
+References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${env.NAME}\` is rejected in service env. Recipe \`url\` / \`headers\` / \`form\` / \`body\` are the exception: \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment at fetch time. IAP route \`auth.client_secret\` is the other exception: \`\${NAME}\` and \`\${env.NAME}\` are expanded from the process environment when the token is minted, not at config load.
 
 \`environment.required\` on a service fails start if those keys are still empty after the merge.
 
@@ -716,8 +724,167 @@ flowchart LR
 ## Related
 
 - [Services](services.md)
+- [Custom HTTP APIs](http.md)
 - [Configuration](configuration.md)
 - [Security](security.md)
+` },
+  { path: "docs/http.md", title: "Custom HTTP APIs", body: `# Custom HTTP APIs
+
+Named outbound HTTP **recipes** under \`http:\` construct a request from a template, cache the response, interpolate pieces into other config, and optionally expose the cached body as a local proxy endpoint.
+
+This is not a reverse-proxy route. [\`proxy.routes\`](proxy.md) **forward** a caller’s request and inject IAP. A recipe is an outbound call the supervisor makes: mint tokens, POST form bodies, parse JSON, cache until expiry, then inject results.
+
+\`\`\`mermaid
+flowchart TB
+  yaml["http.login in .devctl"] --> validate[Load and validate]
+  validate --> start[Service or task start]
+  start --> implicit[Start implicit service deps]
+  implicit --> ensure["RecipeRuntime.ensure(login)"]
+  ensure --> mint["TokenManager.get for recipe auth"]
+  mint --> call[Templated outbound HTTP]
+  call --> cache[In-memory JWT-aware cache]
+  cache --> env["Interpolate \${http.login.token} into env"]
+  cache --> route["Synthesized proxy route login.local"]
+  env --> proc[Spawn process]
+  route --> live["Later GET still returns fresh/cached body"]
+\`\`\`
+
+CORS applies on the **inbound** synthesized route (browser preflight), same as proxy \`response_headers\`. Auth applies on the **outbound** recipe (IAP / SA / extra headers), same as a proxy route’s \`auth\` block.
+
+## Config
+
+Top-level map \`http\`. Modular files: \`.devctl/http/<name>.yaml\` (filename is the recipe name), same pattern as \`services/\`.
+
+\`\`\`yaml
+http:
+  idp-token:
+    request:
+      method: POST
+      url: https://idp.example.com/oauth/token
+      headers:
+        Content-Type: application/json
+        X-User: \${identity.user}
+      body: '{"grant_type":"client_credentials"}'
+      auth:
+        type: iap
+        audience: "/projects/x/iap/xxx"
+        identity: user
+        headers:
+          identity-token: "\${token}"
+      timeout_seconds: 10
+    outputs:
+      token: access_token
+      expires_in: expires_in
+    cache:
+      jwt: true
+      expires_in: expires_in
+    expose:
+      enabled: true
+      host: idp-token.local
+      response_headers:
+        Access-Control-Allow-Origin: "*"
+        Access-Control-Allow-Methods: "GET, OPTIONS"
+        Access-Control-Allow-Headers: "Authorization, Content-Type, X-Devctl-Request-ID"
+
+services:
+  invoices-api:
+    environment:
+      IDP_TOKEN: \${http.idp-token.token}
+      IDP_TOKEN_URL: \${http.idp-token.url}
+\`\`\`
+
+\`form:\` is an alternative to \`body:\` — encoded as \`application/x-www-form-urlencoded\`. You cannot set both.
+
+**Reserved output names:** \`body\` (raw response text), \`url\` (local expose URL), \`status\`. Named \`outputs\` must not use those.
+
+\`\${http.name.body}\` is always the raw body. A dotted path that lands on an object or array is serialized as JSON text.
+
+\`\${token}\` in the recipe \`url\` / \`headers\` / \`form\` / \`body\` is the token minted for **that recipe’s** \`auth\` block. Recipes with \`auth.type: none\` cannot use \`\${token}\`.
+
+\`auth.type: iap\` / \`service_account\` still mint a token for \`\${token}\`, but do **not** set \`Authorization: Bearer …\` when the recipe already sets \`request.headers.Authorization\` (Apigee wants \`Basic client_id:secret\` on the token endpoint, with the Google ID token in \`subject_token\`). If \`Authorization\` is unset, Bearer injection matches today’s proxy behavior.
+
+**Allowed refs inside a recipe request** (resolved at fetch time): \`\${services.*}\`, \`\${identity.user}\`, \`\${token}\`, \`\${http.<other>.<output>}\`. Recipe \`url\` / \`headers\` / \`form\` / \`body\` also expand \`\${NAME}\` / \`\${env.NAME}\` from the **supervisor process environment** so secrets like \`client_secret\` can live in the shell or keychain overlay, not in git. Service env still rejects \`\${env.NAME}\`.
+
+Load-time validation checks shape and names only (unknown recipe/output, cycles, reserved names, expose requires \`proxy.enabled\`). Values are not expanded until \`ensure()\`.
+
+Unknown fields are rejected.
+
+## Consumption
+
+1. **Env / config interpolation** — \`\${http.<name>.<output>}\` in service/task/profile env. The daemon calls \`ensure()\` **before** spawn so the snapshot is populated. A running process does not see later refreshes (same as today’s port refs).
+2. **Live local endpoint** — \`expose.enabled: true\` synthesizes a proxy route (auth \`none\` inbound). Any non-preflight request returns the **full cached recipe response** (status, content-type, body). CORS preflight is answered locally and does **not** trigger the outbound call.
+
+When a recipe is exposed, host services also get \`DEVCTL_HTTP_<NAME>_URL\` (uppercase, hyphens → underscores), analogous to \`DEVCTL_TOKEN_URL\`. Containers skip it for the same loopback reason as the token endpoint.
+
+Recommend JWT consumers: put the snapshot in env **and** poll/read \`\${http.name.url}\` when they need a fresh token.
+
+## Cache
+
+Refresh window is always \`auth.refresh_threshold_seconds\` (default **5 minutes**). At least one of \`cache.jwt\` / \`cache.expires_in\` must be set to enable caching; otherwise each \`ensure()\` / expose hit refetches.
+
+- \`cache.jwt: true\` — scan string outputs plus common fields (\`access_token\`, \`id_token\`, \`token\`) for JWT \`exp\`. Fail the fetch if none found.
+- \`cache.expires_in: expires_in\` — dotted path to OAuth \`expires_in\` **seconds**. Expiry = now + that many seconds. Fail if the field is missing or not a positive number.
+- Both set: TTL is the **earlier** of JWT \`exp\` and \`expires_in\`.
+
+Lazy refetch inside the window; proactive timer about 5 minutes before expiry; in-flight coalescing; memory only. A failed refresh keeps the last valid body until expiry, then consumers fail.
+
+## Startup ordering
+
+Starting a service (or running a task) that references \`\${http.*}\`:
+
+1. Walk those recipes (and chained recipes) for \`\${services.*}\`.
+2. Start those local services first (\`service_healthy\` when they define a health check, else \`service_started\`).
+3. After ports are assigned, \`ensure()\` the recipes, then snapshot env and spawn.
+
+Recipe-to-recipe cycles fail \`devctl config validate\`. Fetch failure blocks start (same class as a missing \`environment.required\` key).
+
+## Apigee token exchange
+
+Typical flow: POST form-urlencoded to an Apigee \`GenerateAccessToken\` proxy with RFC 8693-style params. Request:
+
+- \`Authorization: Basic <client_id:client_secret>\`
+- \`grant_type=urn:ietf:params:oauth:grant-type:token-exchange\` (or \`password\` / \`client_credentials\` / \`assertion\`, depending on the proxy)
+- \`subject_token=\${token}\` — Google user or SA **ID token** minted by TokenManager
+- \`subject_token_type=urn:ietf:params:oauth:token-type:id_token\`
+
+Response is usually JSON \`{ access_token, token_type, expires_in }\` where \`access_token\` is **opaque**, not a JWT. Cache from \`expires_in\`, not JWT \`exp\`.
+
+\`\`\`yaml
+http:
+  apigee-token:
+    request:
+      method: POST
+      url: https://api.company.com/v1/oauth/token
+      headers:
+        Authorization: "Basic \${APIGEE_BASIC}"
+      form:
+        grant_type: urn:ietf:params:oauth:grant-type:token-exchange
+        subject_token: \${token}
+        subject_token_type: urn:ietf:params:oauth:token-type:id_token
+      auth:
+        type: iap
+        audience: IAP_OR_GOOGLE_AUD
+        identity: user
+    outputs:
+      token: access_token
+    cache:
+      expires_in: expires_in
+    expose:
+      enabled: true
+\`\`\`
+
+Consumers: \`APIGEE_TOKEN: \${http.apigee-token.token}\` at start, and \`\${http.apigee-token.url}\` / \`DEVCTL_HTTP_APIGEE_TOKEN_URL\` for refresh.
+
+If the token URL itself is behind IAP, omit \`headers.Authorization\` so Bearer is injected instead of Basic.
+
+v1 does not mint two different audiences on one recipe (IAP Bearer for the hop **and** a different-audience Google token in \`subject_token\`). Workaround: token URL not behind IAP (the usual Apigee pattern), or two recipes.
+
+## Related
+
+- [Proxy](proxy.md)
+- [Environment](environment.md)
+- [Configuration](configuration.md)
+- [IAP](iap.md)
 ` },
   { path: "docs/iap.md", title: "Identity-Aware Proxy", body: `# Identity-Aware Proxy
 
@@ -1412,7 +1579,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 
 | What | Where |
 |------|--------|
-| Services, profiles, proxy, Google project | \`.devctl/config.yaml\` and modular YAML |
+| Services, profiles, HTTP recipes, proxy, Google project | \`.devctl/config.yaml\` and modular YAML |
 | Machine overlay (gitignored) | \`.devctl/config.local.yaml\` and \`~/.devctl/config.local.yaml\` |
 | TUI theme, keys, MCP listen flag | \`~/.devctl/tui.json\` (or \`DEVCTL_TUI_CONFIG\`) |
 | Session / lock / socket | \`~/.devctl/state/<repoID>/\` |
@@ -1779,6 +1946,10 @@ A hand-written route or \`proxy:\` fragment of the same name always wins over a 
 
 **Auth is always \`none\` on synthesized routes.** An internal service-to-service hop never silently acquires a service's identity token — injecting credentials stays an explicit choice you make with a hand-written route.
 
+### HTTP recipe endpoints
+
+\`http.<name>.expose\` synthesizes a **recipe** route (\`upstream.recipe\`, inbound auth \`none\`). It does not forward the caller's body. Any non-preflight request returns the cached outbound recipe response (status, content-type, body). CORS preflight is answered locally and does not trigger the outbound call — see [Custom HTTP APIs](http.md).
+
 ### Referencing an exposed service — \`\${services.<name>.url}\`
 
 \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a service a stable logical address in another service's environment:
@@ -1880,6 +2051,7 @@ A missing \`identity.type\` on an IAP route is a configuration error.
 - [IAP](iap.md)
 - [Impersonation](impersonation.md)
 - [Security](security.md)
+- [Custom HTTP APIs](http.md)
 - [TUI](tui.md)
 ` },
   { path: "docs/quickstart.md", title: "Quick start", body: `# Quick start

@@ -6,6 +6,7 @@ export const knownTopLevel = [
   "templates",
   "services",
   "tasks",
+  "http",
   "proxy",
   "logs",
   "auth",
@@ -51,7 +52,7 @@ export const knownProxy = ["enabled", "gateway", "credentials", "listen", "token
 export const knownListen = ["host", "port"];
 export const knownRoute = ["name", "transport", "listen", "match", "upstream", "auth", "response_headers"];
 export const knownMatch = ["host", "path"];
-export const knownUpstream = ["url", "service", "port"];
+export const knownUpstream = ["url", "service", "port", "recipe"];
 export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers"];
 export const knownLogs = ["max_memory_events", "persistence"];
 export const knownPersistence = ["enabled", "directory", "retention_days", "max_session_logs"];
@@ -73,6 +74,10 @@ export const knownContainer = ["image", "runtime", "ports", "env", "volumes"];
 export const knownWatch = ["enabled", "paths", "debounce_ms", "ignore"];
 export const knownHooks = ["pre_start", "post_start"];
 export const knownTask = ["command", "shell", "working_dir", "dependencies", "environment"];
+export const knownHttp = ["request", "outputs", "cache", "expose"];
+export const knownHttpRequest = ["method", "url", "headers", "body", "form", "auth", "timeout_seconds"];
+export const knownHttpCache = ["jwt", "expires_in"];
+export const knownHttpExpose = ["enabled", "host", "response_headers"];
 export const knownTelemetry = ["otlp"];
 export const knownTelemetryOtlp = ["enabled", "listen"];
 export const knownWeb = ["enabled", "listen"];

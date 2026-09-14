@@ -39,6 +39,7 @@ export type ReloadHost = {
   readonly tokens: TokenManager;
   readonly logs: LogStore;
   readonly proxy?: { isRunning(): boolean; setMiddleware?(middleware: ProxyMiddleware[]): void };
+  readonly recipes?: { reset(): void };
   persistState(): void;
   log(service: string, level: string, message: string): void;
   refreshIdentity(): Promise<void>;
@@ -240,6 +241,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   const prevPluginPaths = host.cfg.plugins.map((plugin) => plugin.path);
   const prevServices = host.cfg.services;
   host.cfg = replaceSnapshot(host.cfg, next);
+  host.recipes?.reset();
   reconcileServices(host, prevServices, next.services);
   const restartRequired = mergeRestartRequired(host.restartRequired, result.restart_required, Object.keys(next.services));
   host.restartRequired = restartRequired;

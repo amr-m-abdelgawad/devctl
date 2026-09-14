@@ -6,6 +6,15 @@ import { fileURLToPath } from "node:url";
 import { findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
+  directedCycleIssues,
+  effectiveStartupDependencies,
+  parseHttpRef,
+  recipeAuthMintsToken,
+  recipeCycleIssues,
+  recipeRequestTexts,
+  recipeUsesToken,
+} from "../../domain/http/recipes.ts";
+import {
   commandEmpty,
   CurrentVersion,
   effectiveRestartPolicy,
@@ -25,6 +34,7 @@ import {
   dependencyCondition,
   isGrpcRoute,
   namedPort,
+  isReservedHttpOutput,
 } from "../../domain/config/types.ts";
 
 const MAX_PORT = 65535;
@@ -48,10 +58,6 @@ export function unresolvedHealthTypes(cfg: DevctlConfig): Array<{ service: strin
   return unresolved;
 }
 
-const unseen = 0;
-const active = 1;
-const done = 2;
-
 export function validate(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
   if (cfg.version === 0) {
@@ -66,6 +72,7 @@ export function validate(cfg: DevctlConfig): string[] {
   issues.push(...validateTasks(cfg));
   issues.push(...validateCycles(cfg));
   issues.push(...validateProfiles(cfg));
+  issues.push(...validateHttp(cfg));
   issues.push(...validateProxy(cfg));
   issues.push(...validateTelemetry(cfg));
   issues.push(...validateWeb(cfg));
@@ -228,36 +235,11 @@ export function unresolvedIdentityTypes(cfg: DevctlConfig): Array<{ service: str
 }
 
 function validateCycles(cfg: DevctlConfig): string[] {
-  const state: Record<string, number> = {};
-  const issues: string[] = [];
-  const stack: string[] = [];
-  const visit = (name: string): void => {
-    const current = state[name] ?? unseen;
-    if (current === done) {
-      return;
-    }
-    if (current === active) {
-      issues.push(`dependency cycle: ${[...stack, name].join(" → ")}`);
-      return;
-    }
-    state[name] = active;
-    stack.push(name);
-    const svc = cfg.services[name];
-    if (svc) {
-      for (const dependency of svc.dependencies) {
-        const dep = dependencyName(dependency);
-        if (cfg.services[dep]) {
-          visit(dep);
-        }
-      }
-    }
-    stack.pop();
-    state[name] = done;
-  };
-  for (const name of Object.keys(cfg.services)) {
-    visit(name);
-  }
-  return issues;
+  return directedCycleIssues(
+    Object.keys(cfg.services),
+    (name) => effectiveStartupDependencies(cfg, name).map((dependency) => dependencyName(dependency)).filter((dep) => Boolean(cfg.services[dep])),
+    (cycle) => `dependency cycle: ${cycle.join(" → ")}`,
+  );
 }
 
 function validateEnvRefs(prefix: string, env: EnvConfig, cfg: DevctlConfig): string[] {
@@ -274,6 +256,45 @@ function validateEnvRefs(prefix: string, env: EnvConfig, cfg: DevctlConfig): str
   }
   for (const [key, value] of Object.entries(env.defaults)) {
     check(key, value);
+  }
+  return issues;
+}
+
+function validateHttp(cfg: DevctlConfig): string[] {
+  const issues = [...recipeCycleIssues(cfg)];
+  for (const [name, recipe] of Object.entries(cfg.http)) {
+    const prefix = `http.${name}`;
+    if (recipe.request.url === "") {
+      issues.push(`${prefix}.request.url is required`);
+    }
+    const hasBody = recipe.request.body !== "";
+    const hasForm = Object.keys(recipe.request.form).length > 0;
+    if (hasBody && hasForm) {
+      issues.push(`${prefix}.request cannot set both body and form`);
+    }
+    for (const output of Object.keys(recipe.outputs)) {
+      if (isReservedHttpOutput(output)) {
+        issues.push(`${prefix}.outputs.${output} is reserved`);
+      }
+    }
+    if (recipe.expose.enabled && !cfg.proxy.enabled) {
+      issues.push(`${prefix}.expose requires proxy.enabled`);
+    }
+    const mints = recipeAuthMintsToken(recipe);
+    if (recipeUsesToken(recipe) && !mints) {
+      issues.push(`${prefix}: \${token} requires request.auth.type iap or service_account`);
+    }
+    issues.push(...validateAuthConfig(recipe.request.auth, `${prefix}.request`));
+    for (const text of recipeRequestTexts(recipe)) {
+      for (const ref of findRefs(text)) {
+        const parsed = parseHttpRef(ref);
+        if (parsed?.recipe === name) {
+          issues.push(`${prefix}: recipe cannot reference itself via \${${ref}}`);
+        } else if (!refResolvable(ref, cfg, { allowProcessEnv: true, allowToken: mints })) {
+          issues.push(`${prefix}: unresolvable reference \${${ref}}`);
+        }
+      }
+    }
   }
   return issues;
 }
@@ -379,9 +400,22 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
   const issues: string[] = [];
   const hasUrl = route.upstream.url !== "";
   const svcName = route.upstream.service ?? "";
+  const recipeName = route.upstream.recipe ?? "";
+  if (recipeName !== "") {
+    if (hasUrl || svcName !== "") {
+      issues.push(`${prefix}.upstream.recipe cannot be combined with url or service`);
+    }
+    if (isGrpcRoute(route)) {
+      issues.push(`${prefix}.upstream.recipe is not supported on a grpc route`);
+    }
+    if (!cfg.http[recipeName]) {
+      issues.push(`${prefix}.upstream.recipe references unknown http recipe ${recipeName}`);
+    }
+    return issues;
+  }
   if (svcName === "") {
     if (!hasUrl) {
-      issues.push(`${prefix}.upstream requires either url or service`);
+      issues.push(`${prefix}.upstream requires either url, service, or recipe`);
     }
     return issues;
   }
@@ -398,19 +432,23 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
 }
 
 function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
+  return validateAuthConfig(route.auth, prefix);
+}
+
+function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
   const issues: string[] = [];
-  if (route.auth.type.toLowerCase() === "iap") {
-    if (route.auth.audience.trim() === "") {
+  if (auth.type.toLowerCase() === "iap") {
+    if (auth.audience.trim() === "") {
       issues.push(`${prefix}.auth.audience is required when auth.type is iap`);
     }
-    if (route.auth.identity.type.trim() === "") {
+    if (auth.identity.type.trim() === "") {
       issues.push(`${prefix}.auth.identity.type is required when auth.type is iap`);
     }
   }
-  issues.push(...validateIapOAuthClient(route.auth, prefix));
-  const identType = route.auth.identity.type.toLowerCase();
+  issues.push(...validateIapOAuthClient(auth, prefix));
+  const identType = auth.identity.type.toLowerCase();
   if (identType === "service" || identType === "service_account" || isServiceAccountIdentity({ type: identType, mode: "", service_account: "" })) {
-    const sa = route.auth.identity.service_account || route.auth.service_account;
+    const sa = auth.identity.service_account || auth.service_account;
     if (sa === "") {
       issues.push(`${prefix}.auth.identity.service_account is required`);
     }

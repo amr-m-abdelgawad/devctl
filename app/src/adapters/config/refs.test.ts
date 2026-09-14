@@ -115,5 +115,29 @@ describe("config refs", () => {
     expect(refResolvable("services.api.ports.0", cfg)).toBe(true);
     expect(refResolvable("services.api.ports.nope", cfg)).toBe(false);
     expect(refResolvable("services.api.workdir", cfg)).toBe(true);
+    expect(refResolvable("http.login.token", cfg)).toBe(false);
+  });
+
+  test("resolves ${http.name.output} from a snapshot map", () => {
+    const cfg = defaultConfig();
+    cfg.http.login = {
+      request: { method: "POST", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 0 },
+      outputs: { token: "access_token" },
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    expect(refResolvable("http.login.token", cfg)).toBe(true);
+    expect(refResolvable("http.login.body", cfg)).toBe(true);
+    expect(refResolvable("http.login.missing", cfg)).toBe(false);
+    expect(resolveString("t=${http.login.token}", cfg, {}, "", { http: { login: { token: "abc" } } })).toBe("t=abc");
+  });
+
+  test("recipe strings expand process env and ${token}", () => {
+    const cfg = defaultConfig();
+    expect(resolveString("Basic ${APIGEE_BASIC}", cfg, {}, "", { processEnv: { APIGEE_BASIC: "abc123" } })).toBe("Basic abc123");
+    expect(resolveString("sub=${token}", cfg, {}, "", { token: "id-token" })).toBe("sub=id-token");
+    expect(refResolvable("APIGEE_BASIC", cfg, { allowProcessEnv: true })).toBe(true);
+    expect(refResolvable("token", cfg, { allowToken: true })).toBe(true);
+    expect(refResolvable("token", cfg)).toBe(false);
   });
 });

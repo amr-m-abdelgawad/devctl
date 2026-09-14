@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import { resolveEnvMap, type DevctlConfig, type ServiceConfig } from "../config/index.ts";
+import type { HttpValueMap } from "../config/refs.ts";
 import { KindConfiguration, newError, wrapError } from "../../shared/errors.ts";
 import { credentialsDir } from "../storage/storage.ts";
 
@@ -27,6 +28,7 @@ export type EnvRequest = {
   // one for this service, e.g. an MCP-initiated start or a session-recovered
   // process.
   clientEnv?: Record<string, string>;
+  http?: HttpValueMap;
   // Containers should not copy the caller's entire shell into inspectable
   // container metadata. All explicitly configured environment layers remain.
   includeProcess?: boolean;
@@ -108,13 +110,13 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
   const userEmail = req.userEmail ?? "";
   const layers: Record<string, Record<string, string>> = {
     process: req.includeProcess === false ? {} : (req.clientEnv ?? osEnviron()),
-    profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail),
-    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll, userEmail),
+    profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail, req.http),
+    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll, userEmail, req.http),
     generated: {},
     keychain: req.sourceValues?.keychain ?? loadKeychainEnv(ctx),
     secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
-    defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail),
-    vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail),
+    defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail, req.http),
+    vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http),
     runtime: req.runtime,
   };
   for (const name of sourceOrder(req.cfg)) {
@@ -124,7 +126,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     }
     const plugin = req.pluginSources?.find((source) => source.name === name);
     if (plugin) {
-      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll, userEmail));
+      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll, userEmail, req.http));
     }
   }
   for (const key of req.serviceCfg.environment.required) {
@@ -159,11 +161,12 @@ function resolveMaybe(
   cfg: DevctlConfig | undefined,
   assigned: Record<string, Record<string, number>>,
   userEmail = "",
+  http?: HttpValueMap,
 ): Record<string, string> {
   if (!cfg || Object.keys(input).length === 0) {
     return input;
   }
-  return resolveEnvMap(input, cfg, assigned, userEmail);
+  return resolveEnvMap(input, cfg, assigned, userEmail, { http });
 }
 
 function loadKeychainEnv(ctx: EnvSourceContext): Record<string, string> {

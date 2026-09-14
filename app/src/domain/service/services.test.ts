@@ -64,6 +64,32 @@ describe("startup plan", () => {
     expect(shutdownPlanExact(c, ["auth", "api"]).waves).toEqual([["api"], ["auth"]]);
     expect(shutdownPlanExact(c, ["api"]).waves).toEqual([["api"]]);
   });
+
+  test("implicit http recipe service refs become startup dependencies", () => {
+    const c = cfg({ identity: [], worker: [] });
+    c.services.identity!.health.type = "process";
+    c.http.login = {
+      request: {
+        method: "POST",
+        url: "${services.identity.url}/oauth/token",
+        headers: {},
+        body: "",
+        form: {},
+        auth: { type: "", identity: { type: "", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" },
+        timeout_seconds: 0,
+      },
+      outputs: { token: "access_token" },
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    c.services.worker!.environment.vars.TOKEN = "${http.login.token}";
+    const plan = startupPlan(c, ["worker"], "");
+    expect(plan.waves).toEqual([["identity"], ["worker"]]);
+    expect(plan.steps.find((step) => step.name === "worker")?.dependencies).toEqual([
+      { service: "identity", condition: "service_healthy" },
+    ]);
+    expect(shutdownPlan(c, ["worker"]).waves).toEqual([["worker"]]);
+  });
 });
 
 describe("resolveProfile", () => {

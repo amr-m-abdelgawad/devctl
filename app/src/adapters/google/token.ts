@@ -14,6 +14,7 @@ import type { OAuthClientCredentials } from "../../ports/credential-provider.ts"
 import { systemClock } from "../system/clock.ts";
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { interpolateEnvRefs } from "../../domain/config/env-ref.ts";
+import { jwtExpiry } from "../../domain/http/jwt.ts";
 
 const DEFAULT_THRESHOLD_MS = 5 * 60 * 1000;
 const FALLBACK_TTL_MS = 50 * 60 * 1000;
@@ -548,22 +549,6 @@ function expiryFromToken(token: string, client?: { credentials?: { expiry_date?:
 
 function expiryFromCredentials(client: { credentials?: { expiry_date?: number | null } }, token: string): Date {
   return expiryFromToken(token, client);
-}
-
-function jwtExpiry(token: string): Date | undefined {
-  const parts = token.split(".");
-  if (parts.length < 2 || !parts[1]) {
-    return undefined;
-  }
-  try {
-    const payload = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as { exp?: number };
-    if (typeof payload.exp === "number") {
-      return new Date(payload.exp * 1000);
-    }
-  } catch {
-    return undefined;
-  }
-  return undefined;
 }
 
 function isTransientTokenError(err: unknown): boolean {

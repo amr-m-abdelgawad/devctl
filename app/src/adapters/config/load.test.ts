@@ -290,6 +290,46 @@ services:
     expect(command?.shadowed[0]?.source.endsWith("api.yaml")).toBe(true);
   });
 
+  test("loads modular http recipes and rejects unknown recipe fields", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-http-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+services:
+  api:
+    command: [api]
+    environment:
+      TOKEN: \${http.login.token}
+`);
+    writeFile(dir, ".devctl/http/login.yaml", `
+request:
+  method: POST
+  url: https://idp.example/token
+  form:
+    grant_type: client_credentials
+outputs:
+  token: access_token
+cache:
+  expires_in: expires_in
+expose:
+  enabled: true
+  response_headers:
+    Access-Control-Allow-Origin: "*"
+`);
+    const cfg = load(dir, "");
+    expect(cfg.http.login?.request.form.grant_type).toBe("client_credentials");
+    expect(cfg.http.login?.outputs.token).toBe("access_token");
+    expect(cfg.proxy.routes.some((route) => route.upstream.recipe === "login")).toBe(true);
+    writeFile(dir, ".devctl/http/login.yaml", `
+request:
+  url: https://idp.example/token
+  unknown_field: true
+`);
+    expect(() => load(dir, "")).toThrow(/http\.login\.request\.unknown_field/);
+  });
+
   test("keeps provenance history across main, home, and repository-local layers", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-provenance-${Date.now()}`;
     const devctlHome = `${dir}/home`;

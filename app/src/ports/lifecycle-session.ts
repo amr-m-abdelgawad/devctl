@@ -35,6 +35,7 @@ export type LifecycleSession = HealthHost & {
   readonly containerPrefix: string;
   prepareServiceIdentity(name: string, svc: ServiceConfig): Promise<void>;
   resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>, includeProcess?: boolean): Promise<{ env: Record<string, string>; workDir: string }>;
+  ensureHttpRecipes(names: string[]): Promise<void>;
 
   detectGoogle(project: string): Promise<GoogleProbe>;
   startProxy(): Promise<void>;

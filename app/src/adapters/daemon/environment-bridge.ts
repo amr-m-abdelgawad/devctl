@@ -6,6 +6,9 @@ import { envList, resolveEnvironment, runtimeForService, type EnvironmentSource 
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { TokenEndpoint } from "../proxy/proxy.ts";
+import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
+import { httpRecipeEnvUrlKey } from "../../domain/config/types.ts";
+import type { HttpValueMap } from "../config/refs.ts";
 
 export type EnvironmentBridgeDeps = {
   cfg: () => DevctlConfig;
@@ -18,6 +21,7 @@ export type EnvironmentBridgeDeps = {
   boundTokenURL: () => string;
   internalTok: () => string;
   tokens: TokenManager;
+  recipes?: HttpRecipeRuntime;
   environmentSources: () => EnvironmentSource[] | undefined;
   otlpEndpoint: () => string;
 };
@@ -80,6 +84,9 @@ export class EnvironmentBridge {
       if (cfg.proxy.token_endpoint.enabled) {
         runtime.DEVCTL_TOKEN_URL = this.deps.boundTokenURL() || `http://127.0.0.1:${this.deps.tokenEndpoint()?.listenPort() || cfg.proxy.token_endpoint.port}/token`;
       }
+      if (cfg.proxy.enabled) {
+        Object.assign(runtime, this.httpExposeUrls(cfg));
+      }
     }
     const resolved = await resolveEnvironment(cfg.repoRoot, {
       service: name,
@@ -90,6 +97,7 @@ export class EnvironmentBridge {
       runtime,
       userEmail,
       cfg,
+      http: this.httpValues(cfg),
       fetchSecret: secretManagerFetcher(async () => (await this.deps.tokens.get("user", "", [])).accessToken),
       pluginSources: this.deps.environmentSources(),
       clientEnv,
@@ -119,6 +127,7 @@ export class EnvironmentBridge {
       runtime: runtimeForService(`task:${name}`, "127.0.0.1", {}, "", cfg.project.name, userEmail),
       userEmail,
       cfg,
+      http: this.httpValues(cfg),
       clientEnv,
       fetchSecret: secretManagerFetcher(async () => (await this.deps.tokens.get("user", "", [])).accessToken),
       pluginSources: this.deps.environmentSources(),
@@ -127,5 +136,30 @@ export class EnvironmentBridge {
       ? join(cfg.repoRoot, serviceCfg.working_dir)
       : serviceCfg.working_dir;
     return { env: envList(env), workDir };
+  }
+
+  private httpValues(cfg: DevctlConfig): HttpValueMap {
+    const out: HttpValueMap = {};
+    const recipes = this.deps.recipes;
+    if (!recipes) {
+      return out;
+    }
+    for (const name of Object.keys(cfg.http)) {
+      const snap = recipes.snapshot(name);
+      if (snap) {
+        out[name] = snap.values;
+      }
+    }
+    return out;
+  }
+
+  private httpExposeUrls(cfg: DevctlConfig): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [name, recipe] of Object.entries(cfg.http)) {
+      if (recipe.expose.enabled) {
+        out[httpRecipeEnvUrlKey(name)] = `http://${recipe.expose.host || `${name}.local`}:${cfg.proxy.listen.port}`;
+      }
+    }
+    return out;
   }
 }
