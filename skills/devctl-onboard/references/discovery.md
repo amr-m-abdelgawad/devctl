@@ -34,13 +34,23 @@ copy it:
 | `working_dir` / `build.context` | `working_dir` (relative to repo root) |
 
 For a service with an image and no local host process, use devctl's native
-`container:` service specification rather than spelling out `docker run` as a
-command. Preserve the host/container port distinction, volumes, environment,
-health check, and dependencies. Keep container-backed services out of the
-default profile when doing so preserves a repository's existing no-Docker
-onboarding path.
+`container:` block rather than spelling out `docker run` as a command. When
+**hand-authoring**, keep the host/container port split (`ports` vs
+`container.ports`), `container.volumes`, env, health, and dependencies.
+`container.memory`, `cpus`, `cap_drop`, and `pids_limit` are valid fields.
 
-`devctl config import compose <file>` (dry-run) prints mapped YAML and a table of dropped fields (`build`, `networks`, `deploy`, `replicas`, per-service `env_file`, `volumes`, …). `--write` saves mapped fields only under `.devctl/config.yaml` after the same decode/validate path as hand-authored configs. TUI: `/import compose [path]`. K8s import is not implemented.
+`devctl config import compose <file>` (dry-run) prints mapped YAML and a table
+of dropped fields. The importer is a subset: it maps image, command, host
+ports, `depends_on`, environment, and a command healthcheck when present. It
+**drops** `build`, `networks`, `deploy`, `replicas`, per-service `env_file`,
+`volumes`, `cap_drop`, `mem_limit`, `cpus`, `user`, `entrypoint`, and similar.
+Review that table before `--write`; add volumes and limits by hand if the
+local stack needs them. `--write` saves mapped fields only under
+`.devctl/config.yaml` after the same decode/validate path as hand-authored
+configs. TUI: `/import compose [path]`. K8s import is not implemented.
+
+Keep container-backed services out of the default profile when the rest of
+the stack is host processes, so first start does not require Docker.
 
 ### Procfile
 

@@ -30,7 +30,7 @@ complete allowlists.
 | `service.container` | `image` `runtime` `ports` `env` `volumes` `user` `memory` `cpus` `read_only` `cap_drop` `pids_limit` |
 | `service.watch` | `enabled` `paths` `debounce_ms` `ignore` |
 | `tasks.<name>` | `command` `shell` `working_dir` `dependencies` `environment` |
-| `service.identity` | `type` `mode` `service_account` |
+| `service.identity` | `type` `mode` `service_account` `config` |
 | `service.restart` | `enabled` `policy` `max_retries` `backoff_seconds` |
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
 | `service.logs` | `stdout` `stderr` |
@@ -191,6 +191,9 @@ not mark the service unhealthy or consume restart budget.
 - `type: service_account` (or `service`) **requires** `service_account`, and it
   must contain `@` — *service_account must be an email*.
 - `mode` is an accepted alias of `type`.
+- `config` is an opaque object passed to a **plugin** identity provider. Omit it
+  for built-in `user` / `service_account`. Nested keys under `config` are not
+  checked against the allowlist.
 - Any other type behaves like a custom health type: allowed only with
   `plugins` set, re-checked at boot.
 
@@ -358,8 +361,12 @@ replace it, and it does not reorder anything.
 
 Runtime values devctl injects: `SERVICE_PORT`, `SERVICE_HOST`,
 `DEVCTL_PROXY_URL`, `DEVCTL_SERVICE_NAME`, `DEVCTL_ENVIRONMENT`,
+`DEVCTL_USER_EMAIL` (omitted when no Google identity is detected),
 `DEVCTL_TOKEN_URL`, `DEVCTL_INTERNAL_TOKEN`, and `DEVCTL_HTTP_<NAME>_URL` for
-each exposed HTTP recipe (host services only). Do not define these yourself.
+each exposed HTTP recipe (host services only). When `telemetry.otlp.enabled`,
+host services also get `OTEL_EXPORTER_OTLP_ENDPOINT` /
+`OTEL_EXPORTER_OTLP_PROTOCOL=http/json` / `OTEL_SERVICE_NAME` if those keys
+were unset. Do not define these yourself.
 
 ---
 

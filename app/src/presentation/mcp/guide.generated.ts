@@ -94,6 +94,8 @@ and matches how the demo platform is laid out:
   config.yaml          # version, project, google, templates, profiles, proxy, logs
   services/<name>.yaml # one file per service; the FILENAME is the service key
   profiles/<name>.yaml
+  http/<name>.yaml     # optional named outbound recipes
+  proxy/routes.yaml    # optional; routes only, or a full proxy: wrapper
 \`\`\`
 
 Always start \`config.yaml\` with the schema hint so the user's editor completes
@@ -126,8 +128,19 @@ Guidance that shapes a good first config:
   endpoint should use \`type: http\`; a plain \`process\` check only proves the pid
   is alive and will not catch a wedged service.
 - **Proxy routes only when the repo needs injected auth** (IAP, service-account
-  impersonation) or must reach a remote upstream. A repo with no cloud auth
-  does not need \`proxy.enabled: true\`.
+  impersonation, including \`transport: grpc\` for a token-free local gRPC
+  client) or must reach a remote upstream. A repo with no cloud auth does not
+  need \`proxy.enabled: true\`. Local service-to-service via stable hostnames
+  is \`expose: true\` / \`proxy.gateway: true\` (still requires the proxy on).
+- **Containers vs host processes.** An image-only dependency (Postgres, Redis)
+  is \`container:\`, not \`docker run\` as \`command\`. Prefer keeping those out of
+  the first profile so \`devctl start\` works without Docker. After inventory,
+  \`devctl config import compose <file>\` is a dry-run shortcut — it drops
+  volumes and limits; add those by hand if needed (see discovery.md).
+- **Leave opt-in subsystems off** unless the repo actually uses them:
+  \`telemetry.otlp\`, \`web\`, \`llm\`. HTTP recipes (\`http.<name>\`) only when local
+  code needs a named outbound call (token fetch, Apigee). Details in
+  authoring.md; product pages via \`search_docs\` / \`get_doc\`.
 
 ## Secrets: name-only, always
 
@@ -237,6 +250,10 @@ Then read the logs of anything that is not \`HEALTHY\`:
 devctl logs <service> --level ERROR
 \`\`\`
 
+If the failure is a proxied or traced request, \`devctl logs --request-id …\` /
+\`--trace …\` (or MCP \`recent_errors\`, \`get_requests\`, \`trace_request\`) is more
+precise than grepping stdout.
+
 Stop when you are done, and take the daemon down if you started it:
 
 \`\`\`bash
@@ -270,16 +287,22 @@ need a shell:
 | Instead of | Use |
 |---|---|
 | \`devctl status\` | \`list_services\`, \`get_status\` |
-| \`devctl logs …\` | \`get_logs\` (200/page; page with \`cursor\` from \`next_cursor\`) |
+| \`devctl logs …\` | \`get_logs\` (200/page; page with \`cursor\` from \`next_cursor\`; filters: \`trace_id\`, \`request_id\`, \`attribute_key\` + \`attribute_value\`) |
+| error-only logs | \`recent_errors\` |
+| \`devctl logs --trace\` / \`--request-id\` | \`get_trace\`, \`trace_request\`, \`get_requests\` |
 | \`devctl doctor\` | \`run_doctor\` |
 | \`devctl config show\` | \`get_config\` |
+| config provenance | \`get_config_sources\` |
 | \`devctl start --profile p\` | \`start_services\` with \`profile: p\` |
 | \`devctl reload\` | \`reload_config\` |
 | \`devctl config validate\` | \`validate_config\` (also takes candidate \`text\`) |
 
-\`devctl down\` has no MCP equivalent — use the CLI. MCP tools need the bearer token
-from \`devctl mcp\`; if calls fail with 401, the token is stale — re-copy the
-snippet rather than retrying.
+Leave \`exec_service\` off. \`get_llm_calls\` / \`get_llm_call\` only matter if you
+enabled \`llm\`. Product pages: \`search_docs\` then \`get_doc\` (full text).
+
+\`devctl down\` has no MCP equivalent — use the CLI. MCP tools need the bearer
+token from \`devctl mcp\` (reused up to 7 days; \`devctl mcp --rotate\` remints).
+If calls fail with 401, re-copy the snippet rather than retrying.
 
 ## Reporting
 
@@ -349,7 +372,7 @@ complete allowlists.
 | \`service.container\` | \`image\` \`runtime\` \`ports\` \`env\` \`volumes\` \`user\` \`memory\` \`cpus\` \`read_only\` \`cap_drop\` \`pids_limit\` |
 | \`service.watch\` | \`enabled\` \`paths\` \`debounce_ms\` \`ignore\` |
 | \`tasks.<name>\` | \`command\` \`shell\` \`working_dir\` \`dependencies\` \`environment\` |
-| \`service.identity\` | \`type\` \`mode\` \`service_account\` |
+| \`service.identity\` | \`type\` \`mode\` \`service_account\` \`config\` |
 | \`service.restart\` | \`enabled\` \`policy\` \`max_retries\` \`backoff_seconds\` |
 | \`service.startup\` | \`wait_for_healthy\` \`timeout_seconds\` |
 | \`service.logs\` | \`stdout\` \`stderr\` |
@@ -510,6 +533,9 @@ not mark the service unhealthy or consume restart budget.
 - \`type: service_account\` (or \`service\`) **requires** \`service_account\`, and it
   must contain \`@\` — *service_account must be an email*.
 - \`mode\` is an accepted alias of \`type\`.
+- \`config\` is an opaque object passed to a **plugin** identity provider. Omit it
+  for built-in \`user\` / \`service_account\`. Nested keys under \`config\` are not
+  checked against the allowlist.
 - Any other type behaves like a custom health type: allowed only with
   \`plugins\` set, re-checked at boot.
 
@@ -677,8 +703,12 @@ replace it, and it does not reorder anything.
 
 Runtime values devctl injects: \`SERVICE_PORT\`, \`SERVICE_HOST\`,
 \`DEVCTL_PROXY_URL\`, \`DEVCTL_SERVICE_NAME\`, \`DEVCTL_ENVIRONMENT\`,
+\`DEVCTL_USER_EMAIL\` (omitted when no Google identity is detected),
 \`DEVCTL_TOKEN_URL\`, \`DEVCTL_INTERNAL_TOKEN\`, and \`DEVCTL_HTTP_<NAME>_URL\` for
-each exposed HTTP recipe (host services only). Do not define these yourself.
+each exposed HTTP recipe (host services only). When \`telemetry.otlp.enabled\`,
+host services also get \`OTEL_EXPORTER_OTLP_ENDPOINT\` /
+\`OTEL_EXPORTER_OTLP_PROTOCOL=http/json\` / \`OTEL_SERVICE_NAME\` if those keys
+were unset. Do not define these yourself.
 
 ---
 
@@ -779,13 +809,23 @@ copy it:
 | \`working_dir\` / \`build.context\` | \`working_dir\` (relative to repo root) |
 
 For a service with an image and no local host process, use devctl's native
-\`container:\` service specification rather than spelling out \`docker run\` as a
-command. Preserve the host/container port distinction, volumes, environment,
-health check, and dependencies. Keep container-backed services out of the
-default profile when doing so preserves a repository's existing no-Docker
-onboarding path.
+\`container:\` block rather than spelling out \`docker run\` as a command. When
+**hand-authoring**, keep the host/container port split (\`ports\` vs
+\`container.ports\`), \`container.volumes\`, env, health, and dependencies.
+\`container.memory\`, \`cpus\`, \`cap_drop\`, and \`pids_limit\` are valid fields.
 
-\`devctl config import compose <file>\` (dry-run) prints mapped YAML and a table of dropped fields (\`build\`, \`networks\`, \`deploy\`, \`replicas\`, per-service \`env_file\`, \`volumes\`, …). \`--write\` saves mapped fields only under \`.devctl/config.yaml\` after the same decode/validate path as hand-authored configs. TUI: \`/import compose [path]\`. K8s import is not implemented.
+\`devctl config import compose <file>\` (dry-run) prints mapped YAML and a table
+of dropped fields. The importer is a subset: it maps image, command, host
+ports, \`depends_on\`, environment, and a command healthcheck when present. It
+**drops** \`build\`, \`networks\`, \`deploy\`, \`replicas\`, per-service \`env_file\`,
+\`volumes\`, \`cap_drop\`, \`mem_limit\`, \`cpus\`, \`user\`, \`entrypoint\`, and similar.
+Review that table before \`--write\`; add volumes and limits by hand if the
+local stack needs them. \`--write\` saves mapped fields only under
+\`.devctl/config.yaml\` after the same decode/validate path as hand-authored
+configs. TUI: \`/import compose [path]\`. K8s import is not implemented.
+
+Keep container-backed services out of the default profile when the rest of
+the stack is host processes, so first start does not require Docker.
 
 ### Procfile
 

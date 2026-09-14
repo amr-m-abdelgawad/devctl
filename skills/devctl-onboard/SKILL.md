@@ -89,6 +89,8 @@ and matches how the demo platform is laid out:
   config.yaml          # version, project, google, templates, profiles, proxy, logs
   services/<name>.yaml # one file per service; the FILENAME is the service key
   profiles/<name>.yaml
+  http/<name>.yaml     # optional named outbound recipes
+  proxy/routes.yaml    # optional; routes only, or a full proxy: wrapper
 ```
 
 Always start `config.yaml` with the schema hint so the user's editor completes
@@ -121,8 +123,19 @@ Guidance that shapes a good first config:
   endpoint should use `type: http`; a plain `process` check only proves the pid
   is alive and will not catch a wedged service.
 - **Proxy routes only when the repo needs injected auth** (IAP, service-account
-  impersonation) or must reach a remote upstream. A repo with no cloud auth
-  does not need `proxy.enabled: true`.
+  impersonation, including `transport: grpc` for a token-free local gRPC
+  client) or must reach a remote upstream. A repo with no cloud auth does not
+  need `proxy.enabled: true`. Local service-to-service via stable hostnames
+  is `expose: true` / `proxy.gateway: true` (still requires the proxy on).
+- **Containers vs host processes.** An image-only dependency (Postgres, Redis)
+  is `container:`, not `docker run` as `command`. Prefer keeping those out of
+  the first profile so `devctl start` works without Docker. After inventory,
+  `devctl config import compose <file>` is a dry-run shortcut — it drops
+  volumes and limits; add those by hand if needed (see discovery.md).
+- **Leave opt-in subsystems off** unless the repo actually uses them:
+  `telemetry.otlp`, `web`, `llm`. HTTP recipes (`http.<name>`) only when local
+  code needs a named outbound call (token fetch, Apigee). Details in
+  authoring.md; product pages via `search_docs` / `get_doc`.
 
 ## Secrets: name-only, always
 
@@ -232,6 +245,10 @@ Then read the logs of anything that is not `HEALTHY`:
 devctl logs <service> --level ERROR
 ```
 
+If the failure is a proxied or traced request, `devctl logs --request-id …` /
+`--trace …` (or MCP `recent_errors`, `get_requests`, `trace_request`) is more
+precise than grepping stdout.
+
 Stop when you are done, and take the daemon down if you started it:
 
 ```bash
@@ -265,16 +282,22 @@ need a shell:
 | Instead of | Use |
 |---|---|
 | `devctl status` | `list_services`, `get_status` |
-| `devctl logs …` | `get_logs` (200/page; page with `cursor` from `next_cursor`) |
+| `devctl logs …` | `get_logs` (200/page; page with `cursor` from `next_cursor`; filters: `trace_id`, `request_id`, `attribute_key` + `attribute_value`) |
+| error-only logs | `recent_errors` |
+| `devctl logs --trace` / `--request-id` | `get_trace`, `trace_request`, `get_requests` |
 | `devctl doctor` | `run_doctor` |
 | `devctl config show` | `get_config` |
+| config provenance | `get_config_sources` |
 | `devctl start --profile p` | `start_services` with `profile: p` |
 | `devctl reload` | `reload_config` |
 | `devctl config validate` | `validate_config` (also takes candidate `text`) |
 
-`devctl down` has no MCP equivalent — use the CLI. MCP tools need the bearer token
-from `devctl mcp`; if calls fail with 401, the token is stale — re-copy the
-snippet rather than retrying.
+Leave `exec_service` off. `get_llm_calls` / `get_llm_call` only matter if you
+enabled `llm`. Product pages: `search_docs` then `get_doc` (full text).
+
+`devctl down` has no MCP equivalent — use the CLI. MCP tools need the bearer
+token from `devctl mcp` (reused up to 7 days; `devctl mcp --rotate` remints).
+If calls fail with 401, re-copy the snippet rather than retrying.
 
 ## Reporting
 
