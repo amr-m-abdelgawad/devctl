@@ -20,6 +20,7 @@ const INVALID_REQUEST = -32600;
 const METHOD_NOT_FOUND = -32601;
 const INVALID_PARAMS = -32602;
 const INTERNAL_ERROR = -32603;
+const MAX_BODY_BYTES = 1024 * 1024;
 export function isLoopbackHost(host: string): boolean {
   return host !== "" && isLoopbackBindHost(host);
 }
@@ -149,6 +150,11 @@ export class McpHttpServer {
     try {
       raw = await readBody(req);
     } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        json(res, 413, rpcError(null, PARSE_ERROR, "payload too large"));
+        req.destroy();
+        return;
+      }
       json(res, 400, rpcError(null, PARSE_ERROR, err instanceof Error ? err.message : "invalid body"));
       return;
     }
@@ -350,14 +356,42 @@ function requestPath(req: IncomingMessage): string {
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const fail = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(err);
+    };
     req.on("data", (chunk: Buffer) => {
+      if (settled) {
+        return;
+      }
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        chunks.length = 0;
+        fail(new PayloadTooLargeError());
+        return;
+      }
       chunks.push(chunk);
     });
     req.on("end", () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       resolve(Buffer.concat(chunks).toString("utf8"));
     });
-    req.on("error", reject);
+    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
   });
+}
+
+class PayloadTooLargeError extends Error {
+  constructor() {
+    super("payload too large");
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

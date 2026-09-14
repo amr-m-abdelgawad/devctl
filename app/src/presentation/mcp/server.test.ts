@@ -111,6 +111,26 @@ describe("mcp server", () => {
     expect(events.some((ev) => ev.level === "INFO" && ev.message.includes("tool call name=list_services"))).toBe(true);
     expect(events.some((ev) => ev.level === "INFO" && ev.message === "stopped")).toBe(true);
   });
+
+  test("rejects an oversized POST body", async () => {
+    const server = new McpHttpServer({ host: "127.0.0.1", port: 0, token: "sess", hostApi: host() });
+    await server.start();
+    const port = server.listenPort();
+    const body = `{"jsonrpc":"2.0","id":1,"method":"ping","pad":"${"x".repeat(1024 * 1024)}"}`;
+    try {
+      const oversized = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer sess" },
+        body,
+      });
+      expect(oversized.status).toBe(413);
+      const payload = (await oversized.json()) as { error: { code: number; message: string } };
+      expect(payload.error.code).toBe(-32700);
+      expect(payload.error.message).toBe("payload too large");
+    } finally {
+      await server.stop();
+    }
+  });
 });
 
 describe("disabled tools", () => {
