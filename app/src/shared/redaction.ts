@@ -79,20 +79,86 @@ export class Detector {
   }
 }
 
-const JWT_RE = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
-
 const GOOGLE_ACCESS_RE = /ya29\.[A-Za-z0-9_-]+/g;
 
 const TOKEN_ASSIGN_RE = /\b(id_token|access_token)=([^\s&"']+)/gi;
 
+const JWT_PREFIX = "eyJ";
+const DOT_CODE = 46;
+
 function redactKnownTokens(text: string): string {
   let out = redactBearer(text);
-  JWT_RE.lastIndex = 0;
-  out = out.replace(JWT_RE, REDACTED_VALUE);
+  out = redactJwts(out);
   GOOGLE_ACCESS_RE.lastIndex = 0;
   out = out.replace(GOOGLE_ACCESS_RE, REDACTED_VALUE);
   TOKEN_ASSIGN_RE.lastIndex = 0;
   return out.replace(TOKEN_ASSIGN_RE, `$1=${REDACTED_VALUE}`);
+}
+
+// Linear scan; `/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g` is a
+// polynomial-ReDoS finding on log lines that start with `eyJ` and repeat it.
+function redactJwts(text: string): string {
+  let out = "";
+  let i = 0;
+  while (i < text.length) {
+    const start = text.indexOf(JWT_PREFIX, i);
+    if (start < 0) {
+      return out + text.slice(i);
+    }
+    out += text.slice(i, start);
+    const end = jwtEnd(text, start);
+    if (end > start) {
+      out += REDACTED_VALUE;
+      i = end;
+    } else {
+      const skipTo = skipJwtRun(text, start);
+      out += text.slice(start, skipTo);
+      i = skipTo;
+    }
+  }
+  return out;
+}
+
+function jwtEnd(text: string, start: number): number {
+  let i = start;
+  let dots = 0;
+  let segLen = 0;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (isJwtChar(code)) {
+      segLen += 1;
+      i += 1;
+    } else if (code === DOT_CODE && segLen > 0 && dots < 2) {
+      dots += 1;
+      segLen = 0;
+      i += 1;
+    } else {
+      break;
+    }
+  }
+  return dots === 2 && segLen > 0 ? i : -1;
+}
+
+function skipJwtRun(text: string, start: number): number {
+  let i = start;
+  while (i < text.length) {
+    const code = text.charCodeAt(i);
+    if (!isJwtChar(code) && code !== DOT_CODE) {
+      break;
+    }
+    i += 1;
+  }
+  return i > start ? i : start + 1;
+}
+
+function isJwtChar(code: number): boolean {
+  return (
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    (code >= 48 && code <= 57) ||
+    code === 45 ||
+    code === 95
+  );
 }
 
 function redactBearer(text: string): string {

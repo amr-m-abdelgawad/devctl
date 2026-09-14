@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Proxy refuses to start without `listen.port` and surfaces that in the TUI instead of crashing.
 - Host trailing-dot stripping no longer uses a ReDoS-prone regex; the web-asset inliner matches spaced `</script>` end tags.
+- JWT log redaction scans `eyJ….….…` linearly instead of a backtracking regex.
 
 ## [0.8.1] - 2026-09-13
 

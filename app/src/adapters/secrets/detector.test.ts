@@ -18,5 +18,8 @@ describe("secret redaction", () => {
     expect(det.redactText("access_token=ya29.a0ASecretValue")).toBe(`access_token=${REDACTED_VALUE}`);
     expect(det.redactText("minted ya29.a0ASecretValue for iap")).toBe(`minted ${REDACTED_VALUE} for iap`);
     expect(det.redactText("not a token eyJ only")).toBe("not a token eyJ only");
+    expect(det.redactText("eyJaaa.bbb")).toBe("eyJaaa.bbb");
+    expect(det.redactText(`${jwt} and ${jwt}`)).toBe(`${REDACTED_VALUE} and ${REDACTED_VALUE}`);
+    expect(det.redactText(`${"eyJ".repeat(80)}x`)).toBe(`${"eyJ".repeat(80)}x`);
   });
 });
