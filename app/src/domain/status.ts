@@ -77,8 +77,8 @@ export type McpSnapshot = {
   address?: string;
   port?: number;
   token?: string;
-  // Names of tools currently turned off. A deny-list, so an empty array means
-  // every tool is available — see tui.json's mcp_disabled_tools.
+  // Names of tools currently turned off (effective deny-list, including
+  // default-disabled tools such as exec_service until they are opted in).
   disabled_tools?: string[];
 };
 

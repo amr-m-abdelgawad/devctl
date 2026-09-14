@@ -1,4 +1,5 @@
 import { humanMessage } from "../../shared/errors.ts";
+import { effectiveMcpDisabledTools } from "../../domain/ui/preferences.ts";
 import type { McpHost, McpListener, McpListenerFactory } from "../../ports/mcp-host.ts";
 import { loadTuiConfig } from "../config/tui-preferences.ts";
 import { resolveMcpPort } from "../net/mcp-port.ts";
@@ -40,7 +41,7 @@ export class McpCoordinator {
     // Same reasoning as mcp_enabled/mcp_port: the deny-list is a saved user
     // preference, so the daemon applies it itself at boot whether a CLI or
     // TUI client spawned it, rather than waiting for a client to push it.
-    this.setDisabledTools(prefs.mcp_disabled_tools ?? []);
+    this.setDisabledTools(effectiveMcpDisabledTools(prefs.mcp_disabled_tools, prefs.mcp_enabled_tools));
     if (prefs.mcp_enabled) {
       await this.start(prefs.mcp_port).catch((err) => this.deps.log("devctl", "ERROR", humanMessage(err)));
     }

@@ -51,9 +51,11 @@ export type TuiConfig = {
   log_metadata: boolean;
   mcp_enabled: boolean;
   mcp_port?: number;
-  // Deny-list: names of MCP tools turned off. Absent or empty means every
-  // tool is available, so a tool added in a later version is on by default.
+  // Deny-list: names of MCP tools turned off. Combined at boot with
+  // DEFAULT_DISABLED_MCP_TOOLS unless those names appear in mcp_enabled_tools.
   mcp_disabled_tools?: string[];
+  // Opt-in list for tools that are off by default (currently exec_service).
+  mcp_enabled_tools?: string[];
   path?: string;
 };
 
@@ -127,6 +129,33 @@ export function defaultKeybinds(platform = process.platform): TuiKeybinds {
 
 export const DEFAULT_KEYBINDS: TuiKeybinds = defaultKeybinds();
 
+/** Tools that stay off until the operator opts in via `mcp_enabled_tools`. */
+export const DEFAULT_DISABLED_MCP_TOOLS = ["exec_service"] as const;
+
+export function effectiveMcpDisabledTools(
+  savedDisabled: readonly string[] | undefined,
+  savedEnabled: readonly string[] | undefined,
+): string[] {
+  const enabled = new Set(savedEnabled ?? []);
+  const seeded = DEFAULT_DISABLED_MCP_TOOLS.filter((name) => !enabled.has(name));
+  return [...new Set([...(savedDisabled ?? []), ...seeded])].sort();
+}
+
+export function mcpToolPreferenceLists(disabled: readonly string[]): {
+  mcp_disabled_tools: string[];
+  mcp_enabled_tools: string[];
+} {
+  const off = new Set(disabled);
+  return {
+    mcp_disabled_tools: disabled.filter((name) => !isDefaultDisabledMcpTool(name)),
+    mcp_enabled_tools: DEFAULT_DISABLED_MCP_TOOLS.filter((name) => !off.has(name)),
+  };
+}
+
+function isDefaultDisabledMcpTool(name: string): boolean {
+  return (DEFAULT_DISABLED_MCP_TOOLS as readonly string[]).includes(name);
+}
+
 export function defaultTuiConfig(): TuiConfig {
   return {
     theme: "devctl",
@@ -162,6 +191,7 @@ export type TuiPreferencePatch = {
   mcp_enabled?: boolean;
   mcp_port?: number | null;
   mcp_disabled_tools?: string[];
+  mcp_enabled_tools?: string[];
 };
 
 export type ParsedKey = {

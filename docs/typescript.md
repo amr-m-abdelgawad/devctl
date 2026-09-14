@@ -50,9 +50,9 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`.
+Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`.
 
-`mcp_disabled_tools` is a deny-list of MCP tool names (empty means every tool is available). See [MCP](mcp.md).
+`mcp_disabled_tools` is a deny-list of MCP tool names that are on by default. `mcp_enabled_tools` opts in tools that are off by default (`exec_service`). See [MCP](mcp.md).
 
 Search order:
 
@@ -80,7 +80,8 @@ Settings writes go to `~/.devctl/tui.json` unless the env override is set (then 
   },
   "mouse": true,
   "mcp_enabled": false,
-  "mcp_disabled_tools": []
+  "mcp_disabled_tools": [],
+  "mcp_enabled_tools": []
 }
 ```
 

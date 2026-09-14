@@ -109,6 +109,13 @@ describe("mcp tools", () => {
     expect(result.environment.API_TOKEN).toBe(REDACTED_VALUE);
     expect(result.environment.NAME).toBe("ok");
   });
+
+  test("exec_service requires confirm: true to run a command", async () => {
+    const host = stubHost();
+    await expect(callMcpTool(host, "exec_service", { service: "api", command: ["echo", "ok"] })).rejects.toThrow("confirm: true");
+    const result = (await callMcpTool(host, "exec_service", { service: "api", command: ["echo", "ok"], confirm: true })) as { stdout: string };
+    expect(result.stdout).toContain("echo ok");
+  });
   test("get_config exposes IAP client_id and never the client secret", async () => {
     const host = stubHost();
     const cfg = host.config();

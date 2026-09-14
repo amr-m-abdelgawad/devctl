@@ -32,6 +32,15 @@ describe("tui.json", () => {
     expect(cfg.mcp_port).toBe(18721);
   });
 
+  test("merges mcp tool opt-in lists", () => {
+    const cfg = mergeTuiConfig(defaultTuiConfig(), {
+      mcp_disabled_tools: ["get_logs"],
+      mcp_enabled_tools: ["exec_service"],
+    }, "/tmp/tui.json");
+    expect(cfg.mcp_disabled_tools).toEqual(["get_logs"]);
+    expect(cfg.mcp_enabled_tools).toEqual(["exec_service"]);
+  });
+
   test("loads DEVCTL_TUI_CONFIG override", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
@@ -158,8 +167,10 @@ describe("tui.json", () => {
     // existing user's tui.json that still has them from before must keep
     // loading cleanly — dropping the advertisement is not the same as
     // dropping parse support.
+    const prevHome = process.env.DEVCTL_HOME;
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-legacy-fields-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
     writeFileSync(
       join(dir, "tui.json"),
       JSON.stringify({
@@ -170,9 +181,17 @@ describe("tui.json", () => {
         attention: { enabled: true, sound: true, sound_pack: "chime" },
       }),
     );
-    expect(() => loadTuiConfig(dir)).not.toThrow();
-    // A genuinely supported field alongside them still merges correctly.
-    expect(loadTuiConfig(dir).theme).toBe("nord");
+    try {
+      expect(() => loadTuiConfig(dir)).not.toThrow();
+      // A genuinely supported field alongside them still merges correctly.
+      expect(loadTuiConfig(dir).theme).toBe("nord");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
   });
 
   test("a YAML ui.keymap applies on top of the hardcoded defaults", () => {

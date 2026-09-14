@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { loadOrEmpty } from "../../adapters/config/index.ts";
 import { Supervisor } from "../../bootstrap/test-supervisor.ts";
 import { MCP_TOOL_CATEGORIES, MCP_TOOLS, enabledTools, isKnownToolName, toolEnabled } from "./tools.ts";
+import { effectiveMcpDisabledTools, mcpToolPreferenceLists } from "../../domain/ui/preferences.ts";
 import {
   mcpFirstSnippetRow,
   mcpRowCount,
@@ -63,6 +64,29 @@ describe("enable / disable", () => {
   // written by an older version must not disable a tool added later.
   test("a tool the saved list has never heard of is still enabled", () => {
     expect(toolEnabled("a_tool_added_next_year", ["get_logs"])).toBe(true);
+  });
+
+  test("exec_service is off until opted in, even with an empty saved deny-list", () => {
+    expect(effectiveMcpDisabledTools(undefined, undefined)).toEqual(["exec_service"]);
+    expect(effectiveMcpDisabledTools([], undefined)).toEqual(["exec_service"]);
+    expect(effectiveMcpDisabledTools(["get_logs"], undefined)).toEqual(["exec_service", "get_logs"]);
+    expect(effectiveMcpDisabledTools(["get_logs"], ["exec_service"])).toEqual(["get_logs"]);
+    expect(effectiveMcpDisabledTools(["exec_service"], ["exec_service"])).toEqual(["exec_service"]);
+  });
+
+  test("preference lists store opt-in separately from the deny-list", () => {
+    expect(mcpToolPreferenceLists(["exec_service", "get_logs"])).toEqual({
+      mcp_disabled_tools: ["get_logs"],
+      mcp_enabled_tools: [],
+    });
+    expect(mcpToolPreferenceLists(["get_logs"])).toEqual({
+      mcp_disabled_tools: ["get_logs"],
+      mcp_enabled_tools: ["exec_service"],
+    });
+    expect(mcpToolPreferenceLists([])).toEqual({
+      mcp_disabled_tools: [],
+      mcp_enabled_tools: ["exec_service"],
+    });
   });
 });
 
