@@ -40,7 +40,7 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
     return {
       pid,
       command: parsed.command,
-      cwd: parsed.cwd,
+      cwd: "",
       startTime: parsed.startTime,
     };
   }
@@ -57,7 +57,7 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
   return {
     pid,
     command: parsed?.command || fromProcess?.command || "",
-    cwd: parsed?.cwd || fromProcess?.cwd || "",
+    cwd: "",
     startTime: parsed?.startTime || fromProcess?.startTime,
   };
 }
@@ -89,13 +89,13 @@ export function parseGetProcess(text: string): { command: string; cwd: string; s
     if (path === "") {
       return undefined;
     }
-    return { command: path, cwd: dirnameOf(path), startTime: parsed.StartTime };
+    return { command: path, cwd: "", startTime: parsed.StartTime };
   } catch {
     const path = pickValue(raw, "Path");
     if (path === "") {
       return undefined;
     }
-    return { command: path, cwd: dirnameOf(path) };
+    return { command: path, cwd: "" };
   }
 }
 
@@ -107,13 +107,11 @@ export function parseCimProcess(text: string): { command: string; cwd: string; s
   try {
     const parsed = JSON.parse(raw) as { CommandLine?: string; ExecutablePath?: string; CreationDate?: string };
     const command = (parsed.CommandLine || parsed.ExecutablePath || "").trim();
-    const exe = (parsed.ExecutablePath || "").trim();
-    const cwd = dirnameOf(exe);
-    return { command, cwd, startTime: parsed.CreationDate || undefined };
+    return { command, cwd: "", startTime: parsed.CreationDate || undefined };
   } catch {
     return {
       command: pickValue(raw, "CommandLine") || pickValue(raw, "ExecutablePath"),
-      cwd: dirnameOf(pickValue(raw, "ExecutablePath")),
+      cwd: "",
     };
   }
 }
@@ -161,15 +159,6 @@ export function parseWindowsResourceSamples(text: string): Map<number, ResourceS
     return result;
   }
   return result;
-}
-
-function dirnameOf(path: string): string {
-  if (path === "") {
-    return "";
-  }
-  const norm = path.replace(/\//g, "\\");
-  const idx = norm.lastIndexOf("\\");
-  return idx > 0 ? norm.slice(0, idx) : "";
 }
 
 function pickValue(text: string, key: string): string {

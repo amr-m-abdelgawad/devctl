@@ -11,12 +11,12 @@ describe("windows process backend", () => {
     expect(true).toBe(true);
   });
 
-  test("parses CIM inspect JSON for command and executable directory", () => {
+  test("parses CIM inspect JSON for command without treating the image directory as cwd", () => {
     const parsed = parseCimProcess(
       '{"CommandLine":"python main.py","ExecutablePath":"C:\\\\repo\\\\api\\\\python.exe","CreationDate":"2026-08-31T00:00:00"}',
     );
     expect(parsed?.command).toBe("python main.py");
-    expect(parsed?.cwd).toBe("C:\\repo\\api");
+    expect(parsed?.cwd).toBe("");
     expect(parsed?.startTime).toBe("2026-08-31T00:00:00");
   });
 
@@ -29,7 +29,7 @@ describe("windows process backend", () => {
   test("parses Get-Process JSON for executable path", () => {
     const parsed = parseGetProcess('{"Path":"C:\\\\Program Files\\\\bun\\\\bun.exe","StartTime":"2026-08-31T00:00:00"}');
     expect(parsed?.command).toBe("C:\\Program Files\\bun\\bun.exe");
-    expect(parsed?.cwd).toBe("C:\\Program Files\\bun");
+    expect(parsed?.cwd).toBe("");
   });
 
   test("parses process resource JSON into kb and cpu", () => {

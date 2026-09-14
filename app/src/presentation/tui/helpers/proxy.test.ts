@@ -1,3 +1,4 @@
+import { describe, expect, test } from "bun:test";
 import { formatDurationMs } from "./format.ts";
 import { proxyDurationView, proxyRequestPath, PROXY_DURATION_MISSING } from "./proxy.ts";
 

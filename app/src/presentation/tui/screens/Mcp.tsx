@@ -1,3 +1,4 @@
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { useDensity } from "../density.tsx";
 import { padClip } from "../helpers/format.ts";
 import { Chip, KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from "../layout.tsx";

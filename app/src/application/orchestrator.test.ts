@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyService } from "../domain/config/types.ts";
-import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
 import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../domain/service/container-limits.ts";
 import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";

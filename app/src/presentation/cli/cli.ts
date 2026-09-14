@@ -13,7 +13,7 @@ import { addLlm } from "./llm.ts";
 import { addMcp, addProxy } from "./listeners.ts";
 import { addWeb } from "./web.ts";
 import { addUpdate } from "./update.ts";
-import { configFlag, writeOut } from "./shared.ts";
+import { configFlag, isStdoutClosed, writeOut } from "./shared.ts";
 
 export { followLogs } from "./logs.ts";
 
@@ -119,7 +119,7 @@ function addSupervisor(root: Command, launchDaemon: DaemonLauncher): void {
 
 export async function execute(runtime: ClientRuntime, launchDaemon: DaemonLauncher): Promise<void> {
   process.stdout.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EPIPE") {
+    if (isStdoutClosed(err)) {
       process.exit(0);
     }
   });

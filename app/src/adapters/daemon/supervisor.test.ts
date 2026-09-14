@@ -1379,6 +1379,7 @@ describe("persisted state durability", () => {
     const sup2 = new Supervisor(cfg2, stub);
     try {
       await sup1.start({ services: ["api"] });
+      await waitFor(async () => !(await available(port)), 3000);
       const originalStart = sup1.snapshot().services.api?.startTime;
       expect(originalStart).toBeTruthy();
 
