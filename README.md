@@ -158,7 +158,7 @@ The **supervisor** owns host processes, optional Docker/Podman containers, the p
 | [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Telemetry](docs/telemetry.md) | [Environment](docs/environment.md) | [Proxy](docs/proxy.md) |
 | [Agent skills](skills/README.md) | [Doctor](docs/doctor.md) · [Troubleshooting](docs/troubleshooting.md) | [Plugins](docs/plugins.md) | [Security](docs/security.md) |
 
-The full documentation site is also published as a [GitHub Wiki](https://github.com/amr-m-abdelgawad/devctl/wiki).
+The full documentation site is also published as a [GitHub Wiki](https://github.com/amr-m-abdelgawad/devctl/wiki). Changing this repository (not YAML in some other repo): [contributor internals](docs/internals/README.md).
 
 ---
 

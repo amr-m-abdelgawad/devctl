@@ -11,4 +11,4 @@ bun test
 
 TUI preferences: [`tui.json`](./tui.json) or `DEVCTL_TUI_CONFIG`.
 
-Wiki: [docs/](../docs/README.md) — start with [how it fits together](../docs/overview.md) and [building from source](../docs/typescript.md).
+Wiki: [docs/](../docs/README.md) — start with [how it fits together](../docs/overview.md) and [building from source](../docs/typescript.md). Changing this tree: [internals](../docs/internals/README.md).

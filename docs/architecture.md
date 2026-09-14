@@ -62,7 +62,8 @@ as dependencies.
 
 ## Related
 
-- [How it fits together](overview.md)
+- [Internals (contributor guide)](internals/index.md) — file-by-file map of the running code
+- [How it fits together](overview.md) — operator view of supervisor vs TUI vs CLI vs MCP
 - [Building from source](typescript.md)
 - Agent rules: `.cursor/rules/architecture.mdc`
 

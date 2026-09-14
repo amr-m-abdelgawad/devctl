@@ -49,6 +49,15 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Admin setup](admin-setup.md) | IAM and APIs administrators own |
 | [Security](security.md) | Redaction, bind rules, credential files |
 
+## Contribute to this repository
+
+These pages are **not** the operator manual. They map the TypeScript tree for people changing `devctl` itself.
+
+| Page | Side |
+|------|------|
+| [Internals (contributor guide)](internals/index.md) | How to read the repo, every layer, RPC, adding features |
+| [Contributing](../CONTRIBUTING.md) | Source loop, tests, and where to edit docs |
+
 ## Reference
 
 | Page | Side |
@@ -56,7 +65,6 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Building from source](typescript.md) | `app/` layout, tests, TUI config file |
 | [Architecture](architecture.md) | Layers, composition roots, import rules |
 | [Platform bets](platform-bets.md) | Remote/multi-repo/k8s/OIDC/signing — design separately |
-| [Contributing](../CONTRIBUTING.md) | Source loop, tests, and where to edit docs |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
 | [Architecture spec](devctl-architecture.md) | Original implementation specification (historical). Do not treat the `cmd/` tree there as the current repo. |
 | [License](../LICENSE) | MIT |

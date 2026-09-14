@@ -95,6 +95,7 @@ Integration tests that need Google stay skipped unless credentials are present.
 
 ## Related
 
+- [Internals](internals/index.md) — how to read the source, not only the folder names
 - [Installation](installation.md)
 - [TUI](tui.md)
 - [How it fits together](overview.md)

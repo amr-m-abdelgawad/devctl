@@ -10,11 +10,13 @@ rm -rf "${dest}"
 mkdir -p "${dest}"
 cp -R "${src}/." "${dest}/"
 
-# Strip VitePress website files — the wiki only wants the doc pages.
+# Strip VitePress website files and contributor internals — the wiki
+# only wants operator-facing pages. Internals stay in the repo / site.
 rm -rf \
   "${dest}/.vitepress" \
   "${dest}/public" \
   "${dest}/node_modules" \
+  "${dest}/internals" \
   "${dest}/index.md" \
   "${dest}/package.json" \
   "${dest}/package-lock.json"
@@ -40,6 +42,9 @@ def rewrite(url: str) -> str:
         return f"{blob}/{url[3:]}"
     path, frag = (url.split("#", 1) + [""])[:2]
     suffix = f"#{frag}" if frag else ""
+    # Subdirectory pages (contributor internals) are not wiki pages.
+    if "/" in path:
+        return f"{blob}/docs/{path}{suffix}"
     if path.endswith(".md"):
         name = Path(path).name
         page = "Home" if name.lower() == "readme.md" else Path(name).stem
@@ -94,6 +99,7 @@ cat > "${dest}/_Sidebar.md" <<EOF
 * [npm publishing](npm-publishing)
 * [Architecture spec](devctl-architecture)
 * [Contributing](${blob}/CONTRIBUTING.md)
+* [Internals (source map)](${blob}/docs/internals/README.md)
 * [Security policy](${blob}/SECURITY.md)
 EOF
 

@@ -15,7 +15,8 @@ const siteConfig = withMermaid({
   cleanUrls: true,
   lastUpdated: true,
 
-  // README.md is the wiki index; the landing page (index.md) replaces it here.
+  // Root README.md is the wiki index; the landing page (index.md) replaces it
+  // here. internals/index.md is the contributor hub (`/internals/`).
   srcExclude: ['README.md'],
 
   // Docs share their source with the GitHub Wiki and use plenty of ../ links
@@ -66,7 +67,8 @@ const siteConfig = withMermaid({
           { text: 'Proxy', link: '/proxy' },
           { text: 'Telemetry', link: '/telemetry' },
           { text: 'LLM inspector', link: '/llm' },
-          { text: 'Architecture', link: '/architecture' }
+          { text: 'Architecture', link: '/architecture' },
+          { text: 'Internals', link: '/internals/' }
         ]
       },
       { text: 'GitHub', link: repo },
@@ -143,6 +145,32 @@ const siteConfig = withMermaid({
           { text: 'Contributing', link: `${blob}/CONTRIBUTING.md` },
           { text: 'Security policy', link: `${blob}/SECURITY.md` },
           { text: 'License', link: `${blob}/LICENSE` }
+        ]
+      },
+      {
+        text: 'Contribute',
+        collapsed: true,
+        items: [
+          { text: 'Internals guide', link: '/internals/' },
+          { text: 'How to read the code', link: '/internals/reading-the-code' },
+          { text: 'Repository map', link: '/internals/repo-map' },
+          { text: 'Process model', link: '/internals/process-model' },
+          { text: 'Layers', link: '/internals/layers' },
+          { text: 'Bootstrap', link: '/internals/bootstrap' },
+          { text: 'RPC', link: '/internals/rpc' },
+          { text: 'Domain', link: '/internals/domain' },
+          { text: 'Application', link: '/internals/application' },
+          { text: 'Ports', link: '/internals/ports' },
+          { text: 'Adapters', link: '/internals/adapters' },
+          { text: 'Presentation', link: '/internals/presentation' },
+          { text: 'Config pipeline', link: '/internals/config-pipeline' },
+          { text: 'Runtime', link: '/internals/runtime' },
+          { text: 'Identity and proxy', link: '/internals/identity-proxy' },
+          { text: 'Logs, telemetry, LLM', link: '/internals/logs-telemetry' },
+          { text: 'Events and errors', link: '/internals/events-errors' },
+          { text: 'Testing and CI', link: '/internals/testing-ci' },
+          { text: 'Packaging', link: '/internals/packaging' },
+          { text: 'Adding a feature', link: '/internals/adding-features' }
         ]
       }
     ],
