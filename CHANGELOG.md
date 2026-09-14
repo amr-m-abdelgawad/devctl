@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Token endpoint mints must match a declared identity/audience pair and are rate-limited. A missing peer address is treated as non-loopback.
 - Managed containers default to 1g RAM, 1 CPU, and 256 PIDs; Doctor warns on root images.
 - Free-text logs also redact raw JWTs and Google access tokens. MCP request bodies are capped at 1 MiB.
+- Dependencies: OpenTUI 0.5.11, React 19.3, TypeScript 6, yaml 2.9.1; docs VitePress 1.6.4 / Vue 3.5.42 / Mermaid 11.17.2; demo Vite 8.
 
 ### Fixed
 
