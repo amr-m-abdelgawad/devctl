@@ -7,12 +7,11 @@ import { callMcpTool, MCP_TOOLS, type McpHost } from "./tools.ts";
 
 const repoRoot = dirname(dirname(dirname(dirname(import.meta.dir))));
 const docsDir = join(repoRoot, "docs");
-const SKIP = new Set(["devctl-architecture.md"]);
 
 describe("embedded docs", () => {
   test("every user-facing docs/*.md page is compiled in", () => {
     const onDisk = readdirSync(docsDir)
-      .filter((name) => name.endsWith(".md") && !SKIP.has(name))
+      .filter((name) => name.endsWith(".md"))
       .sort()
       .map((name) => `docs/${name}`);
     expect(DOC_PAGES.map((page) => page.path)).toEqual(onDisk);

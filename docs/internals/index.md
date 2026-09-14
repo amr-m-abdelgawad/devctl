@@ -4,7 +4,7 @@ This directory is the **source map for people who change `devctl` itself**. It i
 
 The user wiki and MCP `search_docs` / `get_doc` tools only index the top-level pages under `docs/`. These internals pages live next to that documentation so they stay in the repo and on the VitePress site, without mixing into the operator wiki.
 
-`docs/architecture.md` is the short layer map CI enforces. `docs/devctl-architecture.md` is a **historical** product spec (Manager names, a `cmd/` tree that does not exist). Read this guide instead of that spec when you need to know what the TypeScript tree actually does.
+`docs/architecture.md` is the short layer map CI enforces. This guide is the file-by-file map of the running TypeScript tree.
 
 This file is the docs-site index (`/internals/`). GitHub’s folder view uses [README.md](README.md) — keep the two in sync if you edit the hub.
 

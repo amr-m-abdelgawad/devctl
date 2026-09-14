@@ -97,7 +97,6 @@ cat > "${dest}/_Sidebar.md" <<EOF
 **Reference**
 * [Building from source](typescript)
 * [npm publishing](npm-publishing)
-* [Architecture spec](devctl-architecture)
 * [Contributing](${blob}/CONTRIBUTING.md)
 * [Internals (source map)](${blob}/docs/internals/README.md)
 * [Security policy](${blob}/SECURITY.md)

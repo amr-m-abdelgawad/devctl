@@ -66,7 +66,6 @@ These pages are **not** the operator manual. They map the TypeScript tree for pe
 | [Architecture](architecture.md) | Layers, composition roots, import rules |
 | [Platform bets](platform-bets.md) | Remote/multi-repo/k8s/OIDC/signing — design separately |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
-| [Architecture spec](devctl-architecture.md) | Original implementation specification (historical). Do not treat the `cmd/` tree there as the current repo. |
 | [License](../LICENSE) | MIT |
 | [Security policy](../SECURITY.md) | How to report a vulnerability |
 

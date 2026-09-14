@@ -40,7 +40,7 @@ No npm token in the repo. Tag `vX.Y.Z` on `main` after CI is green.
 |---------|--------|-------|
 | VitePress | `docs/` including `internals/` | `docs/.vitepress/config.ts`; GitHub Pages `deploy-pages.yml` |
 | GitHub Wiki | top-level `docs/*.md` | `prepare-wiki.sh` **strips** `internals/` |
-| MCP `search_docs` | `docs.generated.ts` | Top-level `docs/*.md` except historical spec |
+| MCP `search_docs` | `docs.generated.ts` | Top-level `docs/*.md` |
 
 `docs/index.md` is the marketing landing page (excluded from wiki). Wiki home is `docs/README.md` → `Home.md`.
 

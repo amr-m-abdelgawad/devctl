@@ -141,7 +141,6 @@ const siteConfig = withMermaid({
           { text: 'Architecture', link: '/architecture' },
           { text: 'Platform bets', link: '/platform-bets' },
           { text: 'npm publishing', link: '/npm-publishing' },
-          { text: 'Architecture spec', link: '/devctl-architecture' },
           { text: 'Contributing', link: `${blob}/CONTRIBUTING.md` },
           { text: 'Security policy', link: `${blob}/SECURITY.md` },
           { text: 'License', link: `${blob}/LICENSE` }

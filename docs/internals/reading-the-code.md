@@ -89,7 +89,7 @@ Pick the face the user touched, then stay on the command path. Do not grep the w
 
 ## Naming that used to mean something else
 
-The living code does **not** have `ServiceManager` / `IdentityManager` as types. Older comments and `docs/devctl-architecture.md` use those names. The equivalents today:
+The living code does **not** have `ServiceManager` / `IdentityManager` as types. Older comments used those names. The equivalents today:
 
 | Historical name | Current owner |
 |-----------------|---------------|
@@ -108,7 +108,6 @@ Almost every production module has a sibling `*.test.ts`. Architecture tests in 
 
 ## What not to read first
 
-- `docs/devctl-architecture.md` — product intent, not the current tree.
 - `presentation/tui/overlays/*` — modal UI chrome; they sit on top of screens and do not own domain behavior.
 - `presentation/mcp/docs.generated.ts` and `guide.generated.ts` — copies of markdown; edit the sources and run `bun run sync-guide`.
 - `presentation/web/assets.generated.ts` — bundled SPA; edit `app/web/` and `bun run build:web`.
