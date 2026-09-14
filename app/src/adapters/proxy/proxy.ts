@@ -12,7 +12,7 @@ import { formatTraceparent } from "../../domain/logs/ids.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { applyExtraAuthHeaders, mintAuthToken } from "../http/identity.ts";
-import { type TokenManager } from "../google/token.ts";
+import { type TokenManager, isTokenMintRateLimited, TOKEN_MINT_WINDOW_MS } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
@@ -727,7 +727,12 @@ export class TokenEndpoint {
           identity: tok.identity,
         }),
       );
-    } catch {
+    } catch (err) {
+      if (isTokenMintRateLimited(err)) {
+        res.setHeader("retry-after", String(TOKEN_MINT_WINDOW_MS / 1000));
+        writePlain(res, 429, "too many requests");
+        return;
+      }
       writePlain(res, 500, "token error");
     }
   }

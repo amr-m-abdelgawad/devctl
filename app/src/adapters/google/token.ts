@@ -8,6 +8,7 @@ import { DevctlError, hintError, humanMessage, KindAuthentication, KindAuthoriza
 import { type Bus, TokenRefreshed, TokenRefreshFailed, newEvent } from "../../shared/events.ts";
 import { classifyGoogle, ensureFetchShim } from "./google.ts";
 import { withRetry } from "../../shared/retry.ts";
+import { SlidingWindowLimiter } from "../../shared/sliding-window.ts";
 import { credentialsDir, writeFileSecure } from "../storage/storage.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { OAuthClientCredentials } from "../../ports/credential-provider.ts";
@@ -20,6 +21,10 @@ const DEFAULT_THRESHOLD_MS = 5 * 60 * 1000;
 const FALLBACK_TTL_MS = 50 * 60 * 1000;
 const TOKEN_RETRY_MAX = 3;
 const TOKEN_RETRY_BACKOFF_MS = 200;
+export const TOKEN_MINT_LIMIT = 10;
+export const TOKEN_MINT_WINDOW_MS = 60_000;
+export const TOKEN_MINT_WARN_COUNT = 8;
+export const TOKEN_MINT_RATE_LIMITED = "token mint rate limit exceeded";
 const CLOUD_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 const IAP_SCOPE = "https://www.googleapis.com/auth/userinfo.email";
 const OAUTH2_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -168,6 +173,16 @@ export function expiresSoonToken(tok: AccessToken, thresholdMs = DEFAULT_THRESHO
   return remaining > 0 && remaining < thresholdMs;
 }
 
+export type TokenMintHotspot = {
+  identity: string;
+  audience: string;
+  count: number;
+};
+
+export function isTokenMintRateLimited(err: unknown): boolean {
+  return err instanceof DevctlError && err.kind === KindToken && err.message.includes(TOKEN_MINT_RATE_LIMITED);
+}
+
 export class TokenManager {
   private readonly cache = new Map<string, AccessToken>();
   private readonly inflight = new Map<string, Promise<AccessToken>>();
@@ -176,13 +191,22 @@ export class TokenManager {
   private readonly bus?: Bus;
   private readonly store: CredentialStore;
   private readonly clock: Clock;
+  private readonly mints: SlidingWindowLimiter;
 
-  constructor(thresholdMs: number, providers: TokenProvider[], bus?: Bus, store?: CredentialStore, clock: Clock = systemClock) {
+  constructor(
+    thresholdMs: number,
+    providers: TokenProvider[],
+    bus?: Bus,
+    store?: CredentialStore,
+    clock: Clock = systemClock,
+    mintLimit = TOKEN_MINT_LIMIT,
+  ) {
     this.thresholdMs = thresholdMs > 0 ? thresholdMs : DEFAULT_THRESHOLD_MS;
     this.providers = [...providers];
     this.bus = bus;
     this.store = store ?? openCredentialStore(process.env.DEVCTL_CREDENTIAL_BACKEND === "file" ? "file" : undefined);
     this.clock = clock;
+    this.mints = new SlidingWindowLimiter(mintLimit, TOKEN_MINT_WINDOW_MS, () => this.clock.unixMs());
   }
 
   replaceProviders(providers: TokenProvider[]): void {
@@ -215,6 +239,18 @@ export class TokenManager {
     return this.store.backend;
   }
 
+  mintRateHotspot(): TokenMintHotspot | undefined {
+    const hot = this.mints.hottest();
+    if (!hot) {
+      return undefined;
+    }
+    const sep = hot.key.indexOf("\0");
+    if (sep < 0) {
+      return { identity: hot.key, audience: "", count: hot.count };
+    }
+    return { identity: hot.key.slice(0, sep), audience: hot.key.slice(sep + 1), count: hot.count };
+  }
+
   async get(identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
     const key = tokenCacheKey(identity, audience, scopes, oauth?.clientId);
     const cached = this.cache.get(key) ?? (await this.loadStored(key));
@@ -222,7 +258,15 @@ export class TokenManager {
       this.cache.set(key, cached);
       return cached;
     }
-    return this.refresh(identity, audience, scopes, oauth);
+    try {
+      return await this.refresh(identity, audience, scopes, oauth);
+    } catch (err) {
+      if (isTokenMintRateLimited(err) && cached && cached.accessToken !== "" && cached.expiresAt.getTime() > this.clock.unixMs()) {
+        this.cache.set(key, cached);
+        return cached;
+      }
+      throw err;
+    }
   }
 
   async refresh(identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
@@ -241,6 +285,9 @@ export class TokenManager {
   }
 
   private async refreshOnce(key: string, identity: string, audience: string, scopes: string[], oauth?: OAuthClientRef): Promise<AccessToken> {
+    if (!this.mints.tryAcquire(`${identity}\0${audience}`)) {
+      throw newError(KindToken, TOKEN_MINT_RATE_LIMITED);
+    }
     // Only now that a mint is actually happening do we resolve the OAuth
     // secret — a cache hit in get() never reaches here, so a valid cached
     // token survives an empty/removed env secret.

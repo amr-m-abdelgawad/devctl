@@ -551,6 +551,32 @@ describe("proxy", () => {
     await ep.stop();
   });
 
+  test("token endpoint returns 429 when Google minting is rate limited", async () => {
+    const tokens = new TokenManager(
+      60_000,
+      [
+        {
+          name: "stub",
+          fetch: async () => token({ expiresAt: new Date(Date.now() - 1_000) }),
+        },
+      ],
+      undefined,
+      memoryStore(),
+      undefined,
+      1,
+    );
+    const ep = new TokenEndpoint("127.0.0.1", 0, "s3cret", tokens, [{ identity: "user", audience: "" }]);
+    await ep.start();
+    const port = ep.listenPort();
+    const headers = { [INTERNAL_TOKEN_HEADER]: "s3cret" };
+    const first = await fetch(`http://127.0.0.1:${port}/token`, { headers });
+    expect(first.status).toBe(200);
+    const limited = await fetch(`http://127.0.0.1:${port}/token`, { headers });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("60");
+    await ep.stop();
+  });
+
   test("proxy log lines omit Authorization", async () => {
     const upstream = createServer((_req, res) => {
       res.end("ok");

@@ -6,7 +6,7 @@ import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type Go
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
-import { TokenManager, googleTokenProviders, iapOAuthClientRef, type OAuthClientRef } from "../google/token.ts";
+import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
 export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
@@ -24,6 +24,7 @@ export type DoctorHost = {
   mintToken?: (identity: string, audience: string, oauth?: OAuthClientRef) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
   containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
+  mintRateWarning?: () => TokenMintHotspot | undefined;
 };
 
 export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
@@ -41,6 +42,7 @@ export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
     mintToken: async (identity, audience, oauth) => {
       await manager().get(identity, audience, [], oauth);
     },
+    mintRateWarning: () => manager().mintRateHotspot(),
     probeServiceUsage: async (project, service) => {
       const tok = await withTimeout(manager().get("user", "", []), LIVE_PROBE_MS);
       const url = `https://serviceusage.googleapis.com/v1/projects/${project}/services/${service}`;
@@ -164,6 +166,17 @@ export async function runDoctor(
     } finally {
       liveOpen = false;
     }
+  }
+  const hotspot = host.mintRateWarning?.();
+  if (hotspot && hotspot.count >= TOKEN_MINT_WARN_COUNT) {
+    checking("Google token mint rate");
+    const audience = hotspot.audience === "" ? "no audience" : hotspot.audience;
+    add({
+      name: "Google token mint rate",
+      severity: "warn",
+      message: `${hotspot.count} mints in the last minute for ${hotspot.identity} (${audience})`,
+      hint: "cached tokens are reused until they expire; slow token-endpoint polling if a service is looping GET /token",
+    });
   }
   for (const tool of cfg.doctor.tools) {
     const cmd = tool.command || tool.name;

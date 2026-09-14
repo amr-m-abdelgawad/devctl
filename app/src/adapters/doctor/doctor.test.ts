@@ -232,6 +232,18 @@ describe("doctor", () => {
     expect(check?.hint).toContain("roles/iam.serviceAccountTokenCreator for developer@example.com");
     expect(check?.hint).toContain("ADC quota project: developer-quota");
   });
+
+  test("warns when Google mint rate for one identity is high", async () => {
+    const host = offlineHost();
+    host.mintRateWarning = () => ({ identity: "user", audience: "", count: 8 });
+    const report = await runDoctor(localCfg(), host);
+    expect(report.checks.find((check) => check.name === "Google token mint rate")).toEqual({
+      name: "Google token mint rate",
+      severity: "warn",
+      message: "8 mints in the last minute for user (no audience)",
+      hint: "cached tokens are reused until they expire; slow token-endpoint polling if a service is looping GET /token",
+    });
+  });
 });
 
 

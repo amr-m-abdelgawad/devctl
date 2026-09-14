@@ -290,7 +290,7 @@ flowchart TB
 
 User identity and service identity are separate. A service or proxy route must declare which one to use. A user ADC token is never substituted for a service-account route.
 
-\`devctl auth refresh\` uses \`auth.refresh_threshold_seconds\` (default 300). Tokens live in the OS keychain when available, otherwise \`~/.devctl/credentials\` with mode \`0600\`. Metadata files never include the raw access token.
+\`devctl auth refresh\` uses \`auth.refresh_threshold_seconds\` (default 300). Tokens live in the OS keychain when available, otherwise \`~/.devctl/credentials\` with mode \`0600\`. Metadata files never include the raw access token. Google minting is capped at 10 refreshes per identity and audience per minute; a still-unexpired cached token is reused when the cap is hit. Doctor warns when the rate for one pair is high.
 
 The TUI **identity** tab (\`a\`) shows user, project, source, ADC, gcloud, configured SAs, impersonation availability, and whether IAP routes exist. The **credentials** tab lists store backend and entry names only.
 
@@ -639,6 +639,7 @@ The TUI **doctor** tab re-runs on every visit (\`r\` also refreshes). \`j\`/\`k\
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares \`container\` (every such service in config, not only the active profile — the demo probes Docker because \`postgres\` is always declared)
 - Ports declared in config
 - Repository configuration validity
+- Google token mint rate (warns when one identity/audience pair is minted often in the last minute)
 
 Doctor probes IAP / service-account identity when any route or service declares them, even if the rest of the repo looks local-only.
 
@@ -947,7 +948,7 @@ flowchart LR
 
 The local proxy mints the token and injects \`Authorization: Bearer …\`. Services do not implement IAP themselves.
 
-Tokens refresh when \`expires_at - now < auth.refresh_threshold_seconds\` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request.
+Tokens refresh when \`expires_at - now < auth.refresh_threshold_seconds\` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request. Google minting is also capped at 10 refreshes per identity and audience per minute.
 
 Doctor probes IAP audiences (including SA impersonation and a configured OAuth client) even if the rest of the repo looks local-only.
 
@@ -2158,7 +2159,7 @@ Notes:
 
 ## Token endpoint
 
-Optional \`GET /token\` (\`proxy.token_endpoint\`) binds to loopback (never \`0.0.0.0\` or \`::\`), requires \`X-Devctl-Internal-Token\`, and only accepts loopback peers. Query \`identity\` and \`audience\` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting.
+Optional \`GET /token\` (\`proxy.token_endpoint\`) binds to loopback (never \`0.0.0.0\` or \`::\`), requires \`X-Devctl-Internal-Token\`, and only accepts loopback peers. Query \`identity\` and \`audience\` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting. Google mints are capped at 10 per identity/audience per minute; over the cap, a still-valid cached token is reused, otherwise the endpoint returns 429.
 
 \`\`\`json
 {
@@ -2332,7 +2333,7 @@ Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopba
 | Listener | Auth at the door |
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
-| **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer. Query \`identity\`/\`audience\` must match a declared route or service identity. Returns \`access_token\` to that caller |
+| **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer. Query \`identity\`/\`audience\` must match a declared route or service identity. Google mints are rate-limited. Returns \`access_token\` to that caller |
 | **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (session token, 7-day TTL, \`devctl mcp --rotate\`). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
 | **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). \`POST /api/control\` needs \`Authorization: Bearer\` (per-bind token from \`devctl web start\`) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\`. HTML is not framed. \`get_status\` does not include the token |
 
