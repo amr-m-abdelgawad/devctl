@@ -2,7 +2,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { request as httpsRequest } from "node:https";
 import { type Duplex, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "../config/index.ts";
-import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { isLoopbackBindHost, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
@@ -696,7 +696,7 @@ export class TokenEndpoint {
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!isLoopback(req.socket.remoteAddress)) {
+    if (!isLoopbackPeer(req.socket.remoteAddress)) {
       writePlain(res, 403, "forbidden");
       return;
     }
@@ -726,11 +726,4 @@ export class TokenEndpoint {
       writePlain(res, 500, "token error");
     }
   }
-}
-
-function isLoopback(addr?: string): boolean {
-  if (!addr) {
-    return true;
-  }
-  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
 }

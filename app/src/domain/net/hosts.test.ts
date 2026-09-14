@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname } from "./hosts.ts";
+import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "./hosts.ts";
 
 describe("isLoopbackBindHost", () => {
   test("allows loopback and empty (caller default)", () => {
@@ -74,5 +74,20 @@ describe("formatHostPort", () => {
     expect(formatHostPort("::1", 18900)).toBe("[::1]:18900");
     expect(formatHostPort("[::1]", 18900)).toBe("[::1]:18900");
     expect(formatHostPort("", 80)).toBe("127.0.0.1:80");
+  });
+});
+
+describe("isLoopbackPeer", () => {
+  test("allows loopback peers including IPv4-mapped", () => {
+    expect(isLoopbackPeer("127.0.0.1")).toBe(true);
+    expect(isLoopbackPeer("::1")).toBe(true);
+    expect(isLoopbackPeer("::ffff:127.0.0.1")).toBe(true);
+  });
+
+  test("rejects a missing or empty remote address", () => {
+    expect(isLoopbackPeer(undefined)).toBe(false);
+    expect(isLoopbackPeer("")).toBe(false);
+    expect(isLoopbackPeer("   ")).toBe(false);
+    expect(isLoopbackPeer("192.168.1.1")).toBe(false);
   });
 });

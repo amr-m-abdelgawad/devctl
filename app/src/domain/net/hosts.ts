@@ -57,6 +57,18 @@ export function formatHostPort(host: string, port: number): string {
   return `${name}:${port}`;
 }
 
+/** Peer address on an accepted connection. Missing/empty is not loopback. */
+export function isLoopbackPeer(addr?: string): boolean {
+  if (addr === undefined) {
+    return false;
+  }
+  const normalized = addr.trim().toLowerCase();
+  if (normalized === "") {
+    return false;
+  }
+  return isLoopbackBindHost(normalized);
+}
+
 function hostnameFromBracketedHost(value: string): string | undefined {
   const close = value.indexOf("]");
   if (close < 2) {
