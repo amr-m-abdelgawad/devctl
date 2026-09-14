@@ -181,6 +181,8 @@ describe("web http server", () => {
       expect(page.status).toBe(200);
       expect(page.headers.get("content-type") ?? "").toContain("text/html");
       expect(page.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(page.headers.get("x-frame-options")).toBe("DENY");
+      expect(page.headers.get("content-security-policy")).toBe("frame-ancestors 'none'");
       expect(page.headers.get("access-control-allow-origin")).toBeNull();
       expect((await page.text()).toLowerCase()).toContain("<!doctype html>");
 

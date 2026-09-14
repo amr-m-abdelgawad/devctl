@@ -24,6 +24,10 @@ import { WEB_INDEX_HTML } from "./assets.generated.ts";
 const JSON_CONTENT = "application/json";
 const HTML_CONTENT = "text/html; charset=utf-8";
 const NOSNIFF = { "X-Content-Type-Options": "nosniff" } as const;
+const FRAME_GUARD = {
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+} as const;
 const HTML_BLOB = /export const WEB_INDEX_HTML = ("(?:\\.|[^"\\])*")/;
 const ALLOW_GET = "GET";
 const ALLOW_GET_POST = "GET, POST";
@@ -348,6 +352,7 @@ function writeHtml(res: ServerResponse, html: string): void {
     "Content-Length": Buffer.byteLength(html),
     "Cache-Control": "no-store",
     ...NOSNIFF,
+    ...FRAME_GUARD,
   });
   res.end(html);
 }
