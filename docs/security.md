@@ -50,14 +50,14 @@ flowchart TB
   ok --> web["Web UI"]
 ```
 
-Four listeners, same bind rule. The web UI also checks that `Host` is a loopback name (`127.0.0.0/8`, `localhost`, `::1`) — the port may differ, so WSL / Dev Container forwarding still works — and `POST /api/control` needs a loopback `http` or `https` Origin or Referer. No login or token.
+Four listeners, same bind rule. The web UI also checks that `Host` is a loopback name (`127.0.0.0/8`, `localhost`, `::1`) — the port may differ, so WSL / Dev Container forwarding still works — and `POST /api/control` needs a loopback `http` or `https` Origin or Referer plus a per-bind bearer token.
 
 | Listener | Auth at the door |
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include `Authorization` |
 | **Token endpoint** | `X-Devctl-Internal-Token` + loopback peer only. Returns `access_token` to that caller |
 | **MCP** | Off by default. Mutating tools need `Authorization: Bearer` (session token). Copied snippets include it; `get_status` does not |
-| **Web UI** | Loopback bind + loopback Host. Mutations need a loopback Origin/Referer |
+| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). `POST /api/control` needs `Authorization: Bearer` (per-bind token from `devctl web start`) plus a loopback `http` or `https` `Origin`/`Referer`. HTML is not framed. `get_status` does not include the token |
 
 Host child processes always get `DEVCTL_INTERNAL_TOKEN`. They only get `DEVCTL_TOKEN_URL` when `proxy.token_endpoint.enabled` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 

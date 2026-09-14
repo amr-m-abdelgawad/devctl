@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
@@ -33,10 +34,12 @@ const ALLOW_GET = "GET";
 const ALLOW_GET_POST = "GET, POST";
 const ALLOW_POST = "POST";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
+const BEARER_PREFIX = "Bearer ";
 
 export type WebListenOptions = {
   host: string;
   port: number;
+  token: string;
   hostApi: McpHost;
   onEvent?: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 };
@@ -65,6 +68,9 @@ export class WebHttpServer {
   }
 
   start(): Promise<void> {
+    if (this.opts.token.trim() === "") {
+      return Promise.reject(newError(KindGeneral, "web UI control token is required"));
+    }
     const host = this.opts.host || LOCALHOST;
     if (!isLoopbackBindHost(host)) {
       return Promise.reject(newError(KindGeneral, `refusing to bind web UI to ${host}`));
@@ -193,6 +199,7 @@ export class WebHttpServer {
       writeMethodNotAllowed(res, path === "/" || path.startsWith("/api/") ? ALLOW_GET : ALLOW_GET_POST);
       return;
     }
+    assertControlAuthorized(req, this.opts.token);
     assertSameOriginControl(req);
     assertJsonContentType(req.headers["content-type"]);
     const body = await readJsonBody(req);
@@ -221,6 +228,24 @@ function originIsLoopback(value: string): boolean {
     return (url.protocol === "http:" || url.protocol === "https:") && isLoopbackHostname(url.hostname);
   } catch {
     return false;
+  }
+}
+
+function bearerMatches(header: string, token: string): boolean {
+  if (token === "" || !header.startsWith(BEARER_PREFIX)) {
+    return false;
+  }
+  const presented = Buffer.from(header.slice(BEARER_PREFIX.length));
+  const expected = Buffer.from(token);
+  if (presented.length !== expected.length) {
+    return false;
+  }
+  return timingSafeEqual(presented, expected);
+}
+
+function assertControlAuthorized(req: IncomingMessage, token: string): void {
+  if (!bearerMatches(headerValue(req.headers.authorization), token)) {
+    throw new HttpError(401, "unauthorized");
   }
 }
 

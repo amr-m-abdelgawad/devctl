@@ -520,8 +520,7 @@ export class Supervisor {
         await this.stopMcp();
         return null;
       case "web_start":
-        await this.web.startExplicit();
-        return null;
+        return { url: await this.web.startExplicit() };
       case "web_stop":
         await this.web.stop();
         return null;

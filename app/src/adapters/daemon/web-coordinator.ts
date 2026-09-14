@@ -1,5 +1,6 @@
 import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
+import { randomSecret } from "../storage/storage.ts";
 
 export type WebCoordinatorDeps = {
   cfg: () => DevctlConfig;
@@ -10,6 +11,7 @@ export type WebCoordinatorDeps = {
 
 export class WebCoordinator {
   private listener?: WebListener;
+  private token = "";
   private readonly deps: WebCoordinatorDeps;
 
   constructor(deps: WebCoordinatorDeps) {
@@ -29,6 +31,14 @@ export class WebCoordinator {
     return addr === "" ? "" : `http://${addr}/`;
   }
 
+  controlUrl(): string {
+    const base = this.endpoint();
+    if (base === "" || this.token === "") {
+      return base;
+    }
+    return `${base}?token=${encodeURIComponent(this.token)}`;
+  }
+
   async start(): Promise<void> {
     if (!this.deps.cfg().web.enabled) {
       return;
@@ -36,13 +46,15 @@ export class WebCoordinator {
     await this.bind();
   }
 
-  async startExplicit(): Promise<void> {
+  async startExplicit(): Promise<string> {
     await this.bind();
+    return this.controlUrl();
   }
 
   async stop(): Promise<void> {
     await this.listener?.stop();
     this.listener = undefined;
+    this.token = "";
   }
 
   private async bind(): Promise<void> {
@@ -50,9 +62,11 @@ export class WebCoordinator {
       return;
     }
     const listen = this.deps.cfg().web.listen;
+    this.token = randomSecret();
     this.listener = this.deps.createListener({
       host: listen.host || LOCALHOST,
       port: listen.port,
+      token: this.token,
       hostApi: this.deps.hostApi(),
       onEvent: (level, message) => this.deps.log("web", level, `web ${message}`),
     });

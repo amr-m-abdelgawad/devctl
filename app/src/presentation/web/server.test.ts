@@ -10,6 +10,8 @@ import { WebHttpServer } from "./server.ts";
 
 type ControlCall = { tool: string; args: unknown };
 
+const TEST_WEB_TOKEN = "test-web-control-token-aaaaaaaaaaaa";
+
 function host(): McpHost & { calls: ControlCall[] } {
   const cfg = defaultConfig();
   cfg.project.name = "demo";
@@ -115,7 +117,7 @@ function host(): McpHost & { calls: ControlCall[] } {
 }
 
 async function listen(api: McpHost = host()): Promise<WebHttpServer> {
-  const server = new WebHttpServer({ host: "127.0.0.1", port: 0, hostApi: api });
+  const server = new WebHttpServer({ host: "127.0.0.1", port: 0, token: TEST_WEB_TOKEN, hostApi: api });
   await server.start();
   return server;
 }
@@ -154,6 +156,7 @@ function controlHeaders(port: number, extra: Record<string, string> = {}): Recor
   return {
     "content-type": "application/json",
     Origin: `http://127.0.0.1:${port}`,
+    Authorization: `Bearer ${TEST_WEB_TOKEN}`,
     ...extra,
   };
 }
@@ -168,7 +171,12 @@ async function postControl(port: number, payload: unknown, extra: Record<string,
 
 describe("web http server", () => {
   test("refuses non-loopback bind", async () => {
-    const server = new WebHttpServer({ host: "0.0.0.0", port: 18999, hostApi: host() });
+    const server = new WebHttpServer({ host: "0.0.0.0", port: 18999, token: TEST_WEB_TOKEN, hostApi: host() });
+    await expect(server.start()).rejects.toMatchObject({ kind: KindGeneral });
+  });
+
+  test("refuses to start without a control token", async () => {
+    const server = new WebHttpServer({ host: "127.0.0.1", port: 0, token: "  ", hostApi: host() });
     await expect(server.start()).rejects.toMatchObject({ kind: KindGeneral });
   });
 
@@ -306,7 +314,11 @@ describe("web http server", () => {
       const missing = await rawRequest(port, {
         method: "POST",
         path: "/api/control",
-        headers: { "content-type": "application/json", "content-length": String(Buffer.byteLength(body)) },
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${TEST_WEB_TOKEN}`,
+          "content-length": String(Buffer.byteLength(body)),
+        },
         body,
       });
       expect(missing.status).toBe(403);
@@ -316,6 +328,7 @@ describe("web http server", () => {
         path: "/api/control",
         headers: {
           "content-type": "application/json",
+          Authorization: `Bearer ${TEST_WEB_TOKEN}`,
           Origin: "https://evil.example",
           "content-length": String(Buffer.byteLength(body)),
         },
@@ -328,6 +341,7 @@ describe("web http server", () => {
         path: "/api/control",
         headers: {
           "content-type": "application/json",
+          Authorization: `Bearer ${TEST_WEB_TOKEN}`,
           Referer: `http://127.0.0.1:${port}/`,
           "content-length": String(Buffer.byteLength(body)),
         },
@@ -339,6 +353,34 @@ describe("web http server", () => {
       expect(form.status).toBe(415);
 
       expect(api.calls.map((call) => call.tool)).toEqual(["stop_services"]);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("POST /api/control requires a bearer token, not Origin alone", async () => {
+    const api = host();
+    const server = await listen(api);
+    const port = server.listenPort();
+    const body = JSON.stringify({ tool: "stop_proxy" });
+    try {
+      const originOnly = await fetch(`http://127.0.0.1:${port}/api/control`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Origin: `http://127.0.0.1:${port}`,
+        },
+        body,
+      });
+      expect(originOnly.status).toBe(401);
+      expect((await originOnly.json() as { error: string }).error).toBe("unauthorized");
+
+      const wrong = await postControl(port, { tool: "stop_proxy" }, { Authorization: "Bearer wrong-token" });
+      expect(wrong.status).toBe(401);
+
+      const ok = await postControl(port, { tool: "stop_proxy" });
+      expect(ok.status).toBe(200);
+      expect(api.calls.map((call) => call.tool)).toEqual(["stop_proxy"]);
     } finally {
       await server.stop();
     }
@@ -427,6 +469,7 @@ describe("web http server", () => {
           path: "/api/control",
           headers: {
             "content-type": "application/json",
+            Authorization: `Bearer ${TEST_WEB_TOKEN}`,
             Origin: origin,
             "content-length": String(Buffer.byteLength(body)),
           },
@@ -440,6 +483,7 @@ describe("web http server", () => {
         path: "/api/control",
         headers: {
           "content-type": "application/json",
+          Authorization: `Bearer ${TEST_WEB_TOKEN}`,
           Origin: "https://evil.example",
           "content-length": String(Buffer.byteLength(body)),
         },
@@ -453,6 +497,7 @@ describe("web http server", () => {
         path: "/api/control",
         headers: {
           "content-type": "application/json",
+          Authorization: `Bearer ${TEST_WEB_TOKEN}`,
           Referer: "http://localhost:8080/",
           "content-length": String(Buffer.byteLength(body)),
         },

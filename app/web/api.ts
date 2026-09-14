@@ -11,6 +11,7 @@ import type {
   StatusSummary,
   TracePayload,
 } from "./types.ts";
+import { controlAuthHeaders } from "./session.ts";
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
@@ -78,7 +79,7 @@ export function fetchLlmCall(id: string): Promise<LlmCallRow> {
 export async function postControl(tool: ControlTool, args: ControlArgs = {}): Promise<unknown> {
   const res = await fetch("/api/control", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...controlAuthHeaders() },
     body: JSON.stringify({ tool, args }),
   });
   const text = await res.text();

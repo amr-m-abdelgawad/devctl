@@ -2309,14 +2309,14 @@ flowchart TB
   ok --> web["Web UI"]
 \`\`\`
 
-Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopback name (\`127.0.0.0/8\`, \`localhost\`, \`::1\`) — the port may differ, so WSL / Dev Container forwarding still works — and \`POST /api/control\` needs a loopback \`http\` or \`https\` Origin or Referer. No login or token.
+Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopback name (\`127.0.0.0/8\`, \`localhost\`, \`::1\`) — the port may differ, so WSL / Dev Container forwarding still works — and \`POST /api/control\` needs a loopback \`http\` or \`https\` Origin or Referer plus a per-bind bearer token.
 
 | Listener | Auth at the door |
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
 | **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer only. Returns \`access_token\` to that caller |
 | **MCP** | Off by default. Mutating tools need \`Authorization: Bearer\` (session token). Copied snippets include it; \`get_status\` does not |
-| **Web UI** | Loopback bind + loopback Host. Mutations need a loopback Origin/Referer |
+| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). \`POST /api/control\` needs \`Authorization: Bearer\` (per-bind token from \`devctl web start\`) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\`. HTML is not framed. \`get_status\` does not include the token |
 
 Host child processes always get \`DEVCTL_INTERNAL_TOKEN\`. They only get \`DEVCTL_TOKEN_URL\` when \`proxy.token_endpoint.enabled\` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 
@@ -2694,13 +2694,16 @@ View a trace three ways:
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
-It is off until you enable it. It binds loopback only (no login or token, no
-CORS). The Host allowlist accepts loopback names (\`127.0.0.0/8\`, \`localhost\`,
-\`::1\`, including \`[::1]\`, a missing or remapped port, and \`https://localhost\`)
-so WSL, Dev Containers, and forwarded ports work; it still rejects machine
-hostnames and public origins. Mutating \`POST /api/control\` requires a loopback
-\`http\` or \`https\` \`Origin\` or \`Referer\` and \`Content-Type: application/json\`.
-The listener serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
+It is off until you enable it. It binds loopback only (no CORS). The Host
+allowlist accepts loopback names (\`127.0.0.0/8\`, \`localhost\`, \`::1\`, including
+\`[::1]\`, a missing or remapped port, and \`https://localhost\`) so WSL, Dev
+Containers, and forwarded ports work; it still rejects machine hostnames and
+public origins. Mutating \`POST /api/control\` requires \`Authorization: Bearer\`
+with the per-bind token printed by \`devctl web start\`, plus a loopback \`http\` or
+\`https\` \`Origin\` or \`Referer\` and \`Content-Type: application/json\`. Open that
+printed URL so the SPA can store the token; it is not embedded in the HTML.
+\`devctl status\` and MCP \`get_status\` report the listener address without the
+token. The listener serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
 redaction. Mutations go through \`POST /api/control\` to the same MCP tools
 (except \`exec_service\`).
 
@@ -2712,10 +2715,11 @@ web:
     port: 18900                  # default 18900
 \`\`\`
 
-Then \`devctl web start\` (or boot with \`enabled: true\`) and open the printed URL.
-\`devctl web status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener.
-Hash routes: \`#/services\`, \`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`. Rebuild the embed with
-\`cd app && bun run build:web\` after editing \`app/web/\`.
+\`devctl web start\` prints the control URL (including \`?token=\`), even if the
+listener is already running from \`enabled: true\`. Open that URL. \`devctl web
+status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener without
+the token. Hash routes: \`#/services\`, \`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`.
+Rebuild the embed with \`cd app && bun run build:web\` after editing \`app/web/\`.
 
 Overview KPIs use lifetime totals (\`proxy.requestTotal\`, \`logs.seen\` /
 \`logs.seenErrors\`). Tables and the graph stay windowed: last 100 proxy
