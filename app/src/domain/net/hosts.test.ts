@@ -32,6 +32,12 @@ describe("isLoopbackHostname", () => {
     expect(isLoopbackHostname("127.0.0.2")).toBe(true);
   });
 
+  test("strips a long trailing-dot suffix in linear time", () => {
+    const dots = ".".repeat(10_000);
+    expect(isLoopbackHostname(`localhost${dots}`)).toBe(true);
+    expect(isLoopbackHostname(`evil.example${dots}`)).toBe(false);
+  });
+
   test("rejects empty, unspecified, and non-loopback names", () => {
     expect(isLoopbackHostname("")).toBe(false);
     expect(isLoopbackHostname("0.0.0.0")).toBe(false);

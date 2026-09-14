@@ -105,8 +105,16 @@ function normalizeHostname(host: string): string {
   if (value.startsWith("[") && value.endsWith("]")) {
     value = value.slice(1, -1);
   }
-  value = stripZoneId(value);
-  return value.replace(/\.+$/, "");
+  return stripTrailingDots(stripZoneId(value));
+}
+
+/** Linear strip; `/\.+$/` is a polynomial-ReDoS finding on Host input. */
+function stripTrailingDots(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === ".") {
+    end -= 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
 }
 
 function stripZoneId(host: string): string {
