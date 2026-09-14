@@ -68,6 +68,8 @@ cat > "${dest}/_Sidebar.md" <<EOF
 * [CLI](cli)
 * [MCP](mcp)
 * [Logs](logs)
+* [LLM inspector](llm)
+* [Telemetry](telemetry)
 * [Doctor](doctor)
 * [Troubleshooting](troubleshooting)
 
@@ -76,6 +78,7 @@ cat > "${dest}/_Sidebar.md" <<EOF
 * [Services](services)
 * [Profiles](profiles)
 * [Environment](environment)
+* [Custom HTTP APIs](http)
 * [Plugins](plugins)
 
 **Identity**

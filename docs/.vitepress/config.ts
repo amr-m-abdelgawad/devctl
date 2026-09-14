@@ -62,8 +62,10 @@ const siteConfig = withMermaid({
           { text: 'MCP', link: '/mcp' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Services', link: '/services' },
+          { text: 'Custom HTTP APIs', link: '/http' },
           { text: 'Proxy', link: '/proxy' },
           { text: 'Telemetry', link: '/telemetry' },
+          { text: 'LLM inspector', link: '/llm' },
           { text: 'Architecture', link: '/architecture' }
         ]
       },
@@ -99,6 +101,7 @@ const siteConfig = withMermaid({
           { text: 'CLI', link: '/cli' },
           { text: 'MCP', link: '/mcp' },
           { text: 'Logs', link: '/logs' },
+          { text: 'LLM inspector', link: '/llm' },
           { text: 'Telemetry', link: '/telemetry' },
           { text: 'Doctor', link: '/doctor' },
           { text: 'Troubleshooting', link: '/troubleshooting' }
@@ -112,6 +115,7 @@ const siteConfig = withMermaid({
           { text: 'Services', link: '/services' },
           { text: 'Profiles', link: '/profiles' },
           { text: 'Environment', link: '/environment' },
+          { text: 'Custom HTTP APIs', link: '/http' },
           { text: 'Plugins', link: '/plugins' }
         ]
       },
