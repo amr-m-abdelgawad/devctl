@@ -73,6 +73,43 @@ export function tokenIdentityKey(ident: Identity): string {
   return "user";
 }
 
+export type TokenMint = {
+  identity: string;
+  audience: string;
+};
+
+export function declaredTokenMints(cfg: DevctlConfig): TokenMint[] {
+  const found = new Map<string, TokenMint>();
+  const add = (identity: string, audience: string): void => {
+    found.set(`${identity}\0${audience}`, { identity, audience });
+  };
+  for (const svc of Object.values(cfg.services)) {
+    const ident = fromConfig(svc.identity);
+    if (!requiresCloud(ident)) {
+      continue;
+    }
+    add(tokenIdentityKey(ident), "");
+  }
+  for (const route of cfg.proxy.routes) {
+    const ident = fromRoute(route.auth);
+    if (ident.kind === KindNone) {
+      continue;
+    }
+    add(tokenIdentityKey(ident), route.auth.audience);
+  }
+  return [...found.values()].sort((left, right) => {
+    const byIdentity = left.identity.localeCompare(right.identity);
+    if (byIdentity !== 0) {
+      return byIdentity;
+    }
+    return left.audience.localeCompare(right.audience);
+  });
+}
+
+export function tokenMintAllowed(mints: readonly TokenMint[], identity: string, audience: string): boolean {
+  return mints.some((mint) => mint.identity === identity && mint.audience === audience);
+}
+
 export function emptyIdentity(partial: Partial<Identity> = {}): Identity {
   return {
     kind: KindNone,

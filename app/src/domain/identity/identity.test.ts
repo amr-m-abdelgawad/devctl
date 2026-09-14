@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../config/types.ts";
-import { configuredServiceAccounts, declaredServiceAccounts, identityBlockers, needsCloudFeatures } from "./identity.ts";
+import { defaultConfig, emptyRouteAuth, emptyService } from "../config/types.ts";
+import { configuredServiceAccounts, declaredServiceAccounts, declaredTokenMints, identityBlockers, needsCloudFeatures } from "./identity.ts";
 
 describe("identity helpers", () => {
   test("collects service accounts from services and routes", () => {
@@ -93,5 +93,43 @@ describe("identity helpers", () => {
     };
     expect(identityBlockers(cfg, ["api", "worker"], false)).toEqual([{ name: "worker", message: "ADC unavailable" }]);
     expect(identityBlockers(cfg, ["api", "worker"], true)).toEqual([]);
+  });
+
+  test("token-endpoint allowlist is the declared route and service identity pairs", () => {
+    const cfg = defaultConfig();
+    cfg.services.worker = {
+      ...emptyService(),
+      identity: { type: "service_account", mode: "", service_account: "worker-dev@example.com" },
+    };
+    cfg.services.api = {
+      ...emptyService(),
+      identity: { type: "user", mode: "", service_account: "" },
+    };
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        ...emptyRouteAuth(),
+        type: "iap",
+        identity: { type: "service_account", service_account: "api-dev@example.com" },
+        audience: "aud",
+      },
+    });
+    cfg.proxy.routes.push({
+      name: "public",
+      match: { host: "", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: {
+        ...emptyRouteAuth(),
+        type: "none",
+        identity: { type: "service_account", service_account: "stale-dev@example.com" },
+      },
+    });
+    expect(declaredTokenMints(cfg)).toEqual([
+      { identity: "sa:api-dev@example.com", audience: "aud" },
+      { identity: "sa:worker-dev@example.com", audience: "" },
+      { identity: "user", audience: "" },
+    ]);
   });
 });

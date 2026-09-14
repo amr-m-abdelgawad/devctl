@@ -5,7 +5,7 @@ import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "
 import { isLoopbackBindHost, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
-import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
+import { fromRoute, tokenIdentityKey, tokenMintAllowed, type TokenMint } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
 import { formatTraceparent } from "../../domain/logs/ids.ts";
@@ -663,6 +663,7 @@ export class TokenEndpoint {
     private readonly port: number,
     private readonly secret: string,
     private readonly tokens: TokenManager,
+    private readonly allowed: readonly TokenMint[] = [],
   ) {}
 
   listenPort(): number {
@@ -711,6 +712,10 @@ export class TokenEndpoint {
     const url = new URL(req.url, "http://127.0.0.1");
     const identity = url.searchParams.get("identity") ?? "user";
     const audience = url.searchParams.get("audience") ?? "";
+    if (!tokenMintAllowed(this.allowed, identity, audience)) {
+      writePlain(res, 403, "forbidden");
+      return;
+    }
     try {
       const tok = await this.tokens.get(identity, audience, []);
       res.setHeader("content-type", "application/json");

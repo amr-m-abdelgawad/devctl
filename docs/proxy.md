@@ -218,7 +218,7 @@ Notes:
 
 ## Token endpoint
 
-Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers.
+Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers. Query `identity` and `audience` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting.
 
 ```json
 {

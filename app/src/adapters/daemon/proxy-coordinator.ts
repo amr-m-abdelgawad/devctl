@@ -1,4 +1,5 @@
 import { type DevctlConfig, isGrpcRoute } from "../../domain/config/types.ts";
+import { declaredTokenMints } from "../../domain/identity/identity.ts";
 import type { Bus } from "../../shared/events.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
@@ -83,6 +84,7 @@ export class ProxyCoordinator {
         cfg.proxy.token_endpoint.port,
         this.deps.internalTok(),
         this.deps.tokens,
+        declaredTokenMints(cfg),
       );
       await this.tokenEP.start();
       this.boundURL = `http://127.0.0.1:${this.tokenEP.listenPort()}/token`;

@@ -2158,7 +2158,7 @@ Notes:
 
 ## Token endpoint
 
-Optional \`GET /token\` (\`proxy.token_endpoint\`) binds to loopback (never \`0.0.0.0\` or \`::\`), requires \`X-Devctl-Internal-Token\`, and only accepts loopback peers.
+Optional \`GET /token\` (\`proxy.token_endpoint\`) binds to loopback (never \`0.0.0.0\` or \`::\`), requires \`X-Devctl-Internal-Token\`, and only accepts loopback peers. Query \`identity\` and \`audience\` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting.
 
 \`\`\`json
 {
@@ -2332,7 +2332,7 @@ Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopba
 | Listener | Auth at the door |
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
-| **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer only. Returns \`access_token\` to that caller |
+| **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer. Query \`identity\`/\`audience\` must match a declared route or service identity. Returns \`access_token\` to that caller |
 | **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (session token, 7-day TTL, \`devctl mcp --rotate\`). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
 | **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). \`POST /api/control\` needs \`Authorization: Bearer\` (per-bind token from \`devctl web start\`) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\`. HTML is not framed. \`get_status\` does not include the token |
 
