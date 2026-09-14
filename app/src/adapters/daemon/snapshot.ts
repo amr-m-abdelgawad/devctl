@@ -20,6 +20,7 @@ export type SnapshotHost = {
   readonly mcp?: McpListener;
   readonly web?: WebListener;
   readonly mcpToken: string;
+  readonly mcpTokenAgeMs?: number;
   readonly mcpDisabledTools: string[];
   readonly identityCache: IdentitySnapshot;
   readonly serviceAccountStatus: Map<string, ServiceAccountStatus>;
@@ -126,6 +127,7 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
       address: host.mcp?.isRunning() ? `http://${host.mcp.address()}/mcp` : undefined,
       port: host.mcp?.isRunning() ? host.mcp.listenPort() : undefined,
       token: host.mcpToken,
+      token_age_ms: host.mcpTokenAgeMs,
       disabled_tools: [...host.mcpDisabledTools],
     },
     web: {

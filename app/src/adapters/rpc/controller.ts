@@ -419,6 +419,10 @@ export class Controller {
     await this.call("mcp_stop", null);
   }
 
+  async mcpRotate(): Promise<void> {
+    await this.call("mcp_rotate", null);
+  }
+
   async webStart(): Promise<{ url: string }> {
     const res = (await this.call("web_start", null)) as { url?: string };
     return { url: res.url ?? "" };

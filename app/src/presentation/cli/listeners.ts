@@ -2,6 +2,7 @@ import { Command } from "commander";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
 import { derivedMcpPort } from "../mcp/port.ts";
 import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "../mcp/snippets.ts";
+import { MCP_TOKEN_TTL_DAYS, formatMcpTokenAge } from "../../shared/mcp-token.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
 export function addProxy(root: Command, runtime: ClientRuntime): void {
@@ -56,14 +57,23 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
     .option("--on", "start the MCP listener")
     .option("--off", "stop the MCP listener")
     .option("--port <port>", "listen port")
+    .option("--rotate", "mint a new bearer token (restarts the listener if it is running)")
     .option("--json", "machine-readable output")
-    .action(async (opts: { on?: boolean; off?: boolean; port?: string; json?: boolean }) => {
+    .action(async (opts: { on?: boolean; off?: boolean; port?: string; rotate?: boolean; json?: boolean }) => {
       const portOpt = opts.port === undefined ? undefined : Number(opts.port);
       if (opts.port !== undefined && (!Number.isInteger(portOpt) || (portOpt ?? 0) <= 0)) {
         throw new Error(`invalid --port ${opts.port}`);
       }
       const ctrl = await runtime.openController("", configFlag(root), opts.on === true, { allowMissingConfig: true });
       try {
+        let rotatedToken = "";
+        if (opts.rotate === true) {
+          if (ctrl.client) {
+            await ctrl.mcpRotate();
+          } else {
+            rotatedToken = runtime.rotateMcpToken(ctrl.cfg.repoRoot);
+          }
+        }
         if (opts.off === true && ctrl.client) {
           await ctrl.mcpStop();
         } else if (opts.on === true) {
@@ -73,7 +83,8 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
         const tui = runtime.loadTuiConfig(ctrl.cfg.repoRoot, ctrl.cfg.ui.keymap);
         const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot);
         const url = snap?.mcp?.address ?? mcpUrl(port);
-        const token = snap?.mcp?.token ?? "";
+        const token = snap?.mcp?.token ?? rotatedToken;
+        const ageMs = snap?.mcp?.token_age_ms ?? runtime.mcpTokenAgeMs(ctrl.cfg.repoRoot);
         if (opts.json) {
           writeOut(
             JSON.stringify(
@@ -82,6 +93,8 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
                 setup_mode: snap?.setup_mode === true,
                 url,
                 port,
+                token_age_ms: ageMs,
+                token_ttl_days: MCP_TOKEN_TTL_DAYS,
                 snippets: {
                   claude: JSON.parse(claudeSnippet(url, token)),
                   cursor: JSON.parse(cursorSnippet(url, token)),
@@ -95,7 +108,11 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
           );
           return;
         }
-        writeOut(`MCP  ${snap?.mcp?.running ? "RUNNING" : "STOPPED"}  ${url}\n\n`);
+        writeOut(`MCP  ${snap?.mcp?.running ? "RUNNING" : "STOPPED"}  ${url}\n`);
+        if (ageMs !== undefined) {
+          writeOut(`token age ${formatMcpTokenAge(ageMs)} (TTL ${MCP_TOKEN_TTL_DAYS}d; rotate with devctl mcp --rotate)\n`);
+        }
+        writeOut(`\n`);
         if (snap?.setup_mode === true) {
           writeOut(`This repository has no .devctl yet, so the daemon is in setup mode.\n`);
           writeOut(`Connect an agent with the config below and ask it to set devctl up for this repository.\n`);

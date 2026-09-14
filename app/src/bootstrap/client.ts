@@ -1,7 +1,7 @@
 import { loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath } from "../adapters/config/tui-preferences.ts";
 import type { ClientRuntime } from "../application/client-runtime.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { readPersistedState, bootstrapLogPath, exportsDir } from "../adapters/storage/storage.ts";
+import { readPersistedState, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
 import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents } from "../adapters/storage/logs.ts";
 import { freePort } from "../adapters/net/ports.ts";
 import { createStarterConfig, runSetup } from "../presentation/cli/setup.ts";
@@ -23,7 +23,7 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, listSessions, loadSessionEvents,
     loadPath, validateConfigText, discover, configDiff,
     openTui, findDaemon, tryDial, assertMethodAllowed,
-    readPersistedState, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
+    readPersistedState, rotateMcpToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
     createStarterConfig,
     runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),
     readTextFile: (path) => readFileSync(path, "utf8"),

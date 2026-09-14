@@ -45,6 +45,7 @@ export type Controller = {
   proxyStop(): Promise<void>;
   mcpStart(opts?: { port?: number }): Promise<void>;
   mcpStop(): Promise<void>;
+  mcpRotate(): Promise<void>;
   webStart(): Promise<{ url: string }>;
   webStop(): Promise<void>;
   mcpSetTools(disabled: readonly string[]): Promise<string[]>;
@@ -88,6 +89,8 @@ export type ClientRuntime = {
   tryDial(repoRoot: string): Promise<DaemonClient | undefined>;
   assertMethodAllowed(client: DaemonClient, method: string): void;
   readPersistedState(repoRoot: string): PersistedState | undefined;
+  rotateMcpToken(repoRoot: string): string;
+  mcpTokenAgeMs(repoRoot: string): number | undefined;
   bootstrapLogPath(repoRoot: string): string;
   exportsDir(): string;
   resolveExportPath(input?: string): string;

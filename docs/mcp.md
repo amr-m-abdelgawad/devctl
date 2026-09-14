@@ -49,9 +49,12 @@ Change it with `←` / `→` or `devctl mcp --port`. An override is persisted as
 The server binds **`127.0.0.1` only**. Requests must use a loopback `Host` from a
 loopback peer. There is no CORS (`Access-Control-Allow-Origin` is not set), so a
 browser page cannot drive the control plane cross-origin. Mutating tools require
-`Authorization: Bearer` with a short session token. Copied snippets include that
-header. Tool output never includes tokens or raw secret env values. `get_status`
-reports MCP running/address/port, not the bearer token.
+`Authorization: Bearer` with a short session token. The token is reused across
+daemon restarts for **7 days**, then reminted. `devctl mcp --rotate` mints a new
+one immediately (and restarts the listener if it is running). Copied snippets
+include the header. Tool output never includes tokens or raw secret env values.
+`get_status` reports MCP running/address/port and token age, not the bearer
+token. Re-copy snippets after a rotate or TTL remint.
 
 ## CLI
 
@@ -59,10 +62,13 @@ reports MCP running/address/port, not the bearer token.
 devctl mcp                 # URL + four snippets
 devctl mcp --on [--port N]
 devctl mcp --off
+devctl mcp --rotate
 devctl mcp --json
 ```
 
 `--on` starts a supervisor if needed. `--off` stops the listener only.
+`--rotate` writes a new bearer token; if the listener is running it is restarted
+so agents must be given the new snippets.
 
 ## Tools and resources
 

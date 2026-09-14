@@ -87,3 +87,24 @@ describe("mcp coordinator tool defaults", () => {
     }
   });
 });
+
+describe("mcp coordinator token rotate", () => {
+  test("rotate replaces the in-memory bearer token", async () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = tmp();
+    process.env.DEVCTL_HOME = dir;
+    try {
+      const mcp = coordinator(dir);
+      const first = mcp.token;
+      await mcp.rotate();
+      expect(mcp.token).not.toBe(first);
+      expect(mcp.tokenAgeMs() ?? 999_999).toBeLessThan(5_000);
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+});

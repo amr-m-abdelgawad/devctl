@@ -24,7 +24,7 @@ devctl doctor [--json]
 devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
-devctl mcp [--on|--off] [--port N] [--json]
+devctl mcp [--on|--off] [--port N] [--rotate] [--json]
 devctl web status|start|stop
 devctl config validate|show|diff [--json]
 devctl attach

@@ -505,7 +505,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
     },
     logs: snap.logs,
     mcp: snap.mcp
-      ? { running: snap.mcp.running, address: snap.mcp.address, port: snap.mcp.port }
+      ? { running: snap.mcp.running, address: snap.mcp.address, port: snap.mcp.port, token_age_ms: snap.mcp.token_age_ms }
       : { running: false },
     web: snap.web
       ? { running: snap.web.running, address: snap.web.address, port: snap.web.port }

@@ -7,6 +7,7 @@ import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
@@ -323,19 +324,31 @@ export function mcpTokenPath(repoRoot: string): string {
   return join(sessionDir(repoRoot), "mcp-token");
 }
 
-// The MCP token is pasted into an external agent's config file (Claude Code, Cursor, etc.), so
-// unlike the internal RPC token it needs to survive restarts — otherwise every relaunch of devctl
-// forces the user to re-copy and re-paste a new token into that external config. Reuse whatever is
-// already on disk for this repo; only mint a new one the first time, or if it's ever been deleted.
-export function readOrCreateMcpToken(repoRoot: string): string {
+export function mcpTokenAgeMs(repoRoot: string, now = Date.now()): number | undefined {
+  const path = mcpTokenPath(repoRoot);
+  if (!existsSync(path)) {
+    return undefined;
+  }
+  return Math.max(0, now - statSync(path).mtimeMs);
+}
+
+// Pasted into external agent configs, so the token survives daemon restarts
+// until TTL (7 days) or an explicit rotate. A leaked snippet must not stay
+// valid forever.
+export function readOrCreateMcpToken(repoRoot: string, now = Date.now()): string {
   const path = mcpTokenPath(repoRoot);
   if (existsSync(path)) {
     const existing = readFileSync(path, "utf8").trim();
-    if (existing !== "") {
+    const age = now - statSync(path).mtimeMs;
+    if (existing !== "" && age < MCP_TOKEN_TTL_MS) {
       return existing;
     }
   }
+  return rotateMcpToken(repoRoot);
+}
+
+export function rotateMcpToken(repoRoot: string): string {
   const token = randomSecret();
-  writeFileSecure(path, token);
+  writeFileSecure(mcpTokenPath(repoRoot), token);
   return token;
 }

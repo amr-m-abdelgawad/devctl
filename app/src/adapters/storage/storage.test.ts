@@ -2,7 +2,8 @@ import { spawn } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, repoID, rotateBootstrapLog, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, repoID, rotateBootstrapLog, rotateMcpToken, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 
 describe("session storage", () => {
   test("equivalent repository path spellings share one state identity", () => {
@@ -47,9 +48,24 @@ describe("session storage", () => {
     expect(readOrCreateMcpToken("/repo")).toBe(first);
     // Different repos never share a token.
     expect(readOrCreateMcpToken("/other-repo")).not.toBe(first);
-    // Deleting the token file is how a user opts back into rotation.
     writeFileSync(mcpTokenPath("/repo"), "");
     expect(readOrCreateMcpToken("/repo")).not.toBe(first);
+  });
+
+  test("MCP token remints after TTL and rotateMcpToken always mints", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-mcp-token-ttl-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    const first = readOrCreateMcpToken("/repo");
+    const path = mcpTokenPath("/repo");
+    const staleSec = (Date.now() - (MCP_TOKEN_TTL_MS + 5_000)) / 1000;
+    utimesSync(path, staleSec, staleSec);
+    const reminted = readOrCreateMcpToken("/repo");
+    expect(reminted).not.toBe(first);
+    expect(mcpTokenAgeMs("/repo") ?? 999_999).toBeLessThan(5_000);
+    const rotated = rotateMcpToken("/repo");
+    expect(rotated).not.toBe(reminted);
+    expect(readOrCreateMcpToken("/repo")).toBe(rotated);
   });
 
   test("persisted process state round-trips", () => {

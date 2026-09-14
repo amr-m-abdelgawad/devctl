@@ -329,7 +329,7 @@ devctl doctor [--json]
 devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
-devctl mcp [--on|--off] [--port N] [--json]
+devctl mcp [--on|--off] [--port N] [--rotate] [--json]
 devctl web status|start|stop
 devctl config validate|show|diff [--json]
 devctl attach
@@ -1521,9 +1521,12 @@ Change it with \`←\` / \`→\` or \`devctl mcp --port\`. An override is persis
 The server binds **\`127.0.0.1\` only**. Requests must use a loopback \`Host\` from a
 loopback peer. There is no CORS (\`Access-Control-Allow-Origin\` is not set), so a
 browser page cannot drive the control plane cross-origin. Mutating tools require
-\`Authorization: Bearer\` with a short session token. Copied snippets include that
-header. Tool output never includes tokens or raw secret env values. \`get_status\`
-reports MCP running/address/port, not the bearer token.
+\`Authorization: Bearer\` with a short session token. The token is reused across
+daemon restarts for **7 days**, then reminted. \`devctl mcp --rotate\` mints a new
+one immediately (and restarts the listener if it is running). Copied snippets
+include the header. Tool output never includes tokens or raw secret env values.
+\`get_status\` reports MCP running/address/port and token age, not the bearer
+token. Re-copy snippets after a rotate or TTL remint.
 
 ## CLI
 
@@ -1531,10 +1534,13 @@ reports MCP running/address/port, not the bearer token.
 devctl mcp                 # URL + four snippets
 devctl mcp --on [--port N]
 devctl mcp --off
+devctl mcp --rotate
 devctl mcp --json
 \`\`\`
 
 \`--on\` starts a supervisor if needed. \`--off\` stops the listener only.
+\`--rotate\` writes a new bearer token; if the listener is running it is restarted
+so agents must be given the new snippets.
 
 ## Tools and resources
 
@@ -2327,7 +2333,7 @@ Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopba
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
 | **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer only. Returns \`access_token\` to that caller |
-| **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (session token). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
+| **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (session token, 7-day TTL, \`devctl mcp --rotate\`). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
 | **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). \`POST /api/control\` needs \`Authorization: Bearer\` (per-bind token from \`devctl web start\`) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\`. HTML is not framed. \`get_status\` does not include the token |
 
 Host child processes always get \`DEVCTL_INTERNAL_TOKEN\`. They only get \`DEVCTL_TOKEN_URL\` when \`proxy.token_endpoint.enabled\` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
@@ -2397,7 +2403,7 @@ Override the home directory with \`DEVCTL_HOME\`.
 \`devctl\` is a **localhost** orchestrator. It is not a multi-tenant server.
 
 - Anyone who can reach your user account can reach \`127.0.0.1\` listeners.
-- MCP is off until you flip it. Treat the copied bearer token like a session secret.
+- MCP is off until you flip it. Treat the copied bearer token like a session secret; it lasts 7 days or until \`devctl mcp --rotate\`.
 - \`/reveal\` and log export write what you can already see on that machine.
 - Doctor never enables Google APIs or grants IAM.
 

@@ -216,6 +216,7 @@ describe("mcp tools", () => {
     expect(status.profile).toBe("local");
     expect(status.mcp.running).toBe(true);
     expect(status.mcp.token).toBeUndefined();
+    expect((status.mcp as { token_age_ms?: number }).token_age_ms).toBeUndefined();
   });
 
   test("get_logs filters by service and redacts", async () => {

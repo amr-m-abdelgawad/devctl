@@ -298,6 +298,7 @@ export class Supervisor {
       get mcp() { return self.mcp.instance; },
       get web() { return self.web.instance; },
       get mcpToken() { return self.mcp.token; },
+      get mcpTokenAgeMs() { return self.mcp.tokenAgeMs(); },
       get mcpDisabledTools() { return self.mcp.disabledTools; },
       get identityCache() { return self.identity.identityCache; },
       get serviceAccountStatus() { return self.identity.serviceAccountStatus; },
@@ -518,6 +519,9 @@ export class Supervisor {
       }
       case "mcp_stop":
         await this.stopMcp();
+        return null;
+      case "mcp_rotate":
+        await this.mcp.rotate();
         return null;
       case "web_start":
         return { url: await this.web.startExplicit() };

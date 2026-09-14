@@ -77,6 +77,7 @@ export type McpSnapshot = {
   address?: string;
   port?: number;
   token?: string;
+  token_age_ms?: number;
   // Names of tools currently turned off (effective deny-list, including
   // default-disabled tools such as exec_service until they are opted in).
   disabled_tools?: string[];
