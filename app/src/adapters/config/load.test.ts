@@ -97,6 +97,7 @@ services:
     expect(cfg.services.postgres?.container).toEqual({
       image: "postgres:16", runtime: "docker", ports: { db: 5432 },
       env: { POSTGRES_PASSWORD: "local" }, volumes: ["pgdata:/var/lib/postgresql/data"],
+      user: "", memory: "", cpus: "", read_only: false, cap_drop: [], pids_limit: 0,
     });
   });
 

@@ -6,6 +6,7 @@ import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, hu
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
 import { StartupPolicy } from "../domain/service/policies.ts";
+import { resolvedContainerLimits } from "../domain/service/container-limits.ts";
 import {
   HealthHealthy,
   StateHealthy,
@@ -343,6 +344,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             targetPorts: svc.container.ports,
             volumes: svc.container.volumes,
             workDir,
+            limits: resolvedContainerLimits(svc.container),
             onLine,
             onExit,
           })

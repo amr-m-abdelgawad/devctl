@@ -4,6 +4,7 @@ import { versionLine } from "../../version.ts";
 import { DevctlError, humanMessage } from "../../shared/errors.ts";
 import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
+import { isImageUserRoot } from "../../domain/service/container-limits.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
 import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
@@ -25,6 +26,7 @@ export type DoctorHost = {
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
   containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
   mintRateWarning?: () => TokenMintHotspot | undefined;
+  inspectImageUser?: (runtime: string, image: string) => Promise<string | undefined>;
 };
 
 export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
@@ -62,6 +64,23 @@ export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
         return (await proc.exited) === 0;
       } catch {
         return false;
+      }
+    },
+    inspectImageUser: async (runtime, image) => {
+      try {
+        const proc = Bun.spawn({
+          cmd: [runtime, "image", "inspect", "--format", "{{.Config.User}}", image],
+          stdout: "pipe",
+          stderr: "ignore",
+          stdin: "ignore",
+        });
+        const [text, code] = await Promise.all([new Response(proc.stdout as ReadableStream).text(), proc.exited]);
+        if (code !== 0) {
+          return undefined;
+        }
+        return text.trim();
+      } catch {
+        return undefined;
       }
     },
   };
@@ -103,6 +122,21 @@ export async function runDoctor(
     add(reachable
       ? { name: `${runtimeName} container runtime`, severity: "ok", message: `${runtimeName} daemon reachable` }
       : { name: `${runtimeName} container runtime`, severity: "error", message: installed ? `${runtimeName} daemon is not reachable` : `${runtimeName} not found`, hint: `install and start ${runtimeName}` });
+  }
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const container = svc.container;
+    if (container && isImageUserRoot(container.user)) {
+      const imageUser = container.user !== "" ? container.user : await host.inspectImageUser?.(container.runtime || "docker", container.image);
+      if (imageUser !== undefined && isImageUserRoot(imageUser)) {
+        checking(`${name} container user`);
+        add({
+          name: `${name} container user`,
+          severity: "warn",
+          message: "image user is root",
+          hint: "set container.user to a non-root uid, or rebuild the image with USER",
+        });
+      }
+    }
   }
   checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {

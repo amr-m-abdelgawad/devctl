@@ -637,6 +637,7 @@ The TUI **doctor** tab re-runs on every visit (\`r\` also refreshes). \`j\`/\`k\
 - IAP audiences (including SA impersonation)
 - Configured \`doctor.tools\` binaries (demo: \`python3\`, \`bun\`)
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares \`container\` (every such service in config, not only the active profile — the demo probes Docker because \`postgres\` is always declared)
+- Container image USER is not root (warns when inspect shows root; set \`container.user\`)
 - Ports declared in config
 - Repository configuration validity
 - Google token mint rate (warns when one identity/audience pair is minted often in the last minute)
@@ -1775,7 +1776,7 @@ These are separate products. Do not start them until Phases 1–3 of the product
 | Remote / SSH / Dev Container supervisor | Breaks “loopback + one socket per checkout” | New process model, auth on RPC |
 | Multi-repo TUI | Two checkouts are two daemons by design | Picker that attaches to another \`repoID\` |
 | K8s / Skaffold import | Cluster objects have no local equivalent | Keep discovery hints only unless we invent a tiny subset |
-| Container \`build\`, networks, limits, \`--workdir\` | Compose parity | Schema + \`containers.ts\` only; no k8s |
+| Container \`build\`, networks, \`--workdir\` | Compose parity | Schema + \`containers.ts\` only; no k8s. Memory/CPU/PIDs defaults and optional \`user\` / \`read_only\` / \`cap_drop\` already exist |
 | OIDC browser / device / refresh persistence | Plugin is client-credentials by design | New plugin, not core Google |
 | OIDC as **route** auth | Proxy auth is \`none\` / \`iap\` / \`service_account\` | New proxy adapter path |
 | Non-Google SSO in core | Violates “Google is an adapter” if it lands in domain | Plugin only |
@@ -2306,7 +2307,7 @@ Tokens never sit in the TUI, logs, LLM inspector, or MCP output. Listeners bind 
 |------|----------------|
 | **No tokens on screen** | TUI, \`devctl status\`, and MCP tool results never print access tokens |
 | **Redacted env** | Names matching PASSWORD, SECRET, TOKEN, PRIVATE_KEY, CLIENT_SECRET, API_KEY, CREDENTIAL, ACCESS_KEY, AUTH_KEY → \`********\` |
-| **Loopback only** | Proxy, token endpoint, and MCP refuse \`0.0.0.0\`, \`::\`, and other non-loopback binds |
+| **Loopback only** | Proxy, token endpoint, and MCP refuse \`0.0.0.0\`, \`::\`, and other non-loopback binds. Managed containers publish ports on \`127.0.0.1\` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless \`shell: true\` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
@@ -2527,7 +2528,11 @@ Container names are deterministic and scoped to the repository, allowing a
 new devctl daemon to adopt containers left running by its predecessor. Secret
 environment values are supplied through the runtime process environment and
 are not placed in command-line arguments. Published ports bind to
-\`127.0.0.1\` by default rather than every network interface. Containers do not
+\`127.0.0.1\` by default rather than every network interface. Every run also
+applies \`--memory 1g\`, \`--cpus 1\`, and \`--pids-limit 256\` unless you set
+\`container.memory\`, \`container.cpus\`, or \`container.pids_limit\`. Optional
+\`container.user\`, \`container.read_only\`, and \`container.cap_drop\` harden
+further; Doctor warns when the image USER is root. Containers do not
 inherit the caller's entire shell environment; profile, dotenv, keychain,
 secret-manager, defaults, explicit service/container variables, plugin sources,
 and non-secret runtime metadata still apply. \`devctl down\` stops and removes

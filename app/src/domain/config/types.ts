@@ -68,7 +68,29 @@ export type ContainerConfig = {
   ports: Record<string, number>;
   env: Record<string, string>;
   volumes: string[];
+  user: string;
+  memory: string;
+  cpus: string;
+  read_only: boolean;
+  cap_drop: string[];
+  pids_limit: number;
 };
+
+export function emptyContainer(): ContainerConfig {
+  return {
+    image: "",
+    runtime: "",
+    ports: {},
+    env: {},
+    volumes: [],
+    user: "",
+    memory: "",
+    cpus: "",
+    read_only: false,
+    cap_drop: [],
+    pids_limit: 0,
+  };
+}
 
 export type ServiceWatchConfig = {
   enabled: boolean;

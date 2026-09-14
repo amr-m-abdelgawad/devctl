@@ -1,5 +1,6 @@
 import {
   emptyCommand,
+  emptyContainer,
   emptyEnv,
   emptyHealth,
   emptyIdentity,
@@ -251,11 +252,18 @@ export function decodeContainer(value: unknown): import("../../domain/config/typ
     for (const [name, port] of Object.entries(value.ports)) ports[name] = asNumber(port);
   }
   return {
+    ...emptyContainer(),
     image: asString(value.image),
     runtime: asString(value.runtime),
     ports,
     env: asStringMap(value.env),
     volumes: asStringArray(value.volumes),
+    user: asString(value.user),
+    memory: asString(value.memory),
+    cpus: asString(value.cpus),
+    read_only: asBoolean(value.read_only),
+    cap_drop: asStringArray(value.cap_drop),
+    pids_limit: asNumber(value.pids_limit),
   };
 }
 

@@ -24,6 +24,7 @@ The TUI **doctor** tab re-runs on every visit (`r` also refreshes). `j`/`k` move
 - IAP audiences (including SA impersonation)
 - Configured `doctor.tools` binaries (demo: `python3`, `bun`)
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares `container` (every such service in config, not only the active profile — the demo probes Docker because `postgres` is always declared)
+- Container image USER is not root (warns when inspect shows root; set `container.user`)
 - Ports declared in config
 - Repository configuration validity
 - Google token mint rate (warns when one identity/audience pair is minted often in the last minute)

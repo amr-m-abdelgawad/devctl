@@ -103,7 +103,11 @@ Container names are deterministic and scoped to the repository, allowing a
 new devctl daemon to adopt containers left running by its predecessor. Secret
 environment values are supplied through the runtime process environment and
 are not placed in command-line arguments. Published ports bind to
-`127.0.0.1` by default rather than every network interface. Containers do not
+`127.0.0.1` by default rather than every network interface. Every run also
+applies `--memory 1g`, `--cpus 1`, and `--pids-limit 256` unless you set
+`container.memory`, `container.cpus`, or `container.pids_limit`. Optional
+`container.user`, `container.read_only`, and `container.cap_drop` harden
+further; Doctor warns when the image USER is root. Containers do not
 inherit the caller's entire shell environment; profile, dotenv, keychain,
 secret-manager, defaults, explicit service/container variables, plugin sources,
 and non-secret runtime metadata still apply. `devctl down` stops and removes

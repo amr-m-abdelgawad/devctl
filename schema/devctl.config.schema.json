@@ -300,7 +300,13 @@
             "runtime": { "type": "string", "enum": ["docker", "podman"] },
             "ports": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1, "maximum": 65535 } },
             "env": { "type": "object", "additionalProperties": { "type": "string" } },
-            "volumes": { "type": "array", "items": { "type": "string" } }
+            "volumes": { "type": "array", "items": { "type": "string" } },
+            "user": { "type": "string", "description": "Container user (uid or name). Empty keeps the image USER." },
+            "memory": { "type": "string", "description": "Memory cap passed to docker/podman --memory. Default 1g when omitted." },
+            "cpus": { "type": ["string", "number"], "description": "CPU cap passed to --cpus. Default 1 when omitted." },
+            "read_only": { "type": "boolean", "description": "When true, the container root filesystem is read-only." },
+            "cap_drop": { "type": "array", "items": { "type": "string" }, "description": "Capabilities to drop, e.g. ALL." },
+            "pids_limit": { "type": "integer", "minimum": 0, "description": "PID cap. Default 256 when omitted or 0." }
           }
         },
         "watch": {

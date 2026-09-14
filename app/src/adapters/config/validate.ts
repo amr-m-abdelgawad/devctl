@@ -180,6 +180,7 @@ function validateServices(cfg: DevctlConfig): string[] {
         if (!svc.ports.some((port) => port.name === portName)) issues.push(`${prefix}.container.ports.${portName}: no matching service port`);
         if (target < MIN_PORT || target > MAX_PORT) issues.push(`${prefix}.container.ports.${portName}: invalid container port ${target}`);
       }
+      if (svc.container.pids_limit < 0) issues.push(`${prefix}.container.pids_limit must be >= 0`);
     }
   }
   return issues;

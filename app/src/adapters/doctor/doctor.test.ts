@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyContainer, emptyService } from "../../domain/config/types.ts";
 import { createDoctorRunner, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 
@@ -87,7 +87,7 @@ describe("doctor", () => {
 
   test("treats a running container's published port as healthy without a host pid", async () => {
     const cfg = localCfg();
-    cfg.services.api!.container = { image: "postgres:16", runtime: "docker", ports: { http: 19991 }, env: {}, volumes: [] };
+    cfg.services.api!.container = { ...emptyContainer(), image: "postgres:16", runtime: "docker", ports: { http: 19991 } };
     const host = offlineHost();
     host.portAvailable = async () => false;
     const report = await runDoctor(cfg, host, undefined, {
@@ -231,6 +231,29 @@ describe("doctor", () => {
     expect(check?.message).toBe("access-token mint failed: developer@example.com → api@example.com");
     expect(check?.hint).toContain("roles/iam.serviceAccountTokenCreator for developer@example.com");
     expect(check?.hint).toContain("ADC quota project: developer-quota");
+  });
+
+  test("warns when a container image runs as root", async () => {
+    const cfg = localCfg();
+    cfg.services.api!.container = { ...emptyContainer(), image: "alpine:3.20", runtime: "docker" };
+    const host = offlineHost();
+    host.inspectImageUser = async () => "";
+    const report = await runDoctor(cfg, host);
+    expect(report.checks.find((check) => check.name === "api container user")).toEqual({
+      name: "api container user",
+      severity: "warn",
+      message: "image user is root",
+      hint: "set container.user to a non-root uid, or rebuild the image with USER",
+    });
+  });
+
+  test("skips the container-user warning when the image USER is not root", async () => {
+    const cfg = localCfg();
+    cfg.services.api!.container = { ...emptyContainer(), image: "postgres:16", runtime: "docker" };
+    const host = offlineHost();
+    host.inspectImageUser = async () => "postgres";
+    const report = await runDoctor(cfg, host);
+    expect(report.checks.some((check) => check.name === "api container user")).toBe(false);
   });
 
   test("warns when Google mint rate for one identity is high", async () => {

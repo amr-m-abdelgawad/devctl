@@ -1,3 +1,5 @@
+import type { ContainerLimits } from "../domain/service/container-limits.ts";
+
 export type ProcessLineHandler = (stream: "stdout" | "stderr", line: string) => void;
 
 export type ProcessSpec = {
@@ -33,6 +35,7 @@ export type ContainerLaunchSpec = {
   targetPorts: Record<string, number>;
   volumes: string[];
   workDir: string;
+  limits?: ContainerLimits;
   onLine?: ProcessLineHandler;
   onExit?: (code: number, err?: Error) => void;
 };

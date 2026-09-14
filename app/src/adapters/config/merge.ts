@@ -552,6 +552,12 @@ function mergeContainer(base: ServiceConfig["container"], raw: unknown): Service
     ports: raw.ports !== undefined ? { ...(base?.ports ?? {}), ...decoded.ports } : (base?.ports ?? {}),
     env: raw.env !== undefined ? { ...(base?.env ?? {}), ...decoded.env } : (base?.env ?? {}),
     volumes: raw.volumes !== undefined ? decoded.volumes : (base?.volumes ?? []),
+    user: raw.user !== undefined ? decoded.user : (base?.user ?? ""),
+    memory: raw.memory !== undefined ? decoded.memory : (base?.memory ?? ""),
+    cpus: raw.cpus !== undefined ? decoded.cpus : (base?.cpus ?? ""),
+    read_only: raw.read_only !== undefined ? decoded.read_only : (base?.read_only ?? false),
+    cap_drop: raw.cap_drop !== undefined ? decoded.cap_drop : (base?.cap_drop ?? []),
+    pids_limit: raw.pids_limit !== undefined ? decoded.pids_limit : (base?.pids_limit ?? 0),
   };
 }
 
@@ -750,6 +756,12 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
       ports: present.has("container.ports") ? container.ports : baseContainer.ports,
       env: present.has("container.env") ? container.env : baseContainer.env,
       volumes: present.has("container.volumes") ? container.volumes : baseContainer.volumes,
+      user: present.has("container.user") ? container.user : baseContainer.user,
+      memory: present.has("container.memory") ? container.memory : baseContainer.memory,
+      cpus: present.has("container.cpus") ? container.cpus : baseContainer.cpus,
+      read_only: present.has("container.read_only") ? container.read_only : baseContainer.read_only,
+      cap_drop: present.has("container.cap_drop") ? container.cap_drop : baseContainer.cap_drop,
+      pids_limit: present.has("container.pids_limit") ? container.pids_limit : baseContainer.pids_limit,
     } : (container ?? baseContainer);
   }
   if (present.has("watch")) {

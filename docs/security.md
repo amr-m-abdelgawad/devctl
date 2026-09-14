@@ -28,7 +28,7 @@ Tokens never sit in the TUI, logs, LLM inspector, or MCP output. Listeners bind 
 |------|----------------|
 | **No tokens on screen** | TUI, `devctl status`, and MCP tool results never print access tokens |
 | **Redacted env** | Names matching PASSWORD, SECRET, TOKEN, PRIVATE_KEY, CLIENT_SECRET, API_KEY, CREDENTIAL, ACCESS_KEY, AUTH_KEY → `********` |
-| **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0`, `::`, and other non-loopback binds |
+| **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0`, `::`, and other non-loopback binds. Managed containers publish ports on `127.0.0.1` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless `shell: true` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |

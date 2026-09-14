@@ -2,6 +2,8 @@ import { spawn, type Subprocess } from "bun";
 import { KindProcessStart, newError, wrapError } from "../../shared/errors.ts";
 import type { LineHandler } from "../process/processes.ts";
 
+import { emptyContainer } from "../../domain/config/types.ts";
+import { resolvedContainerLimits } from "../../domain/service/container-limits.ts";
 import type { ContainerLaunchSpec } from "../../ports/process-runtime.ts";
 export type { ContainerLaunchSpec } from "../../ports/process-runtime.ts";
 
@@ -27,6 +29,17 @@ export async function startContainer(spec: ContainerLaunchSpec): Promise<Contain
 
 export function containerRunArgs(spec: ContainerLaunchSpec): string[] {
   const args = ["run", "--detach", "--name", spec.containerName, "--label", "devctl.managed=true"];
+  const limits = spec.limits ?? resolvedContainerLimits(emptyContainer());
+  if (limits.user !== "") {
+    args.push("--user", limits.user);
+  }
+  if (limits.readOnly) {
+    args.push("--read-only");
+  }
+  for (const cap of limits.capDrop) {
+    args.push("--cap-drop", cap);
+  }
+  args.push("--memory", limits.memory, "--cpus", limits.cpus, "--pids-limit", String(limits.pidsLimit));
   for (const [name, hostPort] of Object.entries(spec.ports)) {
     const target = spec.targetPorts[name] ?? hostPort;
     args.push("--publish", `127.0.0.1:${hostPort}:${target}`);
