@@ -26,11 +26,9 @@ Start services, follow logs, trace requests, and inject cloud auth — from a ke
   <a href="examples/demo-platform/README.md">Demo</a>
 </p>
 
-<img width="1765" height="1212" alt="devctl TUI — dashboard with services, identity, proxy, and live logs" src="https://github.com/user-attachments/assets/81689a33-c315-48f0-b278-7f64e918c684" />
+<p><em>The TUI in action — dashboard, live filtered logs, distributed traces, and the proxy:</em></p>
 
-<p><em>Watch the TUI in action — dashboard, live filtered logs, distributed traces, and the proxy:</em></p>
-
-<a href="docs/assets/showcase/devctl-tui.mp4"><img width="900" alt="devctl TUI showcase — dashboard, live logs, distributed trace waterfall, and proxy (click to play, 1440p)" src="docs/assets/showcase/devctl-tui-poster.png" /></a>
+<video src="https://github.com/user-attachments/assets/7e924fe4-7fe4-49d3-924c-de76916c3a13" controls muted width="900"></video>
 
 
 </div>
