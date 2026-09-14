@@ -60,7 +60,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | `enter` | Start (empty dashboard) or open service detail |
 | `space` | Multi-select a service |
 | `esc` | Back / close overlay. Twice (when nothing else is open) asks to quit |
-| `f` | Focus log search (`g` jumps to latest). Remap with `keybinds.search` |
+| `f` | **Logs tab only.** Focus log search. `esc` closes search and returns to the live stream; `enter` keeps the filter (`esc` again clears it). Remap with `keybinds.search` |
 | `z` | Expand logs to fill the terminal. `z` or `esc` exits |
 | `w` | Cycle log wrap: wrap every line (default), clip with ellipsis, or unwrap only the selected row |
 | `command+c` / `ctrl+c` | Copy the highlighted selection (drag with the mouse). Remap with `keybinds.copy` |

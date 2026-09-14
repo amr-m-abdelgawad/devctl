@@ -23,7 +23,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 ## TUI (Logs tab)
 
-- `f` focuses search. `/` stays the command line. Matches are highlighted in the log line (plain or `/regex`). Dashboard tail uses the same search filter.
+- `f` focuses search **on the Logs tab** (`/` stays the command line). `esc` closes search, clears the query, and jumps to the live tail. `enter` keeps the current filter so you can browse matches; `esc` again (or `f` then `esc`) returns to the live stream. Matches are highlighted in the log line (plain or `/regex`). Dashboard tail uses the same search filter while it is applied.
 - `e` / `/filter` — ERROR and above.
 - `p` / `/pause` — freeze the live stream.
 - `z` / `/fullscreen` — hide header and nav so the stream fills a small editor terminal. `z` or `esc` exits.

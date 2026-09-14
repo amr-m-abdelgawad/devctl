@@ -16,6 +16,7 @@ import {
   isPaletteChord,
   isQuitKey,
   isSearchChord,
+  logSearchAction,
   shouldConfirmInterrupt,
   type KeyLike,
 } from "../keymap.ts";
@@ -37,7 +38,7 @@ type Options = {
   cfg: DevctlConfig | undefined;
   snap: StatusSnapshot | undefined;
   ui: KeyboardUi;
-  logView: Pick<ReturnType<typeof useLogView>, "logSlice" | "logSliceB" | "logSearchFocused" | "logsFullscreen" | "applyLogCursor" | "applyDashboardLogCursor" | "dashboardLogCursor" | "logPinned" | "logSources" | "logService" | "logServiceB" | "splitLogs" | "splitFocus" | "toggleSplitLogs" | "cycleSplitFocus" | "setActiveLogService" | "logs" | "logShowTimestamps" | "logShowMeta" | "logWrap" | "showSystemLogs" | "jumpToLatestLogs" | "toggleSystemLogs" | "clearLogs" | "setLogSearchFocused" | "setLogsFullscreen" | "setLogService" | "setLogShowTimestamps" | "setLogShowMeta" | "setPaused" | "setErrorOnly" | "setLogWrap">;
+  logView: Pick<ReturnType<typeof useLogView>, "logSlice" | "logSliceB" | "logSearch" | "logSearchFocused" | "logsFullscreen" | "applyLogCursor" | "applyDashboardLogCursor" | "dashboardLogCursor" | "logPinned" | "logSources" | "logService" | "logServiceB" | "splitLogs" | "splitFocus" | "toggleSplitLogs" | "cycleSplitFocus" | "setActiveLogService" | "logs" | "logShowTimestamps" | "logShowMeta" | "logWrap" | "showSystemLogs" | "jumpToLatestLogs" | "toggleSystemLogs" | "clearLogs" | "setLogSearch" | "setLogSearchFocused" | "setLogsFullscreen" | "setLogService" | "setLogShowTimestamps" | "setLogShowMeta" | "setPaused" | "setErrorOnly" | "setLogWrap">;
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart" | "planBusy">;
   mcp: Pick<ReturnType<typeof useMcpControls>, "applyMcpPortDraft" | "toggleMcp" | "toggleMcpTool" | "copyFocusedMcpSnippet" | "persistMcpPort" | "restartMcpOnPort" | "setMcpPortDraft">;
   preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "persistPrefs">;
@@ -64,8 +65,9 @@ export function useAppKeyboard({
     setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail,
   } = ui;
   const {
-    logSlice, logSliceB, logSearchFocused, logsFullscreen, setLogSearchFocused, setLogsFullscreen,
-    splitLogs, splitFocus, toggleSplitLogs, cycleSplitFocus, setActiveLogService, logService, logServiceB,
+    logSlice, logSliceB, logSearch, logSearchFocused, logsFullscreen, setLogSearch, setLogSearchFocused,
+    setLogsFullscreen, jumpToLatestLogs, splitLogs, splitFocus, toggleSplitLogs, cycleSplitFocus,
+    setActiveLogService, logService, logServiceB,
   } = logView;
   const { beginStart, beginRestart, planBusy } = lifecycleActions;
   const { applyMcpPortDraft, toggleMcp, toggleMcpTool, copyFocusedMcpSnippet } = mcp;
@@ -246,10 +248,32 @@ export function useAppKeyboard({
     }, key)) {
       return;
     }
+    const searchAct = logSearchAction({
+      screen,
+      focused: logSearchFocused,
+      query: logSearch,
+      keyName: name,
+      searchChord: isSearchChord(key, tui),
+    });
+    if (searchAct === "open") {
+      setLogSearchFocused(true);
+      setStatus("esc live stream · enter keep filter");
+      return;
+    }
+    if (searchAct === "keep-filter") {
+      setLogSearchFocused(false);
+      const needle = logSearch.trim();
+      setStatus(needle === "" ? "Search closed" : `Matches for ${needle} · esc live stream`);
+      return;
+    }
+    if (searchAct === "close-live") {
+      setLogSearchFocused(false);
+      setLogSearch("");
+      jumpToLatestLogs();
+      setStatus("Live logs");
+      return;
+    }
     if (logSearchFocused) {
-      if (name === "escape") {
-        setLogSearchFocused(false);
-      }
       return;
     }
     if (isLeaderChord(key, tui)) {
@@ -266,11 +290,6 @@ export function useAppKeyboard({
     }
     if (isHelpChord(key, tui)) {
       setOverlay("help");
-      return;
-    }
-    if (isSearchChord(key, tui) || (screen === "logs" && name === "f" && !key.ctrl && !key.meta)) {
-      setScreen("logs");
-      setLogSearchFocused(true);
       return;
     }
     if (name === "escape" || isQuitKey(key)) {

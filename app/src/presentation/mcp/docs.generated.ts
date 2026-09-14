@@ -1443,7 +1443,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 ## TUI (Logs tab)
 
-- \`f\` focuses search. \`/\` stays the command line. Matches are highlighted in the log line (plain or \`/regex\`). Dashboard tail uses the same search filter.
+- \`f\` focuses search **on the Logs tab** (\`/\` stays the command line). \`esc\` closes search, clears the query, and jumps to the live tail. \`enter\` keeps the current filter so you can browse matches; \`esc\` again (or \`f\` then \`esc\`) returns to the live stream. Matches are highlighted in the log line (plain or \`/regex\`). Dashboard tail uses the same search filter while it is applied.
 - \`e\` / \`/filter\` — ERROR and above.
 - \`p\` / \`/pause\` — freeze the live stream.
 - \`z\` / \`/fullscreen\` — hide header and nav so the stream fills a small editor terminal. \`z\` or \`esc\` exits.
@@ -2907,7 +2907,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`enter\` | Start (empty dashboard) or open service detail |
 | \`space\` | Multi-select a service |
 | \`esc\` | Back / close overlay. Twice (when nothing else is open) asks to quit |
-| \`f\` | Focus log search (\`g\` jumps to latest). Remap with \`keybinds.search\` |
+| \`f\` | **Logs tab only.** Focus log search. \`esc\` closes search and returns to the live stream; \`enter\` keeps the filter (\`esc\` again clears it). Remap with \`keybinds.search\` |
 | \`z\` | Expand logs to fill the terminal. \`z\` or \`esc\` exits |
 | \`w\` | Cycle log wrap: wrap every line (default), clip with ellipsis, or unwrap only the selected row |
 | \`command+c\` / \`ctrl+c\` | Copy the highlighted selection (drag with the mouse). Remap with \`keybinds.copy\` |

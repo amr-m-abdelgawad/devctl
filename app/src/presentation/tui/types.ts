@@ -50,6 +50,9 @@ export type FooterHint = {
   label: string;
 };
 
+/** Logs search field: closed, typing, or applied as a filter after Enter. */
+export type LogSearchMode = "off" | "editing" | "applied";
+
 export type NavItem = {
   id: Screen;
   label: string;

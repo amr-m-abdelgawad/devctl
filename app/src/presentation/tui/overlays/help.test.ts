@@ -22,6 +22,7 @@ describe("help overlay layout", () => {
     expect(HELP_NAVIGATION.some((row) => row.key === "q ×2")).toBe(true);
     expect(logBindings("ctrl+c").some((row) => row.key === "ctrl+c ×2")).toBe(false);
     expect(logBindings("cmd+c").some((row) => row.key === displayKeybind("cmd+c"))).toBe(true);
+    expect(logBindings("cmd+c").some((row) => row.key === "f" && row.label.includes("esc live"))).toBe(true);
   });
 
   test("section height keeps every binding plus the border", () => {

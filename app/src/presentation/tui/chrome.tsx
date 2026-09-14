@@ -11,7 +11,7 @@ import { countRunning } from "./helpers/stats.ts";
 import { Banner,Chip,KeyHints,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
 import { isTightScale } from "./settings.ts";
 import { type Palette } from "./themes.ts";
-import { type Overlay,type Screen } from "./types.ts";
+import { type LogSearchMode, type Overlay,type Screen } from "./types.ts";
 
 export function Header(props: {
   palette: Palette;
@@ -117,11 +117,14 @@ export function StatusBar(props: {
   errorOnly: boolean;
   width: number;
   copyKey?: string;
+  searchFocused?: boolean;
+  searchQuery?: string;
 }) {
-  const { palette, screen, overlay, status, paused, errorOnly, width, copyKey } = props;
+  const { palette, screen, overlay, status, paused, errorOnly, width, copyKey, searchFocused = false, searchQuery = "" } = props;
   const tight = isTightScale(useDensity());
   const hintBudget = Math.max(18, Math.floor(width * 0.42));
-  const hints = visibleHints(footerHints(screen, overlay, copyKey), hintBudget);
+  const logSearch: LogSearchMode = searchFocused ? "editing" : searchQuery.trim() !== "" ? "applied" : "off";
+  const hints = visibleHints(footerHints(screen, overlay, copyKey, logSearch), hintBudget);
   const statusTone: ChipTone = statusChipTone(status);
   return (
     <Toolbar palette={palette} backgroundColor={palette.panel} edge="top" ruled={!tight}>

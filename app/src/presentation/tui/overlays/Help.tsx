@@ -54,7 +54,7 @@ export function logBindings(copyKey: string): readonly Binding[] {
     { key: "\\", label: "split panes" },
     { key: "|", label: "focus other pane" },
     { key: "/trace", label: "jump to request id" },
-    { key: "f", label: "search" },
+    { key: "f", label: "search (logs tab · esc live · enter keep)" },
     { key: "t", label: "timestamps" },
     { key: "m", label: "metadata" },
     { key: "w", label: "wrap all / clip / wrap selected" },

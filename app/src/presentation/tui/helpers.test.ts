@@ -376,6 +376,18 @@ describe("TUI helpers", () => {
     expect(keys).toContain("/exports");
   });
 
+  test("logs search footer explains close versus keep, then clear", () => {
+    const editing = footerHints("logs", "none", defaultCopyKeybind(), "editing");
+    expect(editing).toEqual([
+      { key: "esc", label: "close · live" },
+      { key: "enter", label: "keep filter" },
+    ]);
+    const applied = footerHints("logs", "none", defaultCopyKeybind(), "applied");
+    expect(applied[0]).toEqual({ key: "esc", label: "clear search" });
+    expect(applied.some((h) => h.key === "f" && h.label === "edit search")).toBe(true);
+    expect(applied.some((h) => h.key === "f" && h.label === "search")).toBe(false);
+  });
+
   test("dashboard footer includes jump to latest logs", () => {
     const keys = footerHints("dashboard", "none").map((h) => h.key);
     expect(keys).toContain("g");

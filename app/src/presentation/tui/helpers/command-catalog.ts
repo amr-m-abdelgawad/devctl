@@ -1,6 +1,6 @@
 import { commandArgs, commandSearchToken, type CommandSpec, type CommandSuggestion, filterCommands, lookupCommand } from "../commands.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "../tui-config.ts";
-import { type FooterHint, type Overlay, type Screen } from "../types.ts";
+import { type FooterHint, type LogSearchMode, type Overlay, type Screen } from "../types.ts";
 import { NAV_CYCLE } from "./navigation.ts";
 
 export const COMMAND_FOOTER_HINT: FooterHint = { key: "/", label: "command" };
@@ -166,7 +166,7 @@ export function commandSelectOptions(items: CommandSpec[]): { name: string; desc
   );
 }
 
-export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultCopyKeybind()): FooterHint[] {
+export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultCopyKeybind(), logSearch: LogSearchMode = "off"): FooterHint[] {
   if (overlay === "slash") {
     return [
       { key: "↑↓", label: "suggest" },
@@ -202,7 +202,13 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "config-edit") {
     return [{ key: displayWithMod("s"), label: "save" }, { key: "esc", label: "discard" }];
   }
-  return screenHints(screen, copyKey);
+  if (logSearch === "editing") {
+    return [
+      { key: "esc", label: "close · live" },
+      { key: "enter", label: "keep filter" },
+    ];
+  }
+  return screenHints(screen, copyKey, logSearch);
 }
 
 export function leaderHints(): FooterHint[] {
@@ -217,7 +223,7 @@ export function leaderHints(): FooterHint[] {
   ];
 }
 
-function screenHints(screen: Screen, copyKey: string): FooterHint[] {
+function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode = "off"): FooterHint[] {
   const common: FooterHint[] = [{ key: displayKeybind(copyKey), label: "copy" }, COMMAND_FOOTER_HINT, { key: "?", label: "help" }];
   switch (screen) {
     case "dashboard":
@@ -254,12 +260,14 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
       return [{ key: "j/k", label: "scroll env" }, { key: "n", label: "start" }, { key: "x", label: "stop" }, { key: "o", label: "config" }, { key: "l", label: "logs" }, { key: "esc", label: "back" }, ...common];
     case "logs":
       return [
+        ...(logSearch === "applied"
+          ? [{ key: "esc", label: "clear search" }, { key: "f", label: "edit search" }]
+          : [{ key: "f", label: "search" }]),
         { key: "←→", label: "filter" },
         { key: "e", label: "errors" },
         { key: "i", label: "internal logs" },
         { key: displayWithMod("l"), label: "clear logs" },
         { key: "g", label: "latest" },
-        { key: "f", label: "search" },
         { key: "t", label: "time" },
         { key: "m", label: "meta" },
         { key: "w", label: "wrap" },

@@ -7,6 +7,8 @@ import { MetaBar } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 import { displayWithMod } from "../tui-config.ts";
 
+const SEARCH_PLACEHOLDER = "esc live stream · enter keep filter";
+
 export function LogsScreen(props: {
   palette: Palette;
   logs: LogEvent[];
@@ -128,18 +130,7 @@ export function LogsScreen(props: {
     return (
       <box flexGrow={1} flexDirection="column" overflow="hidden">
         {searchFocused ? (
-          <box height={1} paddingLeft={1} backgroundColor={palette.highlight} overflow="hidden">
-            <input
-              focused
-              value={search}
-              placeholder="search messages or service names"
-              onInput={onSearch}
-              backgroundColor={palette.highlight}
-              focusedBackgroundColor={palette.highlight}
-              textColor={palette.text}
-              cursorColor={palette.primary}
-            />
-          </box>
+          <LogSearchField palette={palette} value={search} onSearch={onSearch} />
         ) : (
           <MetaBar palette={palette} items={logMeta} />
         )}
@@ -228,18 +219,7 @@ export function LogsScreen(props: {
         </>
       )}
       {searchFocused ? (
-        <box height={1} paddingLeft={1} backgroundColor={palette.highlight} overflow="hidden">
-          <input
-            focused
-            value={search}
-            placeholder="search messages or service names"
-            onInput={onSearch}
-            backgroundColor={palette.highlight}
-            focusedBackgroundColor={palette.highlight}
-            textColor={palette.text}
-            cursorColor={palette.primary}
-          />
-        </box>
+        <LogSearchField palette={palette} value={search} onSearch={onSearch} />
       ) : null}
       {view && shownTotal > shown.length ? (
         <LogHistoryBar palette={palette} start={viewStart} count={shown.length} total={shownTotal} />
@@ -258,8 +238,8 @@ export function LogsScreen(props: {
           <EmptyState
             palette={palette}
             title={logs.length === 0 ? "No log events" : "No events in this filter"}
-            body={logs.length === 0 ? "Start services to stream logs." : "Pick All, another service, or clear search / ERROR+."}
-            hint={`← → cycle filters   e errors   i internal   ${displayWithMod("l")} clear`}
+            body={logs.length === 0 ? "Start services to stream logs." : "Pick All, another service, or esc to clear search and return to the live stream."}
+            hint={`← → cycle filters   e errors   esc clear search   ${displayWithMod("l")} clear`}
           />
         ) : (
           <LogList
@@ -285,6 +265,24 @@ export function LogsScreen(props: {
       {!follow ? (
         <JumpLatestPrompt palette={palette} width={width} newer={newer} onJump={onJumpLatest} />
       ) : null}
+    </box>
+  );
+}
+
+function LogSearchField(props: { palette: Palette; value: string; onSearch: (value: string) => void }) {
+  const { palette, value, onSearch } = props;
+  return (
+    <box height={1} paddingLeft={1} backgroundColor={palette.highlight} overflow="hidden">
+      <input
+        focused
+        value={value}
+        placeholder={SEARCH_PLACEHOLDER}
+        onInput={onSearch}
+        backgroundColor={palette.highlight}
+        focusedBackgroundColor={palette.highlight}
+        textColor={palette.text}
+        cursorColor={palette.primary}
+      />
     </box>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isInterruptChord, isPageDownKey, isPageUpKey, isQuitKey, isRestartKey, shouldConfirmInterrupt } from "./keymap.ts";
+import { DOUBLE_INTERRUPT_MS, isClearLogsKey, isCopyChord, isCtrlC, isInterruptChord, isPageDownKey, isPageUpKey, isQuitKey, isRestartKey, isSearchChord, logSearchAction, shouldConfirmInterrupt } from "./keymap.ts";
 import { defaultTuiConfig } from "./tui-config.ts";
 
 describe("tui keymap", () => {
@@ -56,5 +56,18 @@ describe("tui keymap", () => {
     expect(isClearLogsKey({ name: "l" })).toBe(false);
     expect(isClearLogsKey({ name: "c", shift: true })).toBe(false);
     expect(isClearLogsKey({ name: "l", ctrl: process.platform === "darwin" })).toBe(false);
+  });
+
+  test("log search is logs-tab only and esc returns to the live stream", () => {
+    const tui = defaultTuiConfig();
+    expect(isSearchChord({ name: "f" }, tui)).toBe(true);
+    expect(logSearchAction({ screen: "dashboard", focused: false, query: "", keyName: "f", searchChord: true })).toBe("none");
+    expect(logSearchAction({ screen: "proxy", focused: false, query: "error", keyName: "escape", searchChord: false })).toBe("none");
+    expect(logSearchAction({ screen: "logs", focused: false, query: "", keyName: "f", searchChord: true })).toBe("open");
+    expect(logSearchAction({ screen: "logs", focused: true, query: "auth", keyName: "escape", searchChord: false })).toBe("close-live");
+    expect(logSearchAction({ screen: "logs", focused: true, query: "auth", keyName: "return", searchChord: false })).toBe("keep-filter");
+    expect(logSearchAction({ screen: "logs", focused: false, query: "auth", keyName: "escape", searchChord: false })).toBe("close-live");
+    expect(logSearchAction({ screen: "logs", focused: false, query: "", keyName: "escape", searchChord: false })).toBe("none");
+    expect(logSearchAction({ screen: "logs", focused: true, query: "auth", keyName: "a", searchChord: false })).toBe("none");
   });
 });

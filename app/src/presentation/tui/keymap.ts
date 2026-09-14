@@ -38,6 +38,37 @@ export function isSearchChord(key: KeyLike, tui: TuiConfig): boolean {
   return keyMatches(key, tui.keybinds.search ?? "f");
 }
 
+export type LogSearchAction = "open" | "keep-filter" | "close-live" | "none";
+
+/** Search lives on the logs tab only. Esc always returns to the live stream. */
+export function logSearchAction(opts: {
+  readonly screen: string;
+  readonly focused: boolean;
+  readonly query: string;
+  readonly keyName: string;
+  readonly searchChord: boolean;
+}): LogSearchAction {
+  if (opts.screen !== "logs") {
+    return "none";
+  }
+  if (opts.focused) {
+    if (opts.keyName === "escape") {
+      return "close-live";
+    }
+    if (opts.keyName === "return" || opts.keyName === "enter") {
+      return "keep-filter";
+    }
+    return "none";
+  }
+  if (opts.searchChord) {
+    return "open";
+  }
+  if (opts.keyName === "escape" && opts.query.trim() !== "") {
+    return "close-live";
+  }
+  return "none";
+}
+
 export function isQuitKey(key: KeyLike): boolean {
   const name = (key.name ?? "").toLowerCase();
   return name === "q" && !key.ctrl && !key.meta && !key.super && !key.alt && !key.option;

@@ -873,6 +873,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           errorOnly={errorOnly}
           width={width}
           copyKey={copyKey}
+          searchFocused={logSearchFocused}
+          searchQuery={logSearch}
         />
       )}
     </box>
