@@ -1,3 +1,4 @@
+import { humanMessage } from "../../../shared/errors.ts";
 import { backspaceMcpPortDraft, clampMcpPort, typeMcpPortDigit } from "../../mcp/port.ts";
 import { lookupCommand } from "../commands.ts";
 import { pageScrollAmount } from "../helpers/chrome.ts";
@@ -200,14 +201,14 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     void controller?.proxyStart().then(async () => {
       setStatus("Proxy started");
       await refresh();
-    });
+    }).catch((err: unknown) => setStatus(humanMessage(err)));
     return;
   }
   if (screen === "proxy" && name === "x") {
     void controller?.proxyStop().then(async () => {
       setStatus("Proxy stopped");
       await refresh();
-    });
+    }).catch((err: unknown) => setStatus(humanMessage(err)));
     return;
   }
   if (screen === "detail" && detailName !== "") {

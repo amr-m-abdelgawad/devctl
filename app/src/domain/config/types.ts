@@ -667,10 +667,14 @@ export function effectiveRestartPolicy(r: RestartConfig): RestartPolicy {
 
 export function listenAddress(listen: ListenConfig): string {
   const host = listen.host === "" ? LOCALHOST : listen.host;
-  if (listen.port === 0) {
+  if (!hasListenPort(listen)) {
     return host;
   }
   return `${host}:${listen.port}`;
+}
+
+export function hasListenPort(listen?: ListenConfig): boolean {
+  return (listen?.port ?? 0) > 0;
 }
 
 export function refreshThreshold(auth: AuthConfig): number {

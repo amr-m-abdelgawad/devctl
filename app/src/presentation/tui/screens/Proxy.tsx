@@ -1,4 +1,4 @@
-import { type DevctlConfig } from "../../../domain/config/types.ts";
+import { type DevctlConfig, hasListenPort } from "../../../domain/config/types.ts";
 import { secretTemplateLabel } from "../../../domain/config/env-ref.ts";
 import { type ProxyRequestSnapshot,type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
@@ -214,6 +214,7 @@ export function ProxyScreen(props: {
 }) {
   const { palette, cfg, snap, width, onSelectRoute, onOpenTrace } = props;
   const routes = snap?.proxy.routes ?? [];
+  const listenConfigured = hasListenPort(cfg?.proxy.listen);
   const routeCfgByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r]));
   const matchByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r.match]));
   const recentRequests = snap?.proxy.recentRequests ?? [];
@@ -239,7 +240,9 @@ export function ProxyScreen(props: {
         palette={palette}
         items={[
           { text: snap?.proxy.running ? "RUNNING" : "STOPPED", tone: snap?.proxy.running ? "success" : "idle" },
-          ...(snap?.proxy.address ? [{ text: snap.proxy.address, tone: "info" as const }] : []),
+          ...(listenConfigured
+            ? (snap?.proxy.address ? [{ text: snap.proxy.address, tone: "info" as const }] : [])
+            : [{ text: "no listen.port", tone: "warning" as const }]),
           { text: `${routes.length} routes`, tone: routes.length > 0 ? "primary" : "idle" },
           ...(requestTotal > 0
             ? [
@@ -268,7 +271,13 @@ export function ProxyScreen(props: {
           overflow="hidden"
         >
           {routes.length === 0 ? (
-            <EmptyState palette={palette} title="No proxy routes" body="Add routes under proxy.routes or .devctl/proxy/routes.yaml." />
+            <EmptyState
+              palette={palette}
+              title={listenConfigured ? "No proxy routes" : "No proxy listen port"}
+              body={listenConfigured
+                ? "Add routes under proxy.routes or .devctl/proxy/routes.yaml."
+                : "Pin proxy.listen.port in .devctl/config.yaml. It is required when proxy.enabled is true."}
+            />
           ) : (
             <>
               {onSelectRoute ? (
@@ -332,9 +341,11 @@ export function ProxyScreen(props: {
           {recentRequests.length === 0 ? (
             <box paddingLeft={1} paddingRight={1}>
               <text fg={palette.muted} wrapMode="word">
-                {snap?.proxy.running
-                  ? "No requests seen yet. Send one through the proxy to see it show up here — no need to restart or press r."
-                  : "Start the proxy, then send it a request to see live traffic here."}
+                {listenConfigured
+                  ? snap?.proxy.running
+                    ? "No requests seen yet. Send one through the proxy to see it show up here — no need to restart or press r."
+                    : "Start the proxy, then send it a request to see live traffic here."
+                  : "Pin proxy.listen.port, then press n to start. Starting with port 0 fails."}
               </text>
             </box>
           ) : (

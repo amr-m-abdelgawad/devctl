@@ -76,6 +76,11 @@ describe("config view", () => {
     expect(configProxyFacts(cfg).map((fact) => fact.value)).toEqual(["127.0.0.1:18080", "127.0.0.1:18090"]);
   });
 
+  test("proxy facts mark a missing listen port instead of implying a bind address", () => {
+    const cfg = defaultConfig();
+    expect(configProxyFacts(cfg)[0]).toEqual({ label: "listen", value: "no port", tone: "warning" });
+  });
+
   test("service profile route and template rows keep the useful columns", () => {
     const cfg = sampleConfig();
     const service = configServiceRows(cfg)[0];
