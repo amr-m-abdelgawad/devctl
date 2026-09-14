@@ -75,8 +75,24 @@ export class Detector {
     for (const re of this.patterns) {
       out = out.replace(re, REDACTED_VALUE);
     }
-    return redactBearer(out);
+    return redactKnownTokens(out);
   }
+}
+
+const JWT_RE = /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g;
+
+const GOOGLE_ACCESS_RE = /ya29\.[A-Za-z0-9_-]+/g;
+
+const TOKEN_ASSIGN_RE = /\b(id_token|access_token)=([^\s&"']+)/gi;
+
+function redactKnownTokens(text: string): string {
+  let out = redactBearer(text);
+  JWT_RE.lastIndex = 0;
+  out = out.replace(JWT_RE, REDACTED_VALUE);
+  GOOGLE_ACCESS_RE.lastIndex = 0;
+  out = out.replace(GOOGLE_ACCESS_RE, REDACTED_VALUE);
+  TOKEN_ASSIGN_RE.lastIndex = 0;
+  return out.replace(TOKEN_ASSIGN_RE, `$1=${REDACTED_VALUE}`);
 }
 
 function redactBearer(text: string): string {
