@@ -5,6 +5,7 @@ import { createTuiWorkspace } from "./workspace.ts";
 import { humanMessage, isKind, KindConfigurationMissing } from "../../shared/errors.ts";
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
+import { installTerminalRestoreOnExit, restoreTerminalModes } from "../../shared/terminal-restore.ts";
 
 export async function runTuiWithController(client: ClientRuntime, controller: Controller): Promise<void> {
   const tui = client.loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);
@@ -33,6 +34,7 @@ export async function renderApp(
   bootErrorMissing = false,
 ): Promise<void> {
   silenceGcpMetadataWarnings();
+  installTerminalRestoreOnExit();
   const restoreStderr = holdStderrForTui();
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -48,11 +50,13 @@ export async function renderApp(
     // Keep the explicit theme background when the terminal does not answer OSC palette queries.
   }
   await new Promise<void>((resolve) => {
-    const quit = (detach?: boolean): void => {
-      const finish = (): void => {
+    const leaveTty = (): void => {
+      try {
         root.unmount();
         restoreStderr();
         renderer.destroy();
+      } finally {
+        restoreTerminalModes();
         resolve();
         // The renderer/stdin listening keeps the event loop alive on its
         // own, so it never drains after unmount. controller.close() has
@@ -60,29 +64,24 @@ export async function renderApp(
         // explicitly is safe and is what actually returns control to the
         // terminal.
         process.exit(0);
-      };
+      }
+    };
+    const quit = (detach?: boolean): void => {
       if (!controller) {
-        finish();
+        leaveTty();
         return;
       }
-      void controller.close({ detach, shutdownSupervisor: true }).finally(finish);
+      void controller.close({ detach, shutdownSupervisor: true }).finally(leaveTty);
     };
     const down = (keepServices: boolean): void => {
-      const finish = (): void => {
-        root.unmount();
-        restoreStderr();
-        renderer.destroy();
-        resolve();
-        process.exit(0);
-      };
       if (!controller) {
-        finish();
+        leaveTty();
         return;
       }
       void controller
         .shutdown({ stopServices: !keepServices })
         .then(() => controller?.close({ detach: true }))
-        .finally(finish);
+        .finally(leaveTty);
     };
     root.render(
       <App
