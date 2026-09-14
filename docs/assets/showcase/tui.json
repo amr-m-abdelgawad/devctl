@@ -1,0 +1,7 @@
+{
+  "theme": "devctl",
+  "font_size": 14,
+  "mouse": false,
+  "log_timestamps": true,
+  "log_metadata": true
+}
