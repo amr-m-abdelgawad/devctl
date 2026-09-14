@@ -8,10 +8,10 @@
 app/src/
   presentation/    cli, tui, mcp, web
   application/     commands, queries, orchestrator
-  domain/          service, identity, health, config types
+  domain/          service, identity, health, config types, llm
   ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, HttpRecipeRuntime, …
   adapters/        daemon, rpc, doctor, environment, plugins, net, secrets, system,
-                   process, google, config, health, proxy, http, storage, containers
+                   process, google, config, health, proxy, http, llm, storage, containers
   shared/          events, errors, retry, warnings
   bootstrap/       one composition root per process
 ```
@@ -79,7 +79,8 @@ routing live in `adapters/rpc/server.ts` (paired with the existing controller
 client). Identity cache, credential entries, and service-account probes live in
 `adapters/daemon/identity-coordinator.ts`. Client/profile environment resolution
 lives in `adapters/daemon/environment-bridge.ts`. Proxy and token-endpoint bind
-live in `adapters/daemon/proxy-coordinator.ts`. Named outbound HTTP recipes
+live in `adapters/daemon/proxy-coordinator.ts`. LLM inspector polling lives in
+`adapters/llm/` (LiteLLM driver, in-memory call store, coordinator). Named outbound HTTP recipes
 (`HttpRecipeRuntime`) live in `adapters/http/`; the supervisor constructs
 `RecipeRuntime`, reuses `TokenManager`, and passes it into the environment
 bridge and proxy. MCP listen and the tool deny-list

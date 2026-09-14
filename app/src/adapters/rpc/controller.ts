@@ -6,6 +6,7 @@ import { osEnviron } from "../environment/environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "../../shared/errors.ts";
 import { type BusEvent } from "../../shared/events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
+import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import { type Plan } from "../../domain/service/services.ts";
 import { bootstrapLogPath, rotateBootstrapLog, socketPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
@@ -391,6 +392,15 @@ export class Controller {
 
   async traceRequest(requestId: string): Promise<TraceResponse> {
     return (await this.call("trace_request", { request_id: requestId })) as TraceResponse;
+  }
+
+  async llmCallsPage(req: LlmCallFilter & LlmCallPageRequest): Promise<LlmCallPage> {
+    return (await this.call("llm_calls_page", req)) as LlmCallPage;
+  }
+
+  async getLlmCall(id: string): Promise<LlmCall | undefined> {
+    const raw = await this.call("get_llm_call", { id });
+    return raw === null || raw === undefined ? undefined : raw as LlmCall;
   }
 
   async proxyStart(): Promise<void> {

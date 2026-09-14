@@ -5,6 +5,7 @@ import type { GoogleStatus } from "../domain/identity/google-status.ts";
 import type { PersistedState } from "../domain/session/session.ts";
 import type { Plan } from "../domain/service/services.ts";
 import type { LogEvent, LogFilter, LogPageRequest, LogPage, LogFacets } from "../domain/logs/logs.ts";
+import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../domain/llm/llm.ts";
 import type { PortHolder } from "../domain/net/ports.ts";
 import type { BusEvent } from "../shared/events.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../domain/status.ts";
@@ -38,6 +39,8 @@ export type Controller = {
   logsStats(req: LogFilter): Promise<LogFacets>;
   getTrace(traceId: string): Promise<TraceResponse>;
   traceRequest(requestId: string): Promise<TraceResponse>;
+  llmCallsPage(req: LlmCallFilter & LlmCallPageRequest): Promise<LlmCallPage>;
+  getLlmCall(id: string): Promise<LlmCall | undefined>;
   proxyStart(): Promise<void>;
   proxyStop(): Promise<void>;
   mcpStart(opts?: { port?: number }): Promise<void>;

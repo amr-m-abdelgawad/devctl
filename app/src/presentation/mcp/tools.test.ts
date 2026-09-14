@@ -359,6 +359,45 @@ describe("mcp tools", () => {
     expect(byReq.request_id).toBe("caller-id");
   });
 
+  test("get_llm_calls and get_llm_call redact secrets and omit bodies on the list", async () => {
+    const host = stubHost();
+    const call = {
+      seq: 1,
+      id: "chatcmpl-secret",
+      source: "platform",
+      sourceType: "litellm",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      status: "ok" as const,
+      model: "gpt-4o",
+      operation: "chat" as const,
+      usage: { promptTokens: 12, completionTokens: 4, totalTokens: 16 },
+      cost: 0.01,
+      request: { messages: [{ role: "user", content: "Authorization: Bearer super-secret" }] },
+      response: { choices: [{ message: { content: "ok" } }] },
+      attributes: { token: "super-secret" },
+    };
+    host.llmCallsPage = () => ({
+      calls: [call],
+      nextCursor: "next",
+      hasNext: false,
+      errors: [],
+    });
+    host.getLlmCall = (id) => (id === call.id ? call : undefined);
+    const page = (await callMcpTool(host, "get_llm_calls", {})) as {
+      calls: Array<{ id: string; request?: unknown; attributes: Record<string, unknown> }>;
+    };
+    expect(page.calls).toHaveLength(1);
+    expect(page.calls[0]?.id).toBe(call.id);
+    expect(page.calls[0]?.request).toBeUndefined();
+    expect(JSON.stringify(page.calls)).not.toContain("super-secret");
+    const detail = (await callMcpTool(host, "get_llm_call", { id: call.id })) as {
+      request: unknown;
+      attributes: Record<string, unknown>;
+    };
+    expect(JSON.stringify(detail)).not.toContain("super-secret");
+    expect(JSON.stringify(detail.request)).toContain(REDACTED_VALUE);
+  });
+
   test("get_requests and recent_errors use status and error logs", async () => {
     const host = stubHost();
     const requests = (await callMcpTool(host, "get_requests", {})) as { total: number; errors: number; requests: unknown[] };

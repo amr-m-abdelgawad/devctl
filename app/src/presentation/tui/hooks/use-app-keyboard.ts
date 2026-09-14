@@ -60,7 +60,7 @@ export function useAppKeyboard({
 }: Options): void {
   const {
     screen, onQuit, closeOverlay, confirmKind, confirmDetail, portTarget, profile, listCursor, names, runCommand,
-    copySelection, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail,
+    copySelection, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail, setLlmDetail, llmCalls,
     setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail,
   } = ui;
   const {
@@ -135,6 +135,14 @@ export function useAppKeyboard({
       }
       return;
     }
+    if (screen === "llm") {
+      const call = llmCalls[listCursor];
+      if (call) {
+        setLlmDetail(call);
+        setOverlay("llm-details");
+      }
+      return;
+    }
     if (screen === "profiles") {
       const keys = Object.keys(cfg?.profiles ?? {}).sort();
       const pick = keys[listCursor];
@@ -196,7 +204,7 @@ export function useAppKeyboard({
     if (name && (screen === "dashboard" || screen === "services")) {
       openDetail(name);
     }
-  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
+  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, llmCalls, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLlmDetail, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
 
   useKeyboard((key: KeyLike) => {
     const name = (key.name ?? "").toLowerCase();

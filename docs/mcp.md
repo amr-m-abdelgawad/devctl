@@ -70,6 +70,8 @@ devctl mcp --json
 | `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |
 | `trace_request` | logs | Resolve a proxy `X-Devctl-Request-ID` to its trace, then return the span tree and correlated logs |
 | `get_requests` | logs | The proxy's recent requests — method, route, status, duration, identity, and request/trace ids |
+| `get_llm_calls` | inspect | Filtered LLM calls from configured sources, secrets redacted, bodies omitted. Pass `cursor` from `next_cursor` to page toward older calls |
+| `get_llm_call` | inspect | One LLM call by id, including redacted request/response payloads |
 | `recent_errors` | logs | The latest error and fatal log records, capped at 200, same paging as `get_logs` |
 | `list_profiles` | inspect | Config profiles and members |
 | `get_config` | inspect | Merged summary: project, services, routes, proxy paths |
@@ -123,6 +125,7 @@ Doctor may report ports “in use” while your own services hold them — that 
 
 - [TUI](tui.md)
 - [CLI](cli.md)
+- [LLM inspector](llm.md)
 - [How it fits together](overview.md)
 - [Agent skills](../skills/README.md)
 - [Security](security.md)

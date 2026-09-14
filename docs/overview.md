@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TB
   tui["TUI — OpenTUI screens and keys"]
-  cli["CLI — start / stop / logs / auth"]
+  cli["CLI — start / stop / logs / llm / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
   web["Web — loopback explorer and control"]
   sup["Supervisor"]
@@ -84,3 +84,4 @@ Local-only services (the [demo platform](../examples/demo-platform/README.md)) r
 - [TUI](tui.md)
 - [CLI](cli.md)
 - [MCP](mcp.md)
+- [LLM inspector](llm.md)

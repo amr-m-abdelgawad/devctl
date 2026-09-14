@@ -187,7 +187,7 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "span-details") {
     return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: "esc", label: "back" }, { key: displayKeybind(copyKey), label: "copy" }];
   }
-  if (overlay === "log-details" || overlay === "scroll-text") {
+  if (overlay === "log-details" || overlay === "llm-details" || overlay === "scroll-text") {
     return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: displayKeybind(copyKey), label: "copy" }, { key: "esc", label: "close" }];
   }
   if (overlay === "confirm") {
@@ -274,6 +274,8 @@ function screenHints(screen: Screen, copyKey: string): FooterHint[] {
       return [{ key: "space", label: "set current" }, { key: "enter", label: "set and start" }, { key: "j/k", label: "move" }, ...common];
     case "proxy":
       return [{ key: "n", label: "start proxy" }, { key: "x", label: "stop proxy" }, ...common];
+    case "llm":
+      return [{ key: "enter", label: "detail" }, { key: "j/k", label: "move" }, ...common];
     case "mcp":
       return [
         { key: "j/k", label: "move" },

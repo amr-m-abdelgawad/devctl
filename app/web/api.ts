@@ -3,6 +3,8 @@ import type {
   ControlArgs,
   ControlTool,
   LogsPayload,
+  LlmCallRow,
+  LlmCallsPayload,
   ProfileRow,
   RequestsPayload,
   ServiceRow,
@@ -56,6 +58,21 @@ export function fetchTrace(traceId: string): Promise<TracePayload> {
 
 export function fetchRequestTrace(requestId: string): Promise<TracePayload> {
   return getJson(`/api/request/${encodeURIComponent(requestId)}`);
+}
+
+export function fetchLlmCalls(params: Record<string, string> = {}): Promise<LlmCallsPayload> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== "") {
+      query.set(key, value);
+    }
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return getJson(`/api/llm${suffix}`);
+}
+
+export function fetchLlmCall(id: string): Promise<LlmCallRow> {
+  return getJson(`/api/llm/${encodeURIComponent(id)}`);
 }
 
 export async function postControl(tool: ControlTool, args: ControlArgs = {}): Promise<unknown> {

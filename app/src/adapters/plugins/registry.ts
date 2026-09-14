@@ -5,6 +5,7 @@ import { type EnvironmentSource } from "../environment/environment.ts";
 import { type IdentityProvider } from "../../domain/identity/identity.ts";
 import { defaultLogParser, type LogParser } from "../storage/logs.ts";
 import { injectIdentityHeaders, type ProxyMiddleware } from "../proxy/proxy.ts";
+import type { LlmSourceDriver } from "../../ports/llm-source.ts";
 import { type TokenProvider, googleTokenProviders } from "../google/token.ts";
 import { userIdentityProvider, serviceAccountIdentityProvider } from "../../domain/identity/identity.ts";
 
@@ -16,6 +17,7 @@ export type PluginModule = {
   healthChecks?: HealthCheckPlugin[];
   logParsers?: LogParser[];
   proxyMiddleware?: ProxyMiddleware[];
+  llmSources?: LlmSourceDriver[];
 };
 
 export const PLUGIN_SDK_VERSION = 1;
@@ -34,6 +36,7 @@ export class Registry {
   readonly healthChecks: HealthCheckPlugin[] = [];
   readonly logParsers: LogParser[] = [];
   readonly proxyMiddleware: ProxyMiddleware[] = [];
+  readonly llmSources: LlmSourceDriver[] = [];
   readonly loadErrors: PluginLoadError[] = [];
   readonly pluginPaths: string[] = [];
 
@@ -53,6 +56,7 @@ export class Registry {
     pushAll(this.healthChecks, mod.healthChecks);
     pushAll(this.logParsers, mod.logParsers);
     pushAll(this.proxyMiddleware, mod.proxyMiddleware);
+    pushAll(this.llmSources, mod.llmSources);
   }
 }
 
@@ -85,6 +89,7 @@ function validatePluginModule(mod: PluginModule): void {
   validateExtensions("healthChecks", mod.healthChecks, ["check"]);
   validateExtensions("logParsers", mod.logParsers, ["parse"]);
   validateExtensions("proxyMiddleware", mod.proxyMiddleware, ["apply"]);
+  validateExtensions("llmSources", mod.llmSources, ["capabilities", "fetch"]);
 }
 
 function validateExtensions(name: string, entries: unknown, methods: string[]): void {

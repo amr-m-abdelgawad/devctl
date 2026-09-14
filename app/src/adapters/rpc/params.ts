@@ -1,3 +1,4 @@
+import type { LlmCallFilter, LlmCallStatus } from "../../domain/llm/llm.ts";
 import type { LogFilter } from "../../domain/logs/logs.ts";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -28,6 +29,27 @@ function asAttributePredicate(value: unknown): { key: string; value: string } | 
     return undefined;
   }
   return { key: value.key, value: value.value };
+}
+
+function asLlmStatus(value: string): LlmCallStatus | undefined {
+  if (value === "ok" || value === "error") {
+    return value;
+  }
+  return undefined;
+}
+
+export function asLlmCallFilter(rec: Record<string, unknown>): LlmCallFilter {
+  return {
+    source: nonemptyString(rec.source),
+    sourceType: nonemptyString(rec.sourceType) ?? nonemptyString(rec.source_type),
+    model: nonemptyString(rec.model),
+    status: asLlmStatus(typeof rec.status === "string" ? rec.status : ""),
+    search: nonemptyString(rec.search),
+    since: nonemptyString(rec.since),
+    until: nonemptyString(rec.until),
+    requestId: nonemptyString(rec.requestId) ?? nonemptyString(rec.request_id),
+    traceId: nonemptyString(rec.traceId) ?? nonemptyString(rec.trace_id),
+  };
 }
 
 export function asStringArray(value: unknown): string[] {

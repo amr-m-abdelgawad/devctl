@@ -330,7 +330,7 @@ complete allowlists.
 
 **Top level:** \`version\` \`project\` \`google\` \`profiles\` \`templates\` \`services\`
 \`tasks\` \`http\` \`proxy\` \`logs\` \`auth\` \`shutdown\` \`ui\` \`secrets\` \`doctor\` \`plugins\`
-\`environment\` \`telemetry\` \`web\`
+\`environment\` \`telemetry\` \`web\` \`llm\`
 
 **Service** (and \`templates.<name>\`, same shape): \`extends\` \`description\`
 \`command\` \`shell\` \`working_dir\` \`dependencies\` \`ports\` \`environment\` \`health\`
@@ -368,6 +368,11 @@ complete allowlists.
 | \`telemetry\` | \`otlp\` |
 | \`telemetry.otlp\` | \`enabled\` \`listen\` |
 | \`web\` | \`enabled\` \`listen\` |
+| \`llm\` | \`enabled\` \`sources\` |
+| \`llm.sources[]\` | \`name\` \`type\` \`service\` \`port\` \`endpoint\` \`path_prefix\` \`headers\` \`via\` \`management_endpoint\` \`management_service\` \`management_port\` \`auth\` \`capture\` \`poll_seconds\` |
+| \`llm.sources[].auth\` | \`type\` \`token_env\` \`header\` |
+| \`llm.sources[].via\` | \`route\` |
+| \`llm.sources[].capture\` | \`prompts\` |
 | \`auth\` | \`refresh_threshold_seconds\` |
 | \`shutdown\` | \`stop_services_on_exit\` \`grace_seconds\` |
 | \`ui\` | \`theme\` \`keymap\` |
@@ -532,6 +537,7 @@ Anything else is rejected.
 - \`proxy.token_endpoint.host\` must be loopback; \`0.0.0.0\` and \`::\` are rejected.
 - \`telemetry.otlp\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get \`OTEL_EXPORTER_OTLP_ENDPOINT\` / \`OTEL_EXPORTER_OTLP_PROTOCOL=http/json\` / \`OTEL_SERVICE_NAME\` only when those variables are unset. JSON only — no protobuf or gRPC.
 - \`web\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected). Default listen port is **18900**. It must not collide with \`proxy.listen\`, \`proxy.token_endpoint\`, \`telemetry.otlp\`, or a gRPC route listen port. The listener serves the local telemetry UI (\`GET /api/*\`) and loopback lifecycle control (\`POST /api/control\`, same mutating MCP tools except \`exec_service\`). Request \`Host\` must be a loopback name; the port in \`Host\` may differ from the listen port (WSL / Dev Container forwarding).
+- \`llm\` is **off by default**. When \`enabled: true\`, \`sources\` must be non-empty. Each source needs a unique \`name\`, a known \`type\` (\`litellm\` or a plugin \`llmSources\` name), and a unique management hop: \`management_endpoint\` XOR \`management_service\`, otherwise exactly one of \`service\` / \`endpoint\` / \`via.route\`. \`via.route\` may exist alongside \`management_*\`. Bearer \`auth\` requires \`token_env\` (never an inline key). \`auth.header\` defaults to \`Authorization\`. \`capture.prompts\` defaults to true. \`via.route\` must name an existing proxy route. See [LLM inspector](../../../docs/llm.md).
 - Every route needs a \`name\` and exactly one of \`upstream.url\`,
   \`upstream.service\`, or \`upstream.recipe\`. A service reference must name a
   real service and an existing port (default port name is \`http\`).

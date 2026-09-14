@@ -40,6 +40,8 @@ import {
   type TaskConfig,
   type TelemetryConfig,
   type WebConfig,
+  type LlmConfig,
+  type LlmSourceConfig,
   type HttpRecipeConfig,
 } from "../../domain/config/types.ts";
 
@@ -225,6 +227,9 @@ export function applyRoot(
   if (isRecord(raw.web)) {
     applyWeb(cfg.web, raw.web);
   }
+  if (isRecord(raw.llm)) {
+    applyLlm(cfg.llm, raw.llm);
+  }
 }
 
 export function applyTelemetry(telemetry: TelemetryConfig, raw: Record<string, unknown>): void {
@@ -257,6 +262,44 @@ export function applyWeb(web: WebConfig, raw: Record<string, unknown>): void {
       web.listen.port = asNumber(raw.listen.port);
     }
   }
+}
+
+export function applyLlm(llm: LlmConfig, raw: Record<string, unknown>): void {
+  if (raw.enabled !== undefined) {
+    llm.enabled = asBoolean(raw.enabled);
+  }
+  if (!Array.isArray(raw.sources)) {
+    return;
+  }
+  llm.sources = raw.sources.filter(isRecord).map(decodeLlmSource).filter((source) => source.name !== "" || source.type !== "");
+}
+
+function decodeLlmSource(raw: Record<string, unknown>): LlmSourceConfig {
+  const auth = isRecord(raw.auth) ? raw.auth : {};
+  const via = isRecord(raw.via) ? raw.via : {};
+  const capture = isRecord(raw.capture) ? raw.capture : {};
+  return {
+    name: asString(raw.name),
+    type: asString(raw.type),
+    service: asString(raw.service),
+    port: asString(raw.port),
+    endpoint: asString(raw.endpoint),
+    path_prefix: asString(raw.path_prefix),
+    headers: asStringMap(raw.headers),
+    via: { route: asString(via.route) },
+    management_endpoint: asString(raw.management_endpoint),
+    management_service: asString(raw.management_service),
+    management_port: asString(raw.management_port),
+    auth: {
+      type: asString(auth.type),
+      token_env: asString(auth.token_env),
+      header: asString(auth.header),
+    },
+    capture: {
+      prompts: capture.prompts === undefined ? true : asBoolean(capture.prompts),
+    },
+    poll_seconds: asNumber(raw.poll_seconds),
+  };
 }
 
 export function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {

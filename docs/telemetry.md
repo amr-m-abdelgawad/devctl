@@ -105,7 +105,7 @@ web:
 
 Then `devctl web start` (or boot with `enabled: true`) and open the printed URL.
 `devctl web status|stop` and `devctl status` (the `WEB` line) report the listener.
-Hash routes: `#/services`, `#/traces`, `#/graph`, `#/logs`. Rebuild the embed with
+Hash routes: `#/services`, `#/traces`, `#/llm`, `#/graph`, `#/logs`. Rebuild the embed with
 `cd app && bun run build:web` after editing `app/web/`.
 
 Overview KPIs use lifetime totals (`proxy.requestTotal`, `logs.seen` /
@@ -131,6 +131,7 @@ The model is what makes "debug, don't grep" possible over [MCP](mcp.md):
 - `get_logs` — filter by `trace_id`, `request_id`, or an `attribute` key/value, and receive body + attributes + severity.
 - `get_trace <trace_id>` / `trace_request <request_id>` — the span tree plus the correlated logs.
 - `get_requests` — the proxy's recent requests (with ids), and `recent_errors` — the latest error/fatal records.
+- `get_llm_calls` / `get_llm_call` — LLM traffic from configured sources (LiteLLM spend logs first). See [LLM inspector](llm.md).
 
 An agent can ask "why did this request fail", resolve the request id to its
 trace, and read the responsible service's span and logs — all redacted.

@@ -151,8 +151,8 @@ export type KeyHintItem = {
   label: string;
 };
 
-export function KeyHints(props: { palette: Palette; hints: KeyHintItem[] }) {
-  const { palette, hints } = props;
+export function KeyHints(props: { palette: Palette; hints?: KeyHintItem[] }) {
+  const { palette, hints = [] } = props;
   return (
     <box height={1} flexDirection="row" overflow="hidden" flexShrink={0}>
       {hints.map((hint) => (

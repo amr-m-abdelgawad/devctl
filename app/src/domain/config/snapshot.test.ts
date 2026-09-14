@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyHttpRecipe, emptyService } from "./types.ts";
+import { defaultConfig, emptyHttpRecipe, emptyLlmSource, emptyService } from "./types.ts";
 import { configSnapshotDiff, replaceSnapshot } from "./snapshot.ts";
 
 describe("config snapshot", () => {
@@ -42,6 +42,15 @@ describe("config snapshot", () => {
     next.web.enabled = true;
     const diff = configSnapshotDiff(prev, next);
     expect(diff.supervisor_restart_required).toContain("web");
+  });
+
+  test("llm config changes do not require a supervisor restart", () => {
+    const prev = defaultConfig();
+    const next = defaultConfig();
+    next.llm.enabled = true;
+    next.llm.sources = [{ ...emptyLlmSource(), name: "platform", type: "litellm", service: "litellm" }];
+    const diff = configSnapshotDiff(prev, next);
+    expect(diff.supervisor_restart_required ?? []).not.toContain("llm");
   });
 
   test("http recipe changes require a restart of services that interpolate them", () => {

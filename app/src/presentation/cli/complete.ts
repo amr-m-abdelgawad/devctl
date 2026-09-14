@@ -52,6 +52,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     "restart",
     "status",
     "logs",
+    "llm",
     "doctor",
     "setup",
     "auth",
@@ -90,6 +91,9 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
   }
   if (cmd === "web") {
     return filterPrefix(["status", "start", "stop"], tail);
+  }
+  if (cmd === "llm") {
+    return filterPrefix(["show", "--source", "--model", "--status", "--search", "--json", "--follow"], tail);
   }
   return filterPrefix(commands, tail);
 }

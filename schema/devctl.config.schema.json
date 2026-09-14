@@ -52,6 +52,7 @@
     "logs": { "$ref": "#/$defs/logs" },
     "telemetry": { "$ref": "#/$defs/telemetry" },
     "web": { "$ref": "#/$defs/web" },
+    "llm": { "$ref": "#/$defs/llm" },
     "auth": {
       "type": "object",
       "additionalProperties": false,
@@ -561,6 +562,64 @@
             "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
           }
         }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in LLM traffic inspector. Off by default. LiteLLM is the first source type; a custom proxy in front of it is reachability, not a new type.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "sources": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/llmSource" }
+        }
+      }
+    },
+    "llmSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "type": { "type": "string", "description": "Source driver. Built-in: litellm." },
+        "service": { "type": "string", "description": "Managed service whose assigned port is the management hop." },
+        "port": { "type": "string", "description": "Named service port (default http)." },
+        "endpoint": { "type": "string", "description": "Literal management URL when the source is not a managed service." },
+        "path_prefix": { "type": "string", "description": "Mount prefix so spend logs become {prefix}/spend/logs." },
+        "headers": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "via": { "$ref": "#/$defs/llmVia" },
+        "management_endpoint": { "type": "string" },
+        "management_service": { "type": "string" },
+        "management_port": { "type": "string" },
+        "auth": { "$ref": "#/$defs/llmAuth" },
+        "capture": { "$ref": "#/$defs/llmCapture" },
+        "poll_seconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "llmAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "description": "bearer" },
+        "token_env": { "type": "string", "description": "Environment variable holding the LiteLLM master key. Never inline." },
+        "header": { "type": "string", "description": "Header for the LiteLLM key. Defaults to Authorization. Use another name when a proxy already owns Authorization." }
+      }
+    },
+    "llmVia": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "route": { "type": "string", "description": "Existing proxy.routes[].name used to mint identity headers." }
+      }
+    },
+    "llmCapture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompts": { "type": "boolean", "description": "Ingest request/response bodies when the gateway stores them. Default true. Secrets are still redacted." }
       }
     }
   }

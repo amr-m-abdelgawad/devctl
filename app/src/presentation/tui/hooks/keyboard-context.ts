@@ -2,6 +2,7 @@ import { type ScrollBoxRenderable } from "@opentui/core";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
+import type { LlmCall } from "../../../domain/llm/llm.ts";
 import type { LogRecord } from "../../../domain/logs/logs.ts";
 import type { PortHolder } from "../../../domain/net/ports.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
@@ -53,6 +54,9 @@ export type KeyboardUi = {
   setPortTarget: Dispatch<SetStateAction<PortHolder | undefined>>;
   setLogDetail: Dispatch<SetStateAction<LogRecord | undefined>>;
   logDetail?: LogRecord;
+  setLlmDetail: Dispatch<SetStateAction<LlmCall | undefined>>;
+  llmDetail?: LlmCall;
+  llmCalls: LlmCall[];
   openTrace: (traceId: string) => void;
   openSpanLogs: (index?: number) => void;
   traceSpanCount: number;

@@ -23,6 +23,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
 | [Logs](logs.md) | Buffer, filters, export, history |
+| [LLM inspector](llm.md) | LiteLLM spend logs (and later sources) in MCP, web, TUI, CLI |
 | [Doctor](doctor.md) | Environment and Google diagnostics |
 | [Troubleshooting](troubleshooting.md) | Symptom → fix |
 

@@ -18,6 +18,7 @@ export const knownTopLevel = [
   "environment",
   "telemetry",
   "web",
+  "llm",
 ];
 
 export const knownService = [
@@ -81,6 +82,26 @@ export const knownHttpExpose = ["enabled", "host", "response_headers"];
 export const knownTelemetry = ["otlp"];
 export const knownTelemetryOtlp = ["enabled", "listen"];
 export const knownWeb = ["enabled", "listen"];
+export const knownLlm = ["enabled", "sources"];
+export const knownLlmSource = [
+  "name",
+  "type",
+  "service",
+  "port",
+  "endpoint",
+  "path_prefix",
+  "headers",
+  "via",
+  "management_endpoint",
+  "management_service",
+  "management_port",
+  "auth",
+  "capture",
+  "poll_seconds",
+];
+export const knownLlmAuth = ["type", "token_env", "header"];
+export const knownLlmVia = ["route"];
+export const knownLlmCapture = ["prompts"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];
 

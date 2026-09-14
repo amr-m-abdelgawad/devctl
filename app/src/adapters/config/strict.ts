@@ -38,6 +38,11 @@ import {
   knownTelemetryOtlp,
   knownUI,
   knownWeb,
+  knownLlm,
+  knownLlmSource,
+  knownLlmAuth,
+  knownLlmVia,
+  knownLlmCapture,
   knownUpstream,
   knownWatch,
 } from "./known.ts";
@@ -118,6 +123,8 @@ function knownForPath(path: string): string[] {
       return knownWeb;
     case "web.listen":
       return knownListen;
+    case "llm":
+      return knownLlm;
     default:
       return nestedKnown(path);
   }
@@ -159,6 +166,29 @@ function nestedKnown(path: string): string[] {
   }
   if (path.startsWith("plugins.") && path.split(".").length === 2) {
     return knownPlugin;
+  }
+  if (path === "llm.sources") {
+    return [];
+  }
+  if (path.startsWith("llm.sources.")) {
+    return llmSourcePathKnown(path);
+  }
+  return [];
+}
+
+function llmSourcePathKnown(path: string): string[] {
+  const parts = path.split(".");
+  if (parts.length === 3) {
+    return knownLlmSource;
+  }
+  if (parts[3] === "auth") {
+    return knownLlmAuth;
+  }
+  if (parts[3] === "via") {
+    return knownLlmVia;
+  }
+  if (parts[3] === "capture") {
+    return knownLlmCapture;
   }
   return [];
 }

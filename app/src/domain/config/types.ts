@@ -407,6 +407,95 @@ export type ProjectEnvironmentConfig = {
   secrets: Record<string, string>;
 };
 
+export const LLM_SOURCE_TYPE_LITELLM = "litellm";
+export const LLM_AUTH_BEARER = "bearer";
+export const DEFAULT_LLM_AUTH_HEADER = "Authorization";
+export const DEFAULT_LLM_POLL_SECONDS = 5;
+export const DEFAULT_LLM_PORT_NAME = "http";
+
+export type LlmAuthConfig = {
+  type: string;
+  token_env: string;
+  header: string;
+};
+
+export type LlmViaConfig = {
+  route: string;
+};
+
+export type LlmCaptureConfig = {
+  prompts: boolean;
+};
+
+export type LlmSourceConfig = {
+  name: string;
+  type: string;
+  service: string;
+  port: string;
+  endpoint: string;
+  path_prefix: string;
+  headers: Record<string, string>;
+  via: LlmViaConfig;
+  management_endpoint: string;
+  management_service: string;
+  management_port: string;
+  auth: LlmAuthConfig;
+  capture: LlmCaptureConfig;
+  poll_seconds: number;
+};
+
+export type LlmConfig = {
+  enabled: boolean;
+  sources: LlmSourceConfig[];
+};
+
+export function emptyLlmAuth(): LlmAuthConfig {
+  return { type: "", token_env: "", header: "" };
+}
+
+export function emptyLlmVia(): LlmViaConfig {
+  return { route: "" };
+}
+
+export function emptyLlmCapture(): LlmCaptureConfig {
+  return { prompts: true };
+}
+
+export function emptyLlmSource(): LlmSourceConfig {
+  return {
+    name: "",
+    type: "",
+    service: "",
+    port: "",
+    endpoint: "",
+    path_prefix: "",
+    headers: {},
+    via: emptyLlmVia(),
+    management_endpoint: "",
+    management_service: "",
+    management_port: "",
+    auth: emptyLlmAuth(),
+    capture: emptyLlmCapture(),
+    poll_seconds: 0,
+  };
+}
+
+export function emptyLlm(): LlmConfig {
+  return { enabled: false, sources: [] };
+}
+
+export function llmAuthHeader(auth: LlmAuthConfig): string {
+  return auth.header.trim() === "" ? DEFAULT_LLM_AUTH_HEADER : auth.header.trim();
+}
+
+export function llmSourcePort(source: LlmSourceConfig): string {
+  return source.port.trim() === "" ? DEFAULT_LLM_PORT_NAME : source.port.trim();
+}
+
+export function llmManagementPort(source: LlmSourceConfig): string {
+  return source.management_port.trim() === "" ? DEFAULT_LLM_PORT_NAME : source.management_port.trim();
+}
+
 export type ConfigOrigin = {
   source: string;
   layer: string;
@@ -434,6 +523,7 @@ export type DevctlConfig = {
   doctor: DoctorConfig;
   plugins: PluginConfig[];
   environment: ProjectEnvironmentConfig;
+  llm: LlmConfig;
   provenance: ConfigProvenance;
   repoRoot: string;
   configPath: string;
@@ -534,6 +624,7 @@ export function defaultConfig(): DevctlConfig {
     doctor: { tools: [] },
     plugins: [],
     environment: { sources: [], secrets: {} },
+    llm: emptyLlm(),
     provenance: {},
     repoRoot: "",
     configPath: "",

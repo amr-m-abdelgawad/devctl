@@ -81,6 +81,36 @@ function host(): McpHost & { calls: ControlCall[] } {
     },
     getTrace: async (id) => ({ ...tree, traceId: id }),
     traceRequest: async (id) => ({ ...tree, requestId: id }),
+    llmCallsPage: () => ({
+      calls: [{
+        seq: 1,
+        id: "chatcmpl-1",
+        source: "platform",
+        sourceType: "litellm",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        status: "ok",
+        model: "gpt-4o",
+        operation: "chat",
+        usage: { totalTokens: 16 },
+        cost: 0.01,
+        attributes: {},
+      }],
+      nextCursor: "",
+      hasNext: false,
+      errors: [],
+    }),
+    getLlmCall: async (id) => ({
+      seq: 1,
+      id,
+      source: "platform",
+      sourceType: "litellm",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      status: "ok",
+      model: "gpt-4o",
+      operation: "chat",
+      request: { messages: [] },
+      attributes: {},
+    }),
   };
 }
 
@@ -183,6 +213,12 @@ describe("web http server", () => {
 
       const request = await fetch(`${base}/api/request/req-1`);
       expect((await request.json() as { request_id: string }).request_id).toBe("req-1");
+
+      const llm = await fetch(`${base}/api/llm`);
+      expect((await llm.json() as { calls: Array<{ id: string }> }).calls[0]?.id).toBe("chatcmpl-1");
+
+      const llmDetail = await fetch(`${base}/api/llm/chatcmpl-1`);
+      expect((await llmDetail.json() as { id: string }).id).toBe("chatcmpl-1");
     } finally {
       await server.stop();
     }

@@ -11,7 +11,7 @@ import {
   dependencyName,
 } from "../config/index.ts";
 import { claimIfAlreadyUp as claimAdoptedService, recoverSession as recoverPersistedSession, type RecoverHost } from "./recover.ts";
-import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, pluginMtimes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
+import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, checkPluginLlmSourceTypes as assertPluginLlmSourceTypes, pluginMtimes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
 import { ServiceWatchers } from "./service-watch.ts";
 import { EnvironmentBridge } from "./environment-bridge.ts";
 import { IdentityCoordinator } from "./identity-coordinator.ts";
@@ -20,7 +20,7 @@ import { WebCoordinator } from "./web-coordinator.ts";
 import { ProxyCoordinator } from "./proxy-coordinator.ts";
 import { ResourceSampler } from "./resource-sampler.ts";
 import { buildSnapshot, formatStatusFromSnapshot, type SnapshotHost } from "./snapshot.ts";
-import { asLogFilter, asStringArray, asStringRecord, isRecord } from "../rpc/params.ts";
+import { asLogFilter, asLlmCallFilter, asStringArray, asStringRecord, isRecord } from "../rpc/params.ts";
 import { RpcServer } from "../rpc/server.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
 import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
@@ -44,8 +44,14 @@ import type { HealthCheckerFactory } from "../../ports/health-checker.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
+import type { LlmCallStore } from "../../ports/llm-call-store.ts";
+import type { LlmSourceFactory } from "../../ports/llm-source.ts";
 import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../domain/logs/logs.ts";
 import { isTraceId } from "../../domain/logs/ids.ts";
+import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
+import { LlmCallManager } from "../llm/store.ts";
+import { LlmCoordinator } from "../llm/coordinator.ts";
+import { llmSourceFactory } from "../llm/factory.ts";
 import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
@@ -80,6 +86,9 @@ export class Supervisor {
   private readonly bus: Bus;
   private readonly logs: LogStore;
   private readonly spans: SpanStore;
+  private readonly llmStore: LlmCallStore;
+  private llmFactory: LlmSourceFactory;
+  private readonly llm: LlmCoordinator;
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
   private readonly recipes: HttpRecipeRuntime;
@@ -161,6 +170,8 @@ export class Supervisor {
     this.detector = deps.detector;
     this.logs = deps.logs;
     this.spans = new SpanManager(undefined, this.detector);
+    this.llmStore = new LlmCallManager(this.detector);
+    this.llmFactory = llmSourceFactory([]);
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;
     this.tokens = deps.tokens;
@@ -172,6 +183,14 @@ export class Supervisor {
       ports: () => this.ports,
       processEnv: () => process.env,
       log: (message) => this.log("devctl", "INFO", message),
+    });
+    this.llm = new LlmCoordinator({
+      cfg: () => this.cfg,
+      store: this.llmStore,
+      factory: () => this.llmFactory,
+      ports: () => this.ports,
+      log: (service, level, message) => this.log(service, level, message),
+      tokens: this.tokens,
     });
     this.telemetry = new TelemetryCoordinator({
       cfg: () => this.cfg,
@@ -319,6 +338,14 @@ export class Supervisor {
       get runtimes() { return self.runtimes; },
       get tokens() { return self.tokens; },
       get logs() { return self.logs; },
+      get llm() {
+        return {
+          applyConfig: () => self.llm.applyConfig(),
+          setFactory: (factory: LlmSourceFactory) => {
+            self.llmFactory = factory;
+          },
+        };
+      },
       get proxy() { return self.proxy.instance; },
       get recipes() { return self.recipes; },
       persistState: () => self.persistState(),
@@ -382,6 +409,8 @@ export class Supervisor {
     assertPluginHealthTypes(this.registry, this.cfg);
     assertPluginIdentityTypes(this.registry, this.cfg);
     assertPluginEnvironmentSources(this.registry, this.cfg);
+    this.llmFactory = llmSourceFactory(this.registry?.llmSources ?? []);
+    assertPluginLlmSourceTypes(this.registry, this.cfg);
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());
@@ -390,6 +419,7 @@ export class Supervisor {
     void this.refreshIdentity();
     this.resources.start();
     await this.telemetry.start();
+    await this.llm.start();
     await this.web.start();
     await this.mcp.bootFromPreferences();
     // Lazy, sticky proxy policy: startup never binds it. The first start()
@@ -457,6 +487,14 @@ export class Supervisor {
         return await this.queryTrace(typeof rec.trace_id === "string" ? rec.trace_id : typeof rec.traceId === "string" ? rec.traceId : "");
       case "trace_request":
         return await this.queryTraceByRequest(typeof rec.request_id === "string" ? rec.request_id : typeof rec.requestId === "string" ? rec.requestId : "");
+      case "llm_calls_page":
+        return this.queryLlmCallsPage({
+          ...asLlmCallFilter(rec),
+          cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
+          limit: typeof rec.limit === "number" ? rec.limit : undefined,
+        });
+      case "get_llm_call":
+        return this.queryLlmCall(typeof rec.id === "string" ? rec.id : "");
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
         // itself is also called from start() and reload(), which must not
@@ -760,6 +798,8 @@ export class Supervisor {
       stopProxy: () => this.stopProxy(),
       getTrace: (traceId) => this.queryTrace(traceId),
       traceRequest: (requestId) => this.queryTraceByRequest(requestId),
+      llmCallsPage: (req) => this.queryLlmCallsPage(req),
+      getLlmCall: (id) => this.queryLlmCall(id),
     };
   }
 
@@ -786,6 +826,8 @@ export class Supervisor {
     this.recipes.stop();
     await this.stopProxy();
     await this.telemetry.stop();
+    await this.llm.stop();
+    this.llmStore.close();
     this.spans.close();
     await this.stopMcp();
     await this.web.stop();
@@ -840,6 +882,14 @@ export class Supervisor {
     const traceId = mapped ?? (isTraceId(requestId) ? requestId.toLowerCase() : "");
     const result = await this.queryTrace(traceId);
     return { ...result, requestId };
+  }
+
+  queryLlmCallsPage(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage {
+    return this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+  }
+
+  queryLlmCall(id: string): LlmCall | undefined {
+    return this.llmStore.get(id);
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {

@@ -9,6 +9,8 @@ import {
   callMcpTool,
   getConfigSummary,
   getLogs,
+  getLlmCallTool,
+  getLlmCalls,
   getRequests,
   getStatusSummary,
   getTraceTool,
@@ -158,6 +160,15 @@ export class WebHttpServer {
     }
     if (path === "/api/logs") {
       writeJson(res, 200, await getLogs(host, queryArgs(query)));
+      return;
+    }
+    if (path === "/api/llm") {
+      writeJson(res, 200, await getLlmCalls(host, queryArgs(query)));
+      return;
+    }
+    const llmId = matchParam(path, "/api/llm/");
+    if (llmId !== undefined) {
+      writeJson(res, 200, await getLlmCallTool(host, { id: decodeURIComponent(llmId) }));
       return;
     }
     const traceId = matchParam(path, "/api/trace/");

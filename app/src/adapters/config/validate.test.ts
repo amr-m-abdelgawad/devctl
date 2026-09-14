@@ -394,4 +394,60 @@ describe("config validate", () => {
     cfg.http.login.request.form = { subject_token: "${token}" };
     expect(validate(cfg)).toContain("http.login: ${token} requires request.auth.type iap or service_account");
   });
+
+  test("rejects unknown llm source types and missing management hops", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.llm.enabled = true;
+    expect(validate(cfg)).toContain("llm.sources must list at least one source when llm.enabled is true");
+    cfg.llm.sources = [{
+      name: "platform",
+      type: "openai_compat",
+      service: "",
+      port: "",
+      endpoint: "",
+      path_prefix: "",
+      headers: {},
+      via: { route: "" },
+      management_endpoint: "",
+      management_service: "",
+      management_port: "",
+      auth: { type: "bearer", token_env: "", header: "" },
+      capture: { prompts: true },
+      poll_seconds: 0,
+    }];
+    const issues = validate(cfg);
+    expect(issues.some((issue) => issue.includes("type must be litellm"))).toBe(true);
+    expect(issues.some((issue) => issue.includes("exactly one management hop"))).toBe(true);
+    expect(issues.some((issue) => issue.includes("token_env is required"))).toBe(true);
+  });
+
+  test("accepts a litellm source on a managed service and via.route with a separate management endpoint", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.proxy.routes.push({
+      name: "llm-apps",
+      match: { host: "llm.local", path: "" },
+      upstream: { url: "", service: "litellm", port: "http" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    cfg.llm.sources = [{
+      name: "via-gateway",
+      type: "litellm",
+      service: "",
+      port: "",
+      endpoint: "",
+      path_prefix: "/llm",
+      headers: {},
+      via: { route: "llm-apps" },
+      management_endpoint: "http://127.0.0.1:4000",
+      management_service: "",
+      management_port: "",
+      auth: { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "x-litellm-api-key" },
+      capture: { prompts: true },
+      poll_seconds: 5,
+    }];
+    expect(validate(cfg)).toEqual([]);
+  });
 });

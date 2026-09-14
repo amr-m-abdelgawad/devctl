@@ -124,9 +124,44 @@ export type TracePayload = {
   logs: LogRow[];
 };
 
-export type RouteName = "services" | "traces" | "graph" | "logs";
+export type LlmUsageRow = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+};
+
+export type LlmCallRow = {
+  id: string;
+  source: string;
+  source_type: string;
+  timestamp: string;
+  duration_ms?: number;
+  status: string;
+  error?: string;
+  model: string;
+  routed_model?: string;
+  vendor?: string;
+  operation: string;
+  usage?: LlmUsageRow;
+  cost?: number;
+  request?: unknown;
+  response?: unknown;
+  attributes: Record<string, unknown>;
+  request_id?: string;
+  trace_id?: string;
+};
+
+export type LlmCallsPayload = {
+  calls: LlmCallRow[];
+  has_more?: boolean;
+  next_cursor?: string;
+  errors?: Array<{ source: string; message: string; status?: number }>;
+};
+
+export type RouteName = "services" | "traces" | "graph" | "logs" | "llm";
 
 export type Route = {
   name: RouteName;
   traceId?: string;
+  llmId?: string;
 };

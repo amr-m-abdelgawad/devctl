@@ -4,11 +4,13 @@ import { secretTemplateLabel } from "../../domain/config/env-ref.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
 import { Detector } from "../../shared/redaction.ts";
 import { formatBodySummary, redactLogRecord, redactSpan, type LogRecord } from "../../domain/logs/logs.ts";
+import { redactLlmCall, stripLlmBodies, type LlmCall } from "../../domain/llm/llm.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
 import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
+export const MCP_LLM_CAP = 200;
 
 export const MCP_RESOURCE_URIS = [
   "devctl://status",
@@ -133,6 +135,43 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     category: "inspect",
     description: "Recent proxy requests with method, path, status, duration, request id, and trace id.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_llm_calls",
+    label: "LLM calls",
+    summary: "Filtered LLM call pages, secrets redacted",
+    category: "inspect",
+    description:
+      "Recent LLM calls from configured sources (LiteLLM spend logs first), optionally filtered. Capped at 200 per page. Secrets are redacted. Request and response bodies are omitted; use get_llm_call for a single call. Pass cursor=next_cursor to page toward older calls.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        source: { type: "string", description: "Configured llm.sources[].name" },
+        source_type: { type: "string", description: "Driver type, e.g. litellm" },
+        model: { type: "string" },
+        status: { type: "string", description: "ok or error" },
+        search: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        cursor: { type: "string", description: "Opaque cursor from a previous next_cursor" },
+        request_id: { type: "string" },
+        trace_id: { type: "string" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_llm_call",
+    label: "LLM call detail",
+    summary: "One LLM call including redacted bodies",
+    category: "inspect",
+    description: "One LLM call by id, including redacted request and response payloads when the source captured them.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
   },
   {
     name: "recent_errors",
@@ -585,6 +624,79 @@ export function getRequests(snap: StatusSnapshot): unknown {
   };
 }
 
+export function mcpLlmCall(detector: Detector, call: LlmCall, bodies: boolean): Record<string, unknown> {
+  const redacted = redactLlmCall(detector, call);
+  const shown = bodies ? redacted : stripLlmBodies(redacted);
+  return {
+    id: shown.id,
+    source: shown.source,
+    source_type: shown.sourceType,
+    timestamp: shown.timestamp,
+    duration_ms: shown.durationMs,
+    status: shown.status,
+    error: shown.error,
+    model: shown.model,
+    routed_model: shown.routedModel,
+    vendor: shown.vendor,
+    operation: shown.operation,
+    usage: shown.usage
+      ? {
+          prompt_tokens: shown.usage.promptTokens,
+          completion_tokens: shown.usage.completionTokens,
+          total_tokens: shown.usage.totalTokens,
+        }
+      : undefined,
+    cost: shown.cost,
+    request: shown.request,
+    response: shown.response,
+    attributes: shown.attributes,
+    request_id: shown.requestId,
+    trace_id: shown.traceId,
+  };
+}
+
+export async function getLlmCalls(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  if (!host.llmCallsPage) {
+    throw new Error("llm store is unavailable");
+  }
+  const cursor = typeof args.cursor === "string" ? args.cursor : undefined;
+  const page = await host.llmCallsPage({
+    source: nonempty(typeof args.source === "string" ? args.source : ""),
+    sourceType: nonempty(typeof args.source_type === "string" ? args.source_type : ""),
+    model: nonempty(typeof args.model === "string" ? args.model : ""),
+    status: args.status === "ok" || args.status === "error" ? args.status : undefined,
+    search: nonempty(typeof args.search === "string" ? args.search : ""),
+    since: nonempty(typeof args.since === "string" ? args.since : ""),
+    until: nonempty(typeof args.until === "string" ? args.until : ""),
+    requestId: nonempty(typeof args.request_id === "string" ? args.request_id : ""),
+    traceId: nonempty(typeof args.trace_id === "string" ? args.trace_id : ""),
+    cursor,
+    limit: MCP_LLM_CAP,
+  });
+  const detector = detectorFor(host.config());
+  return {
+    calls: page.calls.map((call) => mcpLlmCall(detector, call, false)),
+    has_more: page.hasNext,
+    next_cursor: page.nextCursor,
+    errors: page.errors,
+  };
+}
+
+export async function getLlmCallTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  const id = typeof args.id === "string" ? args.id : "";
+  if (id === "") {
+    throw new Error("id is required");
+  }
+  if (!host.getLlmCall) {
+    throw new Error("llm store is unavailable");
+  }
+  const call = await host.getLlmCall(id);
+  if (!call) {
+    throw new Error(`llm call ${id} not found`);
+  }
+  return mcpLlmCall(detectorFor(host.config()), call, true);
+}
+
 export function listProfiles(cfg: DevctlConfig): unknown {
   return Object.entries(cfg.profiles)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -697,6 +809,10 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return traceRequestTool(host, args);
     case "get_requests":
       return getRequests(host.status());
+    case "get_llm_calls":
+      return getLlmCalls(host, args);
+    case "get_llm_call":
+      return getLlmCallTool(host, args);
     case "recent_errors":
       return getLogs(host, { ...args, level: "ERROR" });
     case "list_profiles":

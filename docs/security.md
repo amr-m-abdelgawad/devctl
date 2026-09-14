@@ -4,7 +4,7 @@
 
 **Loopback, redaction, no private keys.**
 
-Tokens never sit in the TUI, logs, or MCP output. Listeners bind `127.0.0.1`. Service-account keys are never created.
+Tokens never sit in the TUI, logs, LLM inspector, or MCP output. Listeners bind `127.0.0.1`. Service-account keys are never created.
 
 <p>
   <a href="#what-we-guarantee"><strong>Guarantees</strong></a>
@@ -33,7 +33,7 @@ Tokens never sit in the TUI, logs, or MCP output. Listeners bind `127.0.0.1`. Se
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
 
-Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`.
+Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. LLM inspector payloads (prompts, responses, attributes) are redacted with the same detector at ingest and again on MCP/web output. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config.
 
 ---
 

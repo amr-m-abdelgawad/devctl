@@ -24,6 +24,7 @@ import { useDaemonEvents } from "./hooks/use-daemon-events.ts";
 import { useDiagnostics } from "./hooks/use-diagnostics.ts";
 import { useLifecycle } from "./hooks/use-lifecycle.ts";
 import { useLogView } from "./hooks/use-log-view.ts";
+import { useLlmView } from "./hooks/use-llm-view.ts";
 import { useMcpControls } from "./hooks/use-mcp-controls.ts";
 import { usePreferences } from "./hooks/use-preferences.ts";
 import { useSetupWizard } from "./hooks/use-setup-wizard.ts";
@@ -33,6 +34,7 @@ import { ConfirmOverlay } from "./overlays/Confirm.tsx";
 import { HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
+import { LlmDetailsOverlay } from "./overlays/LlmDetails.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
 import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
 import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
@@ -46,6 +48,7 @@ import { CredentialsScreen } from "./screens/Credentials.tsx";
 import { Dashboard } from "./screens/Dashboard.tsx";
 import { DoctorScreen } from "./screens/Doctor.tsx";
 import { LogsScreen } from "./screens/Logs.tsx";
+import { LlmScreen } from "./screens/Llm.tsx";
 import { mcpRowCount, McpScreen } from "./screens/Mcp.tsx";
 import { ProfilesScreen } from "./screens/Profiles.tsx";
 import { ProxyScreen, type RouteDetailInfo } from "./screens/Proxy.tsx";
@@ -179,6 +182,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   }, [controller, profile]);
 
   const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
+  const llmView = useLlmView({ controller, screen });
   const {
     logs,
     setLogs,
@@ -252,6 +256,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     logs: splitLogs && splitFocus === 1 ? logSliceB.length : logSlice.length,
     mcp: mcpRowCount(),
     config: Object.keys(cfg?.tasks ?? {}).length,
+    llm: llmView.page.calls.length,
   });
   const cursorState = screen === "logs" ? (splitLogs && splitFocus === 1 ? logSelectedB : logSelected) : selected;
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
@@ -489,6 +494,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setPortTarget,
       setLogDetail,
       logDetail,
+      setLlmDetail: llmView.setDetail,
+      llmDetail: llmView.detail,
+      llmCalls: llmView.page.calls,
       openTrace,
       openSpanLogs,
       traceSpanCount: traceRows.length,
@@ -693,6 +701,21 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             onOpenTrace={openTrace}
           />
         ) : null}
+        {screen === "llm" ? (
+          <LlmScreen
+            palette={palette}
+            cfg={cfg}
+            page={llmView.page}
+            error={llmView.error}
+            selected={listCursor}
+            width={width}
+            onPick={setSelected}
+            onOpen={(call) => {
+              llmView.setDetail(call);
+              setOverlay("llm-details");
+            }}
+          />
+        ) : null}
         {screen === "mcp" ? (
           <McpScreen
             palette={palette}
@@ -791,6 +814,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       ) : null}
       {overlay === "log-details" ? (
         <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
+      ) : null}
+      {overlay === "llm-details" ? (
+        <LlmDetailsOverlay palette={palette} call={llmView.detail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
       ) : null}
       {overlay === "trace" || overlay === "span-details" ? (
         <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} />

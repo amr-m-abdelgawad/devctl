@@ -30,9 +30,14 @@ import {
   type IdentityConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type LlmSourceConfig,
   dependencyName,
   dependencyCondition,
   isGrpcRoute,
+  LLM_AUTH_BEARER,
+  LLM_SOURCE_TYPE_LITELLM,
+  llmManagementPort,
+  llmSourcePort,
   namedPort,
   isReservedHttpOutput,
 } from "../../domain/config/types.ts";
@@ -41,6 +46,7 @@ const MAX_PORT = 65535;
 const MIN_PORT = 1;
 
 export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command"];
+export const BUILTIN_LLM_SOURCE_TYPES = [LLM_SOURCE_TYPE_LITELLM];
 
 // Health types outside BUILTIN_HEALTH_TYPES are only valid if a plugin
 // registers a matching health check. validateHealth() can't confirm that —
@@ -53,6 +59,17 @@ export function unresolvedHealthTypes(cfg: DevctlConfig): Array<{ service: strin
     const type = svc.health.type;
     if (type !== "" && !BUILTIN_HEALTH_TYPES.includes(type.toLowerCase())) {
       unresolved.push({ service: name, type });
+    }
+  }
+  return unresolved;
+}
+
+export function unresolvedLlmSourceTypes(cfg: DevctlConfig): Array<{ source: string; type: string }> {
+  const unresolved: Array<{ source: string; type: string }> = [];
+  for (const source of cfg.llm.sources) {
+    const type = source.type;
+    if (type !== "" && !BUILTIN_LLM_SOURCE_TYPES.includes(type.toLowerCase())) {
+      unresolved.push({ source: source.name || type, type });
     }
   }
   return unresolved;
@@ -76,6 +93,7 @@ export function validate(cfg: DevctlConfig): string[] {
   issues.push(...validateProxy(cfg));
   issues.push(...validateTelemetry(cfg));
   issues.push(...validateWeb(cfg));
+  issues.push(...validateLlm(cfg));
   for (const [index, plugin] of cfg.plugins.entries()) {
     if (plugin.path === "") issues.push(`plugins.${index}.path is required`);
     else {
@@ -549,6 +567,95 @@ function validateWeb(cfg: DevctlConfig): string[] {
     });
   }
   return issues;
+}
+
+function validateLlm(cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  if (cfg.llm.enabled && cfg.llm.sources.length === 0) {
+    issues.push("llm.sources must list at least one source when llm.enabled is true");
+  }
+  const names = new Set<string>();
+  for (const [index, source] of cfg.llm.sources.entries()) {
+    const prefix = `llm.sources[${index}]`;
+    issues.push(...validateLlmSource(cfg, source, prefix));
+    if (source.name === "") {
+      issues.push(`${prefix}.name is required`);
+    } else if (names.has(source.name)) {
+      issues.push(`${prefix}.name duplicates ${source.name}`);
+    } else {
+      names.add(source.name);
+    }
+  }
+  return issues;
+}
+
+function validateLlmSource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  if (source.type === "") {
+    issues.push(`${prefix}.type is required`);
+  } else if (!BUILTIN_LLM_SOURCE_TYPES.includes(source.type.toLowerCase()) && cfg.plugins.length === 0) {
+    issues.push(`${prefix}.type must be ${LLM_SOURCE_TYPE_LITELLM}`);
+  }
+  issues.push(...validateLlmManagementHop(cfg, source, prefix));
+  issues.push(...validateLlmAuth(source, prefix));
+  if (source.poll_seconds < 0) {
+    issues.push(`${prefix}.poll_seconds must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLlmManagementHop(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  const hasManagementEndpoint = source.management_endpoint.trim() !== "";
+  const hasManagementService = source.management_service.trim() !== "";
+  if (hasManagementEndpoint && hasManagementService) {
+    issues.push(`${prefix}: set only one of management_endpoint or management_service`);
+  }
+  if (hasManagementService) {
+    issues.push(...validateLlmServiceRef(cfg, source.management_service, llmManagementPort(source), `${prefix}.management_service`));
+  }
+  if (source.service.trim() !== "") {
+    issues.push(...validateLlmServiceRef(cfg, source.service, llmSourcePort(source), `${prefix}.service`));
+  }
+  if (source.via.route.trim() !== "") {
+    const route = cfg.proxy.routes.find((item) => item.name === source.via.route);
+    if (!route) {
+      issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+    }
+  }
+  if (!hasManagementEndpoint && !hasManagementService) {
+    const hops = [source.service.trim() !== "", source.endpoint.trim() !== "", source.via.route.trim() !== ""];
+    const count = hops.filter(Boolean).length;
+    if (count !== 1) {
+      issues.push(`${prefix}: set exactly one management hop (service, endpoint, or via.route)`);
+    }
+  }
+  return issues;
+}
+
+function validateLlmServiceRef(cfg: DevctlConfig, serviceName: string, portName: string, prefix: string): string[] {
+  const svc = cfg.services[serviceName];
+  if (!svc) {
+    return [`${prefix} references unknown service ${serviceName}`];
+  }
+  if (!namedPort(svc.ports, portName)) {
+    return [`${prefix}: service ${serviceName} has no port named ${portName}`];
+  }
+  return [];
+}
+
+function validateLlmAuth(source: LlmSourceConfig, prefix: string): string[] {
+  const kind = source.auth.type.trim().toLowerCase();
+  if (kind === "" && source.auth.token_env.trim() === "") {
+    return [];
+  }
+  if (kind !== "" && kind !== LLM_AUTH_BEARER) {
+    return [`${prefix}.auth.type must be ${LLM_AUTH_BEARER}`];
+  }
+  if (source.auth.token_env.trim() === "") {
+    return [`${prefix}.auth.token_env is required when auth.type is ${LLM_AUTH_BEARER}`];
+  }
+  return [];
 }
 
 function validateTokenEndpoint(cfg: DevctlConfig): string[] {

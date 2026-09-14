@@ -274,12 +274,13 @@ describe("TUI helpers", () => {
     expect(confirmHints("restart-cascade").some((h) => h.key === "c")).toBe(true);
   });
 
-  test("nav cycles the four primary tabs; other screens return home", () => {
+  test("nav cycles the five primary tabs; other screens return home", () => {
     expect(nextScreen("dashboard")).toBe("services");
     expect(nextScreen("services")).toBe("logs");
     expect(nextScreen("logs")).toBe("proxy");
-    expect(nextScreen("proxy")).toBe("dashboard");
-    expect(prevScreen("dashboard")).toBe("proxy");
+    expect(nextScreen("proxy")).toBe("llm");
+    expect(nextScreen("llm")).toBe("dashboard");
+    expect(prevScreen("dashboard")).toBe("llm");
     expect(nextScreen("detail")).toBe("logs");
     expect(nextScreen("settings")).toBe("dashboard");
     expect(nextScreen("auth")).toBe("dashboard");
@@ -300,6 +301,8 @@ describe("TUI helpers", () => {
     expect(footerHints("logs", "trace").some((h) => h.label === "logs")).toBe(true);
     expect(footerHints("logs", "span-details").some((h) => h.label === "back")).toBe(true);
     expect(footerHints("config", "config-edit").some((h) => h.key === displayWithMod("s"))).toBe(true);
+    expect(footerHints("llm", "none").some((h) => h.key === "enter" && h.label === "detail")).toBe(true);
+    expect(footerHints("llm", "llm-details").some((h) => h.key === "esc")).toBe(true);
   });
 
   test("grouped commands keep command groups", () => {
@@ -702,12 +705,13 @@ describe("TUI helpers", () => {
     expect(footerHints("config", "none").some((h) => h.key === "/reload")).toBe(true);
   });
 
-  test("nav digits cover the four primary tabs and chrome height matches the toolbar stack", () => {
-    expect(NAV_ITEMS).toHaveLength(4);
-    expect(NAV_ITEMS.map((item) => item.id)).toEqual(["dashboard", "services", "logs", "proxy"]);
+  test("nav digits cover the five primary tabs and chrome height matches the toolbar stack", () => {
+    expect(NAV_ITEMS).toHaveLength(5);
+    expect(NAV_ITEMS.map((item) => item.id)).toEqual(["dashboard", "services", "logs", "proxy", "llm"]);
     expect(navItemForDigit("1")).toBe("dashboard");
     expect(navItemForDigit("4")).toBe("proxy");
-    expect(navItemForDigit("5")).toBeUndefined();
+    expect(navItemForDigit("5")).toBe("llm");
+    expect(navItemForDigit("6")).toBeUndefined();
     expect(navItemForDigit("8")).toBeUndefined();
     expect(navItemForDigit("0")).toBeUndefined();
     expect(navItemForDigit("a")).toBeUndefined();

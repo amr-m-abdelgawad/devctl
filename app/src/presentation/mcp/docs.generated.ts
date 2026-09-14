@@ -35,6 +35,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
 | [Logs](logs.md) | Buffer, filters, export, history |
+| [LLM inspector](llm.md) | LiteLLM spend logs (and later sources) in MCP, web, TUI, CLI |
 | [Doctor](doctor.md) | Environment and Google diagnostics |
 | [Troubleshooting](troubleshooting.md) | Symptom → fix |
 
@@ -116,10 +117,10 @@ See [examples/admin-iam.yaml](../examples/admin-iam.yaml) for a permission-distr
 app/src/
   presentation/    cli, tui, mcp, web
   application/     commands, queries, orchestrator
-  domain/          service, identity, health, config types
+  domain/          service, identity, health, config types, llm
   ports/           ProcessRuntime, Clock, FileSystem, HealthChecker, HttpRecipeRuntime, …
   adapters/        daemon, rpc, doctor, environment, plugins, net, secrets, system,
-                   process, google, config, health, proxy, http, storage, containers
+                   process, google, config, health, proxy, http, llm, storage, containers
   shared/          events, errors, retry, warnings
   bootstrap/       one composition root per process
 \`\`\`
@@ -187,7 +188,8 @@ routing live in \`adapters/rpc/server.ts\` (paired with the existing controller
 client). Identity cache, credential entries, and service-account probes live in
 \`adapters/daemon/identity-coordinator.ts\`. Client/profile environment resolution
 lives in \`adapters/daemon/environment-bridge.ts\`. Proxy and token-endpoint bind
-live in \`adapters/daemon/proxy-coordinator.ts\`. Named outbound HTTP recipes
+live in \`adapters/daemon/proxy-coordinator.ts\`. LLM inspector polling lives in
+\`adapters/llm/\` (LiteLLM driver, in-memory call store, coordinator). Named outbound HTTP recipes
 (\`HttpRecipeRuntime\`) live in \`adapters/http/\`; the supervisor constructs
 \`RecipeRuntime\`, reuses \`TokenManager\`, and passes it into the environment
 bridge and proxy. MCP listen and the tool deny-list
@@ -319,6 +321,8 @@ devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
 devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--attribute key=value] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
+devctl llm [--source] [--model] [--status] [--search] [--since] [--until] [--json] [-f|--follow]
+devctl llm show <id> [--json]
 devctl daemon logs [-f|--follow]
 devctl reload
 devctl doctor [--json]
@@ -352,6 +356,7 @@ devctl update [--json] [--check]
 - \`status\` also prints proxy, MCP, and WEB listen lines when a supervisor is up.
 - \`status --watch\` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (\`ctrl+c\`).
 - \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details.
+- \`devctl llm\` lists recent LLM calls from configured \`llm.sources\` (LiteLLM spend logs first). \`--follow\` polls until interrupted. \`devctl llm show <id>\` prints one call including redacted bodies. See [LLM inspector](llm.md).
 - \`devctl daemon logs [-f]\` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when \`start\`/\`attach\` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. \`-f\` follows it live the same way \`logs -f\` does. The TUI equivalent is \`/daemon\`.
 
 \`devctl attach\` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run \`devctl start\` first.
@@ -406,6 +411,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 - [TUI](tui.md)
 - [MCP](mcp.md)
+- [LLM inspector](llm.md)
 - [Telemetry](telemetry.md)
 - [Logs](logs.md)
 - [How it fits together](overview.md)
@@ -492,6 +498,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`logs\` | In-memory cap and persistence |
 | \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
 | \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Telemetry](telemetry.md) |
+| \`llm\` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
 | \`shutdown\` | \`stop_services_on_exit\`, \`grace_seconds\` |
 | \`ui\` | Optional theme / keymap hints in YAML (TUI prefs still win from \`tui.json\`) |
@@ -1275,6 +1282,132 @@ The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and W
 - [How it fits together](overview.md)
 - [Changelog](../CHANGELOG.md)
 ` },
+  { path: "docs/llm.md", title: "LLM inspector", body: `# LLM inspector
+
+devctl can pull LLM traffic into the same inspector stack as logs and traces: an in-memory store, then MCP, web, TUI, and CLI. There is no new service kind. A source is a typed driver (\`type: litellm\` today) plus a **management hop** the daemon can reach.
+
+The inspector is **off by default**. It does not sit on \`telemetry\` — this is a pull source, not OTLP ingest. Full prompts never go on the status snapshot.
+
+\`\`\`mermaid
+flowchart LR
+  subgraph apps [App traffic]
+    App --> CustomProxy
+    CustomProxy --> LiteLLM
+  end
+  subgraph inspect [Inspector hop]
+    Coord[LlmCoordinator]
+    Coord -->|"preferred: service port"| LiteLLM
+    Coord -->|"or via proxy URL plus prefix"| CustomProxy
+  end
+  LiteDriver[type litellm]
+  Store[LlmCallStore]
+  Coord --> LiteDriver
+  LiteDriver --> Store
+  Store --> MCP
+  Store --> Web
+  Store --> TUI
+  Store --> CLI
+\`\`\`
+
+## Config
+
+Top-level \`llm\`. Unknown fields are rejected. Bearer tokens must come from the environment (\`token_env\`); never inline keys.
+
+\`\`\`yaml
+llm:
+  enabled: true
+  sources:
+    - name: platform
+      type: litellm
+      service: litellm
+      port: http
+      auth:
+        type: bearer
+        token_env: LITELLM_MASTER_KEY
+      capture:
+        prompts: true
+      poll_seconds: 5
+\`\`\`
+
+\`type\` must be a builtin (\`litellm\`) or a plugin \`llmSources\` name. When \`llm.enabled\` is true, \`sources\` must be non-empty. Each source needs a unique \`name\` and exactly one **management hop**: \`management_endpoint\` / \`management_service\`, or else exactly one of \`service\`, \`endpoint\`, or \`via.route\`. \`via.route\` may exist alongside \`management_*\` so apps can keep using a traffic proxy while the inspector talks to LiteLLM directly.
+
+\`path_prefix\` is stripped of slashes; the LiteLLM driver always appends \`/spend/logs\`. Do not put that leaf in config.
+
+\`capture.prompts\` defaults to **true**. Set \`false\` to drop request/response bodies at ingest. Bodies still need LiteLLM \`store_prompts_in_spend_logs\`; empty \`"{}"\` bodies are treated as missing. Redaction uses the same \`secrets\` detector as logs, at upsert, before any surface reads the store.
+
+\`poll_seconds\` defaults to 5. \`auth.header\` defaults to \`Authorization\`. Set it to \`x-api-key\` or \`x-litellm-api-key\` when a gateway already owns \`Authorization\` (IAP, custom proxy). The coordinator applies route-minted identity headers first, then the LiteLLM key on the configured header.
+
+## LiteLLM behind a custom proxy
+
+A custom proxy in front of LiteLLM does **not** change \`type\`. The driver still speaks LiteLLM management APIs (\`GET {prefix}/spend/logs?summarize=false\`). What changes is how the daemon reaches that API.
+
+**1. Apps use the custom proxy; inspector uses the LiteLLM process (preferred).** Typical when LiteLLM is a local \`services.litellm\` and nginx / IAP / the [devctl proxy](proxy.md) only sits on the app path. Use \`service\` + \`port\` as in the default above. No \`via\`.
+
+**2. LiteLLM is only reachable through the custom proxy** (remote gateway, IAP, path mount):
+
+\`\`\`yaml
+    - name: via-gateway
+      type: litellm
+      endpoint: https://gateway.internal.example
+      path_prefix: /llm
+      headers:
+        X-Tenant: local
+      auth:
+        type: bearer
+        token_env: LITELLM_MASTER_KEY
+\`\`\`
+
+If that hop is already a named proxy route (IAP / service-account inject), reuse it so the inspector gets the same minted headers:
+
+\`\`\`yaml
+    - name: via-devctl-proxy
+      type: litellm
+      via:
+        route: litellm
+      path_prefix: /llm
+      auth:
+        type: bearer
+        token_env: LITELLM_MASTER_KEY
+        header: x-litellm-api-key
+\`\`\`
+
+\`via.route\` must match \`proxy.routes[].name\`. It resolves to that route’s upstream and applies the route’s identity middleware.
+
+**3. Custom proxy only forwards OpenAI traffic (\`/v1/chat/completions\`) and does not expose \`/spend/logs\`.** Keep \`type: litellm\` only if you can still name a LiteLLM management hop:
+
+\`\`\`yaml
+      via:
+        route: llm-apps
+      management_endpoint: http://127.0.0.1:4000
+\`\`\`
+
+A 404/401/403 from \`/spend/logs\` is a **source error** in the UI (“this URL is not LiteLLM management; set path_prefix or management_endpoint”), not an empty list. If there is no management hop at all, this is not a LiteLLM source.
+
+LiteLLM needs a DB plus a master key (or a key with \`get_spend_routes\`).
+
+## Surfaces
+
+Query stays on the store (RPC \`llm_calls_page\` / \`get_llm_call\`). Secrets are redacted again on MCP/web output.
+
+| Surface | Entry |
+|---------|--------|
+| MCP | \`get_llm_calls\` (filter + cursor) and \`get_llm_call\` in **inspect**. List pages omit bodies; detail includes redacted payloads. |
+| Web | \`#/llm\` and \`#/llm/:id\` — list (model, status, tokens, cost, latency) and detail (messages, usage, attributes, jump to trace). |
+| TUI | \`llm\` nav tab, \`/llm\`, enter for detail; enter again jumps to a trace when \`traceId\` is present. |
+| CLI | \`devctl llm\` (filters, \`--json\`, \`--follow\`) and \`devctl llm show <id>\`. |
+
+v1 does not buffer chat bodies on the generic HTTP proxy (streaming/SSE is a different adapter). Future source types can plug in through \`LlmSourceFactory\` / plugin \`llmSources\` without a new port.
+
+## Related
+
+- [Configuration](configuration.md)
+- [Proxy](proxy.md)
+- [Telemetry](telemetry.md)
+- [MCP](mcp.md)
+- [CLI](cli.md)
+- [TUI](tui.md)
+- [Plugins](plugins.md)
+` },
   { path: "docs/logs.md", title: "Logs", body: `# Logs
 
 All service stdout/stderr, proxy events, health checks, authentication events, and \`devctl\` internal lines go through one log manager on the supervisor.
@@ -1409,6 +1542,8 @@ devctl mcp --json
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
 | \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
 | \`get_requests\` | logs | The proxy's recent requests — method, route, status, duration, identity, and request/trace ids |
+| \`get_llm_calls\` | inspect | Filtered LLM calls from configured sources, secrets redacted, bodies omitted. Pass \`cursor\` from \`next_cursor\` to page toward older calls |
+| \`get_llm_call\` | inspect | One LLM call by id, including redacted request/response payloads |
 | \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\` |
 | \`list_profiles\` | inspect | Config profiles and members |
 | \`get_config\` | inspect | Merged summary: project, services, routes, proxy paths |
@@ -1462,6 +1597,7 @@ Doctor may report ports “in use” while your own services hold them — that 
 
 - [TUI](tui.md)
 - [CLI](cli.md)
+- [LLM inspector](llm.md)
 - [How it fits together](overview.md)
 - [Agent skills](../skills/README.md)
 - [Security](security.md)
@@ -1528,7 +1664,7 @@ npm provenance shows that the JavaScript package was published by this repositor
 \`\`\`mermaid
 flowchart TB
   tui["TUI — OpenTUI screens and keys"]
-  cli["CLI — start / stop / logs / auth"]
+  cli["CLI — start / stop / logs / llm / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
   web["Web — loopback explorer and control"]
   sup["Supervisor"]
@@ -1607,6 +1743,7 @@ Local-only services (the [demo platform](../examples/demo-platform/README.md)) r
 - [TUI](tui.md)
 - [CLI](cli.md)
 - [MCP](mcp.md)
+- [LLM inspector](llm.md)
 ` },
   { path: "docs/platform-bets.md", title: "Platform bets (Phase 5)", body: `# Platform bets (Phase 5)
 
@@ -1654,7 +1791,7 @@ import { PLUGIN_SDK_VERSION } from "../../app/src/plugin-sdk.ts";
 export const sdkVersion = PLUGIN_SDK_VERSION;
 \`\`\`
 
-An incompatible, malformed, or throwing plugin is skipped and reported in the devctl log instead of crashing the daemon. Configuration that depends on an extension from the skipped plugin still fails with a focused “unknown …” error; devctl never silently ignores an unknown health check, identity type, or environment source.
+An incompatible, malformed, or throwing plugin is skipped and reported in the devctl log instead of crashing the daemon. Configuration that depends on an extension from the skipped plugin still fails with a focused “unknown …” error; devctl never silently ignores an unknown health check, identity type, environment source, or LLM source type.
 
 ## Extension points
 
@@ -1668,6 +1805,7 @@ A module may export any combination of these named arrays:
 | \`tokenProviders\` | \`{ name, accepts(identity), fetch(identity, audience, scopes, oauth?) }\` | Mint and refresh access tokens |
 | \`logParsers\` | \`{ name, parse(line) }\` | Parse service log lines |
 | \`proxyMiddleware\` | \`{ name, apply(ctx) }\` | Participate in proxy request handling |
+| \`llmSources\` | \`{ name, capabilities(cfg), fetch(cfg, ctx) }\` | Pull LLM calls into the inspector (\`llm.sources[].type\`) |
 
 The TypeScript contracts and SDK constant are exported by [\`app/src/plugin-sdk.ts\`](../app/src/plugin-sdk.ts). A plugin must export arrays, each entry must have a non-empty \`name\`, and the methods shown above must be functions. Keep plugin startup code small: top-level exceptions cause the whole module to be skipped.
 
@@ -2023,7 +2161,7 @@ Paths are redacted the same way response header values already are, since a quer
 
 ## Tracing
 
-Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a \`traceparent\` and \`X-Devctl-Request-ID\` to the upstream, so a service's own spans and logs share the request's trace. An incoming \`traceparent\` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, \`devctl logs --trace <id>\`, or the MCP \`get_trace\` / \`trace_request\` tools. See [Telemetry](telemetry.md).
+Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a \`traceparent\` and \`X-Devctl-Request-ID\` to the upstream, so a service's own spans and logs share the request's trace. An incoming \`traceparent\` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, \`devctl logs --trace <id>\`, or the MCP \`get_trace\` / \`trace_request\` tools. See [Telemetry](telemetry.md). The proxy request ring is metadata-only; LLM prompts, tokens, and cost live on the [LLM inspector](llm.md).
 
 ## Request flow
 
@@ -2125,7 +2263,7 @@ No Google Cloud for the host services. Profiles: \`minimal\`, \`backend\`, \`ful
 
 **Loopback, redaction, no private keys.**
 
-Tokens never sit in the TUI, logs, or MCP output. Listeners bind \`127.0.0.1\`. Service-account keys are never created.
+Tokens never sit in the TUI, logs, LLM inspector, or MCP output. Listeners bind \`127.0.0.1\`. Service-account keys are never created.
 
 <p>
   <a href="#what-we-guarantee"><strong>Guarantees</strong></a>
@@ -2154,7 +2292,7 @@ Tokens never sit in the TUI, logs, or MCP output. Listeners bind \`127.0.0.1\`. 
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
 
-Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`.
+Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. LLM inspector payloads (prompts, responses, attributes) are redacted with the same detector at ingest and again on MCP/web output. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config.
 
 ---
 
@@ -2576,7 +2714,7 @@ web:
 
 Then \`devctl web start\` (or boot with \`enabled: true\`) and open the printed URL.
 \`devctl web status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener.
-Hash routes: \`#/services\`, \`#/traces\`, \`#/graph\`, \`#/logs\`. Rebuild the embed with
+Hash routes: \`#/services\`, \`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`. Rebuild the embed with
 \`cd app && bun run build:web\` after editing \`app/web/\`.
 
 Overview KPIs use lifetime totals (\`proxy.requestTotal\`, \`logs.seen\` /
@@ -2602,6 +2740,7 @@ The model is what makes "debug, don't grep" possible over [MCP](mcp.md):
 - \`get_logs\` — filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value, and receive body + attributes + severity.
 - \`get_trace <trace_id>\` / \`trace_request <request_id>\` — the span tree plus the correlated logs.
 - \`get_requests\` — the proxy's recent requests (with ids), and \`recent_errors\` — the latest error/fatal records.
+- \`get_llm_calls\` / \`get_llm_call\` — LLM traffic from configured sources (LiteLLM spend logs first). See [LLM inspector](llm.md).
 
 An agent can ask "why did this request fail", resolve the request id to its
 trace, and read the responsible service's span and logs — all redacted.
@@ -2722,7 +2861,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`command+p\` / \`ctrl+p\` | Same command overlay as \`/\` |
 | \`command+x\` / \`ctrl+x\` | Leader key (2s), then a shortcut — keymap overlay |
 | \`?\` | Grouped help — \`j\`/\`k\` scroll when the list is taller than the terminal |
-| \`tab\` / \`shift+tab\` / \`1\`–\`4\` | Cycle or jump the **four nav tabs**. Other screens are \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/settings\`, \`/mcp\`. On a secondary screen, \`tab\` returns to the dashboard. When the strip is wider than the terminal it slides (\`‹\` \`›\`). |
+| \`tab\` / \`shift+tab\` / \`1\`–\`5\` | Cycle or jump the **five nav tabs**. Other screens are \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/settings\`, \`/mcp\`. On a secondary screen, \`tab\` returns to the dashboard. When the strip is wider than the terminal it slides (\`‹\` \`›\`). |
 | \`s\` \`l\` \`a\` \`p\` \`d\` \`c\` \`u\` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
 | \`r\` | Refresh snapshot (doctor \`r\` re-runs checks) |
 | \`R\` | Restart selected services |
@@ -2740,9 +2879,9 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 
 The status bar only lists keys that work **on the current screen**. There is no idle command row — \`/\` and the OS palette chord open the command overlay.
 
-## Nav tabs (4)
+## Nav tabs (5)
 
-1. dashboard · 2. services · 3. logs · 4. proxy
+1. dashboard · 2. services · 3. logs · 4. proxy · 5. llm
 
 Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/settings\`. **MCP** is \`/mcp\`, \`/agent\`, or Settings → **MCP → Settings page**.
 
@@ -2755,6 +2894,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). \`/auth login\` suspends the TUI, runs \`gcloud auth application-default login\` on the real terminal, then restores the TUI. \`/auth logout\` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or \`~/.devctl/credentials\`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); click a route for full details. \`n\` start / \`x\` stop
+- **LLM** — recent calls from configured \`llm.sources\` (model, status, tokens, cost, latency). \`enter\` opens detail (messages, usage, attributes); \`enter\` again jumps to a trace when one is present. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. \`enter\` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. \`r\` reruns
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
 - **Profiles** — members; \`enter\` selects and offers start
@@ -2777,7 +2917,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
                       empty /exec opens a service picker, then type the command
 /exec <service> --print-env [--reveal]
                       resolved env (dotenv, profile, secrets, plugins, ports), not config-only vars
-/logs /services /auth /credentials /proxy /mcp /doctor /config /profiles /setup
+/logs /services /auth /credentials /proxy /llm /mcp /doctor /config /profiles /setup
 /stats                system and service statistics (sparklines when the supervisor has samples)
 /split                second log pane (\`\\\\\`); \`|\` focuses the other pane
 /trace <id>           set log search to a request_id / trace_id
@@ -2822,7 +2962,7 @@ Override in \`tui.json\` (\`keybinds\`) or \`DEVCTL_TUI_CONFIG\`.
 ## Layout
 
 - **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
-- **Nav** — the four primary tabs; the active tab is highlighted, not filled
+- **Nav** — the five primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
 - **Command overlay** — \`/\` and \`command+p\` / \`ctrl+p\` open the same grouped list with a real OpenTUI input
 - **Status bar** — live/paused, last human result, contextual keys

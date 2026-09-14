@@ -48,8 +48,8 @@ describe("slash commands", () => {
     expect(commandArgs("/start auth api")).toEqual(["auth", "api"]);
   });
 
-  test("reveal is a first-class command", () => {
-    expect(lookupCommand("/reveal")?.name).toBe("reveal");
+  test("llm is a first-class command", () => {
+    expect(lookupCommand("/llm")?.name).toBe("llm");
   });
 
   test("buffer is a first-class command", () => {
