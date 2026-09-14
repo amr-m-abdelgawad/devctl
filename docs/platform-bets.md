@@ -13,7 +13,7 @@ These are separate products. Do not start them until Phases 1–3 of the product
 | OIDC browser / device / refresh persistence | Plugin is client-credentials by design | New plugin, not core Google |
 | OIDC as **route** auth | Proxy auth is `none` / `iap` / `service_account` | New proxy adapter path |
 | Non-Google SSO in core | Violates “Google is an adapter” if it lands in domain | Plugin only |
-| Windows named-pipe DACL | Bun does not expose DACL | Document until Bun can; optional RPC token is a bigger threat-model change (Unix also trusts anyone who can open the socket) |
+| Windows named-pipe DACL | Bun does not expose DACL | Pipe ACL still undocumented; RPC frames require `rpc-token` from the user profile so other Windows users cannot drive the supervisor |
 | Apple notarization / Authenticode | Release/legal, not app code | Signing pipeline in `.github` |
 | Custom TUI layouts, crash bell, mouse drag-select | Chrome, not orchestration | After parity |
 | Workflow DAG beyond tasks + start waves | Tasks already exist | Only if `/run` pickers prove insufficient |

@@ -109,13 +109,13 @@ Two checkouts do not share a lock. `repoID` is `sha256(canonical repo root)` (16
 
 | Path | Mode / note |
 |------|-------------|
-| `~/.devctl/state/<repoID>/` | `state.json`, `devctl.lock`, and on Unix `devctl.sock`. Windows attach uses `\\.\pipe\devctl-<repoID>` |
+| `~/.devctl/state/<repoID>/` | `state.json`, `devctl.lock`, `rpc-token`, and on Unix `devctl.sock`. Windows attach uses `\\.\pipe\devctl-<repoID>` plus the same `rpc-token` |
 | leftover `~/.devctl/sessions/` | Migrated once |
 | Stale lock from a dead PID | Replaced |
 | `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | `.devctl/config.local.yaml` | Gitignore-friendly overlay — still do not commit secrets |
 
-On Unix, the owner-only state directory restricts access to the supervisor RPC socket. Bun's networking API does not currently expose named-pipe DACL configuration on Windows, so devctl cannot promise equivalent current-user-only access control for `\\.\pipe\devctl-<repoID>`; this is a documented platform limitation rather than enforced parity.
+On Unix, the owner-only state directory restricts access to the supervisor RPC socket. On Windows the named pipe `\\.\pipe\devctl-<repoID>` cannot take a current-user DACL (Bun does not expose that API), so every RPC frame also carries a token from `~/.devctl/state/<repoID>/rpc-token` (mode `0600`, inside the user's profile). Connecting without that token is unauthorized. The file is never printed in status, logs, or MCP output.
 
 Override the home directory with `DEVCTL_HOME`.
 
@@ -126,6 +126,7 @@ Override the home directory with `DEVCTL_HOME`.
 `devctl` is a **localhost** orchestrator. It is not a multi-tenant server.
 
 - Anyone who can reach your user account can reach `127.0.0.1` listeners.
+- Supervisor RPC requires the per-checkout `rpc-token` (Unix socket mode `0700` plus the token; Windows named pipe plus the token).
 - MCP is off until you flip it. Treat the copied bearer token like a session secret; it lasts 7 days or until `devctl mcp --rotate`.
 - `/reveal` and log export write what you can already see on that machine.
 - Doctor never enables Google APIs or grants IAM.

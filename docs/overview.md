@@ -30,7 +30,7 @@ The supervisor is the long-lived process. It:
 - Starts, stops, and restarts host processes and optional Docker/Podman containers in dependency waves
 - Optionally starts the proxy and the MCP listener
 - Ingests stdout/stderr, health, auth, and proxy events into one log buffer
-- Persists session state under `~/.devctl/state/<repoID>/` (`state.json`, `devctl.lock`, and on Unix `devctl.sock`)
+- Persists session state under `~/.devctl/state/<repoID>/` (`state.json`, `devctl.lock`, `rpc-token`, and on Unix `devctl.sock`)
 
 `repoID` is the first 16 hex characters of `sha256(absolute repo root)`. Two checkouts get two state directories. A leftover `~/.devctl/sessions/<id>/` is migrated once.
 

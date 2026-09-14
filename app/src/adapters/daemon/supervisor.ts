@@ -71,7 +71,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { randomSecret, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -260,6 +260,7 @@ export class Supervisor {
       log: (service, level, message) => this.log(service, level, message),
       socketExists: (socket) => this.socketExistsFn(socket),
       unlinkSocket: (socket) => this.unlinkSocketFn(socket),
+      token: readOrCreateRpcToken(cfg.repoRoot),
     });
     this.setupMode = !this.fs.exists(cfg.configPath);
     for (const name of Object.keys(cfg.services)) {

@@ -1273,7 +1273,7 @@ Install \`gcloud\` only if you use user identity, impersonation, or IAP. Local-o
 
 ## Cross-platform
 
-The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (\`app/src/adapters/process/\`). Attach and CLI-over-session use \`devctl.sock\` on Unix and a named pipe (\`\\\\.\\pipe\\devctl-<repoID>\`) on Windows.
+The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (\`app/src/adapters/process/\`). Attach and CLI-over-session use \`devctl.sock\` on Unix and a named pipe (\`\\\\.\\pipe\\devctl-<repoID>\`) on Windows. Every RPC frame includes a token from \`~/.devctl/state/<repoID>/rpc-token\` so a world-connectable Windows pipe is not enough to control the supervisor.
 
 ## Related
 
@@ -1709,7 +1709,7 @@ The supervisor is the long-lived process. It:
 - Starts, stops, and restarts host processes and optional Docker/Podman containers in dependency waves
 - Optionally starts the proxy and the MCP listener
 - Ingests stdout/stderr, health, auth, and proxy events into one log buffer
-- Persists session state under \`~/.devctl/state/<repoID>/\` (\`state.json\`, \`devctl.lock\`, and on Unix \`devctl.sock\`)
+- Persists session state under \`~/.devctl/state/<repoID>/\` (\`state.json\`, \`devctl.lock\`, \`rpc-token\`, and on Unix \`devctl.sock\`)
 
 \`repoID\` is the first 16 hex characters of \`sha256(absolute repo root)\`. Two checkouts get two state directories. A leftover \`~/.devctl/sessions/<id>/\` is migrated once.
 
@@ -1780,7 +1780,7 @@ These are separate products. Do not start them until Phases 1–3 of the product
 | OIDC browser / device / refresh persistence | Plugin is client-credentials by design | New plugin, not core Google |
 | OIDC as **route** auth | Proxy auth is \`none\` / \`iap\` / \`service_account\` | New proxy adapter path |
 | Non-Google SSO in core | Violates “Google is an adapter” if it lands in domain | Plugin only |
-| Windows named-pipe DACL | Bun does not expose DACL | Document until Bun can; optional RPC token is a bigger threat-model change (Unix also trusts anyone who can open the socket) |
+| Windows named-pipe DACL | Bun does not expose DACL | Pipe ACL still undocumented; RPC frames require \`rpc-token\` from the user profile so other Windows users cannot drive the supervisor |
 | Apple notarization / Authenticode | Release/legal, not app code | Signing pipeline in \`.github\` |
 | Custom TUI layouts, crash bell, mouse drag-select | Chrome, not orchestration | After parity |
 | Workflow DAG beyond tasks + start waves | Tasks already exist | Only if \`/run\` pickers prove insufficient |
@@ -1926,6 +1926,7 @@ Per-repo state lives under \`~/.devctl/state/<repoID>/\`:
 | \`state.json\` | session id, profile, pid / command / cwd / startTime / ports |
 | \`devctl.lock\` | supervisor lock (stale locks from dead PIDs are replaced) |
 | \`devctl.sock\` | JSON-RPC socket for TUI, CLI, and attach (Unix) |
+| \`rpc-token\` | Per-checkout secret on every RPC frame (Windows named-pipe mitigation; also used on Unix) |
 | \`\\\\.\\pipe\\devctl-<repoID>\` | Named pipe used instead of the socket on Windows |
 
 A leftover \`~/.devctl/sessions/<repoID>/\` is migrated once.
@@ -2388,13 +2389,13 @@ Two checkouts do not share a lock. \`repoID\` is \`sha256(canonical repo root)\`
 
 | Path | Mode / note |
 |------|-------------|
-| \`~/.devctl/state/<repoID>/\` | \`state.json\`, \`devctl.lock\`, and on Unix \`devctl.sock\`. Windows attach uses \`\\\\.\\pipe\\devctl-<repoID>\` |
+| \`~/.devctl/state/<repoID>/\` | \`state.json\`, \`devctl.lock\`, \`rpc-token\`, and on Unix \`devctl.sock\`. Windows attach uses \`\\\\.\\pipe\\devctl-<repoID>\` plus the same \`rpc-token\` |
 | leftover \`~/.devctl/sessions/\` | Migrated once |
 | Stale lock from a dead PID | Replaced |
 | \`~/.devctl/credentials/\` | Directory \`0700\`, files \`0600\` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | \`.devctl/config.local.yaml\` | Gitignore-friendly overlay — still do not commit secrets |
 
-On Unix, the owner-only state directory restricts access to the supervisor RPC socket. Bun's networking API does not currently expose named-pipe DACL configuration on Windows, so devctl cannot promise equivalent current-user-only access control for \`\\\\.\\pipe\\devctl-<repoID>\`; this is a documented platform limitation rather than enforced parity.
+On Unix, the owner-only state directory restricts access to the supervisor RPC socket. On Windows the named pipe \`\\\\.\\pipe\\devctl-<repoID>\` cannot take a current-user DACL (Bun does not expose that API), so every RPC frame also carries a token from \`~/.devctl/state/<repoID>/rpc-token\` (mode \`0600\`, inside the user's profile). Connecting without that token is unauthorized. The file is never printed in status, logs, or MCP output.
 
 Override the home directory with \`DEVCTL_HOME\`.
 
@@ -2405,6 +2406,7 @@ Override the home directory with \`DEVCTL_HOME\`.
 \`devctl\` is a **localhost** orchestrator. It is not a multi-tenant server.
 
 - Anyone who can reach your user account can reach \`127.0.0.1\` listeners.
+- Supervisor RPC requires the per-checkout \`rpc-token\` (Unix socket mode \`0700\` plus the token; Windows named pipe plus the token).
 - MCP is off until you flip it. Treat the copied bearer token like a session secret; it lasts 7 days or until \`devctl mcp --rotate\`.
 - \`/reveal\` and log export write what you can already see on that machine.
 - Doctor never enables Google APIs or grants IAM.

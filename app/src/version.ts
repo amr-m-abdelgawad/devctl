@@ -9,4 +9,4 @@ export function versionLine(): string {
 // semantics). Independent of VERSION: two binaries can differ in VERSION
 // while speaking the same RPC_PROTOCOL_VERSION, and the client/daemon
 // handshake treats that as compatible.
-export const RPC_PROTOCOL_VERSION = 1;
+export const RPC_PROTOCOL_VERSION = 2;

@@ -6,10 +6,17 @@ export function bearerMatches(header: string, token: string): boolean {
   if (token === "" || !header.startsWith(BEARER_PREFIX)) {
     return false;
   }
-  const presented = Buffer.from(header.slice(BEARER_PREFIX.length));
-  const expected = Buffer.from(token);
-  if (presented.length !== expected.length) {
+  return secretMatches(header.slice(BEARER_PREFIX.length), token);
+}
+
+export function secretMatches(presented: string, expected: string): boolean {
+  if (expected === "") {
     return false;
   }
-  return timingSafeEqual(presented, expected);
+  const left = Buffer.from(presented);
+  const right = Buffer.from(expected);
+  if (left.length !== right.length) {
+    return false;
+  }
+  return timingSafeEqual(left, right);
 }

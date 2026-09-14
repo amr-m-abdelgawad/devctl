@@ -8,7 +8,7 @@ import { type BusEvent } from "../../shared/events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogPath, rotateBootstrapLog, socketPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogPath, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -74,13 +74,15 @@ export class Client {
   private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly listeners: Array<(ev: BusEvent) => void> = [];
   private nextID = 0;
+  private readonly auth: string;
   // Populated by dial() before it resolves — every Client a caller ever
   // sees already has a real handshake result, not the optimistic default.
   compat: DaemonCompat = { compatible: true, legacy: false };
   session = "";
 
-  constructor(socket: Socket) {
+  constructor(socket: Socket, auth = "") {
     this.socket = socket;
+    this.auth = auth;
     socket.on("data", (chunk) => {
       this.buf += chunk.toString("utf8");
       const lines = this.buf.split("\n");
@@ -141,7 +143,7 @@ export class Client {
         reject(new Error(`${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
-      this.socket.write(JSON.stringify({ id, method, params }) + "\n");
+      this.socket.write(JSON.stringify({ id, method, params, auth: this.auth }) + "\n");
     });
   }
 
@@ -166,7 +168,7 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
     const tryOnce = (): void => {
       const socket = createConnection(path);
       socket.once("connect", () => {
-        const client = new Client(socket);
+        const client = new Client(socket, readRpcToken(repoRoot));
         void handshake(client).finally(() => resolve(client));
       });
       socket.once("error", (err) => {

@@ -95,7 +95,7 @@ Install `gcloud` only if you use user identity, impersonation, or IAP. Local-onl
 
 ## Cross-platform
 
-The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (`app/src/adapters/process/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows.
+The npm package supports macOS arm64/x64, Linux arm64/x64 (glibc or musl), and Windows x64. Process-group handling is OS-specific (`app/src/adapters/process/`). Attach and CLI-over-session use `devctl.sock` on Unix and a named pipe (`\\.\pipe\devctl-<repoID>`) on Windows. Every RPC frame includes a token from `~/.devctl/state/<repoID>/rpc-token` so a world-connectable Windows pipe is not enough to control the supervisor.
 
 ## Related
 

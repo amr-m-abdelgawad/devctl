@@ -324,6 +324,28 @@ export function mcpTokenPath(repoRoot: string): string {
   return join(sessionDir(repoRoot), "mcp-token");
 }
 
+export function rpcTokenPath(repoRoot: string): string {
+  return join(sessionDir(repoRoot), "rpc-token");
+}
+
+export function readRpcToken(repoRoot: string): string {
+  const path = rpcTokenPath(repoRoot);
+  if (!existsSync(path)) {
+    return "";
+  }
+  return readFileSync(path, "utf8").trim();
+}
+
+export function readOrCreateRpcToken(repoRoot: string): string {
+  const existing = readRpcToken(repoRoot);
+  if (existing !== "") {
+    return existing;
+  }
+  const token = randomSecret();
+  writeFileSecure(rpcTokenPath(repoRoot), token);
+  return token;
+}
+
 export function mcpTokenAgeMs(repoRoot: string, now = Date.now()): number | undefined {
   const path = mcpTokenPath(repoRoot);
   if (!existsSync(path)) {

@@ -2,7 +2,7 @@ import { spawn } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readPersistedState, repoID, rotateBootstrapLog, rotateMcpToken, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 
 describe("session storage", () => {
@@ -66,6 +66,20 @@ describe("session storage", () => {
     const rotated = rotateMcpToken("/repo");
     expect(rotated).not.toBe(reminted);
     expect(readOrCreateMcpToken("/repo")).toBe(rotated);
+  });
+
+  test("RPC token is reused across supervisor restarts and isolated per repo", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-rpc-token-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    expect(readRpcToken("/repo")).toBe("");
+    const first = readOrCreateRpcToken("/repo");
+    expect(first.length).toBeGreaterThan(0);
+    expect(existsSync(rpcTokenPath("/repo"))).toBe(true);
+    expect(readOrCreateRpcToken("/repo")).toBe(first);
+    expect(readOrCreateRpcToken("/other-repo")).not.toBe(first);
+    writeFileSync(rpcTokenPath("/repo"), "");
+    expect(readOrCreateRpcToken("/repo")).not.toBe(first);
   });
 
   test("persisted process state round-trips", () => {
