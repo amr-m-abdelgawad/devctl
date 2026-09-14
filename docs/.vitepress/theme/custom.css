@@ -7,6 +7,9 @@
   --vp-font-family-mono: 'JetBrains Mono', monospace;
   --landing-ink: #18372f;
   --landing-paper: #f5f7f3;
+  --landing-rule: color-mix(in srgb, var(--vp-c-brand-1) 38%, var(--landing-paper));
+  /* Same hairline as landing cards. VitePress defaults gutter to #000 in dark. */
+  --vp-c-gutter: var(--vp-c-divider);
 }
 .dark {
   --vp-c-brand-1: #77ddba;
@@ -15,6 +18,7 @@
   --vp-c-brand-soft: #77ddba12;
   --landing-ink: #deeee5;
   --landing-paper: #202923;
+  --vp-c-gutter: var(--vp-c-divider);
 }
 .VPHome .landing.landing { max-width: 1248px; padding: 0 48px; margin: auto; color: var(--vp-c-text-1); }
 .VPHome .landing a { text-decoration: none; }
@@ -210,9 +214,34 @@
   .VPHome .landing [data-reveal="pending"] { opacity: 1; transform: none; }
 }
 
-/* VitePress uses gutter for the shell borders; match the landing dividers. */
-.dark .Layout:has(.VPHome) {
-  --vp-c-gutter: var(--vp-c-divider);
+/* Docs diagrams: VitePress forces Mermaid's dark theme (#ccc strokes). Paint
+   nodes like landing cards (paper fill, brand-tinted rule). */
+.vp-doc .mermaid svg :is(.node rect, .node ellipse, .node polygon, .cluster rect, .statediagram-state rect, .statediagram-cluster rect) {
+  fill: var(--landing-paper) !important;
+  stroke: var(--landing-rule) !important;
+}
+.vp-doc .mermaid svg .node circle:not(.state-start):not(.state-end) {
+  fill: var(--landing-paper) !important;
+  stroke: var(--landing-rule) !important;
+}
+.vp-doc .mermaid svg :is(.flowchart-link, .edgePaths .path, .transition, .node path) {
+  stroke: var(--landing-rule) !important;
+}
+.vp-doc .mermaid svg :is(.marker, .arrowheadPath, .root .anchor path) {
+  fill: var(--landing-rule) !important;
+  stroke: var(--landing-rule) !important;
+}
+.vp-doc .mermaid svg :is(text, .label, span, p, .nodeLabel, .cluster-label) {
+  fill: var(--landing-ink) !important;
+  color: var(--landing-ink) !important;
+}
+.vp-doc .mermaid svg :is(.edgeLabel, .edgeLabel p, .labelBkg) {
+  background-color: var(--landing-paper) !important;
+  color: var(--landing-ink) !important;
+}
+.vp-doc .mermaid svg :is(.state-start, .state-end) {
+  fill: var(--landing-ink) !important;
+  stroke: var(--landing-ink) !important;
 }
 
 .VPHome .landing .install-context { margin: 0 0 18px; font-size: 12px; color: var(--vp-c-text-2); }
