@@ -3,7 +3,8 @@ import { secretTemplateLabel } from "../../../domain/config/env-ref.ts";
 import { type ProxyRequestSnapshot,type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
-import { clipText,padClip } from "../helpers/format.ts";
+import { padClip } from "../helpers/format.ts";
+import { PROXY_DURATION_MISSING, proxyDurationView, proxyRequestPath } from "../helpers/proxy.ts";
 import { Chip,KeyHints,MetaBar,ScreenFrame,Toolbar,scrollboxStyle } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
@@ -67,9 +68,19 @@ const NO_ROUTE_LABEL = "(none)";
 
 type ReqColumns = {
   showMethod: boolean;
-  showDur: boolean;
   routeCol: number;
 };
+
+function RequestField(props: { width: number; fg: string; text: string }) {
+  const { width, fg, text } = props;
+  return (
+    <box width={width} flexShrink={0} overflow="hidden">
+      <text fg={fg} wrapMode="none">
+        {padClip(text, width)}
+      </text>
+    </box>
+  );
+}
 
 function RequestRow(props: { palette: Palette; req: ProxyRequestSnapshot; cols: ReqColumns; onOpenTrace?: (traceId: string) => void }) {
   const { palette, req, cols, onOpenTrace } = props;
@@ -77,50 +88,26 @@ function RequestRow(props: { palette: Palette; req: ProxyRequestSnapshot; cols: 
   const statusLabel = req.status > 0 ? String(req.status) : "ERR";
   const badge = identityBadge(palette, req.identity);
   const routeLabel = req.route || NO_ROUTE_LABEL;
-  const detail = req.error ? `${req.path} — ${clipText(req.error, REQ_ERROR_MAX)}` : req.path;
+  const detail = proxyRequestPath(req, REQ_ERROR_MAX);
+  const dur = proxyDurationView(req);
   const traceId = req.traceId;
   return (
     <box
-      height={1}
-      flexDirection="row"
-      overflow="hidden"
       flexShrink={0}
+      flexDirection="row"
+      alignItems="flex-start"
+      overflow="hidden"
       onMouseDown={traceId && onOpenTrace ? () => onOpenTrace(traceId) : undefined}
     >
-      <box width={REQ_TIME_COL} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{padClip(req.timestamp.slice(11, 19), REQ_TIME_COL)}</text>
-      </box>
-      {cols.showMethod ? (
-        <box width={REQ_METHOD_COL} flexShrink={0} overflow="hidden">
-          <text fg={palette.text} wrapMode="none">
-            {padClip(req.method, REQ_METHOD_COL)}
-          </text>
-        </box>
-      ) : null}
-      <box width={REQ_STATUS_COL} flexShrink={0} overflow="hidden">
-        <text fg={color} wrapMode="none">
-          {padClip(statusLabel, REQ_STATUS_COL)}
-        </text>
-      </box>
-      {cols.showDur ? (
-        <box width={REQ_MS_COL} flexShrink={0} overflow="hidden">
-          <text fg={palette.muted} wrapMode="none">
-            {padClip(`${req.durationMs}ms`, REQ_MS_COL)}
-          </text>
-        </box>
-      ) : null}
-      <box width={REQ_ID_COL} flexShrink={0} overflow="hidden">
-        <text fg={badge.color} wrapMode="none">
-          {padClip(badge.label, REQ_ID_COL)}
-        </text>
-      </box>
-      <box width={cols.routeCol} flexShrink={0} overflow="hidden">
-        <text fg={req.route ? palette.info : palette.muted} wrapMode="none">
-          {padClip(routeLabel, cols.routeCol)}
-        </text>
-      </box>
-      <box flexGrow={1} overflow="hidden">
-        <text fg={req.error ? palette.error : palette.text} wrapMode="none">
+      <RequestField width={REQ_TIME_COL} fg={palette.muted} text={req.timestamp.slice(11, 19)} />
+      {cols.showMethod ? <RequestField width={REQ_METHOD_COL} fg={palette.text} text={req.method} /> : null}
+      <RequestField width={REQ_STATUS_COL} fg={color} text={statusLabel} />
+      <RequestField width={REQ_MS_COL} fg={dur.request === PROXY_DURATION_MISSING ? palette.muted : palette.text} text={dur.request} />
+      <RequestField width={REQ_MS_COL} fg={palette.muted} text={dur.hop} />
+      <RequestField width={REQ_ID_COL} fg={badge.color} text={badge.label} />
+      <RequestField width={cols.routeCol} fg={req.route ? palette.info : palette.muted} text={routeLabel} />
+      <box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
+        <text fg={req.error ? palette.error : palette.text} wrapMode="char" truncate={false} flexShrink={0} width="100%">
           {detail}
         </text>
       </box>
@@ -132,28 +119,13 @@ function RequestHeader(props: { palette: Palette; cols: ReqColumns }) {
   const { palette, cols } = props;
   return (
     <box height={1} flexDirection="row" overflow="hidden" flexShrink={0} backgroundColor={palette.element}>
-      <box width={REQ_TIME_COL} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{padClip("TIME", REQ_TIME_COL)}</text>
-      </box>
-      {cols.showMethod ? (
-        <box width={REQ_METHOD_COL} flexShrink={0} overflow="hidden">
-          <text fg={palette.muted}>{padClip("METHOD", REQ_METHOD_COL)}</text>
-        </box>
-      ) : null}
-      <box width={REQ_STATUS_COL} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{padClip("ST", REQ_STATUS_COL)}</text>
-      </box>
-      {cols.showDur ? (
-        <box width={REQ_MS_COL} flexShrink={0} overflow="hidden">
-          <text fg={palette.muted}>{padClip("DUR", REQ_MS_COL)}</text>
-        </box>
-      ) : null}
-      <box width={REQ_ID_COL} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{padClip("WHO", REQ_ID_COL)}</text>
-      </box>
-      <box width={cols.routeCol} flexShrink={0} overflow="hidden">
-        <text fg={palette.muted}>{padClip("ROUTE", cols.routeCol)}</text>
-      </box>
+      <RequestField width={REQ_TIME_COL} fg={palette.muted} text="TIME" />
+      {cols.showMethod ? <RequestField width={REQ_METHOD_COL} fg={palette.muted} text="METHOD" /> : null}
+      <RequestField width={REQ_STATUS_COL} fg={palette.muted} text="ST" />
+      <RequestField width={REQ_MS_COL} fg={palette.muted} text="REQ" />
+      <RequestField width={REQ_MS_COL} fg={palette.muted} text="HOP" />
+      <RequestField width={REQ_ID_COL} fg={palette.muted} text="WHO" />
+      <RequestField width={cols.routeCol} fg={palette.muted} text="ROUTE" />
       <box flexGrow={1} overflow="hidden">
         <text fg={palette.muted}>PATH</text>
       </box>
@@ -199,8 +171,7 @@ function RouteRow(props: {
 const ROUTES_PANE_MIN = 26;
 const ROUTES_PANE_MAX = 56;
 const PANE_GUTTER = 2;
-const REQ_SHOW_METHOD_AT = 46;
-const REQ_SHOW_DUR_AT = 54;
+const REQ_SHOW_METHOD_AT = 54;
 const REQ_ROUTE_COL_WIDE = 20;
 const REQ_ROUTE_COL_TIGHT = 12;
 
@@ -226,13 +197,12 @@ export function ProxyScreen(props: {
   const requestsWidth = stacked ? width - PANE_GUTTER : width - routesWidth - PANE_GUTTER;
   const reqInner = Math.max(20, requestsWidth - 2);
   const showMethod = reqInner >= REQ_SHOW_METHOD_AT;
-  const showDur = reqInner >= REQ_SHOW_DUR_AT;
   const routeColCap = reqInner >= REQ_SHOW_METHOD_AT ? REQ_ROUTE_COL_WIDE : REQ_ROUTE_COL_TIGHT;
   const routeCol = recentRequests.reduce(
     (max, r) => Math.min(routeColCap, Math.max(max, (r.route || NO_ROUTE_LABEL).length + REQ_ROUTE_GAP)),
     REQ_ROUTE_MIN,
   );
-  const cols: ReqColumns = { showMethod, showDur, routeCol };
+  const cols: ReqColumns = { showMethod, routeCol };
 
   return (
     <ScreenFrame palette={palette} title="proxy">

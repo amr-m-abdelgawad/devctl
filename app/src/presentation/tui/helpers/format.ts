@@ -62,6 +62,16 @@ export function formatUptime(ms: number): string {
   return `${seconds}s`;
 }
 
+export function formatDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "0ms";
+  }
+  if (ms < MS_PER_SECOND) {
+    return `${Math.round(ms)}ms`;
+  }
+  return `${(ms / MS_PER_SECOND).toFixed(2)}s`;
+}
+
 const KB_PER_MB = 1024;
 
 const MB_PER_GB = 1024;
