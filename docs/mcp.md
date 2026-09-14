@@ -46,7 +46,12 @@ The default port is derived from the repo so checkouts do not collide:
 
 Change it with `←` / `→` or `devctl mcp --port`. An override is persisted as `mcp_port` only when it is not the derived default. If the preferred port is busy, the supervisor walks upward until it finds a free one.
 
-The server binds **`127.0.0.1` only**. Mutating tools require `Authorization: Bearer` with a short session token. Copied snippets include that header. Tool output never includes tokens or raw secret env values. `get_status` reports MCP running/address/port, not the bearer token.
+The server binds **`127.0.0.1` only**. Requests must use a loopback `Host` from a
+loopback peer. There is no CORS (`Access-Control-Allow-Origin` is not set), so a
+browser page cannot drive the control plane cross-origin. Mutating tools require
+`Authorization: Bearer` with a short session token. Copied snippets include that
+header. Tool output never includes tokens or raw secret env values. `get_status`
+reports MCP running/address/port, not the bearer token.
 
 ## CLI
 

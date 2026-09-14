@@ -1,9 +1,10 @@
-import { timingSafeEqual } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname } from "../../domain/net/hosts.ts";
+import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
+import { headerValue } from "../../shared/headers.ts";
 import { LOCALHOST } from "../../domain/config/types.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
 import {
@@ -34,7 +35,6 @@ const ALLOW_GET = "GET";
 const ALLOW_GET_POST = "GET, POST";
 const ALLOW_POST = "POST";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
-const BEARER_PREFIX = "Bearer ";
 
 export type WebListenOptions = {
   host: string;
@@ -212,11 +212,6 @@ export class WebHttpServer {
   }
 }
 
-function headerValue(header: string | string[] | undefined): string {
-  const raw = Array.isArray(header) ? header[0] : header;
-  return (raw ?? "").split(",")[0]?.trim() ?? "";
-}
-
 function hostAllowed(header: string | string[] | undefined): boolean {
   const hostname = hostnameFromHostHeader(headerValue(header));
   return hostname !== undefined && isLoopbackHostname(hostname);
@@ -229,18 +224,6 @@ function originIsLoopback(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function bearerMatches(header: string, token: string): boolean {
-  if (token === "" || !header.startsWith(BEARER_PREFIX)) {
-    return false;
-  }
-  const presented = Buffer.from(header.slice(BEARER_PREFIX.length));
-  const expected = Buffer.from(token);
-  if (presented.length !== expected.length) {
-    return false;
-  }
-  return timingSafeEqual(presented, expected);
 }
 
 function assertControlAuthorized(req: IncomingMessage, token: string): void {

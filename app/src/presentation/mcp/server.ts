@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "../../domain/net/hosts.ts";
+import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
+import { headerValue } from "../../shared/headers.ts";
 import { VERSION } from "../../version.ts";
 import {
   callMcpTool,
@@ -121,14 +123,12 @@ export class McpHttpServer {
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (req.method === "OPTIONS") {
-      res.writeHead(204, corsHeaders());
-      res.end();
+    if (!hostAllowed(req.headers.host)) {
+      json(res, 403, { error: "forbidden" });
       return;
     }
-    if (!this.authorized(req)) {
-      this.emit("WARN", `rejected unauthorized request from ${remoteAddr(req)}`);
-      json(res, 401, { error: "unauthorized" });
+    if (!isLoopbackPeer(req.socket.remoteAddress)) {
+      json(res, 403, { error: "forbidden" });
       return;
     }
     const path = requestPath(req);
@@ -136,14 +136,14 @@ export class McpHttpServer {
       json(res, 404, { error: "not found" });
       return;
     }
-    if (req.method === "GET" || req.method === "DELETE") {
-      res.writeHead(405, { Allow: "POST, OPTIONS", ...corsHeaders() });
+    if (req.method !== "POST") {
+      res.writeHead(405, { Allow: "POST" });
       res.end();
       return;
     }
-    if (req.method !== "POST") {
-      res.writeHead(405, { Allow: "POST, OPTIONS", ...corsHeaders() });
-      res.end();
+    if (!this.authorized(req)) {
+      this.emit("WARN", `rejected unauthorized request from ${remoteAddr(req)}`);
+      json(res, 401, { error: "unauthorized" });
       return;
     }
     let raw: string;
@@ -179,7 +179,7 @@ export class McpHttpServer {
     }
     const reply = await this.dispatch(parsed, addr);
     if (reply === undefined) {
-      res.writeHead(202, corsHeaders());
+      res.writeHead(202);
       res.end();
       return;
     }
@@ -190,8 +190,7 @@ export class McpHttpServer {
     if (this.opts.token === "") {
       return true;
     }
-    const header = req.headers.authorization ?? "";
-    return header === `Bearer ${this.opts.token}`;
+    return bearerMatches(headerValue(req.headers.authorization), this.opts.token);
   }
 
   private async dispatch(raw: unknown, addr: string): Promise<unknown | undefined> {
@@ -312,6 +311,11 @@ function extractClientInfo(params: Record<string, unknown>): string {
   return version === "" ? name : `${name} ${version}`;
 }
 
+function hostAllowed(header: string | string[] | undefined): boolean {
+  const hostname = hostnameFromHostHeader(headerValue(header));
+  return hostname !== undefined && isLoopbackHostname(hostname);
+}
+
 function remoteAddr(req: IncomingMessage): string {
   return req.socket.remoteAddress ?? "unknown";
 }
@@ -325,20 +329,11 @@ class McpRpcError extends Error {
   }
 }
 
-function corsHeaders(): Record<string, string> {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Session-Id",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
-}
-
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json",
     "Content-Length": Buffer.byteLength(payload),
-    ...corsHeaders(),
   });
   res.end(payload);
 }

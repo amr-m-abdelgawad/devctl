@@ -1,3 +1,4 @@
+import { request as httpRequest } from "node:http";
 import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig } from "../../domain/config/types.ts";
@@ -36,6 +37,35 @@ function host(): McpHost {
   };
 }
 
+function rawRequest(port: number, opts: {
+  method?: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: "127.0.0.1",
+      port,
+      path: opts.path,
+      method: opts.method ?? "GET",
+      headers: opts.headers,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer) => chunks.push(chunk));
+      res.on("end", () => resolve({
+        status: res.statusCode ?? 0,
+        body: Buffer.concat(chunks).toString("utf8"),
+      }));
+    });
+    req.on("error", reject);
+    if (opts.body !== undefined) {
+      req.write(opts.body);
+    }
+    req.end();
+  });
+}
+
 describe("mcp server", () => {
   test("refuses non-loopback bind", async () => {
     const server = new McpHttpServer({ host: "0.0.0.0", port: 18998, token: "t", hostApi: host() });
@@ -63,6 +93,7 @@ describe("mcp server", () => {
         body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" }),
       });
       expect(ok.status).toBe(200);
+      expect(ok.headers.get("access-control-allow-origin")).toBeNull();
       const body = (await ok.json()) as { result: { tools: Array<{ name: string }> } };
       expect(body.result.tools.some((tool) => tool.name === "list_services")).toBe(true);
     } finally {
@@ -127,6 +158,41 @@ describe("mcp server", () => {
       const payload = (await oversized.json()) as { error: { code: number; message: string } };
       expect(payload.error.code).toBe(-32700);
       expect(payload.error.message).toBe("payload too large");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("rejects a spoofed Host and does not advertise CORS", async () => {
+    const server = new McpHttpServer({ host: "127.0.0.1", port: 0, token: "sess", hostApi: host() });
+    await server.start();
+    const port = server.listenPort();
+    const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
+    try {
+      const spoofed = await rawRequest(port, {
+        method: "POST",
+        path: "/mcp",
+        headers: {
+          Host: "evil.example:80",
+          "Content-Type": "application/json",
+          Authorization: "Bearer sess",
+          "content-length": String(Buffer.byteLength(body)),
+        },
+        body,
+      });
+      expect(spoofed.status).toBe(403);
+
+      const preflight = await fetch(`http://127.0.0.1:${port}/mcp`, {
+        method: "OPTIONS",
+        headers: {
+          Origin: "https://evil.example",
+          "Access-Control-Request-Method": "POST",
+          "Access-Control-Request-Headers": "authorization,content-type",
+        },
+      });
+      expect(preflight.status).toBe(405);
+      expect(preflight.headers.get("access-control-allow-origin")).toBeNull();
+      expect(preflight.headers.get("allow")).toBe("POST");
     } finally {
       await server.stop();
     }
