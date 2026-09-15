@@ -40,7 +40,7 @@
 .VPHome .landing .hero-preview { max-width: 970px; margin: 54px auto 0; padding: 24px 30px 16px; border: 1px solid var(--vp-c-divider); background: var(--landing-paper); border-radius: 12px; }
 .VPHome .landing .preview-caption, .VPHome .landing .preview-footer { display: flex; gap: 8px; align-items: center; color: var(--vp-c-text-2); font: 10px/1.6 var(--vp-font-family-mono); }
 .VPHome .landing .preview-caption { justify-content: space-between; letter-spacing: .12em; margin-bottom: 16px; }
-.VPHome .landing .preview-caption > span:last-child { font-size: 20px; color: var(--vp-c-brand-1); }
+.VPHome .landing .preview-caption > span:last-child { color: var(--vp-c-brand-1); }
 .VPHome .landing .preview-footer { margin-top: 16px; }
 .VPHome .landing .preview-shortcut { margin-left: auto; }
 .VPHome .landing .preview-shortcut span { opacity: .7; margin-left: 8px; }
@@ -48,6 +48,7 @@
 .VPHome .landing .landing-signal b { font-weight: 500; color: var(--vp-c-text-1); }
 .VPHome .landing .landing-signal > span:nth-child(2) { font-family: var(--vp-font-family-mono); font-size: 11px; }
 .VPHome .landing .landing-signal i { font-style: normal; color: var(--vp-c-brand-1); margin: 0 14px; }
+.VPHome .landing .landing-signal > span:last-child { display: inline-flex; align-items: center; gap: 6px; }
 .VPHome .landing .landing-section { padding-top: 100px; }
 .VPHome .landing .section-heading { display: flex; justify-content: space-between; align-items: end; gap: 32px; margin-bottom: 34px; }
 .VPHome .landing h2 { font-size: clamp(30px, 3.5vw, 44px); line-height: 1.13; letter-spacing: -.045em; font-weight: 500; margin: 0; color: var(--landing-ink); }
@@ -57,7 +58,7 @@
 .VPHome .landing .surface { display: flex; align-items: start; flex-direction: column; padding: 30px; border-right: 1px solid var(--vp-c-divider); transition: background .2s; }
 .VPHome .landing .surface:last-child { border: 0; }
 .VPHome .landing .surface:hover { background: var(--landing-paper); }
-.VPHome .landing .surface-symbol { display: grid; place-items: center; height: 38px; color: var(--vp-c-brand-1); font: 26px var(--vp-font-family-mono); margin-bottom: 32px; }
+.VPHome .landing .surface-symbol { display: grid; place-items: center; width: 38px; height: 38px; color: var(--vp-c-brand-1); margin-bottom: 32px; }
 .VPHome .landing .surface-label { font: 9px var(--vp-font-family-mono); color: var(--vp-c-text-2); letter-spacing: .1em; }
 .VPHome .landing h3 { font-size: 19px; font-weight: 500; letter-spacing: -.025em; margin: 12px 0 0; }
 .VPHome .landing .surface p { color: var(--vp-c-text-2); font-size: 14px; line-height: 1.75; margin: 14px 0 28px; }
@@ -66,7 +67,7 @@
 .VPHome .landing .setup-copy > p:not(.eyebrow) { max-width: 300px; margin: 24px 0; }
 .VPHome .landing .setup-panel { min-width: 0; border: 1px solid var(--vp-c-divider); border-radius: 8px; padding: 24px 28px; background: var(--landing-paper); }
 .VPHome .landing .install-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 9px var(--vp-font-family-mono); color: var(--vp-c-text-2); }
-.VPHome .landing .install-heading button { cursor: pointer; font: 11px var(--vp-font-family-base); padding: 6px 8px; border: 1px solid var(--vp-c-divider); border-radius: 4px; background: var(--vp-c-bg); }
+.VPHome .landing .install-heading button { cursor: pointer; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font: 11px var(--vp-font-family-base); padding: 6px 8px; border: 1px solid var(--vp-c-divider); border-radius: 4px; background: var(--vp-c-bg); }
 .VPHome .landing .install-heading button:hover { color: var(--vp-c-brand-1); }
 .VPHome .landing .install-command { display: flex; gap: 14px; padding: 24px 0; font-size: 12px; }
 .VPHome .landing .install-command > span { color: var(--vp-c-brand-1); }
@@ -167,7 +168,7 @@
 .VPHome .landing .faq-list summary:hover { color: var(--vp-c-brand-1); }
 .VPHome .landing .faq-list summary:focus-visible { outline: 2px solid var(--vp-c-brand-1); outline-offset: 4px; }
 .VPHome .landing .faq-list details p { margin: 0; padding: 0 30px 24px 0; color: var(--vp-c-text-2); font-size: 14px; line-height: 1.85; overflow-wrap: anywhere; }
-.VPHome .landing .faq-list details a { color: var(--vp-c-brand-1); text-decoration: underline; text-underline-offset: 3px; }
+.VPHome .landing .faq-list details a { display: inline-flex; align-items: center; gap: 4px; color: var(--vp-c-brand-1); text-decoration: underline; text-underline-offset: 3px; }
 @media (max-width: 900px) {
   .VPHome .landing .workflow-panel, .VPHome .landing .faq-section { grid-template-columns: 1fr; gap: 0; }
   .VPHome .landing .workflow-example { border-left: 0; border-top: 1px solid var(--vp-c-divider); }
@@ -248,3 +249,18 @@
 .VPHome .landing .hero-preview .preview-footer { line-height: 1.7; }
 .VPHome .landing .install-heading button { min-height: 36px; }
 .VPHome .landing .workflow-options button { min-height: 44px; }
+.VPHome .landing .text-link,
+.VPHome .landing .primary-link,
+.VPHome .landing .surface-link,
+.VPHome .landing .landing-signal > span:last-child,
+.VPHome .landing .preview-caption > span:last-child { align-items: center; }
+.VPHome .landing .text-link { gap: 8px; }
+.VPHome .landing .primary-link svg,
+.VPHome .landing .text-link svg,
+.VPHome .landing .surface-link svg,
+.VPHome .landing .detail-list a svg,
+.VPHome .landing .landing-signal svg,
+.VPHome .landing .preview-caption svg,
+.VPHome .landing .workflow-options button svg,
+.VPHome .landing .faq-list details a svg,
+.VPHome .landing .install-heading button svg { display: block; flex-shrink: 0; }

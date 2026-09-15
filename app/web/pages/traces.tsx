@@ -1,4 +1,4 @@
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeftIcon } from "../icons.ts";
 import { durationNs, NANOS_PER_MS, spanDurationNs, traceEnvelopeNs } from "../format.ts";
 import { hrefFor } from "../hash.ts";
 import { serviceColor } from "../palette.ts";
@@ -136,7 +136,7 @@ export function TracesPage(props: {
         <CardHeader className="flex-col items-start gap-2 sm:flex-row sm:items-center">
           <div className="flex min-w-0 items-center gap-3">
             <a href={hrefFor("traces")} className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground">
-              <ArrowLeft className="size-3.5" /> traces
+              <ArrowLeftIcon size={14} className="size-3.5" /> traces
             </a>
             <span className="truncate font-mono text-xs text-muted-foreground" title={traceId}>{traceId}</span>
           </div>

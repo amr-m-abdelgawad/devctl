@@ -1,4 +1,4 @@
-import { Play, RefreshCw, RotateCw, Square } from "lucide-react";
+import { ArrowClockwiseIcon, ArrowsClockwiseIcon, PlayIcon, StopIcon } from "../icons.ts";
 import { cn } from "../lib/utils.ts";
 import type { ProfileRow, TaskRow } from "../types.ts";
 import { Button } from "./ui/button.tsx";
@@ -14,15 +14,15 @@ export function ActionButtons(props: {
   return (
     <div className="flex flex-wrap items-center gap-1">
       <Button type="button" size="xs" variant="outline" disabled={busy || live} onClick={onStart}>
-        <Play />
+        <PlayIcon />
         Start
       </Button>
       <Button type="button" size="xs" variant="outline" disabled={busy || !live} onClick={onStop}>
-        <Square />
+        <StopIcon />
         Stop
       </Button>
       <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onRestart}>
-        <RotateCw />
+        <ArrowsClockwiseIcon />
         Restart
       </Button>
     </div>
@@ -79,7 +79,7 @@ export function FleetBar(props: {
         </select>
       </label>
       <Button type="button" size="xs" disabled={busy || !profile} onClick={onStartProfile}>
-        <Play />
+        <PlayIcon />
         Start profile
       </Button>
       {hasSelection ? (
@@ -87,18 +87,18 @@ export function FleetBar(props: {
           <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onStartSelected}>Start {selectedCount}</Button>
           <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onStopSelected}>Stop {selectedCount}</Button>
           <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onRestartSelected}>
-            <RotateCw />
+            <ArrowsClockwiseIcon />
             Restart {selectedCount}
           </Button>
         </>
       ) : (
         <Button type="button" size="xs" variant="outline" disabled={busy || liveCount === 0} onClick={onStopAll}>
-          <Square />
+          <StopIcon />
           Stop all
         </Button>
       )}
       <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={onReload}>
-        <RefreshCw />
+        <ArrowClockwiseIcon />
         Reload
       </Button>
       {tasks.map((task) => (

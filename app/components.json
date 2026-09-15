@@ -14,5 +14,6 @@
     "components": "web/components",
     "utils": "web/lib/utils",
     "ui": "web/components/ui"
-  }
+  },
+  "iconLibrary": "phosphor"
 }

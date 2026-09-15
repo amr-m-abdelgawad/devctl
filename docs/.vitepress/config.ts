@@ -1,4 +1,8 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+
+const phosphorIcons = resolve(dirname(fileURLToPath(import.meta.url)), '../node_modules/@phosphor-icons/vue/dist/icons')
 
 const repo = 'https://github.com/amr-m-abdelgawad/devctl'
 const blob = `${repo}/blob/main`
@@ -224,6 +228,12 @@ const siteConfig = withMermaid({
   },
 
   vite: {
+    resolve: {
+      alias: {
+        // Individual files so the landing does not pull the whole Phosphor barrel.
+        '@phosphor-icon': phosphorIcons
+      }
+    },
     // Mermaid pulls in CJS-only deps (fastdom, etc.). Rollup handles them in
     // `build`, but the dev server needs them force-bundled or the page errors
     // with "does not provide an export named 'default'".

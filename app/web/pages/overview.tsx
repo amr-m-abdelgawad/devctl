@@ -1,4 +1,4 @@
-import { AlertTriangle, Boxes, Gauge, Timer, Zap } from "lucide-react";
+import { GaugeIcon, LightningIcon, StackIcon, TimerIcon, WarningIcon } from "../icons.ts";
 import { useMemo, useState } from "react";
 import { isLiveState, type RunControl } from "../control.ts";
 import { relative } from "../format.ts";
@@ -63,11 +63,11 @@ export function OverviewPage(props: {
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
-        <Kpi label="Services" value={`${summary.healthy}/${summary.total}`} tone={healthTone} sub="healthy" icon={<Boxes className="size-4" />} />
-        <Kpi label="Requests" value={summary.requests.toLocaleString("en-US")} tone="muted" sub="since daemon start" icon={<Gauge className="size-4" />} />
-        <Kpi label="Errors" value={summary.errors.toLocaleString("en-US")} tone={summary.errors > 0 ? "destructive" : "muted"} sub={`${summary.errPerSec.toFixed(summary.errPerSec >= 10 ? 0 : 1)}/s · ${summary.errorRate.toFixed(1)}% of logs`} icon={<AlertTriangle className="size-4" />} />
-        <Kpi label="Latency p95" value={summary.p95 ? Math.round(summary.p95) : "—"} unit={summary.p95 ? "ms" : undefined} tone={summary.p95 > 500 ? "warning" : "muted"} sub="last 10s of recent requests" icon={<Timer className="size-4" />} />
-        <Kpi label="Throughput" value={summary.reqPerSec.toFixed(summary.reqPerSec >= 10 ? 0 : 1)} unit="req/s" tone="muted" sub="last 10s of recent requests" icon={<Zap className="size-4" />} />
+        <Kpi label="Services" value={`${summary.healthy}/${summary.total}`} tone={healthTone} sub="healthy" icon={<StackIcon className="size-4" />} />
+        <Kpi label="Requests" value={summary.requests.toLocaleString("en-US")} tone="muted" sub="since daemon start" icon={<GaugeIcon className="size-4" />} />
+        <Kpi label="Errors" value={summary.errors.toLocaleString("en-US")} tone={summary.errors > 0 ? "destructive" : "muted"} sub={`${summary.errPerSec.toFixed(summary.errPerSec >= 10 ? 0 : 1)}/s · ${summary.errorRate.toFixed(1)}% of logs`} icon={<WarningIcon className="size-4" />} />
+        <Kpi label="Latency p95" value={summary.p95 ? Math.round(summary.p95) : "—"} unit={summary.p95 ? "ms" : undefined} tone={summary.p95 > 500 ? "warning" : "muted"} sub="last 10s of recent requests" icon={<TimerIcon className="size-4" />} />
+        <Kpi label="Throughput" value={summary.reqPerSec.toFixed(summary.reqPerSec >= 10 ? 0 : 1)} unit="req/s" tone="muted" sub="last 10s of recent requests" icon={<LightningIcon className="size-4" />} />
       </div>
 
       {noneLive ? (

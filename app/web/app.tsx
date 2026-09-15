@@ -1,5 +1,16 @@
-import { Bot, LayoutDashboard, Network, Play, RefreshCw, ScrollText, Square, Waypoints } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowClockwiseIcon,
+  FlowArrowIcon,
+  GraphIcon,
+  IconContext,
+  PlayIcon,
+  RobotIcon,
+  ScrollIcon,
+  SquaresFourIcon,
+  StopIcon,
+  type Icon,
+} from "./icons.ts";
 import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchUpdate, postControl } from "./api.ts";
 import { percentile, type SeriesPoint } from "./charts.tsx";
 import { ControlNotice } from "./components/controls.tsx";
@@ -46,12 +57,12 @@ import {
 const POLL_MS = 2000;
 const WINDOW = 60;
 const RATE_LOOKBACK_MS = 10_000;
-const NAV: Array<{ name: RouteName; label: string; icon: typeof LayoutDashboard }> = [
-  { name: "services", label: "Overview", icon: LayoutDashboard },
-  { name: "traces", label: "Traces", icon: Waypoints },
-  { name: "llm", label: "LLM", icon: Bot },
-  { name: "graph", label: "Graph", icon: Network },
-  { name: "logs", label: "Logs", icon: ScrollText },
+const NAV: Array<{ name: RouteName; label: string; icon: Icon }> = [
+  { name: "services", label: "Overview", icon: SquaresFourIcon },
+  { name: "traces", label: "Traces", icon: FlowArrowIcon },
+  { name: "llm", label: "LLM", icon: RobotIcon },
+  { name: "graph", label: "Graph", icon: GraphIcon },
+  { name: "logs", label: "Logs", icon: ScrollIcon },
 ];
 
 type RateSample = { t: number; reqs: number; errs: number; p50: number; p95: number };
@@ -420,8 +431,9 @@ export function App() {
   const showUpdate = updateCheck !== undefined && isUpdateNoticeVisible(updateCheck, dismissedNotices, sessionHiddenNotices);
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="flex min-h-full flex-col">
+    <IconContext.Provider value={{ weight: "regular", color: "currentColor", size: 16 }}>
+      <TooltipProvider delayDuration={200}>
+        <div className="flex min-h-full flex-col">
         <div className="sticky top-0 z-20">
           <header className="border-b border-border/70 bg-background/80 backdrop-blur">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-2.5">
@@ -462,7 +474,7 @@ export function App() {
                   title={status?.proxy.running ? "Stop proxy" : "Start proxy"}
                   onClick={() => runControl(status?.proxy.running ? "stop_proxy" : "start_proxy", {}, status?.proxy.running ? "Stopping proxy…" : "Starting proxy…")}
                 >
-                  {status?.proxy.running ? <Square className="size-3" /> : <Play className="size-3" />}
+                  {status?.proxy.running ? <StopIcon size={12} className="size-3" /> : <PlayIcon size={12} className="size-3" />}
                   <ConnDot label="proxy" up={status?.proxy.running} />
                 </button>
                 <ConnDot label="mcp" up={status?.mcp.running} />
@@ -478,7 +490,7 @@ export function App() {
                 disabled={Boolean(busy)}
                 onClick={() => runControl("reload_config", {}, "Reloading config…")}
               >
-                <RefreshCw />
+                <ArrowClockwiseIcon />
                 Reload
               </Button>
               {pollError ? (
@@ -566,8 +578,9 @@ export function App() {
             <LlmPage payload={llmCalls} detail={llmDetail} llmId={route.llmId} error={llmError} />
           ) : null}
         </main>
-      </div>
-    </TooltipProvider>
+        </div>
+      </TooltipProvider>
+    </IconContext.Provider>
   );
 }
 

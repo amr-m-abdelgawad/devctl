@@ -1,4 +1,4 @@
-import { ArrowUpCircle, Check, Copy } from "lucide-react";
+import { ArrowCircleUpIcon, CheckIcon, CopyIcon } from "../icons.ts";
 import { useState } from "react";
 import { Button } from "./ui/button.tsx";
 import type { UpdateCheckPayload } from "../types.ts";
@@ -30,7 +30,7 @@ export function UpdateNotice(props: {
       className="border-b border-warning/35 bg-[color-mix(in_oklab,var(--warning)_14%,var(--card))] px-5 py-2.5"
     >
       <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2">
-        <ArrowUpCircle className="size-4 shrink-0 text-warning" aria-hidden="true" />
+        <ArrowCircleUpIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-medium tracking-tight text-foreground">
             devctl {check.latest} is available
@@ -50,7 +50,7 @@ export function UpdateNotice(props: {
               aria-live="polite"
               onClick={copyInstall}
             >
-              {copied ? <Check /> : <Copy />}
+              {copied ? <CheckIcon /> : <CopyIcon />}
               {copied ? "Copied" : "Copy install command"}
             </Button>
           ) : null}
