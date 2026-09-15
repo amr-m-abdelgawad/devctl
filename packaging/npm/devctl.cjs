@@ -103,6 +103,39 @@ function launch(options) {
   });
 }
 
+// Mirror of TERMINAL_RESTORE_SEQUENCE in app/src/shared/terminal-restore.ts.
+// This launcher is a standalone .cjs that cannot import the app's TypeScript,
+// so the escape sequence is duplicated and kept in sync by hand.
+const TERMINAL_RESTORE_SEQUENCE =
+  "\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?1006l\x1b[?1015l\x1b[?1016l" +
+  "\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[<u\x1b[0m";
+
+// When the Bun child dies abnormally — a native panic exits via a fatal signal
+// (SIGSEGV/SIGABRT) or a non-zero code — OpenTUI never reached its own
+// destroy(), so the terminal is left in raw mode and on the alternate screen.
+// This parent process survives the child's crash, so it is the one place that
+// can still un-raw the inherited TTY. A clean exit (code 0, no signal) means
+// the TUI already restored the terminal itself, so we leave it alone.
+function restoreTerminalAfterCrash(code, signal, streams) {
+  const crashed = Boolean(signal) || (typeof code === "number" && code !== 0);
+  if (!crashed) {
+    return false;
+  }
+  const targets = streams !== undefined ? streams : [process.stdout, process.stderr];
+  let wrote = false;
+  for (const stream of targets) {
+    if (stream && stream.isTTY && typeof stream.write === "function") {
+      try {
+        stream.write(TERMINAL_RESTORE_SEQUENCE);
+        wrote = true;
+      } catch (_) {
+        // stream already closed
+      }
+    }
+  }
+  return wrote;
+}
+
 function preserveChildExit(hostProcess, code, signal) {
   if (typeof code === "number") {
     hostProcess.exitCode = code;
@@ -150,6 +183,7 @@ function runMain() {
     for (const [registeredSignal, handler] of handlers) {
       process.off(registeredSignal, handler);
     }
+    restoreTerminalAfterCrash(code, signal);
     preserveChildExit(process, code, signal);
   });
 }
@@ -164,6 +198,8 @@ module.exports = {
   assertSupportedTarget,
   launch,
   preserveChildExit,
+  restoreTerminalAfterCrash,
+  TERMINAL_RESTORE_SEQUENCE,
   readFilePrefix,
   resolveBunExecutable,
   targetFor,
