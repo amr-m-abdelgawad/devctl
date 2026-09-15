@@ -49,6 +49,10 @@ services:
 
 Working directories resolve from the repository root (the directory that contains `.devctl`), not the process cwd.
 
+The TUI services screen renders each service's live inspector — status, facts, and the fully resolved environment (dotenv, profile, secrets, plugins, runtime ports), with secret-like values redacted:
+
+![The services inspector showing billing-console — health, command, workdir, ports, and its resolved environment with `DEVCTL_INTERNAL_TOKEN` and `DEVCTL_TOKEN_URL` redacted](assets/manual/tui-services.png)
+
 `${services.<name>.ports.<port>}` interpolates another service's port; `${services.<name>.url}` and `${services.<name>.host}` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). `${identity.user}` resolves to the running developer's detected Google email — handy in shared config as `LOCAL_USER_EMAIL: ${identity.user}` (each developer gets their own, nothing hardcoded); it is also injected automatically as `DEVCTL_USER_EMAIL`. `expose: true` publishes the service through the proxy at `<service>.local` when `proxy.enabled` is true; `proxy.gateway: true` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
 String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.

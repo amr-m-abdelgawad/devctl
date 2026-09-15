@@ -36,6 +36,8 @@ User identity and service identity are separate. A service or proxy route must d
 
 The TUI **identity** tab (`a`) shows user, project, source, ADC, gcloud, configured SAs, impersonation availability, and whether IAP routes exist. The **credentials** tab lists store backend and entry names only.
 
+![The TUI identity tab — Google identity (user, project, source, ADC, gcloud), configured service accounts with impersonation state, and whether IAP routes are present](assets/manual/tui-identity.png)
+
 IAP routes with a service-account identity impersonate that account and then mint an IAP ID token. See [Impersonation](impersonation.md) and [IAP](iap.md).
 
 ## Related

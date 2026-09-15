@@ -21,6 +21,10 @@ flowchart TB
   sup --> disk
 ```
 
+The same supervisor drives every surface — here the loopback web console showing services, profiles, live proxy requests, and recent errors together:
+
+![The devctl web console overview — service health, KPI tiles, profiles, proxy requests, and recent errors, all from one supervisor](assets/manual/web-overview.png)
+
 Nothing in the application knows your services by name. The supervisor reads `.devctl/`, starts argv (or explicit shell) processes and optional Docker/Podman containers, injects resolved env, and reports health.
 
 ## Supervisor

@@ -74,6 +74,10 @@ flowchart LR
 
 `/reveal` lasts for this TUI session only. The header says **secrets shown** so it cannot stay silent.
 
+Redaction is the default everywhere a value is shown. For example, `devctl exec <service> --print-env` masks secret-like names before printing:
+
+![devctl exec --print-env with `DEVCTL_INTERNAL_TOKEN` and `DEVCTL_TOKEN_URL` masked as `********`](assets/manual/cli-print-env.png)
+
 Proxy log lines include method, path, route, identity, status, duration — never the bearer header.
 
 ---

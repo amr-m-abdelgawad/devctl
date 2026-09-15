@@ -124,9 +124,13 @@ entry includes the winning source file and layer (`main`, `modular_service`,
 `synthesized`) and the ordered sources it shadowed. Use `--json` for structured
 output.
 
+![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
+
 Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, `${http.*}` / `${token}` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service `proxy` fragments and synthesized `expose` / `http.*.expose` routes merged at load), `proxy.listen.port` when `proxy.enabled` is true, environment references, profile references, optional `plugins[].path`, `telemetry.otlp.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and `web.listen` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
 
 The TUI Config screen `v` / `/buffer` overlay validates this text before writing. Invalid YAML is not saved. `e` still opens `$EDITOR`.
+
+![The TUI Config screen — merged project, google, runtime, logs, proxy routes, services, and tasks in one view](assets/manual/tui-config.png)
 
 The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, identity, or `watch` changed.
 

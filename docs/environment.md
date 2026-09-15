@@ -1,6 +1,8 @@
 # Environment
 
-Each service process gets a merged environment. Later sources override earlier ones.
+Each service process gets a merged environment. Later sources override earlier ones. `devctl exec <service> --print-env` prints exactly what a service resolves to, with secret-like values redacted (`--reveal` to show them):
+
+![devctl exec billing-console --print-env — the resolved environment, with `DEVCTL_INTERNAL_TOKEN` and `DEVCTL_TOKEN_URL` shown as `********`](assets/manual/cli-print-env.png)
 
 Default source order (`ENV_SOURCE_ORDER` / `environment.sources`):
 

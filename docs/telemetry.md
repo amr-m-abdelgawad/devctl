@@ -81,6 +81,12 @@ View a trace three ways:
 - **Web UI** — an opt-in loopback explorer (below) with a waterfall, correlated
   logs, dependency graph, and rate/latency charts.
 
+![A distributed trace in the web explorer — 15 spans across 4 services (telemetry, proxy, invoices-api, identity) with correlated logs below](assets/manual/web-trace-waterfall.png)
+
+The same trace in the TUI: a ◎ marker on a log row opens a full-width waterfall; `j`/`k` selects a span and `enter` opens that span's logs.
+
+![The trace waterfall in the TUI — span kinds legend, per-span durations, and the timeline for one request across services](assets/manual/tui-trace.png)
+
 ## Web UI
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
@@ -98,6 +104,8 @@ token. The listener serves a bundled SPA plus `GET /api/*` shapers that match MC
 redaction. Mutations go through `POST /api/control` to the same MCP tools
 (except `exec_service`).
 
+![The web console overview — KPI tiles (services, requests, errors, P95 latency, throughput), the services table with lifecycle controls, profiles, live proxy requests, and recent errors](assets/manual/web-overview.png)
+
 ```yaml
 web:
   enabled: true                  # default: false
@@ -111,6 +119,10 @@ listener is already running from `enabled: true`. Open that URL. `devctl web
 status|stop` and `devctl status` (the `WEB` line) report the listener without
 the token. Hash routes: `#/services`, `#/traces`, `#/llm`, `#/graph`, `#/logs`.
 Rebuild the embed with `cd app && bun run build:web` after editing `app/web/`.
+
+![The Graph page — a dependency topology (upstream → midstream → downstream) plus live signals: traffic and errors, proxy latency, and host CPU/memory](assets/manual/web-graph.png)
+
+![The Logs page — the structured record stream with per-service and per-level filter chips and trace ids](assets/manual/web-logs.png)
 
 Overview KPIs use lifetime totals (`proxy.requestTotal`, `logs.seen` /
 `logs.seenErrors`). Tables and the graph stay windowed: last 100 proxy
