@@ -1,6 +1,6 @@
 # LLM inspector
 
-devctl can pull LLM traffic into the same inspector stack as logs and traces: an in-memory store, then MCP, web, TUI, and CLI. There is no new service kind. A source is a typed driver (`type: litellm` today) plus a **management hop** the daemon can reach.
+devctl brings LLM traffic into the same inspector stack as logs and traces: an in-memory store, then MCP, web, TUI, and CLI. There is no new service kind. A source is a typed driver. Two are built in: `litellm` **pulls** from a LiteLLM **management hop** (`/spend/logs`), and `proxy` **captures** completion bodies straight off a devctl [proxy](proxy.md) route — no management API needed (see [Proxy-capture source](#proxy-capture-source-type-proxy)).
 
 The inspector is **off by default**. It does not sit on `telemetry` — this is a pull source, not OTLP ingest. Full prompts never go on the status snapshot.
 
@@ -45,7 +45,7 @@ llm:
       poll_seconds: 5
 ```
 
-`type` must be a builtin (`litellm`) or a plugin `llmSources` name. When `llm.enabled` is true, `sources` must be non-empty. Each source needs a unique `name` and exactly one **management hop**: `management_endpoint` / `management_service`, or else exactly one of `service`, `endpoint`, or `via.route`. `via.route` may exist alongside `management_*` so apps can keep using a traffic proxy while the inspector talks to LiteLLM directly.
+`type` must be a builtin (`litellm`, `proxy`) or a plugin `llmSources` name. When `llm.enabled` is true, `sources` must be non-empty and each source needs a unique `name`. A `litellm` source needs exactly one **management hop**: `management_endpoint` / `management_service`, or else exactly one of `service`, `endpoint`, or `via.route`. `via.route` may exist alongside `management_*` so apps can keep using a traffic proxy while the inspector talks to LiteLLM directly. A `proxy` source instead names the route to capture with `via.route` and has no management hop — see [Proxy-capture source](#proxy-capture-source-type-proxy).
 
 `path_prefix` is stripped of slashes; the LiteLLM driver always appends `/spend/logs`. Do not put that leaf in config.
 
@@ -101,6 +101,38 @@ A 404/401/403 from `/spend/logs` is a **source error** in the UI (“this URL is
 
 LiteLLM needs a DB plus a master key (or a key with `get_spend_routes`).
 
+## Proxy-capture source (`type: proxy`)
+
+When LiteLLM sits behind a gateway that only exposes `/v1/chat/completions` and blocks `/spend/logs` (common with Apigee, IAP, or API Management), there is no management hop to poll. Instead, route the completion traffic through the devctl [proxy](proxy.md) and let devctl capture the bodies as they pass:
+
+```yaml
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 17400 }
+  routes:
+    - name: apigee-llm
+      match: { path: /llm }
+      upstream: { url: https://gateway.example/llm }
+      auth: { type: none }        # workers inject their own gateway token
+
+llm:
+  enabled: true
+  sources:
+    - name: apigee-llm
+      type: proxy
+      via: { route: apigee-llm }  # the route to capture; no management hop
+      capture:
+        prompts: true             # false → keep metadata, drop bodies
+        max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
+```
+
+Point workers at the route (e.g. `http://127.0.0.1:17400/llm/v1/chat/completions`) and every OpenAI-compatible completion, chat, embedding, or streamed (`text/event-stream`) call is parsed and fed into the same store as any other source. All surfaces below then work unchanged.
+
+- **Only tagged routes are buffered.** `via.route` names the one route to capture; all other proxy traffic still streams untouched. The request is buffered only when its `content-length` is within `max_bytes`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing.
+- **Only OpenAI-compatible completions are captured.** Capture engages on a `POST` with a JSON request content-type on a completion-shaped path (`/chat/completions`, `/completions`, `/embeddings`); `GET /models`, `/model/info`, health checks, and CORS preflights are ignored. Anthropic-native `/messages` and the OpenAI Responses API (`/responses`) use different request/stream shapes and are not captured — route those through LiteLLM's OpenAI-compatible endpoint instead.
+- **`proxy` has no management hop.** It captures from `via.route` and must not set `service`, `endpoint`, or `management_*`; config validation rejects those.
+- **Redaction is unchanged** — the same `secrets` detector runs at upsert, and full prompts never go on the status snapshot. Cost is unavailable, and a streamed response carries token usage only when the caller sets `stream_options.include_usage`.
+
 ## Surfaces
 
 Query stays on the store (RPC `llm_calls_page` / `get_llm_call`). Secrets are redacted again on MCP/web output.
@@ -112,7 +144,7 @@ Query stays on the store (RPC `llm_calls_page` / `get_llm_call`). Secrets are re
 | TUI | `llm` nav tab, `/llm`, enter for detail; enter again jumps to a trace when `traceId` is present. |
 | CLI | `devctl llm` (filters, `--json`, `--follow`) and `devctl llm show <id>`. |
 
-v1 does not buffer chat bodies on the generic HTTP proxy (streaming/SSE is a different adapter). Future source types can plug in through `LlmSourceFactory` / plugin `llmSources` without a new port.
+The `proxy` source buffers completion bodies only on the routes it is told to capture; all other proxy traffic still streams without buffering. Additional pull-style source types can plug in through `LlmSourceFactory` / plugin `llmSources`; a push source (like `proxy`) feeds the store directly rather than being polled.
 
 ## Related
 

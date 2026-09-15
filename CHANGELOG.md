@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- LLM inspector **proxy-capture source** (`llm.sources[].type: proxy`): captures OpenAI-compatible completion bodies — JSON and streamed `text/event-stream` — directly off a devctl proxy route named by `via.route`, feeding the same store as the LiteLLM source. This makes the inspector work behind gateways that only expose `/v1/chat/completions` and block `/spend/logs` (Apigee, IAP, API Management), with no management API. Only tagged completion routes are buffered; all other proxy traffic still streams untouched, and `capture.max_bytes` (default 1 MiB) bounds the stored body. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
+
 ## [0.10.0] - 2026-09-15
 
 ### Added

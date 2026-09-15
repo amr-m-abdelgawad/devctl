@@ -241,7 +241,7 @@ Paths are redacted the same way response header values already are, since a quer
 
 ## Tracing
 
-Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md). The proxy request ring is metadata-only; LLM prompts, tokens, and cost live on the [LLM inspector](llm.md).
+Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md). The proxy request ring is metadata-only; LLM prompts, tokens, and cost live on the [LLM inspector](llm.md). A route that carries OpenAI-compatible completion traffic can additionally be captured into that inspector — bodies and all — without a management API; see [Proxy-capture source](llm.md#proxy-capture-source-type-proxy).
 
 ## Request flow
 

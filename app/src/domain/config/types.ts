@@ -430,10 +430,14 @@ export type ProjectEnvironmentConfig = {
 };
 
 export const LLM_SOURCE_TYPE_LITELLM = "litellm";
+export const LLM_SOURCE_TYPE_PROXY = "proxy";
 export const LLM_AUTH_BEARER = "bearer";
 export const DEFAULT_LLM_AUTH_HEADER = "Authorization";
 export const DEFAULT_LLM_POLL_SECONDS = 5;
 export const DEFAULT_LLM_PORT_NAME = "http";
+// Per-direction cap on bytes retained for a proxy-captured body (1 MiB). The
+// full body is always forwarded; only the stored copy is bounded.
+export const DEFAULT_LLM_CAPTURE_MAX_BYTES = 1_048_576;
 
 export type LlmAuthConfig = {
   type: string;
@@ -447,6 +451,7 @@ export type LlmViaConfig = {
 
 export type LlmCaptureConfig = {
   prompts: boolean;
+  max_bytes: number;
 };
 
 export type LlmSourceConfig = {
@@ -480,7 +485,7 @@ export function emptyLlmVia(): LlmViaConfig {
 }
 
 export function emptyLlmCapture(): LlmCaptureConfig {
-  return { prompts: true };
+  return { prompts: true, max_bytes: 0 };
 }
 
 export function emptyLlmSource(): LlmSourceConfig {
@@ -516,6 +521,10 @@ export function llmSourcePort(source: LlmSourceConfig): string {
 
 export function llmManagementPort(source: LlmSourceConfig): string {
   return source.management_port.trim() === "" ? DEFAULT_LLM_PORT_NAME : source.management_port.trim();
+}
+
+export function llmCaptureMaxBytes(capture: LlmCaptureConfig): number {
+  return capture.max_bytes > 0 ? capture.max_bytes : DEFAULT_LLM_CAPTURE_MAX_BYTES;
 }
 
 export type ConfigOrigin = {

@@ -39,6 +39,8 @@ Never hard-code a service name, port, or SA email. Put it in YAML.
 
 That is a **plugin extension point** (`adapters/plugins/registry.ts` + `plugin-sdk.ts`). Built-ins stay in their adapter package and register through the same factory pattern (`healthCheckerFactory`, `llmSourceFactory`). Config `type:` strings are validated **after** plugins load.
 
+An `LlmSourceDriver` may set `mode: "push"` (like the builtin `proxy` source): the coordinator then registers no poll timer and the driver is fed out-of-band instead — see the capture path in [logs-telemetry](logs-telemetry.md).
+
 ## New TUI screen
 
 1. Add a `Screen` union member in `types.ts`.

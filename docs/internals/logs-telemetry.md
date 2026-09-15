@@ -50,13 +50,16 @@ OTLP env injection: `domain/telemetry/otel-env.ts` so user services can export t
 
 ## LLM inspector
 
-`LlmCoordinator` polls configured `llm.sources[]`.
+`LlmCoordinator` drives configured `llm.sources[]`. Each `LlmSourceDriver` has a `mode`:
 
-Built-in driver: `litellm` (`adapters/llm/litellm.ts`) reading spend logs from a local LiteLLM service (or via a proxy route `via.route`). Plugins may register other `LlmSourceDriver`s.
+- **pull** (`litellm`, `adapters/llm/litellm.ts`): the coordinator polls spend logs on `poll_seconds` from a local LiteLLM service (or via a proxy route `via.route`).
+- **push** (`proxy`, `adapters/llm/proxy-driver.ts`): the coordinator registers **no** timer and never resolves a management hop. Instead `ProxyCaptureSink` (`adapters/llm/proxy-capture.ts`) tees OpenAI-compatible completion bodies off a tagged proxy route (`via.route`), reassembles SSE, maps them (`proxy-capture-map.ts`), and upserts straight into the store. The HTTP proxy depends only on the `LlmCaptureSink` port, so the proxy adapter never imports the llm package.
+
+Plugins may register other `LlmSourceDriver`s (pull by default).
 
 Store: `LlmCallManager` (ring + redact). List endpoints strip bodies (`stripLlmBodies`); `get_llm_call` returns one call for detail overlays.
 
-`capture.prompts` gates prompt/response retention. Poll interval: `poll_seconds` (default 5).
+`capture.prompts` gates prompt/response retention (the push path applies `stripLlmBodies` itself, since it bypasses the coordinator); `capture.max_bytes` bounds a captured body. Poll interval: `poll_seconds` (default 5, pull only).
 
 ## Resource sampler
 

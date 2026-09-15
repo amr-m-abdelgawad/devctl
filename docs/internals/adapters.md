@@ -82,7 +82,7 @@ Built-in checkers: `http`, `tcp`, `process`, `command`. `healthCheckerFactory(pl
 
 | File | Role |
 |------|------|
-| `proxy.ts` | HTTP reverse proxy, route match, token inject, CORS preflight, request ring, `X-Devctl-Request-ID` |
+| `proxy.ts` | HTTP reverse proxy, route match, token inject, CORS preflight, request ring, `X-Devctl-Request-ID`, optional LLM body-capture tee (via `LlmCaptureSink`) |
 | `grpc-proxy.ts` | h2c loopback → h2+TLS upstream with the same auth |
 | `tracing.ts` | Span creation around proxy hops |
 | `security.test.ts` | Loopback and header guarantees |
@@ -101,7 +101,7 @@ Token endpoint (`GET /token`) is loopback + internal token (`DEVCTL_INTERNAL_TOK
 
 ## `adapters/llm/`
 
-`LlmCoordinator` polls sources; `litellm.ts` / `litellm-map.ts` map spend logs; `store.ts` is the ring; `factory.ts` registers drivers including plugins.
+`LlmCoordinator` polls **pull** sources; `litellm.ts` / `litellm-map.ts` map spend logs. The **push** `proxy` driver (`proxy-driver.ts`) is fed out-of-band by `proxy-capture.ts` (the `LlmCaptureSink` the HTTP proxy calls) + `proxy-capture-map.ts` (JSON/SSE bodies → ingest). `store.ts` is the ring; `factory.ts` registers drivers including plugins.
 
 ## `adapters/telemetry/`
 

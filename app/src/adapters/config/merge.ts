@@ -297,6 +297,7 @@ function decodeLlmSource(raw: Record<string, unknown>): LlmSourceConfig {
     },
     capture: {
       prompts: capture.prompts === undefined ? true : asBoolean(capture.prompts),
+      max_bytes: asNumber(capture.max_bytes),
     },
     poll_seconds: asNumber(raw.poll_seconds),
   };

@@ -13,7 +13,8 @@ Ports are TypeScript types (and tiny aliases) under `app/src/ports/`. They are t
 | `LogStore` | `log-store.ts` | `worker-log-store.ts` / in-process `LogManager` | Ring + persist + page + redact |
 | `SpanStore` | `span-store.ts` | `adapters/storage/spans.ts` | Trace trees |
 | `LlmCallStore` | `llm-call-store.ts` | `adapters/llm/store.ts` | Inspector ring |
-| `LlmSource` / factory | `llm-source.ts` | `adapters/llm/factory.ts`, LiteLLM driver, plugins | Poll spend logs |
+| `LlmSource` / factory | `llm-source.ts` | `adapters/llm/factory.ts`, LiteLLM + proxy drivers, plugins | Pull (spend logs) or push (proxy capture) sources |
+| `LlmCaptureSink` | `llm-capture.ts` | `adapters/llm/proxy-capture.ts` | Proxy tees completion bodies into the LLM store without importing the llm package |
 | `HttpRecipeRuntime` | `http-recipe-runtime.ts` | `adapters/http/runtime.ts` | Named outbound fetches + cache |
 | `DoctorRunner` | `doctor-runner.ts` | `adapters/doctor/doctor.ts` | Diagnostics without adapter types in application |
 | `McpHost` / `McpListener` / factory | `mcp-host.ts` | Supervisor facade + `McpHttpServer` | MCP tools call this, not `Supervisor` |

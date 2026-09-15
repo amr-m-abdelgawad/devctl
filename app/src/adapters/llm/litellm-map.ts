@@ -8,6 +8,7 @@ import {
   type LlmCallIngest,
   type LlmOperation,
 } from "../../domain/llm/llm.ts";
+import { dropEmptyBody, firstNumber, firstString, isRecord, parseJsonish } from "./json.ts";
 
 const HTTP_ERROR_MIN = 400;
 
@@ -100,28 +101,6 @@ function usageOf(row: Record<string, unknown>): LlmCallIngest["usage"] {
   return { promptTokens: prompt, completionTokens: completion, totalTokens: total };
 }
 
-function dropEmptyBody(value: unknown): unknown {
-  if (value === undefined || value === null || value === "" || value === "{}") {
-    return undefined;
-  }
-  return value;
-}
-
-function parseJsonish(value: unknown): unknown {
-  if (typeof value !== "string") {
-    return dropEmptyBody(value);
-  }
-  const trimmed = value.trim();
-  if (trimmed === "" || trimmed === "{}") {
-    return undefined;
-  }
-  try {
-    return JSON.parse(trimmed) as unknown;
-  } catch {
-    return value;
-  }
-}
-
 function durationBetween(start: string, end: string): number | undefined {
   if (start === "" || end === "") {
     return undefined;
@@ -144,35 +123,6 @@ function firstTime(row: Record<string, unknown>, keys: string[]): string {
     return raw;
   }
   return new Date(ms).toISOString();
-}
-
-function firstString(row: Record<string, unknown>, keys: string[]): string {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "string" && value.trim() !== "") {
-      return value;
-    }
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return String(value);
-    }
-  }
-  return "";
-}
-
-function firstNumber(row: Record<string, unknown>, keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "number" && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === "string" && value.trim() !== "") {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
-    }
-  }
-  return undefined;
 }
 
 function flattenRecord(prefix: string, value: Record<string, unknown>): Record<string, unknown> {
@@ -198,8 +148,4 @@ function fallbackId(row: Record<string, unknown>): string {
   const stamp = firstString(row, ["startTime", "start_time", "endTime"]);
   const model = firstString(row, ["model", "model_group"]);
   return `litellm:${stamp}:${model}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

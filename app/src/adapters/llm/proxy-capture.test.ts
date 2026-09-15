@@ -1,0 +1,96 @@
+import { describe, expect, test } from "bun:test";
+import { defaultConfig, emptyLlmSource, type DevctlConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { LlmCallManager } from "./store.ts";
+import { ProxyCaptureSink } from "./proxy-capture.ts";
+
+const jsonHeaders = { "content-type": "application/json" };
+
+function cfgWithProxySource(mutate: (source: LlmSourceConfig) => void = () => undefined): DevctlConfig {
+  const cfg = defaultConfig();
+  const source = emptyLlmSource();
+  source.name = "apigee-llm";
+  source.type = "proxy";
+  source.via.route = "apigee-llm";
+  mutate(source);
+  cfg.llm.enabled = true;
+  cfg.llm.sources = [source];
+  return cfg;
+}
+
+describe("ProxyCaptureSink.begin", () => {
+  test("captures a POST JSON completion on a tagged route", () => {
+    const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource(), store: new LlmCallManager() });
+    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+    expect(rec).toBeDefined();
+    expect(rec?.maxBytes).toBeGreaterThan(0);
+  });
+
+  test("ignores non-POST, non-JSON, non-completion paths and unmatched routes", () => {
+    const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource(), store: new LlmCallManager() });
+    const chat = "/llm/v1/chat/completions";
+    expect(sink.begin({ routeName: "apigee-llm", method: "GET", path: chat, requestHeaders: jsonHeaders })).toBeUndefined();
+    expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/models", requestHeaders: jsonHeaders })).toBeUndefined();
+    expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: chat, requestHeaders: { "content-type": "text/plain" } })).toBeUndefined();
+    expect(sink.begin({ routeName: "other", method: "POST", path: chat, requestHeaders: jsonHeaders })).toBeUndefined();
+    // Formats the reassembler does not understand are not captured.
+    expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/messages", requestHeaders: jsonHeaders })).toBeUndefined();
+    expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/responses", requestHeaders: jsonHeaders })).toBeUndefined();
+  });
+
+  test("returns undefined when the inspector is disabled", () => {
+    const cfg = cfgWithProxySource();
+    cfg.llm.enabled = false;
+    const sink = new ProxyCaptureSink({ cfg: () => cfg, store: new LlmCallManager() });
+    expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders })).toBeUndefined();
+  });
+});
+
+describe("ProxyCaptureSink recorder", () => {
+  function drive(cfg: DevctlConfig, store: LlmCallManager): void {
+    const sink = new ProxyCaptureSink({ cfg: () => cfg, store });
+    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+    if (!rec) throw new Error("expected a recorder");
+    rec.setRequestBody(Buffer.from(JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from(JSON.stringify({
+      id: "chatcmpl-9",
+      model: "gpt-4o",
+      choices: [{ index: 0, message: { role: "assistant", content: "yo" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    })));
+    rec.finish({ status: 200, durationMs: 10, requestId: "req-9", traceId: "t-9", timestamp: "2026-01-01T00:00:00.000Z" });
+  }
+
+  test("upserts a mapped call on finish", () => {
+    const store = new LlmCallManager();
+    drive(cfgWithProxySource(), store);
+    const call = store.get("req-9");
+    expect(call?.model).toBe("gpt-4o");
+    expect(call?.source).toBe("apigee-llm");
+    expect(call?.usage?.totalTokens).toBe(2);
+    expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("yo");
+  });
+
+  test("strips bodies when capture.prompts is false", () => {
+    const store = new LlmCallManager();
+    drive(cfgWithProxySource((source) => { source.capture.prompts = false; }), store);
+    const call = store.get("req-9");
+    expect(call).toBeDefined();
+    expect(call?.request).toBeUndefined();
+    expect(call?.response).toBeUndefined();
+    expect(call?.model).toBe("gpt-4o");
+  });
+
+  test("truncates the response body at max_bytes", () => {
+    const store = new LlmCallManager();
+    const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource((source) => { source.capture.max_bytes = 8; }), store });
+    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+    if (!rec) throw new Error("expected a recorder");
+    expect(rec.maxBytes).toBe(8);
+    rec.setResponseContentType("application/json");
+    expect(rec.appendResponse(Buffer.from("12345678"))).toBe(true);
+    expect(rec.appendResponse(Buffer.from("more"))).toBe(false);
+    rec.finish({ status: 200, durationMs: 1, requestId: "req-cap", timestamp: "2026-01-01T00:00:00.000Z" });
+    expect(store.get("req-cap")?.attributes.response_truncated).toBe(true);
+  });
+});

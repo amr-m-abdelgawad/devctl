@@ -587,7 +587,7 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
-        "type": { "type": "string", "description": "Source driver. Built-in: litellm." },
+        "type": { "type": "string", "description": "Source driver. Built-in: litellm (polls /spend/logs) or proxy (captures OpenAI-compatible bodies off a devctl proxy route named by via.route)." },
         "service": { "type": "string", "description": "Managed service whose assigned port is the management hop." },
         "port": { "type": "string", "description": "Named service port (default http)." },
         "endpoint": { "type": "string", "description": "Literal management URL when the source is not a managed service." },
@@ -618,14 +618,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "route": { "type": "string", "description": "Existing proxy.routes[].name used to mint identity headers." }
+        "route": { "type": "string", "description": "Existing proxy.routes[].name. For litellm, mints the route's identity headers; for the proxy source type, the route whose completion traffic is captured." }
       }
     },
     "llmCapture": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "prompts": { "type": "boolean", "description": "Ingest request/response bodies when the gateway stores them. Default true. Secrets are still redacted." }
+        "prompts": { "type": "boolean", "description": "Ingest request/response bodies. Default true. Secrets are still redacted." },
+        "max_bytes": { "type": "number", "minimum": 0, "description": "proxy source only: per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." }
       }
     }
   }

@@ -5,6 +5,7 @@ import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
+import type { LlmCaptureSink } from "../../ports/llm-capture.ts";
 import { GrpcProxyServer } from "../proxy/grpc-proxy.ts";
 import { ProxyServer, TokenEndpoint, type ProxyMiddleware } from "../proxy/proxy.ts";
 import type { Detector } from "../secrets/detector.ts";
@@ -22,6 +23,9 @@ export type ProxyCoordinatorDeps = {
   detector: Detector;
   internalTok: () => string;
   middleware: () => ProxyMiddleware[];
+  // Optional LLM body-capture sink, shared (singleton) so it survives proxy
+  // restarts and reads live config; passed to each ProxyServer instance.
+  capture?: LlmCaptureSink;
   persistState: () => void;
 };
 
@@ -75,6 +79,7 @@ export class ProxyCoordinator {
       (service, port) => this.deps.ports().get(service)?.[port || "http"],
       this.deps.spans,
       this.deps.recipes,
+      this.deps.capture,
     );
     await this.server.start();
     const cfg = this.deps.cfg();

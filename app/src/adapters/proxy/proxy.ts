@@ -14,6 +14,7 @@ import { type Detector } from "../secrets/detector.ts";
 import { applyExtraAuthHeaders, mintAuthToken } from "../http/identity.ts";
 import { type TokenManager, isTokenMintRateLimited, TOKEN_MINT_WINDOW_MS } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
+import type { LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
@@ -102,6 +103,10 @@ export class ProxyServer {
   // a service that restarts on a new auto-assigned port without a proxy reload.
   private readonly resolvePort?: (service: string, port: string) => number | undefined;
   private readonly recipes?: HttpRecipeRuntime;
+  // Optional LLM body-capture sink. Absent for all normal proxies; when present
+  // it captures completion bodies only on routes a proxy LLM source tags, and
+  // returns undefined for everything else so untagged traffic is untouched.
+  private readonly capture?: LlmCaptureSink;
   private middleware: ProxyMiddleware[];
   private server?: Server;
   private running = false;
@@ -119,6 +124,7 @@ export class ProxyServer {
     resolvePort?: (service: string, port: string) => number | undefined,
     spans?: SpanStore,
     recipes?: HttpRecipeRuntime,
+    capture?: LlmCaptureSink,
   ) {
     this.cfg = cfg;
     this.tokens = tokens;
@@ -129,6 +135,7 @@ export class ProxyServer {
     this.resolvePort = resolvePort;
     this.spans = spans;
     this.recipes = recipes;
+    this.capture = capture;
   }
 
   // The effective upstream base URL for a route. A hand-written route uses its
@@ -399,6 +406,9 @@ export class ProxyServer {
     const identityKey = tokenIdentityKey(ident);
     let status = 0;
     let errorDetail: string | undefined;
+    // Declared outside the try so the finally can close the capture even when
+    // the upstream errors or the client disconnects mid-response.
+    let recorder: LlmCaptureRecorder | undefined;
     try {
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
@@ -434,14 +444,17 @@ export class ProxyServer {
         await hook.apply({ route, headers, tokens: this.tokens });
       }
       const upstream = resolveProxyTarget(this.upstreamBase(route), path);
-      const body = method !== "GET" && method !== "HEAD" ? req : undefined;
+      // Best-effort: undefined for untagged traffic, which keeps the original
+      // streamed request body / non-teed response path byte-for-byte.
+      recorder = this.beginCapture(route.name, method, path, headers);
+      const prepared = await this.prepareRequestBody(req, method, recorder);
       const resp = await fetch(upstream, {
         method,
         headers,
-        body: body as unknown as BodyInit | undefined,
+        body: prepared.body,
         redirect: "manual",
         // @ts-expect-error Bun/undici duplex for streamed request bodies
-        duplex: body ? "half" : undefined,
+        duplex: prepared.duplex,
       });
       res.statusCode = resp.status;
       status = resp.status;
@@ -471,7 +484,21 @@ export class ProxyServer {
       });
       // Configured response headers win over whatever the upstream sent.
       this.applyResponseHeaders(res, route);
-      await pipeResponse(resp, res);
+      // Record the upstream content-type regardless of whether we tee, so an
+      // exotic-encoding row still says what came back.
+      if (recorder) {
+        recorder.setResponseContentType(resp.headers.get("content-type") ?? "");
+      }
+      // Tee the response into the capture recorder only when fetch left us
+      // plaintext (no encoding, or one it already decompressed); otherwise the
+      // bytes are still compressed and unparseable, so forward without copying.
+      const teeable = responseEncodings.length === 0 || decompressedByFetch;
+      if (recorder && teeable) {
+        const rec = recorder;
+        await pipeResponse(resp, res, (chunk) => rec.appendResponse(chunk));
+      } else {
+        await pipeResponse(resp, res);
+      }
       const duration = Date.now() - started;
       this.logs?.append({
         timestamp: new Date().toISOString(),
@@ -494,6 +521,7 @@ export class ProxyServer {
       writePlain(res, 502, "proxy error");
     } finally {
       this.recordProxyHit(method, recordedPath, route.name, requestID, started, status, identityKey, errorDetail, ctx);
+      this.finishCapture(recorder, status, started, requestID, ctx);
     }
   }
 
@@ -583,6 +611,66 @@ export class ProxyServer {
     });
   }
 
+  private beginCapture(routeName: string, method: string, path: string, headers: Record<string, string>): LlmCaptureRecorder | undefined {
+    if (!this.capture) {
+      return undefined;
+    }
+    try {
+      const recorder = this.capture.begin({ routeName, method, path, requestHeaders: headers });
+      return recorder ? safeRecorder(recorder) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // For a capture target with a known, in-cap content-length, buffer the request
+  // fully and forward it as a Buffer — safer than teeing the Readable that undici
+  // is consuming. Otherwise stream it unchanged and mark the stored body omitted.
+  private async prepareRequestBody(
+    req: IncomingMessage,
+    method: string,
+    recorder: LlmCaptureRecorder | undefined,
+  ): Promise<{ body: BodyInit | undefined; duplex: "half" | undefined }> {
+    if (method === "GET" || method === "HEAD") {
+      return { body: undefined, duplex: undefined };
+    }
+    if (recorder) {
+      const length = contentLengthOf(req);
+      // A compressed request body would be stored as unparseable bytes, so skip
+      // capturing it (the full body is still streamed to the upstream verbatim).
+      if (!requestIsEncoded(req) && length !== undefined && length <= recorder.maxBytes) {
+        const buffered = await readRequestBody(req);
+        recorder.setRequestBody(buffered);
+        return { body: buffered as unknown as BodyInit, duplex: undefined };
+      }
+      recorder.setRequestBody(Buffer.alloc(0), { omitted: true });
+    }
+    return { body: req as unknown as BodyInit, duplex: "half" };
+  }
+
+  private finishCapture(
+    recorder: LlmCaptureRecorder | undefined,
+    status: number,
+    started: number,
+    requestID: string,
+    ctx: { traceId?: string },
+  ): void {
+    if (!recorder) {
+      return;
+    }
+    try {
+      recorder.finish({
+        status: status || 502,
+        durationMs: Date.now() - started,
+        requestId: requestID,
+        traceId: ctx.traceId,
+        timestamp: new Date(started).toISOString(),
+      });
+    } catch {
+      // capture is best-effort; never let it disturb the proxied request
+    }
+  }
+
 }
 
 export async function injectIdentityHeaders(
@@ -598,18 +686,129 @@ export async function injectIdentityHeaders(
   applyExtraAuthHeaders(headers, route.auth.headers, token);
 }
 
-async function pipeResponse(resp: Response, res: ServerResponse): Promise<void> {
+// `onChunk` observes each response chunk for LLM capture while the body streams
+// to the client unchanged. It returns false once the byte cap is hit so we stop
+// copying (forwarding continues); a throw in it disables capture but never the
+// pipe. The response is always streamed, never buffered-then-forwarded, so SSE
+// keeps flowing.
+async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chunk: Buffer) => boolean): Promise<void> {
   if (!resp.body) {
     res.end();
     return;
   }
   const readable = Readable.fromWeb(resp.body as never);
   await new Promise<void>((resolve, reject) => {
-    readable.on("error", reject);
-    res.on("error", reject);
-    res.on("finish", resolve);
+    let settled = false;
+    const done = (err?: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    };
+    readable.on("error", done);
+    res.on("error", done);
+    res.on("finish", () => done());
+    // A client that disconnects mid-response makes res emit "close" without
+    // "finish". Settle anyway so the caller's finally still runs (request record
+    // + LLM capture of the partial body) and stop pulling from the upstream.
+    res.on("close", () => {
+      if (!res.writableFinished) {
+        readable.destroy();
+      }
+      done();
+    });
+    if (onChunk) {
+      let capturing = true;
+      readable.on("data", (chunk: Buffer | string) => {
+        if (!capturing) {
+          return;
+        }
+        try {
+          capturing = onChunk(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        } catch {
+          capturing = false;
+        }
+      });
+    }
     readable.pipe(res);
   });
+}
+
+function contentLengthOf(req: IncomingMessage): number | undefined {
+  const raw = req.headers["content-length"];
+  if (typeof raw !== "string") {
+    return undefined;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+// True when the request body carries a real content-encoding (not identity),
+// meaning the buffered bytes would not be parseable as the completion body.
+function requestIsEncoded(req: IncomingMessage): boolean {
+  const encoding = req.headers["content-encoding"];
+  if (typeof encoding !== "string") {
+    return false;
+  }
+  const value = encoding.trim().toLowerCase();
+  return value !== "" && value !== "identity";
+}
+
+function readRequestBody(req: IncomingMessage): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
+  });
+}
+
+// Wrap a capture recorder so no method it defines — including a throwing
+// property getter for maxBytes — can ever escape into the proxy request path.
+// Capture is strictly best-effort; the proxied request must be unaffected.
+function safeRecorder(inner: LlmCaptureRecorder): LlmCaptureRecorder {
+  let maxBytes = 0;
+  try {
+    maxBytes = inner.maxBytes;
+  } catch {
+    maxBytes = 0;
+  }
+  return {
+    maxBytes,
+    setRequestBody: (body, opts) => {
+      try {
+        inner.setRequestBody(body, opts);
+      } catch {
+        // best-effort
+      }
+    },
+    setResponseContentType: (contentType) => {
+      try {
+        inner.setResponseContentType(contentType);
+      } catch {
+        // best-effort
+      }
+    },
+    appendResponse: (chunk) => {
+      try {
+        return inner.appendResponse(chunk);
+      } catch {
+        return false;
+      }
+    },
+    finish: (meta) => {
+      try {
+        inner.finish(meta);
+      } catch {
+        // best-effort
+      }
+    },
+  };
 }
 
 export function proxyUpgradeRequest(upstream: URL): typeof httpRequest {

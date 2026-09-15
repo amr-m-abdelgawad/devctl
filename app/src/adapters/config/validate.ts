@@ -36,6 +36,7 @@ import {
   isGrpcRoute,
   LLM_AUTH_BEARER,
   LLM_SOURCE_TYPE_LITELLM,
+  LLM_SOURCE_TYPE_PROXY,
   llmManagementPort,
   llmSourcePort,
   namedPort,
@@ -46,7 +47,7 @@ const MAX_PORT = 65535;
 const MIN_PORT = 1;
 
 export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command"];
-export const BUILTIN_LLM_SOURCE_TYPES = [LLM_SOURCE_TYPE_LITELLM];
+export const BUILTIN_LLM_SOURCE_TYPES = [LLM_SOURCE_TYPE_LITELLM, LLM_SOURCE_TYPE_PROXY];
 
 // Health types outside BUILTIN_HEALTH_TYPES are only valid if a plugin
 // registers a matching health check. validateHealth() can't confirm that —
@@ -592,15 +593,43 @@ function validateLlm(cfg: DevctlConfig): string[] {
 
 function validateLlmSource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
   const issues: string[] = [];
+  const kind = source.type.trim().toLowerCase();
   if (source.type === "") {
     issues.push(`${prefix}.type is required`);
-  } else if (!BUILTIN_LLM_SOURCE_TYPES.includes(source.type.toLowerCase()) && cfg.plugins.length === 0) {
-    issues.push(`${prefix}.type must be ${LLM_SOURCE_TYPE_LITELLM}`);
+  } else if (!BUILTIN_LLM_SOURCE_TYPES.includes(kind) && cfg.plugins.length === 0) {
+    issues.push(`${prefix}.type must be one of ${BUILTIN_LLM_SOURCE_TYPES.join(", ")}`);
   }
-  issues.push(...validateLlmManagementHop(cfg, source, prefix));
+  // The proxy source captures bodies off a named proxy route (push); it has no
+  // management hop to poll, so it takes a distinct rule set from the pull types.
+  if (kind === LLM_SOURCE_TYPE_PROXY) {
+    issues.push(...validateLlmProxySource(cfg, source, prefix));
+  } else {
+    issues.push(...validateLlmManagementHop(cfg, source, prefix));
+  }
   issues.push(...validateLlmAuth(source, prefix));
   if (source.poll_seconds < 0) {
     issues.push(`${prefix}.poll_seconds must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  if (source.via.route.trim() === "") {
+    issues.push(`${prefix}: type ${LLM_SOURCE_TYPE_PROXY} requires via.route naming the proxy route to capture`);
+  } else if (!cfg.proxy.routes.some((route) => route.name === source.via.route)) {
+    issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+  }
+  // A proxy source never talks to a management API — reject fields that would
+  // imply one, so a misconfigured source fails loudly instead of silently
+  // ignoring them.
+  const strays: string[] = [];
+  if (source.management_endpoint.trim() !== "") strays.push("management_endpoint");
+  if (source.management_service.trim() !== "") strays.push("management_service");
+  if (source.service.trim() !== "") strays.push("service");
+  if (source.endpoint.trim() !== "") strays.push("endpoint");
+  if (strays.length > 0) {
+    issues.push(`${prefix}: type ${LLM_SOURCE_TYPE_PROXY} captures from via.route and must not set ${strays.join(", ")}`);
   }
   return issues;
 }

@@ -6,7 +6,10 @@ import { fileURLToPath } from "node:url";
 import { connect } from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, type RouteAuthConfig, type RouteConfig } from "../../domain/config/types.ts";
+import { defaultConfig, emptyLlmSource, type RouteAuthConfig, type RouteConfig } from "../../domain/config/types.ts";
+import { LlmCallManager } from "../llm/store.ts";
+import { ProxyCaptureSink } from "../llm/proxy-capture.ts";
+import type { LlmCaptureBegin, LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
 import { startMockIapServer } from "../google/testdata/mock-iap-server.ts";
 import { type CredentialRecord, type CredentialStore } from "../storage/credentials.ts";
 import { KindProxy } from "../../shared/errors.ts";
@@ -1036,5 +1039,318 @@ describe("RequestLog", () => {
     expect(stats.recent).toHaveLength(2);
     expect(stats.recent[0]?.status).toBe(404);
     expect(stats.recent[1]?.status).toBe(200);
+  });
+});
+
+async function reservePort(): Promise<number> {
+  const reserved = createServer();
+  await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", () => resolve()));
+  const addr = reserved.address();
+  const port = typeof addr === "object" && addr ? addr.port : 0;
+  await new Promise<void>((resolve) => reserved.close(() => resolve()));
+  return port;
+}
+
+async function waitUntil(pred: () => boolean): Promise<void> {
+  const deadline = Date.now() + 1000;
+  while (!pred() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+describe("proxy LLM capture", () => {
+  // Builds a proxy with a capture sink and a single route "route". `routeName`
+  // controls which route the proxy source tags — point it elsewhere to model an
+  // untagged route. `upstreamUrl` overrides the upstream (e.g. a dead port).
+  async function setupCaptureProxy(
+    handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
+    opts: { routeName?: string; prompts?: boolean; upstreamUrl?: string; sink?: LlmCaptureSink } = {},
+  ) {
+    const upstream = createServer(handler);
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+    const proxyPort = await reservePort();
+    const dc = defaultConfig();
+    dc.proxy.listen = { host: "127.0.0.1", port: proxyPort };
+    dc.proxy.routes.push({
+      name: "route",
+      match: { host: "", path: "" },
+      upstream: { url: opts.upstreamUrl ?? `http://127.0.0.1:${upPort}` },
+      auth: NONE_AUTH,
+    });
+    const source = emptyLlmSource();
+    source.name = "cap";
+    source.type = "proxy";
+    source.via.route = opts.routeName ?? "route";
+    source.capture.prompts = opts.prompts ?? true;
+    dc.llm.enabled = true;
+    dc.llm.sources = [source];
+    const store = new LlmCallManager();
+    const sink = opts.sink ?? new ProxyCaptureSink({ cfg: () => dc, store });
+    const server = new ProxyServer(dc.proxy, undefined, undefined, undefined, undefined, [], undefined, undefined, undefined, sink);
+    await server.start();
+    return {
+      proxyPort,
+      store,
+      close: async (): Promise<void> => {
+        await server.stop();
+        await new Promise<void>((resolve) => upstream.close(() => resolve()));
+      },
+    };
+  }
+
+  const chatBody = JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] });
+  const chatResponse = JSON.stringify({
+    id: "chatcmpl-x",
+    model: "gpt-4o",
+    choices: [{ index: 0, message: { role: "assistant", content: "hello there" }, finish_reason: "stop" }],
+    usage: { prompt_tokens: 4, completion_tokens: 2, total_tokens: 6 },
+  });
+
+  test("captures a non-streamed completion and forwards request+response intact", async () => {
+    let receivedBody = "";
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.from(c)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks).toString("utf8");
+        res.setHeader("content-type", "application/json");
+        res.end(chatResponse);
+      });
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: chatBody,
+      });
+      const text = await resp.text();
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      expect(receivedBody).toBe(chatBody); // request forwarded byte-for-byte
+      expect(text).toBe(chatResponse); // response forwarded byte-for-byte
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect(call?.model).toBe("gpt-4o");
+      expect(call?.usage?.totalTokens).toBe(6);
+      expect(call?.sourceType).toBe("proxy");
+      expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("hello there");
+    } finally {
+      await close();
+    }
+  });
+
+  test("leaves an untagged route byte-identical and captures nothing", async () => {
+    let receivedBody = "";
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.from(c)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks).toString("utf8");
+        res.end(chatResponse);
+      });
+    }, { routeName: "some-other-route" }); // source tags a different route
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: chatBody,
+      });
+      const text = await resp.text();
+      expect(receivedBody).toBe(chatBody);
+      expect(text).toBe(chatResponse);
+      // Give any (erroneous) capture a chance to land, then assert none did.
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(store.facets({}).total).toBe(0);
+    } finally {
+      await close();
+    }
+  });
+
+  test("reassembles a streamed SSE completion and delivers it intact", async () => {
+    const frames = [
+      'data: {"id":"chatcmpl-s","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}\n\n',
+      'data: {"id":"chatcmpl-s","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":"stop"}]}\n\n',
+      'data: {"id":"chatcmpl-s","model":"gpt-4o","choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}\n\n',
+      "data: [DONE]\n\n",
+    ];
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      req.resume();
+      res.setHeader("content-type", "text/event-stream");
+      for (const frame of frames) res.write(frame);
+      res.end();
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: chatBody,
+      });
+      const text = await resp.text();
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      expect(text).toBe(frames.join("")); // client got the full stream unchanged
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("Hello");
+      expect(call?.usage?.totalTokens).toBe(3);
+      expect(call?.attributes.stream).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  test("records a failed row when the upstream is unreachable", async () => {
+    const deadPort = await reservePort();
+    const { proxyPort, store, close } = await setupCaptureProxy(() => undefined, { upstreamUrl: `http://127.0.0.1:${deadPort}` });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: chatBody,
+      });
+      expect(resp.status).toBe(502);
+      await resp.text();
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect(call?.status).toBe("error");
+      expect(call?.model).toBe("gpt-4o"); // still derived from the captured request
+    } finally {
+      await close();
+    }
+  });
+
+  test("a throwing sink never disturbs the proxied response", async () => {
+    const throwingSink: LlmCaptureSink = {
+      begin(_input: LlmCaptureBegin): LlmCaptureRecorder {
+        return {
+          maxBytes: 1024,
+          setRequestBody: () => { throw new Error("boom"); },
+          setResponseContentType: () => { throw new Error("boom"); },
+          appendResponse: () => { throw new Error("boom"); },
+          finish: () => { throw new Error("boom"); },
+        };
+      },
+    };
+    const { proxyPort, close } = await setupCaptureProxy((req, res) => {
+      req.resume();
+      res.end(chatResponse);
+    }, { sink: throwingSink });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: chatBody,
+      });
+      expect(resp.status).toBe(200);
+      expect(await resp.text()).toBe(chatResponse);
+    } finally {
+      await close();
+    }
+  });
+
+  test("streams a request with no content-length and marks the stored body omitted", async () => {
+    let receivedBody = "";
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.from(c)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks).toString("utf8");
+        res.setHeader("content-type", "application/json");
+        res.end(chatResponse);
+      });
+    });
+    try {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(chatBody));
+          controller.close();
+        },
+      });
+      // A streamed body has no content-length, so the proxy streams it through
+      // instead of buffering and marks the stored request omitted.
+      const init = { method: "POST", headers: { "content-type": "application/json" }, body: stream, duplex: "half" } as unknown as RequestInit;
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, init);
+      const text = await resp.text();
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      expect(receivedBody).toBe(chatBody); // full body still forwarded to upstream
+      expect(text).toBe(chatResponse);
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect(call?.request).toBeUndefined();
+      expect(call?.attributes.request_omitted).toBe(true);
+      expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("hello there");
+    } finally {
+      await close();
+    }
+  });
+
+  test("captures a partial row when the client disconnects mid-stream", async () => {
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      req.resume();
+      res.setHeader("content-type", "text/event-stream");
+      // Write one frame and hold the stream open so the client can abort mid-response.
+      res.write('data: {"id":"chatcmpl-d","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"partial"}}]}\n\n');
+    });
+    try {
+      const requestId = await new Promise<string>((resolve) => {
+        const clientReq = httpRequest(
+          {
+            host: "127.0.0.1",
+            port: proxyPort,
+            path: "/v1/chat/completions",
+            method: "POST",
+            headers: { "content-type": "application/json", "content-length": Buffer.byteLength(chatBody) },
+          },
+          (res) => {
+            const id = (res.headers[REQUEST_ID_HEADER] as string | undefined) ?? "";
+            res.once("data", () => {
+              clientReq.destroy(); // abort after the first streamed chunk
+              resolve(id);
+            });
+          },
+        );
+        clientReq.on("error", () => undefined); // destroy() surfaces as an error; ignore
+        clientReq.end(chatBody);
+      });
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect(call).toBeDefined();
+      const response = call?.response as { choices?: Array<{ message: { content: string } }> } | undefined;
+      expect(response?.choices?.[0]?.message.content).toBe("partial");
+    } finally {
+      await close();
+    }
+  });
+
+  test("does not store a compressed request body (marks it omitted, still forwards it)", async () => {
+    let receivedBody = Buffer.alloc(0);
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.from(c)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks);
+        res.setHeader("content-type", "application/json");
+        res.end(chatResponse);
+      });
+    });
+    try {
+      const gz = gzipSync(Buffer.from(chatBody));
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-encoding": "gzip" },
+        body: gz,
+      });
+      await resp.text();
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      expect(receivedBody.equals(gz)).toBe(true); // compressed bytes forwarded verbatim
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect(call?.request).toBeUndefined();
+      expect(call?.attributes.request_omitted).toBe(true);
+      expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("hello there");
+    } finally {
+      await close();
+    }
   });
 });

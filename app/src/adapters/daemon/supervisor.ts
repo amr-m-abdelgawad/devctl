@@ -51,6 +51,7 @@ import { isTraceId } from "../../domain/logs/ids.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import { LlmCallManager } from "../llm/store.ts";
 import { LlmCoordinator } from "../llm/coordinator.ts";
+import { ProxyCaptureSink } from "../llm/proxy-capture.ts";
 import { llmSourceFactory } from "../llm/factory.ts";
 import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
@@ -89,6 +90,7 @@ export class Supervisor {
   private readonly llmStore: LlmCallStore;
   private llmFactory: LlmSourceFactory;
   private readonly llm: LlmCoordinator;
+  private readonly llmCapture: ProxyCaptureSink;
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
   private readonly recipes: HttpRecipeRuntime;
@@ -172,6 +174,11 @@ export class Supervisor {
     this.spans = new SpanManager(undefined, this.detector);
     this.llmStore = new LlmCallManager(this.detector);
     this.llmFactory = llmSourceFactory([]);
+    this.llmCapture = new ProxyCaptureSink({
+      cfg: () => this.cfg,
+      store: this.llmStore,
+      log: (message) => this.log("devctl", "WARN", message),
+    });
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;
     this.tokens = deps.tokens;
@@ -209,6 +216,7 @@ export class Supervisor {
       detector: this.detector,
       internalTok: () => this.internalTok,
       middleware: () => this.registry?.proxyMiddleware ?? [],
+      capture: this.llmCapture,
       persistState: () => this.persistState(),
     });
     this.env = new EnvironmentBridge({

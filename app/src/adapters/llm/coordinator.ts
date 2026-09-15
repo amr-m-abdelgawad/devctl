@@ -44,12 +44,24 @@ export class LlmCoordinator {
     }
     this.running = true;
     for (const source of cfg.sources) {
+      // Push sources (e.g. proxy capture) receive calls out of band via the
+      // proxy sink; polling them would resolve a management hop they don't have.
+      if (this.isPushSource(source)) {
+        // Clear any error left over from when this name was a pull source, so a
+        // reconfigure to a push type does not leave a permanent stale error.
+        this.deps.store.clearSourceError(source.name);
+        continue;
+      }
       void this.pollSource(source);
       const ms = llmPollSeconds(source.poll_seconds) * MS_PER_SECOND;
       this.timers.set(source.name, setInterval(() => {
         void this.pollSource(source);
       }, ms));
     }
+  }
+
+  private isPushSource(source: LlmSourceConfig): boolean {
+    return this.deps.factory().lookup(source.type)?.mode === "push";
   }
 
   async stop(): Promise<void> {
@@ -69,6 +81,9 @@ export class LlmCoordinator {
       return;
     }
     const live = this.deps.cfg().llm.sources.find((item) => item.name === source.name) ?? source;
+    if (this.isPushSource(live)) {
+      return;
+    }
     try {
       const calls = await this.fetchSource(live);
       this.deps.store.clearSourceError(live.name);

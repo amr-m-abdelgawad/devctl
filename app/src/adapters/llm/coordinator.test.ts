@@ -170,4 +170,71 @@ describe("LlmCoordinator", () => {
     expect(llmSourceFactory().lookup("litellm")?.name).toBe("litellm");
     expect(llmSourceFactory().lookup("missing")).toBeUndefined();
   });
+
+  test("registers the builtin proxy push driver", () => {
+    const driver = llmSourceFactory().lookup("proxy");
+    expect(driver?.name).toBe("proxy");
+    expect(driver?.mode).toBe("push");
+  });
+
+  test("never polls a push-mode source (no fetch, no source error)", async () => {
+    let fetchCalled = false;
+    const cfg = defaultConfig();
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.route = "apigee-llm";
+    cfg.llm.enabled = true;
+    cfg.llm.sources = [source];
+    const store = new LlmCallManager();
+    const pushDriver: LlmSourceDriver = {
+      name: "proxy",
+      mode: "push",
+      capabilities: () => ({ hasBodies: true, hasCost: false, hasUsage: false, liveQuery: true }),
+      fetch: async () => {
+        fetchCalled = true;
+        return [];
+      },
+    };
+    const coord = new LlmCoordinator({
+      cfg: () => cfg,
+      store,
+      factory: () => ({ lookup: () => pushDriver }),
+      ports: () => new Map(),
+      log: () => undefined,
+    });
+    await coord.start();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await coord.stop();
+    expect(fetchCalled).toBe(false);
+    expect(store.sourceErrors()).toEqual([]);
+  });
+
+  test("clears a stale source error when a name becomes a push source", async () => {
+    const cfg = defaultConfig();
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.route = "apigee-llm";
+    cfg.llm.enabled = true;
+    cfg.llm.sources = [source];
+    const store = new LlmCallManager();
+    store.setSourceError("apigee-llm", "old litellm error", 401); // left over from a pull config
+    const pushDriver: LlmSourceDriver = {
+      name: "proxy",
+      mode: "push",
+      capabilities: () => ({ hasBodies: true, hasCost: false, hasUsage: false, liveQuery: true }),
+      fetch: async () => [],
+    };
+    const coord = new LlmCoordinator({
+      cfg: () => cfg,
+      store,
+      factory: () => ({ lookup: () => pushDriver }),
+      ports: () => new Map(),
+      log: () => undefined,
+    });
+    await coord.start();
+    await coord.stop();
+    expect(store.sourceErrors()).toEqual([]);
+  });
 });

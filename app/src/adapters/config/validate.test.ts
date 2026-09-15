@@ -413,13 +413,66 @@ describe("config validate", () => {
       management_service: "",
       management_port: "",
       auth: { type: "bearer", token_env: "", header: "" },
-      capture: { prompts: true },
+      capture: { prompts: true, max_bytes: 0 },
       poll_seconds: 0,
     }];
     const issues = validate(cfg);
-    expect(issues.some((issue) => issue.includes("type must be litellm"))).toBe(true);
+    expect(issues.some((issue) => issue.includes("type must be one of litellm, proxy"))).toBe(true);
     expect(issues.some((issue) => issue.includes("exactly one management hop"))).toBe(true);
     expect(issues.some((issue) => issue.includes("token_env is required"))).toBe(true);
+  });
+
+  test("accepts a proxy source that captures from an existing via.route", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    cfg.llm.sources = [{
+      name: "apigee-llm",
+      type: "proxy",
+      service: "",
+      port: "",
+      endpoint: "",
+      path_prefix: "",
+      headers: {},
+      via: { route: "apigee-llm" },
+      management_endpoint: "",
+      management_service: "",
+      management_port: "",
+      auth: { type: "", token_env: "", header: "" },
+      capture: { prompts: true, max_bytes: 0 },
+      poll_seconds: 0,
+    }];
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a proxy source with no via.route and with management/service fields", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.llm.enabled = true;
+    cfg.llm.sources = [{
+      name: "apigee-llm",
+      type: "proxy",
+      service: "litellm",
+      port: "",
+      endpoint: "",
+      path_prefix: "",
+      headers: {},
+      via: { route: "" },
+      management_endpoint: "http://127.0.0.1:4000",
+      management_service: "",
+      management_port: "",
+      auth: { type: "", token_env: "", header: "" },
+      capture: { prompts: true, max_bytes: 0 },
+      poll_seconds: 0,
+    }];
+    const issues = validate(cfg);
+    expect(issues.some((issue) => issue.includes("type proxy requires via.route"))).toBe(true);
+    expect(issues.some((issue) => issue.includes("must not set management_endpoint, service"))).toBe(true);
   });
 
   test("accepts a litellm source on a managed service and via.route with a separate management endpoint", () => {
@@ -445,7 +498,7 @@ describe("config validate", () => {
       management_service: "",
       management_port: "",
       auth: { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "x-litellm-api-key" },
-      capture: { prompts: true },
+      capture: { prompts: true, max_bytes: 0 },
       poll_seconds: 5,
     }];
     expect(validate(cfg)).toEqual([]);

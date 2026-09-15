@@ -1,8 +1,9 @@
 import type { LlmSourceDriver, LlmSourceFactory } from "../../ports/llm-source.ts";
 import { litellmDriver } from "./litellm.ts";
+import { proxyDriver } from "./proxy-driver.ts";
 
 export function llmSourceFactory(plugins: LlmSourceDriver[] = []): LlmSourceFactory {
-  const builtins = [litellmDriver()];
+  const builtins = [litellmDriver(), proxyDriver()];
   return {
     lookup(type: string) {
       const kind = type.toLowerCase();
