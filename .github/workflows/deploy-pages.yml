@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/**"
       - ".github/workflows/deploy-pages.yml"
+      - "CHANGELOG.md"
   # Allow manual runs from the Actions tab.
   workflow_dispatch:
 
