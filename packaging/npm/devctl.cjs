@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 "use strict";
 
-const { closeSync, openSync, readSync } = require("fs");
+const { closeSync, openSync, readSync, writeSync } = require("fs");
 const { resolve } = require("path");
 const { spawn } = require("child_process");
 
@@ -116,20 +116,36 @@ const TERMINAL_RESTORE_SEQUENCE =
 // This parent process survives the child's crash, so it is the one place that
 // can still un-raw the inherited TTY. A clean exit (code 0, no signal) means
 // the TUI already restored the terminal itself, so we leave it alone.
-function restoreTerminalAfterCrash(code, signal, streams) {
+//
+// The bytes are written synchronously to the terminal file descriptors, not
+// through process.stdout.write: a TTY stream write is asynchronous on Windows,
+// and the caller re-raises the child's fatal signal immediately afterwards, so
+// an async write could be dropped when the self-signal kills the wrapper before
+// it flushes. writeSync hands the bytes to the OS before we return, mirroring
+// restoreTerminalModes() in app/src/shared/terminal-restore.ts.
+function restoreTerminalAfterCrash(code, signal, options) {
   const crashed = Boolean(signal) || (typeof code === "number" && code !== 0);
   if (!crashed) {
     return false;
   }
-  const targets = streams !== undefined ? streams : [process.stdout, process.stderr];
+  const opts = options !== undefined ? options : {};
+  const write = opts.write !== undefined ? opts.write : writeSync;
+  const targets =
+    opts.targets !== undefined
+      ? opts.targets
+      : [
+          { fd: 1, isTTY: Boolean(process.stdout && process.stdout.isTTY) },
+          { fd: 2, isTTY: Boolean(process.stderr && process.stderr.isTTY) },
+        ];
+  const buffer = Buffer.from(TERMINAL_RESTORE_SEQUENCE);
   let wrote = false;
-  for (const stream of targets) {
-    if (stream && stream.isTTY && typeof stream.write === "function") {
+  for (const target of targets) {
+    if (target && target.isTTY) {
       try {
-        stream.write(TERMINAL_RESTORE_SEQUENCE);
+        write(target.fd, buffer);
         wrote = true;
       } catch (_) {
-        // stream already closed
+        // fd already closed
       }
     }
   }
