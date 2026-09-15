@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-16
+
 ### Added
 
 - LLM inspector records which service originated each call (`caller`): `X-Devctl-Service` (stripped before the upstream), loopback TCP peer mapped to a managed process, LiteLLM `metadata.service`, or a non-email OpenAI `user`. Shown in the TUI, CLI, MCP, and web list/detail.
@@ -468,7 +470,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.1...v0.9.0
