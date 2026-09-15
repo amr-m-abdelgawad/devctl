@@ -142,13 +142,14 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Filtered LLM call pages, secrets redacted",
     category: "inspect",
     description:
-      "Recent LLM calls from configured sources (LiteLLM spend logs first), optionally filtered. Capped at 200 per page. Secrets are redacted. Request and response bodies are omitted; use get_llm_call for a single call. Pass cursor=next_cursor to page toward older calls.",
+      "Recent LLM calls from configured sources (LiteLLM spend logs first), optionally filtered. Capped at 200 per page. Secrets are redacted. Request and response bodies are omitted; use get_llm_call for a single call. Each call includes caller when the originating service is known (X-Devctl-Service, loopback peer, or LiteLLM metadata). Pass cursor=next_cursor to page toward older calls.",
     inputSchema: {
       type: "object",
       properties: {
         source: { type: "string", description: "Configured llm.sources[].name" },
         source_type: { type: "string", description: "Driver type, e.g. litellm" },
         model: { type: "string" },
+        caller: { type: "string", description: "Service that originated the call" },
         status: { type: "string", description: "ok or error" },
         search: { type: "string" },
         since: { type: "string" },
@@ -640,6 +641,7 @@ export function mcpLlmCall(detector: Detector, call: LlmCall, bodies: boolean): 
     routed_model: shown.routedModel,
     vendor: shown.vendor,
     operation: shown.operation,
+    caller: shown.caller,
     usage: shown.usage
       ? {
           prompt_tokens: shown.usage.promptTokens,
@@ -665,6 +667,7 @@ export async function getLlmCalls(host: McpHost, args: Record<string, unknown>):
     source: nonempty(typeof args.source === "string" ? args.source : ""),
     sourceType: nonempty(typeof args.source_type === "string" ? args.source_type : ""),
     model: nonempty(typeof args.model === "string" ? args.model : ""),
+    caller: nonempty(typeof args.caller === "string" ? args.caller : ""),
     status: args.status === "ok" || args.status === "error" ? args.status : undefined,
     search: nonempty(typeof args.search === "string" ? args.search : ""),
     since: nonempty(typeof args.since === "string" ? args.since : ""),

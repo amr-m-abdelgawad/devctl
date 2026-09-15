@@ -10,6 +10,9 @@ export function matchesLlmCall(filter: LlmCallFilter, call: LlmCall): boolean {
   if (filter.model && call.model !== filter.model && call.routedModel !== filter.model) {
     return false;
   }
+  if (filter.caller && call.caller !== filter.caller) {
+    return false;
+  }
   if (filter.status && call.status !== filter.status) {
     return false;
   }
@@ -36,6 +39,7 @@ export function llmCallSearchText(call: LlmCall): string {
   const parts = [
     call.id,
     call.source,
+    call.caller ?? "",
     call.model,
     call.routedModel ?? "",
     call.error ?? "",

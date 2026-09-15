@@ -176,6 +176,25 @@ export type ServiceEnvEntry = {
   fromConfig: boolean;
 };
 
+export const ENV_KEY_MIN = 8;
+export const ENV_KEY_MAX = 32;
+export const ENV_VALUE_MIN = 8;
+const ENV_REQUIRED_MARK = 1;
+const ENV_KEY_PAD = 1;
+
+export function envDisplayValue(value: string): string {
+  return value.replace(/[\r\n\t]+/g, " ");
+}
+
+export function envTableWidths(keys: readonly string[], paneWidth: number): { key: number; value: number } {
+  const inner = Math.max(2, paneWidth);
+  const longest = keys.reduce((max, name) => Math.max(max, name.length + ENV_REQUIRED_MARK), 0);
+  const wanted = Math.min(ENV_KEY_MAX, Math.max(ENV_KEY_MIN, longest + ENV_KEY_PAD));
+  const valueFloor = Math.min(ENV_VALUE_MIN, Math.max(1, inner - 1));
+  const key = Math.min(wanted, inner - valueFloor);
+  return { key, value: inner - key };
+}
+
 export function serviceEnvEntries(
   svc: ServiceConfig,
   reveal: boolean,

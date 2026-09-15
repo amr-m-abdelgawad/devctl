@@ -45,6 +45,7 @@ See [config pipeline](config-pipeline.md). Entry barrel: `index.ts` (re-exports 
 | File | Role |
 |------|------|
 | `processes.ts` | `ProcessManager implements ProcessRuntime`; spawn via `Bun.spawn`; adopt; `runOnce`; delegates containers |
+| `peer-caller.ts` | Map a loopback TCP peer port to a managed service (lsof/netstat owner pid, parent walk, pgid) for LLM caller attribution |
 | `unix.ts` | Process inspect, tree kill, `vm_stat` samples, command matching |
 | `windows.ts` | Same for Windows (WMIC/CIM, named-pipe world) |
 

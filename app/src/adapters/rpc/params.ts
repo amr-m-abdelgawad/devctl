@@ -43,6 +43,7 @@ export function asLlmCallFilter(rec: Record<string, unknown>): LlmCallFilter {
     source: nonemptyString(rec.source),
     sourceType: nonemptyString(rec.sourceType) ?? nonemptyString(rec.source_type),
     model: nonemptyString(rec.model),
+    caller: nonemptyString(rec.caller),
     status: asLlmStatus(typeof rec.status === "string" ? rec.status : ""),
     search: nonemptyString(rec.search),
     since: nonemptyString(rec.since),

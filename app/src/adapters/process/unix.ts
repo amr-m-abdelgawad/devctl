@@ -28,13 +28,13 @@ export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity |
   if (!processAlive(pid)) {
     return undefined;
   }
-  const command = await capture(["ps", "-p", String(pid), "-o", "command="]);
+  const command = await captureProcessOutput(["ps", "-p", String(pid), "-o", "command="]);
   // BSD/Linux `ps lstart` has no timezone suffix. Date.parse therefore
   // interprets it in the JS process's TZ, which may differ from the host TZ
   // used by ps (for example a daemon launched with TZ=UTC on a Cairo host).
   // `etime` is an elapsed duration and is timezone-independent.
   const sampledAt = Date.now();
-  const elapsed = parseElapsedMillis(await capture(["ps", "-p", String(pid), "-o", "etime="]));
+  const elapsed = parseElapsedMillis(await captureProcessOutput(["ps", "-p", String(pid), "-o", "etime="]));
   const cwd = await cwdOf(pid);
   return {
     pid,
@@ -73,12 +73,12 @@ export function parseElapsedMillis(text: string): number | undefined {
 }
 
 async function cwdOf(pid: number): Promise<string> {
-  const lsof = await capture(["lsof", "-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
+  const lsof = await captureProcessOutput(["lsof", "-a", "-p", String(pid), "-d", "cwd", "-Fn"]);
   const line = lsof.split("\n").find((row) => row.startsWith("n"));
   if (line && line.length > 1) {
     return line.slice(1).trim();
   }
-  const pwdx = await capture(["pwdx", String(pid)]);
+  const pwdx = await captureProcessOutput(["pwdx", String(pid)]);
   const idx = pwdx.indexOf(":");
   if (idx >= 0) {
     return pwdx.slice(idx + 1).trim();
@@ -86,7 +86,7 @@ async function cwdOf(pid: number): Promise<string> {
   return "";
 }
 
-async function capture(cmd: string[]): Promise<string> {
+export async function captureProcessOutput(cmd: string[]): Promise<string> {
   try {
     const proc = spawn({ cmd, stdout: "pipe", stderr: "ignore" });
     const text = proc.stdout ? await new Response(proc.stdout).text() : "";
@@ -104,7 +104,7 @@ export async function sampleResourceUsageUnix(pids: number[]): Promise<Map<numbe
   if (pids.length === 0) {
     return result;
   }
-  const out = await capture(["ps", "-o", "pid=,pcpu=,rss=", "-p", pids.join(",")]);
+  const out = await captureProcessOutput(["ps", "-o", "pid=,pcpu=,rss=", "-p", pids.join(",")]);
   for (const line of out.split("\n")) {
     const trimmed = line.trim();
     if (trimmed === "") {

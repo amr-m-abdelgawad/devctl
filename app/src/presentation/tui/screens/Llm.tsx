@@ -2,16 +2,17 @@ import type { DevctlConfig } from "../../../domain/config/types.ts";
 import type { LlmCall, LlmCallPage } from "../../../domain/llm/llm.ts";
 import { EmptyState } from "../chrome.tsx";
 import { clipText, padClip } from "../helpers/format.ts";
-import { formatLlmCost, formatLlmDuration, formatLlmTokens } from "../helpers/llm.ts";
+import { formatLlmCaller, formatLlmCost, formatLlmDuration, formatLlmTokens } from "../helpers/llm.ts";
 import { MetaBar, ScreenFrame, scrollboxStyle } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
 const TIME_COL = 9;
 const STATUS_COL = 6;
+const CALLER_COL = 12;
 const DUR_COL = 8;
 const TOK_COL = 7;
 const COST_COL = 10;
-const MODEL_MIN = 12;
+const MODEL_MIN = 10;
 
 function statusColor(palette: Palette, status: LlmCall["status"]): string {
   return status === "error" ? palette.error : palette.success;
@@ -26,7 +27,7 @@ function CallRow(props: {
   onOpen: () => void;
 }) {
   const { palette, call, selected, width, onPick, onOpen } = props;
-  const modelWidth = Math.max(MODEL_MIN, width - TIME_COL - STATUS_COL - DUR_COL - TOK_COL - COST_COL - 8);
+  const modelWidth = Math.max(MODEL_MIN, width - TIME_COL - STATUS_COL - CALLER_COL - DUR_COL - TOK_COL - COST_COL - 9);
   return (
     <box
       height={1}
@@ -40,6 +41,7 @@ function CallRow(props: {
     >
       <text fg={palette.muted}>{padClip(call.timestamp.slice(11, 19) || call.timestamp, TIME_COL)}</text>
       <text fg={statusColor(palette, call.status)}>{padClip(call.status, STATUS_COL)}</text>
+      <text fg={palette.text}>{padClip(formatLlmCaller(call.caller), CALLER_COL)}</text>
       <text fg={palette.text}>{padClip(call.model, modelWidth)}</text>
       <text fg={palette.muted}>{padClip(formatLlmDuration(call.durationMs), DUR_COL)}</text>
       <text fg={palette.muted}>{padClip(formatLlmTokens(call.usage), TOK_COL)}</text>

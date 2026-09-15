@@ -1140,6 +1140,28 @@ describe("proxy LLM capture", () => {
     }
   });
 
+  test("records X-Devctl-Service as caller and does not forward it upstream", async () => {
+    let seenCallerHeader: string | undefined;
+    const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {
+      seenCallerHeader = req.headers["x-devctl-service"] as string | undefined;
+      res.setHeader("content-type", "application/json");
+      res.end(chatResponse);
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-devctl-service": "worker" },
+        body: chatBody,
+      });
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      await waitUntil(() => store.get(requestId) !== undefined);
+      expect(seenCallerHeader).toBeUndefined();
+      expect(store.get(requestId)?.caller).toBe("worker");
+    } finally {
+      await close();
+    }
+  });
+
   test("leaves an untagged route byte-identical and captures nothing", async () => {
     let receivedBody = "";
     const { proxyPort, store, close } = await setupCaptureProxy((req, res) => {

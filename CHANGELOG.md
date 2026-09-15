@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- LLM inspector records which service originated each call (`caller`): `X-Devctl-Service` (stripped before the upstream), loopback TCP peer mapped to a managed process, LiteLLM `metadata.service`, or a non-email OpenAI `user`. Shown in the TUI, CLI, MCP, and web list/detail.
+
+### Fixed
+
+- TUI services env pane is a clipped key/value table so long or multiline values no longer wrap into the next row. Click a variable for the full value.
+- LLM inspector no longer masks usage counts (`prompt_tokens`, `completion_tokens`, `max_tokens`) as secrets. TUI `/reveal` still only unmasks service env — payload redaction happens at ingest and cannot be undone.
+
 ## [0.11.0] - 2026-09-16
 
 ### Added

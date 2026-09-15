@@ -4,8 +4,20 @@ import { dependencyLabel,type DevctlConfig } from "../../../domain/config/types.
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { clipText,padClip } from "../helpers/format.ts";
-import { firstPort,serviceCommandText,serviceEnvEntries,serviceHealthText,serviceIdentityText,serviceLineState,servicePortsText,serviceRestartText,type ServiceEnvEntry } from "../helpers/services.ts";
+import { clipText, padClip } from "../helpers/format.ts";
+import {
+  envDisplayValue,
+  envTableWidths,
+  firstPort,
+  serviceCommandText,
+  serviceEnvEntries,
+  serviceHealthText,
+  serviceIdentityText,
+  serviceLineState,
+  servicePortsText,
+  serviceRestartText,
+  type ServiceEnvEntry,
+} from "../helpers/services.ts";
 import { KeyHints,MetaBar,type ChipTone } from "../layout.tsx";
 import { serviceColor,type Palette } from "../themes.ts";
 
@@ -250,9 +262,11 @@ function EnvPane(props: {
       ) : (
         <box flexGrow={1} height="100%" overflow="hidden">
           {onSelect ? (
-            <text fg={palette.muted} wrapMode="word">
-              click a variable for its full value
-            </text>
+            <box height={1} flexShrink={0} overflow="hidden">
+              <text fg={palette.muted} wrapMode="none">
+                {clipText("click a variable for its full value", Math.max(8, width - 4))}
+              </text>
+            </box>
           ) : null}
           <scrollbox
             ref={scrollRef}
@@ -268,23 +282,75 @@ function EnvPane(props: {
               },
             }}
           >
-            <box flexDirection="column" overflow="hidden">
-              {entries.map((entry) => {
-                const keyFg = entry.required ? palette.warning : entry.fromConfig ? palette.accent : palette.muted;
-                const valueText = entry.value === "" && entry.required ? "(required)" : entry.value;
-                return (
-                  <box key={entry.key} flexDirection="row" overflow="hidden" onMouseDown={onSelect ? () => onSelect(entry) : undefined}>
-                    <text wrapMode="word">
-                      <span fg={keyFg}>{entry.required ? `${entry.key}*` : entry.key}</span>
-                      <span fg={entry.value === "" ? palette.muted : palette.text}>{` ${valueText}`}</span>
-                    </text>
-                  </box>
-                );
-              })}
-            </box>
+            <EnvTable palette={palette} entries={entries} width={width} onSelect={onSelect} />
           </scrollbox>
         </box>
       )}
+    </box>
+  );
+}
+
+function EnvTable(props: {
+  palette: Palette;
+  entries: ServiceEnvEntry[];
+  width: number;
+  onSelect?: (entry: ServiceEnvEntry) => void;
+}) {
+  const { palette, entries, width, onSelect } = props;
+  const cols = envTableWidths(entries.map((entry) => entry.key), Math.max(8, width - 4));
+  return (
+    <box flexDirection="column" overflow="hidden">
+      <EnvRow
+        keyWidth={cols.key}
+        valueWidth={cols.value}
+        keyText="key"
+        valueText="value"
+        keyFg={palette.muted}
+        valueFg={palette.muted}
+      />
+      {entries.map((entry) => {
+        const keyFg = entry.required ? palette.warning : entry.fromConfig ? palette.accent : palette.muted;
+        const raw = entry.value === "" && entry.required ? "(required)" : envDisplayValue(entry.value);
+        const empty = entry.value === "";
+        return (
+          <EnvRow
+            key={entry.key}
+            keyWidth={cols.key}
+            valueWidth={cols.value}
+            keyText={entry.required ? `${entry.key}*` : entry.key}
+            valueText={raw}
+            keyFg={keyFg}
+            valueFg={empty ? palette.muted : palette.text}
+            onMouseDown={onSelect ? () => onSelect(entry) : undefined}
+          />
+        );
+      })}
+    </box>
+  );
+}
+
+function EnvRow(props: {
+  keyWidth: number;
+  valueWidth: number;
+  keyText: string;
+  valueText: string;
+  keyFg: string;
+  valueFg: string;
+  onMouseDown?: () => void;
+}) {
+  const { keyWidth, valueWidth, keyText, valueText, keyFg, valueFg, onMouseDown } = props;
+  return (
+    <box height={1} flexShrink={0} flexDirection="row" overflow="hidden" onMouseDown={onMouseDown}>
+      <box width={keyWidth} flexShrink={0} overflow="hidden">
+        <text fg={keyFg} wrapMode="none">
+          {padClip(keyText, keyWidth)}
+        </text>
+      </box>
+      <box width={valueWidth} flexShrink={0} overflow="hidden">
+        <text fg={valueFg} wrapMode="none">
+          {padClip(valueText, valueWidth)}
+        </text>
+      </box>
     </box>
   );
 }

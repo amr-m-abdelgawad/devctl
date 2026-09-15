@@ -4,7 +4,14 @@ import {
   type DevctlConfig,
   type LlmSourceConfig,
 } from "../../domain/config/types.ts";
+import {
+  callerFromCompletionRequest,
+  callerFromHeaders,
+  headerValueIgnoreCase,
+  normalizeLlmCaller,
+} from "../../domain/llm/caller.ts";
 import { stripLlmBodies } from "../../domain/llm/llm.ts";
+import { isLoopbackPeer } from "../../domain/net/hosts.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
 import type {
   LlmCaptureBegin,
@@ -12,6 +19,7 @@ import type {
   LlmCaptureRecorder,
   LlmCaptureSink,
 } from "../../ports/llm-capture.ts";
+import { parseJsonish } from "./json.ts";
 import { mapProxyCapture } from "./proxy-capture-map.ts";
 
 // Paths whose POST traffic is treated as an OpenAI-compatible completion.
@@ -23,10 +31,13 @@ import { mapProxyCapture } from "./proxy-capture-map.ts";
 // never store an empty or mis-parsed body.
 const COMPLETION_PATH_HINTS = ["/completions", "/embeddings"];
 
+export type LlmCallerLookup = (peer: { address: string; port: number }) => Promise<string | undefined>;
+
 export type ProxyCaptureSinkDeps = {
   cfg: () => DevctlConfig;
   store: LlmCallStore;
   log?: (message: string) => void;
+  lookupCaller?: LlmCallerLookup;
 };
 
 export class ProxyCaptureSink implements LlmCaptureSink {
@@ -112,12 +123,17 @@ class Recorder implements LlmCaptureRecorder {
     return true;
   }
 
-  finish(meta: LlmCaptureFinish): void {
+  finish(meta: LlmCaptureFinish): void | Promise<void> {
     if (this.done) {
       return;
     }
     this.done = true;
+    return this.persist(meta);
+  }
+
+  private async persist(meta: LlmCaptureFinish): Promise<void> {
     try {
+      const requestBody = this.requestBody?.toString("utf8");
       const ingest = mapProxyCapture({
         source: this.source.name,
         route: this.begin.routeName,
@@ -128,16 +144,51 @@ class Recorder implements LlmCaptureRecorder {
         requestId: meta.requestId,
         traceId: meta.traceId,
         timestamp: meta.timestamp,
-        requestBody: this.requestBody?.toString("utf8"),
+        requestBody,
         requestOmitted: this.requestOmitted,
         responseBody: this.responseChunks.length > 0 ? Buffer.concat(this.responseChunks).toString("utf8") : undefined,
         responseTruncated: this.responseTruncated,
         responseContentType: this.responseContentType,
+        caller: await resolveCaller(this.begin, requestBody, this.deps),
       });
       this.deps.store.upsert([this.source.capture.prompts ? ingest : stripLlmBodies(ingest)]);
     } catch (err) {
       this.deps.log?.(`llm proxy capture ${this.source.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+}
+
+async function resolveCaller(
+  begin: LlmCaptureBegin,
+  requestBody: string | undefined,
+  deps: ProxyCaptureSinkDeps,
+): Promise<string | undefined> {
+  const fromHeader = callerFromHeaders(begin.requestHeaders);
+  if (fromHeader !== undefined) {
+    return fromHeader;
+  }
+  const peer = begin.peer;
+  const lookup = deps.lookupCaller;
+  if (peer && lookup && isLoopbackPeer(peer.address)) {
+    const fromPeer = await lookupCallerSafe(lookup, peer, deps);
+    if (fromPeer !== undefined) {
+      return fromPeer;
+    }
+  }
+  return callerFromCompletionRequest(parseJsonish(requestBody));
+}
+
+async function lookupCallerSafe(
+  lookup: LlmCallerLookup,
+  peer: { address: string; port: number },
+  deps: ProxyCaptureSinkDeps,
+): Promise<string | undefined> {
+  try {
+    const found = await lookup(peer);
+    return found === undefined ? undefined : normalizeLlmCaller(found);
+  } catch (err) {
+    deps.log?.(`llm caller lookup: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
   }
 }
 
@@ -147,19 +198,5 @@ function isCompletionPath(path: string): boolean {
 }
 
 function contentTypeIsJson(headers: Record<string, string>): boolean {
-  return headerValue(headers, "content-type").toLowerCase().includes("application/json");
-}
-
-function headerValue(headers: Record<string, string>, name: string): string {
-  const direct = headers[name];
-  if (direct !== undefined) {
-    return direct;
-  }
-  const lower = name.toLowerCase();
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === lower) {
-      return value;
-    }
-  }
-  return "";
+  return headerValueIgnoreCase(headers, "content-type").toLowerCase().includes("application/json");
 }

@@ -10,6 +10,9 @@ export type LlmCaptureBegin = {
   method: string;
   path: string;
   requestHeaders: Record<string, string>;
+  // Loopback TCP peer of the inbound socket, used to map the call back to a
+  // managed service when the client did not send X-Devctl-Service.
+  peer?: { address: string; port: number };
 };
 
 export type LlmCaptureFinish = {
@@ -38,8 +41,9 @@ export type LlmCaptureRecorder = {
   // proxy can stop copying (it keeps forwarding the full body regardless).
   appendResponse(chunk: Buffer): boolean;
   // Terminal: emit exactly one ingest. Must tolerate a half-empty recorder
-  // (no request body, no response body, status 502) and never throw.
-  finish(meta: LlmCaptureFinish): void;
+  // (no request body, no response body, status 502) and never throw. May be
+  // async when caller attribution looks up the peer process.
+  finish(meta: LlmCaptureFinish): void | Promise<void>;
 };
 
 export type LlmCaptureSink = {

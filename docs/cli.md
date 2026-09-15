@@ -55,7 +55,7 @@ devctl update [--json] [--check]
 - `status` also prints proxy, MCP, and WEB listen lines when a supervisor is up.
 - `status --watch` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (`ctrl+c`).
 - `logs -f` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details.
-- `devctl llm` lists recent LLM calls from configured `llm.sources` (LiteLLM spend logs first). `--follow` polls until interrupted. `devctl llm show <id>` prints one call including redacted bodies. See [LLM inspector](llm.md).
+- `devctl llm` lists recent LLM calls from configured `llm.sources` (LiteLLM spend logs first). `--caller` filters by originating service. `--follow` polls until interrupted. `devctl llm show <id>` prints one call including redacted bodies. See [LLM inspector](llm.md).
 - `devctl daemon logs [-f]` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when `start`/`attach` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. `-f` follows it live the same way `logs -f` does. The TUI equivalent is `/daemon`.
 
 `devctl attach` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run `devctl start` first.

@@ -1,11 +1,38 @@
 import type { LlmUsage } from "../../../domain/llm/llm.ts";
 
 export function formatLlmTokens(usage?: LlmUsage): string {
+  const total = llmTokenTotal(usage);
+  return total === undefined ? "—" : String(total);
+}
+
+export function formatLlmTokenBreakdown(usage?: LlmUsage): string {
   if (!usage) {
     return "—";
   }
+  const parts: string[] = [];
+  if (usage.promptTokens !== undefined) {
+    parts.push(`prompt ${usage.promptTokens}`);
+  }
+  if (usage.completionTokens !== undefined) {
+    parts.push(`completion ${usage.completionTokens}`);
+  }
+  const total = llmTokenTotal(usage);
+  if (total !== undefined) {
+    parts.push(`total ${total}`);
+  }
+  return parts.length > 0 ? parts.join("  ") : "—";
+}
+
+function llmTokenTotal(usage?: LlmUsage): number | undefined {
+  if (!usage) {
+    return undefined;
+  }
   const total = usage.totalTokens ?? ((usage.promptTokens ?? 0) + (usage.completionTokens ?? 0));
-  return total > 0 ? String(total) : "—";
+  return total > 0 ? total : undefined;
+}
+
+export function formatLlmCaller(caller?: string): string {
+  return caller && caller.trim() !== "" ? caller : "—";
 }
 
 export function formatLlmCost(cost?: number): string {

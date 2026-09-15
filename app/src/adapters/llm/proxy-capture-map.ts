@@ -32,6 +32,7 @@ export type ProxyCaptureInput = {
   responseBody?: string;
   responseTruncated?: boolean;
   responseContentType: string;
+  caller?: string;
 };
 
 // Map a captured OpenAI-compatible completion (JSON or reassembled SSE) into the
@@ -65,6 +66,7 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
     operation: operationFor(input.path, reqRec),
     usage: usageOf(respRec),
     cost: undefined,
+    caller: input.caller,
     request: input.requestOmitted ? undefined : (request ?? undefined),
     response: response ?? undefined,
     attributes: {

@@ -50,6 +50,7 @@ function LlmList(props: { payload?: LlmCallsPayload }) {
             <TableRow>
               <TableHead>Time</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead>Caller</TableHead>
               <TableHead>Model</TableHead>
               <TableHead className="text-right">Latency</TableHead>
               <TableHead className="text-right">Tokens</TableHead>
@@ -64,6 +65,7 @@ function LlmList(props: { payload?: LlmCallsPayload }) {
                 <TableCell>
                   <Badge variant={call.status === "error" ? "destructive" : "muted"}>{call.status}</Badge>
                 </TableCell>
+                <TableCell className="text-muted-foreground">{call.caller || "—"}</TableCell>
                 <TableCell>
                   <a href={hrefFor("llm", call.id)} className="text-foreground hover:underline">{call.model}</a>
                 </TableCell>
@@ -98,6 +100,7 @@ function LlmDetail(props: { call: LlmCallRow }) {
       <dl className="flex flex-col divide-y divide-border/50 text-xs">
         <Kv label="id" value={call.id} />
         <Kv label="source" value={`${call.source} (${call.source_type})`} />
+        <Kv label="caller" value={call.caller || "—"} />
         <Kv label="model" value={call.model} />
         {call.routed_model ? <Kv label="routed" value={call.routed_model} /> : null}
         {call.vendor ? <Kv label="vendor" value={call.vendor} /> : null}

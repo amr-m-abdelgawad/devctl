@@ -1,3 +1,4 @@
+import { callerFromSpendLog } from "../../domain/llm/caller.ts";
 import {
   LLM_OPERATION_CHAT,
   LLM_OPERATION_COMPLETION,
@@ -58,6 +59,7 @@ export function mapSpendLogRow(source: string, row: Record<string, unknown>, cap
     operation: operationFor(callType),
     usage: usageOf(row),
     cost: firstNumber(row, ["spend", "response_cost", "cost"]),
+    caller: callerFromSpendLog(row, metadata),
     request: capturePrompts ? messages : undefined,
     response: capturePrompts ? dropEmptyBody(response) : undefined,
     attributes: {

@@ -43,7 +43,7 @@ export class Detector {
 
   isSecretName(name: string): boolean {
     const upper = name.toUpperCase();
-    return this.nameMarkers.some((marker) => upper.includes(marker.toUpperCase()));
+    return this.nameMarkers.some((marker) => nameContainsMarker(upper, marker.toUpperCase()));
   }
 
   redactValue(name: string, value: string): string {
@@ -77,6 +77,33 @@ export class Detector {
     }
     return redactKnownTokens(out);
   }
+}
+
+// Match a marker as a delimited token (`API_TOKEN`, `x-token`) rather than a
+// substring of a longer word — `prompt_tokens` contains TOKEN inside TOKENS.
+function nameContainsMarker(upperName: string, marker: string): boolean {
+  if (upperName === marker) {
+    return true;
+  }
+  let from = 0;
+  while (from <= upperName.length - marker.length) {
+    const idx = upperName.indexOf(marker, from);
+    if (idx < 0) {
+      return false;
+    }
+    const beforeOk = idx === 0 || isNameDelimiter(upperName[idx - 1] ?? "");
+    const afterIdx = idx + marker.length;
+    const afterOk = afterIdx >= upperName.length || isNameDelimiter(upperName[afterIdx] ?? "");
+    if (beforeOk && afterOk) {
+      return true;
+    }
+    from = idx + 1;
+  }
+  return false;
+}
+
+function isNameDelimiter(ch: string): boolean {
+  return ch === "_" || ch === "-" || ch === "." || ch === "/" || ch === ":";
 }
 
 const GOOGLE_ACCESS_RE = /ya29\.[A-Za-z0-9_-]+/g;

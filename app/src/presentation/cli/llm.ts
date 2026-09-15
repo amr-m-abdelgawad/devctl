@@ -20,9 +20,13 @@ function formatDuration(call: LlmCall): string {
   return `${call.durationMs}ms`;
 }
 
+function formatCaller(call: LlmCall): string {
+  return call.caller && call.caller.trim() !== "" ? call.caller : "—";
+}
+
 export function formatLlmCallLine(call: LlmCall): string {
   const time = call.timestamp.slice(11, 19) || call.timestamp;
-  return `${time} ${call.status.padEnd(5)} ${call.model.padEnd(24)} ${formatDuration(call).padEnd(8)} ${formatTokens(call).padEnd(6)} ${formatCost(call).padEnd(10)} ${call.source} ${call.id}\n`;
+  return `${time} ${call.status.padEnd(5)} ${formatCaller(call).padEnd(14)} ${call.model.padEnd(24)} ${formatDuration(call).padEnd(8)} ${formatTokens(call).padEnd(6)} ${formatCost(call).padEnd(10)} ${call.source} ${call.id}\n`;
 }
 
 export async function followLlmCalls(
@@ -57,6 +61,7 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
   const llm = root.command("llm").description("inspect LLM calls from configured sources");
   llm
     .option("--source <name>", "filter by llm source name")
+    .option("--caller <name>", "filter by originating service")
     .option("--model <name>", "filter by requested or routed model")
     .option("--status <status>", "ok or error")
     .option("--search <text>", "substring search")
@@ -66,6 +71,7 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
     .option("-f, --follow", "keep printing new matching calls until interrupted")
     .action(async (opts: {
       source?: string;
+      caller?: string;
       model?: string;
       status?: string;
       search?: string;
@@ -78,6 +84,7 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
       try {
         const filter: LlmCallFilter = {
           source: opts.source,
+          caller: opts.caller,
           model: opts.model,
           status: opts.status === "ok" || opts.status === "error" ? opts.status : undefined,
           search: opts.search,
@@ -129,6 +136,7 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
           return;
         }
         writeOut(formatLlmCallLine(call));
+        writeOut(`caller    ${formatCaller(call)}\n`);
         if (call.error) {
           writeOut(`error     ${call.error}\n`);
         }

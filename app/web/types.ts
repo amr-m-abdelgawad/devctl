@@ -142,6 +142,7 @@ export type LlmCallRow = {
   routed_model?: string;
   vendor?: string;
   operation: string;
+  caller?: string;
   usage?: LlmUsageRow;
   cost?: number;
   request?: unknown;

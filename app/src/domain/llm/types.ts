@@ -39,6 +39,7 @@ export type LlmCall = {
   routedModel?: string;
   vendor?: string;
   operation: LlmOperation;
+  caller?: string;
   usage?: LlmUsage;
   cost?: number;
   request?: unknown;
@@ -54,6 +55,7 @@ export type LlmCallFilter = {
   source?: string;
   sourceType?: string;
   model?: string;
+  caller?: string;
   status?: LlmCallStatus;
   search?: string;
   since?: string;

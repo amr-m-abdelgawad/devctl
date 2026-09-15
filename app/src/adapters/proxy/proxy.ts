@@ -15,6 +15,7 @@ import { applyExtraAuthHeaders, mintAuthToken } from "../http/identity.ts";
 import { type TokenManager, isTokenMintRateLimited, TOKEN_MINT_WINDOW_MS } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
+import { isLlmCallerHeader } from "../../domain/llm/caller.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
@@ -446,7 +447,10 @@ export class ProxyServer {
       const upstream = resolveProxyTarget(this.upstreamBase(route), path);
       // Best-effort: undefined for untagged traffic, which keeps the original
       // streamed request body / non-teed response path byte-for-byte.
-      recorder = this.beginCapture(route.name, method, path, headers);
+      // Snapshot headers: the forwarded map is mutated below (caller header
+      // stripped, identity injected) and must not rewrite the captured request.
+      recorder = this.beginCapture(route.name, method, path, headers, req);
+      stripLlmCallerHeaders(headers);
       const prepared = await this.prepareRequestBody(req, method, recorder);
       const resp = await fetch(upstream, {
         method,
@@ -521,7 +525,7 @@ export class ProxyServer {
       writePlain(res, 502, "proxy error");
     } finally {
       this.recordProxyHit(method, recordedPath, route.name, requestID, started, status, identityKey, errorDetail, ctx);
-      this.finishCapture(recorder, status, started, requestID, ctx);
+      await this.finishCapture(recorder, status, started, requestID, ctx);
     }
   }
 
@@ -611,12 +615,24 @@ export class ProxyServer {
     });
   }
 
-  private beginCapture(routeName: string, method: string, path: string, headers: Record<string, string>): LlmCaptureRecorder | undefined {
+  private beginCapture(
+    routeName: string,
+    method: string,
+    path: string,
+    headers: Record<string, string>,
+    req: IncomingMessage,
+  ): LlmCaptureRecorder | undefined {
     if (!this.capture) {
       return undefined;
     }
     try {
-      const recorder = this.capture.begin({ routeName, method, path, requestHeaders: headers });
+      const recorder = this.capture.begin({
+        routeName,
+        method,
+        path,
+        requestHeaders: { ...headers },
+        peer: capturePeer(req),
+      });
       return recorder ? safeRecorder(recorder) : undefined;
     } catch {
       return undefined;
@@ -648,18 +664,18 @@ export class ProxyServer {
     return { body: req as unknown as BodyInit, duplex: "half" };
   }
 
-  private finishCapture(
+  private async finishCapture(
     recorder: LlmCaptureRecorder | undefined,
     status: number,
     started: number,
     requestID: string,
     ctx: { traceId?: string },
-  ): void {
+  ): Promise<void> {
     if (!recorder) {
       return;
     }
     try {
-      recorder.finish({
+      await recorder.finish({
         status: status || 502,
         durationMs: Date.now() - started,
         requestId: requestID,
@@ -768,6 +784,22 @@ function readRequestBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
+function capturePeer(req: IncomingMessage): { address: string; port: number } | undefined {
+  const port = req.socket.remotePort;
+  if (!Number.isInteger(port) || port === undefined || port <= 0) {
+    return undefined;
+  }
+  return { address: req.socket.remoteAddress ?? "", port };
+}
+
+function stripLlmCallerHeaders(headers: Record<string, string>): void {
+  for (const key of Object.keys(headers)) {
+    if (isLlmCallerHeader(key)) {
+      delete headers[key];
+    }
+  }
+}
+
 // Wrap a capture recorder so no method it defines — including a throwing
 // property getter for maxBytes — can ever escape into the proxy request path.
 // Capture is strictly best-effort; the proxied request must be unaffected.
@@ -803,9 +835,9 @@ function safeRecorder(inner: LlmCaptureRecorder): LlmCaptureRecorder {
     },
     finish: (meta) => {
       try {
-        inner.finish(meta);
+        return inner.finish(meta);
       } catch {
-        // best-effort
+        return undefined;
       }
     },
   };

@@ -85,13 +85,13 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 ![The services screen — the list on the left, a live inspector on the right with status chips, two-column facts, and a scrollable resolved-env pane (secrets redacted)](assets/manual/tui-services.png)
 
 - **Dashboard** — services, proxy, live log tail. Identity lives on `/auth`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
-- **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
+- **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env table (key column + clipped value; dotenv, profile, secrets, plugins, runtime ports). Click a row for the full value. Narrow terminals stack the panes. `enter` opens the full detail screen
 - **Service detail** — same inspector; env pane is focused so `j`/`k` scroll. `/reveal` shows secrets. `n`/`x`/`R`/`l`
 - **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. `w` cycles wrap all / clip / wrap selected. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); request paths wrap in the live feed. **REQ** is the full request when a trace exists; **HOP** is the proxy hop (same split as the web UI). Click a route for full details. `n` start / `x` stop. If `proxy.listen.port` is missing, the screen says so and `n` reports the bind error in the status bar instead of crashing
-- **LLM** — recent calls from configured `llm.sources` (model, status, tokens, cost, latency). `enter` opens detail (messages, usage, attributes); `enter` again jumps to a trace when one is present. See [LLM inspector](llm.md)
+- **LLM** — recent calls from configured `llm.sources` (caller, model, status, tokens, cost, latency). `enter` opens detail (messages, usage, attributes); `enter` again jumps to a trace when one is present. Usage counts (`prompt_tokens`, `max_tokens`) are not secrets. `/reveal` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. `enter` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. `r` reruns
 - **Config** — merged view including **tasks**. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/diff` shows provenance (`devctl config diff`). `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
@@ -99,7 +99,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Settings** — grouped prefs: theme, display size, mouse, leader timeout, **MCP settings page**, about, reset. `←`/`→` writes the highlighted cycle or toggles mouse. Reset asks before restoring defaults. Saves to `~/.devctl/tui.json` unless `DEVCTL_TUI_CONFIG` is set
 - **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked `read` or `write`; `space` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
-`/reveal` toggles secret env values for this session only. The header shows `secrets shown`.
+`/reveal` toggles secret env values for this session only. The header shows `secrets shown`. It does not restore log lines or LLM request/response bodies; those are redacted when stored.
 
 ## Slash commands
 

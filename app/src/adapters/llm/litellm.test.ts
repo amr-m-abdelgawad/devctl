@@ -31,6 +31,7 @@ describe("litellm spend log mapper", () => {
     expect(call?.cost).toBe(0.000002);
     expect(call?.usage).toEqual({ promptTokens: 20, completionTokens: 80, totalTokens: 100 });
     expect(call?.durationMs).toBe(1250);
+    expect(call?.caller).toBeUndefined();
     expect(call?.request).toEqual({ messages: [{ role: "user", content: "hi" }] });
     expect(call?.response).toBeUndefined();
   });
@@ -40,6 +41,15 @@ describe("litellm spend log mapper", () => {
     expect(call?.status).toBe(LLM_STATUS_ERROR);
     expect(call?.error).toBe("boom");
     expect(call?.request).toBeUndefined();
+  });
+
+  test("maps metadata.service as caller and ignores an email user", () => {
+    const [tagged] = mapLiteLlmSpendLogs("platform", [{ ...sample, metadata: { ...sample.metadata, service: "worker" } }], false);
+    expect(tagged?.caller).toBe("worker");
+    const [emailed] = mapLiteLlmSpendLogs("platform", [{ ...sample, user: "dev@example.com" }], false);
+    expect(emailed?.caller).toBeUndefined();
+    const [named] = mapLiteLlmSpendLogs("platform", [{ ...sample, user: "api" }], false);
+    expect(named?.caller).toBe("api");
   });
 });
 

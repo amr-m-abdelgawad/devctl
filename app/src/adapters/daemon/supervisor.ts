@@ -56,6 +56,7 @@ import { llmSourceFactory } from "../llm/factory.ts";
 import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
+import { callerServiceForPeer } from "../process/peer-caller.ts";
 import { loadTuiConfig } from "../config/tui-preferences.ts";
 import { Detector } from "../secrets/detector.ts";
 import {
@@ -178,6 +179,7 @@ export class Supervisor {
       cfg: () => this.cfg,
       store: this.llmStore,
       log: (message) => this.log("devctl", "WARN", message),
+      lookupCaller: (peer) => callerServiceForPeer(peer, () => this.procs.all()),
     });
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;

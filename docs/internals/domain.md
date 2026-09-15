@@ -75,9 +75,10 @@ Named outbound recipes (not the reverse proxy):
 | File | Role |
 |------|------|
 | `llm.ts` | `LlmCall`, paging, `redactLlmCall`, `stripLlmBodies`. |
-| `types.ts` | Source/driver strings. |
+| `types.ts` | Source/driver strings, `LlmCall` (including optional `caller`). |
 | `match.ts` | Filter matching. |
 | `redact.ts` | Body/header redaction. |
+| `caller.ts` | Normalize caller names; header / spend-log / completion-body extraction. |
 
 ## `domain/telemetry/`
 

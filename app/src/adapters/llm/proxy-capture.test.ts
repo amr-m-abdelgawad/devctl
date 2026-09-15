@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyLlmSource, type DevctlConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { LlmCallManager } from "./store.ts";
-import { ProxyCaptureSink } from "./proxy-capture.ts";
+import { ProxyCaptureSink, type ProxyCaptureSinkDeps } from "./proxy-capture.ts";
 
 const jsonHeaders = { "content-type": "application/json" };
 
@@ -46,9 +46,14 @@ describe("ProxyCaptureSink.begin", () => {
 });
 
 describe("ProxyCaptureSink recorder", () => {
-  function drive(cfg: DevctlConfig, store: LlmCallManager): void {
-    const sink = new ProxyCaptureSink({ cfg: () => cfg, store });
-    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+  async function drive(cfg: DevctlConfig, store: LlmCallManager, begin: Parameters<ProxyCaptureSink["begin"]>[0] = {
+    routeName: "apigee-llm",
+    method: "POST",
+    path: "/llm/v1/chat/completions",
+    requestHeaders: jsonHeaders,
+  }, lookupCaller?: ProxyCaptureSinkDeps["lookupCaller"]): Promise<void> {
+    const sink = new ProxyCaptureSink({ cfg: () => cfg, store, lookupCaller });
+    const rec = sink.begin(begin);
     if (!rec) throw new Error("expected a recorder");
     rec.setRequestBody(Buffer.from(JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] })));
     rec.setResponseContentType("application/json");
@@ -58,12 +63,12 @@ describe("ProxyCaptureSink recorder", () => {
       choices: [{ index: 0, message: { role: "assistant", content: "yo" }, finish_reason: "stop" }],
       usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
     })));
-    rec.finish({ status: 200, durationMs: 10, requestId: "req-9", traceId: "t-9", timestamp: "2026-01-01T00:00:00.000Z" });
+    await rec.finish({ status: 200, durationMs: 10, requestId: "req-9", traceId: "t-9", timestamp: "2026-01-01T00:00:00.000Z" });
   }
 
-  test("upserts a mapped call on finish", () => {
+  test("upserts a mapped call on finish", async () => {
     const store = new LlmCallManager();
-    drive(cfgWithProxySource(), store);
+    await drive(cfgWithProxySource(), store);
     const call = store.get("req-9");
     expect(call?.model).toBe("gpt-4o");
     expect(call?.source).toBe("apigee-llm");
@@ -71,9 +76,9 @@ describe("ProxyCaptureSink recorder", () => {
     expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("yo");
   });
 
-  test("strips bodies when capture.prompts is false", () => {
+  test("strips bodies when capture.prompts is false", async () => {
     const store = new LlmCallManager();
-    drive(cfgWithProxySource((source) => { source.capture.prompts = false; }), store);
+    await drive(cfgWithProxySource((source) => { source.capture.prompts = false; }), store);
     const call = store.get("req-9");
     expect(call).toBeDefined();
     expect(call?.request).toBeUndefined();
@@ -81,7 +86,80 @@ describe("ProxyCaptureSink recorder", () => {
     expect(call?.model).toBe("gpt-4o");
   });
 
-  test("truncates the response body at max_bytes", () => {
+  test("records the caller from X-Devctl-Service and skips peer lookup", async () => {
+    const store = new LlmCallManager();
+    let lookedUp = 0;
+    await drive(
+      cfgWithProxySource(),
+      store,
+      {
+        routeName: "apigee-llm",
+        method: "POST",
+        path: "/llm/v1/chat/completions",
+        requestHeaders: { ...jsonHeaders, "x-devctl-service": "worker" },
+        peer: { address: "127.0.0.1", port: 54321 },
+      },
+      async () => {
+        lookedUp += 1;
+        return "api";
+      },
+    );
+    expect(store.get("req-9")?.caller).toBe("worker");
+    expect(lookedUp).toBe(0);
+  });
+
+  test("falls back to an injected loopback peer lookup", async () => {
+    const store = new LlmCallManager();
+    await drive(
+      cfgWithProxySource(),
+      store,
+      {
+        routeName: "apigee-llm",
+        method: "POST",
+        path: "/llm/v1/chat/completions",
+        requestHeaders: jsonHeaders,
+        peer: { address: "127.0.0.1", port: 54321 },
+      },
+      async (peer) => (peer.port === 54321 ? "api" : undefined),
+    );
+    expect(store.get("req-9")?.caller).toBe("api");
+  });
+
+  test("does not look up a non-loopback peer", async () => {
+    const store = new LlmCallManager();
+    let lookedUp = 0;
+    await drive(
+      cfgWithProxySource(),
+      store,
+      {
+        routeName: "apigee-llm",
+        method: "POST",
+        path: "/llm/v1/chat/completions",
+        requestHeaders: jsonHeaders,
+        peer: { address: "8.8.8.8", port: 54321 },
+      },
+      async () => {
+        lookedUp += 1;
+        return "api";
+      },
+    );
+    expect(store.get("req-9")?.caller).toBeUndefined();
+    expect(lookedUp).toBe(0);
+  });
+
+  test("uses the OpenAI user field when no header or peer matches", async () => {
+    const store = new LlmCallManager();
+    const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource(), store });
+    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+    if (!rec) throw new Error("expected a recorder");
+    rec.setRequestBody(Buffer.from(JSON.stringify({ model: "gpt-4o", user: "worker", messages: [{ role: "user", content: "hi" }] })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from("{}"));
+    await rec.finish({ status: 200, durationMs: 1, requestId: "req-user", timestamp: "2026-01-01T00:00:00.000Z" });
+    expect(store.get("req-user")?.caller).toBe("worker");
+  });
+
+  test("truncates the response body at max_bytes", async () => {
     const store = new LlmCallManager();
     const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource((source) => { source.capture.max_bytes = 8; }), store });
     const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
@@ -90,7 +168,7 @@ describe("ProxyCaptureSink recorder", () => {
     rec.setResponseContentType("application/json");
     expect(rec.appendResponse(Buffer.from("12345678"))).toBe(true);
     expect(rec.appendResponse(Buffer.from("more"))).toBe(false);
-    rec.finish({ status: 200, durationMs: 1, requestId: "req-cap", timestamp: "2026-01-01T00:00:00.000Z" });
+    await rec.finish({ status: 200, durationMs: 1, requestId: "req-cap", timestamp: "2026-01-01T00:00:00.000Z" });
     expect(store.get("req-cap")?.attributes.response_truncated).toBe(true);
   });
 });

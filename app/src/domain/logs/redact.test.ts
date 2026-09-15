@@ -23,6 +23,17 @@ describe("recursive telemetry redaction", () => {
     expect(JSON.stringify(redacted)).not.toContain("abcd");
   });
 
+  test("does not redact LLM usage counts whose keys contain TOKEN as a substring", () => {
+    const detector = new Detector([], []);
+    const record = logRecord({
+      service: "api",
+      message: "ok",
+      body: { usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }, max_tokens: 256 },
+    });
+    const redacted = redactLogRecord(detector, record);
+    expect(redacted.body).toEqual({ usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }, max_tokens: 256 });
+  });
+
   test("redacts span attributes and events", () => {
     const detector = new Detector([], []);
     const span: Span = {

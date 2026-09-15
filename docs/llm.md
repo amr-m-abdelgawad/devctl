@@ -131,7 +131,18 @@ Point workers at the route (e.g. `http://127.0.0.1:17400/llm/v1/chat/completions
 - **Only tagged routes are buffered.** `via.route` names the one route to capture; all other proxy traffic still streams untouched. The request is buffered only when its `content-length` is within `max_bytes`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing.
 - **Only OpenAI-compatible completions are captured.** Capture engages on a `POST` with a JSON request content-type on a completion-shaped path (`/chat/completions`, `/completions`, `/embeddings`); `GET /models`, `/model/info`, health checks, and CORS preflights are ignored. Anthropic-native `/messages` and the OpenAI Responses API (`/responses`) use different request/stream shapes and are not captured — route those through LiteLLM's OpenAI-compatible endpoint instead.
 - **`proxy` has no management hop.** It captures from `via.route` and must not set `service`, `endpoint`, or `management_*`; config validation rejects those.
-- **Redaction is unchanged** — the same `secrets` detector runs at upsert, and full prompts never go on the status snapshot. Cost is unavailable, and a streamed response carries token usage only when the caller sets `stream_options.include_usage`.
+- **Redaction is unchanged** — the same `secrets` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (`prompt_tokens`, `completion_tokens`, `total_tokens`, `max_tokens`) are counts, not credentials, so they stay visible. Cost is unavailable from a `proxy` source, and a streamed response carries token usage only when the caller sets `stream_options.include_usage`. TUI `/reveal` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
+
+## Caller (which service made the call)
+
+Each stored call has an optional `caller` — the **service that issued the request**, not the LLM source (`platform`, `apigee-llm`, …). Attribution, in order:
+
+1. **`X-Devctl-Service`** (or `X-Devctl-Service-Name`) on the inbound proxy request. Host processes already get `DEVCTL_SERVICE_NAME` in their environment; send it as this header from the OpenAI / LiteLLM client. The proxy **strips** the header before forwarding so it never reaches the vendor.
+2. **Loopback TCP peer.** For traffic that hits a captured proxy route from `127.0.0.1` / `::1`, devctl maps the client port to a managed process (pid, parent, or process group). Remote peers are not looked up, so a coincidental local pid cannot be blamed. Containers and non-loopback clients are best-effort — send the header.
+3. **LiteLLM spend logs:** `metadata.service` / `metadata.service_name` / `metadata.devctl_service`, else `user` / `end_user` when it is not an email.
+4. **OpenAI `user`** on a captured completion body, same email skip.
+
+TUI list shows caller next to status; detail has a `caller` line. CLI: `devctl llm --caller worker`. MCP/web: `caller` on `get_llm_calls` / `get_llm_call`.
 
 ## Surfaces
 
@@ -140,9 +151,9 @@ Query stays on the store (RPC `llm_calls_page` / `get_llm_call`). Secrets are re
 | Surface | Entry |
 |---------|--------|
 | MCP | `get_llm_calls` (filter + cursor) and `get_llm_call` in **inspect**. List pages omit bodies; detail includes redacted payloads. |
-| Web | `#/llm` and `#/llm/:id` — list (model, status, tokens, cost, latency) and detail (messages, usage, attributes, jump to trace). |
-| TUI | `llm` nav tab, `/llm`, enter for detail; enter again jumps to a trace when `traceId` is present. |
-| CLI | `devctl llm` (filters, `--json`, `--follow`) and `devctl llm show <id>`. |
+| Web | `#/llm` and `#/llm/:id` — list (model, caller, status, tokens, cost, latency) and detail (messages, usage, attributes, jump to trace). |
+| TUI | `llm` nav tab, `/llm`, enter for detail; enter again jumps to a trace when `traceId` is present. The list shows which service issued the call when known. |
+| CLI | `devctl llm` (filters including `--caller`, `--json`, `--follow`) and `devctl llm show <id>`. |
 
 The `proxy` source buffers completion bodies only on the routes it is told to capture; all other proxy traffic still streams without buffering. Additional pull-style source types can plug in through `LlmSourceFactory` / plugin `llmSources`; a push source (like `proxy`) feeds the store directly rather than being polled.
 

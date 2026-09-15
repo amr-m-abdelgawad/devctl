@@ -1,7 +1,7 @@
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { type Ref } from "react";
 import type { LlmCall } from "../../../domain/llm/llm.ts";
-import { formatLlmCost, formatLlmDuration, formatLlmJson, formatLlmTokens } from "../helpers/llm.ts";
+import { formatLlmCaller, formatLlmCost, formatLlmDuration, formatLlmJson, formatLlmTokenBreakdown } from "../helpers/llm.ts";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
@@ -21,11 +21,12 @@ export function LlmDetailsOverlay(props: {
   const request = formatLlmJson(call.request);
   const response = formatLlmJson(call.response);
   const traceId = call.traceId?.trim() ?? "";
+  const closeHint = `${traceId ? "enter view trace  ·  " : ""}j/k scroll  ·  esc close  ·  /reveal is env only`;
   return (
     <OverlayShell
       palette={palette}
       title="llm call"
-      bottomTitle={traceId ? "enter view trace  ·  j/k scroll  ·  esc close" : "j/k scroll  ·  esc close"}
+      bottomTitle={closeHint}
       termW={termW}
       termH={termH}
       preferW={84}
@@ -37,11 +38,15 @@ export function LlmDetailsOverlay(props: {
           <text fg={palette.text} wrapMode="word">{call.model}</text>
           <text fg={palette.muted}>{`id        ${call.id}`}</text>
           <text fg={palette.muted}>{`source    ${call.source} (${call.sourceType})`}</text>
+          <text fg={palette.muted}>{`caller    ${formatLlmCaller(call.caller)}`}</text>
           <text fg={palette.muted}>{`time      ${call.timestamp}`}</text>
           <text fg={call.status === "error" ? palette.error : palette.success}>{`status    ${call.status}`}</text>
           <text fg={palette.muted}>{`operation ${call.operation}`}</text>
           <text fg={palette.muted}>{`duration  ${formatLlmDuration(call.durationMs)}`}</text>
-          <text fg={palette.muted}>{`tokens    ${formatLlmTokens(call.usage)}`}</text>
+          <text fg={palette.muted}>{`tokens    ${formatLlmTokenBreakdown(call.usage)}`}</text>
+          {call.usage || call.sourceType !== "proxy" ? null : (
+            <text fg={palette.muted}>{"          streamed usage needs stream_options.include_usage"}</text>
+          )}
           <text fg={palette.muted}>{`cost      ${formatLlmCost(call.cost)}`}</text>
           {call.routedModel ? <text fg={palette.muted}>{`routed    ${call.routedModel}`}</text> : null}
           {call.vendor ? <text fg={palette.muted}>{`vendor    ${call.vendor}`}</text> : null}

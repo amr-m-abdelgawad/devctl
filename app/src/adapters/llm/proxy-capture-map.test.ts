@@ -41,7 +41,12 @@ describe("mapProxyCapture", () => {
     expect(call.cost).toBeUndefined();
     expect(call.attributes.response_id).toBe("chatcmpl-1");
     expect(call.attributes.stream).toBe(false);
+    expect(call.caller).toBeUndefined();
     expect((call.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("hello");
+  });
+
+  test("copies an attributed caller onto the ingest", () => {
+    expect(mapProxyCapture(base({ caller: "worker" })).caller).toBe("worker");
   });
 
   test("does not use the upstream response id as the store id (retry collision)", () => {
