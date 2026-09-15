@@ -137,6 +137,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 /daemon               supervisor bootstrap stderr (`devctl daemon logs`)
 /auth login|logout|refresh
 /update               install a newer GitHub Release when the method is known (npm/Homebrew)
+/notify later|dismiss hide the version notice this session, or do not remind me about this version
 /version              current version, then the same update check (does not install)
 /exit /quit /q
 ```
@@ -158,7 +159,8 @@ Override in `tui.json` (`keybinds`) or `DEVCTL_TUI_CONFIG`.
 
 ## Layout
 
-- **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
+- **Header** — product + version as text, then project and profile; chips for running count, live proxy, MCP when on, ADC, secrets-shown, and `↑ <latest>` when a newer GitHub Release exists
+- **Notice bar** — a one-line, non-modal banner when an update is available (`Update` / `Later` / `Dismiss`). `/notify later` hides it until the next session; `/notify dismiss` writes `dismissed_notifications` to `tui.json` so that version does not return
 - **Nav** — the five primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
 - **Command overlay** — `/` and `command+p` / `ctrl+p` open the same grouped list with a real OpenTUI input

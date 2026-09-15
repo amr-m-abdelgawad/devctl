@@ -93,6 +93,9 @@ export function saveTuiPreferences(partial: TuiPreferencePatch): string {
   if (partial.mcp_enabled_tools !== undefined) {
     next.mcp_enabled_tools = partial.mcp_enabled_tools;
   }
+  if (partial.dismissed_notifications !== undefined) {
+    next.dismissed_notifications = partial.dismissed_notifications;
+  }
   writeFileSecure(path, `${JSON.stringify(next, null, 2)}\n`);
   return path;
 }
@@ -188,6 +191,9 @@ export function mergeTuiConfig(base: TuiConfig, raw: unknown, path: string): Tui
     mcp_enabled_tools: Array.isArray(rec.mcp_enabled_tools)
       ? rec.mcp_enabled_tools.filter((name): name is string => typeof name === "string")
       : base.mcp_enabled_tools,
+    dismissed_notifications: Array.isArray(rec.dismissed_notifications)
+      ? rec.dismissed_notifications.filter((id): id is string => typeof id === "string" && id !== "")
+      : base.dismissed_notifications,
     path,
   };
 }

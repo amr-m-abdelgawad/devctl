@@ -1,8 +1,9 @@
 import { Bot, LayoutDashboard, Network, Play, RefreshCw, ScrollText, Square, Waypoints } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, postControl } from "./api.ts";
+import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchUpdate, postControl } from "./api.ts";
 import { percentile, type SeriesPoint } from "./charts.tsx";
 import { ControlNotice } from "./components/controls.tsx";
+import { UpdateNotice } from "./components/update-notice.tsx";
 import { noticeFor, type RunControl } from "./control.ts";
 import { NANOS_PER_MS, traceEnvelopeNs } from "./format.ts";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
@@ -31,7 +32,16 @@ import type {
   ServiceRow,
   StatusSummary,
   TracePayload,
+  UpdateCheckPayload,
 } from "./types.ts";
+import {
+  DISMISSED_NOTIFICATIONS_KEY,
+  isUpdateNoticeVisible,
+  readIdList,
+  SESSION_HIDDEN_NOTIFICATIONS_KEY,
+  withDismissed,
+  writeIdList,
+} from "./notifications.ts";
 
 const POLL_MS = 2000;
 const WINDOW = 60;
@@ -97,10 +107,26 @@ export function App() {
   const [traceMsById, setTraceMsById] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | undefined>(undefined);
+  const [dismissedNotices, setDismissedNotices] = useState<string[]>(() => readIdList(window.localStorage, DISMISSED_NOTIFICATIONS_KEY));
+  const [sessionHiddenNotices, setSessionHiddenNotices] = useState<string[]>(() => readIdList(window.sessionStorage, SESSION_HIDDEN_NOTIFICATIONS_KEY));
   const busyRef = useRef(false);
   const traceMsRef = useRef<Record<string, number>>({});
   const requestLifeRef = useRef(emptyRingCounter());
   const pollGenRef = useRef(0);
+  useEffect(() => {
+    let cancelled = false;
+    void fetchUpdate().then((payload) => {
+      if (!cancelled) {
+        setUpdateCheck(payload);
+      }
+    }).catch(() => {
+      // A failed GitHub probe must not interrupt the console.
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     traceMsRef.current = traceMsById;
   }, [traceMsById]);
@@ -391,11 +417,13 @@ export function App() {
     p95: last?.p95 ?? 0,
     reqPerSec: last?.reqs ?? 0,
   };
+  const showUpdate = updateCheck !== undefined && isUpdateNoticeVisible(updateCheck, dismissedNotices, sessionHiddenNotices);
 
   return (
     <TooltipProvider delayDuration={200}>
       <div className="flex min-h-full flex-col">
-        <header className="sticky top-0 z-20 border-b border-border/70 bg-background/80 backdrop-blur">
+        <div className="sticky top-0 z-20">
+          <header className="border-b border-border/70 bg-background/80 backdrop-blur">
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-2.5">
             <div className="flex items-center gap-2">
               <DevctlLogo className="size-7 shrink-0" />
@@ -463,7 +491,23 @@ export function App() {
               )}
             </div>
           </div>
-        </header>
+          </header>
+          {showUpdate && updateCheck ? (
+            <UpdateNotice
+              check={updateCheck}
+              onLater={() => {
+                const next = withDismissed(sessionHiddenNotices, updateCheck.latest);
+                setSessionHiddenNotices(next);
+                writeIdList(window.sessionStorage, SESSION_HIDDEN_NOTIFICATIONS_KEY, next);
+              }}
+              onDismiss={() => {
+                const next = withDismissed(dismissedNotices, updateCheck.latest);
+                setDismissedNotices(next);
+                writeIdList(window.localStorage, DISMISSED_NOTIFICATIONS_KEY, next);
+              }}
+            />
+          ) : null}
+        </div>
 
         <main className="mx-auto w-full max-w-[1600px] flex-1 p-5" aria-busy={Boolean(busy)}>
           {route.name === "services" ? (

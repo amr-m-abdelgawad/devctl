@@ -229,6 +229,38 @@ describe("web http server", () => {
 
       const llmDetail = await fetch(`${base}/api/llm/chatcmpl-1`);
       expect((await llmDetail.json() as { id: string }).id).toBe("chatcmpl-1");
+
+      const update = await fetch(`${base}/api/update`);
+      const updateBody = await update.json() as { current: string; newer: boolean; latest: string };
+      expect(update.status).toBe(200);
+      expect(updateBody.newer).toBe(false);
+      expect(updateBody.latest).toBe("");
+      expect(updateBody.current).toBeTruthy();
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("GET /api/update reports a newer GitHub Release from the checker", async () => {
+    const server = new WebHttpServer({
+      host: "127.0.0.1",
+      port: 0,
+      token: TEST_WEB_TOKEN,
+      hostApi: host(),
+      checkUpdate: async () => ({
+        current: "0.9.0",
+        latest: "0.10.0",
+        newer: true,
+        hint: "npm i",
+        kind: "npm",
+        command: ["npm", "install", "--global", "pkg"],
+      }),
+    });
+    await server.start();
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.listenPort()}/api/update`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ current: "0.9.0", latest: "0.10.0", newer: true, kind: "npm" });
     } finally {
       await server.stop();
     }

@@ -110,7 +110,11 @@ Never bind `0.0.0.0` from domain defaults; adapters must refuse non-loopback hos
 
 ## `domain/ui/preferences.ts`
 
-`TuiConfig`, keybinds, MCP tool lists, `TuiPreferencePatch`. Persistence is the config adapter.
+`TuiConfig`, keybinds, MCP tool lists, `TuiPreferencePatch`. Persistence is the config adapter. `dismissed_notifications` stores notice ids (for example `update:0.10.0`).
+
+## `domain/notifications.ts`
+
+Operator-facing notices. First kind is `update`, built from `UpdateCheck`. Visibility is a receipts policy (dismiss forever vs snooze). Presentation owns the banner; GitHub HTTP stays in `adapters/update`.
 
 ## `domain/update.ts`
 

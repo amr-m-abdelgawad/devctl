@@ -72,6 +72,9 @@ export const HELP_COMMANDS: readonly Binding[] = [
   { key: displayWithMod("x"), label: "leader chord" },
   { key: "/settings", label: "preferences · MCP page" },
   { key: "/themes", label: "preview themes" },
+  { key: "/update", label: "install a newer GitHub Release" },
+  { key: "/notify later", label: "hide the version notice this session" },
+  { key: "/notify dismiss", label: "do not remind me about this version" },
   { key: "/diff", label: "config sources" },
   { key: "/mcp", label: "agent MCP server" },
 ];

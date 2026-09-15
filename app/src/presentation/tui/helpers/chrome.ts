@@ -3,6 +3,7 @@ import { type ConfirmDetail, type ConfirmKind, type FooterHint } from "../types.
 import { clipText } from "./format.ts";
 import { runningLabel } from "./logs.ts";
 import { tabChipWidth } from "./navigation.ts";
+import { updateChipLabel } from "./notifications.ts";
 
 export const NARROW_WIDTH = 100;
 
@@ -54,15 +55,18 @@ export function headerStatusChips(opts: {
   mcpOn: boolean;
   adc: boolean;
   reveal: boolean;
+  updateLatest?: string;
 }): HeaderChip[] {
   const narrow = opts.width < HEADER_NARROW_WIDTH;
   const proxyLabel = opts.proxyOn ? `● ${clipText(opts.proxyAddress, narrow ? 10 : 18)}` : "";
+  const latest = opts.updateLatest ?? "";
   return [
     { label: narrow ? `${opts.running}/${opts.total}` : runningLabel(opts.running, opts.total), tone: opts.running > 0 ? "success" : "idle" },
     { label: proxyLabel, tone: "info", hide: !opts.proxyOn },
     { label: "MCP", tone: "info", hide: !opts.mcpOn },
     { label: opts.adc ? (narrow ? "ADC" : "ADC ok") : narrow ? "!ADC" : "ADC missing", tone: opts.adc ? "success" : "error" },
     { label: narrow ? "sec" : "secrets shown", tone: "warning", hide: !opts.reveal },
+    { label: updateChipLabel(latest, narrow), tone: "warning", hide: latest === "" },
   ];
 }
 

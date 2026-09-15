@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- In-app notices, starting with **new version available**. The TUI checks GitHub Releases on attach and shows a one-line banner (`Update` / `Later` / `Dismiss`) plus an `↑ 0.x.0` header chip — it does not steal letter keys. `/notify later` hides it until the next session; `/notify dismiss` remembers this version in `tui.json`. The web console shows the same notice under the header, with a copy-install-command action, and remembers dismissals in the browser.
+
 ## [0.9.0] - 2026-09-14
 
 ### Added

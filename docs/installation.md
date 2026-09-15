@@ -50,7 +50,7 @@ A Homebrew formula lives in this repository rather than Homebrew-core:
 brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/homebrew/devctl.rb
 ```
 
-`devctl update` reports whether a newer GitHub Release exists and which install channel this process is. For an npm global or Homebrew install it runs that upgrade; otherwise it prints the matching command. `--check` reports without installing.
+`devctl update` reports whether a newer GitHub Release exists and which install channel this process is. For an npm global or Homebrew install it runs that upgrade; otherwise it prints the matching command. `--check` reports without installing. The TUI and web console show a dismissible notice when a newer version exists so you do not have to remember to check.
 
 ## From source
 

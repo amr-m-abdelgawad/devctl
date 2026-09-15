@@ -91,7 +91,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Update
 
-`devctl update` checks the latest GitHub Release, reports which install channel this process is (npm, npx, Homebrew, GitHub Release binary, or source), and **installs** when that channel has a known package-manager command (npm global or Homebrew). `--json` and `--check` only report. After a successful install, restart a running daemon with `devctl down` then start again. `/update` in the TUI does the same install; `/version` still only checks.
+`devctl update` checks the latest GitHub Release, reports which install channel this process is (npm, npx, Homebrew, GitHub Release binary, or source), and **installs** when that channel has a known package-manager command (npm global or Homebrew). `--json` and `--check` only report. After a successful install, restart a running daemon with `devctl down` then start again. `/update` in the TUI does the same install; `/version` still only checks. The TUI and web console also **surface a notice** when a newer release exists — dismiss for this version, or hide until the next session.
 
 ## Exit codes
 

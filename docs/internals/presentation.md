@@ -35,7 +35,7 @@ Overlays are **modals** (slash palette, confirm, log details, theme picker). The
 | Area | Path | Role |
 |------|------|------|
 | Shell | `App.tsx` | Screen switch, wires hooks, renders chrome |
-| Chrome | `chrome.tsx`, `layout.tsx`, `density.tsx` | Header, nav, status bar |
+| Chrome | `chrome.tsx`, `layout.tsx`, `density.tsx` | Header, nav, notice bar, status bar |
 | Screens | `screens/*.tsx` | Dashboard, Services, Logs, Auth, Proxy, Doctor, Config, Settings, MCP, LLM, Stats, Profiles, Setup, … |
 | Overlays | `overlays/*.tsx` | Slash, Help, Plan, Confirm, ConfigEdit, SetupWizard, TraceView, … |
 | Hooks | `hooks/` | Data, commands, keys |
@@ -56,6 +56,7 @@ Hook map:
 | `use-config-editor.ts` | Buffer validate via `validateConfigText` before write |
 | `use-mcp-controls.ts` | MCP start/stop/tools |
 | `use-preferences.ts` | Theme, keys, persist `tui.json` |
+| `use-notifications.ts` | GitHub update check; dismiss / later receipts |
 | `use-command-dispatcher.ts` | Slash / command catalog |
 | `use-setup-wizard.ts` | First-run |
 | `use-app-keyboard.ts` | Top-level keymap; delegates to `keyboard-screens.ts` / `keyboard-overlays.ts` |
