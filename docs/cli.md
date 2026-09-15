@@ -34,7 +34,11 @@ devctl update [--json] [--check]
 
 `_supervisor` is an internal command. Do not invoke it by hand.
 
+![devctl --help lists every command, global flags, and exit codes](assets/manual/cli-help.png)
+
 ## Start, stop, status
+
+![devctl status — per-service state and health, plus the proxy, MCP, and web listener addresses](assets/manual/cli-status.png)
 
 - `start` with `--profile` starts that profile’s members (plus dependencies).
 - `start` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.

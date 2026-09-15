@@ -23,6 +23,8 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 ## TUI (Logs tab)
 
+![The Logs tab with a live search kept on “fulfill pipeline” — per-service and per-level facet chips update as you filter](assets/manual/tui-logs-search.png)
+
 - `f` focuses search **on the Logs tab** (`/` stays the command line). `esc` closes search, clears the query, and jumps to the live tail. `enter` keeps the current filter so you can browse matches; `esc` again (or `f` then `esc`) returns to the live stream. Matches are highlighted in the log line (plain or `/regex`). Dashboard tail uses the same search filter while it is applied.
 - `e` / `/filter` — ERROR and above.
 - `p` / `/pause` — freeze the live stream.
@@ -32,7 +34,10 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - `g` — jump to latest. Leaving the tail pins the view (`pinned · +N new`).
 - `←`/`→` or click a chip — cycle service filters. Digits `1`–`4` jump nav tabs, not log sources.
 - `\\` / `/split` — second pane on the same live stream, with its own service filter. Shared search. `|` focuses the other pane.
-- `enter` — details overlay (body summary, attributes table, severity number, `traceId`/`spanId`). A ◎ marker on the list means the row has a trace; enter again (or **view trace**) opens a full-width waterfall. The solid block is the span; the dim track is unused time in the window. `j`/`k` selects a span; Enter or double-click opens that span's logs overlay (`esc` returns to the waterfall).
+- `enter` — details overlay (body summary, attributes table, severity number, `traceId`/`spanId`).
+
+  ![The log details overlay — body, timestamp, service, source, severity, trace and span ids, and the structured attributes table, with “view trace” to open the waterfall](assets/manual/tui-log-details.png)
+ A ◎ marker on the list means the row has a trace; enter again (or **view trace**) opens a full-width waterfall. The solid block is the span; the dim track is unused time in the window. `j`/`k` selects a span; Enter or double-click opens that span's logs overlay (`esc` returns to the waterfall).
 - `/trace <id>` — set search to that request/trace id. Enter in the details overlay on a row that has an id does the same.
 - `command+c` (macOS) or `ctrl+c` (Linux/Windows) — copy the highlighted selection. Remap with `keybinds.copy`.
 - `/export [path]` — write the **current** filters. Default file: `~/.devctl/exports/devctl-logs-<timestamp>.log`.

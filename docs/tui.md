@@ -16,6 +16,8 @@ bun run ../../app/src/bin.ts
 
 If a supervisor session already exists, the TUI attaches to it. Preferences: `tui.json` / `DEVCTL_TUI_CONFIG` — see [Building from source](typescript.md).
 
+![devctl TUI dashboard — service health on the left, a live structured log stream on the right, and running/proxy/MCP/ADC chips in the header](assets/manual/tui-dashboard.png)
+
 ## First run
 
 With no `.devctl` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter starts the same 9-step wizard as `devctl setup` (OpenTUI fields, then write and attach the daemon — no process restart). Invalid existing YAML still refuses overwrite.
@@ -70,6 +72,8 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 
 The status bar only lists keys that work **on the current screen**. There is no idle command row — `/` and the OS palette chord open the command overlay.
 
+![The command overlay ranks matching slash commands as you type — here filtered to commands starting with “re”](assets/manual/tui-command.png)
+
 ## Nav tabs (5)
 
 1. dashboard · 2. services · 3. logs · 4. proxy · 5. llm
@@ -77,6 +81,8 @@ The status bar only lists keys that work **on the current screen**. There is no 
 Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/settings`. **MCP** is `/mcp`, `/agent`, or Settings → **MCP → Settings page**.
 
 ## Screens
+
+![The services screen — the list on the left, a live inspector on the right with status chips, two-column facts, and a scrollable resolved-env pane (secrets redacted)](assets/manual/tui-services.png)
 
 - **Dashboard** — services, proxy, live log tail. Identity lives on `/auth`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data `devctl status` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. `enter` opens the full detail screen
@@ -163,6 +169,8 @@ Status is never color-only: `✓` healthy, `●` running, `!` warning, `✗` fai
 ## Themes
 
 `/themes` opens a picker with live preview. Built-ins:
+
+![The theme picker with live preview — devctl (active), ember, tokyonight, catppuccin, nord, gruvbox, kanagawa, dracula and more](assets/manual/tui-themes.png)
 
 - Product: `devctl` (default), `ember`
 - Common dark: `tokyonight`, `catppuccin`, `nord`, `gruvbox`, `kanagawa`, `dracula`, `onedark`, `monokai`, `rose-pine`, `everforest`, `github-dark`, `iceberg`, `ayu-dark`, `oxocarbon`, `night-owl`

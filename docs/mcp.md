@@ -40,6 +40,8 @@ flowchart LR
 
 MCP is **not** a nav tab. Flip **Listen** (`space` / `enter`). The header shows an **MCP** chip when it is running.
 
+![The TUI MCP settings page — Listen toggle and port stepper, then tools grouped by purpose (inspect, logs, diagnostics, control) each marked read or write](assets/manual/tui-mcp.png)
+
 The default port is derived from the repo so checkouts do not collide:
 
 `18700 + (parseInt(repoID.slice(0, 8), 16) % 600)` → **18700–19299**.
@@ -69,6 +71,8 @@ devctl mcp --json
 `--on` starts a supervisor if needed. `--off` stops the listener only.
 `--rotate` writes a new bearer token; if the listener is running it is restarted
 so agents must be given the new snippets.
+
+![devctl mcp — the loopback URL and ready-to-paste config snippets for Claude, Cursor, Kilo Code, and Codex, each with the bearer header (token redacted here)](assets/manual/cli-mcp.png)
 
 ## Tools and resources
 

@@ -16,6 +16,8 @@ With no config, the TUI opens **setup** instead of exiting: Enter writes a start
 
 ## In the TUI
 
+![The devctl dashboard after `enter` starts a profile — services healthy on the left, a live log stream on the right](assets/manual/tui-dashboard.png)
+
 1. Press `o` to pick a profile (if you defined any).
 2. On an empty dashboard, `enter` starts the default profile (first profile name alphabetically) after a plan overlay.
 3. `n` starts the highlighted row or the space-selected set; `x` stops; `R` restarts.
