@@ -85,6 +85,7 @@
 .VPHome .landing .detail-list a > span:last-child { margin-left: auto; }
 .VPHome .landing .detail-list h3 { margin: 0; font-size: 17px; }
 .VPHome .landing .detail-list p { font-size: 14px; line-height: 1.65; margin: 8px 0 0; color: var(--vp-c-text-2); }
+.VPHome .landing .detail-list code { font-size: 12px; }
 .VPHome .landing .detail-list a:hover h3 { color: var(--vp-c-brand-1); }
 .VPHome .landing .closing { text-align: center; padding: 64px 24px; margin: 100px 0 72px; border-radius: 8px; background: var(--landing-paper); border: 1px solid var(--vp-c-divider); }
 .VPHome .landing .closing .eyebrow { justify-content: center; }
@@ -263,4 +264,107 @@
 .VPHome .landing .preview-caption svg,
 .VPHome .landing .workflow-options button svg,
 .VPHome .landing .faq-list details a svg,
-.VPHome .landing .install-heading button svg { display: block; flex-shrink: 0; }
+.VPHome .landing .install-heading button svg,
+.VPHome .landing .changelog-kind svg { display: block; flex-shrink: 0; }
+
+.VPHome .landing.changelog .landing-hero { padding-bottom: 48px; }
+.VPHome .landing.changelog .section-heading { align-items: start; }
+.VPHome .landing.changelog .changelog-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding: 22px 0 4px;
+  font: 11px/1.6 var(--vp-font-family-mono);
+}
+.VPHome .landing.changelog .changelog-jump a { color: var(--vp-c-text-2); }
+.VPHome .landing.changelog .changelog-jump a:hover,
+.VPHome .landing.changelog .changelog-jump a.is-now { color: var(--vp-c-brand-1); }
+.VPHome .landing.changelog .changelog-filters {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 520px;
+}
+.VPHome .landing.changelog .changelog-filters button {
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--vp-c-text-1);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .2s, border-color .2s, color .2s;
+}
+.VPHome .landing.changelog .changelog-filters button:hover { background: var(--landing-paper); }
+.VPHome .landing.changelog .changelog-filters button[aria-pressed="true"] {
+  background: var(--vp-c-brand-soft);
+  border-color: var(--vp-c-brand-1);
+  color: var(--vp-c-brand-1);
+}
+.VPHome .landing.changelog .changelog-release { padding-top: 64px; scroll-margin-top: 88px; }
+.VPHome .landing.changelog .changelog-release + .changelog-release { margin-top: 16px; border-top: 1px solid var(--vp-c-divider); }
+.VPHome .landing.changelog .changelog-kind {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 16px;
+  color: var(--vp-c-brand-1);
+  font: 500 11px/1.4 var(--vp-font-family-mono);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.VPHome .landing.changelog .changelog-section + .changelog-section { margin-top: 36px; }
+.VPHome .landing.changelog .changelog-items { list-style: none; margin: 0; padding: 0; }
+.VPHome .landing.changelog .changelog-items li {
+  border-top: 1px solid var(--vp-c-divider);
+  padding: 18px 0;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--vp-c-text-2);
+  overflow-wrap: anywhere;
+}
+.VPHome .landing.changelog .changelog-items li:last-child { border-bottom: 1px solid var(--vp-c-divider); }
+.VPHome .landing.changelog .changelog-items code {
+  font: 12px var(--vp-font-family-mono);
+  color: var(--vp-c-text-1);
+  background: var(--landing-paper);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.VPHome .landing.changelog .changelog-items a {
+  color: var(--vp-c-brand-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.VPHome .landing.changelog .changelog-items strong { color: var(--vp-c-text-1); font-weight: 600; }
+.VPHome .landing.changelog .changelog-release[data-unreleased] .changelog-body {
+  background: var(--landing-paper);
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 8px;
+  padding: 36px;
+}
+.VPHome .landing.changelog .changelog-release[data-unreleased] .changelog-items li:first-child { border-top: 0; padding-top: 0; }
+.VPHome .landing.changelog .changelog-release[data-unreleased] .changelog-items li:last-child { border-bottom: 0; padding-bottom: 0; }
+.VPHome .landing.changelog .changelog-empty { margin: 0; font-size: 15px; color: var(--vp-c-text-2); }
+.VPHome .landing.changelog .changelog-spec {
+  text-align: center;
+  font-size: 13px;
+  color: var(--vp-c-text-2);
+  margin: 72px 0 0;
+}
+.VPHome .landing.changelog .changelog-spec a {
+  color: var(--vp-c-brand-1);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@media (max-width: 900px) {
+  .VPHome .landing.changelog .changelog-filters { justify-content: flex-start; max-width: none; margin-top: 20px; }
+}
+@media (max-width: 640px) {
+  .VPHome .landing.changelog .changelog-release { padding-top: 44px; }
+  .VPHome .landing.changelog .changelog-release[data-unreleased] .changelog-body { padding: 24px; }
+  .VPHome .landing.changelog .changelog-jump { gap: 8px 14px; font-size: 10px; }
+}
+

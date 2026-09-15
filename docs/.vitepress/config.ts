@@ -2,7 +2,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 
-const phosphorIcons = resolve(dirname(fileURLToPath(import.meta.url)), '../node_modules/@phosphor-icons/vue/dist/icons')
+const here = dirname(fileURLToPath(import.meta.url))
+const phosphorIcons = resolve(here, '../node_modules/@phosphor-icons/vue/dist/icons')
+const repoRoot = resolve(here, '../..')
 
 const repo = 'https://github.com/amr-m-abdelgawad/devctl'
 const blob = `${repo}/blob/main`
@@ -59,6 +61,7 @@ const siteConfig = withMermaid({
     nav: [
       { text: 'Quick start', link: '/quickstart' },
       { text: 'Docs', link: '/overview' },
+      { text: 'Changelog', link: '/changelog' },
       {
         text: 'Guides',
         items: [
@@ -79,7 +82,7 @@ const siteConfig = withMermaid({
       {
         text: 'v0.9.0',
         items: [
-          { text: 'Changelog', link: `${blob}/CHANGELOG.md` },
+          { text: 'Changelog', link: '/changelog' },
           { text: 'npm package', link: 'https://www.npmjs.com/package/@amr-m-abdelgawad/devctl' },
           { text: 'Contributing', link: `${blob}/CONTRIBUTING.md` }
         ]
@@ -141,6 +144,7 @@ const siteConfig = withMermaid({
         text: 'Reference',
         collapsed: true,
         items: [
+          { text: 'Changelog', link: '/changelog' },
           { text: 'Building from source', link: '/typescript' },
           { text: 'Architecture', link: '/architecture' },
           { text: 'Platform bets', link: '/platform-bets' },
@@ -232,6 +236,11 @@ const siteConfig = withMermaid({
       alias: {
         // Individual files so the landing does not pull the whole Phosphor barrel.
         '@phosphor-icon': phosphorIcons
+      }
+    },
+    server: {
+      fs: {
+        allow: [repoRoot]
       }
     },
     // Mermaid pulls in CJS-only deps (fastdom, etc.). Rollup handles them in

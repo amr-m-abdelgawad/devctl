@@ -42,7 +42,7 @@ No npm token in the repo. Tag `vX.Y.Z` on `main` after CI is green.
 | GitHub Wiki | top-level `docs/*.md` | `prepare-wiki.sh` **strips** `internals/` |
 | MCP `search_docs` | `docs.generated.ts` | Top-level `docs/*.md` |
 
-`docs/index.md` is the marketing landing page (excluded from wiki). Wiki home is `docs/README.md` → `Home.md`.
+`docs/index.md` (landing) and `docs/changelog.md` are VitePress pages and are excluded from the wiki. Wiki home is `docs/README.md` → `Home.md`. The changelog source of truth is repo-root `CHANGELOG.md`.
 
 When you add a **user** page at `docs/foo.md`: add sidebar entries in VitePress config **and** `prepare-wiki.sh` `_Sidebar.md`, then `bun run sync-guide`.
 

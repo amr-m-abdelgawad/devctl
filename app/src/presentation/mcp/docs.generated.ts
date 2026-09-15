@@ -78,6 +78,7 @@ These pages are **not** the operator manual. They map the TypeScript tree for pe
 | [Architecture](architecture.md) | Layers, composition roots, import rules |
 | [Platform bets](platform-bets.md) | Remote/multi-repo/k8s/OIDC/signing — design separately |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
+| [Changelog](../CHANGELOG.md) | Notable changes, newest first |
 | [License](../LICENSE) | MIT |
 | [Security policy](../SECURITY.md) | How to report a vulnerability |
 
@@ -312,6 +313,20 @@ IAP routes with a service-account identity impersonate that account and then min
 - [IAP](iap.md)
 - [Doctor](doctor.md)
 - [Developer setup](developer-setup.md)
+` },
+  { path: "docs/changelog.md", title: "changelog", body: `---
+layout: home
+title: Changelog
+description: Notable changes in devctl, newest first. Keep a Changelog and Semantic Versioning.
+editLink: false
+lastUpdated: false
+---
+
+<script setup>
+import ChangelogPage from './.vitepress/theme/ChangelogPage.vue'
+</script>
+
+<ChangelogPage />
 ` },
   { path: "docs/cli.md", title: "CLI", body: `# CLI
 
@@ -1027,6 +1042,8 @@ layout: home
 import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import TerminalHero from './.vitepress/theme/TerminalHero.vue'
+import changelogSource from '../CHANGELOG.md?raw'
+import { changelogTeaser, formatReleaseDate, parseChangelog } from './.vitepress/theme/changelog'
 import { ArrowDownLeft, ArrowUpRight, CaretRight, Check, Circle, Copy, Sparkle, SquaresFour, TerminalWindow } from './.vitepress/theme/phosphor'
 const landingRoot = ref(null)
 let revealObserver
@@ -1099,6 +1116,10 @@ onUnmounted(() => {
   motionPreference?.removeEventListener('change', updateMotionPreference)
   resetPreview()
 })
+
+const changelog = parseChangelog(changelogSource)
+const latestRelease = changelog.releases.find(release => !release.unreleased)
+const latestTeaser = changelogTeaser(latestRelease)
 
 const copyLabel = ref('Copy command')
 const activeProfile = ref('minimal')
@@ -1183,12 +1204,66 @@ async function copyInstall() {
 
   <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">04 / THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div></section>
 
+  <section class="details-section landing-section" aria-labelledby="web-title">
+    <div>
+      <p class="eyebrow">05 / WHEN YOU WANT A WINDOW</p>
+      <h2 id="web-title">Same session.<br>In a browser.</h2>
+      <p>An opt-in loopback console. Services, traces, and logs from the same supervisor. It stays off until you start it.</p>
+      <a class="text-link" :href="withBase('/telemetry')">Telemetry and the web UI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
+    </div>
+    <div class="detail-list">
+      <a :href="withBase('/telemetry')">
+        <span>01</span>
+        <div>
+          <h3>See the session.</h3>
+          <p>Services, proxy requests, traces, and errors in one view.</p>
+        </div>
+        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
+      </a>
+      <a :href="withBase('/security')">
+        <span>02</span>
+        <div>
+          <h3>Stay on loopback.</h3>
+          <p>Host allowlist. Nothing advertised off this machine.</p>
+        </div>
+        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
+      </a>
+      <a :href="withBase('/cli')">
+        <span>03</span>
+        <div>
+          <h3>Start it yourself.</h3>
+          <p><code>devctl web start</code> prints the URL and a per-bind token.</p>
+        </div>
+        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
+      </a>
+    </div>
+  </section>
+
   <section class="demo-section landing-section" aria-labelledby="demo-title">
-    <div class="demo-band"><div><p class="eyebrow">05 / TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div>
+    <div class="demo-band"><div><p class="eyebrow">06 / TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div>
+  </section>
+
+  <section v-if="latestRelease" class="details-section landing-section" aria-labelledby="shipped-title">
+    <div>
+      <p class="eyebrow">07 / JUST SHIPPED</p>
+      <h2 id="shipped-title">{{ latestRelease.version }} is out.</h2>
+      <p v-if="latestRelease.date">{{ formatReleaseDate(latestRelease.date) }}</p>
+      <a class="text-link" :href="withBase('/changelog')">Read the changelog <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
+    </div>
+    <div class="detail-list">
+      <a :href="withBase('/changelog')">
+        <span>{{ latestRelease.version }}</span>
+        <div>
+          <h3>What’s new.</h3>
+          <p>{{ latestTeaser }}</p>
+        </div>
+        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
+      </a>
+    </div>
   </section>
 
   <section class="faq-section landing-section" aria-labelledby="faq-title">
-    <div><p class="eyebrow">06 / A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press enter.</h2><p>A little context for your first session.</p></div>
+    <div><p class="eyebrow">08 / A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press enter.</h2><p>A little context for your first session.</p></div>
     <div class="faq-list">
       <details><summary>Do I need Docker or Google Cloud?</summary><p>Neither is required for local host processes. Use Docker or Podman when your configuration includes containers. Google Cloud tools are optional and only needed for the Google authentication features you choose to use. <a :href="withBase('/installation')">See installation requirements <span aria-hidden="true"><ArrowUpRight :size="12" weight="regular" /></span></a></p></details>
       <details><summary>Do I have to change my application code?</summary><p>Describe how your services run in <code>.devctl/config.yaml</code>: their commands, working directories, environment, and health checks. devctl works with that configuration. <a :href="withBase('/configuration')">Explore configuration <span aria-hidden="true"><ArrowUpRight :size="12" weight="regular" /></span></a></p></details>

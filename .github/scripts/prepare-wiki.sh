@@ -18,6 +18,7 @@ rm -rf \
   "${dest}/node_modules" \
   "${dest}/internals" \
   "${dest}/index.md" \
+  "${dest}/changelog.md" \
   "${dest}/package.json" \
   "${dest}/package-lock.json"
 
@@ -95,6 +96,7 @@ cat > "${dest}/_Sidebar.md" <<EOF
 * [Security](security)
 
 **Reference**
+* [Changelog](${blob}/CHANGELOG.md)
 * [Building from source](typescript)
 * [npm publishing](npm-publishing)
 * [Contributing](${blob}/CONTRIBUTING.md)
