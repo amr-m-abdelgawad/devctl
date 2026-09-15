@@ -284,6 +284,19 @@ function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode =
       return [{ key: "n", label: "start proxy" }, { key: "x", label: "stop proxy" }, ...common];
     case "llm":
       return [{ key: "enter", label: "detail" }, { key: "j/k", label: "move" }, ...common];
+    case "httpclient":
+      return [
+        { key: "tab", label: "pane" },
+        { key: "s", label: "send" },
+        { key: "e", label: "edit url" },
+        { key: "b", label: "edit body" },
+        { key: "f", label: "filter" },
+        { key: "v", label: "env" },
+        { key: "m", label: "method" },
+        { key: "[/]", label: "tabs" },
+        { key: "j/k", label: "move" },
+        ...common,
+      ];
     case "mcp":
       return [
         { key: "j/k", label: "move" },

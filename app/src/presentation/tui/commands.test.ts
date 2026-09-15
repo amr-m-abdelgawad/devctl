@@ -50,6 +50,8 @@ describe("slash commands", () => {
 
   test("llm is a first-class command", () => {
     expect(lookupCommand("/llm")?.name).toBe("llm");
+    expect(lookupCommand("/http")?.name).toBe("http");
+    expect(lookupCommand("/api")?.name).toBe("http");
   });
 
   test("buffer is a first-class command", () => {

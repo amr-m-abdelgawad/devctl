@@ -13,7 +13,8 @@ export type Screen =
   | "setup"
   | "settings"
   | "mcp"
-  | "stats";
+  | "stats"
+  | "httpclient";
 
 export type SlashPicker = "commands" | "tasks" | "services";
 

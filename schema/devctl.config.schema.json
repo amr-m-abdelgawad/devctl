@@ -48,6 +48,7 @@
       "additionalProperties": { "$ref": "#/$defs/httpRecipe" },
       "description": "Named outbound HTTP recipes. Modular files: .devctl/http/<name>.yaml"
     },
+    "httpclient": { "$ref": "#/$defs/httpclient" },
     "proxy": { "$ref": "#/$defs/proxy" },
     "logs": { "$ref": "#/$defs/logs" },
     "telemetry": { "$ref": "#/$defs/telemetry" },
@@ -567,6 +568,28 @@
             "host": { "type": "string" },
             "port": { "type": "integer", "minimum": 0, "maximum": 65535 }
           }
+        }
+      }
+    },
+    "httpclient": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "HTTP client (Bruno collections + virtual devctl collection). Zero-config defaults walk the repo for bruno.json.",
+      "properties": {
+        "search_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Directories to search for bruno.json, relative to the repo root. Empty = repository root."
+        },
+        "token_hosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Extra hosts allowed to receive auto-injected identity tokens, in addition to known services."
+        },
+        "body_max_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Max stored response body bytes (default 5242880)."
         }
       }
     },

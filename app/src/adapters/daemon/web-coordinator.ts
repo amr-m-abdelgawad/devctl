@@ -1,4 +1,5 @@
 import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
+import type { HttpClientRuntime } from "../../ports/http-client.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
 import { randomSecret } from "../storage/storage.ts";
 
@@ -6,6 +7,7 @@ export type WebCoordinatorDeps = {
   cfg: () => DevctlConfig;
   createListener: WebListenerFactory;
   hostApi: () => McpHost;
+  httpClient: () => HttpClientRuntime;
   log: (service: string, level: string, message: string) => void;
 };
 
@@ -68,6 +70,7 @@ export class WebCoordinator {
       port: listen.port,
       token: this.token,
       hostApi: this.deps.hostApi(),
+      httpClient: this.deps.httpClient(),
       onEvent: (level, message) => this.deps.log("web", level, `web ${message}`),
     });
     await this.listener.start();

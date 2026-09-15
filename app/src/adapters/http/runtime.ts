@@ -17,12 +17,13 @@ import {
 import type { Clock } from "../../ports/clock.ts";
 import type { HttpRecipeRuntime, HttpRecipeSnapshot } from "../../ports/http-recipe-runtime.ts";
 import { resolveString, type HttpValueMap } from "../config/refs.ts";
-import { applyExtraAuthHeaders, headerHasAuthorization, mintAuthToken } from "./identity.ts";
+import { mintAuthToken } from "./identity.ts";
+import { assignedPorts } from "./assigned-ports.ts";
+import { authorizedSend } from "./send.ts";
 import type { TokenManager } from "../google/token.ts";
 
 const MS_PER_SECOND = 1000;
 const GET = "GET";
-const HEAD = "HEAD";
 
 export type RecipeFetch = (input: string, init: RequestInit) => Promise<Response>;
 export type RecipeScheduler = (ms: number, fn: () => void) => { cancel: () => void };
@@ -133,22 +134,14 @@ export class RecipeRuntime implements HttpRecipeRuntime {
     for (const [key, value] of Object.entries(recipe.request.headers)) {
       headers[key] = interpolate(value);
     }
-    if (token !== undefined) {
-      if (!headerHasAuthorization(headers)) {
-        headers.authorization = `Bearer ${token}`;
-      }
-      applyExtraAuthHeaders(headers, recipe.request.auth.headers, token);
-    }
     const method = (recipe.request.method || GET).toUpperCase();
     const body = encodeBody(recipe, interpolate, headers);
     const timeoutMs = httpTimeoutSeconds(recipe) * MS_PER_SECOND;
-    const resp = await this.fetchImpl(url, {
-      method,
-      headers,
-      body: method === GET || method === HEAD ? undefined : body,
-      redirect: "manual",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    const resp = await authorizedSend(
+      { url, method, headers, body, timeoutMs },
+      { token, extraHeaders: recipe.request.auth.headers },
+      this.fetchImpl,
+    );
     const text = await resp.text();
     const snapshot = buildSnapshot(cfg, name, recipe, resp.status, resp.headers.get("content-type") ?? "", text, this.deps.clock.unixMs());
     this.deps.log?.(`http recipe ${name} fetched status=${resp.status}`);
@@ -227,24 +220,6 @@ function defaultSchedule(ms: number, fn: () => void): { cancel: () => void } {
 
 function emptySnapshot(): HttpRecipeSnapshot {
   return { status: 0, body: "", contentType: "", values: {} };
-}
-
-function assignedPorts(cfg: DevctlConfig, live: Map<string, Record<string, number>>): Record<string, Record<string, number>> {
-  const assigned: Record<string, Record<string, number>> = {};
-  for (const [name, svc] of Object.entries(cfg.services)) {
-    const ports: Record<string, number> = {};
-    for (const port of svc.ports) {
-      if (!port.auto) {
-        ports[port.name] = port.value;
-      }
-    }
-    const livePorts = live.get(name);
-    if (livePorts) {
-      Object.assign(ports, livePorts);
-    }
-    assigned[name] = ports;
-  }
-  return assigned;
 }
 
 function encodeBody(recipe: HttpRecipeConfig, interpolate: (value: string) => string, headers: Record<string, string>): string | undefined {

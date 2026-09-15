@@ -38,6 +38,7 @@ import {
   knownTelemetryOtlp,
   knownUI,
   knownWeb,
+  knownHttpClient,
   knownLlm,
   knownLlmSource,
   knownLlmAuth,
@@ -123,6 +124,8 @@ function knownForPath(path: string): string[] {
       return knownWeb;
     case "web.listen":
       return knownListen;
+    case "httpclient":
+      return knownHttpClient;
     case "llm":
       return knownLlm;
     default:

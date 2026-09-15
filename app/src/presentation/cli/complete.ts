@@ -64,6 +64,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     "attach",
     "completion",
     "update",
+    "http",
     "version",
   ];
   if (cmd === "" || words.length < 2) {
@@ -94,6 +95,9 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
   }
   if (cmd === "llm") {
     return filterPrefix(["show", "--source", "--model", "--status", "--search", "--json", "--follow"], tail);
+  }
+  if (cmd === "http") {
+    return filterPrefix(["ls", "send", "get", "post", "--json", "--env", "--profile", "--var", "--insecure-attach-token"], tail);
   }
   return filterPrefix(commands, tail);
 }

@@ -34,7 +34,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     cfg: defaultConfig(),
     setupMode: false,
     restartRequired: [],
-    fs: { exists: () => true, readText: () => "", writeText: () => undefined },
+    fs: { exists: () => true, readText: () => "", writeText: () => undefined, listDir: () => [] },
     registry: undefined,
     pluginMtimes: pluginMtimes(prevPaths, repoRoot),
     detector: { update() {}, extraMarkers: [], extraPatterns: [] } as unknown as ReloadHost["detector"],

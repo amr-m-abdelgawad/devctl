@@ -43,6 +43,7 @@ import {
   type LlmConfig,
   type LlmSourceConfig,
   type HttpRecipeConfig,
+  type HttpClientConfig,
 } from "../../domain/config/types.ts";
 
 // Field names ever explicitly set, per service or template name, by any
@@ -227,6 +228,9 @@ export function applyRoot(
   if (isRecord(raw.web)) {
     applyWeb(cfg.web, raw.web);
   }
+  if (isRecord(raw.httpclient)) {
+    applyHttpClient(cfg.httpclient, raw.httpclient);
+  }
   if (isRecord(raw.llm)) {
     applyLlm(cfg.llm, raw.llm);
   }
@@ -261,6 +265,18 @@ export function applyWeb(web: WebConfig, raw: Record<string, unknown>): void {
     if (raw.listen.port !== undefined) {
       web.listen.port = asNumber(raw.listen.port);
     }
+  }
+}
+
+export function applyHttpClient(httpclient: HttpClientConfig, raw: Record<string, unknown>): void {
+  if (Array.isArray(raw.search_paths)) {
+    httpclient.search_paths = asStringArray(raw.search_paths);
+  }
+  if (Array.isArray(raw.token_hosts)) {
+    httpclient.token_hosts = asStringArray(raw.token_hosts);
+  }
+  if (raw.body_max_bytes !== undefined) {
+    httpclient.body_max_bytes = asNumber(raw.body_max_bytes);
   }
 }
 

@@ -29,6 +29,8 @@ import type { useLogView } from "./use-log-view.ts";
 import type { useMcpControls } from "./use-mcp-controls.ts";
 import type { usePreferences } from "./use-preferences.ts";
 import type { KeyboardRefs, KeyboardUi } from "./keyboard-context.ts";
+import type { HttpClientView } from "./use-http-client.ts";
+import { handleHttpClientKey } from "./keyboard-httpclient.ts";
 import { handleOverlayKey } from "./keyboard-overlays.ts";
 import { handleScreenDigitKey, handleScreenKey } from "./keyboard-screens.ts";
 
@@ -44,6 +46,7 @@ type Options = {
   preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "persistPrefs">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "doctor" | "refreshAuth" | "setDoctorTick">;
   refs: KeyboardRefs;
+  httpClient: HttpClientView;
 };
 
 export function useAppKeyboard({
@@ -58,6 +61,7 @@ export function useAppKeyboard({
   preferences,
   diagnostics,
   refs,
+  httpClient,
 }: Options): void {
   const {
     screen, onQuit, closeOverlay, confirmKind, confirmDetail, portTarget, profile, listCursor, names, runCommand,
@@ -198,6 +202,10 @@ export function useAppKeyboard({
       }
       return;
     }
+    if (screen === "httpclient") {
+      void httpClient.send();
+      return;
+    }
     if (screen === "dashboard" && canStartAll(snap)) {
       void beginStart([], profile);
       return;
@@ -206,7 +214,7 @@ export function useAppKeyboard({
     if (name && (screen === "dashboard" || screen === "services")) {
       openDetail(name);
     }
-  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, llmCalls, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLlmDetail, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
+  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, httpClient, listCursor, llmCalls, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLlmDetail, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
 
   useKeyboard((key: KeyLike) => {
     const name = (key.name ?? "").toLowerCase();
@@ -274,6 +282,15 @@ export function useAppKeyboard({
       return;
     }
     if (logSearchFocused) {
+      return;
+    }
+    if (handleHttpClientKey({
+      screen,
+      view: httpClient,
+      keyName: name,
+      searchChord: isSearchChord(key, tui),
+      shift: key.shift === true,
+    })) {
       return;
     }
     if (isLeaderChord(key, tui)) {

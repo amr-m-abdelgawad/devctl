@@ -7,6 +7,8 @@ import { emptyRuntime } from "../../domain/service/services.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
 import { WebHttpServer } from "./server.ts";
+import { emptyHttpClientAuth, emptyHttpClientRequest } from "../../domain/httpclient/request.ts";
+import type { HttpClientRuntime } from "../../ports/http-client.ts";
 
 type ControlCall = { tool: string; args: unknown };
 
@@ -116,10 +118,53 @@ function host(): McpHost & { calls: ControlCall[] } {
   };
 }
 
-async function listen(api: McpHost = host()): Promise<WebHttpServer> {
-  const server = new WebHttpServer({ host: "127.0.0.1", port: 0, token: TEST_WEB_TOKEN, hostApi: api });
+async function listen(api: McpHost = host(), httpClient?: HttpClientRuntime): Promise<WebHttpServer> {
+  const server = new WebHttpServer({ host: "127.0.0.1", port: 0, token: TEST_WEB_TOKEN, hostApi: api, httpClient });
   await server.start();
   return server;
+}
+
+function mockHttpClient(): HttpClientRuntime {
+  const request = emptyHttpClientRequest();
+  request.id = "service:api";
+  request.name = "api";
+  request.method = "GET";
+  request.url = "${services.api.url}";
+  const sendResult = {
+    id: "http-1",
+    url: "http://127.0.0.1:3999",
+    tokenDecision: "attach" as const,
+    authAttached: true,
+    response: {
+      status: 200,
+      statusText: "OK",
+      headers: [{ name: "content-type", value: "text/plain", enabled: true }],
+      body: "ok",
+      size: 2,
+      durationMs: 3,
+      truncated: false,
+    },
+  };
+  return {
+    listCollections: () => [{ id: "devctl", name: "devctl", source: "devctl", readonly: true, requestCount: 1 }],
+    getCollection: (id) => ({
+      id,
+      name: id,
+      source: "devctl",
+      path: "",
+      readonly: true,
+      vars: [],
+      headers: [],
+      auth: emptyHttpClientAuth(),
+      items: [{ kind: "request", id: "service:api", request }],
+      environments: [],
+    }),
+    send: async () => sendResult,
+    start: () => "http-1",
+    result: () => ({ status: "ok", id: "http-1", result: sendResult }),
+    body: () => ({ body: "ok", size: 2, truncated: false }),
+    cancel: () => true,
+  };
 }
 
 function rawRequest(port: number, opts: {
@@ -536,6 +581,62 @@ describe("web http server", () => {
         body,
       });
       expect(referer.status).toBe(200);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("HTTP client routes are bearer-gated and do not use /api/control", async () => {
+    const client = mockHttpClient();
+    const server = await listen(host(), client);
+    const port = server.listenPort();
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      const unauth = await fetch(`${base}/api/http/collections`);
+      expect(unauth.status).toBe(401);
+
+      const listed = await fetch(`${base}/api/http/collections`, { headers: { Authorization: `Bearer ${TEST_WEB_TOKEN}` } });
+      expect(listed.status).toBe(200);
+      expect((await listed.json() as { collections: Array<{ id: string }> }).collections[0]?.id).toBe("devctl");
+
+      const started = await fetch(`${base}/api/http/send`, {
+        method: "POST",
+        headers: controlHeaders(port),
+        body: JSON.stringify({ collectionId: "devctl", requestId: "service:api" }),
+      });
+      expect(started.status).toBe(200);
+      expect(await started.json()).toEqual({ id: "http-1" });
+
+      const cross = await rawRequest(port, {
+        method: "POST",
+        path: "/api/http/send",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${TEST_WEB_TOKEN}`,
+          Origin: "https://evil.example",
+          "content-length": "2",
+        },
+        body: "{}",
+      });
+      expect(cross.status).toBe(403);
+
+      const result = await fetch(`${base}/api/http/result/http-1`, { headers: { Authorization: `Bearer ${TEST_WEB_TOKEN}` } });
+      expect((await result.json() as { status: string }).status).toBe("ok");
+
+      const body = await fetch(`${base}/api/http/body/http-1`, { headers: { Authorization: `Bearer ${TEST_WEB_TOKEN}` } });
+      expect(await body.json()).toEqual({ body: "ok", size: 2, truncated: false });
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("HTTP client routes return 503 when the runtime is missing", async () => {
+    const server = await listen();
+    try {
+      const res = await fetch(`http://127.0.0.1:${server.listenPort()}/api/http/collections`, {
+        headers: { Authorization: `Bearer ${TEST_WEB_TOKEN}` },
+      });
+      expect(res.status).toBe(503);
     } finally {
       await server.stop();
     }

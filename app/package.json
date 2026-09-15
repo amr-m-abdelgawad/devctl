@@ -54,6 +54,7 @@
   "dependencies": {
     "@opentui/core": "^0.5.11",
     "@opentui/react": "^0.5.11",
+    "@usebruno/lang": "^0.39.0",
     "cli-spinners": "^3.4.0",
     "commander": "^15.0.0",
     "dotenv": "^17.4.2",

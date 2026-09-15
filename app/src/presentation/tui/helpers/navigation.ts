@@ -98,6 +98,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "logs", label: "logs" },
   { id: "proxy", label: "proxy" },
   { id: "llm", label: "llm" },
+  { id: "httpclient", label: "http" },
 ];
 
 // No fallback constant here on purpose: the mcp screen's row count now
@@ -106,7 +107,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 export function screenListCount(
   screen: Screen,
-  counts: { doctor: number; settings: number; profiles: number; services: number; logs?: number; mcp?: number; config?: number; llm?: number },
+  counts: { doctor: number; settings: number; profiles: number; services: number; logs?: number; mcp?: number; config?: number; llm?: number; httpclient?: number },
 ): number {
   if (screen === "doctor") {
     return counts.doctor;
@@ -134,6 +135,9 @@ export function screenListCount(
   }
   if (screen === "llm") {
     return counts.llm ?? 0;
+  }
+  if (screen === "httpclient") {
+    return counts.httpclient ?? 0;
   }
   return 0;
 }

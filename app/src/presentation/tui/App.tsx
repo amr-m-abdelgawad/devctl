@@ -24,6 +24,7 @@ import { useDaemonEvents } from "./hooks/use-daemon-events.ts";
 import { useDiagnostics } from "./hooks/use-diagnostics.ts";
 import { useLifecycle } from "./hooks/use-lifecycle.ts";
 import { useLogView } from "./hooks/use-log-view.ts";
+import { useHttpClientView } from "./hooks/use-http-client.ts";
 import { useLlmView } from "./hooks/use-llm-view.ts";
 import { useMcpControls } from "./hooks/use-mcp-controls.ts";
 import { useNotifications } from "./hooks/use-notifications.ts";
@@ -48,6 +49,7 @@ import { ConfigScreen } from "./screens/Config.tsx";
 import { CredentialsScreen } from "./screens/Credentials.tsx";
 import { Dashboard } from "./screens/Dashboard.tsx";
 import { DoctorScreen } from "./screens/Doctor.tsx";
+import { HttpClientScreen } from "./screens/HttpClient.tsx";
 import { LogsScreen } from "./screens/Logs.tsx";
 import { LlmScreen } from "./screens/Llm.tsx";
 import { mcpRowCount, McpScreen } from "./screens/Mcp.tsx";
@@ -191,6 +193,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
 
   const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
   const llmView = useLlmView({ controller, screen });
+  const httpView = useHttpClientView({ controller, screen, selected, profile });
   const {
     logs,
     setLogs,
@@ -265,6 +268,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     mcp: mcpRowCount(),
     config: Object.keys(cfg?.tasks ?? {}).length,
     llm: llmView.page.calls.length,
+    httpclient: httpView.tree.length,
   });
   const cursorState = screen === "logs" ? (splitLogs && splitFocus === 1 ? logSelectedB : logSelected) : selected;
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
@@ -549,6 +553,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       configScrollRef,
       detailScrollRef,
     },
+    httpClient: httpView,
   });
 
   const confirm = confirmCopy(confirmKind, profile, confirmDetail);
@@ -752,6 +757,15 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
               llmView.setDetail(call);
               setOverlay("llm-details");
             }}
+          />
+        ) : null}
+        {screen === "httpclient" ? (
+          <HttpClientScreen
+            palette={palette}
+            view={httpView}
+            selected={listCursor}
+            width={width}
+            onPick={setSelected}
           />
         ) : null}
         {screen === "mcp" ? (

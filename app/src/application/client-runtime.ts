@@ -13,6 +13,8 @@ import type { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from ".
 import type { Report } from "../domain/doctor/types.ts";
 import type { UpdateCheck } from "../domain/update.ts";
 import type { UpdateApplyResult } from "../ports/update.ts";
+import type { HttpClientCollection, HttpClientCollectionSummary, HttpClientSendInput } from "../domain/httpclient/request.ts";
+import type { HttpClientBodyPage, HttpClientSendResult, HttpClientSendState } from "../ports/http-client.ts";
 
 export type DaemonClient = {
   call(method: string, params: unknown, timeoutMs?: number): Promise<unknown>;
@@ -51,6 +53,12 @@ export type Controller = {
   mcpSetTools(disabled: readonly string[]): Promise<string[]>;
   reload(): Promise<ReloadResult>;
   invalidateAuth(): Promise<void>;
+  httpList(): Promise<{ collections: HttpClientCollectionSummary[] }>;
+  httpCollection(id: string): Promise<HttpClientCollection>;
+  httpSend(input: HttpClientSendInput, wait?: boolean): Promise<HttpClientSendResult | { id: string }>;
+  httpResult(id: string): Promise<HttpClientSendState | null>;
+  httpBody(id: string, offset?: number, limit?: number): Promise<HttpClientBodyPage>;
+  httpCancel(id: string): Promise<{ cancelled: boolean }>;
   onEvent(handler: (ev: BusEvent) => void): () => void;
   close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void>;
   shutdown(opts: { stopServices: boolean }): Promise<void>;

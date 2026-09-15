@@ -525,6 +525,22 @@ export type ConfigOrigin = {
 
 export type ConfigProvenance = Record<string, ConfigOrigin[]>;
 
+export type HttpClientConfig = {
+  search_paths: string[];
+  token_hosts: string[];
+  body_max_bytes: number;
+};
+
+export const DEFAULT_HTTPCLIENT_BODY_MAX_BYTES = 5 * 1024 * 1024;
+
+export function emptyHttpClient(): HttpClientConfig {
+  return { search_paths: [], token_hosts: [], body_max_bytes: 0 };
+}
+
+export function httpClientBodyMaxBytes(cfg: HttpClientConfig): number {
+  return cfg.body_max_bytes > 0 ? cfg.body_max_bytes : DEFAULT_HTTPCLIENT_BODY_MAX_BYTES;
+}
+
 export type DevctlConfig = {
   version: number;
   project: ProjectConfig;
@@ -534,6 +550,7 @@ export type DevctlConfig = {
   services: Record<string, ServiceConfig>;
   tasks: Record<string, TaskConfig>;
   http: Record<string, HttpRecipeConfig>;
+  httpclient: HttpClientConfig;
   proxy: ProxyConfig;
   logs: LogConfig;
   telemetry: TelemetryConfig;
@@ -612,6 +629,7 @@ export function defaultConfig(): DevctlConfig {
     services: {},
     tasks: {},
     http: {},
+    httpclient: emptyHttpClient(),
     proxy: {
       enabled: false,
       gateway: false,

@@ -34,6 +34,7 @@ test("daemon composition shares supplied clock, filesystem, bus, and identity de
     exists: (path) => { paths.push(path); return true; },
     readText: () => { throw new Error("unexpected filesystem read"); },
     writeText: () => { throw new Error("unexpected filesystem write"); },
+    listDir: () => [],
   };
   const tokens = new TokenManager(1000, [], bus, {
     backend: "file", get: async () => undefined, set: async () => {}, delete: async () => {}, list: async () => [],

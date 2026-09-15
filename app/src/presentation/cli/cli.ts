@@ -12,6 +12,7 @@ import { addDaemon, addLogs } from "./logs.ts";
 import { addLlm } from "./llm.ts";
 import { addMcp, addProxy } from "./listeners.ts";
 import { addWeb } from "./web.ts";
+import { addHttpClient } from "./httpclient.ts";
 import { addUpdate } from "./update.ts";
 import { configFlag, isStdoutClosed, writeOut } from "./shared.ts";
 
@@ -53,6 +54,7 @@ export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): C
   addAttach(root, runtime);
   addCompletion(root, runtime);
   addUpdate(root, runtime);
+  addHttpClient(root, runtime);
   addSupervisor(root, launchDaemon);
   return root;
 }

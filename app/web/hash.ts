@@ -11,7 +11,7 @@ export function parseHash(hash: string): Route {
   if (head === "llm") {
     return { name: "llm", llmId: parts[1] };
   }
-  if (head === "graph" || head === "logs" || head === "services") {
+  if (head === "graph" || head === "logs" || head === "services" || head === "api") {
     return { name: head };
   }
   return { name: "services" };

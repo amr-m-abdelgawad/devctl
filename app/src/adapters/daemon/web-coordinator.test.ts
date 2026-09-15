@@ -28,6 +28,7 @@ describe("web coordinator", () => {
         return fakeListener(opts);
       },
       hostApi: () => ({}) as McpHost,
+      httpClient: () => ({}) as never,
       log: (_service, _level, message) => logs.push(message),
     });
     await web.start();
@@ -48,6 +49,7 @@ describe("web coordinator", () => {
       cfg: () => cfg,
       createListener: (opts) => fakeListener(opts),
       hostApi: () => ({}) as McpHost,
+      httpClient: () => ({}) as never,
       log: () => undefined,
     });
     const first = await web.startExplicit();

@@ -291,6 +291,9 @@ export function useCommandDispatcher({
           case "setup":
             setScreen(spec.name);
             return;
+          case "http":
+            setScreen("httpclient");
+            return;
           case "import": {
             const kind = args[0] ?? "";
             const write = args.includes("--write");

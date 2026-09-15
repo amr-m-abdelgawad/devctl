@@ -11,6 +11,8 @@ import { type Plan } from "../../domain/service/services.ts";
 import { bootstrapLogPath, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
+import type { HttpClientCollection, HttpClientCollectionSummary, HttpClientSendInput } from "../../domain/httpclient/request.ts";
+import type { HttpClientBodyPage, HttpClientSendResult, HttpClientSendState } from "../../ports/http-client.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 const DIAL_RETRY_MS = 50;
@@ -24,6 +26,7 @@ const BOOTSTRAP_DIAL_TIMEOUT_MS = 15_000;
 const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
 const COMMAND_RPC_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const HTTP_RPC_TIMEOUT_MS = 120_000;
 // RPC methods a client must still be able to send to an incompatible
 // daemon: removing it (`down` → the "shutdown" call, made directly on
 // Client rather than through Controller.call) and reading its logs so the
@@ -447,6 +450,30 @@ export class Controller {
 
   async invalidateAuth(): Promise<void> {
     await this.call("auth_invalidate", null);
+  }
+
+  async httpList(): Promise<{ collections: HttpClientCollectionSummary[] }> {
+    return (await this.call("http_list", null)) as { collections: HttpClientCollectionSummary[] };
+  }
+
+  async httpCollection(id: string): Promise<HttpClientCollection> {
+    return (await this.call("http_collection", { id })) as HttpClientCollection;
+  }
+
+  async httpSend(input: HttpClientSendInput, wait = true): Promise<HttpClientSendResult | { id: string }> {
+    return (await this.call("http_send", { ...input, wait }, HTTP_RPC_TIMEOUT_MS)) as HttpClientSendResult | { id: string };
+  }
+
+  async httpResult(id: string): Promise<HttpClientSendState | null> {
+    return (await this.call("http_result", { id })) as HttpClientSendState | null;
+  }
+
+  async httpBody(id: string, offset?: number, limit?: number): Promise<HttpClientBodyPage> {
+    return (await this.call("http_body", { id, offset, limit })) as HttpClientBodyPage;
+  }
+
+  async httpCancel(id: string): Promise<{ cancelled: boolean }> {
+    return (await this.call("http_cancel", { id })) as { cancelled: boolean };
   }
 
   onEvent(handler: (ev: BusEvent) => void): () => void {

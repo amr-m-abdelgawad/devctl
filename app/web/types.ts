@@ -158,12 +158,89 @@ export type LlmCallsPayload = {
   errors?: Array<{ source: string; message: string; status?: number }>;
 };
 
-export type RouteName = "services" | "traces" | "graph" | "logs" | "llm";
+export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "api";
 
 export type Route = {
   name: RouteName;
   traceId?: string;
   llmId?: string;
+};
+
+export type HttpHeader = { name: string; value: string; enabled: boolean };
+export type HttpParam = { name: string; value: string; enabled: boolean; kind: "query" | "path" };
+export type HttpVar = { name: string; value: string; enabled: boolean };
+export type HttpFormField = { name: string; value: string; enabled: boolean };
+
+export type HttpRequest = {
+  id: string;
+  name: string;
+  method: string;
+  url: string;
+  params: HttpParam[];
+  headers: HttpHeader[];
+  body: { mode: string; text: string; form: HttpFormField[]; graphqlQuery: string; graphqlVariables: string };
+  auth: { mode: string; token: string; username: string; password: string; key: string; value: string; placement: "header" | "query" };
+  vars: HttpVar[];
+  timeoutSeconds: number;
+};
+
+export type HttpCollectionItem =
+  | { kind: "folder"; id: string; name: string; items: HttpCollectionItem[] }
+  | { kind: "request"; id: string; request: HttpRequest };
+
+export type HttpCollection = {
+  id: string;
+  name: string;
+  source: "bruno" | "devctl";
+  readonly: boolean;
+  items: HttpCollectionItem[];
+  environments: Array<{ id: string; name: string }>;
+};
+
+export type HttpCollectionSummary = {
+  id: string;
+  name: string;
+  source: "bruno" | "devctl";
+  readonly: boolean;
+  requestCount: number;
+};
+
+export type HttpSendResult = {
+  id: string;
+  url: string;
+  tokenDecision: string;
+  authAttached: boolean;
+  response: {
+    status: number;
+    statusText: string;
+    headers: HttpHeader[];
+    body: string;
+    size: number;
+    durationMs: number;
+    truncated: boolean;
+  };
+};
+
+export type HttpSendState =
+  | { status: "pending"; id: string }
+  | { status: "ok"; id: string; result: HttpSendResult }
+  | { status: "error"; id: string; error: string }
+  | { status: "cancelled"; id: string };
+
+export type HttpBodyPage = {
+  body: string;
+  size: number;
+  truncated: boolean;
+};
+
+export type HttpSendInput = {
+  collectionId?: string;
+  requestId?: string;
+  inline?: HttpRequest;
+  env?: string;
+  profile?: string;
+  vars?: Record<string, string>;
+  insecureAttachToken?: boolean;
 };
 
 export type UpdateCheckPayload = {

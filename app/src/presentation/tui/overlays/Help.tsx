@@ -26,7 +26,7 @@ type Binding = {
 
 export const HELP_NAVIGATION: readonly Binding[] = [
   { key: "tab", label: "next tab" },
-  { key: "1-5", label: "dashboard services logs proxy llm" },
+  { key: "1-6", label: "dashboard services logs proxy llm http" },
   { key: "s/l/a/p/d/c/u", label: "letter jump" },
   { key: "/", label: "command overlay · other screens" },
   { key: "j/k", label: "move selection" },
@@ -77,6 +77,7 @@ export const HELP_COMMANDS: readonly Binding[] = [
   { key: "/notify dismiss", label: "do not remind me about this version" },
   { key: "/diff", label: "config sources" },
   { key: "/mcp", label: "agent MCP server" },
+  { key: "/http", label: "HTTP client" },
 ];
 
 export const HELP_DISPLAY: readonly Binding[] = [

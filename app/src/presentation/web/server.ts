@@ -9,6 +9,8 @@ import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
 import { headerValue } from "../../shared/headers.ts";
 import { LOCALHOST } from "../../domain/config/types.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
+import type { HttpClientRuntime } from "../../ports/http-client.ts";
+import { asHttpSendInput } from "../../domain/httpclient/decode.ts";
 import {
   callMcpTool,
   getConfigSummary,
@@ -37,12 +39,14 @@ const ALLOW_GET = "GET";
 const ALLOW_GET_POST = "GET, POST";
 const ALLOW_POST = "POST";
 const MAX_JSON_BODY_BYTES = 64 * 1024;
+const MAX_HTTP_SEND_BYTES = 1024 * 1024;
 
 export type WebListenOptions = {
   host: string;
   port: number;
   token: string;
   hostApi: McpHost;
+  httpClient?: HttpClientRuntime;
   checkUpdate?: () => Promise<UpdateCheck>;
   onEvent?: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 };
@@ -132,7 +136,7 @@ export class WebHttpServer {
         await this.routePost(path, req, res);
         return;
       }
-      await this.routeGet(path, url.searchParams, res);
+      await this.routeGet(path, url.searchParams, req, res);
     } catch (err) {
       const message = err instanceof Error ? err.message : "internal error";
       const status = err instanceof HttpError ? err.status : 400;
@@ -141,7 +145,7 @@ export class WebHttpServer {
     }
   }
 
-  private async routeGet(path: string, query: URLSearchParams, res: ServerResponse): Promise<void> {
+  private async routeGet(path: string, query: URLSearchParams, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const host = this.opts.hostApi;
     if (path === "/") {
       writeHtml(res, pageHtml());
@@ -201,10 +205,17 @@ export class WebHttpServer {
       writeJson(res, 200, await traceRequestTool(host, { request_id: decodeURIComponent(requestId) }));
       return;
     }
+    if (this.routeHttpGet(path, query, req, res)) {
+      return;
+    }
     writeJson(res, 404, { error: "not found" });
   }
 
   private async routePost(path: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (path === "/api/http/send" || path === "/api/http/cancel") {
+      await this.routeHttpPost(path, req, res);
+      return;
+    }
     if (path !== "/api/control") {
       writeMethodNotAllowed(res, path === "/" || path.startsWith("/api/") ? ALLOW_GET : ALLOW_GET_POST);
       return;
@@ -219,6 +230,57 @@ export class WebHttpServer {
     }
     const result = await callMcpTool(this.opts.hostApi, tool, objectArgs(body.args));
     writeJson(res, 200, result ?? { ok: true });
+  }
+
+  private routeHttpGet(path: string, query: URLSearchParams, req: IncomingMessage, res: ServerResponse): boolean {
+    if (path === "/api/http/collections") {
+      assertControlAuthorized(req, this.opts.token);
+      writeJson(res, 200, { collections: this.httpRuntime().listCollections() });
+      return true;
+    }
+    const collectionId = matchRest(path, "/api/http/collections/");
+    if (collectionId !== undefined) {
+      assertControlAuthorized(req, this.opts.token);
+      writeJson(res, 200, this.httpRuntime().getCollection(collectionId));
+      return true;
+    }
+    const resultId = matchRest(path, "/api/http/result/");
+    if (resultId !== undefined) {
+      assertControlAuthorized(req, this.opts.token);
+      writeJson(res, 200, this.httpRuntime().result(resultId) ?? { status: "error", id: resultId, error: "unknown request" });
+      return true;
+    }
+    const bodyId = matchRest(path, "/api/http/body/");
+    if (bodyId !== undefined) {
+      assertControlAuthorized(req, this.opts.token);
+      const offset = Number(query.get("offset") ?? "0");
+      const limitRaw = query.get("limit");
+      const limit = limitRaw === null || limitRaw === "" ? undefined : Number(limitRaw);
+      writeJson(res, 200, this.httpRuntime().body(bodyId, Number.isFinite(offset) ? offset : 0, limit !== undefined && Number.isFinite(limit) ? limit : undefined));
+      return true;
+    }
+    return false;
+  }
+
+  private async routeHttpPost(path: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    assertControlAuthorized(req, this.opts.token);
+    assertSameOriginControl(req);
+    assertJsonContentType(req.headers["content-type"]);
+    const body = await readJsonBody(req, path === "/api/http/send" ? MAX_HTTP_SEND_BYTES : MAX_JSON_BODY_BYTES);
+    const client = this.httpRuntime();
+    if (path === "/api/http/cancel") {
+      const id = typeof body.id === "string" ? body.id : "";
+      writeJson(res, 200, { cancelled: client.cancel(id) });
+      return;
+    }
+    writeJson(res, 200, { id: client.start(asHttpSendInput(body)) });
+  }
+
+  private httpRuntime(): HttpClientRuntime {
+    if (!this.opts.httpClient) {
+      throw new HttpError(503, "http client unavailable");
+    }
+    return this.opts.httpClient;
   }
 }
 
@@ -275,6 +337,21 @@ function matchParam(path: string, prefix: string): string | undefined {
   return rest;
 }
 
+function matchRest(path: string, prefix: string): string | undefined {
+  if (!path.startsWith(prefix)) {
+    return undefined;
+  }
+  const rest = path.slice(prefix.length);
+  if (rest === "") {
+    return undefined;
+  }
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return rest;
+  }
+}
+
 function queryArgs(query: URLSearchParams): Record<string, unknown> {
   const args: Record<string, unknown> = {};
   for (const [key, value] of query.entries()) {
@@ -302,7 +379,7 @@ function objectArgs(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+function readJsonBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -319,7 +396,7 @@ function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
         return;
       }
       size += chunk.length;
-      if (size > MAX_JSON_BODY_BYTES) {
+      if (size > maxBytes) {
         fail(new HttpError(413, "payload too large"));
         return;
       }

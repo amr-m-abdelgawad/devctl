@@ -4,6 +4,7 @@ import {
   FlowArrowIcon,
   GraphIcon,
   IconContext,
+  LightningIcon,
   PlayIcon,
   RobotIcon,
   ScrollIcon,
@@ -27,6 +28,7 @@ import { OverviewPage, type OverviewSummary } from "./pages/overview.tsx";
 import { GraphPage } from "./pages/graph.tsx";
 import { LogsPage } from "./pages/logs.tsx";
 import { LlmPage } from "./pages/llm.tsx";
+import { HttpClientPage } from "./pages/httpclient.tsx";
 import { TracesPage } from "./pages/traces.tsx";
 import type {
   ConfigSummary,
@@ -61,6 +63,7 @@ const NAV: Array<{ name: RouteName; label: string; icon: Icon }> = [
   { name: "services", label: "Overview", icon: SquaresFourIcon },
   { name: "traces", label: "Traces", icon: FlowArrowIcon },
   { name: "llm", label: "LLM", icon: RobotIcon },
+  { name: "api", label: "HTTP", icon: LightningIcon },
   { name: "graph", label: "Graph", icon: GraphIcon },
   { name: "logs", label: "Logs", icon: ScrollIcon },
 ];
@@ -521,7 +524,7 @@ export function App() {
           ) : null}
         </div>
 
-        <main className="mx-auto w-full max-w-[1600px] flex-1 p-5" aria-busy={Boolean(busy)}>
+        <main className={route.name === "api" ? "flex-1" : "mx-auto w-full max-w-[1600px] flex-1 p-5"} aria-busy={Boolean(busy)}>
           {route.name === "services" ? (
             <OverviewPage
               summary={summary}
@@ -576,6 +579,9 @@ export function App() {
           ) : null}
           {route.name === "llm" ? (
             <LlmPage payload={llmCalls} detail={llmDetail} llmId={route.llmId} error={llmError} />
+          ) : null}
+          {route.name === "api" ? (
+            <HttpClientPage profiles={profiles} profile={status?.profile || profiles[0]?.name || ""} />
           ) : null}
         </main>
         </div>

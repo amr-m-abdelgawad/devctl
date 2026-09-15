@@ -76,6 +76,9 @@ import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
+import { HttpClientRuntime } from "../httpclient/runtime.ts";
+import type { HttpClientRuntime as HttpClientRuntimePort } from "../../ports/http-client.ts";
+import { asHttpSendInput } from "../../domain/httpclient/decode.ts";
 import type { LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
@@ -92,6 +95,7 @@ export class Supervisor {
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
   private readonly recipes: HttpRecipeRuntime;
+  private readonly httpClient: HttpClientRuntimePort;
   private readonly detector: Detector;
   private readonly env: EnvironmentBridge;
   private readonly proxy: ProxyCoordinator;
@@ -184,6 +188,16 @@ export class Supervisor {
       processEnv: () => process.env,
       log: (message) => this.log("devctl", "INFO", message),
     });
+    this.httpClient = new HttpClientRuntime({
+      cfg: () => this.cfg,
+      tokens: this.tokens,
+      clock: this.clock,
+      userEmail: () => this.identity.identityCache.user,
+      ports: () => this.ports,
+      processEnv: () => process.env,
+      fs: this.fs,
+      log: (message) => this.log("devctl", "INFO", message),
+    });
     this.llm = new LlmCoordinator({
       cfg: () => this.cfg,
       store: this.llmStore,
@@ -236,6 +250,7 @@ export class Supervisor {
       cfg: () => this.cfg,
       createListener: deps.createWebListener,
       hostApi: () => this.asMcpHost(),
+      httpClient: () => this.httpClient,
       log: (service, level, message) => this.log(service, level, message),
     });
     this.resources = new ResourceSampler({
@@ -546,6 +561,28 @@ export class Supervisor {
         // via the same Detector-based redaction it already applies
         // elsewhere unless the user has explicitly turned on /reveal.
         return this.cfg;
+      case "http_list":
+        return { collections: this.httpClient.listCollections() };
+      case "http_collection":
+        return this.httpClient.getCollection(typeof rec.id === "string" ? rec.id : "");
+      case "http_send": {
+        const wait = rec.wait !== false;
+        const input = asHttpSendInput(rec);
+        if (!wait) {
+          return { id: this.httpClient.start(input) };
+        }
+        return this.httpClient.send(input);
+      }
+      case "http_result":
+        return this.httpClient.result(typeof rec.id === "string" ? rec.id : "") ?? null;
+      case "http_body":
+        return this.httpClient.body(
+          typeof rec.id === "string" ? rec.id : "",
+          typeof rec.offset === "number" ? rec.offset : 0,
+          typeof rec.limit === "number" ? rec.limit : undefined,
+        );
+      case "http_cancel":
+        return { cancelled: this.httpClient.cancel(typeof rec.id === "string" ? rec.id : "") };
       case "auth_invalidate":
         this.tokens.invalidate();
         return null;

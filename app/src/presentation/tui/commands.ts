@@ -35,6 +35,7 @@ export function allCommands(): CommandSpec[] {
     { name: "reload", aliases: [], desc: "Reload configuration", leader: "", group: "ui" },
     { name: "proxy", aliases: ["p"], desc: "Open the proxy screen", leader: "p", group: "nav" },
     { name: "llm", aliases: [], desc: "Open the LLM inspector", leader: "", group: "nav" },
+    { name: "http", aliases: ["api", "httpclient"], desc: "Open the HTTP client", leader: "", group: "nav" },
     { name: "mcp", aliases: ["agent"], desc: "Open the MCP server screen for coding agents", leader: "", group: "nav" },
     { name: "doctor", aliases: ["d"], desc: "Run environment diagnostics", leader: "d", group: "nav" },
     { name: "stats", aliases: ["metrics"], desc: "View system and service statistics", leader: "m", group: "nav" },

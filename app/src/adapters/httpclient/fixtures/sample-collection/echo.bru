@@ -1,0 +1,16 @@
+meta {
+  name: Echo
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/echo
+  body: json
+}
+
+body:json {
+  {
+    "hello": "{{fromRequest}}"
+  }
+}

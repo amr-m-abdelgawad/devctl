@@ -1,4 +1,5 @@
 import type { McpHost } from "./mcp-host.ts";
+import type { HttpClientRuntime } from "./http-client.ts";
 
 export type WebListener = {
   start(): Promise<void>;
@@ -13,6 +14,7 @@ export type WebListenerFactory = (opts: {
   host?: string;
   token: string;
   hostApi: McpHost;
+  httpClient?: HttpClientRuntime;
   onEvent: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 }) => WebListener;
 

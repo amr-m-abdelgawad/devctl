@@ -7,6 +7,7 @@ export const knownTopLevel = [
   "services",
   "tasks",
   "http",
+  "httpclient",
   "proxy",
   "logs",
   "auth",
@@ -82,6 +83,7 @@ export const knownHttpExpose = ["enabled", "host", "response_headers"];
 export const knownTelemetry = ["otlp"];
 export const knownTelemetryOtlp = ["enabled", "listen"];
 export const knownWeb = ["enabled", "listen"];
+export const knownHttpClient = ["search_paths", "token_hosts", "body_max_bytes"];
 export const knownLlm = ["enabled", "sources"];
 export const knownLlmSource = [
   "name",
