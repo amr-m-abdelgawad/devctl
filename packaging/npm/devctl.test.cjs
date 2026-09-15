@@ -99,40 +99,71 @@ test("child exit codes and terminating signals are preserved", () => {
   assert.deepEqual(host.killCalls, [[123, "SIGTERM"]]);
 });
 
-function fakeTtyStream(isTty) {
-  return { isTTY: isTty, chunks: [], write(chunk) { this.chunks.push(chunk); return true; } };
+// Records synchronous fd writes so tests can assert the exact bytes and order.
+function fakeSyncWriter() {
+  const writes = [];
+  const write = (fd, buffer) => {
+    writes.push({ fd, text: buffer.toString() });
+    return buffer.length;
+  };
+  return { writes, write };
 }
 
 test("terminal is restored to a TTY when the child dies from a fatal signal", () => {
-  const out = fakeTtyStream(true);
-  const err = fakeTtyStream(true);
-  const wrote = restoreTerminalAfterCrash(null, "SIGSEGV", [out, err]);
+  const sink = fakeSyncWriter();
+  const targets = [{ fd: 1, isTTY: true }, { fd: 2, isTTY: true }];
+  const wrote = restoreTerminalAfterCrash(null, "SIGSEGV", { targets, write: sink.write });
   assert.equal(wrote, true);
-  assert.equal(out.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
-  assert.equal(err.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
+  assert.deepEqual(
+    sink.writes,
+    [{ fd: 1, text: TERMINAL_RESTORE_SEQUENCE }, { fd: 2, text: TERMINAL_RESTORE_SEQUENCE }],
+  );
 });
 
 test("terminal is restored when the child exits with a crash code", () => {
-  const out = fakeTtyStream(true);
-  assert.equal(restoreTerminalAfterCrash(139, null, [out]), true);
-  assert.equal(out.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
+  const sink = fakeSyncWriter();
+  assert.equal(restoreTerminalAfterCrash(139, null, { targets: [{ fd: 1, isTTY: true }], write: sink.write }), true);
+  assert.equal(sink.writes[0].text, TERMINAL_RESTORE_SEQUENCE);
 });
 
 test("a clean exit leaves the terminal untouched", () => {
-  const out = fakeTtyStream(true);
-  assert.equal(restoreTerminalAfterCrash(0, null, [out]), false);
-  assert.equal(out.chunks.length, 0);
+  const sink = fakeSyncWriter();
+  assert.equal(restoreTerminalAfterCrash(0, null, { targets: [{ fd: 1, isTTY: true }], write: sink.write }), false);
+  assert.equal(sink.writes.length, 0);
 });
 
-test("non-TTY streams are never written to", () => {
-  const pipe = fakeTtyStream(false);
-  assert.equal(restoreTerminalAfterCrash(1, null, [pipe]), false);
-  assert.equal(pipe.chunks.length, 0);
+test("non-TTY fds are never written to", () => {
+  const sink = fakeSyncWriter();
+  assert.equal(restoreTerminalAfterCrash(1, null, { targets: [{ fd: 1, isTTY: false }], write: sink.write }), false);
+  assert.equal(sink.writes.length, 0);
 });
 
-test("a closed stream does not abort the restore of the others", () => {
-  const broken = { isTTY: true, write() { throw new Error("EPIPE"); } };
-  const ok = fakeTtyStream(true);
-  assert.equal(restoreTerminalAfterCrash(1, null, [broken, ok]), true);
-  assert.equal(ok.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
+test("a closed fd does not abort the restore of the others", () => {
+  const sink = fakeSyncWriter();
+  const write = (fd, buffer) => {
+    if (fd === 1) {
+      throw new Error("EBADF");
+    }
+    return sink.write(fd, buffer);
+  };
+  const targets = [{ fd: 1, isTTY: true }, { fd: 2, isTTY: true }];
+  assert.equal(restoreTerminalAfterCrash(1, null, { targets, write }), true);
+  assert.deepEqual(sink.writes, [{ fd: 2, text: TERMINAL_RESTORE_SEQUENCE }]);
+});
+
+test("the restore write is synchronous, so it completes before a re-raised signal", () => {
+  // Reproduces the ordering runMain relies on: restore first, then the
+  // signal re-raise. A synchronous writer means the bytes are already out
+  // by the time kill() would fire, with no async flush to lose.
+  const events = [];
+  const write = (fd) => {
+    events.push(`write:${fd}`);
+    return 1;
+  };
+  const host = { pid: 123, kill(pid, signal) { events.push(`kill:${signal}`); } };
+
+  restoreTerminalAfterCrash(null, "SIGSEGV", { targets: [{ fd: 1, isTTY: true }], write });
+  preserveChildExit(host, null, "SIGSEGV");
+
+  assert.deepEqual(events, ["write:1", "kill:SIGSEGV"]);
 });
