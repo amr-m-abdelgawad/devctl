@@ -1,6 +1,6 @@
 # Testing and CI
 
-Runtime is **Bun 1.4.0+**. Tests: `bun:test`. There is no Jest/Vitest.
+Runtime is **Bun 1.4.2+**. Tests: `bun:test`. There is no Jest/Vitest.
 
 ## Local loop
 
@@ -69,7 +69,7 @@ Jobs (all must pass except dependency-review skipped on non-PR):
 | codeql | JS/TS on `app` |
 | dependency-review | PRs, fail on high |
 
-Bun version in CI is pinned to **1.4.0** (`oven-sh/setup-bun`).
+Bun version in CI is pinned to **1.4.2** (`oven-sh/setup-bun`).
 
 Other workflows: `release.yml` (tagged publishes), `docs-wiki.yml` (wiki from `docs/`), `deploy-pages.yml` (VitePress).
 
