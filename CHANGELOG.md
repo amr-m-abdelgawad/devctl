@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-16
+
 ### Added
 
 - LLM inspector **proxy-capture source** (`llm.sources[].type: proxy`): captures OpenAI-compatible completion bodies — JSON and streamed `text/event-stream` — directly off a devctl proxy route named by `via.route`, feeding the same store as the LiteLLM source. This makes the inspector work behind gateways that only expose `/v1/chat/completions` and block `/spend/logs` (Apigee, IAP, API Management), with no management API. Only tagged completion routes are buffered; all other proxy traffic still streams untouched, and `capture.max_bytes` (default 1 MiB) bounds the stored body. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
@@ -457,7 +459,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.8.0...v0.8.1
