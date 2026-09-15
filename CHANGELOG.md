@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - In-app notices, starting with **new version available**. The TUI checks GitHub Releases on attach and shows a one-line banner (`Update` / `Later` / `Dismiss`) plus an `↑ 0.x.0` header chip — it does not steal letter keys. `/notify later` hides it until the next session; `/notify dismiss` remembers this version in `tui.json`. The web console shows the same notice under the header, with a copy-install-command action, and remembers dismissals in the browser.
+- Docs site changelog at `/changelog` (this file, Keep a Changelog). The landing links it from a **Just shipped** band and from nav/sidebar, and documents the opt-in loopback web console under **When you want a window**.
+- Operator-manual screenshots (TUI, CLI, web UI) and a playable TUI showcase video on the GitHub README.
+- Contributor internals guide (`docs/internals/`) — layer map, RPC, adding features. Not the operator manual.
+
+### Changed
+
+- TUI log search (`f`) is **Logs-tab only**. `enter` keeps the current filter so you can browse matches; `esc` closes search, clears the query, and jumps to the live tail. Remap with `keybinds.search`. See [Logs](docs/logs.md).
+- Web console and docs landing use Phosphor icons (same forest-teal hairline marks).
+- npm package ships Bun **1.4.2** (`engines.bun` ≥ 1.4.2). 1.4.0 could segfault the TUI on the bun:ffi path OpenTUI uses, especially after a long sleep.
+
+### Fixed
+
+- TUI restores mouse tracking and the alternate screen on catchable termination signals, uncaught exceptions, and unhandled rejections — not only on a clean `exit`.
+- npm launcher restores the terminal when the Bun child dies of a fatal signal or a non-zero code (a native panic is below JS, so only the parent can recover the TTY). The restore sequence is written synchronously to fd 1/2 before the wrapper re-raises the signal, so Windows does not drop the bytes.
 
 ## [0.9.0] - 2026-09-14
 
