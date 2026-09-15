@@ -6,7 +6,7 @@ How the codebase is laid out, how the client and supervisor talk, and how to cha
 
 ## Day-to-day
 
-Runtime is [Bun](https://bun.sh) 1.4.0 or later. The loop is in [Building from source](docs/typescript.md):
+Runtime is [Bun](https://bun.sh) 1.4.2 or later. The loop is in [Building from source](docs/typescript.md):
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"

@@ -2,7 +2,7 @@ import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { join, relative, resolve } from "node:path";
 
 export const NPM_PACKAGE_NAME = "@amr-m-abdelgawad/devctl";
-export const BUNDLED_BUN_VERSION = "1.4.0";
+export const BUNDLED_BUN_VERSION = "1.4.2";
 export const GENERATED_PACKAGE_FILES = ["LICENSE", "README.md", "bin/devctl.cjs", "dist/devctl.js", "package.json"] as const;
 
 type PackageJson = {

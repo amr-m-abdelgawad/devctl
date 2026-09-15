@@ -55,7 +55,7 @@ brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl
 ## From source
 
 ```bash
-# Source development requires Bun 1.4.0 or later.
+# Source development requires Bun 1.4.2 or later.
 export PATH="$HOME/.bun/bin:$PATH"
 
 git clone https://github.com/amr-m-abdelgawad/devctl.git
