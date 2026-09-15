@@ -102,7 +102,9 @@ printed URL so the SPA can store the token; it is not embedded in the HTML.
 `devctl status` and MCP `get_status` report the listener address without the
 token. The listener serves a bundled SPA plus `GET /api/*` shapers that match MCP
 redaction. Mutations go through `POST /api/control` to the same MCP tools
-(except `exec_service`).
+(except `exec_service`). `GET /api/update` reports whether a newer GitHub Release
+exists; the SPA shows a banner with a copy-install-command action. Later hides it
+for this tab; Don't remind me stores that version in `localStorage`.
 
 ![The web console overview — KPI tiles (services, requests, errors, P95 latency, throughput), the services table with lifecycle controls, profiles, live proxy requests, and recent errors](assets/manual/web-overview.png)
 

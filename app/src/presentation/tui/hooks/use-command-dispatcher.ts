@@ -5,10 +5,10 @@ import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
-import { DAEMON_RESTART_HINT } from "../../../domain/update.ts";
+import { DAEMON_RESTART_HINT, type UpdateCheck } from "../../../domain/update.ts";
 import { versionLine } from "../../../version.ts";
 import { formatComposeImport, importComposeYaml } from "../../../application/compose-import.ts";
-import { parseExecArgs, parseRestartArgs, type CommandSpec } from "../commands.ts";
+import { parseExecArgs, parseNotifyArgs, parseRestartArgs, type CommandSpec } from "../commands.ts";
 import { formatConfigDiffText } from "../config-view.ts";
 import { logWrapLabel, nextLogWrapMode } from "../helpers/logs.ts";
 import { explicitServices } from "../helpers/services.ts";
@@ -53,6 +53,9 @@ type Options = {
   lastExportPath: RefObject<string>;
   openConfigBuffer: () => void;
   onDown: (keepServices: boolean) => void;
+  onNotifyAction?: (action: "later" | "dismiss") => void;
+  onUpdateCheck?: (result: UpdateCheck) => void;
+  onUpdateApplied?: () => void;
 };
 
 export function useCommandDispatcher({
@@ -82,6 +85,9 @@ export function useCommandDispatcher({
   lastExportPath,
   openConfigBuffer,
   onDown,
+  onNotifyAction,
+  onUpdateCheck,
+  onUpdateApplied,
   workspace,
   logView,
   diagnostics,
@@ -162,13 +168,17 @@ export function useCommandDispatcher({
           case "version":
             setStatus(versionLine());
             void checkUpdate()
-              .then((result) => setStatus(formatUpdateStatus(result)))
+              .then((result) => {
+                onUpdateCheck?.(result);
+                setStatus(formatUpdateStatus(result));
+              })
               .catch((err: unknown) => setStatus(humanMessage(err)));
             return;
           case "update":
             setStatus("checking for update…");
             void checkUpdate()
               .then(async (result) => {
+                onUpdateCheck?.(result);
                 if (!result.newer || !result.command) {
                   setStatus(formatUpdateStatus(result));
                   return;
@@ -179,10 +189,20 @@ export function useCommandDispatcher({
                   setStatus(`update failed (${applied.code}): ${(applied.stderr || applied.stdout).trim() || result.hint}`);
                   return;
                 }
+                onUpdateApplied?.();
                 setStatus(`updated to ${result.latest}; ${DAEMON_RESTART_HINT}`);
               })
               .catch((err: unknown) => setStatus(humanMessage(err)));
             return;
+          case "notify": {
+            const action = parseNotifyArgs(args);
+            if (!action) {
+              setStatus("usage: /notify later|dismiss");
+              return;
+            }
+            onNotifyAction?.(action);
+            return;
+          }
           case "themes":
             if (args[0]) {
               persistTheme(args[0]);
@@ -554,7 +574,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
+    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
   );
   return { runCommand };
 }

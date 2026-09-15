@@ -1,5 +1,6 @@
 import { type DevctlConfig } from "../../domain/config/types.ts";
 import { type GoogleStatus } from "../../domain/identity/google-status.ts";
+import type { NotificationAction, UserNotification } from "../../domain/notifications.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
 import { versionLine } from "../../version.ts";
 import { useDensity } from "./density.tsx";
@@ -7,6 +8,7 @@ import { HEADER_STACK_WIDTH,headerStatusChips,statusChipTone,visibleHints } from
 import { COMMAND_FOOTER_HINT, footerHints } from "./helpers/command-catalog.ts";
 import { clipText } from "./helpers/format.ts";
 import { NAV_ITEMS,navActiveIndex,navTabLabel } from "./helpers/navigation.ts";
+import { NOTICE_MARK, noticeActionChips, noticeHeadline } from "./helpers/notifications.ts";
 import { countRunning } from "./helpers/stats.ts";
 import { Banner,Chip,KeyHints,MetaBar,TabStrip,Toolbar,type ChipTone } from "./layout.tsx";
 import { isTightScale } from "./settings.ts";
@@ -21,8 +23,9 @@ export function Header(props: {
   profile: string;
   reveal: boolean;
   width: number;
+  updateLatest?: string;
 }) {
-  const { palette, cfg, snap, google, profile, reveal, width } = props;
+  const { palette, cfg, snap, google, profile, reveal, width, updateLatest } = props;
   const counts = countRunning(snap, cfg ? Object.keys(cfg.services) : undefined);
   const proxyOn = snap?.proxy.running === true;
   const adc = google?.adcAvailable === true;
@@ -38,6 +41,7 @@ export function Header(props: {
     mcpOn: snap?.mcp?.running === true,
     adc,
     reveal,
+    updateLatest,
   })
     .filter((chip) => !chip.hide && chip.label !== "")
     .map((chip) => <Chip key={chip.label} palette={palette} label={chip.label} tone={chip.tone} />);
@@ -171,3 +175,44 @@ export function ErrorState(props: { palette: Palette; title: string; body: strin
     </box>
   );
 }
+
+function noticeChipTone(action: NotificationAction): ChipTone {
+  if (action === "primary") {
+    return "primary";
+  }
+  if (action === "later") {
+    return "ghost";
+  }
+  return "muted";
+}
+
+export function NoticeBar(props: {
+  palette: Palette;
+  notice: UserNotification;
+  width: number;
+  onAction: (action: NotificationAction) => void;
+}) {
+  const { palette, notice, width, onAction } = props;
+  const chips = noticeActionChips(notice);
+  const headline = noticeHeadline(notice, width);
+  return (
+    <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.highlight} paddingLeft={1}>
+      <box flexGrow={1} overflow="hidden">
+        <text wrapMode="none">
+          <span fg={palette.warning}>{`${NOTICE_MARK} `}</span>
+          <span fg={palette.text}>{headline}</span>
+        </text>
+      </box>
+      {chips.map((chip) => (
+        <Chip
+          key={chip.action}
+          palette={palette}
+          label={chip.label}
+          tone={noticeChipTone(chip.action)}
+          onMouseDown={() => onAction(chip.action)}
+        />
+      ))}
+    </box>
+  );
+}
+

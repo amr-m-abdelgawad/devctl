@@ -10,6 +10,7 @@ import type {
   ServiceRow,
   StatusSummary,
   TracePayload,
+  UpdateCheckPayload,
 } from "./types.ts";
 import { controlAuthHeaders } from "./session.ts";
 
@@ -74,6 +75,10 @@ export function fetchLlmCalls(params: Record<string, string> = {}): Promise<LlmC
 
 export function fetchLlmCall(id: string): Promise<LlmCallRow> {
   return getJson(`/api/llm/${encodeURIComponent(id)}`);
+}
+
+export function fetchUpdate(): Promise<UpdateCheckPayload> {
+  return getJson("/api/update");
 }
 
 export async function postControl(tool: ControlTool, args: ControlArgs = {}): Promise<unknown> {

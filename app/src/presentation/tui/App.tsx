@@ -8,7 +8,7 @@ import type { TraceResponse } from "../../domain/status.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { Header, NavStrip, StatusBar } from "./chrome.tsx";
+import { Header, NavStrip, NoticeBar, StatusBar } from "./chrome.tsx";
 import { writeClipboard } from "./clipboard.ts";
 import { lookupCommand } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
@@ -26,6 +26,7 @@ import { useLifecycle } from "./hooks/use-lifecycle.ts";
 import { useLogView } from "./hooks/use-log-view.ts";
 import { useLlmView } from "./hooks/use-llm-view.ts";
 import { useMcpControls } from "./hooks/use-mcp-controls.ts";
+import { useNotifications } from "./hooks/use-notifications.ts";
 import { usePreferences } from "./hooks/use-preferences.ts";
 import { useSetupWizard } from "./hooks/use-setup-wizard.ts";
 import { useServiceEnvironment } from "./hooks/use-service-environment.ts";
@@ -159,6 +160,13 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     persistTheme,
     activateSetting,
   } = preferences;
+  const notifications = useNotifications({
+    checkUpdate: workspace.checkUpdate,
+    dismissed: tui.dismissed_notifications ?? [],
+    prefsLocked,
+    saveTuiPreferences,
+    setStatus,
+  });
 
   const diagnostics = useDiagnostics({ controller, workspace, cfg, snap, screen, configReloadError, setSnap, setStatus });
   const { google, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick } = diagnostics;
@@ -405,6 +413,15 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     lastExportPath,
     openConfigBuffer,
     onDown: onDown ?? ((keep) => onQuit(keep)),
+    onNotifyAction: (action) => {
+      if (action === "later") {
+        notifications.later();
+        return;
+      }
+      notifications.dismiss();
+    },
+    onUpdateCheck: notifications.applyCheck,
+    onUpdateApplied: notifications.hideCurrent,
     workspace,
     logView,
     diagnostics,
@@ -546,8 +563,29 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     <box flexDirection="column" width={width} height={height} backgroundColor={rootBackground} overflow="hidden">
       {logsFullscreen ? null : (
         <>
-          <Header palette={palette} cfg={cfg} snap={snap} google={google} profile={profile} reveal={reveal} width={width} />
+          <Header palette={palette} cfg={cfg} snap={snap} google={google} profile={profile} reveal={reveal} width={width} updateLatest={notifications.notice ? notifications.check?.latest : undefined} />
           <NavStrip palette={palette} screen={screen} width={width} onSelect={setScreen} />
+          {notifications.notice ? (
+            <NoticeBar
+              palette={palette}
+              notice={notifications.notice}
+              width={width}
+              onAction={(action) => {
+                if (action === "primary") {
+                  const spec = lookupCommand("update");
+                  if (spec) {
+                    void runCommand(spec, []);
+                  }
+                  return;
+                }
+                if (action === "later") {
+                  notifications.later();
+                  return;
+                }
+                notifications.dismiss();
+              }}
+            />
+          ) : null}
           {configReloadError ? (
             <box height={1} paddingLeft={1} backgroundColor={palette.panel} overflow="hidden">
               <text fg={palette.error} wrapMode="none">{`⚠ configuration reload failed: ${configReloadError}`}</text>

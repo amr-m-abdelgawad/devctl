@@ -56,6 +56,8 @@ export type TuiConfig = {
   mcp_disabled_tools?: string[];
   // Opt-in list for tools that are off by default (currently exec_service).
   mcp_enabled_tools?: string[];
+  /** Notification ids the operator dismissed (for example `update:0.10.0`). */
+  dismissed_notifications?: string[];
   path?: string;
 };
 
@@ -192,6 +194,7 @@ export type TuiPreferencePatch = {
   mcp_port?: number | null;
   mcp_disabled_tools?: string[];
   mcp_enabled_tools?: string[];
+  dismissed_notifications?: string[];
 };
 
 export type ParsedKey = {

@@ -406,7 +406,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Update
 
-\`devctl update\` checks the latest GitHub Release, reports which install channel this process is (npm, npx, Homebrew, GitHub Release binary, or source), and **installs** when that channel has a known package-manager command (npm global or Homebrew). \`--json\` and \`--check\` only report. After a successful install, restart a running daemon with \`devctl down\` then start again. \`/update\` in the TUI does the same install; \`/version\` still only checks.
+\`devctl update\` checks the latest GitHub Release, reports which install channel this process is (npm, npx, Homebrew, GitHub Release binary, or source), and **installs** when that channel has a known package-manager command (npm global or Homebrew). \`--json\` and \`--check\` only report. After a successful install, restart a running daemon with \`devctl down\` then start again. \`/update\` in the TUI does the same install; \`/version\` still only checks. The TUI and web console also **surface a notice** when a newer release exists — dismiss for this version, or hide until the next session.
 
 ## Exit codes
 
@@ -1253,7 +1253,7 @@ A Homebrew formula lives in this repository rather than Homebrew-core:
 brew install --formula https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/homebrew/devctl.rb
 \`\`\`
 
-\`devctl update\` reports whether a newer GitHub Release exists and which install channel this process is. For an npm global or Homebrew install it runs that upgrade; otherwise it prints the matching command. \`--check\` reports without installing.
+\`devctl update\` reports whether a newer GitHub Release exists and which install channel this process is. For an npm global or Homebrew install it runs that upgrade; otherwise it prints the matching command. \`--check\` reports without installing. The TUI and web console show a dismissible notice when a newer version exists so you do not have to remember to check.
 
 ## From source
 
@@ -2789,7 +2789,9 @@ printed URL so the SPA can store the token; it is not embedded in the HTML.
 \`devctl status\` and MCP \`get_status\` report the listener address without the
 token. The listener serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
 redaction. Mutations go through \`POST /api/control\` to the same MCP tools
-(except \`exec_service\`).
+(except \`exec_service\`). \`GET /api/update\` reports whether a newer GitHub Release
+exists; the SPA shows a banner with a copy-install-command action. Later hides it
+for this tab; Don't remind me stores that version in \`localStorage\`.
 
 ![The web console overview — KPI tiles (services, requests, errors, P95 latency, throughput), the services table with lifecycle controls, profiles, live proxy requests, and recent errors](assets/manual/web-overview.png)
 
@@ -3040,6 +3042,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 /daemon               supervisor bootstrap stderr (\`devctl daemon logs\`)
 /auth login|logout|refresh
 /update               install a newer GitHub Release when the method is known (npm/Homebrew)
+/notify later|dismiss hide the version notice this session, or do not remind me about this version
 /version              current version, then the same update check (does not install)
 /exit /quit /q
 \`\`\`
@@ -3061,7 +3064,8 @@ Override in \`tui.json\` (\`keybinds\`) or \`DEVCTL_TUI_CONFIG\`.
 
 ## Layout
 
-- **Header** — product + version as text, then project and profile; chips only for running count, live proxy, MCP when on, ADC, and secrets-shown
+- **Header** — product + version as text, then project and profile; chips for running count, live proxy, MCP when on, ADC, secrets-shown, and \`↑ <latest>\` when a newer GitHub Release exists
+- **Notice bar** — a one-line, non-modal banner when an update is available (\`Update\` / \`Later\` / \`Dismiss\`). \`/notify later\` hides it until the next session; \`/notify dismiss\` writes \`dismissed_notifications\` to \`tui.json\` so that version does not return
 - **Nav** — the five primary tabs; the active tab is highlighted, not filled
 - **Body** — dashboard or a focused screen
 - **Command overlay** — \`/\` and \`command+p\` / \`ctrl+p\` open the same grouped list with a real OpenTUI input

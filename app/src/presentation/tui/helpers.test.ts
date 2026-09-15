@@ -559,6 +559,8 @@ describe("TUI helpers", () => {
     expect(logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: false }) - logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: false, showMeta: false })).toBe(-LOG_TIME_COL);
     expect(logChromeWidth({ serviceWidth: 10, showTimestamps: true, showMeta: true }) + logMessageWidth({ width: 80, serviceWidth: 10, showTimestamps: true, showMeta: true })).toBe(80);
     expect(headerStatusChips({ width: HEADER_NARROW_WIDTH - 1, running: 0, total: 3, proxyOn: false, proxyAddress: "", mcpOn: false, adc: false, reveal: false }).some((chip) => chip.label === "!ADC")).toBe(true);
+    expect(headerStatusChips({ width: 120, running: 1, total: 3, proxyOn: false, proxyAddress: "", mcpOn: false, adc: true, reveal: false, updateLatest: "0.10.0" }).some((chip) => chip.label === "↑ 0.10.0" && chip.tone === "warning")).toBe(true);
+    expect(headerStatusChips({ width: HEADER_NARROW_WIDTH - 1, running: 0, total: 3, proxyOn: false, proxyAddress: "", mcpOn: false, adc: false, reveal: false, updateLatest: "0.10.0" }).some((chip) => chip.label === "↑0.10.0")).toBe(true);
     expect(planOverlayHeight(20, 40)).toBeLessThanOrEqual(14);
     expect(logMessageSpans(`ready "auth" on 18001 ERROR`).map((span) => span.kind)).toEqual([
       "text",

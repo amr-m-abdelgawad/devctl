@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname } from "../../domain/net/hosts.ts";
+import type { UpdateCheck } from "../../domain/update.ts";
+import { VERSION } from "../../version.ts";
 import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
 import { headerValue } from "../../shared/headers.ts";
@@ -41,6 +43,7 @@ export type WebListenOptions = {
   port: number;
   token: string;
   hostApi: McpHost;
+  checkUpdate?: () => Promise<UpdateCheck>;
   onEvent?: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 };
 
@@ -150,6 +153,13 @@ export class WebHttpServer {
     }
     if (path === "/api/status") {
       writeJson(res, 200, getStatusSummary(host.status()));
+      return;
+    }
+    if (path === "/api/update") {
+      const result = this.opts.checkUpdate
+        ? await this.opts.checkUpdate()
+        : { current: VERSION, latest: "", newer: false, hint: "", kind: "unknown" as const };
+      writeJson(res, 200, result);
       return;
     }
     if (path === "/api/services") {

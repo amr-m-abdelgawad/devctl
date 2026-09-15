@@ -165,3 +165,12 @@ export type Route = {
   traceId?: string;
   llmId?: string;
 };
+
+export type UpdateCheckPayload = {
+  current: string;
+  latest: string;
+  newer: boolean;
+  hint: string;
+  kind: string;
+  command?: string[];
+};

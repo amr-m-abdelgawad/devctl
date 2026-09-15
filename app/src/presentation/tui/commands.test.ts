@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs, parseRestartArgs } from "./commands.ts";
+import { commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs, parseNotifyArgs, parseRestartArgs } from "./commands.ts";
 
 describe("slash commands", () => {
   test("resolves aliases like /q /quit /exit", () => {
@@ -91,6 +91,13 @@ describe("slash commands", () => {
     expect(lookupCommand("/exec")?.name).toBe("exec");
   });
 
+  test("notify is a first-class command with later and dismiss", () => {
+    expect(lookupCommand("/notify")?.name).toBe("notify");
+    expect(lookupCommand("/notice")?.name).toBe("notify");
+    expect(lookupCommand("/notifications")?.name).toBe("notify");
+    expect(filterCommands("notify")[0]?.suggest?.map((row) => row.token)).toEqual(["later", "dismiss"]);
+  });
+
   test("update and daemon and provenance are first-class commands", () => {
     expect(lookupCommand("/update")?.name).toBe("update");
     expect(lookupCommand("/daemon")?.name).toBe("daemon");
@@ -99,6 +106,15 @@ describe("slash commands", () => {
     expect(lookupCommand("/provenance")?.name).toBe("diff");
     expect(lookupCommand("/split")?.name).toBe("split");
     expect(lookupCommand("/trace")?.name).toBe("trace");
+  });
+});
+
+describe("parseNotifyArgs", () => {
+  test("accepts later and dismiss only", () => {
+    expect(parseNotifyArgs(["later"])).toBe("later");
+    expect(parseNotifyArgs(["dismiss"])).toBe("dismiss");
+    expect(parseNotifyArgs([])).toBeUndefined();
+    expect(parseNotifyArgs(["nope"])).toBeUndefined();
   });
 });
 

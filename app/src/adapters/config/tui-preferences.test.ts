@@ -41,6 +41,27 @@ describe("tui.json", () => {
     expect(cfg.mcp_enabled_tools).toEqual(["exec_service"]);
   });
 
+  test("merges and saves dismissed notification ids", () => {
+    const cfg = mergeTuiConfig(defaultTuiConfig(), {
+      dismissed_notifications: ["update:0.10.0", "", 12],
+    }, "/tmp/tui.json");
+    expect(cfg.dismissed_notifications).toEqual(["update:0.10.0"]);
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-home-notices-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    try {
+      saveTuiPreferences({ dismissed_notifications: ["update:0.10.0"] });
+      expect(loadTuiConfig(dir).dismissed_notifications).toEqual(["update:0.10.0"]);
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
   test("loads DEVCTL_TUI_CONFIG override", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-${Date.now()}`;
     mkdirSync(dir, { recursive: true });

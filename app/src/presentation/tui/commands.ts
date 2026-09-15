@@ -43,6 +43,10 @@ export function allCommands(): CommandSpec[] {
     { name: "diff", aliases: ["provenance"], desc: "Show winning config sources and what they shadowed", leader: "", group: "ui" },
     { name: "daemon", aliases: ["bootstrap"], desc: "Show supervisor bootstrap logs (same file as devctl daemon logs)", leader: "", group: "app" },
     { name: "update", aliases: [], desc: "Install a newer GitHub Release when the install method is known", leader: "", group: "app" },
+    { name: "notify", aliases: ["notice", "notifications"], desc: "Hide or dismiss the current notice", leader: "", group: "app", suggest: [
+      { token: "later", desc: "Hide this notice until the next session" },
+      { token: "dismiss", desc: "Do not remind me about this version again" },
+    ] },
     { name: "profiles", aliases: ["o"], desc: "Select a development profile", leader: "o", group: "nav" },
     { name: "setup", aliases: ["init"], desc: "Open setup guidance", leader: "i", group: "nav" },
     { name: "dashboard", aliases: ["home"], desc: "Return to the dashboard", leader: "h", group: "nav" },
@@ -243,6 +247,19 @@ export function parseRestartArgs(args: string[]): { services: string[]; cascade:
   const cascade = args.includes("--cascade") || args.includes("-c");
   const services = args.filter((a) => a !== "--cascade" && a !== "-c");
   return { services, cascade };
+}
+
+export type NotifyAction = "later" | "dismiss";
+
+export function parseNotifyArgs(args: string[]): NotifyAction | undefined {
+  const token = (args[0] ?? "").toLowerCase();
+  if (token === "later") {
+    return "later";
+  }
+  if (token === "dismiss") {
+    return "dismiss";
+  }
+  return undefined;
 }
 
 export function parseExecArgs(args: string[]): ExecSlashArgs {
