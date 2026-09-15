@@ -9,6 +9,8 @@ const {
   assertSupportedTarget,
   launch,
   preserveChildExit,
+  restoreTerminalAfterCrash,
+  TERMINAL_RESTORE_SEQUENCE,
   resolveBunExecutable,
   targetFor,
 } = require("./devctl.cjs");
@@ -95,4 +97,42 @@ test("child exit codes and terminating signals are preserved", () => {
   assert.equal(host.exitCode, 23);
   preserveChildExit(host, null, "SIGTERM");
   assert.deepEqual(host.killCalls, [[123, "SIGTERM"]]);
+});
+
+function fakeTtyStream(isTty) {
+  return { isTTY: isTty, chunks: [], write(chunk) { this.chunks.push(chunk); return true; } };
+}
+
+test("terminal is restored to a TTY when the child dies from a fatal signal", () => {
+  const out = fakeTtyStream(true);
+  const err = fakeTtyStream(true);
+  const wrote = restoreTerminalAfterCrash(null, "SIGSEGV", [out, err]);
+  assert.equal(wrote, true);
+  assert.equal(out.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
+  assert.equal(err.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
+});
+
+test("terminal is restored when the child exits with a crash code", () => {
+  const out = fakeTtyStream(true);
+  assert.equal(restoreTerminalAfterCrash(139, null, [out]), true);
+  assert.equal(out.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
+});
+
+test("a clean exit leaves the terminal untouched", () => {
+  const out = fakeTtyStream(true);
+  assert.equal(restoreTerminalAfterCrash(0, null, [out]), false);
+  assert.equal(out.chunks.length, 0);
+});
+
+test("non-TTY streams are never written to", () => {
+  const pipe = fakeTtyStream(false);
+  assert.equal(restoreTerminalAfterCrash(1, null, [pipe]), false);
+  assert.equal(pipe.chunks.length, 0);
+});
+
+test("a closed stream does not abort the restore of the others", () => {
+  const broken = { isTTY: true, write() { throw new Error("EPIPE"); } };
+  const ok = fakeTtyStream(true);
+  assert.equal(restoreTerminalAfterCrash(1, null, [broken, ok]), true);
+  assert.equal(ok.chunks.join(""), TERMINAL_RESTORE_SEQUENCE);
 });
