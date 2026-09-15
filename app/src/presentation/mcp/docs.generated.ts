@@ -302,6 +302,8 @@ User identity and service identity are separate. A service or proxy route must d
 
 The TUI **identity** tab (\`a\`) shows user, project, source, ADC, gcloud, configured SAs, impersonation availability, and whether IAP routes exist. The **credentials** tab lists store backend and entry names only.
 
+![The TUI identity tab — Google identity (user, project, source, ADC, gcloud), configured service accounts with impersonation state, and whether IAP routes are present](assets/manual/tui-identity.png)
+
 IAP routes with a service-account identity impersonate that account and then mint an IAP ID token. See [Impersonation](impersonation.md) and [IAP](iap.md).
 
 ## Related
@@ -347,7 +349,11 @@ devctl update [--json] [--check]
 
 \`_supervisor\` is an internal command. Do not invoke it by hand.
 
+![devctl --help lists every command, global flags, and exit codes](assets/manual/cli-help.png)
+
 ## Start, stop, status
+
+![devctl status — per-service state and health, plus the proxy, MCP, and web listener addresses](assets/manual/cli-status.png)
 
 - \`start\` with \`--profile\` starts that profile’s members (plus dependencies).
 - \`start\` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
@@ -550,9 +556,13 @@ entry includes the winning source file and layer (\`main\`, \`modular_service\`,
 \`synthesized\`) and the ordered sources it shadowed. Use \`--json\` for structured
 output.
 
+![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
+
 Checks: YAML syntax, required fields, unknown fields, service references, dependency conditions and cycles, HTTP recipes (url, body vs form, reserved outputs, expose requires proxy, recipe cycles, \`\${http.*}\` / \`\${token}\` refs), health thresholds, duplicate ports, identities, proxy routes (including per-service \`proxy\` fragments and synthesized \`expose\` / \`http.*.expose\` routes merged at load), \`proxy.listen.port\` when \`proxy.enabled\` is true, environment references, profile references, optional \`plugins[].path\`, \`telemetry.otlp.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/gRPC-route ports), and \`web.listen\` (loopback host, valid port, no collision with the proxy/token-endpoint/OTLP/gRPC-route ports).
 
 The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before writing. Invalid YAML is not saved. \`e\` still opens \`$EDITOR\`.
+
+![The TUI Config screen — merged project, google, runtime, logs, proxy routes, services, and tasks in one view](assets/manual/tui-config.png)
 
 The supervisor watches \`.devctl/\` (\`fs.watch\`, ~200ms debounce) and runs the same path as \`/reload\`. \`devctl reload\` and TUI \`/reload\` re-read configuration, publish \`ConfigurationChanged\`, and list services that must restart because command, environment, ports, identity, or \`watch\` changed.
 
@@ -631,9 +641,13 @@ devctl doctor
 devctl doctor --json
 \`\`\`
 
+![devctl doctor — each check reported with ✓ / ! / ✗, an actionable hint, and a final issue count](assets/manual/cli-doctor.png)
+
 Exit code **2** when any check is not ok (same code as configuration errors).
 
 The TUI **doctor** tab re-runs on every visit (\`r\` also refreshes). \`j\`/\`k\` move. \`enter\` on a busy port asks to SIGTERM that process (then SIGKILL if it stays up). Ports owned by a running container service are treated as healthy; \`enter\` never offers to kill the Docker or Podman daemon.
+
+![The TUI doctor tab — a pass/warn/error progress bar and grouped checks with hints, re-run with \`r\`](assets/manual/tui-doctor.png)
 
 ## What it checks
 
@@ -676,7 +690,9 @@ flowchart LR
 ` },
   { path: "docs/environment.md", title: "Environment", body: `# Environment
 
-Each service process gets a merged environment. Later sources override earlier ones.
+Each service process gets a merged environment. Later sources override earlier ones. \`devctl exec <service> --print-env\` prints exactly what a service resolves to, with secret-like values redacted (\`--reveal\` to show them):
+
+![devctl exec billing-console --print-env — the resolved environment, with \`DEVCTL_INTERNAL_TOKEN\` and \`DEVCTL_TOKEN_URL\` shown as \`********\`](assets/manual/cli-print-env.png)
 
 Default source order (\`ENV_SOURCE_ORDER\` / \`environment.sources\`):
 
@@ -1011,6 +1027,7 @@ layout: home
 import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import TerminalHero from './.vitepress/theme/TerminalHero.vue'
+import { ArrowUpRight, ArrowDownLeft, LayoutDashboard, Terminal, Sparkles, ChevronRight, Circle, Check } from 'lucide-vue-next'
 const landingRoot = ref(null)
 let revealObserver
 let motionPreference
@@ -1108,25 +1125,25 @@ async function copyInstall() {
       <h1 id="hero-title">More building.<br>Less <span>tab juggling.</span></h1>
       <p class="hero-description">Your services, logs, and local stack. Together in one terminal. Keep everything in view with devctl — from the first process to the last request.</p>
       <div class="hero-actions">
-        <a class="primary-link" :href="withBase('/quickstart')">Get started <span aria-hidden="true">↗</span></a>
-        <a class="text-link" href="https://github.com/amr-m-abdelgawad/devctl">Explore on GitHub <span aria-hidden="true">↗</span></a>
+        <a class="primary-link" :href="withBase('/quickstart')">Get started <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a>
+        <a class="text-link" href="https://github.com/amr-m-abdelgawad/devctl">Explore on GitHub <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a>
       </div>
       <p class="hero-footnote">Open source. Local first. Your workflow.</p>
     </div>
     <div class="hero-preview" @pointermove="followPointer" @pointerleave="resetPreview" @pointercancel="resetPreview">
-      <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true">↙</span></div>
+      <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true"><ArrowDownLeft :size="18" /></span></div>
       <TerminalHero />
     </div>
   </section>
 
-  <div class="landing-signal"><span>Less switching. <b>More context.</b></span><span>TUI <i>/</i> CLI <i>/</i> MCP</span><span>One shared session <span aria-hidden="true">↗</span></span></div>
+  <div class="landing-signal"><span>Less switching. <b>More context.</b></span><span>TUI <i>/</i> CLI <i>/</i> MCP</span><span>One shared session <span aria-hidden="true"><ArrowUpRight :size="16" /></span></span></div>
 
   <section class="landing-section" aria-labelledby="surfaces-title">
     <div class="section-heading"><div><p class="eyebrow">01 / WORK YOUR WAY</p><h2 id="surfaces-title">One stack. Your kind of control.</h2></div><p>Stay hands-on, script the routine,<br>or let your agent take the next step.</p></div>
     <div class="surface-grid">
-      <a class="surface" :href="withBase('/tui')"><span class="surface-symbol" aria-hidden="true">▤</span><span class="surface-label">FOR YOUR FLOW</span><h3>A home for your stack.</h3><p>Start services, follow logs, and check health in a keyboard-first terminal interface.</p><span class="surface-link">Explore the TUI <span aria-hidden="true">↗</span></span></a>
-      <a class="surface" :href="withBase('/cli')"><span class="surface-symbol" aria-hidden="true">&gt;_</span><span class="surface-label">FOR THE REPEATABLE</span><h3>Make it a command.</h3><p>Bring the same controls to scripts and CI. Run tasks, inspect config, and keep moving.</p><span class="surface-link">Meet the CLI <span aria-hidden="true">↗</span></span></a>
-      <a class="surface" :href="withBase('/mcp')"><span class="surface-symbol" aria-hidden="true">✳</span><span class="surface-label">FOR YOUR AGENT</span><h3>Give AI the context.</h3><p>Connect your agent over MCP to inspect and operate the same local session. Enabled when you choose.</p><span class="surface-link">Connect with MCP <span aria-hidden="true">↗</span></span></a>
+      <a class="surface" :href="withBase('/tui')"><span class="surface-symbol" aria-hidden="true"><LayoutDashboard :size="28" /></span><span class="surface-label">FOR YOUR FLOW</span><h3>A home for your stack.</h3><p>Start services, follow logs, and check health in a keyboard-first terminal interface.</p><span class="surface-link">Explore the TUI <span aria-hidden="true"><ArrowUpRight :size="16" /></span></span></a>
+      <a class="surface" :href="withBase('/cli')"><span class="surface-symbol" aria-hidden="true"><Terminal :size="28" /></span><span class="surface-label">FOR THE REPEATABLE</span><h3>Make it a command.</h3><p>Bring the same controls to scripts and CI. Run tasks, inspect config, and keep moving.</p><span class="surface-link">Meet the CLI <span aria-hidden="true"><ArrowUpRight :size="16" /></span></span></a>
+      <a class="surface" :href="withBase('/mcp')"><span class="surface-symbol" aria-hidden="true"><Sparkles :size="26" /></span><span class="surface-label">FOR YOUR AGENT</span><h3>Give AI the context.</h3><p>Connect your agent over MCP to inspect and operate the same local session. Enabled when you choose.</p><span class="surface-link">Connect with MCP <span aria-hidden="true"><ArrowUpRight :size="16" /></span></span></a>
     </div>
   </section>
 
@@ -1134,18 +1151,18 @@ async function copyInstall() {
     <div class="section-heading"><div><p class="eyebrow">02 / FIND YOUR FOCUS</p><h2 id="workflow-title">The right services.<br>For the task at hand.</h2></div><p>Group services into named profiles.<br>Start the part of your stack you need.</p></div>
     <div class="workflow-panel">
       <div class="workflow-options" role="group" aria-label="Explore example profiles">
-        <button v-for="(profile, name) in profileExamples" :key="name" type="button" :aria-pressed="activeProfile === name" @click="activeProfile = name"><span>{{ profile.label }}</span><code>{{ name }}</code><span aria-hidden="true">↗</span></button>
-        <a class="text-link" :href="withBase('/profiles')">Explore profiles <span aria-hidden="true">↗</span></a>
+        <button v-for="(profile, name) in profileExamples" :key="name" type="button" :aria-pressed="activeProfile === name" @click="activeProfile = name"><span>{{ profile.label }}</span><code>{{ name }}</code><span aria-hidden="true"><ArrowUpRight :size="16" /></span></button>
+        <a class="text-link" :href="withBase('/profiles')">Explore profiles <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a>
       </div>
       <div class="workflow-example" aria-live="polite" aria-atomic="true">
         <p class="eyebrow">DEMO PLATFORM / EXAMPLE PROFILE</p>
-        <p :key="activeProfile" class="workflow-command"><span aria-hidden="true">$ </span><code>devctl start --profile {{ activeProfile }}</code></p>
+        <p :key="activeProfile" class="workflow-command"><span aria-hidden="true"><ChevronRight :size="15" /></span><code>devctl start --profile {{ activeProfile }}</code></p>
         <p class="workflow-description">{{ profileExamples[activeProfile].description }}</p>
         <div class="workflow-tui" role="img" :aria-label="\`devctl profiles screen — \${activeProfile}: \${profileExamples[activeProfile].services.join(', ')}\`">
           <div class="wt-box" :key="activeProfile">
             <span class="wt-title">{{ activeProfile }}</span>
-            <div class="wt-head"><span class="wt-dot" aria-hidden="true">●</span> current profile&nbsp;·&nbsp;{{ profileExamples[activeProfile].services.length }} {{ profileExamples[activeProfile].services.length === 1 ? 'service' : 'services' }}</div>
-            <div class="wt-services"><span v-for="service in profileExamples[activeProfile].services" :key="service"><span class="wt-check" aria-hidden="true">✓</span>{{ service }}</span></div>
+            <div class="wt-head"><span class="wt-dot" aria-hidden="true"><Circle :size="11" fill="currentColor" /></span> current profile&nbsp;·&nbsp;{{ profileExamples[activeProfile].services.length }} {{ profileExamples[activeProfile].services.length === 1 ? 'service' : 'services' }}</div>
+            <div class="wt-services"><span v-for="service in profileExamples[activeProfile].services" :key="service"><span class="wt-check" aria-hidden="true"><Check :size="13" /></span>{{ service }}</span></div>
           </div>
           <div class="wt-hint" aria-hidden="true">space set current&nbsp;·&nbsp;enter set and start</div>
         </div>
@@ -1155,33 +1172,33 @@ async function copyInstall() {
   </section>
 
   <section class="setup-section landing-section" aria-labelledby="setup-title">
-    <div class="setup-copy"><p class="eyebrow">03 / FROM REPO TO RUNNING</p><h2 id="setup-title">Small setup.<br>Clear head.</h2><p>Start with Node.js. The npm package includes its own Bun runtime. Google Cloud is optional.</p><a class="text-link" :href="withBase('/installation')">Installation guide <span aria-hidden="true">↗</span></a></div>
+    <div class="setup-copy"><p class="eyebrow">03 / FROM REPO TO RUNNING</p><h2 id="setup-title">Small setup.<br>Clear head.</h2><p>Start with Node.js. The npm package includes its own Bun runtime. Google Cloud is optional.</p><a class="text-link" :href="withBase('/installation')">Installation guide <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a></div>
     <div class="setup-panel">
       <div class="install-heading"><span>INSTALL ONCE. USE IN ANY REPO.</span><button type="button" @click="copyInstall" aria-live="polite">{{ copyLabel }}</button></div>
-      <div class="install-command"><span aria-hidden="true">$</span><code>npm install --global @amr-m-abdelgawad/devctl</code></div>
+      <div class="install-command"><span aria-hidden="true"><ChevronRight :size="15" /></span><code>npm install --global @amr-m-abdelgawad/devctl</code></div>
       <p class="install-context">Then, from the repo you want to run:</p>
       <ol class="setup-steps"><li><span>01</span><div><code>devctl setup</code><p>Describe your services in a single config.</p></div></li><li><span>02</span><div><code>devctl doctor</code><p>See what’s missing before you start.</p></div></li><li><span>03</span><div><code>devctl</code><p>Open your dashboard. Press enter to start a profile.</p></div></li></ol>
     </div>
   </section>
 
-  <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">04 / THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true">↗</span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true">↗</span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true">↗</span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true">↗</span></a></div></section>
+  <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">04 / THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true"><ArrowUpRight :size="16" /></span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true"><ArrowUpRight :size="16" /></span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true"><ArrowUpRight :size="16" /></span></a></div></section>
 
   <section class="demo-section landing-section" aria-labelledby="demo-title">
-    <div class="demo-band"><div><p class="eyebrow">05 / TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true">↗</span></a></div>
+    <div class="demo-band"><div><p class="eyebrow">05 / TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a></div>
   </section>
 
   <section class="faq-section landing-section" aria-labelledby="faq-title">
     <div><p class="eyebrow">06 / A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press enter.</h2><p>A little context for your first session.</p></div>
     <div class="faq-list">
-      <details><summary>Do I need Docker or Google Cloud?</summary><p>Neither is required for local host processes. Use Docker or Podman when your configuration includes containers. Google Cloud tools are optional and only needed for the Google authentication features you choose to use. <a :href="withBase('/installation')">See installation requirements ↗</a></p></details>
-      <details><summary>Do I have to change my application code?</summary><p>Describe how your services run in <code>.devctl/config.yaml</code>: their commands, working directories, environment, and health checks. devctl works with that configuration. <a :href="withBase('/configuration')">Explore configuration ↗</a></p></details>
-      <details><summary>Can I use the CLI and TUI together?</summary><p>Yes. The TUI, CLI, and MCP connect to the same per-repo supervisor. Start a profile from the CLI and attach to its session with <code>devctl attach</code>. <a :href="withBase('/overview')">See how sessions work ↗</a></p></details>
-      <details><summary>Does my agent get access automatically?</summary><p>No. MCP is off by default. When enabled, it listens on the local loopback interface. You choose when to connect your agent and can disable individual tools. <a :href="withBase('/mcp')">Read the MCP guide ↗</a></p></details>
-      <details><summary>Can I try it without a global install?</summary><p>Yes. Run <code>npx @amr-m-abdelgawad/devctl@latest</code> from your repo. Node.js is required; the npm package includes its own Bun runtime. <a :href="withBase('/quickstart')">Follow the quick start ↗</a></p></details>
+      <details><summary>Do I need Docker or Google Cloud?</summary><p>Neither is required for local host processes. Use Docker or Podman when your configuration includes containers. Google Cloud tools are optional and only needed for the Google authentication features you choose to use. <a :href="withBase('/installation')">See installation requirements <ArrowUpRight :size="14" /></a></p></details>
+      <details><summary>Do I have to change my application code?</summary><p>Describe how your services run in <code>.devctl/config.yaml</code>: their commands, working directories, environment, and health checks. devctl works with that configuration. <a :href="withBase('/configuration')">Explore configuration <ArrowUpRight :size="14" /></a></p></details>
+      <details><summary>Can I use the CLI and TUI together?</summary><p>Yes. The TUI, CLI, and MCP connect to the same per-repo supervisor. Start a profile from the CLI and attach to its session with <code>devctl attach</code>. <a :href="withBase('/overview')">See how sessions work <ArrowUpRight :size="14" /></a></p></details>
+      <details><summary>Does my agent get access automatically?</summary><p>No. MCP is off by default. When enabled, it listens on the local loopback interface. You choose when to connect your agent and can disable individual tools. <a :href="withBase('/mcp')">Read the MCP guide <ArrowUpRight :size="14" /></a></p></details>
+      <details><summary>Can I try it without a global install?</summary><p>Yes. Run <code>npx @amr-m-abdelgawad/devctl@latest</code> from your repo. Node.js is required; the npm package includes its own Bun runtime. <a :href="withBase('/quickstart')">Follow the quick start <ArrowUpRight :size="14" /></a></p></details>
     </div>
   </section>
 
-  <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true">↗</span></a><p>Free and open source · MIT licensed</p></section>
+  <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true"><ArrowUpRight :size="16" /></span></a><p>Free and open source · MIT licensed</p></section>
 </div>
 ` },
   { path: "docs/installation.md", title: "Installation", body: `# Installation
@@ -1443,6 +1460,8 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 ## TUI (Logs tab)
 
+![The Logs tab with a live search kept on “fulfill pipeline” — per-service and per-level facet chips update as you filter](assets/manual/tui-logs-search.png)
+
 - \`f\` focuses search **on the Logs tab** (\`/\` stays the command line). \`esc\` closes search, clears the query, and jumps to the live tail. \`enter\` keeps the current filter so you can browse matches; \`esc\` again (or \`f\` then \`esc\`) returns to the live stream. Matches are highlighted in the log line (plain or \`/regex\`). Dashboard tail uses the same search filter while it is applied.
 - \`e\` / \`/filter\` — ERROR and above.
 - \`p\` / \`/pause\` — freeze the live stream.
@@ -1452,7 +1471,10 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - \`g\` — jump to latest. Leaving the tail pins the view (\`pinned · +N new\`).
 - \`←\`/\`→\` or click a chip — cycle service filters. Digits \`1\`–\`4\` jump nav tabs, not log sources.
 - \`\\\\\` / \`/split\` — second pane on the same live stream, with its own service filter. Shared search. \`|\` focuses the other pane.
-- \`enter\` — details overlay (body summary, attributes table, severity number, \`traceId\`/\`spanId\`). A ◎ marker on the list means the row has a trace; enter again (or **view trace**) opens a full-width waterfall. The solid block is the span; the dim track is unused time in the window. \`j\`/\`k\` selects a span; Enter or double-click opens that span's logs overlay (\`esc\` returns to the waterfall).
+- \`enter\` — details overlay (body summary, attributes table, severity number, \`traceId\`/\`spanId\`).
+
+  ![The log details overlay — body, timestamp, service, source, severity, trace and span ids, and the structured attributes table, with “view trace” to open the waterfall](assets/manual/tui-log-details.png)
+ A ◎ marker on the list means the row has a trace; enter again (or **view trace**) opens a full-width waterfall. The solid block is the span; the dim track is unused time in the window. \`j\`/\`k\` selects a span; Enter or double-click opens that span's logs overlay (\`esc\` returns to the waterfall).
 - \`/trace <id>\` — set search to that request/trace id. Enter in the details overlay on a row that has an id does the same.
 - \`command+c\` (macOS) or \`ctrl+c\` (Linux/Windows) — copy the highlighted selection. Remap with \`keybinds.copy\`.
 - \`/export [path]\` — write the **current** filters. Default file: \`~/.devctl/exports/devctl-logs-<timestamp>.log\`.
@@ -1522,6 +1544,8 @@ flowchart LR
 
 MCP is **not** a nav tab. Flip **Listen** (\`space\` / \`enter\`). The header shows an **MCP** chip when it is running.
 
+![The TUI MCP settings page — Listen toggle and port stepper, then tools grouped by purpose (inspect, logs, diagnostics, control) each marked read or write](assets/manual/tui-mcp.png)
+
 The default port is derived from the repo so checkouts do not collide:
 
 \`18700 + (parseInt(repoID.slice(0, 8), 16) % 600)\` → **18700–19299**.
@@ -1551,6 +1575,8 @@ devctl mcp --json
 \`--on\` starts a supervisor if needed. \`--off\` stops the listener only.
 \`--rotate\` writes a new bearer token; if the listener is running it is restarted
 so agents must be given the new snippets.
+
+![devctl mcp — the loopback URL and ready-to-paste config snippets for Claude, Cursor, Kilo Code, and Codex, each with the bearer header (token redacted here)](assets/manual/cli-mcp.png)
 
 ## Tools and resources
 
@@ -1707,6 +1733,10 @@ flowchart TB
   sup --> logs["Log buffer"]
   sup --> disk
 \`\`\`
+
+The same supervisor drives every surface — here the loopback web console showing services, profiles, live proxy requests, and recent errors together:
+
+![The devctl web console overview — service health, KPI tiles, profiles, proxy requests, and recent errors, all from one supervisor](assets/manual/web-overview.png)
 
 Nothing in the application knows your services by name. The supervisor reads \`.devctl/\`, starts argv (or explicit shell) processes and optional Docker/Podman containers, injects resolved env, and reports health.
 
@@ -1919,6 +1949,8 @@ devctl start --profile backend
 
 The TUI **profiles** screen (\`o\` or \`/profiles\`) lists configured profiles. \`enter\` selects one and offers start. None are hard-coded.
 
+![The TUI profiles screen — the current profile highlighted, each profile showing its member services and count](assets/manual/tui-profiles.png)
+
 Empty-dashboard \`enter\` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is \`backend\`, not \`data\`, even though \`data\` is listed first in the file.
 
 \`devctl start\` / MCP \`start_services\` with **no** profile and **no** names starts the active session profile, or the first configured profile (alphabetically). With no profiles it fails closed. Pass \`--profile\` or explicit names to stay on a subset. It never expands to every service just because the list was empty.
@@ -1964,6 +1996,8 @@ devctl proxy stop
 \`\`\`
 
 The TUI **proxy** tab (\`p\`) shows status, routes, and a live log of recent requests. \`n\` starts, \`x\` stops. SA email is shown when a route uses one.
+
+![The TUI proxy tab — routes with their auth (none/user, service account, IAP) on the left and a live request feed (method, status, duration, proxy hop, identity, route, path) on the right](assets/manual/tui-proxy.png)
 
 Each request gets \`X-Devctl-Request-ID\` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include \`Authorization\` headers. Bodies are streamed.
 
@@ -2239,6 +2273,8 @@ With no config, the TUI opens **setup** instead of exiting: Enter writes a start
 
 ## In the TUI
 
+![The devctl dashboard after \`enter\` starts a profile — services healthy on the left, a live log stream on the right](assets/manual/tui-dashboard.png)
+
 1. Press \`o\` to pick a profile (if you defined any).
 2. On an empty dashboard, \`enter\` starts the default profile (first profile name alphabetically) after a plan overlay.
 3. \`n\` starts the highlighted row or the space-selected set; \`x\` stops; \`R\` restarts.
@@ -2362,6 +2398,10 @@ flowchart LR
 
 \`/reveal\` lasts for this TUI session only. The header says **secrets shown** so it cannot stay silent.
 
+Redaction is the default everywhere a value is shown. For example, \`devctl exec <service> --print-env\` masks secret-like names before printing:
+
+![devctl exec --print-env with \`DEVCTL_INTERNAL_TOKEN\` and \`DEVCTL_TOKEN_URL\` masked as \`********\`](assets/manual/cli-print-env.png)
+
 Proxy log lines include method, path, route, identity, status, duration — never the bearer header.
 
 ---
@@ -2483,6 +2523,10 @@ services:
 \`\`\`
 
 Working directories resolve from the repository root (the directory that contains \`.devctl\`), not the process cwd.
+
+The TUI services screen renders each service's live inspector — status, facts, and the fully resolved environment (dotenv, profile, secrets, plugins, runtime ports), with secret-like values redacted:
+
+![The services inspector showing billing-console — health, command, workdir, ports, and its resolved environment with \`DEVCTL_INTERNAL_TOKEN\` and \`DEVCTL_TOKEN_URL\` redacted](assets/manual/tui-services.png)
 
 \`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`\${identity.user}\` resolves to the running developer's detected Google email — handy in shared config as \`LOCAL_USER_EMAIL: \${identity.user}\` (each developer gets their own, nothing hardcoded); it is also injected automatically as \`DEVCTL_USER_EMAIL\`. \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
@@ -2724,6 +2768,12 @@ View a trace three ways:
 - **Web UI** — an opt-in loopback explorer (below) with a waterfall, correlated
   logs, dependency graph, and rate/latency charts.
 
+![A distributed trace in the web explorer — 15 spans across 4 services (telemetry, proxy, invoices-api, identity) with correlated logs below](assets/manual/web-trace-waterfall.png)
+
+The same trace in the TUI: a ◎ marker on a log row opens a full-width waterfall; \`j\`/\`k\` selects a span and \`enter\` opens that span's logs.
+
+![The trace waterfall in the TUI — span kinds legend, per-span durations, and the timeline for one request across services](assets/manual/tui-trace.png)
+
 ## Web UI
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
@@ -2741,6 +2791,8 @@ token. The listener serves a bundled SPA plus \`GET /api/*\` shapers that match 
 redaction. Mutations go through \`POST /api/control\` to the same MCP tools
 (except \`exec_service\`).
 
+![The web console overview — KPI tiles (services, requests, errors, P95 latency, throughput), the services table with lifecycle controls, profiles, live proxy requests, and recent errors](assets/manual/web-overview.png)
+
 \`\`\`yaml
 web:
   enabled: true                  # default: false
@@ -2754,6 +2806,10 @@ listener is already running from \`enabled: true\`. Open that URL. \`devctl web
 status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener without
 the token. Hash routes: \`#/services\`, \`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`.
 Rebuild the embed with \`cd app && bun run build:web\` after editing \`app/web/\`.
+
+![The Graph page — a dependency topology (upstream → midstream → downstream) plus live signals: traffic and errors, proxy latency, and host CPU/memory](assets/manual/web-graph.png)
+
+![The Logs page — the structured record stream with per-service and per-level filter chips and trace ids](assets/manual/web-logs.png)
 
 Overview KPIs use lifetime totals (\`proxy.requestTotal\`, \`logs.seen\` /
 \`logs.seenErrors\`). Tables and the graph stay windowed: last 100 proxy
@@ -2863,6 +2919,8 @@ bun run ../../app/src/bin.ts
 
 If a supervisor session already exists, the TUI attaches to it. Preferences: \`tui.json\` / \`DEVCTL_TUI_CONFIG\` — see [Building from source](typescript.md).
 
+![devctl TUI dashboard — service health on the left, a live structured log stream on the right, and running/proxy/MCP/ADC chips in the header](assets/manual/tui-dashboard.png)
+
 ## First run
 
 With no \`.devctl\` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter starts the same 9-step wizard as \`devctl setup\` (OpenTUI fields, then write and attach the daemon — no process restart). Invalid existing YAML still refuses overwrite.
@@ -2917,6 +2975,8 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 
 The status bar only lists keys that work **on the current screen**. There is no idle command row — \`/\` and the OS palette chord open the command overlay.
 
+![The command overlay ranks matching slash commands as you type — here filtered to commands starting with “re”](assets/manual/tui-command.png)
+
 ## Nav tabs (5)
 
 1. dashboard · 2. services · 3. logs · 4. proxy · 5. llm
@@ -2924,6 +2984,8 @@ The status bar only lists keys that work **on the current screen**. There is no 
 Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/settings\`. **MCP** is \`/mcp\`, \`/agent\`, or Settings → **MCP → Settings page**.
 
 ## Screens
+
+![The services screen — the list on the left, a live inspector on the right with status chips, two-column facts, and a scrollable resolved-env pane (secrets redacted)](assets/manual/tui-services.png)
 
 - **Dashboard** — services, proxy, live log tail. Identity lives on \`/auth\`; ADC status is in the header. When nothing is running, a **last session** panel shows leftover PIDs from the previous supervisor (same data \`devctl status\` prints when the socket is down)
 - **Services** — list plus a live inspector: status chips, two-column facts, then a scrollable **resolved** env pane (dotenv, profile, secrets, plugins, runtime ports). Narrow terminals stack the panes. \`enter\` opens the full detail screen
@@ -3010,6 +3072,8 @@ Status is never color-only: \`✓\` healthy, \`●\` running, \`!\` warning, \`�
 ## Themes
 
 \`/themes\` opens a picker with live preview. Built-ins:
+
+![The theme picker with live preview — devctl (active), ember, tokyonight, catppuccin, nord, gruvbox, kanagawa, dracula and more](assets/manual/tui-themes.png)
 
 - Product: \`devctl\` (default), \`ember\`
 - Common dark: \`tokyonight\`, \`catppuccin\`, \`nord\`, \`gruvbox\`, \`kanagawa\`, \`dracula\`, \`onedark\`, \`monokai\`, \`rose-pine\`, \`everforest\`, \`github-dark\`, \`iceberg\`, \`ayu-dark\`, \`oxocarbon\`, \`night-owl\`
