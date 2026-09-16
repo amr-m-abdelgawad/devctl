@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Per-service named environment overlays (`services.<name>.environments` plus `default_environment`). Switch one service at a time in the TUI (`e` / `/env`), CLI (`devctl env`), or MCP (`set_service_environment`) without changing other services or the start profile. A running process keeps the overlay it started with until restart.
+- TUI **topology** screen (`g` / `/topology`): the service dependency graph drawn as startup waves, nodes coloured by health, with an inspector showing what a selected service depends on and what depends on it. Navigable by keyboard (`j`/`k`, `enter` opens the service) or mouse.
+- TUI **token timeline** (`/tokens`): token mint, refresh, and identity-change events from the `auth` log stream, keyed by identity and audience over the session. The token itself is never shown.
+- TUI **follow a request** across views: click a row in the proxy request feed — or press `enter` on a log line — to open that request's trace and land on its pre-filtered logs in one move. The trace view names the proxy hop (route, identity, status).
+- TUI **Stats trends**: per-service CPU and memory sparklines (`service_series` on the status snapshot), and a per-route proxy latency table with p50/p95/p99 and error counts.
 
 ### Changed
 
