@@ -293,6 +293,7 @@ export function useCommandDispatcher({
           case "config":
           case "profiles":
           case "setup":
+          case "tokens":
             setScreen(spec.name);
             return;
           case "import": {
