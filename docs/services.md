@@ -77,6 +77,25 @@ Run one with `devctl run migrate`. Its exit code determines command success, and
 
 Use `devctl exec api -- python3 check.py` to run an ad-hoc command in a service's same resolved context without starting it. `devctl exec api --print-env` inspects that context with secrets redacted by default.
 
+## Named environment overlays
+
+Define more than one env map on the same service — local vs deployed-dev, for example — and switch them independently of other services and of start [profiles](profiles.md):
+
+```yaml
+services:
+  api:
+    environment:
+      AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+    environments:
+      local:
+        AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+      deployed:
+        AUTH_URL: https://identity.dev.example.com
+    default_environment: local
+```
+
+`e` / `/env` in the TUI, `devctl env api deployed`, or MCP `set_service_environment` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
+
 ## Container services
 
 Set `container.image` to let devctl own a Docker or Podman container with the

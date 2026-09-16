@@ -16,6 +16,8 @@ export type HealthHost = {
   readonly runtimes: Map<string, Runtime>;
   readonly serviceProfile: Map<string, string>;
   readonly serviceProfileEnv: Map<string, Record<string, string>>;
+  readonly serviceEnv: Map<string, string>;
+  readonly serviceStartedEnv: Map<string, string>;
   readonly healthCheckers: HealthCheckerFactory;
   readonly logs: Pick<LogStore, "append">;
   readonly bus: Bus;
@@ -34,7 +36,7 @@ export type LifecycleSession = HealthHost & {
   readonly processMeta: Map<string, { command: string[]; cwd: string; startTime: Date }>;
   readonly containerPrefix: string;
   prepareServiceIdentity(name: string, svc: ServiceConfig): Promise<void>;
-  resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>, includeProcess?: boolean): Promise<{ env: Record<string, string>; workDir: string }>;
+  resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>, includeProcess?: boolean, selectedEnv?: string): Promise<{ env: Record<string, string>; workDir: string }>;
   ensureHttpRecipes(names: string[]): Promise<void>;
 
   detectGoogle(project: string): Promise<GoogleProbe>;

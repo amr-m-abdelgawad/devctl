@@ -10,6 +10,7 @@ import {
   decodePorts,
   decodeProfile,
   decodeRoute,
+  decodeEnv,
   decodeService,
   decodeTask,
   decodeServiceProxy,
@@ -18,9 +19,11 @@ import {
   isRecord,
   presentKeys,
 } from "./decode.ts";
+import { overlayEnv } from "../../domain/service/environments.ts";
 import { resolveUserPath } from "../storage/storage.ts";
 import {
   emptyService,
+  emptyEnv,
   emptyRouteAuth,
   namedPort,
   watchDebounceMs,
@@ -399,6 +402,8 @@ export function mergeService(base: ServiceConfig, raw: unknown): ServiceConfig {
   const out: ServiceConfig = {
     ...base,
     environment: mergeEnv(base.environment, raw.environment),
+    environments: mergeEnvironments(base.environments, raw.environments),
+    default_environment: present.has("default_environment") ? asString(raw.default_environment) : base.default_environment,
     health: mergeHealth(base.health, raw.health),
     identity: mergeIdentity(base.identity, raw.identity),
     logs: mergeServiceLogs(base.logs, raw.logs),
@@ -475,6 +480,18 @@ function mergeEnv(base: EnvConfig, raw: unknown): EnvConfig {
     }
   }
   return { vars, required, defaults };
+}
+
+function mergeEnvironments(base: Record<string, EnvConfig>, raw: unknown): Record<string, EnvConfig> {
+  if (!isRecord(raw)) {
+    return base;
+  }
+  const out = { ...base };
+  for (const [name, item] of Object.entries(raw)) {
+    const prior = Object.hasOwn(base, name) ? base[name] ?? emptyEnv() : emptyEnv();
+    out[name] = overlayEnv(prior, decodeEnv(item));
+  }
+  return out;
 }
 
 // health/identity/logs/restart/startup are merged field by field, not
@@ -808,5 +825,18 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     defaults: { ...base.environment.defaults, ...svc.environment.defaults },
     required: present.has("environment.required") ? svc.environment.required : base.environment.required,
   };
+  out.environments = mergeDecodedEnvironments(base.environments, svc.environments);
+  if (present.has("default_environment")) {
+    out.default_environment = svc.default_environment;
+  }
+  return out;
+}
+
+function mergeDecodedEnvironments(base: Record<string, EnvConfig>, overlay: Record<string, EnvConfig>): Record<string, EnvConfig> {
+  const out = { ...base };
+  for (const [name, env] of Object.entries(overlay)) {
+    const prior = Object.hasOwn(base, name) ? base[name] ?? emptyEnv() : emptyEnv();
+    out[name] = overlayEnv(prior, env);
+  }
   return out;
 }

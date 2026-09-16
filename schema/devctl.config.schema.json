@@ -211,6 +211,15 @@
         },
         "ports": { "$ref": "#/$defs/ports" },
         "environment": { "$ref": "#/$defs/serviceEnvironment" },
+        "environments": {
+          "type": "object",
+          "description": "Named environment overlays for this service (e.g. local vs deployed). Switch per service in the TUI, CLI, or MCP.",
+          "additionalProperties": { "$ref": "#/$defs/serviceEnvironment" }
+        },
+        "default_environment": {
+          "type": "string",
+          "description": "Which named environment to use when none is selected for this session. Defaults to the first name alphabetically."
+        },
         "health": {
           "type": "object",
           "additionalProperties": false,

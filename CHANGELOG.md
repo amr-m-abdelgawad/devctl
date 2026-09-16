@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-service named environment overlays (`services.<name>.environments` plus `default_environment`). Switch one service at a time in the TUI (`e` / `/env`), CLI (`devctl env`), or MCP (`set_service_environment`) without changing other services or the start profile. A running process keeps the overlay it started with until restart.
+
 ### Changed
 
 - TUI docs list every slash command with the same one-line description the `/` overlay shows, grouped the way the overlay is.

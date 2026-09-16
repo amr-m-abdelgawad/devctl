@@ -95,6 +95,7 @@ so agents must be given the new snippets.
 | `start_services` | control | Named list, or a `profile`. Omitted names use `profile`, then the active session profile, then the first configured profile — never every service. No profile and no names fails closed |
 | `stop_services` | control | Named list, or all started services when omitted. Also stops every transitive dependent of a named service — never its dependencies |
 | `restart_services` | control | Named list; touches only those services, not dependents, unless `cascade: true`. Start still expands dependencies |
+| `set_service_environment` | control | Select `services.<name>.environments.<env>` on one service. Other services are unchanged. The next start/exec/print-env uses that overlay. Pass `restart: true` to apply immediately |
 | `reload_config` | control | Reload `.devctl` |
 | `run_task` | control | Run a named task from configuration; output is also in the log ring as `task:<name>` |
 | `start_proxy` / `stop_proxy` | control | Start or stop the local reverse proxy |
@@ -119,7 +120,7 @@ prompt injected through logs cannot run host commands until you enable it. The
 TUI's **MCP** page lists tools grouped by the `Group` column above, each marked
 `read` or `write`, and `space` toggles the highlighted one. The common case is
 turning off the whole `control` group —
-`start_services`, `stop_services`, `restart_services`, `reload_config`, `run_task`,
+`start_services`, `stop_services`, `restart_services`, `set_service_environment`, `reload_config`, `run_task`,
 `start_proxy`, `stop_proxy`, `exec_service` — so an agent can read status and logs
 but not start or stop anything.
 

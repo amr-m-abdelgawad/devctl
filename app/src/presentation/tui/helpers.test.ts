@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { formatBodySummary, logRecord } from "../../domain/logs/logs.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, ENV_KEY_MAX, ENV_KEY_MIN, ENV_VALUE_MIN, envDisplayValue, envTableWidths, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logFollowMaxScroll, isLogFollowBottom, nextLogFollowAction, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { emptyRuntime } from "../../domain/service/services.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, ENV_KEY_MAX, ENV_KEY_MIN, ENV_VALUE_MIN, envDisplayValue, envTableWidths, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logFollowMaxScroll, isLogFollowBottom, nextLogFollowAction, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceEnvLabel, serviceEnvOptions, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { COMMAND_FOOTER_HINT, namedPickerItems, SLASH_COL_GAP, SLASH_LABEL_MAX, SLASH_NAME_PREFIX, slashCommandColumnWidth, slashCompleteQuery, slashItemDesc, slashItemKey, slashItemLabel, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
@@ -394,6 +395,24 @@ describe("TUI helpers", () => {
     expect(keys).toContain("z");
     expect(keys).toContain("space");
     expect(keys).toContain(displayKeybind(defaultCopyKeybind()));
+  });
+
+  test("env overlay footer and service env labels", () => {
+    expect(footerHints("dashboard", "env").some((h) => h.label === "switch")).toBe(true);
+    const svc = emptyService();
+    svc.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    svc.default_environment = "local";
+    expect(serviceEnvLabel(svc)).toBe("local");
+    expect(serviceEnvLabel(svc, { ...emptyRuntime("api"), env: "deployed" })).toBe("deployed");
+    expect(serviceEnvLabel(svc, { ...emptyRuntime("api"), pid: 9, env: "deployed", started_env: "local" })).toBe("deployed · restart");
+    expect(serviceEnvLabel(svc, { ...emptyRuntime("api"), pid: 9, env: "deployed", started_env: "" })).toBe("deployed · restart");
+    const options = serviceEnvOptions(svc, { ...emptyRuntime("api"), env: "local", started_env: "local", pid: 9 });
+    expect(options.map((row) => row.name)).toEqual(["deployed", "local"]);
+    expect(options.find((row) => row.name === "local")?.current).toBe(true);
+    expect(options.find((row) => row.name === "local")?.started).toBe(true);
   });
 
   test("log clipboard text keeps time service level and message", () => {

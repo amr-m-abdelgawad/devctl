@@ -48,6 +48,8 @@ type Options = {
   profile: string;
   setReveal: Dispatch<SetStateAction<boolean>>;
   resolveEnvironment: (service: string) => Promise<void>;
+  openEnvPicker: (service?: string) => void;
+  applyEnv: (service: string, name: string) => void;
   openDetail: (name: string) => void;
   copySelection: () => Promise<void>;
   lastExportPath: RefObject<string>;
@@ -80,6 +82,8 @@ export function useCommandDispatcher({
   profile,
   setReveal,
   resolveEnvironment,
+  openEnvPicker,
+  applyEnv,
   openDetail,
   copySelection,
   lastExportPath,
@@ -410,6 +414,20 @@ export function useCommandDispatcher({
             }
             return;
           }
+          case "env": {
+            const service = args[0] ?? "";
+            const envName = args[1] ?? "";
+            if (envName !== "") {
+              if (service === "") {
+                setStatus("usage: /env <service> [name]");
+                return;
+              }
+              applyEnv(service, envName);
+              return;
+            }
+            openEnvPicker(service || undefined);
+            return;
+          }
           case "exec": {
             const parsed = parseExecArgs(args);
             if (!parsed.service) {
@@ -574,7 +592,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
+    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs],
   );
   return { runCommand };
 }

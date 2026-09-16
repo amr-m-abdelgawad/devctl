@@ -22,6 +22,8 @@ devctl start --profile backend
 
 The TUI **profiles** screen (`o` or `/profiles`) lists configured profiles. `enter` selects one and offers start. None are hard-coded.
 
+A profile's extra environment applies to every service started under it. To give **one** service two maps (local vs deployed) and switch them without touching the rest of the fleet, use `services.<name>.environments` instead — see [Environment](environment.md#per-service-named-overlays).
+
 ![The TUI profiles screen — the current profile highlighted, each profile showing its member services and count](assets/manual/tui-profiles.png)
 
 Empty-dashboard `enter` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is `backend`, not `data`, even though `data` is listed first in the file.

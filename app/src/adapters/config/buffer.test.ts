@@ -76,4 +76,21 @@ services:
 `;
     expect(validateConfigText(dir, configPath, candidate)).toEqual([]);
   });
+
+  test("accepts named service environment overlays", () => {
+    const dir = tmp();
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const candidate = `version: 1
+services:
+  api:
+    command: echo hi
+    environments:
+      local:
+        MODE: local
+      deployed:
+        MODE: deployed
+    default_environment: local
+`;
+    expect(validateConfigText(dir, configPath, candidate)).toEqual([]);
+  });
 });

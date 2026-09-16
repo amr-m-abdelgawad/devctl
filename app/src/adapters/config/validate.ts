@@ -172,6 +172,19 @@ function validateServices(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}.restart.policy must be never, on_failure, or always`);
     }
     issues.push(...validateEnvRefs(`${prefix}.environment`, svc.environment, cfg));
+    const envNames = Object.keys(svc.environments);
+    if (svc.default_environment !== "" && !Object.hasOwn(svc.environments, svc.default_environment)) {
+      issues.push(`${prefix}.default_environment "${svc.default_environment}" is not defined in environments`);
+    }
+    for (const envName of envNames) {
+      if (envName === "") {
+        issues.push(`${prefix}.environments has an empty name`);
+      }
+      const named = svc.environments[envName];
+      if (named) {
+        issues.push(...validateEnvRefs(`${prefix}.environments.${envName}`, named, cfg));
+      }
+    }
     if (svc.container) {
       if (svc.container.image === "") issues.push(`${prefix}.container.image is required`);
       if (svc.container.runtime !== "" && svc.container.runtime !== "docker" && svc.container.runtime !== "podman") {

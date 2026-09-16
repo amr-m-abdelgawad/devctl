@@ -7,6 +7,7 @@ import {
   type EnvConfig,
   type HttpRecipeConfig,
 } from "../config/types.ts";
+import { allServiceEnvConfigs } from "../service/environments.ts";
 
 const PROCESS_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const JWT_TOKEN_FIELDS = ["access_token", "id_token", "token"] as const;
@@ -130,11 +131,13 @@ export function effectiveStartupDependencies(cfg: DevctlConfig, name: string, pr
   const explicit = [...svc.dependencies];
   const seen = new Set(explicit.map((dep) => dependencyName(dep)));
   const out = [...explicit];
-  for (const dep of implicitServiceDependencies(cfg, svc.environment, profileEnv)) {
-    const depName = dependencyName(dep);
-    if (!seen.has(depName) && depName !== name) {
-      seen.add(depName);
-      out.push(dep);
+  for (const env of allServiceEnvConfigs(svc)) {
+    for (const dep of implicitServiceDependencies(cfg, env, profileEnv)) {
+      const depName = dependencyName(dep);
+      if (!seen.has(depName) && depName !== name) {
+        seen.add(depName);
+        out.push(dep);
+      }
     }
   }
   return out;

@@ -19,6 +19,9 @@ describe("demo-platform config", () => {
     expect(cfg.profiles.backend?.services).not.toContain("postgres");
     expect(cfg.profiles.data?.services).toEqual(["postgres"]);
     expect(cfg.services.postgres?.container?.image).toBe("postgres:16");
+    expect(Object.keys(cfg.services["invoices-api"]?.environments ?? {}).sort()).toEqual(["deployed", "local"]);
+    expect(cfg.services["invoices-api"]?.default_environment).toBe("local");
+    expect(Object.keys(cfg.services["billing-console"]?.environments ?? {}).sort()).toEqual(["deployed", "local"]);
     expect(cfg.proxy.listen.port).toBe(18080);
     expect(cfg.proxy.token_endpoint.enabled).toBe(true);
     expect(cfg.telemetry.otlp.enabled).toBe(true);

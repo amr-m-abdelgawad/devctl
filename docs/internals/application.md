@@ -14,6 +14,7 @@ Classes with `execute(...)`. They exist so CLI, TUI, MCP, and RPC dispatch the s
 | `StartProfile` | `StartService` with a `ProfileId` |
 | `StartProxy` / `StopProxy` | `DaemonCommandHost.startProxy/stopProxy` |
 | `ReloadConfig` | `host.reload()` |
+| `SetServiceEnvironment` | Selects `services.<name>.environments.<env>` for one service (session state; does not restart) |
 | `RefreshIdentity` | `host.refreshIdentity({ probeServiceAccounts: true })` |
 | `RunDoctor` | `DoctorRunner.run` |
 | `GetServiceStatus` | `host.snapshot()` |

@@ -7,17 +7,19 @@ type Options = {
   controller?: Pick<Controller, "execService">;
   cfg?: DevctlConfig;
   envService: string;
+  envName?: string;
 };
 
 export function useServiceEnvironment({
   controller,
   cfg,
   envService,
+  envName = "",
 }: Options) {
-  const [resolvedEnvCache, setResolvedEnvCache] = useState<{ name: string; env: Record<string, string> } | undefined>();
+  const [resolvedEnvCache, setResolvedEnvCache] = useState<{ name: string; envName: string; env: Record<string, string> } | undefined>();
   const [resolvedEnvLoading, setResolvedEnvLoading] = useState(false);
   const [resolvedEnvError, setResolvedEnvError] = useState("");
-  const envMatches = resolvedEnvCache?.name === envService;
+  const envMatches = resolvedEnvCache?.name === envService && resolvedEnvCache.envName === envName;
   const inspectorEnv = envMatches ? resolvedEnvCache?.env : undefined;
   const inspectorEnvStatus: "config" | "loading" | "resolved" | "error" = envService === "" ? "config" : resolvedEnvLoading && !envMatches ? "loading" : envMatches ? "resolved" : resolvedEnvError !== "" ? "error" : "config";
   const inspectorEnvError = envMatches || envService === "" ? "" : resolvedEnvError;
@@ -31,7 +33,7 @@ export function useServiceEnvironment({
     if (!controller || envService === "" || !cfg?.services[envService]) {
       return;
     }
-    if (resolvedEnvCache?.name === envService) {
+    if (resolvedEnvCache?.name === envService && resolvedEnvCache.envName === envName) {
       return;
     }
     let cancelled = false;
@@ -43,7 +45,7 @@ export function useServiceEnvironment({
         if (cancelled) {
           return;
         }
-        setResolvedEnvCache({ name: envService, env: result.environment ?? {} });
+        setResolvedEnvCache({ name: envService, envName, env: result.environment ?? {} });
         setResolvedEnvError("");
       })
       .catch((err: unknown) => {
@@ -53,24 +55,26 @@ export function useServiceEnvironment({
         setResolvedEnvError(humanMessage(err));
       })
       .finally(() => {
-        setResolvedEnvLoading(false);
+        if (!cancelled) {
+          setResolvedEnvLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [cfg, controller, envService, resolvedEnvCache?.name]);
+  }, [cfg, controller, envService, envName, resolvedEnvCache?.name, resolvedEnvCache?.envName]);
 
   const resolveEnvironment = useCallback(async (service: string) => {
     if (!controller) return;
     try {
       const result = await controller.execService(service, [], true);
-      setResolvedEnvCache({ name: service, env: result.environment ?? {} });
+      setResolvedEnvCache({ name: service, envName, env: result.environment ?? {} });
       setResolvedEnvError("");
     } catch (err) {
       setResolvedEnvError(humanMessage(err));
       throw err;
     }
-  }, [controller]);
+  }, [controller, envName]);
 
   return { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment };
 }

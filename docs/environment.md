@@ -21,8 +21,8 @@ flowchart LR
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API |
-| `defaults` | `services.<name>.environment.defaults` |
-| `vars` | Explicit `services.<name>.environment` keys |
+| `defaults` | `services.<name>.environment.defaults` (and the selected `environments.<env>.defaults`) |
+| `vars` | Explicit `services.<name>.environment` keys (and the selected `environments.<env>` keys, which win) |
 | `runtime` | Values `devctl` injects at start |
 
 `keychain` and `secret_manager` throw only when that source is listed and fetch fails.
@@ -41,6 +41,7 @@ Injected when applicable:
 - `DEVCTL_PROXY_URL`
 - `DEVCTL_SERVICE_NAME`
 - `DEVCTL_ENVIRONMENT`
+- `DEVCTL_SERVICE_ENV` — the selected named overlay (`services.<name>.environments.<env>`), omitted when the service has none
 - `DEVCTL_USER_EMAIL` — the developer's own detected Google identity (gcloud/ADC), so a service can key on who is running it without a hardcoded, team-unfriendly value. Omitted when no identity is detected.
 - `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 - `DEVCTL_HTTP_<NAME>_URL` for each exposed `http` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
@@ -48,6 +49,38 @@ Injected when applicable:
 References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). `${http.<name>.<output>}` resolves from a recipe snapshot after the daemon has fetched that recipe; `${http.name.url}` is the local expose URL. `${env.NAME}` is rejected in service env. Recipe `url` / `headers` / `form` / `body` are the exception: `${NAME}` and `${env.NAME}` expand from the supervisor process environment at fetch time. IAP route `auth.client_secret` is the other exception: `${NAME}` and `${env.NAME}` are expanded from the process environment when the token is minted, not at config load.
 
 `environment.required` on a service fails start if those keys are still empty after the merge.
+
+## Per-service named overlays
+
+`profiles.<name>.environment` is fleet-wide: every service started under that profile gets those extra keys. Named overlays on a **service** are independent of that, so one service can talk to a deployed identity while another stays fully local.
+
+```yaml
+services:
+  invoices-api:
+    environment:
+      AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+      required: [AUTH_URL]
+      defaults:
+        LOG_LEVEL: INFO
+    environments:
+      local:
+        AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+      deployed:
+        AUTH_URL: https://identity.dev.example.com
+        defaults:
+          LOG_LEVEL: WARN
+    default_environment: local
+```
+
+Each overlay is an `EnvConfig` (`vars` / `defaults` / `required`) merged onto the service's base `environment` — named keys win, `required` is the union (including when a template and a service both declare `required` on the same named overlay). `default_environment` is the YAML default when nothing is selected for this session; if omitted, the first name alphabetically wins.
+
+Selection is **session state** (`~/.devctl/state/<repo>/state.json` `service_environments`), not YAML. Switch one service at a time:
+
+- TUI: `e` or `/env` on the dashboard, services, or detail screens
+- CLI: `devctl env invoices-api deployed`
+- MCP: `set_service_environment` with `service` and `name` (`restart: true` to apply immediately)
+
+The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (`started_env`) until you restart it. The TUI chip shows `env deployed · restart` in that case.
 
 ## TUI / CLI flag precedence
 

@@ -1,6 +1,7 @@
 import type { DevctlConfig, ServiceConfig } from "../config/index.ts";
 import { listenAddress } from "../config/index.ts";
 import { envList, resolveEnvironment, runtimeForService } from "../environment/environment.ts";
+import { effectiveServiceEnv, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import { profileEnvironment, HealthUnknown, StateRunning, type Runtime, type ServiceHealth, type ServiceState } from "../../domain/service/services.ts";
 import type { Clock } from "../../ports/clock.ts";
@@ -24,6 +25,8 @@ export type RecoverHost = {
   readonly processMeta: Map<string, { command: string[]; cwd: string; startTime: Date }>;
   readonly serviceProfile: Map<string, string>;
   readonly serviceProfileEnv: Map<string, Record<string, string>>;
+  readonly serviceEnv: Map<string, string>;
+  readonly serviceStartedEnv: Map<string, string>;
   readonly orchestrator: ServiceOrchestratorPort;
   readonly procs: ProcessManager;
   readonly logs: Pick<LogStore, "append">;
@@ -61,10 +64,12 @@ export async function resolveAdoptedHealthEnv(
     runtimeEnv.DEVCTL_TOKEN_URL = host.boundTokenURL || `http://127.0.0.1:${host.tokenEP?.listenPort() || host.cfg.proxy.token_endpoint.port}/token`;
   }
   try {
+    const envName = resolveEnvironmentName(svc, host.serviceStartedEnv.get(name) ?? host.serviceEnv.get(name));
+    const serviceCfg = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
     const env = await resolveEnvironment(host.cfg.repoRoot, {
       service: name,
       profile: host.serviceProfile.get(name) ?? host.profile,
-      serviceCfg: svc,
+      serviceCfg,
       profileEnv: host.serviceProfileEnv.get(name) ?? host.profileEnv,
       assignedPorts: assigned,
       runtime: runtimeEnv,
@@ -137,7 +142,8 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
     const assigned = host.ports.get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     host.ports.set(name, assigned);
     host.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
-    rememberLaunchContext(host, name, persistedProfileFor(host, readPersistedState(host.cfg.repoRoot)?.processes.find((item) => item.name === name)));
+    const rec = readPersistedState(host.cfg.repoRoot)?.processes.find((item) => item.name === name);
+    rememberLaunchContext(host, name, persistedProfileFor(host, rec), rec?.env);
     host.setState(name, StateRunning, HealthUnknown, 0, "");
     const healthEnv = await resolveAdoptedHealthEnv(host, name, svc, assigned);
     host.orchestrator.health.startHealth(name, svc, 0, assigned, workDir, healthEnv, gen);
@@ -176,7 +182,7 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
   // persisted, poison the record a future adoption verifies identity
   // against.
   const gen = attachProcess(host, name, pid, [...svc.command.args], host.serviceWorkDir(svc), new Date(persistedRec.startTime)) ?? host.orchestrator.health.bumpGeneration(name);
-  rememberLaunchContext(host, name, persistedProfileFor(host, persistedRec));
+  rememberLaunchContext(host, name, persistedProfileFor(host, persistedRec), persistedRec.env);
   host.setState(name, StateRunning, HealthUnknown, pid, "");
   host.log(name, "INFO", `already listening on ${Object.values(occupied).join(", ")}; not starting again`);
   const workDir = host.serviceWorkDir(svc);
@@ -191,6 +197,7 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
     return;
   }
   restorePersistedLaunchContext(host, persisted.profile);
+  restorePersistedServiceEnvironments(host, persisted.service_environments ?? {});
   const adopted: string[] = [];
   for (const [name, svc] of Object.entries(host.cfg.services)) {
     if (!svc.container) continue;
@@ -209,7 +216,7 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
     const assigned = rec?.ports ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     host.ports.set(name, assigned);
     host.processMeta.set(name, { command: [...svc.command.args], cwd: host.serviceWorkDir(svc), startTime: rec?.startTime ? new Date(rec.startTime) : handle.startTime });
-    rememberLaunchContext(host, name, persistedProfileFor(host, rec));
+    rememberLaunchContext(host, name, persistedProfileFor(host, rec), rec?.env);
     host.setState(name, StateRunning, HealthUnknown, 0, "");
     const healthEnv = await resolveAdoptedHealthEnv(host, name, svc, assigned);
     host.orchestrator.health.startHealth(name, svc, 0, assigned, host.serviceWorkDir(svc), healthEnv, gen);
@@ -242,7 +249,7 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
     if (Object.keys(rec.ports).length > 0) {
       host.ports.set(rec.name, rec.ports);
     }
-    rememberLaunchContext(host, rec.name, persistedProfileFor(host, rec));
+    rememberLaunchContext(host, rec.name, persistedProfileFor(host, rec), rec.env);
     host.setState(rec.name, StateRunning, HealthUnknown, rec.pid, "");
     const svc = host.cfg.services[rec.name];
     if (svc) {
@@ -264,9 +271,24 @@ function restorePersistedLaunchContext(host: RecoverHost, persistedProfile: stri
   host.profileEnv = profileEnvironment(host.cfg, host.profile);
 }
 
-function rememberLaunchContext(host: RecoverHost, name: string, profileName: string): void {
+function restorePersistedServiceEnvironments(host: RecoverHost, selected: Record<string, string>): void {
+  for (const [name, envName] of Object.entries(selected)) {
+    const svc = host.cfg.services[name];
+    if (svc && serviceHasNamedEnvironments(svc)) {
+      const resolved = resolveEnvironmentName(svc, envName);
+      if (resolved !== "") {
+        host.serviceEnv.set(name, resolved);
+      }
+    }
+  }
+}
+
+function rememberLaunchContext(host: RecoverHost, name: string, profileName: string, envName?: string): void {
   host.serviceProfile.set(name, profileName);
   host.serviceProfileEnv.set(name, profileEnvironment(host.cfg, profileName));
+  if (envName) {
+    host.serviceStartedEnv.set(name, envName);
+  }
 }
 
 function persistedProfileFor(host: RecoverHost, rec?: { profile?: string }): string {

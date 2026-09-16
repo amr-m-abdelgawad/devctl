@@ -115,8 +115,9 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/restart --cascade` | `-c` | Restart selected services and their dependents |
 | `/run [task]` | `/task` | Run a one-off task; empty /run opens a picker |
 | `/exec [service]` | | Run a command in a service context; empty /exec opens a picker |
+| `/env [service]` | | Switch a service's named environment overlay |
 
-`/start` with no names starts the current profile. `/restart` without `--cascade` restarts only the named services; `R` when dependents exist asks: Enter = named, `c` = cascade. Task output lands in Logs under `task:<name>`. `/exec <service> -- <command…>` runs once in that service's resolved environment (even if it is stopped). Empty `/exec` opens a service picker, then you type the command. `/exec <service> --print-env [--reveal]` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only `vars`/`defaults`.
+`/start` with no names starts the current profile. `/restart` without `--cascade` restarts only the named services; `R` when dependents exist asks: Enter = named, `c` = cascade. Task output lands in Logs under `task:<name>`. `/exec <service> -- <command…>` runs once in that service's resolved environment (even if it is stopped). Empty `/exec` opens a service picker, then you type the command. `/exec <service> --print-env [--reveal]` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only `vars`/`defaults`. `/env` (or `e` on the dashboard, services, or detail screens) opens a per-service overlay picker when that service defines `environments`. `/env <service> <name>` selects immediately. Switching does not restart a running process — the inspector chip shows `env deployed · restart` until you restart that service. Other services keep their own selection.
 
 ### Navigation
 
@@ -204,7 +205,7 @@ Default leader is `command+x` on macOS and `ctrl+x` elsewhere (2 second timeout)
 ```text
 n start    x stop    R restart (c cascade if dependents)    s services    l logs
 a auth     p proxy   d doctor     c config      o profiles
-t themes   e export  r refresh    i setup       h dashboard
+t themes   e env     r refresh    i setup       h dashboard
 q quit     z fullscreen
 ```
 

@@ -445,6 +445,10 @@ export class Controller {
     return (await this.call("reload", null)) as ReloadResult;
   }
 
+  setServiceEnvironment(service: string, name: string): Promise<{ service: string; env: string }> {
+    return this.call("set_service_env", { service, name }) as Promise<{ service: string; env: string }>;
+  }
+
   async invalidateAuth(): Promise<void> {
     await this.call("auth_invalidate", null);
   }

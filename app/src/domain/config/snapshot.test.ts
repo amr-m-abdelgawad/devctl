@@ -66,4 +66,18 @@ describe("config snapshot", () => {
     expect(diff.restart_required).toContain("api");
     expect(diff.changes.api).toContain("http");
   });
+
+  test("named environment overlay changes require a service restart", () => {
+    const prev = defaultConfig();
+    prev.services.api = emptyService();
+    prev.services.api.environments = { local: { vars: { MODE: "local" }, required: [], defaults: {} } };
+    prev.services.api.default_environment = "local";
+    const next = defaultConfig();
+    next.services.api = emptyService();
+    next.services.api.environments = { local: { vars: { MODE: "local" }, required: [], defaults: {} }, deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} } };
+    next.services.api.default_environment = "deployed";
+    const diff = configSnapshotDiff(prev, next);
+    expect(diff.restart_required).toContain("api");
+    expect(diff.changes.api).toContain("environment");
+  });
 });

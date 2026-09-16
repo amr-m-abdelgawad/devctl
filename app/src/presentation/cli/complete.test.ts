@@ -11,6 +11,9 @@ describe("completions", () => {
     expect(completeLine("devctl ", cfg)).toContain("start");
     expect(completeLine("devctl start ", cfg)).toContain("api");
     expect(completeLine("devctl start --profile ", cfg)).toContain("backend");
+    expect(completeLine("devctl env ", cfg)).toContain("api");
+    cfg.services.api.environments = { local: { vars: {}, required: [], defaults: {} }, deployed: { vars: {}, required: [], defaults: {} } };
+    expect(completeLine("devctl env api ", cfg)).toEqual(expect.arrayContaining(["deployed", "local", "--json"]));
     expect(completeLine("devctl completion ", cfg)).toEqual(["bash", "fish", "zsh"]);
   });
 

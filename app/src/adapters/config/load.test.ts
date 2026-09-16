@@ -550,6 +550,31 @@ services:
     expect(cfg.services.api?.environment.required).toEqual([]);
   });
 
+  test("a named environment overlay unions required lists from template and service", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-named-env-required-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+templates:
+  base:
+    environments:
+      deployed:
+        required: [TEMPLATE_TOKEN]
+services:
+  api:
+    extends: base
+    command: echo hi
+    environments:
+      deployed:
+        required: [SERVICE_TOKEN]
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.environments.deployed?.required).toEqual(["TEMPLATE_TOKEN", "SERVICE_TOKEN"]);
+  });
+
   test("expose synthesizes a host-based, auth-none proxy route addressing the service", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-expose-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `
