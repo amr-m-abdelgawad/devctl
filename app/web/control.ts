@@ -8,6 +8,17 @@ export function isLiveState(state: string): boolean {
   return LIVE_STATES.has(state.toUpperCase());
 }
 
+export function envNeedsRestart(row: { state: string; env?: string; started_env?: string }): boolean {
+  if (!isLiveState(row.state)) {
+    return false;
+  }
+  const selected = row.env ?? "";
+  if (selected === "") {
+    return false;
+  }
+  return (row.started_env ?? "") !== selected;
+}
+
 type PlanLike = { waves?: unknown };
 type ReloadLike = { restart_required?: unknown };
 type TaskLike = { task?: unknown; code?: unknown };
@@ -56,5 +67,13 @@ export function noticeFor(tool: ControlTool, result: unknown, args: ControlArgs 
       return "Proxy started";
     case "stop_proxy":
       return "Proxy stopped";
+    case "set_service_environment": {
+      const service = args.service ?? "service";
+      const envName = args.name ?? "env";
+      const restarted = result && typeof result === "object" && "restarted" in result
+        ? (result as { restarted?: unknown }).restarted === true
+        : false;
+      return restarted ? `Switched ${service} to ${envName} and restarted` : `Switched ${service} to ${envName}`;
+    }
   }
 }

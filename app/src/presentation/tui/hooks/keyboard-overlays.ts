@@ -58,6 +58,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       confirmAction("cascade");
       return true;
     }
+    if (confirmKind === "env-restart" && name === "r") {
+      confirmAction("restart");
+      return true;
+    }
     if (name === "return") {
       confirmAction();
     }

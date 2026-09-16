@@ -63,7 +63,7 @@ export function useAppKeyboard({
   const {
     screen, onQuit, closeOverlay, confirmKind, confirmDetail, portTarget, profile, listCursor, names, runCommand,
     copySelection, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail, setLlmDetail, llmCalls,
-    setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail,
+    setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail, applyServiceEnv,
   } = ui;
   const {
     logSlice, logSliceB, logSearch, logSearchFocused, logsFullscreen, setLogSearch, setLogSearchFocused,
@@ -85,7 +85,7 @@ export function useAppKeyboard({
     onQuit(cfg.shutdown.stop_services_on_exit === false);
   }, [cfg, onQuit, setConfirmKind, setOverlay]);
 
-  const confirmAction = useCallback((mode?: "cascade") => {
+  const confirmAction = useCallback((mode?: "cascade" | "restart") => {
     if (confirmKind === "quit") {
       onQuit(false);
       return;
@@ -102,6 +102,13 @@ export function useAppKeyboard({
       const targets = confirmDetail?.services ?? [];
       closeOverlay();
       void beginRestart(targets, profile, mode === "cascade");
+      return;
+    }
+    if (confirmKind === "env-restart") {
+      const service = confirmDetail?.services?.[0] ?? "";
+      const envName = confirmDetail?.env ?? "";
+      closeOverlay();
+      applyServiceEnv(service, envName, { confirmed: true, restart: mode === "restart" });
       return;
     }
     if (confirmKind === "reset-prefs") {
@@ -127,7 +134,7 @@ export function useAppKeyboard({
     }
     closeOverlay();
     void beginStart([], profile);
-  }, [applyReset, beginRestart, beginStart, closeOverlay, confirmDetail, confirmKind, diagnostics, freePort, onQuit, portTarget, profile, setStatus, snap]);
+  }, [applyReset, applyServiceEnv, beginRestart, beginStart, closeOverlay, confirmDetail, confirmKind, diagnostics, freePort, onQuit, portTarget, profile, setStatus, snap]);
 
   const handleEnter = useCallback(() => {
     if (screen === "logs") {

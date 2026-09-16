@@ -385,7 +385,7 @@ devctl update [--json] [--check]
 - \`down\` stops the daemon's services and the daemon itself; \`--keep-services\` stops only the daemon, leaving services running to be adopted later. \`--repo\` targets a repository directly, without needing a loadable configuration there; the global \`--config\` also resolves it (by file location, not by parsing) when \`--repo\` is not given.
 - \`status\` and \`down\` resolve their target the same way: \`--repo\` wins outright, else the global \`--config\` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - \`status\` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
-- \`status\` also prints proxy, MCP, and WEB listen lines when a supervisor is up.
+- \`status\` also prints proxy, MCP, and WEB listen lines when a supervisor is up. Each service row includes \`ENV\` (the selected named overlay, empty when the service has none).
 - \`status --watch\` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (\`ctrl+c\`).
 - \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. \`--request-id\` filters by \`X-Devctl-Request-ID\`; \`--trace\` prints the span tree plus correlated logs.
 - \`devctl llm\` lists recent LLM calls from configured \`llm.sources\` (LiteLLM spend logs first). \`--caller\` filters by originating service. \`--follow\` polls until interrupted. \`devctl llm show <id>\` prints one call including redacted bodies. See [LLM inspector](llm.md).
@@ -790,11 +790,12 @@ Each overlay is an \`EnvConfig\` (\`vars\` / \`defaults\` / \`required\`) merged
 
 Selection is **session state** (\`~/.devctl/state/<repo>/state.json\` \`service_environments\`), not YAML. Switch one service at a time:
 
-- TUI: \`e\` or \`/env\` on the dashboard, services, or detail screens
+- TUI: \`e\` or \`/env\` on the dashboard, services, or detail screens. Switching a running service asks: Enter = switch only, \`r\` = switch and restart.
 - CLI: \`devctl env invoices-api deployed\`
+- Web console: Env column on Overview and the Graph inspector (same \`set_service_environment\` tool; Restart is optional)
 - MCP: \`set_service_environment\` with \`service\` and \`name\` (\`restart: true\` to apply immediately)
 
-The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (\`started_env\`) until you restart it. The TUI chip shows \`env deployed · restart\` in that case.
+The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (\`started_env\`) until you restart it. The TUI chip shows \`env deployed · restart\` in that case. The service list env column (wide terminals) uses warning color instead of the \` · restart\` suffix. \`devctl status\` prints an \`ENV\` column with the selected overlay.
 
 ## TUI / CLI flag precedence
 
@@ -1745,7 +1746,7 @@ so agents must be given the new snippets.
 
 | Tool | Group | What it does |
 |------|-------|----------------|
-| \`list_services\` | inspect | Name, state, health, ports, pid, last error |
+| \`list_services\` | inspect | Name, state, health, ports, pid, last error, selected env, named overlays |
 | \`get_service\` | inspect | One service plus command/cwd/ports (env redacted or left as \`\${…}\` refs) |
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_logs\` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from the previous \`next_cursor\` to page forward with no duplicate or same-millisecond-lost lines; \`since\`/\`until\` are plain timestamp filters for a fresh query |
@@ -2740,7 +2741,7 @@ services:
     default_environment: local
 \`\`\`
 
-\`e\` / \`/env\` in the TUI, \`devctl env api deployed\`, or MCP \`set_service_environment\` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
+\`e\` / \`/env\` in the TUI, \`devctl env api deployed\`, the web console Env column, or MCP \`set_service_environment\` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
 
 ## Container services
 
@@ -2968,6 +2969,8 @@ The same trace in the TUI: a ◎ marker on a log row opens a full-width waterfal
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
+Overview and Graph also switch a service's named environment overlay (\`set_service_environment\`)
+without restarting; a pending overlay shows a Restart button so you can apply it.
 It is off until you enable it. It binds loopback only (no CORS). The Host
 allowlist accepts loopback names (\`127.0.0.0/8\`, \`localhost\`, \`::1\`, including
 \`[::1]\`, a missing or remapped port, and \`https://localhost\`) so WSL, Dev
@@ -3212,7 +3215,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/exec [service]\` | | Run a command in a service context; empty /exec opens a picker |
 | \`/env [service]\` | | Switch a service's named environment overlay |
 
-\`/start\` with no names starts the current profile. \`/restart\` without \`--cascade\` restarts only the named services; \`R\` when dependents exist asks: Enter = named, \`c\` = cascade. Task output lands in Logs under \`task:<name>\`. \`/exec <service> -- <command…>\` runs once in that service's resolved environment (even if it is stopped). Empty \`/exec\` opens a service picker, then you type the command. \`/exec <service> --print-env [--reveal]\` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only \`vars\`/\`defaults\`. \`/env\` (or \`e\` on the dashboard, services, or detail screens) opens a per-service overlay picker when that service defines \`environments\`. \`/env <service> <name>\` selects immediately. Switching does not restart a running process — the inspector chip shows \`env deployed · restart\` until you restart that service. Other services keep their own selection.
+\`/start\` with no names starts the current profile. \`/restart\` without \`--cascade\` restarts only the named services; \`R\` when dependents exist asks: Enter = named, \`c\` = cascade. Task output lands in Logs under \`task:<name>\`. \`/exec <service> -- <command…>\` runs once in that service's resolved environment (even if it is stopped). Empty \`/exec\` opens a service picker, then you type the command. \`/exec <service> --print-env [--reveal]\` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only \`vars\`/\`defaults\`. \`/env\` (or \`e\` on the dashboard, services, or detail screens) opens a per-service overlay picker when that service defines \`environments\`. \`/env <service> <name>\` selects immediately. Switching a running process whose overlay would change asks first: Enter switches for the next start, \`r\` switches and restarts now. The inspector chip shows \`env deployed · restart\` until the process is restarted; the service list env column uses warning color for the same pending state. Other services keep their own selection.
 
 ### Navigation
 

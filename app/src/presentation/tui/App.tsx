@@ -16,7 +16,7 @@ import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
-import { defaultProfileName, serviceEnvOptions, type ServiceEnvEntry } from "./helpers/services.ts";
+import { defaultProfileName, serviceEnvOptions, shouldConfirmEnvSwitch, type ServiceEnvEntry } from "./helpers/services.ts";
 import { clampTraceSpanIndex, orderTraceRows } from "./helpers/traces.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
 import { useCommandDispatcher } from "./hooks/use-command-dispatcher.ts";
@@ -346,7 +346,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     return serviceEnvOptions(svc, snap?.services[envPickerService]);
   }, [cfg, envPickerService, snap]);
 
-  const applyEnv = useCallback((service: string, name: string) => {
+  const applyEnv = useCallback((service: string, name: string, opts?: { restart?: boolean; confirmed?: boolean }) => {
     if (!controller) {
       setStatus("no daemon attached");
       return;
@@ -355,16 +355,28 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setStatus("pick a service first");
       return;
     }
+    const svc = cfg?.services[service];
+    const rt = snap?.services[service];
+    if (!opts?.confirmed && !opts?.restart && svc && shouldConfirmEnvSwitch(svc, rt, name)) {
+      setConfirmDetail({ services: [service], env: name });
+      setConfirmKind("env-restart");
+      setOverlay("confirm");
+      return;
+    }
+    const restart = opts?.restart === true;
     void controller.setServiceEnvironment(service, name).then(async (result) => {
       closeOverlay();
+      if (restart) {
+        await controller.restart([service]);
+      }
       const next = await refresh();
-      const rt = next?.services[service];
-      const note = rt?.pid && rt.started_env !== result.env ? " · restart to apply" : "";
+      const live = next?.services[service];
+      const note = !restart && live?.pid && live.started_env !== result.env ? " · restart to apply" : "";
       setStatus(`${result.service}: ${result.env}${note}`);
     }).catch((err: unknown) => {
       setStatus(humanMessage(err));
     });
-  }, [closeOverlay, controller, refresh]);
+  }, [cfg, closeOverlay, controller, refresh, snap]);
 
   const openEnvPicker = useCallback((service?: string) => {
     const target = service && service !== "" ? service : focusedServiceName;
@@ -638,6 +650,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       envIndex,
       setEnvIndex,
       applyEnv: (name: string) => applyEnv(envPickerService, name),
+      applyServiceEnv: applyEnv,
     },
     logView,
     lifecycleActions,

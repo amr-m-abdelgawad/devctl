@@ -96,7 +96,7 @@ Default-off: `exec_service` (opt in via TUI `mcp_enabled_tools`). Deny-list: `mc
 
 ## Web UI — `presentation/web/` + `app/web/`
 
-`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, control POSTs). Same bearer and loopback rules. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm). Rebuild assets after UI changes.
+`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, control POSTs including `set_service_environment`). Same bearer and loopback rules. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm). Rebuild assets after UI changes.
 
 `web.control.ts` / `api.ts` talk to those HTTP routes. This is not a second orchestrator.
 

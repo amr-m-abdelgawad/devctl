@@ -6,7 +6,7 @@ import { StatusBadge, StatusDot, toneColor, toneOf } from "./components/status.t
 import { Badge } from "./components/ui/badge.tsx";
 import type { ConfigService, ServiceRow } from "./types.ts";
 import { isLiveState, type RunControl } from "./control.ts";
-import { ActionButtons } from "./components/controls.tsx";
+import { ActionButtons, EnvSelect } from "./components/controls.tsx";
 
 const NODE_W = 208;
 const NODE_H = 82;
@@ -405,6 +405,7 @@ function TopologyInspector(props: {
           <StatusBadge value={row.health} />
         ) : null}
         {portLabel(row, svc) ? <span className="font-mono text-[11px] text-muted-foreground">{portLabel(row, svc)}</span> : null}
+        {row && onControl ? <EnvSelect row={row} busy={busy} onControl={onControl} /> : null}
         {onControl ? (
           <div className="ml-auto">
             <ActionButtons

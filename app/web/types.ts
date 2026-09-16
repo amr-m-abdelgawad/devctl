@@ -30,6 +30,9 @@ export type ServiceRow = {
   ports: Record<string, number>;
   pid: number;
   last_error: string;
+  env?: string;
+  started_env?: string;
+  environments?: string[];
 };
 
 export type RequestRow = {
@@ -74,6 +77,7 @@ export type ControlTool =
   | "start_services"
   | "stop_services"
   | "restart_services"
+  | "set_service_environment"
   | "reload_config"
   | "run_task"
   | "start_proxy"
@@ -84,6 +88,8 @@ export type ControlArgs = {
   profile?: string;
   cascade?: boolean;
   name?: string;
+  service?: string;
+  restart?: boolean;
 };
 
 export type LogRow = {

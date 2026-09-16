@@ -76,11 +76,12 @@ Each overlay is an `EnvConfig` (`vars` / `defaults` / `required`) merged onto th
 
 Selection is **session state** (`~/.devctl/state/<repo>/state.json` `service_environments`), not YAML. Switch one service at a time:
 
-- TUI: `e` or `/env` on the dashboard, services, or detail screens
+- TUI: `e` or `/env` on the dashboard, services, or detail screens. Switching a running service asks: Enter = switch only, `r` = switch and restart.
 - CLI: `devctl env invoices-api deployed`
+- Web console: Env column on Overview and the Graph inspector (same `set_service_environment` tool; Restart is optional)
 - MCP: `set_service_environment` with `service` and `name` (`restart: true` to apply immediately)
 
-The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (`started_env`) until you restart it. The TUI chip shows `env deployed · restart` in that case.
+The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (`started_env`) until you restart it. The TUI chip shows `env deployed · restart` in that case. The service list env column (wide terminals) uses warning color instead of the ` · restart` suffix. `devctl status` prints an `ENV` column with the selected overlay.
 
 ## TUI / CLI flag precedence
 
