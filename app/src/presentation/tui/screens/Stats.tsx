@@ -5,8 +5,9 @@ import { sessionStartedAt } from "../../../domain/session/session.ts";
 import { type StatsSeries, type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { formatCpuPercent,formatMemoryKB,formatUptime,padClip,renderBar } from "../helpers/format.ts";
+import { clipText,formatCpuPercent,formatMemoryKB,formatUptime,padClip,renderBar } from "../helpers/format.ts";
 import { wrapLogMessage } from "../helpers/logs.ts";
+import { routeLatencies, type RouteLatency } from "../helpers/proxy.ts";
 import { SERVICE_COL_GAP,SERVICE_CPU_COL,SERVICE_HEALTH_COL,SERVICE_MEM_COL,SERVICE_PID_COL,SERVICE_STATE_COL,SERVICE_UPTIME_COL } from "../helpers/services.ts";
 import { credentialStoreLabel,factTableColumns,fleetFacts,formatResourceMeter,leftoverCopy,loadCopy,platformLabel,runtimeUptime,serviceCheckLabel,serviceFleetStats,serviceStatusLabel,sparkline,STATS_FACT_GAP,STATS_RESTARTS_COL,statsPaneWidth,statsServiceColumns,topLogSources,usesTrafficHealth,type ResourceTone,type StatsFact } from "../helpers/stats.ts";
 import { ScreenFrame } from "../layout.tsx";
@@ -296,6 +297,8 @@ export function StatsScreen(props: {
     },
   ];
 
+  const routeLatency = routeLatencies(snap?.proxy.recentRequests ?? []);
+
   return (
     <ScreenFrame palette={palette} title="stats" scroll>
       <Section palette={palette} title={`Your services  ${fleet.live} of ${fleet.total} started`} tone={sectionTone}>
@@ -343,6 +346,12 @@ export function StatsScreen(props: {
         </Section>
       ) : null}
 
+      {routeLatency.length > 0 ? (
+        <Section palette={palette} title="Proxy routes" tone={routeLatency.some((r) => r.errors > 0) ? "warning" : "muted"}>
+          <RouteLatencyTable palette={palette} rows={routeLatency} width={inner} />
+        </Section>
+      ) : null}
+
       <Section palette={palette} title="Log lines" tone={logsErrors > 0 ? "warning" : "muted"}>
         <FactTable palette={palette} facts={logFacts} width={inner} />
       </Section>
@@ -351,6 +360,41 @@ export function StatsScreen(props: {
         <FactTable palette={palette} facts={otherFacts} width={inner} />
       </Section>
     </ScreenFrame>
+  );
+}
+
+const RL_ROUTE_COL = 18;
+const RL_NUM_COL = 7;
+
+// Per-route hop latency (p50/p95/p99, ms) and error count over the proxy's
+// recent-request window. Percentiles are per route, not lumped across routes.
+function RouteLatencyTable(props: { palette: Palette; rows: RouteLatency[]; width: number }) {
+  const { palette, rows } = props;
+  const routeCol = Math.min(RL_ROUTE_COL, Math.max(8, ...rows.map((r) => r.route.length + 1)));
+  const cell = (text: string, fg: string) => (
+    <text fg={fg} wrapMode="none">{padClip(text, RL_NUM_COL)}</text>
+  );
+  return (
+    <box flexDirection="column" overflow="hidden" flexShrink={0}>
+      <box height={1} flexDirection="row" overflow="hidden" flexShrink={0}>
+        <text fg={palette.muted} wrapMode="none">{padClip("route", routeCol)}</text>
+        {cell("n", palette.muted)}
+        {cell("p50", palette.muted)}
+        {cell("p95", palette.muted)}
+        {cell("p99", palette.muted)}
+        {cell("err", palette.muted)}
+      </box>
+      {rows.map((row) => (
+        <box key={row.route} flexDirection="row" flexShrink={0} overflow="hidden">
+          <text fg={row.route === "(none)" ? palette.muted : palette.info} wrapMode="none">{padClip(clipText(row.route, routeCol - 1), routeCol)}</text>
+          {cell(String(row.count), palette.text)}
+          {cell(`${row.p50}ms`, palette.text)}
+          {cell(`${row.p95}ms`, row.p95 >= 1000 ? palette.warning : palette.text)}
+          {cell(`${row.p99}ms`, row.p99 >= 1000 ? palette.warning : palette.text)}
+          {cell(String(row.errors), row.errors > 0 ? palette.error : palette.muted)}
+        </box>
+      ))}
+    </box>
   );
 }
 

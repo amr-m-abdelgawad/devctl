@@ -142,7 +142,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/setup` | `/init` | Open setup guidance |
 | `/dashboard` | `/home` | Return to the dashboard |
 
-`/stats` includes sparklines when the supervisor has samples. `/topology` (or `g`) draws the dependency graph as startup waves — nodes coloured by health, with an inspector showing what a selected service depends on and what depends on it. `/tokens` is the auth timeline: token mint, refresh, and identity-change events over the session, keyed by identity and audience (never by request, and never showing the token itself).
+`/stats` includes sparklines when the supervisor has samples — a **Trends** section with per-service CPU and RAM history, and a **Proxy routes** section with per-route hop latency (p50/p95/p99) and error counts over the recent-request window. `/topology` (or `g`) draws the dependency graph as startup waves — nodes coloured by health, with an inspector showing what a selected service depends on and what depends on it. `/tokens` is the auth timeline: token mint, refresh, and identity-change events over the session, keyed by identity and audience (never by request, and never showing the token itself).
 
 ### Logs
 
