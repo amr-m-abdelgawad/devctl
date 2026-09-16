@@ -184,7 +184,7 @@
   .VPHome .landing .faq-list summary { font-size: 15px; }
 }
 
-/* Restrained motion: one-time reveals, a gentle preview tilt, and directional cues. */
+/* Restrained motion: one-time reveals, a softly illuminated preview, and directional cues. */
 @media (prefers-reduced-motion: no-preference) {
   .VPHome .landing [data-reveal] { transition: opacity .55s ease, transform .65s cubic-bezier(.2,.7,.2,1); }
   .VPHome .landing [data-reveal="pending"] { opacity: 0; transform: translateY(18px); }
@@ -202,11 +202,49 @@
   .VPHome .landing .primary-link:active { transform: translateY(0) scale(.98); }
   .VPHome .landing .faq-list details[open] p { animation: landing-arrive .25s ease-out; }
 }
+/* Light stays on the frame; the terminal and its controls remain still. */
+.VPHome .landing .hero-preview {
+  position: relative;
+  isolation: isolate;
+  border-radius: 18px;
+  box-shadow: 0 2px 4px #00000004, 0 16px 48px -24px #00000024;
+}
+.VPHome .landing .hero-preview:focus-within {
+  border-color: var(--vp-c-brand-1);
+}
 @media (prefers-reduced-motion: no-preference) and (hover: hover) and (pointer: fine) {
-  .VPHome .landing .hero-preview { position: relative; isolation: isolate; transform: perspective(1100px) rotateX(var(--tilt-x, 0deg)) rotateY(var(--tilt-y, 0deg)); transition: transform .3s ease-out, border-color .3s ease; }
-  .VPHome .landing .hero-preview::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; border-radius: inherit; opacity: 0; background: radial-gradient(340px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #77ddba12, transparent 75%); transition: opacity .35s ease; }
+  .VPHome .landing .hero-preview {
+    transition: box-shadow .45s ease, border-color .45s ease;
+  }
+  .VPHome .landing .hero-preview::before,
+  .VPHome .landing .hero-preview::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity .45s ease;
+  }
+  .VPHome .landing .hero-preview::before {
+    inset: -1px;
+    padding: 1px;
+    background: radial-gradient(320px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #a4efcf, #48a88b80 45%, transparent 75%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    z-index: 1;
+  }
+  .VPHome .landing .hero-preview::after {
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(420px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #62cba514, transparent 75%);
+  }
+  .VPHome .landing .hero-preview[data-pointer]::before,
   .VPHome .landing .hero-preview[data-pointer]::after { opacity: 1; }
-  .VPHome .landing .hero-preview[data-pointer] { border-color: var(--vp-c-brand-1); }
+  .VPHome .landing .hero-preview[data-pointer] {
+    box-shadow: 0 2px 4px #00000005, 0 24px 64px -28px #00000038, 0 0 40px -18px #62cba526;
+  }
 }
 @keyframes landing-arrive {
   from { opacity: 0; transform: translateY(10px); }
@@ -368,3 +406,50 @@
   .VPHome .landing.changelog .changelog-jump { gap: 8px 14px; font-size: 10px; }
 }
 
+
+/* A flat architectural grid with quiet line motion behind the hero. */
+.VPHome { overflow-x: clip; }
+.VPHome .landing .landing-hero { position: relative; isolation: isolate; }
+.hero-atmosphere {
+  position: absolute;
+  z-index: -1;
+  top: -64px;
+  bottom: 0;
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  overflow: hidden;
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
+  --atmosphere-line: #278d7612;
+}
+.dark .hero-atmosphere {
+  --atmosphere-line: #80d8bf0d;
+}
+.atmosphere-grid {
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(var(--atmosphere-line) 1px, transparent 1px), linear-gradient(90deg, var(--atmosphere-line) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 65% 50% at 50% 24%, #000, transparent);
+}
+.atmosphere-orbit {
+  position: absolute;
+  width: min(1400px, 150vw);
+  height: 480px;
+  left: 50%;
+  top: 60px;
+  border: 1px solid var(--atmosphere-line);
+  border-radius: 50%;
+  transform: translateX(-50%) rotate(-24deg);
+}
+.atmosphere-orbit-two { top: 150px; transform: translateX(-50%) rotate(-32deg); }
+@media (prefers-reduced-motion: no-preference) {
+  .atmosphere-orbit-one { animation: atmosphere-orbit 32s ease-in-out infinite alternate; }
+}
+@keyframes atmosphere-orbit {
+  to { transform: translateX(-50%) translateY(35px) rotate(-12deg); }
+}
+@media (max-width: 640px) {
+  .atmosphere-grid { background-size: 48px 48px; }
+}

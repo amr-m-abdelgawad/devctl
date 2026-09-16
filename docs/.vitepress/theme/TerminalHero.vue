@@ -3,16 +3,16 @@ import { computed, ref } from 'vue'
 
 const selected = ref(0)
 
-const tabs = ['dashboard', 'services', 'logs', 'proxy']
+const tabs = ['dashboard', 'logs', 'profiles']
 
-const services = [
+const services = ref([
   { glyph: 'o', name: 'billing-console', state: 'STOPPED', on: false },
   { glyph: '✓', name: 'identity', state: 'HEALTHY', on: true },
   { glyph: '✓', name: 'invoices-api', state: 'HEALTHY', on: true },
   { glyph: 'o', name: 'invoices-worker', state: 'STOPPED', on: false, sel: true },
   { glyph: 'o', name: 'postgres', state: 'STOPPED', on: false },
   { glyph: '✓', name: 'telemetry', state: 'HEALTHY', on: true }
-]
+])
 
 // service → stable colour, mirroring the real TUI palette
 type Line = { t: string; s: string; lvl: string; src: string; m: string }
@@ -52,15 +52,50 @@ const fullLog: Line[] = [
   { t: '14:50:33', s: 'invoices-api', lvl: 'INFO', src: 'health', m: 'health HEALTHY 200' }
 ]
 
-const logFilters = [
-  { name: 'all', count: '26178', on: true },
-  { name: 'billing-console', count: '0' },
-  { name: 'identity', count: '7351' },
-  { name: 'invoices-api', count: '7536' },
-  { name: 'invoices-worker', count: '2', err: true },
-  { name: 'postgres', count: '0' },
-  { name: 'telemetry', count: '11284' }
-]
+const activeFilter = ref('all')
+const query = ref('')
+const activeProfile = ref('minimal')
+const activity = ref<Line[]>([])
+const announcement = ref('Try starting invoices-worker, then explore its logs.')
+const running = computed(() => services.value.filter(service => service.on).length)
+const logs = computed(() => [...fullLog, ...activity.value])
+const logFilters = computed(() => ['all', ...services.value.map(service => service.name)].map(name => ({
+  name, count: logs.value.filter(line => name === 'all' || line.s === name).length
+})))
+const filteredLogs = computed(() => logs.value.filter(line =>
+  (activeFilter.value === 'all' || line.s === activeFilter.value) &&
+  `${line.s} ${line.lvl} ${line.m}`.toLowerCase().includes(query.value.toLowerCase())
+))
+const recentLogs = computed(() => [...dashboardLog, ...activity.value].slice(-13))
+
+function setService(name: string, on: boolean) {
+  const service = services.value.find(service => service.name === name)!
+  if (service.on === on) return
+  service.on = on
+  service.state = on ? 'HEALTHY' : 'STOPPED'
+  service.glyph = on ? '✓' : 'o'
+  activity.value.push({ t: new Date().toLocaleTimeString('en-GB', { hour12: false }), s: name,
+    lvl: 'INFO', src: 'demo', m: on ? 'Started · health check passed' : 'Stopped · process exited cleanly' })
+}
+function toggleService(name: string) {
+  const service = services.value.find(service => service.name === name)!
+  setService(name, !service.on)
+  announcement.value = `${name} ${service.on ? 'started and healthy' : 'stopped'}. Open Logs to see the event.`
+}
+function startProfile(profile: typeof profiles[number]) {
+  activeProfile.value = profile.name
+  profile.services.forEach(service => setService(service.n, true))
+  announcement.value = `${profile.name} profile started. ${running.value} of 6 services running.`
+}
+function resetDemo() {
+  services.value.forEach(service => setService(service.name, ['identity', 'invoices-api', 'telemetry'].includes(service.name)))
+  activity.value = []
+  activeProfile.value = 'minimal'
+  activeFilter.value = 'all'
+  query.value = ''
+  selected.value = 0
+  announcement.value = 'Demo reset. Try starting invoices-worker.'
+}
 
 const profiles = [
   { name: 'backend', current: false, count: 4, services: [
@@ -78,9 +113,9 @@ const profiles = [
 ]
 
 const screens = [
-  { name: 'Dashboard', tab: 'dashboard', foot: 'dashboard', hints: '/ command   space select   * all   – none', title: 'Your running stack, in one view.', description: 'Services and their combined logs, side by side. Here the minimal profile has identity, invoices-api, and telemetry healthy.', alt: 'devctl 0.6.0 dashboard: a services pane listing six services with three healthy in the minimal profile, next to their combined live logs.' },
-  { name: 'Logs', tab: 'logs', foot: 'logs', hints: '/ command   ↔ filter   e errors   i internal logs', title: 'Follow the output across services.', description: 'One stream with timestamps, service names, levels, and messages — filter by service, jump to errors, page through history.', alt: 'devctl centralized logs screen with per-service filter tabs and timestamped output from identity, invoices-api, and telemetry.' },
-  { name: 'Profiles', tab: '', foot: 'profiles', hints: '/ command   space set current   enter set and start', title: 'Choose the services for your task.', description: 'The demo defines backend, data, full, and minimal. minimal is current — its three services start together.', alt: 'devctl profiles screen listing backend, data, full, and minimal, with minimal current and its three services checked.' }
+  { name: 'Dashboard', tab: 'dashboard', foot: 'dashboard', hints: '/ command   space select   * all   – none', title: 'Your running stack, in one view.', description: 'Click a service to start or stop it. Watch the running count and combined logs respond.', alt: 'devctl 0.6.0 dashboard: a services pane listing six services with three healthy in the minimal profile, next to their combined live logs.' },
+  { name: 'Logs', tab: 'logs', foot: 'logs', hints: '/ command   ↔ filter   e errors   i internal logs', title: 'Follow the output across services.', description: 'Choose a service or search the output. Your start and stop actions appear here, too.', alt: 'devctl centralized logs screen with per-service filter tabs and timestamped output from identity, invoices-api, and telemetry.' },
+  { name: 'Profiles', tab: '', foot: 'profiles', hints: '/ command   space set current   enter set and start', title: 'Choose the services for your task.', description: 'Start a profile to bring its services online together. Already running services stay up.', alt: 'devctl profiles screen listing backend, data, full, and minimal, with minimal current and its three services checked.' }
 ]
 
 const screen = computed(() => screens[selected.value])
@@ -88,23 +123,24 @@ const screen = computed(() => screens[selected.value])
 
 <template>
   <div class="walkthrough">
+    <div class="demo-intro"><span><span class="demo-dot"></span> INTERACTIVE PLAYGROUND</span><button type="button" @click="resetDemo">Reset demo ↺</button></div>
     <div class="walkthrough-controls" role="group" aria-label="devctl TUI screens">
       <button v-for="(item, index) in screens" :key="item.name" type="button" :aria-pressed="selected === index" aria-controls="tui-window" @click="selected = index"><span aria-hidden="true">0{{ index + 1 }}</span>{{ item.name }}</button>
     </div>
 
-    <div id="tui-window" class="tui" role="img" :aria-label="screen.alt">
+    <div id="tui-window" class="tui" role="region" aria-label="Interactive devctl demo">
       <div class="tui-top">
-        <span class="tui-brand">devctl <span class="tk-dim">0.6.0</span></span>
+        <span class="tui-brand">devctl</span>
         <span class="tk-dim">demo-platform</span>
-        <span class="tk-dim">minimal</span>
+        <span class="tk-dim">{{ activeProfile }}</span>
         <span class="tui-gap" aria-hidden="true"></span>
-        <span class="pill pill-green">3/6 running</span>
-        <span class="pill pill-pink">ADC missing</span>
+        <span class="pill pill-green">{{ running }}/6 running</span>
+        <span class="pill pill-pink">BROWSER DEMO</span>
       </div>
       <div class="tui-tabs">
-        <span v-for="tab in tabs" :key="tab" :class="['tui-tab', { on: tab === screen.tab }]">{{ tab }}</span>
+        <button v-for="(tab, index) in tabs" :key="tab" type="button" :aria-pressed="selected === index" :class="['tui-tab', { on: selected === index }]" @click="selected = index">{{ tab }}</button>
         <span class="tui-gap" aria-hidden="true"></span>
-        <span class="tk-dim">/ command</span>
+        <span class="tk-dim">click to explore</span>
       </div>
 
       <div :key="selected" class="tui-body">
@@ -112,21 +148,21 @@ const screen = computed(() => screens[selected.value])
         <div v-if="screen.tab === 'dashboard'" class="tk-dash">
           <div class="tk-box tk-svc">
             <span class="tk-legend">services</span>
-            <div class="tk-svc-head"><span class="chip">3/6</span><span class="pill pill-pink">479 errors</span></div>
+            <div class="tk-svc-head"><span class="chip">{{ running }}/6</span><span class="tk-dim">click to start / stop</span></div>
             <div class="tk-svc-cols"><span>sel</span><span>name</span><span>state</span></div>
-            <div v-for="svc in services" :key="svc.name" :class="['tk-svc-row', { sel: svc.sel }]">
-              <span class="tk-caret">{{ svc.sel ? '›' : '' }}</span>
-              <span class="tk-box-glyph">[ ]</span>
+            <button v-for="svc in services" :key="svc.name" type="button" class="tk-svc-row" :aria-label="`${svc.on ? 'Stop' : 'Start'} ${svc.name}`" :aria-pressed="svc.on" @click="toggleService(svc.name)">
+              <span class="tk-caret">›</span>
+              <span class="tk-box-glyph">{{ svc.on ? '[✓]' : '[ ]' }}</span>
               <span :class="['tk-glyph', svc.on ? 'ok' : 'off']">{{ svc.glyph }}</span>
               <span :class="['tk-name', svc.on ? 'up' : 'down']">{{ svc.name }}</span>
               <span :class="['tk-state', svc.on ? 'up' : 'down']">{{ svc.state }}</span>
-            </div>
+            </button>
           </div>
           <div class="tk-box tk-logs">
-            <span class="tk-legend">logs · all · 17343–17542 of 17542</span>
-            <div class="tk-viewbar"><span class="pill pill-soft">view 17343–17542 · at latest</span><span class="tk-dim tk-viewbar-hint">pgup/pgdn move · g latest</span></div>
+            <span class="tk-legend">logs · recent activity</span>
+            <div class="tk-viewbar"><span class="pill pill-soft">demo session</span><span class="tk-dim tk-viewbar-hint">service actions appear here</span></div>
             <div class="tk-loglist">
-              <div v-for="(l, i) in dashboardLog" :key="i" class="tk-logline">
+              <div v-for="(l, i) in recentLogs" :key="i" class="tk-logline">
                 <span class="tk-time">{{ l.t }}</span>
                 <span :class="['tk-svc-tag', 's-' + l.s]">{{ l.s }}</span>
                 <span :class="['tk-lvl', 'lvl-' + l.lvl.toLowerCase()]">{{ l.lvl }}</span>
@@ -140,14 +176,15 @@ const screen = computed(() => screens[selected.value])
         <!-- Logs -->
         <div v-else-if="screen.tab === 'logs'" class="tk-full">
           <div class="tk-filters">
-            <span v-for="f in logFilters" :key="f.name" :class="['pill', f.on ? 'pill-green' : 'pill-ghost', { err: f.err }]">{{ f.name }} · {{ f.count }}</span>
-            <span class="tk-dim tk-levels">all levels</span>
+            <button v-for="f in logFilters" :key="f.name" type="button" :aria-pressed="activeFilter === f.name" :class="['pill', activeFilter === f.name ? 'pill-green' : 'pill-ghost']" @click="activeFilter = f.name">{{ f.name }} · {{ f.count }}</button>
+            <label class="demo-search">Search logs<input v-model="query" type="search" placeholder="Try health or WARN"></label>
           </div>
-          <div class="tk-viewbar"><span class="pill pill-soft">view 17396–17595 of 17595 · at latest</span><span class="tk-dim tk-viewbar-hint">pgup/pgdn move history window · g latest</span></div>
+          <div class="tk-viewbar"><span class="pill pill-soft">{{ filteredLogs.length }} matching lines</span><span class="tk-dim tk-viewbar-hint">filter by service or search</span></div>
           <div class="tk-box tk-logs">
-            <span class="tk-legend">logs · all services · 17396–17595 of 17595</span>
+            <span class="tk-legend">logs · {{ activeFilter }}</span>
             <div class="tk-loglist">
-              <div v-for="(l, i) in fullLog" :key="i" class="tk-logline">
+              <p v-if="!filteredLogs.length" class="tk-dim">No matching logs. Try another filter or start this service.</p>
+              <div v-for="(l, i) in filteredLogs" :key="i" class="tk-logline">
                 <span class="tk-time">{{ l.t }}</span>
                 <span :class="['tk-svc-tag', 's-' + l.s]">{{ l.s }}</span>
                 <span :class="['tk-lvl', 'lvl-' + l.lvl.toLowerCase()]">{{ l.lvl }}</span>
@@ -161,38 +198,57 @@ const screen = computed(() => screens[selected.value])
         <!-- Profiles -->
         <div v-else class="tk-box tk-profiles">
           <span class="tk-legend">profiles</span>
-          <div class="tk-prof-head">4 profiles&nbsp;·&nbsp;current: <span class="ok">minimal</span></div>
-          <div v-for="p in profiles" :key="p.name" :class="['tk-prof-card', { current: p.current }]">
+          <div class="tk-prof-head">4 profiles&nbsp;·&nbsp;current: <span class="ok">{{ activeProfile }}</span></div>
+          <div v-for="p in profiles" :key="p.name" :class="['tk-prof-card', { current: activeProfile === p.name }]">
             <span class="tk-legend">{{ p.name }}</span>
             <div class="tk-prof-status">
-              <span :class="p.current ? 'ok' : 'tk-dim'" aria-hidden="true">{{ p.current ? '●' : 'o' }}</span>
-              {{ p.current ? 'current profile' : 'not active' }}&nbsp;·&nbsp;{{ p.count }} {{ p.count === 1 ? 'service' : 'services' }}
+              <span :class="activeProfile === p.name ? 'ok' : 'tk-dim'" aria-hidden="true">{{ activeProfile === p.name ? '●' : 'o' }}</span>
+              {{ activeProfile === p.name ? 'current profile' : 'not active' }}&nbsp;·&nbsp;{{ p.count }} {{ p.count === 1 ? 'service' : 'services' }}
             </div>
+            <button type="button" class="demo-start" @click="startProfile(p)">Start {{ p.name }} ↗</button>
             <div class="tk-prof-services">
-              <span v-for="svc in p.services" :key="svc.n"><span :class="['tk-glyph', svc.g === '✓' ? 'ok' : 'off']" aria-hidden="true">{{ svc.g }}</span><span :class="['s-' + svc.n]">{{ svc.n }}</span></span>
+              <span v-for="svc in p.services" :key="svc.n"><span :class="['tk-glyph', services.find(s => s.name === svc.n)?.on ? 'ok' : 'off']" aria-hidden="true">{{ services.find(s => s.name === svc.n)?.on ? '✓' : 'o' }}</span><span :class="['s-' + svc.n]">{{ svc.n }}</span></span>
             </div>
           </div>
-          <div class="tk-prof-hint tk-dim" aria-hidden="true">space set current&nbsp;·&nbsp;enter set and start</div>
+          <div class="tk-prof-hint tk-dim" aria-hidden="true">Starting a profile keeps other running services online.</div>
         </div>
       </div>
 
       <div class="tui-foot">
         <span>{{ screen.foot }}</span>
-        <span class="pill pill-green">LIVE</span>
-        <span class="tk-dim">Profile minimal</span>
+        <span class="pill pill-green">DEMO</span>
+        <span class="tk-dim">Profile {{ activeProfile }}</span>
         <span class="tui-gap" aria-hidden="true"></span>
-        <span class="tk-dim tui-foot-hints">{{ screen.hints }}</span>
+        <span class="tk-dim tui-foot-hints">local browser simulation</span>
       </div>
     </div>
 
-    <figcaption class="walkthrough-caption" aria-live="polite" aria-atomic="true">
+    <p class="demo-feedback" role="status">{{ announcement }}</p>
+    <div class="walkthrough-caption">
       <strong>{{ screen.title }}</strong>
       <p>{{ screen.description }}</p>
-    </figcaption>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.demo-intro { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; font: 10px var(--vp-font-family-mono); color: var(--vp-c-text-2); letter-spacing: .08em; }
+.demo-intro button { min-height: 44px; cursor: pointer; letter-spacing: 0; }
+.demo-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--vp-c-brand-1); margin-right: 6px; }
+.tui button { font: inherit; cursor: pointer; }
+.tui button:focus-visible, .demo-intro button:focus-visible { outline: 2px solid #6bd39a; outline-offset: 3px; }
+.tui-tab { min-height: 32px; border-bottom: 2px solid transparent; }
+.tui-tab.on { border-bottom-color: #6bd39a; }
+.tk-svc-row:hover { background: #24382f; }
+.tk-filters button { min-height: 32px; }
+.demo-search { width: 100%; display: flex; align-items: center; gap: 12px; color: var(--tk-dim); margin-top: 8px; }
+.demo-search input { min-width: 0; flex: 1; padding: 8px 10px; border: 1px solid var(--tk-line); border-radius: 4px; color: var(--tk-txt); background: #101b17; font: inherit; }
+.demo-search input:focus-visible { outline: 2px solid #6bd39a; }
+.demo-start { display: block; margin-top: 8px; padding: 7px 10px; color: #6bd39a; border: 1px solid var(--tk-line); border-radius: 4px; }
+.demo-start:hover { background: #24382f; }
+.demo-feedback { min-height: 40px; padding-top: 12px; font: 11px/1.6 var(--vp-font-family-mono); color: var(--vp-c-brand-1); }
+.tk-full .tk-loglist { max-height: 300px; overflow-y: auto; }
+
 .walkthrough { min-width: 0; }
 .walkthrough-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
 .walkthrough-controls button { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 10px 14px; border: 1px solid var(--vp-c-divider); border-radius: 5px; font: 500 12px var(--vp-font-family-base); color: var(--vp-c-text-2); cursor: pointer; }
@@ -231,10 +287,10 @@ const screen = computed(() => screens[selected.value])
 .tk-legend { position: absolute; top: -0.72em; left: 12px; padding: 0 6px; background: var(--tk-bg); color: var(--tk-dim); }
 
 /* Dashboard */
-.tk-dash { display: grid; grid-template-columns: minmax(0, 260px) minmax(0, 1fr); gap: 12px; }
+.tk-dash { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 12px; }
 .tk-svc-head { display: flex; gap: 10px; margin-bottom: 12px; }
 .tk-svc-cols { display: grid; grid-template-columns: 58px 1fr 72px; color: var(--tk-dim); padding: 0 2px 4px; }
-.tk-svc-row { display: grid; grid-template-columns: 14px 26px 16px 1fr 72px; align-items: center; gap: 0 4px; padding: 1px 2px; border-radius: 3px; }
+.tk-svc-row { display: grid; width: 100%; text-align: left; min-height: 38px; cursor: pointer; grid-template-columns: 10px 24px 12px 1fr 65px; align-items: center; gap: 0 4px; padding: 1px 2px; border-radius: 3px; }
 .tk-svc-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-svc-row.sel { background: #24382f; }
 .tk-caret { color: #6bd39a; }
