@@ -73,6 +73,7 @@ Incompatible daemon: `assertMethodAllowed` blocks everything except `logs`, `log
 | `web_stop` | `null` | `null` | |
 | `mcp_set_tools` | `{ disabled: string[] }` | `{ disabled_tools }` | Full deny-list, not a delta |
 | `reload` | `null` | `ReloadResult` | |
+| `set_service_env` | `{ service, name }` | `{ service, env }` | Per-service named overlay; session state only. Does not restart. |
 | `config_snapshot` | `null` | `DevctlConfig` | **RPC only**, never MCP. Unredacted. |
 | `auth_invalidate` | `null` | `null` | Clears `TokenManager` |
 | `shutdown` | `{ stop_services }` | `null` | Schedules process exit |
