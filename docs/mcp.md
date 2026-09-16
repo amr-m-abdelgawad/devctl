@@ -78,7 +78,7 @@ so agents must be given the new snippets.
 
 | Tool | Group | What it does |
 |------|-------|----------------|
-| `list_services` | inspect | Name, state, health, ports, pid, last error |
+| `list_services` | inspect | Name, state, health, ports, pid, last error, selected env, named overlays |
 | `get_service` | inspect | One service plus command/cwd/ports (env redacted or left as `${…}` refs) |
 | `get_status` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | `get_logs` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |

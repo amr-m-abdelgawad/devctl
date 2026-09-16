@@ -94,7 +94,7 @@ services:
     default_environment: local
 ```
 
-`e` / `/env` in the TUI, `devctl env api deployed`, or MCP `set_service_environment` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
+`e` / `/env` in the TUI, `devctl env api deployed`, the web console Env column, or MCP `set_service_environment` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
 
 ## Container services
 

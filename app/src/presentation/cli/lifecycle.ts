@@ -144,9 +144,9 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
       writeOut(JSON.stringify(snap, null, 2) + "\n");
       return;
     }
-    writeOut(`PROFILE: ${snap.profile || "(none)"}\n\nSERVICE\tSTATUS\tHEALTH\tPID\n`);
+    writeOut(`PROFILE: ${snap.profile || "(none)"}\n\nSERVICE\tSTATUS\tHEALTH\tENV\tPID\n`);
     for (const [name, rt] of Object.entries(snap.services)) {
-      writeOut(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.pid}\n`);
+      writeOut(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.env || ""}\t${rt.pid}\n`);
     }
     writeOut(`\nPROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}\n`);
     writeOut(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}\n`);

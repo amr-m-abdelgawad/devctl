@@ -3,7 +3,7 @@ import { defaultConfig, emptyService } from "../../domain/config/types.ts";
 import { formatBodySummary, logRecord } from "../../domain/logs/logs.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
-import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, ENV_KEY_MAX, ENV_KEY_MIN, ENV_VALUE_MIN, envDisplayValue, envTableWidths, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logFollowMaxScroll, isLogFollowBottom, nextLogFollowAction, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceEnvLabel, serviceEnvOptions, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceStatusLabel, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
+import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, ENV_KEY_MAX, ENV_KEY_MIN, ENV_VALUE_MIN, envDisplayValue, envTableWidths, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logFollowMaxScroll, isLogFollowBottom, nextLogFollowAction, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeEnvNeedsRestart, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceEnvLabel, serviceEnvOptions, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceRowShowsEnv, serviceStatusLabel, shouldConfirmEnvSwitch, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
 import { allCommands } from "./commands.ts";
 import { COMMAND_FOOTER_HINT, namedPickerItems, SLASH_COL_GAP, SLASH_LABEL_MAX, SLASH_NAME_PREFIX, slashCommandColumnWidth, slashCompleteQuery, slashItemDesc, slashItemKey, slashItemLabel, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { defaultCopyKeybind, displayKeybind, displayWithMod } from "./tui-config.ts";
@@ -273,6 +273,9 @@ describe("TUI helpers", () => {
     expect(confirmCopy("restart-cascade", "", { services: ["api"] }).title).toBe("Restart dependents?");
     expect(confirmCopy("restart-cascade", "", { services: ["api"] }).body).toContain("api");
     expect(confirmHints("restart-cascade").some((h) => h.key === "c")).toBe(true);
+    expect(confirmCopy("env-restart", "", { services: ["api"], env: "deployed" }).title).toBe("Apply environment?");
+    expect(confirmCopy("env-restart", "", { services: ["api"], env: "deployed" }).body).toContain("deployed");
+    expect(confirmHints("env-restart").some((h) => h.key === "r")).toBe(true);
   });
 
   test("nav cycles the five primary tabs; other screens return home", () => {
@@ -413,6 +416,11 @@ describe("TUI helpers", () => {
     expect(options.map((row) => row.name)).toEqual(["deployed", "local"]);
     expect(options.find((row) => row.name === "local")?.current).toBe(true);
     expect(options.find((row) => row.name === "local")?.started).toBe(true);
+    expect(runtimeEnvNeedsRestart({ ...emptyRuntime("api"), pid: 9, env: "deployed", started_env: "local" })).toBe(true);
+    expect(runtimeEnvNeedsRestart({ ...emptyRuntime("api"), pid: 9, env: "local", started_env: "local" })).toBe(false);
+    expect(shouldConfirmEnvSwitch(svc, { ...emptyRuntime("api"), pid: 9, env: "local", started_env: "local" }, "deployed")).toBe(true);
+    expect(shouldConfirmEnvSwitch(svc, { ...emptyRuntime("api"), pid: 9, env: "local", started_env: "local" }, "local")).toBe(false);
+    expect(shouldConfirmEnvSwitch(svc, { ...emptyRuntime("api"), pid: 0, env: "local", started_env: "" }, "deployed")).toBe(false);
   });
 
   test("log clipboard text keeps time service level and message", () => {
@@ -561,6 +569,8 @@ describe("TUI helpers", () => {
   test("service name column grows with the list pane", () => {
     expect(serviceNameColumnWidth(40)).toBeGreaterThan(14);
     expect(serviceNameColumnWidth(80)).toBeGreaterThan(serviceNameColumnWidth(40));
+    expect(serviceRowShowsEnv(53)).toBe(false);
+    expect(serviceRowShowsEnv(54)).toBe(true);
     expect(serviceListPaneWidth(120, ["payment-gateway-worker-east"], false)).toBeGreaterThan(
       serviceListPaneWidth(120, ["api"], false),
     );

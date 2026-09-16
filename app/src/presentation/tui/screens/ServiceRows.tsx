@@ -2,7 +2,7 @@ import { useRef } from "react";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { useDensity } from "../density.tsx";
 import { padClip } from "../helpers/format.ts";
-import { firstPort,SERVICE_COL_GAP,SERVICE_HEALTH_COL,SERVICE_PID_COL,SERVICE_PORT_COL,SERVICE_STATE_COL,serviceLineState,serviceNameColumnWidth,serviceRowShowsHealth,serviceRowShowsPid,serviceRowShowsPort } from "../helpers/services.ts";
+import { firstPort,SERVICE_COL_GAP,SERVICE_ENV_COL,SERVICE_HEALTH_COL,SERVICE_PID_COL,SERVICE_PORT_COL,SERVICE_STATE_COL,runtimeEnvNeedsRestart,serviceLineState,serviceNameColumnWidth,serviceRowShowsEnv,serviceRowShowsHealth,serviceRowShowsPid,serviceRowShowsPort } from "../helpers/services.ts";
 import { MetaBar } from "../layout.tsx";
 import { serviceColor,stateColor,stateGlyph,type Palette } from "../themes.ts";
 
@@ -24,6 +24,7 @@ export function ServiceRows(props: {
   const showPid = serviceRowShowsPid(width);
   const showPort = serviceRowShowsPort(width);
   const showHealth = serviceRowShowsHealth(width);
+  const showEnv = serviceRowShowsEnv(width);
   const nameWidth = serviceNameColumnWidth(width);
   return (
     <box flexDirection="column" flexGrow={1} overflow="hidden">
@@ -34,6 +35,7 @@ export function ServiceRows(props: {
         <Col width={nameWidth} fg={palette.muted} text="name" />
         <Col width={SERVICE_COL_GAP} fg={palette.muted} text="" />
         <Col width={SERVICE_STATE_COL} fg={palette.muted} text="state" />
+        {showEnv ? <Col width={SERVICE_ENV_COL} fg={palette.muted} text="env" /> : null}
         {showHealth ? <Col width={SERVICE_HEALTH_COL} fg={palette.muted} text="health" /> : null}
         {showPort ? <Col width={SERVICE_PORT_COL} fg={palette.muted} text="port" /> : null}
         {showPid ? <Col width={SERVICE_PID_COL} fg={palette.muted} text="pid" /> : null}
@@ -86,6 +88,7 @@ export function ServiceRows(props: {
             <Col width={nameWidth} fg={focused ? palette.primary : serviceColor(name, palette)} text={name} />
             <Col width={SERVICE_COL_GAP} fg={palette.muted} text="" />
             <Col width={SERVICE_STATE_COL} fg={stateColor(palette, state)} text={state} />
+            {showEnv ? <Col width={SERVICE_ENV_COL} fg={runtimeEnvNeedsRestart(rt) ? palette.warning : palette.text} text={rt?.env ?? ""} /> : null}
             {showHealth ? <Col width={SERVICE_HEALTH_COL} fg={stateColor(palette, health)} text={health} /> : null}
             {showPort ? <Col width={SERVICE_PORT_COL} fg={palette.text} text={firstPort(rt)} /> : null}
             {showPid ? <Col width={SERVICE_PID_COL} fg={palette.text} text={rt?.pid ? String(rt.pid) : ""} /> : null}

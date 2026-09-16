@@ -6,7 +6,7 @@ import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { callMcpTool, isWebControlTool, MCP_LOG_CAP, type McpHost } from "./tools.ts";
+import { callMcpTool, isWebControlTool, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -198,6 +198,30 @@ describe("mcp tools", () => {
     expect(listed).toEqual([
       { name: "api", state: StateRunning, health: HealthHealthy, ports: { http: 9000 }, pid: 42, last_error: "" },
     ]);
+  });
+
+  test("list_services includes named overlays when the service defines them", async () => {
+    const host = stubHost();
+    const svc = host.config().services.api!;
+    svc.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    const snap = host.status();
+    snap.services.api!.env = "deployed";
+    snap.services.api!.started_env = "local";
+    const listed = listServices(snap, host.config()) as Array<{
+      name: string;
+      env?: string;
+      started_env?: string;
+      environments?: string[];
+    }>;
+    expect(listed[0]).toMatchObject({
+      name: "api",
+      env: "deployed",
+      started_env: "local",
+      environments: ["deployed", "local"],
+    });
   });
 
   test("set_service_environment switches one service and can restart it", async () => {

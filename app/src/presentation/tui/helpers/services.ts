@@ -11,6 +11,8 @@ export const SERVICE_STATE_COL = 12;
 
 export const SERVICE_HEALTH_COL = 10;
 
+export const SERVICE_ENV_COL = 10;
+
 export const SERVICE_PORT_COL = 8;
 
 export const SERVICE_PID_COL = 8;
@@ -37,14 +39,20 @@ export const SERVICE_LIST_MIN = 34;
 
 const SHOW_HEALTH_AT = 48;
 
-const SHOW_PORT_AT = 60;
+const SHOW_ENV_AT = 54;
 
-const SHOW_PID_AT = 72;
+const SHOW_PORT_AT = 66;
+
+const SHOW_PID_AT = 78;
 
 const LIST_PANE_SHARE = 0.48;
 
 export function serviceRowShowsHealth(paneWidth: number): boolean {
   return paneWidth >= SHOW_HEALTH_AT;
+}
+
+export function serviceRowShowsEnv(paneWidth: number): boolean {
+  return paneWidth >= SHOW_ENV_AT;
 }
 
 export function serviceRowShowsPort(paneWidth: number): boolean {
@@ -63,6 +71,9 @@ export function serviceNameColumnWidth(paneWidth: number): number {
   let used = SERVICE_ROW_LEAD + SERVICE_STATE_COL + SERVICE_COL_GAP;
   if (serviceRowShowsHealth(paneWidth)) {
     used += SERVICE_HEALTH_COL;
+  }
+  if (serviceRowShowsEnv(paneWidth)) {
+    used += SERVICE_ENV_COL;
   }
   if (serviceRowShowsPort(paneWidth)) {
     used += SERVICE_PORT_COL;
@@ -224,6 +235,21 @@ export function serviceEnvNeedsRestart(svc: ServiceConfig, rt?: Runtime): boolea
     return false;
   }
   return rt.started_env !== resolveEnvironmentName(svc, rt.env);
+}
+
+/** List-row pending check from snapshot fields only (no ServiceConfig). */
+export function runtimeEnvNeedsRestart(rt?: Runtime): boolean {
+  if (!rt?.pid || rt.env === "") {
+    return false;
+  }
+  return rt.started_env !== rt.env;
+}
+
+export function shouldConfirmEnvSwitch(svc: ServiceConfig, rt: Runtime | undefined, pick: string): boolean {
+  if (!rt?.pid || !serviceHasNamedEnvironments(svc) || pick === "") {
+    return false;
+  }
+  return pick !== rt.started_env;
 }
 
 export function serviceEnvLabel(svc: ServiceConfig, rt?: Runtime): string {
