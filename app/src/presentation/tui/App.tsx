@@ -16,6 +16,7 @@ import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
+import { matchProxyRequest } from "./helpers/proxy.ts";
 import { defaultProfileName, serviceEnvOptions, shouldConfirmEnvSwitch, type ServiceEnvEntry } from "./helpers/services.ts";
 import { clampTraceSpanIndex, orderTraceRows } from "./helpers/traces.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
@@ -132,6 +133,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const [envPickerService, setEnvPickerService] = useState("");
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
+  const openRequestGeneration = useRef(0);
 
   const [cfg, setCfg] = useState<DevctlConfig | undefined>(controller?.cfg);
   const leftover = controller?.previousPersisted;
@@ -289,11 +291,10 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     if (!traceDetail) {
       return undefined;
     }
-    const wantRequest = traceDetail.requestId?.trim() ?? "";
-    const wantTrace = traceDetail.tree.traceId;
-    const req = (snap?.proxy.recentRequests ?? []).find(
-      (r) => (wantRequest !== "" && r.requestId === wantRequest) || (r.traceId && r.traceId === wantTrace),
-    );
+    const req = matchProxyRequest(snap?.proxy.recentRequests ?? [], {
+      requestId: traceDetail.requestId,
+      traceId: traceDetail.tree.traceId,
+    });
     if (!req) {
       return undefined;
     }
@@ -421,12 +422,22 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     if (id === "" || !controller) {
       return;
     }
+    const generation = ++openRequestGeneration.current;
     setLogSearch(id);
     void controller.traceRequest(id).then((result) => {
+      if (generation !== openRequestGeneration.current) {
+        return;
+      }
       setTraceSpanIndex(0);
       setTraceDetail(result);
+      // Backing out of the overlay should land on this request's filtered logs,
+      // including when the follow started from proxy or log-details.
+      setScreen("logs");
       setOverlay("trace");
     }).catch(() => {
+      if (generation !== openRequestGeneration.current) {
+        return;
+      }
       // No trace yet — close any overlay (e.g. log-details) so the pre-filtered
       // logs screen is actually visible, then drop to it.
       setOverlay("none");

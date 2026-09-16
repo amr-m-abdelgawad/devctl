@@ -24,6 +24,26 @@ export function proxyRequestPath(req: { path: string; error?: string }, errorMax
   return `${req.path} — ${clipText(req.error, errorMax)}`;
 }
 
+// Prefer an exact request-id match so two hops that share a trace id do not
+// steal each other's overlay metadata. Trace-id is only the fallback.
+export function matchProxyRequest(
+  recent: readonly ProxyRequestSnapshot[],
+  want: { readonly requestId?: string; readonly traceId?: string },
+): ProxyRequestSnapshot | undefined {
+  const requestId = want.requestId?.trim() ?? "";
+  if (requestId !== "") {
+    const exact = recent.find((row) => row.requestId === requestId);
+    if (exact) {
+      return exact;
+    }
+  }
+  const traceId = want.traceId?.trim() ?? "";
+  if (traceId === "") {
+    return undefined;
+  }
+  return recent.find((row) => row.traceId === traceId);
+}
+
 export type RouteLatency = {
   route: string;
   count: number;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { type ProxyRequestSnapshot } from "../../../domain/status.ts";
-import { routeLatencies } from "./proxy.ts";
+import { matchProxyRequest, routeLatencies } from "./proxy.ts";
 
 function req(route: string, durationMs: number, status = 200, error?: string): ProxyRequestSnapshot {
   return { timestamp: "2026-09-16T10:00:00.000Z", requestId: `${route}-${durationMs}`, method: "GET", path: "/", route, identity: "", status, durationMs, error };
@@ -32,5 +32,25 @@ describe("routeLatencies", () => {
 
   test("labels a blank route as (none)", () => {
     expect(routeLatencies([req("", 5)])[0]?.route).toBe("(none)");
+  });
+});
+
+describe("matchProxyRequest", () => {
+  test("prefers an exact request id over an earlier same-trace hop", () => {
+    const sharedTrace = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const earlier = { ...req("api", 10), requestId: "req-old", traceId: sharedTrace, identity: "user:old" };
+    const exact = { ...req("api", 20), requestId: "req-new", traceId: sharedTrace, identity: "user:new" };
+    const matched = matchProxyRequest([earlier, exact], { requestId: "req-new", traceId: sharedTrace });
+    expect(matched?.requestId).toBe("req-new");
+    expect(matched?.identity).toBe("user:new");
+  });
+
+  test("falls back to trace id when the request id is absent from the ring", () => {
+    const hop = { ...req("web", 5), requestId: "req-1", traceId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" };
+    expect(matchProxyRequest([hop], { requestId: "missing", traceId: hop.traceId })?.requestId).toBe("req-1");
+  });
+
+  test("returns undefined when neither request id nor trace id matches", () => {
+    expect(matchProxyRequest([req("api", 5)], { requestId: "missing", traceId: "cccccccccccccccccccccccccccccccc" })).toBeUndefined();
   });
 });
