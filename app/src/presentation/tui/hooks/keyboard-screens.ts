@@ -333,6 +333,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     setScreen("doctor");
     return;
   }
+  if (isBound(key, tui, "topology", "g") && overlay === "none" && screen !== "logs") {
+    setScreen("topology");
+    return;
+  }
   if (isBound(key, tui, "config", "c") && overlay === "none") {
     setScreen("config");
     return;

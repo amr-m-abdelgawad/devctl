@@ -60,6 +60,7 @@ import { ServicesScreen } from "./screens/Services.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
 import { SetupScreen } from "./screens/Setup.tsx";
 import { StatsScreen } from "./screens/Stats.tsx";
+import { TopologyScreen } from "./screens/Topology.tsx";
 import { uiScaleFor } from "./settings.ts";
 import { THEME_NAMES } from "./themes.ts";
 import { defaultCopyKeybind, type TuiConfig } from "./tui-config.ts";
@@ -887,6 +888,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           />
         ) : null}
         {screen === "stats" ? <StatsScreen palette={palette} cfg={cfg} snap={snap} width={width} onRefresh={refresh} /> : null}
+        {screen === "topology" ? <TopologyScreen palette={palette} cfg={cfg} snap={snap} width={width} profile={profile} /> : null}
         {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} selectedTask={listCursor} scrollRef={configScrollRef} /> : null}
         {screen === "profiles" ? (
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />

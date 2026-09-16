@@ -39,6 +39,7 @@ export function allCommands(): CommandSpec[] {
     { name: "mcp", aliases: ["agent"], desc: "Open the MCP server screen for coding agents", leader: "", group: "nav" },
     { name: "doctor", aliases: ["d"], desc: "Run environment diagnostics", leader: "d", group: "nav" },
     { name: "stats", aliases: ["metrics"], desc: "View system and service statistics", leader: "m", group: "nav" },
+    { name: "topology", aliases: ["graph"], desc: "View the service dependency graph", leader: "g", group: "nav" },
     { name: "config", aliases: ["c"], desc: "View merged configuration", leader: "c", group: "nav" },
     { name: "import", aliases: [], desc: "Preview or write a Compose mapping", leader: "", group: "ui", suggest: [{ token: "compose", desc: "Preview a Compose mapping; add --write to save" }] },
     { name: "diff", aliases: ["provenance"], desc: "Show winning config sources and what they shadowed", leader: "", group: "ui" },

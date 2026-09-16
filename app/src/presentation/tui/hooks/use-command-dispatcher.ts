@@ -377,6 +377,9 @@ export function useCommandDispatcher({
           case "stats":
             setScreen("stats");
             return;
+          case "topology":
+            setScreen("topology");
+            return;
           case "start":
             await beginStart(targets, profile);
             return;
