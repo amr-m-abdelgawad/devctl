@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-09-16
+
 ### Fixed
 
 - LLM inspector proxy-capture records the **calling service** (`caller`), not the gateway route name, when the provider sits behind Apigee or another `type: proxy` source. Peer lookup runs when the request starts (a closed socket no longer leaves `caller` empty). Completion `metadata.service` and `x-litellm-metadata` are read the same way as LiteLLM spend logs. Detail views label the proxy source **via** so it is not mistaken for the caller.
@@ -474,7 +476,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.1...HEAD
+[0.12.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.9.0...v0.10.0
