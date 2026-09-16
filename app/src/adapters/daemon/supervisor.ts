@@ -325,6 +325,9 @@ export class Supervisor {
       get statsSeries() {
         return self.resources.series();
       },
+      get serviceSeries() {
+        return self.resources.serviceSeries();
+      },
       logs: { snapshot: () => self.logs.snapshot() },
       tokens: { storeBackend: () => self.tokens.storeBackend() },
       traceDurationMs: (traceId) => self.spans.envelopeMs(traceId),

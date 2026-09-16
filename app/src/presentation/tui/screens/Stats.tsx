@@ -2,7 +2,7 @@ import { useEffect,useState,type ReactNode } from "react";
 import { type DevctlConfig } from "../../../domain/config/types.ts";
 import { type Runtime } from "../../../domain/service/services.ts";
 import { sessionStartedAt } from "../../../domain/session/session.ts";
-import { type StatusSnapshot } from "../../../domain/status.ts";
+import { type StatsSeries, type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { formatCpuPercent,formatMemoryKB,formatUptime,padClip,renderBar } from "../helpers/format.ts";
@@ -337,6 +337,12 @@ export function StatsScreen(props: {
         )}
       </Section>
 
+      {hasServiceTrends(snap) ? (
+        <Section palette={palette} title="Trends">
+          <ServiceTrends palette={palette} series={snap?.service_series ?? {}} names={names} width={inner} />
+        </Section>
+      ) : null}
+
       <Section palette={palette} title="Log lines" tone={logsErrors > 0 ? "warning" : "muted"}>
         <FactTable palette={palette} facts={logFacts} width={inner} />
       </Section>
@@ -345,6 +351,45 @@ export function StatsScreen(props: {
         <FactTable palette={palette} facts={otherFacts} width={inner} />
       </Section>
     </ScreenFrame>
+  );
+}
+
+function hasServiceTrends(snap?: StatusSnapshot): boolean {
+  const series = snap?.service_series;
+  if (!series) {
+    return false;
+  }
+  return Object.values(series).some((s) => s.cpu.length > 1);
+}
+
+const TREND_NAME_COL = 16;
+const TREND_SPARK = 18;
+
+// Per-service CPU% and RAM trend as sparklines, one row per service that has at
+// least two samples. Each sparkline self-scales, so CPU and RAM read as shape,
+// not absolute value — the "Each service" table above carries the live numbers.
+function ServiceTrends(props: { palette: Palette; series: Record<string, StatsSeries>; names: string[]; width: number }) {
+  const { palette, series, names, width } = props;
+  const sparkWidth = Math.max(6, Math.min(TREND_SPARK, Math.floor((width - TREND_NAME_COL - 12) / 2)));
+  const rows = names.filter((name) => (series[name]?.cpu.length ?? 0) > 1);
+  if (rows.length === 0) {
+    return <text fg={palette.muted}>Collecting samples…</text>;
+  }
+  return (
+    <box flexDirection="column" overflow="hidden" flexShrink={0}>
+      {rows.map((name) => {
+        const s = series[name];
+        return (
+          <box key={name} flexDirection="row" flexShrink={0} overflow="hidden">
+            <text fg={serviceColor(name, palette)} wrapMode="none">{padClip(name, TREND_NAME_COL)}</text>
+            <text fg={palette.muted} wrapMode="none">{"cpu "}</text>
+            <text fg={palette.info} wrapMode="none">{sparkline(s?.cpu ?? [], sparkWidth)}</text>
+            <text fg={palette.muted} wrapMode="none">{"  ram "}</text>
+            <text fg={palette.primary} wrapMode="none">{sparkline(s?.mem ?? [], sparkWidth)}</text>
+          </box>
+        );
+      })}
+    </box>
   );
 }
 

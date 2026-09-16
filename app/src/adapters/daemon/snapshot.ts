@@ -32,6 +32,7 @@ export type SnapshotHost = {
   readonly setupMode: boolean;
   readonly restartRequired: string[];
   readonly statsSeries?: StatsSeries;
+  readonly serviceSeries?: Record<string, StatsSeries>;
   readonly logs: { snapshot(): LogSnapshot };
   readonly tokens: { storeBackend(): string };
   readonly traceDurationMs?: (traceId: string) => number | undefined;
@@ -155,6 +156,7 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
     restart_required: [...host.restartRequired],
     system: systemSnapshot(),
     stats_series: host.statsSeries,
+    service_series: host.serviceSeries,
   };
 }
 

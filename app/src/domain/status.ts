@@ -181,6 +181,9 @@ export type StatusSnapshot = {
   restart_required?: string[];
   system: SystemSnapshot;
   stats_series?: StatsSeries;
+  // Per-service CPU%/memoryKB trend over the same window as stats_series, keyed
+  // by service name. Absent until the sampler has recorded at least one tick.
+  service_series?: Record<string, StatsSeries>;
 };
 
 export type LogsResponse = {
