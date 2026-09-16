@@ -277,6 +277,22 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService, envName: inspectorEnvName });
   const traceRows = useMemo(() => (traceDetail ? orderTraceRows(traceDetail.tree) : []), [traceDetail]);
   const activeTraceSpan = traceRows[clampTraceSpanIndex(traceSpanIndex, traceRows.length)]?.span;
+  // Match the open trace back to its proxy request so the trace overlay can name
+  // the hop (route, identity, status). Falls back to matching on trace id.
+  const traceRequestContext = useMemo(() => {
+    if (!traceDetail) {
+      return undefined;
+    }
+    const wantRequest = traceDetail.requestId?.trim() ?? "";
+    const wantTrace = traceDetail.tree.traceId;
+    const req = (snap?.proxy.recentRequests ?? []).find(
+      (r) => (wantRequest !== "" && r.requestId === wantRequest) || (r.traceId && r.traceId === wantTrace),
+    );
+    if (!req) {
+      return undefined;
+    }
+    return { requestId: req.requestId, route: req.route, identity: req.identity, status: req.status, method: req.method };
+  }, [traceDetail, snap]);
   const closeOverlay = useCallback(() => {
     setOverlay("none");
     setQuery("");
@@ -378,6 +394,25 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setStatus(humanMessage(err));
     });
   }, [controller]);
+
+  // Follow one request across every view: seed the logs filter with its id so
+  // backing out of the trace lands on the request's logs, then resolve and open
+  // its trace. If no trace exists yet, drop to the pre-filtered logs screen.
+  const openRequest = useCallback((requestId: string) => {
+    const id = requestId.trim();
+    if (id === "" || !controller) {
+      return;
+    }
+    setLogSearch(id);
+    void controller.traceRequest(id).then((result) => {
+      setTraceSpanIndex(0);
+      setTraceDetail(result);
+      setOverlay("trace");
+    }).catch(() => {
+      setScreen("logs");
+      setStatus(`tracing ${id}`);
+    });
+  }, [controller, setLogSearch]);
 
   const openSpanLogs = useCallback((index?: number) => {
     if (index !== undefined) {
@@ -573,6 +608,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       llmDetail: llmView.detail,
       llmCalls: llmView.page.calls,
       openTrace,
+      openRequest,
       openSpanLogs,
       traceSpanCount: traceRows.length,
       setTraceSpanIndex,
@@ -800,6 +836,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
               setOverlay("route-details");
             }}
             onOpenTrace={openTrace}
+            onFollowRequest={openRequest}
           />
         ) : null}
         {screen === "llm" ? (
@@ -932,7 +969,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
         <LlmDetailsOverlay palette={palette} call={llmView.detail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
       ) : null}
       {overlay === "trace" || overlay === "span-details" ? (
-        <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} />
+        <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} requestContext={traceRequestContext} />
       ) : null}
       {overlay === "span-details" ? (
         <SpanDetailsOverlay palette={palette} span={activeTraceSpan} records={traceDetail?.events} termW={width} termH={height} scrollRef={traceDetailScrollRef} />

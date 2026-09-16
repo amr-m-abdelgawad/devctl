@@ -58,6 +58,7 @@ export type KeyboardUi = {
   llmDetail?: LlmCall;
   llmCalls: LlmCall[];
   openTrace: (traceId: string) => void;
+  openRequest: (requestId: string) => void;
   openSpanLogs: (index?: number) => void;
   traceSpanCount: number;
   setTraceSpanIndex: Dispatch<SetStateAction<number>>;
