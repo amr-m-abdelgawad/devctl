@@ -1,11 +1,10 @@
-import { useMemo, useState } from "react";
-import { type DevctlConfig } from "../../../domain/config/types.ts";
+import { useMemo } from "react";
 import { displayState, emptyRuntime, type Runtime } from "../../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
 import { clipText } from "../helpers/format.ts";
-import { buildTopology, downstreamOf, upstreamOf, type TopologyLink } from "../helpers/topology.ts";
+import { downstreamOf, upstreamOf, type TopologyLink, type TopologyModel } from "../helpers/topology.ts";
 import { Chip, KeyHints, MetaBar, ScreenFrame, Toolbar, scrollboxStyle } from "../layout.tsx";
 import { serviceColor, stateColor, stateGlyph, type Palette } from "../themes.ts";
 
@@ -101,18 +100,20 @@ function Inspector(props: { palette: Palette; name: string; rt: Runtime; up: Top
 
 export function TopologyScreen(props: {
   palette: Palette;
-  cfg?: DevctlConfig;
+  model: TopologyModel;
   snap?: StatusSnapshot;
   width: number;
-  profile: string;
+  // Index of the active node into columns.flat(), driven by the shared list
+  // selection (j/k/arrows). Clicking a node reports its index back via onSelectIndex.
+  selected: number;
+  onSelectIndex: (index: number) => void;
 }) {
-  const { palette, cfg, snap, width, profile } = props;
-  const model = useMemo(() => (cfg ? buildTopology(cfg, profile) : { columns: [], edges: [], cyclic: false }), [cfg, profile]);
+  const { palette, model, snap, width, selected, onSelectIndex } = props;
   const allNodes = useMemo(() => model.columns.flat(), [model]);
-  const [selected, setSelected] = useState("");
-  const active = selected !== "" && allNodes.includes(selected) ? selected : (allNodes[0] ?? "");
+  const activeIndex = allNodes.length === 0 ? 0 : Math.max(0, Math.min(selected, allNodes.length - 1));
+  const active = allNodes[activeIndex] ?? "";
 
-  if (!cfg || allNodes.length === 0) {
+  if (allNodes.length === 0) {
     return (
       <ScreenFrame palette={palette} title="topology">
         <EmptyState palette={palette} title="No services" body="Add services under .devctl/config.yaml to see the dependency graph." />
@@ -173,18 +174,21 @@ export function TopologyScreen(props: {
                   paddingLeft={1}
                   paddingRight={1}
                 >
-                  {wave.map((name) => (
-                    <NodeCard
-                      key={name}
-                      palette={palette}
-                      name={name}
-                      rt={runtimeOf(name)}
-                      active={name === active}
-                      upstream={upstreamOf(model.edges, name).length}
-                      downstream={downstreamOf(model.edges, name).length}
-                      onSelect={() => setSelected(name)}
-                    />
-                  ))}
+                  {wave.map((name) => {
+                    const index = allNodes.indexOf(name);
+                    return (
+                      <NodeCard
+                        key={name}
+                        palette={palette}
+                        name={name}
+                        rt={runtimeOf(name)}
+                        active={index === activeIndex}
+                        upstream={upstreamOf(model.edges, name).length}
+                        downstream={downstreamOf(model.edges, name).length}
+                        onSelect={() => onSelectIndex(index)}
+                      />
+                    );
+                  })}
                 </box>
               ))}
             </box>
@@ -208,7 +212,7 @@ export function TopologyScreen(props: {
         </box>
       </box>
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
-        <KeyHints palette={palette} hints={[{ key: "click", label: "inspect a node" }]} />
+        <KeyHints palette={palette} hints={[{ key: "j/k", label: "select" }, { key: "enter", label: "open service" }, { key: "click", label: "inspect" }]} />
       </Toolbar>
     </ScreenFrame>
   );

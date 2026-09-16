@@ -47,10 +47,13 @@ describe("buildTopology", () => {
     expect(model.edges).toContainEqual({ from: "db", to: "api", condition: "service_healthy" });
   });
 
-  test("drops edges to unknown services", () => {
+  test("drops edges to unknown services without calling it a cycle", () => {
     const c = cfg({ api: ["ghost"] });
     const model = buildTopology(c, "");
     expect(model.edges).toEqual([]);
+    // A dependency on a service that isn't configured is not a dependency cycle.
+    expect(model.cyclic).toBe(false);
+    expect(model.columns.flat()).toEqual(["api"]);
   });
 
   test("degrades to a single column on a dependency cycle instead of throwing", () => {

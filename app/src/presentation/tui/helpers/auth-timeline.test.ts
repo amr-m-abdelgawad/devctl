@@ -7,9 +7,21 @@ function authLog(seq: number, message: string, level = "INFO") {
 }
 
 describe("parseAuthEvent", () => {
-  test("parses a refresh", () => {
+  test("parses a refresh with its audience", () => {
+    const event = parseAuthEvent(authLog(1, "token refreshed identity=sa:api@proj.iam audience=https://svc.run.app"));
+    expect(event).toMatchObject({ kind: "refreshed", identity: "sa:api@proj.iam", audience: "https://svc.run.app" });
+  });
+
+  test("parses a legacy refresh without an audience", () => {
     const event = parseAuthEvent(authLog(1, "token refreshed identity=sa:api@proj.iam"));
     expect(event).toMatchObject({ kind: "refreshed", identity: "sa:api@proj.iam", audience: "" });
+  });
+
+  test("distinguishes one identity refreshed for two audiences", () => {
+    const a = parseAuthEvent(authLog(1, "token refreshed identity=user audience=aud-a"));
+    const b = parseAuthEvent(authLog(2, "token refreshed identity=user audience=aud-b"));
+    expect(a?.audience).toBe("aud-a");
+    expect(b?.audience).toBe("aud-b");
   });
 
   test("parses a failure with audience and error", () => {

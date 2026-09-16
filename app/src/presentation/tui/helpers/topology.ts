@@ -1,6 +1,7 @@
 import { dependencyCondition, dependencyName, type DevctlConfig } from "../../../domain/config/types.ts";
 import { effectiveStartupDependencies } from "../../../domain/http/recipes.ts";
 import { startupPlan } from "../../../domain/service/services.ts";
+import { isKind, KindDependency } from "../../../shared/errors.ts";
 
 // A directed edge from a dependency to the service that needs it. `condition`
 // is the gate the dependent waits on ("service_started" | "service_healthy").
@@ -38,8 +39,11 @@ export function buildTopology(cfg: DevctlConfig, profile: string): TopologyModel
   }
   try {
     return { columns: startupPlan(cfg, names, profile).waves, edges, cyclic: false };
-  } catch {
-    return { columns: names.length > 0 ? [names.slice().sort()] : [], edges, cyclic: true };
+  } catch (err) {
+    // A real dependency cycle can't be laid out in waves; anything else (e.g. a
+    // dependency on a service that isn't configured) is not a cycle — degrade to
+    // a single column either way, but only flag `cyclic` for a genuine cycle.
+    return { columns: names.length > 0 ? [names.slice().sort()] : [], edges, cyclic: isKind(err, KindDependency) };
   }
 }
 

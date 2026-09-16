@@ -56,7 +56,7 @@ export class IdentityCoordinator {
       const payload = ev.payload ?? {};
       const message =
         ev.type === TokenRefreshed
-          ? `token refreshed identity=${String(payload.identity ?? "")}`
+          ? `token refreshed identity=${String(payload.identity ?? "")} audience=${String(payload.audience ?? "")}`
           : ev.type === TokenRefreshFailed
             ? `token refresh failed identity=${String(payload.identity ?? "")} audience=${String(payload.audience ?? "")}: ${String(payload.error ?? "")}`
             : `authentication changed user=${String(payload.user ?? "")}`;

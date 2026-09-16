@@ -156,7 +156,9 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
     restart_required: [...host.restartRequired],
     system: systemSnapshot(),
     stats_series: host.statsSeries,
-    service_series: host.serviceSeries,
+    // Omit until at least one service has samples, so consumers can tell an
+    // unavailable series from an empty service set (matches the type contract).
+    service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
   };
 }
 

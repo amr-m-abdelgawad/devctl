@@ -117,7 +117,8 @@ export function screenListCount(
   if (screen === "profiles") {
     return counts.profiles;
   }
-  if (screen === "dashboard" || screen === "services") {
+  if (screen === "dashboard" || screen === "services" || screen === "topology") {
+    // Topology shows every configured service as a selectable node.
     return counts.services;
   }
   if (screen === "logs") {

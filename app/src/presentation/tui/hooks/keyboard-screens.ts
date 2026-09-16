@@ -333,7 +333,8 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     setScreen("doctor");
     return;
   }
-  if (isBound(key, tui, "topology", "g") && overlay === "none" && screen !== "logs") {
+  // Not on dashboard/logs: `g` is jump-to-latest-logs there (below).
+  if (isBound(key, tui, "topology", "g") && overlay === "none" && screen !== "logs" && screen !== "dashboard") {
     setScreen("topology");
     return;
   }

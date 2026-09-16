@@ -61,6 +61,7 @@ import { SettingsScreen } from "./screens/Settings.tsx";
 import { SetupScreen } from "./screens/Setup.tsx";
 import { StatsScreen } from "./screens/Stats.tsx";
 import { TopologyScreen } from "./screens/Topology.tsx";
+import { buildTopology } from "./helpers/topology.ts";
 import { TokensScreen } from "./screens/Tokens.tsx";
 import { uiScaleFor } from "./settings.ts";
 import { THEME_NAMES } from "./themes.ts";
@@ -262,6 +263,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     setSlashIndex(0);
   }, [query]);
 
+  // Dependency graph for the topology screen. Computed once here so the screen's
+  // node ordering and the Enter handler (topologyNodes below) stay in lockstep.
+  const topologyModel = useMemo(() => (cfg ? buildTopology(cfg, profile) : { columns: [], edges: [], cyclic: false }), [cfg, profile]);
   const listCount = screenListCount(screen, {
     doctor: doctor?.checks.length ?? 0,
     settings: settingRows.length,
@@ -411,6 +415,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setTraceDetail(result);
       setOverlay("trace");
     }).catch(() => {
+      // No trace yet — close any overlay (e.g. log-details) so the pre-filtered
+      // logs screen is actually visible, then drop to it.
+      setOverlay("none");
       setScreen("logs");
       setStatus(`tracing ${id}`);
     });
@@ -889,7 +896,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           />
         ) : null}
         {screen === "stats" ? <StatsScreen palette={palette} cfg={cfg} snap={snap} width={width} onRefresh={refresh} /> : null}
-        {screen === "topology" ? <TopologyScreen palette={palette} cfg={cfg} snap={snap} width={width} profile={profile} /> : null}
+        {screen === "topology" ? <TopologyScreen palette={palette} model={topologyModel} snap={snap} width={width} selected={listCursor} onSelectIndex={setSelected} /> : null}
         {screen === "tokens" ? <TokensScreen palette={palette} credentials={snap?.credentials} logs={logs} width={width} /> : null}
         {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} selectedTask={listCursor} scrollRef={configScrollRef} /> : null}
         {screen === "profiles" ? (

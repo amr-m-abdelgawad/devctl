@@ -18,7 +18,9 @@ export type AuthTimelineEvent = {
   error: string;
 };
 
-const REFRESHED_RE = /^token refreshed identity=(.*)$/;
+// Audience is optional so a refresh line logged before the producer carried it
+// still parses (identity then, audience empty).
+const REFRESHED_RE = /^token refreshed identity=(\S*)(?: audience=(.*))?$/;
 const FAILED_RE = /^token refresh failed identity=(\S*) audience=(\S*): (.*)$/;
 const CHANGED_RE = /^authentication changed user=(.*)$/;
 
@@ -33,7 +35,7 @@ export function parseAuthEvent(record: LogRecord): AuthTimelineEvent | undefined
   }
   const refreshed = REFRESHED_RE.exec(message);
   if (refreshed) {
-    return { seq: record.seq, timestamp: record.timestamp, kind: "refreshed", identity: refreshed[1] ?? "", audience: "", error: "" };
+    return { seq: record.seq, timestamp: record.timestamp, kind: "refreshed", identity: refreshed[1] ?? "", audience: refreshed[2] ?? "", error: "" };
   }
   const changed = CHANGED_RE.exec(message);
   if (changed) {
