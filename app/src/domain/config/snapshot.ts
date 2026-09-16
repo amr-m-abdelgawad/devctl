@@ -1,5 +1,6 @@
-import type { DevctlConfig } from "./types.ts";
+import type { DevctlConfig, ServiceConfig } from "./types.ts";
 import { recipesReferencedInEnv } from "../http/recipes.ts";
+import { allServiceEnvConfigs } from "../service/environments.ts";
 import type { ReloadResult } from "../status.ts";
 
 export type ConfigSnapshot = DevctlConfig;
@@ -33,7 +34,7 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
         fields.push("working_dir");
         restart.add(name);
       }
-      if (JSON.stringify(before.environment) !== JSON.stringify(after.environment)) {
+      if (JSON.stringify(before.environment) !== JSON.stringify(after.environment) || JSON.stringify(before.environments) !== JSON.stringify(after.environments) || before.default_environment !== after.default_environment) {
         fields.push("environment");
         restart.add(name);
       }
@@ -89,7 +90,7 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
   }
   if (JSON.stringify(prev.http) !== JSON.stringify(next.http)) {
     for (const [name, svc] of Object.entries(next.services)) {
-      const refs = recipesReferencedInEnv(svc.environment);
+      const refs = uniqueRecipeRefs(svc);
       const recipeChanged = refs.some((recipeName) => JSON.stringify(prev.http[recipeName]) !== JSON.stringify(next.http[recipeName]));
       if (recipeChanged) {
         const fields = changes[name] ?? [];
@@ -108,4 +109,16 @@ export function configSnapshotDiff(prev: ConfigSnapshot, next: ConfigSnapshot): 
     changes,
     supervisor_restart_required: supervisorRestart,
   };
+}
+
+function uniqueRecipeRefs(svc: ServiceConfig): string[] {
+  const names: string[] = [];
+  for (const env of allServiceEnvConfigs(svc)) {
+    for (const recipeName of recipesReferencedInEnv(env)) {
+      if (!names.includes(recipeName)) {
+        names.push(recipeName);
+      }
+    }
+  }
+  return names;
 }

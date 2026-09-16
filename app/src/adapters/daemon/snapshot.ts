@@ -2,6 +2,7 @@ import { cpus, loadavg, platform, uptime } from "node:os";
 import type { DevctlConfig } from "../config/index.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, type Runtime } from "../../domain/service/services.ts";
+import { defaultEnvironmentName, resolveEnvironmentName } from "../../domain/service/environments.ts";
 import type { IdentitySnapshot, LogSnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
 import type { WebListener } from "../../ports/web-host.ts";
@@ -15,6 +16,8 @@ export type SnapshotHost = {
   readonly runtimes: Map<string, Runtime>;
   readonly ports: Map<string, Record<string, number>>;
   readonly serviceProfile: Map<string, string>;
+  readonly serviceEnv: Map<string, string>;
+  readonly serviceStartedEnv: Map<string, string>;
   readonly clientEnv: Map<string, Record<string, string>>;
   readonly proxy?: ProxyServer;
   readonly mcp?: McpListener;
@@ -88,6 +91,8 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
       ports: host.ports.get(name) ?? rt.ports,
       profile: host.serviceProfile.get(name) ?? rt.profile,
       env_source: host.clientEnv.has(name) ? "client" : "daemon",
+      env: selectedEnvName(host, name),
+      started_env: host.serviceStartedEnv.get(name) ?? rt.started_env,
     };
   }
   const proxyStatsRaw = host.proxy?.stats();
@@ -151,6 +156,14 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
     system: systemSnapshot(),
     stats_series: host.statsSeries,
   };
+}
+
+function selectedEnvName(host: SnapshotHost, name: string): string {
+  const svc = host.cfg.services[name];
+  if (!svc) {
+    return host.serviceEnv.get(name) ?? "";
+  }
+  return resolveEnvironmentName(svc, host.serviceEnv.get(name) ?? defaultEnvironmentName(svc));
 }
 
 export function formatStatusFromSnapshot(snap: StatusSnapshot): string {

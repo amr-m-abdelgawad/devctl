@@ -342,6 +342,7 @@ devctl restart [svc…] [--cascade] [--json]
 devctl run <task> [--json]
 devctl exec <service> -- <command…>
 devctl exec <service> --print-env [--reveal] [--json]
+devctl env [service] [name] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
@@ -380,6 +381,7 @@ devctl update [--json] [--check]
 - \`restart\` touches only the named services, not their dependents; \`--cascade\` also restarts those dependents (the same set \`stop\` would affect). Either way, start still expands the named services' own dependencies if they aren't already running.
 - \`run\` starts the task's declared service dependencies, executes the transient command once with the resolved project/task environment, and returns its exit status. \`--json\` includes captured stdout and stderr. The TUI equivalent is \`/run <task>\` (output lands in Logs under \`task:<name>\`).
 - \`exec\` runs once in a service's resolved environment and working directory, even when that service is stopped. \`--print-env\` prints the exact environment without running a command; secret-like values are redacted unless \`--reveal\` is explicitly supplied. The TUI equivalents are \`/exec <service> -- <command…>\` and \`/exec <service> --print-env\` (the env inspector shows the same resolved map, not config-only \`vars\`/\`defaults\`).
+- \`env\` lists per-service named overlays (\`services.<name>.environments\`) and the one selected for this session. \`devctl env invoices-api\` shows that service; \`devctl env invoices-api deployed\` selects \`deployed\` for invoices-api only. Other services are unchanged. A running process keeps the overlay it started with until you restart it.
 - \`down\` stops the daemon's services and the daemon itself; \`--keep-services\` stops only the daemon, leaving services running to be adopted later. \`--repo\` targets a repository directly, without needing a loadable configuration there; the global \`--config\` also resolves it (by file location, not by parsing) when \`--repo\` is not given.
 - \`status\` and \`down\` resolve their target the same way: \`--repo\` wins outright, else the global \`--config\` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - \`status\` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
@@ -733,8 +735,8 @@ flowchart LR
 | \`generated\` | Built-in hook that always returns \`{}\`. A plugin may register \`environmentSources\` if you need generated values |
 | \`keychain\` | Named secrets from \`environment.secrets\` / the credential store |
 | \`secret_manager\` | Values that look like \`projects/*/secrets/*\` via the Google REST API |
-| \`defaults\` | \`services.<name>.environment.defaults\` |
-| \`vars\` | Explicit \`services.<name>.environment\` keys |
+| \`defaults\` | \`services.<name>.environment.defaults\` (and the selected \`environments.<env>.defaults\`) |
+| \`vars\` | Explicit \`services.<name>.environment\` keys (and the selected \`environments.<env>\` keys, which win) |
 | \`runtime\` | Values \`devctl\` injects at start |
 
 \`keychain\` and \`secret_manager\` throw only when that source is listed and fetch fails.
@@ -753,6 +755,7 @@ Injected when applicable:
 - \`DEVCTL_PROXY_URL\`
 - \`DEVCTL_SERVICE_NAME\`
 - \`DEVCTL_ENVIRONMENT\`
+- \`DEVCTL_SERVICE_ENV\` — the selected named overlay (\`services.<name>.environments.<env>\`), omitted when the service has none
 - \`DEVCTL_USER_EMAIL\` — the developer's own detected Google identity (gcloud/ADC), so a service can key on who is running it without a hardcoded, team-unfriendly value. Omitted when no identity is detected.
 - \`DEVCTL_TOKEN_URL\` and \`DEVCTL_INTERNAL_TOKEN\` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 - \`DEVCTL_HTTP_<NAME>_URL\` for each exposed \`http\` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
@@ -760,6 +763,38 @@ Injected when applicable:
 References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${env.NAME}\` is rejected in service env. Recipe \`url\` / \`headers\` / \`form\` / \`body\` are the exception: \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment at fetch time. IAP route \`auth.client_secret\` is the other exception: \`\${NAME}\` and \`\${env.NAME}\` are expanded from the process environment when the token is minted, not at config load.
 
 \`environment.required\` on a service fails start if those keys are still empty after the merge.
+
+## Per-service named overlays
+
+\`profiles.<name>.environment\` is fleet-wide: every service started under that profile gets those extra keys. Named overlays on a **service** are independent of that, so one service can talk to a deployed identity while another stays fully local.
+
+\`\`\`yaml
+services:
+  invoices-api:
+    environment:
+      AUTH_URL: http://127.0.0.1:\${services.identity.ports.http}
+      required: [AUTH_URL]
+      defaults:
+        LOG_LEVEL: INFO
+    environments:
+      local:
+        AUTH_URL: http://127.0.0.1:\${services.identity.ports.http}
+      deployed:
+        AUTH_URL: https://identity.dev.example.com
+        defaults:
+          LOG_LEVEL: WARN
+    default_environment: local
+\`\`\`
+
+Each overlay is an \`EnvConfig\` (\`vars\` / \`defaults\` / \`required\`) merged onto the service's base \`environment\` — named keys win, \`required\` is the union. \`default_environment\` is the YAML default when nothing is selected for this session; if omitted, the first name alphabetically wins.
+
+Selection is **session state** (\`~/.devctl/state/<repo>/state.json\` \`service_environments\`), not YAML. Switch one service at a time:
+
+- TUI: \`e\` or \`/env\` on the dashboard, services, or detail screens
+- CLI: \`devctl env invoices-api deployed\`
+- MCP: \`set_service_environment\` with \`service\` and \`name\` (\`restart: true\` to apply immediately)
+
+The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (\`started_env\`) until you restart it. The TUI chip shows \`env deployed · restart\` in that case.
 
 ## TUI / CLI flag precedence
 
@@ -1727,6 +1762,7 @@ so agents must be given the new snippets.
 | \`start_services\` | control | Named list, or a \`profile\`. Omitted names use \`profile\`, then the active session profile, then the first configured profile — never every service. No profile and no names fails closed |
 | \`stop_services\` | control | Named list, or all started services when omitted. Also stops every transitive dependent of a named service — never its dependencies |
 | \`restart_services\` | control | Named list; touches only those services, not dependents, unless \`cascade: true\`. Start still expands dependencies |
+| \`set_service_environment\` | control | Select \`services.<name>.environments.<env>\` on one service. Other services are unchanged. The next start/exec/print-env uses that overlay. Pass \`restart: true\` to apply immediately |
 | \`reload_config\` | control | Reload \`.devctl\` |
 | \`run_task\` | control | Run a named task from configuration; output is also in the log ring as \`task:<name>\` |
 | \`start_proxy\` / \`stop_proxy\` | control | Start or stop the local reverse proxy |
@@ -1751,7 +1787,7 @@ prompt injected through logs cannot run host commands until you enable it. The
 TUI's **MCP** page lists tools grouped by the \`Group\` column above, each marked
 \`read\` or \`write\`, and \`space\` toggles the highlighted one. The common case is
 turning off the whole \`control\` group —
-\`start_services\`, \`stop_services\`, \`restart_services\`, \`reload_config\`, \`run_task\`,
+\`start_services\`, \`stop_services\`, \`restart_services\`, \`set_service_environment\`, \`reload_config\`, \`run_task\`,
 \`start_proxy\`, \`stop_proxy\`, \`exec_service\` — so an agent can read status and logs
 but not start or stop anything.
 
@@ -2081,6 +2117,8 @@ devctl start --profile backend
 \`\`\`
 
 The TUI **profiles** screen (\`o\` or \`/profiles\`) lists configured profiles. \`enter\` selects one and offers start. None are hard-coded.
+
+A profile's extra environment applies to every service started under it. To give **one** service two maps (local vs deployed) and switch them without touching the rest of the fleet, use \`services.<name>.environments\` instead — see [Environment](environment.md#per-service-named-overlays).
 
 ![The TUI profiles screen — the current profile highlighted, each profile showing its member services and count](assets/manual/tui-profiles.png)
 
@@ -2685,6 +2723,25 @@ Run one with \`devctl run migrate\`. Its exit code determines command success, a
 
 Use \`devctl exec api -- python3 check.py\` to run an ad-hoc command in a service's same resolved context without starting it. \`devctl exec api --print-env\` inspects that context with secrets redacted by default.
 
+## Named environment overlays
+
+Define more than one env map on the same service — local vs deployed-dev, for example — and switch them independently of other services and of start [profiles](profiles.md):
+
+\`\`\`yaml
+services:
+  api:
+    environment:
+      AUTH_URL: http://127.0.0.1:\${services.identity.ports.http}
+    environments:
+      local:
+        AUTH_URL: http://127.0.0.1:\${services.identity.ports.http}
+      deployed:
+        AUTH_URL: https://identity.dev.example.com
+    default_environment: local
+\`\`\`
+
+\`e\` / \`/env\` in the TUI, \`devctl env api deployed\`, or MCP \`set_service_environment\` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
+
 ## Container services
 
 Set \`container.image\` to let devctl own a Docker or Podman container with the
@@ -3153,8 +3210,9 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/restart --cascade\` | \`-c\` | Restart selected services and their dependents |
 | \`/run [task]\` | \`/task\` | Run a one-off task; empty /run opens a picker |
 | \`/exec [service]\` | | Run a command in a service context; empty /exec opens a picker |
+| \`/env [service]\` | | Switch a service's named environment overlay |
 
-\`/start\` with no names starts the current profile. \`/restart\` without \`--cascade\` restarts only the named services; \`R\` when dependents exist asks: Enter = named, \`c\` = cascade. Task output lands in Logs under \`task:<name>\`. \`/exec <service> -- <command…>\` runs once in that service's resolved environment (even if it is stopped). Empty \`/exec\` opens a service picker, then you type the command. \`/exec <service> --print-env [--reveal]\` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only \`vars\`/\`defaults\`.
+\`/start\` with no names starts the current profile. \`/restart\` without \`--cascade\` restarts only the named services; \`R\` when dependents exist asks: Enter = named, \`c\` = cascade. Task output lands in Logs under \`task:<name>\`. \`/exec <service> -- <command…>\` runs once in that service's resolved environment (even if it is stopped). Empty \`/exec\` opens a service picker, then you type the command. \`/exec <service> --print-env [--reveal]\` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only \`vars\`/\`defaults\`. \`/env\` (or \`e\` on the dashboard, services, or detail screens) opens a per-service overlay picker when that service defines \`environments\`. \`/env <service> <name>\` selects immediately. Switching does not restart a running process — the inspector chip shows \`env deployed · restart\` until you restart that service. Other services keep their own selection.
 
 ### Navigation
 
@@ -3242,7 +3300,7 @@ Default leader is \`command+x\` on macOS and \`ctrl+x\` elsewhere (2 second time
 \`\`\`text
 n start    x stop    R restart (c cascade if dependents)    s services    l logs
 a auth     p proxy   d doctor     c config      o profiles
-t themes   e export  r refresh    i setup       h dashboard
+t themes   e env     r refresh    i setup       h dashboard
 q quit     z fullscreen
 \`\`\`
 

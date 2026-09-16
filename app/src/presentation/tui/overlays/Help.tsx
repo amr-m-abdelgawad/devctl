@@ -42,6 +42,8 @@ export const HELP_SERVICES: readonly Binding[] = [
   { key: "x", label: "stop" },
   { key: "r", label: "refresh" },
   { key: "R", label: "restart (c cascade if dependents)" },
+  { key: "e", label: "switch service env" },
+  { key: "/env", label: "named overlay picker" },
 ];
 
 export function logBindings(copyKey: string): readonly Binding[] {
@@ -70,6 +72,7 @@ export const HELP_COMMANDS: readonly Binding[] = [
   { key: "/", label: "command overlay" },
   { key: displayWithMod("p"), label: "same overlay" },
   { key: displayWithMod("x"), label: "leader chord" },
+  { key: "/env", label: "switch a service env overlay" },
   { key: "/settings", label: "preferences · MCP page" },
   { key: "/themes", label: "preview themes" },
   { key: "/update", label: "install a newer GitHub Release" },

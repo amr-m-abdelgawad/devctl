@@ -16,6 +16,8 @@ export type HealthHost = {
   readonly runtimes: Map<string, Runtime>;
   readonly serviceProfile: Map<string, string>;
   readonly serviceProfileEnv: Map<string, Record<string, string>>;
+  readonly serviceEnv: Map<string, string>;
+  readonly serviceStartedEnv: Map<string, string>;
   readonly healthCheckers: HealthCheckerFactory;
   readonly logs: Pick<LogStore, "append">;
   readonly bus: Bus;

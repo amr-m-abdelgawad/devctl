@@ -22,6 +22,7 @@ export type PersistedProcess = {
   startTime: string;
   ports: Record<string, number>;
   profile?: string;
+  env?: string;
 };
 
 export type PersistedState = {
@@ -29,5 +30,8 @@ export type PersistedState = {
   repo_root: string;
   profile: string;
   processes: PersistedProcess[];
+  // Per-service selected named environment. Survives daemon replacement so
+  // a TUI/CLI switch is not lost the way client_env is.
+  service_environments?: Record<string, string>;
 };
 

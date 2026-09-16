@@ -4,6 +4,8 @@ import { Detector } from "../../shared/redaction.ts";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
 import type { StatusSnapshot } from "../../domain/status.ts";
 import { displayState, formatPlan } from "../../domain/service/services.ts";
+import { type ServiceConfig } from "../../domain/config/types.ts";
+import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
 export function addExec(root: Command, runtime: ClientRuntime): void {
@@ -254,6 +256,75 @@ async function shutdownTimeoutFor(client: { call: (method: string, params: unkno
     return fallback;
   }
 }
+export function addEnv(root: Command, runtime: ClientRuntime): void {
+  root
+    .command("env")
+    .description("List or switch per-service named environments")
+    .argument("[service]", "service to inspect or switch")
+    .argument("[name]", "named environment to select")
+    .option("--json", "machine-readable output")
+    .action(async (service: string | undefined, name: string | undefined, opts: { json?: boolean }) => {
+      const ctrl = await runtime.openController("", configFlag(root), true);
+      try {
+        const cfg = ctrl.cfg;
+        const snap = await ctrl.status();
+        if (!service) {
+          const rows = Object.entries(cfg.services)
+            .filter(([, svc]) => serviceHasNamedEnvironments(svc))
+            .map(([svcName, svc]) => envRow(svcName, svc, snap.services[svcName]?.env));
+          if (opts.json) {
+            writeOut(JSON.stringify({ services: rows }, null, 2) + "\n");
+            return;
+          }
+          if (rows.length === 0) {
+            writeOut("No services define named environments.\n");
+            return;
+          }
+          for (const row of rows) {
+            writeOut(`${row.service}\t${row.env || "(none)"}\t${row.names.join(", ")}\n`);
+          }
+          return;
+        }
+        const svc = cfg.services[service];
+        if (!svc) {
+          throw new Error(`unknown service "${service}"`);
+        }
+        if (!serviceHasNamedEnvironments(svc)) {
+          throw new Error(`service "${service}" has no named environments`);
+        }
+        if (!name) {
+          const row = envRow(service, svc, snap.services[service]?.env);
+          if (opts.json) {
+            writeOut(JSON.stringify(row, null, 2) + "\n");
+            return;
+          }
+          writeOut(`service: ${row.service}\ncurrent: ${row.env || "(none)"}\nnames: ${row.names.join(", ")}\n`);
+          return;
+        }
+        const result = await ctrl.setServiceEnvironment(service, name);
+        const rt = (await ctrl.status()).services[service];
+        if (opts.json) {
+          writeOut(JSON.stringify({ ...result, started_env: rt?.started_env ?? "", running: Boolean(rt?.pid) }, null, 2) + "\n");
+          return;
+        }
+        const note = rt?.pid && rt.started_env !== result.env ? " (restart to apply)" : "";
+        writeOut(`${result.service}: ${result.env}${note}\n`);
+      } finally {
+        await ctrl.close();
+      }
+    });
+}
+
+function envRow(service: string, svc: ServiceConfig, selected?: string) {
+  const names = namedEnvironmentNames(svc);
+  return {
+    service,
+    names,
+    default: defaultEnvironmentName(svc),
+    env: resolveEnvironmentName(svc, selected),
+  };
+}
+
 export function addAttach(root: Command, runtime: ClientRuntime): void {
   root.command("attach").action(async () => {
     const ctrl = await runtime.openAttach("", configFlag(root));

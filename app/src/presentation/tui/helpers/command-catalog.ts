@@ -103,6 +103,9 @@ function dynamicSuggestions(cmd: CommandSpec, context: PaletteContext): CommandS
   if (cmd.name === "exec") {
     return (context.services ?? []).map((name) => ({ token: name, desc: `exec in ${name}` }));
   }
+  if (cmd.name === "env") {
+    return (context.services ?? []).map((name) => ({ token: name, desc: `switch env for ${name}` }));
+  }
   return [];
 }
 
@@ -178,6 +181,9 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   if (overlay === "themes") {
     return [COMMAND_FOOTER_HINT, { key: "↑↓", label: "move" }, { key: "enter", label: "save" }, { key: "esc", label: "revert" }];
   }
+  if (overlay === "env") {
+    return [COMMAND_FOOTER_HINT, { key: "↑↓", label: "move" }, { key: "enter", label: "switch" }, { key: "esc", label: "cancel" }];
+  }
   if (overlay === "help") {
     return [COMMAND_FOOTER_HINT, { key: "j/k", label: "scroll" }, { key: "esc", label: "close" }];
   }
@@ -216,6 +222,7 @@ export function leaderHints(): FooterHint[] {
     { key: "n", label: "start" },
     { key: "x", label: "stop" },
     { key: "R", label: "restart" },
+    { key: "e", label: "env" },
     { key: "s", label: "services" },
     { key: "l", label: "logs" },
     { key: "t", label: "themes" },
@@ -236,6 +243,7 @@ function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode =
         { key: "x", label: "stop" },
         { key: "r", label: "refresh" },
         { key: "R", label: "restart" },
+        { key: "e", label: "env" },
         { key: "←→", label: "log filter" },
         { key: "g", label: "latest" },
         { key: "z", label: "full logs" },
@@ -254,10 +262,11 @@ function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode =
         { key: "x", label: "stop" },
         { key: "r", label: "refresh" },
         { key: "R", label: "restart" },
+        { key: "e", label: "env" },
         ...common,
       ];
     case "detail":
-      return [{ key: "j/k", label: "scroll env" }, { key: "n", label: "start" }, { key: "x", label: "stop" }, { key: "o", label: "config" }, { key: "l", label: "logs" }, { key: "esc", label: "back" }, ...common];
+      return [{ key: "j/k", label: "scroll env" }, { key: "n", label: "start" }, { key: "x", label: "stop" }, { key: "e", label: "env" }, { key: "o", label: "config" }, { key: "l", label: "logs" }, { key: "esc", label: "back" }, ...common];
     case "logs":
       return [
         ...(logSearch === "applied"

@@ -50,6 +50,7 @@ export type Controller = {
   webStop(): Promise<void>;
   mcpSetTools(disabled: readonly string[]): Promise<string[]>;
   reload(): Promise<ReloadResult>;
+  setServiceEnvironment(service: string, name: string): Promise<{ service: string; env: string }>;
   invalidateAuth(): Promise<void>;
   onEvent(handler: (ev: BusEvent) => void): () => void;
   close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void>;

@@ -503,4 +503,17 @@ describe("config validate", () => {
     }];
     expect(validate(cfg)).toEqual([]);
   });
+
+  test("named environments require a known default_environment and reject empty names", () => {
+    const cfg = withService("api");
+    cfg.services.api!.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    cfg.services.api!.default_environment = "staging";
+    expect(validate(cfg)).toContain('services.api.default_environment "staging" is not defined in environments');
+    cfg.services.api!.default_environment = "local";
+    cfg.services.api!.environments[""] = { vars: {}, required: [], defaults: {} };
+    expect(validate(cfg)).toContain("services.api.environments has an empty name");
+  });
 });

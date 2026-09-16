@@ -9,6 +9,7 @@ import type { TokenEndpoint } from "../proxy/proxy.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import { httpRecipeEnvUrlKey } from "../../domain/config/types.ts";
 import type { HttpValueMap } from "../config/refs.ts";
+import { effectiveServiceEnv, resolveEnvironmentName } from "../../domain/service/environments.ts";
 
 export type EnvironmentBridgeDeps = {
   cfg: () => DevctlConfig;
@@ -44,6 +45,8 @@ export class EnvironmentBridge {
   // environment with. Same never-persisted rationale as clientEnv.
   readonly serviceProfile = new Map<string, string>();
   readonly serviceProfileEnv = new Map<string, Record<string, string>>();
+  readonly serviceEnv = new Map<string, string>();
+  readonly serviceStartedEnv = new Map<string, string>();
   profile = "";
   profileEnv: Record<string, string> = {};
   private readonly deps: EnvironmentBridgeDeps;
@@ -56,6 +59,12 @@ export class EnvironmentBridge {
     this.clientEnv.delete(name);
     this.serviceProfile.delete(name);
     this.serviceProfileEnv.delete(name);
+    // Keep `serviceEnv` — the user's overlay selection is session state and
+    // must survive stop/start of the same still-configured service. forget()
+    // only runs for services removed from config, which drop the map entry
+    // below after persist so a stale name cannot linger.
+    this.serviceEnv.delete(name);
+    this.serviceStartedEnv.delete(name);
   }
 
   serviceWorkDir(svc: ServiceConfig): string {
@@ -78,7 +87,12 @@ export class EnvironmentBridge {
     const proxy = this.deps.proxy();
     const proxyURL = proxy?.isRunning() ? `http://${proxy.address()}` : cfg.proxy.enabled ? `http://${listenAddress(cfg.proxy.listen)}` : "";
     const userEmail = this.deps.userEmail();
+    const envName = resolveEnvironmentName(svc, this.serviceEnv.get(name));
+    const serviceCfg = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
     const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, cfg.project.name, userEmail);
+    if (envName !== "") {
+      runtime.DEVCTL_SERVICE_ENV = envName;
+    }
     if (!svc.container) {
       runtime.DEVCTL_INTERNAL_TOKEN = this.deps.internalTok();
       if (cfg.proxy.token_endpoint.enabled) {
@@ -91,7 +105,7 @@ export class EnvironmentBridge {
     const resolved = await resolveEnvironment(cfg.repoRoot, {
       service: name,
       profile,
-      serviceCfg: svc,
+      serviceCfg,
       profileEnv,
       assignedPorts: assigned,
       runtime,

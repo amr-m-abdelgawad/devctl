@@ -15,6 +15,16 @@ environment:
     - AUTH_URL
   defaults:
     LOG_LEVEL: INFO
+environments:
+  local:
+    AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+    MODE: local
+  deployed:
+    AUTH_URL: https://identity.dev.example.com
+    MODE: deployed
+    defaults:
+      LOG_LEVEL: WARN
+default_environment: local
 health:
   type: http
   url: http://127.0.0.1:18000/health

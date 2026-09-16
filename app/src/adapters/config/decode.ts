@@ -143,6 +143,17 @@ export function decodeEnv(value: unknown): EnvConfig {
   return { vars, required, defaults };
 }
 
+export function decodeEnvironments(value: unknown): Record<string, EnvConfig> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const out: Record<string, EnvConfig> = {};
+  for (const [name, item] of Object.entries(value)) {
+    out[name] = decodeEnv(item);
+  }
+  return out;
+}
+
 export function decodeIdentity(value: unknown): IdentityConfig {
   if (!isRecord(value)) {
     return emptyIdentity();
@@ -209,6 +220,8 @@ export function decodeService(value: unknown): ServiceConfig {
     dependencies: decodeDependencies(value.dependencies),
     ports: decodePorts(value.ports),
     environment: decodeEnv(value.environment),
+    environments: decodeEnvironments(value.environments),
+    default_environment: asString(value.default_environment),
     health: decodeHealth(value.health),
     identity: decodeIdentity(value.identity),
     logs: { stdout: asBoolean(logs.stdout), stderr: asBoolean(logs.stderr) },

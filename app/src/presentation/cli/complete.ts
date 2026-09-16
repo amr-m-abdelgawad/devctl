@@ -46,6 +46,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     "start",
     "run",
     "exec",
+    "env",
     "down",
     "daemon",
     "stop",
@@ -80,6 +81,15 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
   }
   if (cmd === "run") return filterPrefix([...Object.keys(cfg.tasks).sort(), "--json"], tail);
   if (cmd === "exec") return filterPrefix([...services, "--print-env", "--reveal", "--json"], tail);
+  if (cmd === "env") {
+    if (words.length <= 2) {
+      return filterPrefix([...services, "--json"], tail);
+    }
+    const svcName = words[2] ?? "";
+    const svc = cfg.services[svcName];
+    const names = svc ? Object.keys(svc.environments).sort() : [];
+    return filterPrefix([...names, "--json"], tail);
+  }
   if (cmd === "auth") {
     return filterPrefix(["status", "login", "logout", "refresh"], tail);
   }

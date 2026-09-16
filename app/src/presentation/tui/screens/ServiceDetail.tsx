@@ -11,6 +11,7 @@ import {
   firstPort,
   serviceCommandText,
   serviceEnvEntries,
+  serviceEnvLabel,
   serviceHealthText,
   serviceIdentityText,
   serviceLineState,
@@ -80,7 +81,10 @@ export function ServiceInspector(props: {
   const state = serviceLineState(rt);
   const health = rt?.health ?? "UNKNOWN";
   const port = firstPort(rt) || servicePortsText(svc, rt);
-  const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? [], props.resolvedEnv);
+  const envName = rt?.env ?? "";
+  const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? [], props.resolvedEnv, envName);
+  const selectedEnv = serviceEnvLabel(svc, rt);
+  const envPending = Boolean(rt?.pid && rt.started_env !== "" && rt.started_env !== envName && envName !== "");
   const envTone = props.envStatus === "error" ? "error" : props.envStatus === "resolved" ? "success" : props.envStatus === "loading" ? "info" : "muted";
   const envLabel =
     props.envStatus === "resolved"
@@ -116,6 +120,7 @@ export function ServiceInspector(props: {
           { text: health, tone: runtimeChipTone(health) },
           { text: rt?.pid ? `pid ${rt.pid}` : "pid —", tone: rt?.pid ? "info" : "idle" },
           { text: port === "—" ? "port —" : `port ${port}`, tone: port === "—" ? "idle" : "info" },
+          ...(selectedEnv ? [{ text: `env ${selectedEnv}`, tone: envPending ? "warning" as ChipTone : "info" as ChipTone }] : []),
         ]}
       />
       {svc.description ? (
@@ -157,6 +162,7 @@ export function ServiceInspector(props: {
             { key: "n", label: "start" },
             { key: "x", label: "stop" },
               { key: "R", label: "restart" },
+              { key: "e", label: "env" },
               { key: "o", label: "config" },
             { key: "l", label: "logs" },
             { key: "/reveal", label: "secrets" },

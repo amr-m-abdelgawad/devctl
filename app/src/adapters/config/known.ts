@@ -30,6 +30,8 @@ export const knownService = [
   "dependencies",
   "ports",
   "environment",
+  "environments",
+  "default_environment",
   "health",
   "identity",
   "logs",

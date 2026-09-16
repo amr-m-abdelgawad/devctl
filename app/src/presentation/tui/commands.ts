@@ -24,6 +24,7 @@ export function allCommands(): CommandSpec[] {
     { name: "restart", aliases: [], desc: "Restart selected services", leader: "R", group: "services", usage: "<service>", suggest: [{ token: "--cascade", desc: "Restart selected services and their dependents" }] },
     { name: "run", aliases: ["task"], desc: "Run a one-off task; empty /run opens a picker", leader: "", group: "services", usage: "<task>" },
     { name: "exec", aliases: [], desc: "Run a command in a service context; empty /exec opens a picker", leader: "", group: "services", usage: "<service>" },
+    { name: "env", aliases: [], desc: "Switch a service's named environment overlay", leader: "e", group: "services", usage: "<service>" },
     { name: "services", aliases: ["s"], desc: "Open the services screen", leader: "s", group: "nav" },
     { name: "logs", aliases: ["l"], desc: "Open the log viewer", leader: "l", group: "nav" },
     { name: "auth", aliases: ["identity", "a"], desc: "Open identity", leader: "a", group: "nav", suggest: [
@@ -69,7 +70,7 @@ export function allCommands(): CommandSpec[] {
     { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values (not log or LLM payloads)", leader: "", group: "ui" },
     { name: "wrap", aliases: [], desc: "Cycle log wrap: all lines, clip, or selected row", leader: "", group: "logs" },
     { name: "copy", aliases: [], desc: "Copy the highlighted selection to the clipboard", leader: "", group: "ui" },
-    { name: "export", aliases: [], desc: "Write filtered logs to ~/.devctl/exports", leader: "e", group: "logs" },
+    { name: "export", aliases: [], desc: "Write filtered logs to ~/.devctl/exports", leader: "", group: "logs" },
     { name: "exports", aliases: ["open-exports"], desc: "Open the log export folder", leader: "", group: "logs" },
     { name: "clear", aliases: ["new"], desc: "Clear the on-screen log buffer", leader: "", group: "logs" },
     { name: "version", aliases: ["v"], desc: "Show the current devctl version", leader: "", group: "app" },

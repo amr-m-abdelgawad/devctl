@@ -24,7 +24,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     logDetailsScrollRef, traceScrollRef, traceDetailScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
     revertThemePreview, setPaletteIndex, setThemeName, paletteIndex, applyTheme, leaderTimer,
     setOverlay, runCommand, setConfigEditError, saveConfigBuffer, setSlashIndex, filtered,
-    setQuery, slashIndex, submitSlash, advanceWizard,
+    setQuery, slashIndex, submitSlash, advanceWizard, envOptions, envIndex, setEnvIndex, applyEnv,
   } = ctx;
   const name = (key.name ?? "").toLowerCase();
   if (overlay === "none") {
@@ -262,6 +262,31 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       const theme = THEME_NAMES[paletteIndex % THEME_NAMES.length];
       if (theme) {
         applyTheme(theme);
+      }
+    }
+    return true;
+  }
+  if (overlay === "env") {
+    if (isCommandChord(key, tui)) {
+      openCommandOverlay(ctx);
+      return true;
+    }
+    if (name === "escape") {
+      closeOverlay();
+      return true;
+    }
+    if (name === "down" || name === "j") {
+      setEnvIndex((i) => Math.min(i + 1, Math.max(0, envOptions.length - 1)));
+      return true;
+    }
+    if (name === "up" || name === "k") {
+      setEnvIndex((i) => Math.max(0, i - 1));
+      return true;
+    }
+    if (name === "return") {
+      const option = envOptions[envIndex];
+      if (option) {
+        applyEnv(option.name);
       }
     }
     return true;

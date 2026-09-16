@@ -1,5 +1,6 @@
 import { type DevctlConfig, type ServiceConfig } from "../../../domain/config/types.ts";
 import { type Runtime, displayState } from "../../../domain/service/services.ts";
+import { defaultEnvironmentName, effectiveServiceEnv, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../../domain/service/environments.ts";
 import { type PersistedState } from "../../../domain/session/session.ts";
 import { Detector } from "../../../shared/redaction.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
@@ -201,19 +202,53 @@ export function serviceEnvEntries(
   extraMarkers: string[],
   extraPatterns: string[],
   resolved?: Record<string, string>,
+  envName?: string,
 ): ServiceEnvEntry[] {
-  const configured = { ...svc.environment.defaults, ...svc.environment.vars };
+  const configuredEnv = effectiveServiceEnv(svc, envName);
+  const configured = { ...configuredEnv.defaults, ...configuredEnv.vars };
   const merged = resolved ?? configured;
   const redacted = redactEnv(merged, reveal, extraMarkers, extraPatterns);
-  const keys = new Set([...Object.keys(redacted), ...svc.environment.required]);
+  const keys = new Set([...Object.keys(redacted), ...configuredEnv.required]);
   return [...keys]
     .map((key) => ({
       key,
       value: redacted[key] ?? "",
-      required: svc.environment.required.includes(key),
+      required: configuredEnv.required.includes(key),
       fromConfig: Object.prototype.hasOwnProperty.call(configured, key),
     }))
     .sort((a, b) => (a.fromConfig === b.fromConfig ? a.key.localeCompare(b.key) : a.fromConfig ? -1 : 1));
+}
+
+export function serviceEnvLabel(svc: ServiceConfig, rt?: Runtime): string {
+  if (!serviceHasNamedEnvironments(svc)) {
+    return "";
+  }
+  const selected = resolveEnvironmentName(svc, rt?.env || defaultEnvironmentName(svc));
+  if (rt?.pid && rt.started_env !== "" && rt.started_env !== selected) {
+    return `${selected} · restart`;
+  }
+  return selected;
+}
+
+export function serviceEnvOptions(svc: ServiceConfig, rt?: Runtime): { name: string; description: string; current: boolean; started: boolean }[] {
+  const selected = resolveEnvironmentName(svc, rt?.env);
+  return namedEnvironmentNames(svc).map((name) => {
+    const overlay = svc.environments[name];
+    const keys = Object.keys({ ...overlay?.defaults, ...overlay?.vars });
+    const bits = [`${keys.length} var${keys.length === 1 ? "" : "s"}`];
+    if (name === defaultEnvironmentName(svc)) {
+      bits.push("default");
+    }
+    if (rt?.started_env === name && rt.pid) {
+      bits.push("running");
+    }
+    return {
+      name,
+      description: bits.join(" · "),
+      current: name === selected,
+      started: rt?.started_env === name,
+    };
+  });
 }
 
 export function previousSessionNote(leftover?: PersistedState, currentSession?: string): PersistedState | undefined {

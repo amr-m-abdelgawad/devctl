@@ -15,6 +15,8 @@ Profiles: `minimal` (identity + api + telemetry), `backend` (+ worker), `full` (
 
 `postgres` is always in configuration, so Doctor still probes Docker even when you never start `data`. Default profiles do not start it.
 
+`invoices-api` and `billing-console` each define `local` and `deployed` environment overlays. In the TUI, highlight one of those services and press `e` (or `/env`) to switch that service only — the other keeps its own selection. `devctl env invoices-api deployed` does the same from the CLI.
+
 ```bash
 # Node.js 18+ (npm package) or python3 and bun on PATH (from source)
 cd examples/demo-platform

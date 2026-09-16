@@ -19,6 +19,8 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       dependencies,
       ports: [],
       environment: { vars: {}, required: [], defaults: {} },
+      environments: {},
+      default_environment: "",
       health: { type: "", url: "", address: "", command: { args: [], shell: false }, interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 },
       identity: { type: "", mode: "", service_account: "" },
       logs: { stdout: false, stderr: false },

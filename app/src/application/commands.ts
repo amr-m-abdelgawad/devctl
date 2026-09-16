@@ -102,6 +102,13 @@ export class ResolveStart {
   }
 }
 
+export class SetServiceEnvironment {
+  constructor(private readonly setEnv: (service: string, name: string) => { service: string; env: string }) {}
+  execute(service: string, name: string): { service: string; env: string } {
+    return this.setEnv(asServiceId(service), name);
+  }
+}
+
 export function asServiceId(name: string): ServiceId {
   return serviceId(name);
 }
@@ -120,6 +127,7 @@ export type ApplicationCommands = {
   getStartupPlan: GetStartupPlan;
   getShutdownPlan: GetShutdownPlan;
   resolveStart: ResolveStart;
+  setServiceEnvironment: SetServiceEnvironment;
 };
 
 export function commandsForHost(host: ServiceCommandHost, doctor: DoctorRunner, orchestrator?: ServiceOrchestratorPort): ApplicationCommands {
@@ -139,5 +147,6 @@ export function commandsForHost(host: ServiceCommandHost, doctor: DoctorRunner, 
     getStartupPlan: new GetStartupPlan(),
     getShutdownPlan: new GetShutdownPlan(),
     resolveStart: new ResolveStart(),
+    setServiceEnvironment: new SetServiceEnvironment((service, name) => host.setServiceEnvironment(service, name)),
   };
 }

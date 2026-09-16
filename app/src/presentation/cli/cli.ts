@@ -7,7 +7,7 @@ import { completeLine, completionScript } from "./complete.ts";
 import { versionLine } from "../../version.ts";
 import { addAuth } from "./auth.ts";
 import { addConfig, addReload } from "./config.ts";
-import { addAttach, addDown, addExec, addRestart, addRun, addStart, addStatus, addStop } from "./lifecycle.ts";
+import { addAttach, addDown, addEnv, addExec, addRestart, addRun, addStart, addStatus, addStop } from "./lifecycle.ts";
 import { addDaemon, addLogs } from "./logs.ts";
 import { addLlm } from "./llm.ts";
 import { addMcp, addProxy } from "./listeners.ts";
@@ -37,6 +37,7 @@ export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): C
   addRestart(root, runtime);
   addRun(root, runtime);
   addExec(root, runtime);
+  addEnv(root, runtime);
   addStatus(root, runtime);
   addDown(root, runtime);
   addLogs(root, runtime);

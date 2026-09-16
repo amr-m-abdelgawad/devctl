@@ -32,7 +32,8 @@ export type Overlay =
   | "scroll-text"
   | "setup-wizard"
   | "trace"
-  | "span-details";
+  | "span-details"
+  | "env";
 
 export type LifecycleKind = "start" | "stop" | "restart";
 

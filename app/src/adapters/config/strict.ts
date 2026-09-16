@@ -73,6 +73,12 @@ function allowArbitraryKeys(path: string): boolean {
   if (path.endsWith(".environment") || path.endsWith(".defaults") || path.endsWith(".keymap")) {
     return true;
   }
+  if (path.endsWith(".environments")) {
+    return true;
+  }
+  if (/\.environments\.[^.]+$/.test(path)) {
+    return true;
+  }
   if (path.endsWith(".container.ports") || path.endsWith(".container.env")) {
     return true;
   }
@@ -211,6 +217,11 @@ export function servicePathKnown(path: string): string[] {
       case "logs":
         return knownServiceLogs;
       case "environment":
+        return knownEnvStructured;
+      case "environments":
+        if (parts.length === 3) {
+          return [];
+        }
         return knownEnvStructured;
       case "proxy":
         return serviceProxyPathKnown(parts);

@@ -29,6 +29,7 @@ import type { WebListenerFactory } from "../../ports/web-host.ts";
 import { configSnapshotDiff } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
 import { implicitServiceDependencies, recipesNeededForEnv } from "../../domain/http/recipes.ts";
+import { effectiveServiceEnv, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { FileSystem } from "../../ports/filesystem.ts";
 import { DevctlError, KindGeneral, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../../shared/errors.ts";
@@ -294,6 +295,8 @@ export class Supervisor {
   private get clientEnv(): Map<string, Record<string, string>> { return this.env.clientEnv; }
   private get serviceProfile(): Map<string, string> { return this.env.serviceProfile; }
   private get serviceProfileEnv(): Map<string, Record<string, string>> { return this.env.serviceProfileEnv; }
+  private get serviceEnv(): Map<string, string> { return this.env.serviceEnv; }
+  private get serviceStartedEnv(): Map<string, string> { return this.env.serviceStartedEnv; }
 
   private snapshotHost(): SnapshotHost {
     const self = this;
@@ -304,6 +307,8 @@ export class Supervisor {
       get runtimes() { return self.runtimes; },
       get ports() { return self.ports; },
       get serviceProfile() { return self.serviceProfile; },
+      get serviceEnv() { return self.serviceEnv; },
+      get serviceStartedEnv() { return self.serviceStartedEnv; },
       get clientEnv() { return self.clientEnv; },
       get proxy() { return self.proxy.instance; },
       get mcp() { return self.mcp.instance; },
@@ -385,6 +390,8 @@ export class Supervisor {
       get processMeta() { return self.processMeta; },
       get serviceProfile() { return self.serviceProfile; },
       get serviceProfileEnv() { return self.serviceProfileEnv; },
+      get serviceEnv() { return self.serviceEnv; },
+      get serviceStartedEnv() { return self.serviceStartedEnv; },
       get orchestrator() { return self.orchestrator; },
       get procs() { return self.procs; },
       logs: { append: (event) => self.logs.append(event) },
@@ -549,6 +556,8 @@ export class Supervisor {
       }
       case "reload":
         return this.commands.reloadConfig.execute();
+      case "set_service_env":
+        return this.commands.setServiceEnvironment.execute(typeof rec.service === "string" ? rec.service : "", typeof rec.name === "string" ? rec.name : "");
       case "config_snapshot":
         // Local RPC only — never exposed through MCP. Returns the last-
         // known-good in-memory config with real values intact (not
@@ -619,6 +628,12 @@ export class Supervisor {
       },
       get serviceProfileEnv() {
         return self.serviceProfileEnv;
+      },
+      get serviceEnv() {
+        return self.serviceEnv;
+      },
+      get serviceStartedEnv() {
+        return self.serviceStartedEnv;
       },
       healthCheckers: {
         lookup: (type) => {
@@ -700,7 +715,7 @@ export class Supervisor {
     if (!svc) throw newError(KindServiceNotFound, `unknown service ${service}`);
     const profile = this.env.serviceProfile.get(service) ?? this.env.profile;
     const profileEnv = profile !== "" ? profileEnvironment(this.cfg, profile) : this.env.profileEnv;
-    for (const recipeName of recipesNeededForEnv(this.cfg, svc.environment, profileEnv)) {
+    for (const recipeName of recipesNeededForEnv(this.cfg, effectiveServiceEnv(svc, this.env.serviceEnv.get(service)), profileEnv)) {
       await this.recipes.ensure(recipeName);
     }
     const { env, workDir } = await this.env.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv, !svc.container);
@@ -807,6 +822,7 @@ export class Supervisor {
         return this.commands.runDoctor.execute(this.cfg);
       },
       exec: (service, command, printEnv) => this.execService(service, command, undefined, printEnv),
+      setServiceEnvironment: (service, name) => this.commands.setServiceEnvironment.execute(service, name),
       runTask: (name) => this.runTask(name, {}),
       startProxy: () => this.startProxy(),
       stopProxy: () => this.stopProxy(),
@@ -1039,14 +1055,41 @@ export class Supervisor {
         startTime: (meta?.startTime ?? handle.startTime).toISOString(),
         ports: this.ports.get(handle.name) ?? {},
         profile: this.serviceProfile.get(handle.name) ?? this.profile,
+        env: this.serviceStartedEnv.get(handle.name) ?? this.serviceEnv.get(handle.name),
       });
+    }
+    const service_environments: Record<string, string> = {};
+    for (const [name, envName] of this.serviceEnv) {
+      if (envName !== "") {
+        service_environments[name] = envName;
+      }
     }
     writePersistedState(this.cfg.repoRoot, {
       session_id: this.sessionID,
       repo_root: this.cfg.repoRoot,
       profile: this.profile,
       processes,
+      service_environments,
     });
+  }
+
+  setServiceEnvironment(service: string, name: string): { service: string; env: string } {
+    const svc = this.cfg.services[service];
+    if (!svc) {
+      throw newError(KindServiceNotFound, `unknown service "${service}"`);
+    }
+    if (!serviceHasNamedEnvironments(svc)) {
+      throw newError(KindGeneral, `service "${service}" has no named environments`);
+    }
+    const resolved = resolveEnvironmentName(svc, name);
+    if (name !== "" && resolved !== name) {
+      throw newError(KindGeneral, `unknown environment "${name}" on service "${service}" (have ${namedEnvironmentNames(svc).join(", ")})`);
+    }
+    this.serviceEnv.set(service, resolved);
+    this.persistState();
+    this.bus.publish(newEvent("ServiceEnvironmentChanged", service, { env: resolved }));
+    this.log(service, "INFO", `environment set to ${resolved}`);
+    return { service, env: resolved };
   }
 }
 

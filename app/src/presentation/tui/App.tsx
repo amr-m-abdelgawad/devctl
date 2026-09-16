@@ -6,6 +6,7 @@ import type { DevctlConfig } from "../../domain/config/types.ts";
 import type { LogEvent } from "../../domain/logs/logs.ts";
 import type { TraceResponse } from "../../domain/status.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
+import { serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
 import { Header, NavStrip, NoticeBar, StatusBar } from "./chrome.tsx";
@@ -15,7 +16,7 @@ import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
-import { defaultProfileName, type ServiceEnvEntry } from "./helpers/services.ts";
+import { defaultProfileName, serviceEnvOptions, type ServiceEnvEntry } from "./helpers/services.ts";
 import { clampTraceSpanIndex, orderTraceRows } from "./helpers/traces.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
 import { useCommandDispatcher } from "./hooks/use-command-dispatcher.ts";
@@ -32,6 +33,7 @@ import { useSetupWizard } from "./hooks/use-setup-wizard.ts";
 import { useServiceEnvironment } from "./hooks/use-service-environment.ts";
 import { ConfigEditOverlay } from "./overlays/ConfigEdit.tsx";
 import { ConfirmOverlay } from "./overlays/Confirm.tsx";
+import { EnvOverlay } from "./overlays/Env.tsx";
 import { HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
@@ -123,6 +125,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const planScrollRef = useRef<ScrollBoxRenderable>(null);
   const lastExportPath = useRef("");
   const [confirmKind, setConfirmKind] = useState<ConfirmKind>("quit");
+  const [envIndex, setEnvIndex] = useState(0);
+  const [envPickerService, setEnvPickerService] = useState("");
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
 
@@ -269,7 +273,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const cursorState = screen === "logs" ? (splitLogs && splitFocus === 1 ? logSelectedB : logSelected) : selected;
   const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
   const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
-  const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService });
+  const inspectorEnvName = snap?.services[envService]?.env ?? "";
+  const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService, envName: inspectorEnvName });
   const traceRows = useMemo(() => (traceDetail ? orderTraceRows(traceDetail.tree) : []), [traceDetail]);
   const activeTraceSpan = traceRows[clampTraceSpanIndex(traceSpanIndex, traceRows.length)]?.span;
   const closeOverlay = useCallback(() => {
@@ -309,6 +314,57 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     setDetailName(name);
     setScreen("detail");
   }, []);
+
+  const focusedServiceName = screen === "detail" ? detailName : (names[listCursor] ?? "");
+  const envOptions = useMemo(() => {
+    const svc = cfg?.services[envPickerService];
+    if (!svc) {
+      return [];
+    }
+    return serviceEnvOptions(svc, snap?.services[envPickerService]);
+  }, [cfg, envPickerService, snap]);
+
+  const applyEnv = useCallback((service: string, name: string) => {
+    if (!controller) {
+      setStatus("no daemon attached");
+      return;
+    }
+    if (service === "") {
+      setStatus("pick a service first");
+      return;
+    }
+    void controller.setServiceEnvironment(service, name).then(async (result) => {
+      closeOverlay();
+      const next = await refresh();
+      const rt = next?.services[service];
+      const note = rt?.pid && rt.started_env !== result.env ? " · restart to apply" : "";
+      setStatus(`${result.service}: ${result.env}${note}`);
+    }).catch((err: unknown) => {
+      setStatus(humanMessage(err));
+    });
+  }, [closeOverlay, controller, refresh]);
+
+  const openEnvPicker = useCallback((service?: string) => {
+    const target = service && service !== "" ? service : focusedServiceName;
+    if (target === "") {
+      setStatus("pick a service first");
+      return;
+    }
+    const svc = cfg?.services[target];
+    if (!svc) {
+      setStatus(`unknown service ${target}`);
+      return;
+    }
+    if (!serviceHasNamedEnvironments(svc)) {
+      setStatus(`${target} has no named environments`);
+      return;
+    }
+    const options = serviceEnvOptions(svc, snap?.services[target]);
+    const current = options.findIndex((option) => option.current);
+    setEnvPickerService(target);
+    setEnvIndex(Math.max(0, current));
+    setOverlay("env");
+  }, [cfg, focusedServiceName, snap]);
 
   const openTrace = useCallback((traceId: string) => {
     if (traceId === "" || !controller) {
@@ -408,6 +464,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     profile,
     setReveal,
     resolveEnvironment,
+    openEnvPicker,
+    applyEnv,
     openDetail,
     copySelection,
     lastExportPath,
@@ -530,6 +588,11 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setChecked,
       setConfigEditError,
       freePort,
+      openEnvPicker,
+      envOptions,
+      envIndex,
+      setEnvIndex,
+      applyEnv: (name: string) => applyEnv(envPickerService, name),
     },
     logView,
     lifecycleActions,
@@ -827,6 +890,18 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           onIndex={setPaletteIndex}
           onPreview={setThemeName}
           onPick={applyTheme}
+        />
+      ) : null}
+      {overlay === "env" ? (
+        <EnvOverlay
+          palette={palette}
+          service={envPickerService}
+          options={envOptions}
+          selected={envIndex}
+          termW={width}
+          termH={height}
+          onIndex={setEnvIndex}
+          onPick={(name) => applyEnv(envPickerService, name)}
         />
       ) : null}
       {overlay === "help" ? (

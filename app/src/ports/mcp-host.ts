@@ -17,6 +17,7 @@ export type McpHost = {
   reload(): Promise<ReloadResult>;
   doctor(): Promise<Report>;
   exec?(service: string, command: string[], printEnv?: boolean): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }>;
+  setServiceEnvironment?(service: string, name: string): { service: string; env: string };
   runTask(name: string): Promise<{ task: string; code: number; stdout: string; stderr: string }>;
   startProxy(): Promise<void>;
   stopProxy(): Promise<void>;

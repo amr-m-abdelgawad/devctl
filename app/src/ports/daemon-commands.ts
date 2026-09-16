@@ -10,6 +10,7 @@ export type DaemonCommandHost = Pick<ServiceOrchestratorPort, "start" | "stop" |
   startProxy(): Promise<void>;
   stopProxy(): Promise<void>;
   refreshIdentity(opts?: { probeServiceAccounts?: boolean }): Promise<void>;
+  setServiceEnvironment(service: string, name: string): { service: string; env: string };
 };
 
 export type DaemonCommands = {
@@ -22,4 +23,5 @@ export type DaemonCommands = {
   refreshIdentity: { execute(): Promise<void> };
   getServiceStatus: { execute(): StatusSnapshot };
   runDoctor: { execute(cfg: DevctlConfig): Promise<Report> };
+  setServiceEnvironment: { execute(service: string, name: string): { service: string; env: string } };
 };

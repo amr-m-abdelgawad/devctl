@@ -87,6 +87,11 @@ describe("slash commands", () => {
     expect(lookupCommand("/agent")?.name).toBe("mcp");
   });
 
+  test("env is a first-class command", () => {
+    expect(lookupCommand("/env")?.name).toBe("env");
+    expect(leaderAction("e")).toBe("env");
+  });
+
   test("run and exec are first-class commands", () => {
     expect(lookupCommand("/run")?.name).toBe("run");
     expect(lookupCommand("/task")?.name).toBe("run");

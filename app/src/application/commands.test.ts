@@ -45,6 +45,17 @@ test("profile commands preserve wire fields and resolve branded active/default p
   expect(() => resolve.execute(cfg, { profile: profileId("missing") })).toThrow('unknown profile "missing"');
 });
 
+test("setServiceEnvironment forwards a branded service name", async () => {
+  const { SetServiceEnvironment } = await import("./commands.ts");
+  const seen: Array<{ service: string; name: string }> = [];
+  const command = new SetServiceEnvironment((service, name) => {
+    seen.push({ service, name });
+    return { service, env: name };
+  });
+  expect(command.execute("api", "deployed")).toEqual({ service: "api", env: "deployed" });
+  expect(seen).toEqual([{ service: "api", name: "deployed" }]);
+});
+
 // Kept uncalled: TypeScript must reject unbranded names at these inner boundaries.
 function profileBoundaryTypes(start: import("./commands.ts").StartProfile, resolve: import("./commands.ts").ResolveStart) {
   // @ts-expect-error Raw transport/UI strings must be converted at entry.

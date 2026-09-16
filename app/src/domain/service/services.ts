@@ -48,6 +48,12 @@ export type Runtime = {
   // resolved environment values themselves, which may hold secrets.
   profile: string;
   env_source: "client" | "daemon";
+  // Selected named environment overlay (`services.<name>.environments.<env>`).
+  // Empty when the service has no named environments. `started_env` is the
+  // overlay used at last spawn; when it differs from `env` a running process
+  // still has the previous overlay until restart.
+  env: string;
+  started_env: string;
   // Set when this service was removed from configuration (by a reload)
   // while still running. Its dependency graph is gone along with its
   // config entry, so it can only be stopped directly, never cascaded to or
@@ -80,6 +86,8 @@ export function emptyRuntime(name: string): Runtime {
     memoryKB: undefined,
     profile: "",
     env_source: "daemon",
+    env: "",
+    started_env: "",
     orphaned: false,
   };
 }

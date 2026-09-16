@@ -6,6 +6,7 @@ import { Detector } from "../../shared/redaction.ts";
 import { formatBodySummary, redactLogRecord, redactSpan, type LogRecord } from "../../domain/logs/logs.ts";
 import { redactLlmCall, stripLlmBodies, type LlmCall } from "../../domain/llm/llm.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
+import { effectiveServiceEnv, namedEnvironmentNames, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
@@ -275,6 +276,25 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     },
   },
   {
+    name: "set_service_environment",
+    label: "Set service env",
+    summary: "Switch a service's named environment overlay",
+    category: "control",
+    mutates: true,
+    description:
+      "Select a named environment overlay on one service (services.<name>.environments.<env>). Other services are unchanged. The next start, restart, exec, or print-env uses that overlay. Does not restart a running process unless restart is true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        name: { type: "string", description: "Named environment to select" },
+        restart: { type: "boolean", description: "Restart the service so the new overlay takes effect immediately" },
+      },
+      required: ["service", "name"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "reload_config",
     label: "Reload config",
     summary: "Re-read .devctl configuration",
@@ -435,14 +455,32 @@ export function detectorFor(cfg: DevctlConfig): Detector {
 }
 
 export function listServices(snap: StatusSnapshot): unknown {
-  return Object.values(snap.services).map((rt) => ({
-    name: rt.name,
-    state: rt.state,
-    health: rt.health,
-    ports: rt.ports,
-    pid: rt.pid,
-    last_error: rt.last_error,
-  }));
+  return Object.values(snap.services).map((rt) => {
+    const row: {
+      name: string;
+      state: string;
+      health: string;
+      ports: Record<string, number>;
+      pid: number;
+      last_error: string;
+      env?: string;
+      started_env?: string;
+    } = {
+      name: rt.name,
+      state: rt.state,
+      health: rt.health,
+      ports: rt.ports,
+      pid: rt.pid,
+      last_error: rt.last_error,
+    };
+    if (rt.env) {
+      row.env = rt.env;
+    }
+    if (rt.started_env) {
+      row.started_env = rt.started_env;
+    }
+    return row;
+  });
 }
 
 export function getService(host: McpHost, name: string): unknown {
@@ -454,6 +492,11 @@ export function getService(host: McpHost, name: string): unknown {
   const snap = host.status();
   const rt = snap.services[name];
   const detector = detectorFor(cfg);
+  const envName = rt?.env ?? "";
+  const effective = effectiveServiceEnv(svc, envName);
+  const named = Object.fromEntries(
+    namedEnvironmentNames(svc).map((name) => [name, detector.redactMap({ ...svc.environments[name]?.defaults, ...svc.environments[name]?.vars })]),
+  );
   return {
     name,
     state: rt?.state,
@@ -463,7 +506,10 @@ export function getService(host: McpHost, name: string): unknown {
     command: svc.command.args,
     cwd: svc.working_dir,
     ports: rt?.ports ?? Object.fromEntries(svc.ports.map((port) => [port.name, port.value])),
-    environment: detector.redactMap({ ...svc.environment.defaults, ...svc.environment.vars }),
+    env: envName || undefined,
+    started_env: rt?.started_env || undefined,
+    environments: serviceHasNamedEnvironments(svc) ? named : undefined,
+    environment: detector.redactMap({ ...effective.defaults, ...effective.vars }),
     container: svc.container ? { ...svc.container, env: detector.redactMap(svc.container.env) } : undefined,
   };
 }
@@ -838,6 +884,22 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
     case "restart_services":
       await host.restart(stringList(args.services), args.cascade === true);
       return { ok: true };
+    case "set_service_environment": {
+      if (typeof args.service !== "string" || args.service === "") {
+        throw new Error("service is required");
+      }
+      if (typeof args.name !== "string" || args.name === "") {
+        throw new Error("name is required");
+      }
+      if (!host.setServiceEnvironment) {
+        throw new Error("setServiceEnvironment is unavailable");
+      }
+      const result = host.setServiceEnvironment(args.service, args.name);
+      if (args.restart === true) {
+        await host.restart([args.service]);
+      }
+      return { ...result, restarted: args.restart === true };
+    }
     case "reload_config":
       return host.reload();
     case "run_task": {

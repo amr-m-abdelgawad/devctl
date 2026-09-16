@@ -17,7 +17,8 @@ complete allowlists.
 `environment` `telemetry` `web` `llm`
 
 **Service** (and `templates.<name>`, same shape): `extends` `description`
-`command` `shell` `working_dir` `dependencies` `ports` `environment` `health`
+`command` `shell` `working_dir` `dependencies` `ports` `environment`
+`environments` `default_environment` `health`
 `identity` `logs` `restart` `startup` `capabilities` `proxy` `expose` `container` `watch` `hooks`
 
 | Section | Allowed keys |
@@ -35,6 +36,7 @@ complete allowlists.
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
 | `service.logs` | `stdout` `stderr` |
 | `service.environment` | `required` `defaults` + arbitrary `KEY: value` pairs |
+| `service.environments.<name>` | same shape as `service.environment` |
 | `service.expose` | `enabled` `host` `port` (or the `true` shorthand) |
 | `proxy` | `enabled` `gateway` `credentials` `listen` `token_endpoint` `routes` |
 | `proxy.listen` | `host` `port` |
@@ -112,8 +114,9 @@ are the supported forms in service/task/profile env. Anything else —
   validation fails with *unresolvable reference*.
 - `${http.<name>.<output>}` must name a defined recipe and output (or a
   reserved output). Named outputs must not use the reserved names.
-- References resolve inside service `environment` values, `defaults`, profile
-  environments and dotenv values, before the process starts.
+- References resolve inside service `environment` values, `defaults`, named
+  `environments.<name>` overlays, profile environments and dotenv values,
+  before the process starts.
 - Use them for every cross-service URL. Hard-coded ports silently break when a
   port changes or is switched to `auto`.
 
@@ -122,6 +125,20 @@ exception: they also expand `${token}` (the token minted for that recipe's
 `auth` block), `${NAME}`, and `${env.NAME}` from the supervisor process
 environment at fetch time. `${token}` requires `request.auth.type` `iap` or
 `service_account`. Service env still rejects `${env.NAME}` and `${token}`.
+
+## Named service environments
+
+`services.<name>.environments` is a map of extra `EnvConfig` overlays (same
+shape as `environment`: `required`, `defaults`, plus `KEY: value`). They merge
+onto the service's base `environment`; overlay keys win. This is **not** a
+start profile — each service is switched independently.
+
+- `default_environment` must name a key in `environments` when set. If it is
+  omitted, the first name alphabetically is the default.
+- Empty overlay names are rejected.
+- Overlay values are validated for references the same way as base
+  `environment`.
+- Selection is session state, not YAML. Switching does not rewrite the file.
 
 ## Dependencies
 

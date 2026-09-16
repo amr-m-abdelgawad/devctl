@@ -37,7 +37,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
     toggleChecked, createStarterConfig: _createStarterConfig, startWizard, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
-    runCommand,
+    runCommand, openEnvPicker,
   } = ctx;
 
   const onLogFilters = (screen === "logs" || screen === "dashboard") && !logSearchFocused;
@@ -61,6 +61,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   if ((screen === "dashboard" || screen === "services") && (name === "-" || name === "_" || name === "minus")) {
     setChecked([]);
     setStatus("Selection cleared");
+    return;
+  }
+  if ((screen === "dashboard" || screen === "services" || screen === "detail") && name === "e") {
+    openEnvPicker();
     return;
   }
   if ((screen === "dashboard" || screen === "services") && name === "n") {

@@ -99,6 +99,7 @@ function stubHost(): McpHost {
     runTask: async (name) => ({ task: name, code: 0, stdout: `ran ${name} Bearer secret-token`, stderr: "" }),
     startProxy: async () => undefined,
     stopProxy: async () => undefined,
+    setServiceEnvironment: (service, name) => ({ service, env: name }),
   };
 }
 
@@ -149,6 +150,7 @@ describe("mcp tools", () => {
 
   test("web control allows mutating tools except exec", () => {
     expect(isWebControlTool("start_services")).toBe(true);
+    expect(isWebControlTool("set_service_environment")).toBe(true);
     expect(isWebControlTool("stop_proxy")).toBe(true);
     expect(isWebControlTool("list_services")).toBe(false);
     expect(isWebControlTool("exec_service")).toBe(false);
@@ -196,6 +198,17 @@ describe("mcp tools", () => {
     expect(listed).toEqual([
       { name: "api", state: StateRunning, health: HealthHealthy, ports: { http: 9000 }, pid: 42, last_error: "" },
     ]);
+  });
+
+  test("set_service_environment switches one service and can restart it", async () => {
+    const host = stubHost();
+    const svc = host.config().services.api!;
+    svc.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    const result = (await callMcpTool(host, "set_service_environment", { service: "api", name: "deployed", restart: true })) as { service: string; env: string; restarted: boolean };
+    expect(result).toEqual({ service: "api", env: "deployed", restarted: true });
   });
 
   test("get_service redacts secret env", async () => {

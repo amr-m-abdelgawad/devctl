@@ -123,6 +123,11 @@ export type ServiceConfig = {
   dependencies: Dependency[];
   ports: PortSpec[];
   environment: EnvConfig;
+  // Named env overlays the operator can switch per service (local vs deployed, …).
+  // Each value has the same shape as `environment`. The selected name is session
+  // state, not this snapshot; `default_environment` is the YAML default.
+  environments: Record<string, EnvConfig>;
+  default_environment: string;
   health: HealthCheckConfig;
   identity: IdentityConfig;
   logs: ServiceLogConfig;
@@ -597,6 +602,8 @@ export function emptyService(): ServiceConfig {
     dependencies: [],
     ports: [],
     environment: emptyEnv(),
+    environments: {},
+    default_environment: "",
     health: emptyHealth(),
     identity: emptyIdentity(),
     logs: { stdout: false, stderr: false },
