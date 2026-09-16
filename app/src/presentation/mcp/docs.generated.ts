@@ -1100,8 +1100,6 @@ function resetPreview() {
   if (!previewElement) return
   previewElement.style.removeProperty('--pointer-x')
   previewElement.style.removeProperty('--pointer-y')
-  previewElement.style.removeProperty('--tilt-x')
-  previewElement.style.removeProperty('--tilt-y')
   previewElement.removeAttribute('data-pointer')
 }
 
@@ -1116,8 +1114,6 @@ function followPointer(event) {
     const y = Math.max(0, Math.min(1, (clientY - bounds.top) / bounds.height))
     previewElement.style.setProperty('--pointer-x', \`\${x * 100}%\`)
     previewElement.style.setProperty('--pointer-y', \`\${y * 100}%\`)
-    previewElement.style.setProperty('--tilt-x', \`\${(0.5 - y) * 1.2}deg\`)
-    previewElement.style.setProperty('--tilt-y', \`\${(x - 0.5) * 1.2}deg\`)
     previewElement.setAttribute('data-pointer', '')
   })
 }
@@ -1184,6 +1180,11 @@ async function copyInstall() {
 
 <div ref="landingRoot" class="landing vp-raw">
   <section class="landing-hero" aria-labelledby="hero-title">
+    <div class="hero-atmosphere" aria-hidden="true">
+      <div class="atmosphere-grid"></div>
+      <div class="atmosphere-orbit atmosphere-orbit-one"></div>
+      <div class="atmosphere-orbit atmosphere-orbit-two"></div>
+    </div>
     <div class="hero-copy">
       <p class="eyebrow"><span class="status-dot"></span> THE LOCAL DEVELOPMENT ORCHESTRATOR</p>
       <h1 id="hero-title">More building.<br>Less <span>tab juggling.</span></h1>
