@@ -1,6 +1,8 @@
 import { ArrowClockwiseIcon, ArrowsClockwiseIcon, PlayIcon, StopIcon } from "../icons.ts";
 import { cn } from "../lib/utils.ts";
-import type { ProfileRow, TaskRow } from "../types.ts";
+import { envNeedsRestart, isLiveState, type RunControl } from "../control.ts";
+import type { ProfileRow, ServiceRow, TaskRow } from "../types.ts";
+import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 
 export function ActionButtons(props: {
@@ -25,6 +27,58 @@ export function ActionButtons(props: {
         <ArrowsClockwiseIcon />
         Restart
       </Button>
+    </div>
+  );
+}
+
+export function EnvSelect(props: {
+  row: Pick<ServiceRow, "name" | "state" | "env" | "started_env" | "environments">;
+  busy: boolean;
+  onControl: RunControl;
+}) {
+  const { row, busy, onControl } = props;
+  const names = [...(row.environments ?? [])];
+  if (row.env && !names.includes(row.env)) {
+    names.unshift(row.env);
+  }
+  if (names.length === 0) {
+    return <span className="text-[11px] text-muted-foreground">—</span>;
+  }
+  const selected = (row.env && names.includes(row.env) ? row.env : names[0]) ?? "";
+  const pending = envNeedsRestart({ ...row, env: selected });
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <select
+        className="h-7 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+        value={selected}
+        disabled={busy}
+        aria-label={`Environment for ${row.name}`}
+        onChange={(event) => {
+          const name = event.target.value;
+          if (name === "" || name === row.env) {
+            return;
+          }
+          onControl("set_service_environment", { service: row.name, name }, `Switching ${row.name} to ${name}…`);
+        }}
+      >
+        {names.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </select>
+      {pending ? (
+        <>
+          <Badge variant="warning">pending</Badge>
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            disabled={busy || !isLiveState(row.state)}
+            onClick={() => onControl("restart_services", { services: [row.name] }, `Restarting ${row.name}…`)}
+          >
+            Restart
+          </Button>
+        </>
+      ) : null}
     </div>
   );
 }

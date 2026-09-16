@@ -91,6 +91,8 @@ The same trace in the TUI: a ◎ marker on a log row opens a full-width waterfal
 
 A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
 TUI (`start` / `stop` / `restart` / profile start / proxy / reload / run task).
+Overview and Graph also switch a service's named environment overlay (`set_service_environment`)
+without restarting; a pending overlay shows a Restart button so you can apply it.
 It is off until you enable it. It binds loopback only (no CORS). The Host
 allowlist accepts loopback names (`127.0.0.0/8`, `localhost`, `::1`, including
 `[::1]`, a missing or remapped port, and `https://localhost`) so WSL, Dev

@@ -167,9 +167,9 @@ function selectedEnvName(host: SnapshotHost, name: string): string {
 }
 
 export function formatStatusFromSnapshot(snap: StatusSnapshot): string {
-  const lines = [`PROFILE: ${snap.profile || "(none)"}`, "", "SERVICE\tSTATUS\tHEALTH\tPID"];
+  const lines = [`PROFILE: ${snap.profile || "(none)"}`, "", "SERVICE\tSTATUS\tHEALTH\tENV\tPID"];
   for (const [name, rt] of Object.entries(snap.services)) {
-    lines.push(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.pid}`);
+    lines.push(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.env || ""}\t${rt.pid}`);
   }
   lines.push("", `PROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}`);
   lines.push(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}`);

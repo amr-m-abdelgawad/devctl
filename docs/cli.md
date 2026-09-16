@@ -54,7 +54,7 @@ devctl update [--json] [--check]
 - `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
 - `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
-- `status` also prints proxy, MCP, and WEB listen lines when a supervisor is up.
+- `status` also prints proxy, MCP, and WEB listen lines when a supervisor is up. Each service row includes `ENV` (the selected named overlay, empty when the service has none).
 - `status --watch` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (`ctrl+c`).
 - `logs -f` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. `--request-id` filters by `X-Devctl-Request-ID`; `--trace` prints the span tree plus correlated logs.
 - `devctl llm` lists recent LLM calls from configured `llm.sources` (LiteLLM spend logs first). `--caller` filters by originating service. `--follow` polls until interrupted. `devctl llm show <id>` prints one call including redacted bodies. See [LLM inspector](llm.md).

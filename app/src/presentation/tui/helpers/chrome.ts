@@ -145,6 +145,14 @@ export function statusChipTone(status: string): StatusTone {
 }
 
 export function confirmCopy(kind: ConfirmKind, profile: string, detail?: ConfirmDetail): { title: string; body: string } {
+  if (kind === "env-restart") {
+    const named = detail?.services?.[0] || "service";
+    const envName = detail?.env || "overlay";
+    return {
+      title: "Apply environment?",
+      body: `${named} is running. Enter selects ${envName} for the next start. Press r to switch and restart now.`,
+    };
+  }
   if (kind === "restart-cascade") {
     const named = detail?.services?.join(", ") || "selected services";
     return {
@@ -198,6 +206,13 @@ export function confirmHints(kind: ConfirmKind): FooterHint[] {
     return [
       { key: "enter", label: "named only" },
       { key: "c", label: "cascade" },
+      { key: "esc", label: "stay" },
+    ];
+  }
+  if (kind === "env-restart") {
+    return [
+      { key: "enter", label: "switch" },
+      { key: "r", label: "restart" },
       { key: "esc", label: "stay" },
     ];
   }

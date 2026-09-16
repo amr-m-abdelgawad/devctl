@@ -52,9 +52,9 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
   {
     name: "list_services",
     label: "List services",
-    summary: "Name, state, health, ports, pid",
+    summary: "Name, state, health, ports, pid, env",
     category: "inspect",
-    description: "List services with state, health, ports, pid, and last error",
+    description: "List services with state, health, ports, pid, selected env, named overlays, and last error",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -454,8 +454,10 @@ export function detectorFor(cfg: DevctlConfig): Detector {
   return new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
 }
 
-export function listServices(snap: StatusSnapshot): unknown {
+export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown {
   return Object.values(snap.services).map((rt) => {
+    const svc = cfg?.services[rt.name];
+    const overlayNames = svc ? namedEnvironmentNames(svc) : [];
     const row: {
       name: string;
       state: string;
@@ -465,6 +467,7 @@ export function listServices(snap: StatusSnapshot): unknown {
       last_error: string;
       env?: string;
       started_env?: string;
+      environments?: string[];
     } = {
       name: rt.name,
       state: rt.state,
@@ -478,6 +481,9 @@ export function listServices(snap: StatusSnapshot): unknown {
     }
     if (rt.started_env) {
       row.started_env = rt.started_env;
+    }
+    if (overlayNames.length > 0) {
+      row.environments = overlayNames;
     }
     return row;
   });
@@ -843,7 +849,7 @@ function stringList(value: unknown): string[] {
 export async function callMcpTool(host: McpHost, name: string, args: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case "list_services":
-      return listServices(host.status());
+      return listServices(host.status(), host.config());
     case "get_service":
       if (typeof args.name !== "string" || args.name === "") {
         throw new Error("name is required");
@@ -989,7 +995,7 @@ export async function readMcpResource(host: McpHost, uri: string): Promise<unkno
     case "devctl://status":
       return getStatusSummary(host.status());
     case "devctl://services":
-      return listServices(host.status());
+      return listServices(host.status(), host.config());
     case "devctl://logs":
       return getLogs(host, {});
     case "devctl://config":

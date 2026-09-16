@@ -163,7 +163,7 @@ export class WebHttpServer {
       return;
     }
     if (path === "/api/services") {
-      writeJson(res, 200, listServices(host.status()));
+      writeJson(res, 200, listServices(host.status(), host.config()));
       return;
     }
     if (path === "/api/requests") {

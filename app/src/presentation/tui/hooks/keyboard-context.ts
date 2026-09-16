@@ -78,6 +78,7 @@ export type KeyboardUi = {
   envIndex: number;
   setEnvIndex: Dispatch<SetStateAction<number>>;
   applyEnv: (name: string) => void;
+  applyServiceEnv: (service: string, name: string, opts?: { restart?: boolean; confirmed?: boolean }) => void;
 };
 
 export type KeyboardRefs = {
@@ -96,7 +97,7 @@ export type KeyboardRefs = {
 
 export type OverlayKeyCtx = KeyboardUi & {
   tui: TuiConfig;
-  confirmAction: (mode?: "cascade") => void;
+  confirmAction: (mode?: "cascade" | "restart") => void;
   planBusy: boolean;
   leaderTimer: MutableRefObject<ReturnType<typeof setTimeout> | undefined>;
   logDetailsScrollRef: MutableRefObject<ScrollBoxRenderable | null>;

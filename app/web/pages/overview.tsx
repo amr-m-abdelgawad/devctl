@@ -4,7 +4,7 @@ import { isLiveState, type RunControl } from "../control.ts";
 import { relative } from "../format.ts";
 import { serviceColor } from "../palette.ts";
 import { RequestTable } from "../components/tables.tsx";
-import { ActionButtons, FleetBar } from "../components/controls.tsx";
+import { ActionButtons, EnvSelect, FleetBar } from "../components/controls.tsx";
 import { Empty, Kpi } from "../components/primitives.tsx";
 import { StatusBadge } from "../components/status.tsx";
 import { Badge } from "../components/ui/badge.tsx";
@@ -136,6 +136,7 @@ export function OverviewPage(props: {
                     </TableHead>
                     <TableHead>Name</TableHead>
                     <TableHead>State</TableHead>
+                    <TableHead>Env</TableHead>
                     <TableHead>Health</TableHead>
                     <TableHead>PID</TableHead>
                     <TableHead>Ports</TableHead>
@@ -161,6 +162,9 @@ export function OverviewPage(props: {
                         </span>
                       </TableCell>
                       <TableCell><StatusBadge value={row.state} /></TableCell>
+                      <TableCell>
+                        <EnvSelect row={row} busy={busy} onControl={onControl} />
+                      </TableCell>
                       <TableCell><StatusBadge value={row.health || "unknown"} /></TableCell>
                       <TableCell className="font-mono tabular-nums text-muted-foreground">{row.pid || "—"}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
