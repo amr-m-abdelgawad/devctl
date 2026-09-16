@@ -56,6 +56,10 @@ The CLI is the same controller over the same socket. Use it for scripts, CI, and
 
 Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable HTTP** server on the supervisor. Default off. See [MCP](mcp.md).
 
+## Web
+
+An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. `devctl web start` prints a URL with a per-bind token; `devctl status` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
+
 ## Configuration vs preferences
 
 | What | Where |
@@ -89,3 +93,4 @@ Local-only services (the [demo platform](../examples/demo-platform/README.md)) r
 - [CLI](cli.md)
 - [MCP](mcp.md)
 - [LLM inspector](llm.md)
+- [Telemetry](telemetry.md)

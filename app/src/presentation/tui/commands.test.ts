@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs, parseNotifyArgs, parseRestartArgs } from "./commands.ts";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { allCommands, commandArgs, commandSearchToken, filterCommands, leaderAction, lookupCommand, parseExecArgs, parseNotifyArgs, parseRestartArgs } from "./commands.ts";
 
 describe("slash commands", () => {
   test("resolves aliases like /q /quit /exit", () => {
@@ -106,6 +108,24 @@ describe("slash commands", () => {
     expect(lookupCommand("/provenance")?.name).toBe("diff");
     expect(lookupCommand("/split")?.name).toBe("split");
     expect(lookupCommand("/trace")?.name).toBe("trace");
+  });
+
+  test("docs/tui.md lists every slash command with its overlay description", () => {
+    const repoRoot = dirname(dirname(dirname(dirname(import.meta.dir))));
+    const docs = readFileSync(join(repoRoot, "docs/tui.md"), "utf8");
+    const slashSection = docs.split("## Slash commands")[1]?.split("## Leader key")[0] ?? "";
+    expect(slashSection.length).toBeGreaterThan(0);
+    for (const cmd of allCommands()) {
+      expect(slashSection).toContain(`/${cmd.name}`);
+      expect(slashSection).toContain(cmd.desc);
+      for (const alias of cmd.aliases) {
+        expect(slashSection).toContain(`/${alias}`);
+      }
+      for (const suggestion of cmd.suggest ?? []) {
+        expect(slashSection).toContain(suggestion.token);
+        expect(slashSection).toContain(suggestion.desc);
+      }
+    }
   });
 });
 

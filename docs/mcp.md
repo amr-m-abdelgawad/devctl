@@ -84,8 +84,8 @@ so agents must be given the new snippets.
 | `get_logs` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
 | `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |
 | `trace_request` | logs | Resolve a proxy `X-Devctl-Request-ID` to its trace, then return the span tree and correlated logs |
-| `get_requests` | logs | The proxy's recent requests — method, route, status, duration, identity, and request/trace ids |
-| `get_llm_calls` | inspect | Filtered LLM calls from configured sources, secrets redacted, bodies omitted. Includes `caller` when known. Pass `cursor` from `next_cursor` to page toward older calls |
+| `get_requests` | inspect | The proxy's recent requests — method, route, status, duration, identity, and request/trace ids |
+| `get_llm_calls` | inspect | Filtered LLM calls from configured sources, secrets redacted, bodies omitted. Includes `caller` when known. Filter with `caller` (originating service), `source`, `model`, `status`, `request_id`, `trace_id`. Pass `cursor` from `next_cursor` to page toward older calls |
 | `get_llm_call` | inspect | One LLM call by id, including redacted request/response payloads |
 | `recent_errors` | logs | The latest error and fatal log records, capped at 200, same paging as `get_logs` |
 | `list_profiles` | inspect | Config profiles and members |

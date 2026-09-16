@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- TUI docs list every slash command with the same one-line description the `/` overlay shows, grouped the way the overlay is.
+- Operator docs catch up with the product: wiki home and overview include the web console as a fourth face (not only TUI/CLI/MCP), LLM inspector is documented as LiteLLM plus proxy-capture rather than “later sources”, CLI synopses include `--request-id` and `--caller`, Logs keys are `1`–`5` (five nav tabs), and MCP `get_requests` is in the inspect group to match the tool catalog.
+
 ## [0.12.1] - 2026-09-16
 
 ### Fixed
