@@ -110,6 +110,14 @@ async function copyInstall() {
       <p class="eyebrow"><span class="status-dot"></span> THE LOCAL DEVELOPMENT ORCHESTRATOR</p>
       <h1 id="hero-title">More building.<br>Less <span>tab juggling.</span></h1>
       <p class="hero-description">Your services, logs, and local stack. Together in one terminal. Keep everything in view with devctl — from the first process to the last request.</p>
+      <div class="hero-install" aria-label="Install devctl with npm">
+        <div class="hero-install-toolbar">
+          <span class="hero-install-label"><TerminalWindow :size="14" weight="regular" /><span>QUICK INSTALL</span><span class="hero-install-npm">npm</span></span>
+          <button type="button" @click="copyInstall" :aria-label="copyLabel" :title="copyLabel"><Check v-if="copyLabel === 'Copied!'" :size="14" weight="regular" /><Copy v-else :size="14" weight="regular" /><span>{{ copyLabel === 'Copied!' ? 'Copied' : 'Copy' }}</span></button>
+        </div>
+        <div class="hero-install-line"><span class="hero-install-prompt" aria-hidden="true">$</span><code><span class="hero-install-verb">npm install</span> <span class="hero-install-flag">--global</span> @amr-m-abdelgawad/devctl</code></div>
+        <span class="hero-install-status" role="status">{{ copyLabel === 'Copy command' ? '' : copyLabel }}</span>
+      </div>
       <div class="hero-actions">
         <a class="primary-link" :href="withBase('/quickstart')">Get started <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
         <a class="text-link" href="https://github.com/amr-m-abdelgawad/devctl">Explore on GitHub <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>

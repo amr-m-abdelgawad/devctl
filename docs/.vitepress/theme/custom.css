@@ -453,3 +453,32 @@
 @media (max-width: 640px) {
   .atmosphere-grid { background-size: 48px 48px; }
 }
+
+.VPHome .landing .hero-install {
+  position: relative;
+  width: 520px;
+  max-width: 100%;
+  margin: 30px auto 36px;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  background: var(--vp-c-bg);
+  box-shadow: 0 4px 16px -8px #00000018;
+  text-align: left;
+  overflow: visible;
+}
+.hero-install-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px 6px 18px; border-bottom: 1px solid var(--vp-c-divider); }
+.hero-install-label { display: inline-flex; align-items: center; gap: 8px; color: var(--vp-c-text-2); font: 9px var(--vp-font-family-mono); letter-spacing: .1em; }
+.hero-install-npm { margin-left: 4px; padding: 3px 6px; border: 1px solid var(--vp-c-divider); border-radius: 4px; font-size: 10px; letter-spacing: 0; }
+.hero-install-line { display: flex; align-items: baseline; gap: 12px; padding: 20px 18px; }
+.hero-install-prompt { color: var(--vp-c-text-3); font: 12px var(--vp-font-family-mono); user-select: none; }
+.VPHome .landing .hero-install code { background: transparent; padding: 0; border-radius: 0; min-width: 0; overflow-wrap: anywhere; font: 12px/1.8 var(--vp-font-family-mono); color: var(--vp-c-text-1); user-select: all; }
+.hero-install-verb { color: var(--vp-c-brand-1); }
+.hero-install-flag { color: var(--vp-c-text-2); }
+.hero-install button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 76px; min-height: 36px; padding: 6px 10px; border-radius: 6px; color: var(--vp-c-text-2); font: 11px var(--vp-font-family-mono); cursor: pointer; }
+.hero-install button:hover { color: var(--vp-c-brand-1); background: var(--vp-c-brand-soft); }
+.hero-install-status { position: absolute; top: calc(100% + 5px); right: 0; color: var(--vp-c-brand-1); font: 11px/1.5 var(--vp-font-family-mono); }
+@media (max-width: 520px) {
+  .hero-install-line { padding: 16px 14px; gap: 8px; }
+  .VPHome .landing .hero-install code { font-size: 11px; }
+  .hero-install-toolbar { padding-left: 14px; }
+}
