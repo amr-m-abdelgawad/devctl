@@ -649,7 +649,7 @@ export class Supervisor {
       processMeta: self.processMeta,
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot)}-`; },
       prepareServiceIdentity: (name, svc) => self.identity.prepareServiceIdentity(name, svc),
-      resolveServiceExecution: (name, svc, profile, env, clientEnv, includeProcess) => self.env.resolveServiceExecution(name, svc, profile, env, clientEnv, includeProcess),
+      resolveServiceExecution: (name, svc, profile, env, clientEnv, includeProcess, selectedEnv) => self.env.resolveServiceExecution(name, svc, profile, env, clientEnv, includeProcess, selectedEnv),
       ensureHttpRecipes: async (names) => {
         for (const recipeName of names) {
           await self.recipes.ensure(recipeName);
@@ -1021,6 +1021,7 @@ export class Supervisor {
     // skip scheduling a restart for it. (The generation bump above already
     // makes that exit a no-op on its own; the FAILED check stays as a second,
     // independent guard.)
+    this.serviceStartedEnv.delete(name);
     this.setState(name, StateFailed, HealthUnknown, 0, humanMessage(err));
     try {
       await this.procs.stop(name, graceSeconds(this.cfg.shutdown) * 1000);

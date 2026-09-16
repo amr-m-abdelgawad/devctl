@@ -266,7 +266,7 @@ export function addEnv(root: Command, runtime: ClientRuntime): void {
     .action(async (service: string | undefined, name: string | undefined, opts: { json?: boolean }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
-        const cfg = ctrl.cfg;
+        const cfg = await ctrl.configSnapshot();
         const snap = await ctrl.status();
         if (!service) {
           const rows = Object.entries(cfg.services)

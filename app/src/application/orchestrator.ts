@@ -303,7 +303,6 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     s.serviceProfileEnv.set(name, launchEnv);
     const envName = resolveEnvironmentName(svc, s.serviceEnv.get(name));
     const launchService = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
-    s.serviceStartedEnv.set(name, envName);
     let assigned: Record<string, number> = {};
     let env: Record<string, string> = {};
     let workDir = "";
@@ -315,7 +314,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       if (needed.length > 0) {
         await s.ensureHttpRecipes(needed);
       }
-      const resolved = await s.resolveServiceExecution(name, launchService, launchProfile, launchEnv, s.clientEnv.get(name), !svc.container);
+      const resolved = await s.resolveServiceExecution(name, launchService, launchProfile, launchEnv, s.clientEnv.get(name), !svc.container, envName);
       env = resolved.env;
       workDir = resolved.workDir;
       if (runHooks) {
@@ -366,6 +365,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
           });
     } catch (err) {
       if (this.health.isCurrentGeneration(name, gen)) {
+        s.serviceStartedEnv.delete(name);
         await s.fail(name, err);
       }
       throw err;
@@ -380,8 +380,10 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       if (this.processes.get(name) === handle) {
         await this.processes.stop(name, graceSeconds(s.cfg.shutdown) * 1000).catch(() => {});
       }
+      s.serviceStartedEnv.delete(name);
       return;
     }
+    s.serviceStartedEnv.set(name, envName);
     s.processMeta.set(name, { command: [...svc.command.args], cwd: workDir, startTime: handle.startTime });
     s.setState(name, StateRunning, HealthUnknown, handle.pid, "");
     s.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));

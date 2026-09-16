@@ -408,6 +408,7 @@ describe("TUI helpers", () => {
     expect(serviceEnvLabel(svc)).toBe("local");
     expect(serviceEnvLabel(svc, { ...emptyRuntime("api"), env: "deployed" })).toBe("deployed");
     expect(serviceEnvLabel(svc, { ...emptyRuntime("api"), pid: 9, env: "deployed", started_env: "local" })).toBe("deployed · restart");
+    expect(serviceEnvLabel(svc, { ...emptyRuntime("api"), pid: 9, env: "deployed", started_env: "" })).toBe("deployed · restart");
     const options = serviceEnvOptions(svc, { ...emptyRuntime("api"), env: "local", started_env: "local", pid: 9 });
     expect(options.map((row) => row.name)).toEqual(["deployed", "local"]);
     expect(options.find((row) => row.name === "local")?.current).toBe(true);

@@ -10,6 +10,7 @@ import {
   decodePorts,
   decodeProfile,
   decodeRoute,
+  decodeEnv,
   decodeService,
   decodeTask,
   decodeServiceProxy,
@@ -18,6 +19,7 @@ import {
   isRecord,
   presentKeys,
 } from "./decode.ts";
+import { overlayEnv } from "../../domain/service/environments.ts";
 import { resolveUserPath } from "../storage/storage.ts";
 import {
   emptyService,
@@ -486,7 +488,8 @@ function mergeEnvironments(base: Record<string, EnvConfig>, raw: unknown): Recor
   }
   const out = { ...base };
   for (const [name, item] of Object.entries(raw)) {
-    out[name] = mergeEnv(base[name] ?? emptyEnv(), item);
+    const prior = Object.hasOwn(base, name) ? base[name] ?? emptyEnv() : emptyEnv();
+    out[name] = overlayEnv(prior, decodeEnv(item));
   }
   return out;
 }
@@ -832,12 +835,8 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
 function mergeDecodedEnvironments(base: Record<string, EnvConfig>, overlay: Record<string, EnvConfig>): Record<string, EnvConfig> {
   const out = { ...base };
   for (const [name, env] of Object.entries(overlay)) {
-    const prior = base[name] ?? emptyEnv();
-    out[name] = {
-      vars: { ...prior.vars, ...env.vars },
-      defaults: { ...prior.defaults, ...env.defaults },
-      required: env.required.length > 0 ? env.required : prior.required,
-    };
+    const prior = Object.hasOwn(base, name) ? base[name] ?? emptyEnv() : emptyEnv();
+    out[name] = overlayEnv(prior, env);
   }
   return out;
 }

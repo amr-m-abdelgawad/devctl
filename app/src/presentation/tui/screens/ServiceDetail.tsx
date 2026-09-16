@@ -12,6 +12,7 @@ import {
   serviceCommandText,
   serviceEnvEntries,
   serviceEnvLabel,
+  serviceEnvNeedsRestart,
   serviceHealthText,
   serviceIdentityText,
   serviceLineState,
@@ -84,7 +85,7 @@ export function ServiceInspector(props: {
   const envName = rt?.env ?? "";
   const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? [], props.resolvedEnv, envName);
   const selectedEnv = serviceEnvLabel(svc, rt);
-  const envPending = Boolean(rt?.pid && rt.started_env !== "" && rt.started_env !== envName && envName !== "");
+  const envPending = serviceEnvNeedsRestart(svc, rt);
   const envTone = props.envStatus === "error" ? "error" : props.envStatus === "resolved" ? "success" : props.envStatus === "loading" ? "info" : "muted";
   const envLabel =
     props.envStatus === "resolved"

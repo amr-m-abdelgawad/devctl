@@ -720,7 +720,8 @@ replace it, and it does not reorder anything.
 
 Runtime values devctl injects: \`SERVICE_PORT\`, \`SERVICE_HOST\`,
 \`DEVCTL_PROXY_URL\`, \`DEVCTL_SERVICE_NAME\`, \`DEVCTL_ENVIRONMENT\`,
-\`DEVCTL_USER_EMAIL\` (omitted when no Google identity is detected),
+\`DEVCTL_SERVICE_ENV\` (the selected named overlay; omitted when the service
+has none), \`DEVCTL_USER_EMAIL\` (omitted when no Google identity is detected),
 \`DEVCTL_TOKEN_URL\`, \`DEVCTL_INTERNAL_TOKEN\`, and \`DEVCTL_HTTP_<NAME>_URL\` for
 each exposed HTTP recipe (host services only). When \`telemetry.otlp.enabled\`,
 host services also get \`OTEL_EXPORTER_OTLP_ENDPOINT\` /

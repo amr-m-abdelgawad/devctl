@@ -55,7 +55,9 @@ export function useServiceEnvironment({
         setResolvedEnvError(humanMessage(err));
       })
       .finally(() => {
-        setResolvedEnvLoading(false);
+        if (!cancelled) {
+          setResolvedEnvLoading(false);
+        }
       });
     return () => {
       cancelled = true;

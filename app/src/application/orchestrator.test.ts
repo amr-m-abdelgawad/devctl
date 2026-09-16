@@ -71,6 +71,7 @@ function harness(checkers: HealthCheckerFactory = { lookup: () => undefined }) {
       orch.health.clearHealthWatch(name);
       orch.health.clearRestartTimer(name);
       orch.health.bumpGeneration(name);
+      session.serviceStartedEnv.delete(name);
       await processes.stop(name);
       session.setState(name, StateFailed, HealthUnknown, 0, "failed");
     },
@@ -308,6 +309,40 @@ describe("ServiceOrchestrator", () => {
     expect(session.serviceStartedEnv.get("worker")).toBe("local");
     expect(processes.started.find((spec) => spec.name === "api")?.env.MODE).toBe("deployed");
     expect(processes.started.find((spec) => spec.name === "worker")?.env.MODE).toBe("local");
+  });
+
+  test("start captures the selected overlay before awaiting environment resolution", async () => {
+    const { orch, cfg, session, processes } = harness();
+    const api = cfg.services.api!;
+    api.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    api.default_environment = "local";
+    let captured: string | undefined;
+    session.resolveServiceExecution = async (_name, svc, profile, env, _clientEnv, _includeProcess, selectedEnv) => {
+      session.serviceEnv.set("api", "deployed");
+      captured = selectedEnv;
+      return { env: { ...env, PROFILE: profile, MODE: svc.environment.vars.MODE ?? "" }, workDir: "/work" };
+    };
+    session.serviceEnv.set("api", "local");
+    await orch.start({ services: ["api"] });
+    expect(captured).toBe("local");
+    expect(processes.started[0]?.env.MODE).toBe("local");
+  });
+
+  test("a failed spawn does not record started_env", async () => {
+    const { orch, cfg, session, processes } = harness();
+    const api = cfg.services.api!;
+    api.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    api.default_environment = "local";
+    session.serviceEnv.set("api", "deployed");
+    processes.failNext.add("api");
+    await expect(orch.start({ services: ["api"] })).rejects.toThrow(/failed to start/);
+    expect(session.serviceStartedEnv.has("api")).toBe(false);
   });
 
   test("a stale HEALTHY probe after crash does not block respawn", async () => {

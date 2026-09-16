@@ -219,12 +219,19 @@ export function serviceEnvEntries(
     .sort((a, b) => (a.fromConfig === b.fromConfig ? a.key.localeCompare(b.key) : a.fromConfig ? -1 : 1));
 }
 
+export function serviceEnvNeedsRestart(svc: ServiceConfig, rt?: Runtime): boolean {
+  if (!rt?.pid || !serviceHasNamedEnvironments(svc)) {
+    return false;
+  }
+  return rt.started_env !== resolveEnvironmentName(svc, rt.env);
+}
+
 export function serviceEnvLabel(svc: ServiceConfig, rt?: Runtime): string {
   if (!serviceHasNamedEnvironments(svc)) {
     return "";
   }
-  const selected = resolveEnvironmentName(svc, rt?.env || defaultEnvironmentName(svc));
-  if (rt?.pid && rt.started_env !== "" && rt.started_env !== selected) {
+  const selected = resolveEnvironmentName(svc, rt?.env);
+  if (serviceEnvNeedsRestart(svc, rt)) {
     return `${selected} · restart`;
   }
   return selected;

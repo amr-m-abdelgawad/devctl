@@ -72,7 +72,7 @@ services:
     default_environment: local
 ```
 
-Each overlay is an `EnvConfig` (`vars` / `defaults` / `required`) merged onto the service's base `environment` — named keys win, `required` is the union. `default_environment` is the YAML default when nothing is selected for this session; if omitted, the first name alphabetically wins.
+Each overlay is an `EnvConfig` (`vars` / `defaults` / `required`) merged onto the service's base `environment` — named keys win, `required` is the union (including when a template and a service both declare `required` on the same named overlay). `default_environment` is the YAML default when nothing is selected for this session; if omitted, the first name alphabetically wins.
 
 Selection is **session state** (`~/.devctl/state/<repo>/state.json` `service_environments`), not YAML. Switch one service at a time:
 

@@ -81,13 +81,14 @@ export class EnvironmentBridge {
     profileEnv: Record<string, string>,
     clientEnv?: Record<string, string>,
     includeProcess = true,
+    selectedEnv?: string,
   ): Promise<{ env: Record<string, string>; workDir: string }> {
     const cfg = this.deps.cfg();
     const assigned = this.deps.ports().get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     const proxy = this.deps.proxy();
     const proxyURL = proxy?.isRunning() ? `http://${proxy.address()}` : cfg.proxy.enabled ? `http://${listenAddress(cfg.proxy.listen)}` : "";
     const userEmail = this.deps.userEmail();
-    const envName = resolveEnvironmentName(svc, this.serviceEnv.get(name));
+    const envName = resolveEnvironmentName(svc, selectedEnv !== undefined ? selectedEnv : this.serviceEnv.get(name));
     const serviceCfg = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
     const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, cfg.project.name, userEmail);
     if (envName !== "") {

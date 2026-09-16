@@ -64,7 +64,7 @@ export async function resolveAdoptedHealthEnv(
     runtimeEnv.DEVCTL_TOKEN_URL = host.boundTokenURL || `http://127.0.0.1:${host.tokenEP?.listenPort() || host.cfg.proxy.token_endpoint.port}/token`;
   }
   try {
-    const envName = resolveEnvironmentName(svc, host.serviceEnv.get(name));
+    const envName = resolveEnvironmentName(svc, host.serviceStartedEnv.get(name) ?? host.serviceEnv.get(name));
     const serviceCfg = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
     const env = await resolveEnvironment(host.cfg.repoRoot, {
       service: name,
