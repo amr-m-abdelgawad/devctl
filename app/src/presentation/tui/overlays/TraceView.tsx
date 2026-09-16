@@ -42,6 +42,14 @@ import { isCompactScale } from "../settings.ts";
 import { serviceColor, type Palette } from "../themes.ts";
 import { useDensity } from "../density.tsx";
 
+export type TraceRequestContext = {
+  requestId: string;
+  route: string;
+  identity: string;
+  status: number;
+  method: string;
+};
+
 export function TraceOverlay(props: {
   palette: Palette;
   trace?: TraceTree;
@@ -51,8 +59,9 @@ export function TraceOverlay(props: {
   onSelect?: (index: number) => void;
   onOpenLogs?: (index: number) => void;
   scrollRef?: Ref<ScrollBoxRenderable>;
+  requestContext?: TraceRequestContext;
 }) {
-  const { palette, trace, termW, termH, onSelect, onOpenLogs, scrollRef } = props;
+  const { palette, trace, termW, termH, onSelect, onOpenLogs, scrollRef, requestContext } = props;
   const compact = isCompactScale(useDensity());
   const prefer = traceOverlayPreferSize(termW, termH);
   const rect = overlayRect(termW, termH, prefer.w, prefer.h, "center", !compact);
@@ -98,6 +107,7 @@ export function TraceOverlay(props: {
       preferH={prefer.h}
       gap={0}
     >
+      {requestContext ? <RequestContextStrip palette={palette} ctx={requestContext} /> : null}
       <TraceHeader palette={palette} facts={facts} width={inner} showServices={layout.showServices} showLegend={layout.showLegend} />
       <box flexGrow={1} height={layout.listHeight} flexDirection="column" overflow="hidden">
         <TraceTableHead palette={palette} cols={cols} durationMs={facts.durationMs} />
@@ -151,6 +161,24 @@ export function SpanDetailsOverlay(props: {
     >
       <SpanInspector palette={palette} span={span} records={records} scrollRef={scrollRef} />
     </OverlayShell>
+  );
+}
+
+// One-line summary of the proxy request this trace came from, so the trace view
+// names the hop (route, identity, status) without a second lookup on the proxy
+// screen. Only shown when the trace was opened by following a request.
+function RequestContextStrip(props: { palette: Palette; ctx: TraceRequestContext }) {
+  const { palette, ctx } = props;
+  const statusTone: "error" | "warning" | "success" =
+    ctx.status >= 500 || ctx.status === 0 ? "error" : ctx.status >= 400 ? "warning" : "success";
+  return (
+    <box height={1} flexDirection="row" overflow="hidden" flexShrink={0} gap={1}>
+      <Chip palette={palette} label={`req ${shortId(ctx.requestId, 8)}`} tone="info" />
+      {ctx.method ? <Chip palette={palette} label={ctx.method} tone="idle" /> : null}
+      {ctx.route ? <Chip palette={palette} label={ctx.route} tone="primary" /> : null}
+      <Chip palette={palette} label={ctx.status > 0 ? String(ctx.status) : "ERR"} tone={statusTone} />
+      {ctx.identity ? <Chip palette={palette} label={ctx.identity} tone="idle" /> : null}
+    </box>
   );
 }
 

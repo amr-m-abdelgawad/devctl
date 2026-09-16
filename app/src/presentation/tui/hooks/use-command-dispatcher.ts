@@ -293,6 +293,7 @@ export function useCommandDispatcher({
           case "config":
           case "profiles":
           case "setup":
+          case "tokens":
             setScreen(spec.name);
             return;
           case "import": {
@@ -376,6 +377,9 @@ export function useCommandDispatcher({
             return;
           case "stats":
             setScreen("stats");
+            return;
+          case "topology":
+            setScreen("topology");
             return;
           case "start":
             await beginStart(targets, profile);

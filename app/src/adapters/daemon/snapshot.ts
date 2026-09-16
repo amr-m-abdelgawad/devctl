@@ -32,6 +32,7 @@ export type SnapshotHost = {
   readonly setupMode: boolean;
   readonly restartRequired: string[];
   readonly statsSeries?: StatsSeries;
+  readonly serviceSeries?: Record<string, StatsSeries>;
   readonly logs: { snapshot(): LogSnapshot };
   readonly tokens: { storeBackend(): string };
   readonly traceDurationMs?: (traceId: string) => number | undefined;
@@ -155,6 +156,9 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
     restart_required: [...host.restartRequired],
     system: systemSnapshot(),
     stats_series: host.statsSeries,
+    // Omit until at least one service has samples, so consumers can tell an
+    // unavailable series from an empty service set (matches the type contract).
+    service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
   };
 }
 

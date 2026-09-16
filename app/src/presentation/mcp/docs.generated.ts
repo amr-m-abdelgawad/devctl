@@ -3152,7 +3152,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`command+p\` / \`ctrl+p\` | Same command overlay as \`/\` |
 | \`command+x\` / \`ctrl+x\` | Leader key (2s), then a shortcut — keymap overlay |
 | \`?\` | Grouped help — \`j\`/\`k\` scroll when the list is taller than the terminal |
-| \`tab\` / \`shift+tab\` / \`1\`–\`5\` | Cycle or jump the **five nav tabs**. Other screens are \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/settings\`, \`/mcp\`. On a secondary screen, \`tab\` returns to the dashboard. When the strip is wider than the terminal it slides (\`‹\` \`›\`). |
+| \`tab\` / \`shift+tab\` / \`1\`–\`5\` | Cycle or jump the **five nav tabs**. Other screens are \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/topology\`, \`/tokens\`, \`/settings\`, \`/mcp\`. On a secondary screen, \`tab\` returns to the dashboard. When the strip is wider than the terminal it slides (\`‹\` \`›\`). |
 | \`s\` \`l\` \`a\` \`p\` \`d\` \`c\` \`u\` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
 | \`r\` | Refresh snapshot (doctor \`r\` re-runs checks) |
 | \`R\` | Restart selected services |
@@ -3176,7 +3176,7 @@ The status bar only lists keys that work **on the current screen**. There is no 
 
 1. dashboard · 2. services · 3. logs · 4. proxy · 5. llm
 
-Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/settings\`. **MCP** is \`/mcp\`, \`/agent\`, or Settings → **MCP → Settings page**.
+Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/topology\`, \`/tokens\`, \`/settings\`. **MCP** is \`/mcp\`, \`/agent\`, or Settings → **MCP → Settings page**.
 
 ## Screens
 
@@ -3233,12 +3233,14 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/mcp\` | \`/agent\` | Open the MCP server screen for coding agents |
 | \`/doctor\` | \`/d\` | Run environment diagnostics |
 | \`/stats\` | \`/metrics\` | View system and service statistics |
+| \`/topology\` | \`/graph\` | View the service dependency graph |
+| \`/tokens\` | \`/token-log\`, \`/authlog\` | View the token mint and refresh timeline |
 | \`/config\` | \`/c\` | View merged configuration |
 | \`/profiles\` | \`/o\` | Select a development profile |
 | \`/setup\` | \`/init\` | Open setup guidance |
 | \`/dashboard\` | \`/home\` | Return to the dashboard |
 
-\`/stats\` includes sparklines when the supervisor has samples.
+\`/stats\` includes sparklines when the supervisor has samples — a **Trends** section with per-service CPU and RAM history, and a **Proxy routes** section with per-route hop latency (p50/p95/p99) and error counts over the recent-request window. \`/topology\` (or \`g\`) draws the dependency graph as startup waves — nodes coloured by health, with an inspector showing what a selected service depends on and what depends on it. \`/tokens\` is the auth timeline: token mint, refresh, and identity-change events over the session, keyed by identity and audience (never by request, and never showing the token itself).
 
 ### Logs
 
@@ -3302,7 +3304,7 @@ Default leader is \`command+x\` on macOS and \`ctrl+x\` elsewhere (2 second time
 
 \`\`\`text
 n start    x stop    R restart (c cascade if dependents)    s services    l logs
-a auth     p proxy   d doctor     c config      o profiles
+a auth     p proxy   d doctor     c config      o profiles     g topology
 t themes   e env     r refresh    i setup       h dashboard
 q quit     z fullscreen
 \`\`\`

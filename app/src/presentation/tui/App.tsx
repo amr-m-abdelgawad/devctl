@@ -16,6 +16,7 @@ import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
+import { matchProxyRequest } from "./helpers/proxy.ts";
 import { defaultProfileName, serviceEnvOptions, shouldConfirmEnvSwitch, type ServiceEnvEntry } from "./helpers/services.ts";
 import { clampTraceSpanIndex, orderTraceRows } from "./helpers/traces.ts";
 import { useAppKeyboard } from "./hooks/use-app-keyboard.ts";
@@ -60,6 +61,9 @@ import { ServicesScreen } from "./screens/Services.tsx";
 import { SettingsScreen } from "./screens/Settings.tsx";
 import { SetupScreen } from "./screens/Setup.tsx";
 import { StatsScreen } from "./screens/Stats.tsx";
+import { TopologyScreen } from "./screens/Topology.tsx";
+import { buildTopology } from "./helpers/topology.ts";
+import { TokensScreen } from "./screens/Tokens.tsx";
 import { uiScaleFor } from "./settings.ts";
 import { THEME_NAMES } from "./themes.ts";
 import { defaultCopyKeybind, type TuiConfig } from "./tui-config.ts";
@@ -129,6 +133,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const [envPickerService, setEnvPickerService] = useState("");
   const leaderTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const interruptArmedAt = useRef(0);
+  const openRequestGeneration = useRef(0);
 
   const [cfg, setCfg] = useState<DevctlConfig | undefined>(controller?.cfg);
   const leftover = controller?.previousPersisted;
@@ -260,6 +265,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     setSlashIndex(0);
   }, [query]);
 
+  // Dependency graph for the topology screen. Computed once here so the screen's
+  // node ordering and the Enter handler (topologyNodes below) stay in lockstep.
+  const topologyModel = useMemo(() => (cfg ? buildTopology(cfg, profile) : { columns: [], edges: [], cyclic: false }), [cfg, profile]);
   const listCount = screenListCount(screen, {
     doctor: doctor?.checks.length ?? 0,
     settings: settingRows.length,
@@ -277,6 +285,21 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService, envName: inspectorEnvName });
   const traceRows = useMemo(() => (traceDetail ? orderTraceRows(traceDetail.tree) : []), [traceDetail]);
   const activeTraceSpan = traceRows[clampTraceSpanIndex(traceSpanIndex, traceRows.length)]?.span;
+  // Match the open trace back to its proxy request so the trace overlay can name
+  // the hop (route, identity, status). Falls back to matching on trace id.
+  const traceRequestContext = useMemo(() => {
+    if (!traceDetail) {
+      return undefined;
+    }
+    const req = matchProxyRequest(snap?.proxy.recentRequests ?? [], {
+      requestId: traceDetail.requestId,
+      traceId: traceDetail.tree.traceId,
+    });
+    if (!req) {
+      return undefined;
+    }
+    return { requestId: req.requestId, route: req.route, identity: req.identity, status: req.status, method: req.method };
+  }, [traceDetail, snap]);
   const closeOverlay = useCallback(() => {
     setOverlay("none");
     setQuery("");
@@ -390,6 +413,38 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setStatus(humanMessage(err));
     });
   }, [controller]);
+
+  // Follow one request across every view: seed the logs filter with its id so
+  // backing out of the trace lands on the request's logs, then resolve and open
+  // its trace. If no trace exists yet, drop to the pre-filtered logs screen.
+  const openRequest = useCallback((requestId: string) => {
+    const id = requestId.trim();
+    if (id === "" || !controller) {
+      return;
+    }
+    const generation = ++openRequestGeneration.current;
+    setLogSearch(id);
+    void controller.traceRequest(id).then((result) => {
+      if (generation !== openRequestGeneration.current) {
+        return;
+      }
+      setTraceSpanIndex(0);
+      setTraceDetail(result);
+      // Backing out of the overlay should land on this request's filtered logs,
+      // including when the follow started from proxy or log-details.
+      setScreen("logs");
+      setOverlay("trace");
+    }).catch(() => {
+      if (generation !== openRequestGeneration.current) {
+        return;
+      }
+      // No trace yet — close any overlay (e.g. log-details) so the pre-filtered
+      // logs screen is actually visible, then drop to it.
+      setOverlay("none");
+      setScreen("logs");
+      setStatus(`tracing ${id}`);
+    });
+  }, [controller, setLogSearch]);
 
   const openSpanLogs = useCallback((index?: number) => {
     if (index !== undefined) {
@@ -585,6 +640,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       llmDetail: llmView.detail,
       llmCalls: llmView.page.calls,
       openTrace,
+      openRequest,
       openSpanLogs,
       traceSpanCount: traceRows.length,
       setTraceSpanIndex,
@@ -813,6 +869,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
               setOverlay("route-details");
             }}
             onOpenTrace={openTrace}
+            onFollowRequest={openRequest}
           />
         ) : null}
         {screen === "llm" ? (
@@ -863,6 +920,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           />
         ) : null}
         {screen === "stats" ? <StatsScreen palette={palette} cfg={cfg} snap={snap} width={width} onRefresh={refresh} /> : null}
+        {screen === "topology" ? <TopologyScreen palette={palette} model={topologyModel} snap={snap} width={width} selected={listCursor} onSelectIndex={setSelected} /> : null}
+        {screen === "tokens" ? <TokensScreen palette={palette} credentials={snap?.credentials} logs={logs} width={width} /> : null}
         {screen === "config" ? <ConfigScreen palette={palette} cfg={cfg} width={width} selectedTask={listCursor} scrollRef={configScrollRef} /> : null}
         {screen === "profiles" ? (
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />
@@ -945,7 +1004,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
         <LlmDetailsOverlay palette={palette} call={llmView.detail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
       ) : null}
       {overlay === "trace" || overlay === "span-details" ? (
-        <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} />
+        <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} requestContext={traceRequestContext} />
       ) : null}
       {overlay === "span-details" ? (
         <SpanDetailsOverlay palette={palette} span={activeTraceSpan} records={traceDetail?.events} termW={width} termH={height} scrollRef={traceDetailScrollRef} />

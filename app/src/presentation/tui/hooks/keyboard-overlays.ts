@@ -104,17 +104,17 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       return true;
     }
     if (overlay === "log-details" && name === "return") {
+      // Follow the whole request when the log line carries a request id: this
+      // seeds the logs filter and opens the trace in one move. Fall back to the
+      // trace id alone when no request id is present.
+      const id = ctx.logDetail ? requestIdOf(ctx.logDetail).trim() : "";
+      if (id !== "") {
+        ctx.openRequest(id);
+        return true;
+      }
       const traceId = ctx.logDetail?.traceId?.trim() ?? "";
       if (traceId !== "") {
         ctx.openTrace(traceId);
-        return true;
-      }
-      const id = ctx.logDetail ? requestIdOf(ctx.logDetail).trim() : "";
-      if (id !== "") {
-        ctx.setLogSearch(id);
-        ctx.setScreen("logs");
-        ctx.closeOverlay();
-        ctx.setStatus(`tracing ${id}`);
       }
       return true;
     }

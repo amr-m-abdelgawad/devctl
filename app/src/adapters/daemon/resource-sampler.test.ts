@@ -39,4 +39,31 @@ describe("resource sampler", () => {
     await sampler.poll();
     expect(rt.memoryKB === undefined || rt.memoryKB >= 0).toBe(true);
   });
+
+  test("records per-service history on each sample tick and drops vanished services", async () => {
+    let now = STATS_SAMPLE_MS;
+    const api = emptyRuntime("api");
+    api.state = StateStopped;
+    api.pid = 0;
+    api.cpuPercent = 12;
+    api.memoryKB = 2048;
+    const runtimes = new Map([["api", api]]);
+    const sampler = new ResourceSampler({
+      clock: { now: () => new Date(now), isoNow: () => new Date(now).toISOString(), unixMs: () => now },
+      runtimes: () => runtimes,
+    });
+    await sampler.poll();
+    now += STATS_SAMPLE_MS;
+    await sampler.poll();
+    const series = sampler.serviceSeries();
+    expect(series.api?.cpu).toEqual([12, 12]);
+    expect(series.api?.mem).toEqual([2048, 2048]);
+    expect(series.api?.interval_ms).toBe(STATS_SAMPLE_MS);
+
+    // Remove the service (as a reload would) and confirm its ring is pruned.
+    runtimes.delete("api");
+    now += STATS_SAMPLE_MS;
+    await sampler.poll();
+    expect(sampler.serviceSeries().api).toBeUndefined();
+  });
 });

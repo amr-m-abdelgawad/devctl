@@ -8,6 +8,7 @@ import { lookupCommand } from "../commands.ts";
 import { nextScreen, prevScreen } from "../helpers/command-catalog.ts";
 import { navItemForDigit } from "../helpers/navigation.ts";
 import { canStartAll } from "../helpers/services.ts";
+import { buildTopology } from "../helpers/topology.ts";
 import {
   isCommandChord,
   isCopyChord,
@@ -202,6 +203,15 @@ export function useAppKeyboard({
       const run = lookupCommand("run");
       if (task && run) {
         void runCommand(run, [task]);
+      }
+      return;
+    }
+    if (screen === "topology") {
+      // Same node ordering the topology screen renders (columns flattened), so
+      // the highlighted node and the one opened here are always the same.
+      const name = cfg ? buildTopology(cfg, profile).columns.flat()[listCursor] : undefined;
+      if (name) {
+        openDetail(name);
       }
       return;
     }

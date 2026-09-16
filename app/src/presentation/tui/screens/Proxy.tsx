@@ -82,8 +82,14 @@ function RequestField(props: { width: number; fg: string; text: string }) {
   );
 }
 
-function RequestRow(props: { palette: Palette; req: ProxyRequestSnapshot; cols: ReqColumns; onOpenTrace?: (traceId: string) => void }) {
-  const { palette, req, cols, onOpenTrace } = props;
+function RequestRow(props: {
+  palette: Palette;
+  req: ProxyRequestSnapshot;
+  cols: ReqColumns;
+  onOpenTrace?: (traceId: string) => void;
+  onFollowRequest?: (requestId: string) => void;
+}) {
+  const { palette, req, cols, onOpenTrace, onFollowRequest } = props;
   const color = statusColor(palette, req.status, req.error);
   const statusLabel = req.status > 0 ? String(req.status) : "ERR";
   const badge = identityBadge(palette, req.identity);
@@ -91,13 +97,20 @@ function RequestRow(props: { palette: Palette; req: ProxyRequestSnapshot; cols: 
   const detail = proxyRequestPath(req, REQ_ERROR_MAX);
   const dur = proxyDurationView(req);
   const traceId = req.traceId;
+  // Prefer following the whole request (opens its trace and pre-filters logs on
+  // the request id); fall back to the trace-only jump when no follow handler.
+  const onMouseDown = onFollowRequest && req.requestId
+    ? () => onFollowRequest(req.requestId)
+    : traceId && onOpenTrace
+      ? () => onOpenTrace(traceId)
+      : undefined;
   return (
     <box
       flexShrink={0}
       flexDirection="row"
       alignItems="flex-start"
       overflow="hidden"
-      onMouseDown={traceId && onOpenTrace ? () => onOpenTrace(traceId) : undefined}
+      onMouseDown={onMouseDown}
     >
       <RequestField width={REQ_TIME_COL} fg={palette.muted} text={req.timestamp.slice(11, 19)} />
       {cols.showMethod ? <RequestField width={REQ_METHOD_COL} fg={palette.text} text={req.method} /> : null}
@@ -182,8 +195,9 @@ export function ProxyScreen(props: {
   width: number;
   onSelectRoute?: (route: RouteDetailInfo) => void;
   onOpenTrace?: (traceId: string) => void;
+  onFollowRequest?: (requestId: string) => void;
 }) {
-  const { palette, cfg, snap, width, onSelectRoute, onOpenTrace } = props;
+  const { palette, cfg, snap, width, onSelectRoute, onOpenTrace, onFollowRequest } = props;
   const routes = snap?.proxy.routes ?? [];
   const listenConfigured = hasListenPort(cfg?.proxy.listen);
   const routeCfgByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r]));
@@ -320,11 +334,16 @@ export function ProxyScreen(props: {
             </box>
           ) : (
             <>
+              {onFollowRequest ? (
+                <text fg={palette.muted} wrapMode="none">
+                  {padClip("click a request to follow it across logs & trace", reqInner)}
+                </text>
+              ) : null}
               <RequestHeader palette={palette} cols={cols} />
               <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
                 <box flexDirection="column" overflow="hidden">
                   {recentRequests.map((req) => (
-                    <RequestRow key={req.requestId} palette={palette} req={req} cols={cols} onOpenTrace={onOpenTrace} />
+                    <RequestRow key={req.requestId} palette={palette} req={req} cols={cols} onOpenTrace={onOpenTrace} onFollowRequest={onFollowRequest} />
                   ))}
                 </box>
               </scrollbox>
