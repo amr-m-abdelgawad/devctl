@@ -3127,46 +3127,99 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 
 ## Slash commands
 
-\`\`\`text
-/start [service…]     start selection, args, or the current profile
-/stop [service…]
-/down [--keep-services]  stop the supervisor (and services unless --keep-services)
-/restart [--cascade|-c]  named services only; cascade also restarts dependents
-                        R with dependents: Enter = named, c = cascade
-/run [task]           one-off task; empty /run opens a picker. Output is in Logs under task:<name>
-/exec [service] -- <command…>
-                      empty /exec opens a service picker, then type the command
-/exec <service> --print-env [--reveal]
-                      resolved env (dotenv, profile, secrets, plugins, ports), not config-only vars
-/logs /services /auth /credentials /proxy /llm /mcp /doctor /config /profiles /setup
-/stats                system and service statistics (sparklines when the supervisor has samples)
-/split                second log pane (\`\\\\\`); \`|\` focuses the other pane
-/trace <id>           set log search to a request_id / trace_id
-/dashboard            return home
-/themes [name]        picker with live preview; enter saves to ~/.devctl/tui.json
-/settings             theme, mouse, display size, MCP page
-/filter               toggle ERROR+
-/pause                freeze the live log stream
-/reveal               show or hide secret env values
-/wrap                 cycle log wrap (all / clip / selected)
-/copy                 copy visible logs to the clipboard
-/export [path]        write filtered logs to ~/.devctl/exports (or the given path)
-/exports              open the export folder
-/regex /since /until /history /edit /buffer
-/clear
-/refresh
-/reload               reload .devctl
-/diff                 winning config sources and what they shadowed (\`devctl config diff\`)
-/import compose [path] [--write]
-/daemon               supervisor bootstrap stderr (\`devctl daemon logs\`)
-/auth login|logout|refresh
-/update               install a newer GitHub Release when the method is known (npm/Homebrew)
-/notify later|dismiss hide the version notice this session, or do not remind me about this version
-/version              current version, then the same update check (does not install)
-/exit /quit /q
-\`\`\`
+\`/\` and \`command+p\` / \`ctrl+p\` open the same overlay. Each row already shows a one-line description in the TUI; this table is that catalog for reading without the TUI (and for MCP \`search_docs\`). Grouping matches the overlay.
 
-Aliases include \`/up\`, \`/identity\`, \`/creds\`, \`/agent\`, \`/init\`, \`/home\`, \`/prefs\`, \`/task\`, \`/provenance\`, \`/bootstrap\`. \`/down\` is no longer an alias of \`/stop\`.
+### Services
+
+| Command | Aliases | What it does |
+|---------|---------|--------------|
+| \`/start [service…]\` | \`/up\` | Start selected services or the current profile |
+| \`/stop [service…]\` | | Stop selected services |
+| \`/restart [service…]\` | | Restart selected services |
+| \`/restart --cascade\` | \`-c\` | Restart selected services and their dependents |
+| \`/run [task]\` | \`/task\` | Run a one-off task; empty /run opens a picker |
+| \`/exec [service]\` | | Run a command in a service context; empty /exec opens a picker |
+
+\`/start\` with no names starts the current profile. \`/restart\` without \`--cascade\` restarts only the named services; \`R\` when dependents exist asks: Enter = named, \`c\` = cascade. Task output lands in Logs under \`task:<name>\`. \`/exec <service> -- <command…>\` runs once in that service's resolved environment (even if it is stopped). Empty \`/exec\` opens a service picker, then you type the command. \`/exec <service> --print-env [--reveal]\` shows the same resolved map (dotenv, profile, secrets, plugins, ports), not config-only \`vars\`/\`defaults\`.
+
+### Navigation
+
+| Command | Aliases | What it does |
+|---------|---------|--------------|
+| \`/services\` | \`/s\` | Open the services screen |
+| \`/logs\` | \`/l\` | Open the log viewer |
+| \`/auth\` | \`/identity\`, \`/a\` | Open identity |
+| \`/auth login\` | | Run gcloud ADC login |
+| \`/auth logout\` | | Revoke application-default credentials |
+| \`/auth refresh\` | | Probe identities |
+| \`/credentials\` | \`/creds\` | Open credential store status |
+| \`/proxy\` | \`/p\` | Open the proxy screen |
+| \`/llm\` | | Open the LLM inspector |
+| \`/mcp\` | \`/agent\` | Open the MCP server screen for coding agents |
+| \`/doctor\` | \`/d\` | Run environment diagnostics |
+| \`/stats\` | \`/metrics\` | View system and service statistics |
+| \`/config\` | \`/c\` | View merged configuration |
+| \`/profiles\` | \`/o\` | Select a development profile |
+| \`/setup\` | \`/init\` | Open setup guidance |
+| \`/dashboard\` | \`/home\` | Return to the dashboard |
+
+\`/stats\` includes sparklines when the supervisor has samples.
+
+### Logs
+
+| Command | Aliases | What it does |
+|---------|---------|--------------|
+| \`/regex\` | | Toggle regex log search |
+| \`/since <timestamp>\` | | Filter logs after an ISO timestamp |
+| \`/until <timestamp>\` | | Filter logs before an ISO timestamp |
+| \`/history [session]\` | | Load a persisted log session |
+| \`/pause\` | | Pause or resume live logs |
+| \`/fullscreen\` | \`/zen\`, \`/expand\` | Expand logs to fill the terminal |
+| \`/split\` | | Split the logs screen into two service panes |
+| \`/trace <id>\` | | Search logs for a request or trace id |
+| \`/filter\` | | Toggle ERROR+ log filter |
+| \`/system\` | \`/internal\` | Show or hide internal auth/mcp/devctl/proxy logs |
+| \`/wrap\` | | Cycle log wrap: all lines, clip, or selected row |
+| \`/export [path]\` | | Write filtered logs to ~/.devctl/exports |
+| \`/exports\` | \`/open-exports\` | Open the log export folder |
+| \`/clear\` | \`/new\` | Clear the on-screen log buffer |
+
+\`/split\` is also \`\\\\\`; \`|\` focuses the other pane. \`/trace\` sets log search to a \`request_id\` / \`trace_id\`. \`/export\` without a path writes under \`~/.devctl/exports\`. \`/clear\` only clears this TUI's on-screen view, not the daemon's shared log buffer.
+
+### UI
+
+| Command | Aliases | What it does |
+|---------|---------|--------------|
+| \`/reload\` | | Reload configuration |
+| \`/import\` | | Preview or write a Compose mapping |
+| \`/import compose [path] [--write]\` | | Preview a Compose mapping; add --write to save |
+| \`/diff\` | \`/provenance\` | Show winning config sources and what they shadowed |
+| \`/themes [name]\` | \`/theme\` | List available themes |
+| \`/settings\` | \`/prefs\`, \`/preferences\` | Open TUI settings (theme, mouse, MCP page) |
+| \`/help\` | \`/?\` | Show the help dialog |
+| \`/refresh\` | | Refresh status and logs |
+| \`/edit\` | | Open configuration in $EDITOR |
+| \`/buffer\` | | Edit configuration in a validate/save buffer |
+| \`/reveal\` | | Reveal or hide secret environment values (not log or LLM payloads) |
+| \`/copy\` | | Copy the highlighted selection to the clipboard |
+
+\`/reload\` re-reads \`.devctl\`. \`/diff\` is the same provenance view as \`devctl config diff\`. \`/themes\` opens a picker with live preview; Enter saves to \`~/.devctl/tui.json\`.
+
+### App
+
+| Command | Aliases | What it does |
+|---------|---------|--------------|
+| \`/daemon\` | \`/bootstrap\` | Show supervisor bootstrap logs (same file as devctl daemon logs) |
+| \`/update\` | | Install a newer GitHub Release when the install method is known |
+| \`/notify\` | \`/notice\`, \`/notifications\` | Hide or dismiss the current notice |
+| \`/notify later\` | | Hide this notice until the next session |
+| \`/notify dismiss\` | | Do not remind me about this version again |
+| \`/version\` | \`/v\` | Show the current devctl version |
+| \`/down\` | | Stop the supervisor |
+| \`/down --keep-services\` | | Stop the supervisor and leave processes running |
+| \`/exit\` | \`/quit\`, \`/q\` | Exit (detach or stop services) |
+
+\`/down\` is not an alias of \`/stop\`. \`/down\` stops services and the supervisor unless \`--keep-services\` is set. \`/version\` shows the current version, then runs the same update check as \`/update\` without installing. \`/update\` installs when the method is known (npm or Homebrew).
 
 ## Leader key
 
