@@ -16,14 +16,20 @@ describe("LLM caller helpers", () => {
     expect(normalizeLlmCaller("a".repeat(80))).toHaveLength(64);
   });
 
-  test("reads X-Devctl-Service before the name alias", () => {
+  test("reads X-Devctl-Service before the name alias or LiteLLM metadata", () => {
     expect(callerFromHeaders({ "X-Devctl-Service": "api" })).toBe("api");
     expect(callerFromHeaders({ "x-devctl-service-name": "worker" })).toBe("worker");
     expect(callerFromHeaders({ "x-devctl-service": "api", "x-devctl-service-name": "other" })).toBe("api");
+    expect(callerFromHeaders({ "x-litellm-metadata": '{"service":"worker"}' })).toBe("worker");
+    expect(callerFromHeaders({
+      "x-devctl-service": "api",
+      "x-litellm-metadata": '{"service":"other"}',
+    })).toBe("api");
     expect(callerFromHeaders({ "content-type": "application/json" })).toBeUndefined();
     expect(isLlmCallerHeader("X-Devctl-Service")).toBe(true);
     expect(isLlmCallerHeader("x-devctl-service-name")).toBe(true);
     expect(isLlmCallerHeader("x-devctl-request-id")).toBe(false);
+    expect(isLlmCallerHeader("x-litellm-metadata")).toBe(false);
   });
 
   test("prefers LiteLLM metadata.service over a non-email user", () => {
@@ -33,7 +39,9 @@ describe("LLM caller helpers", () => {
     expect(callerFromSpendLog({ end_user: "api" }, {})).toBe("api");
   });
 
-  test("reads the OpenAI user field from a completion body", () => {
+  test("reads LiteLLM metadata.service from a completion body before user", () => {
+    expect(callerFromCompletionRequest({ metadata: { service: "api" }, user: "other" })).toBe("api");
+    expect(callerFromCompletionRequest({ metadata: { service_name: "worker" } })).toBe("worker");
     expect(callerFromCompletionRequest({ user: "api" })).toBe("api");
     expect(callerFromCompletionRequest({ user: "dev@example.com" })).toBeUndefined();
     expect(callerFromCompletionRequest({ model: "gpt-4o" })).toBeUndefined();

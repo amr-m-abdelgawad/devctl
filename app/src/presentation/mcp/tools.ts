@@ -142,7 +142,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Filtered LLM call pages, secrets redacted",
     category: "inspect",
     description:
-      "Recent LLM calls from configured sources (LiteLLM spend logs first), optionally filtered. Capped at 200 per page. Secrets are redacted. Request and response bodies are omitted; use get_llm_call for a single call. Each call includes caller when the originating service is known (X-Devctl-Service, loopback peer, or LiteLLM metadata). Pass cursor=next_cursor to page toward older calls.",
+      "Recent LLM calls from configured sources (LiteLLM spend logs first), optionally filtered. Capped at 200 per page. Secrets are redacted. Request and response bodies are omitted; use get_llm_call for a single call. Each call includes caller when the originating service is known (X-Devctl-Service, loopback peer, body metadata.service, or LiteLLM metadata). A proxy source's name is the tagged route, not the caller. Pass cursor=next_cursor to page toward older calls.",
     inputSchema: {
       type: "object",
       properties: {

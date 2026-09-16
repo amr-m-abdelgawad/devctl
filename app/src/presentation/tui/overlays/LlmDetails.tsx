@@ -5,6 +5,8 @@ import { formatLlmCaller, formatLlmCost, formatLlmDuration, formatLlmJson, forma
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
+const DETAIL_LABEL_WIDTH = 10;
+
 export function LlmDetailsOverlay(props: {
   palette: Palette;
   call?: LlmCall;
@@ -37,8 +39,8 @@ export function LlmDetailsOverlay(props: {
         <box flexDirection="column" overflow="hidden">
           <text fg={palette.text} wrapMode="word">{call.model}</text>
           <text fg={palette.muted}>{`id        ${call.id}`}</text>
-          <text fg={palette.muted}>{`source    ${call.source} (${call.sourceType})`}</text>
-          <text fg={palette.muted}>{`caller    ${formatLlmCaller(call.caller)}`}</text>
+          <text fg={palette.muted}>{`${"caller".padEnd(DETAIL_LABEL_WIDTH)}${formatLlmCaller(call.caller)}`}</text>
+          <text fg={palette.muted}>{`${(call.sourceType === "proxy" ? "via" : "source").padEnd(DETAIL_LABEL_WIDTH)}${call.source} (${call.sourceType})`}</text>
           <text fg={palette.muted}>{`time      ${call.timestamp}`}</text>
           <text fg={call.status === "error" ? palette.error : palette.success}>{`status    ${call.status}`}</text>
           <text fg={palette.muted}>{`operation ${call.operation}`}</text>

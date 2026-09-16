@@ -135,14 +135,15 @@ Point workers at the route (e.g. `http://127.0.0.1:17400/llm/v1/chat/completions
 
 ## Caller (which service made the call)
 
-Each stored call has an optional `caller` — the **service that issued the request**, not the LLM source (`platform`, `apigee-llm`, …). Attribution, in order:
+Each stored call has an optional `caller` — the **service that issued the request**, not the LLM source (`platform`, `apigee-llm`, …). On a `type: proxy` source the stored `source` name is the tagged route (often the Apigee/gateway route). Detail views label that **via**, so the gateway is not read as the caller. Attribution, in order:
 
 1. **`X-Devctl-Service`** (or `X-Devctl-Service-Name`) on the inbound proxy request. Host processes already get `DEVCTL_SERVICE_NAME` in their environment; send it as this header from the OpenAI / LiteLLM client. The proxy **strips** the header before forwarding so it never reaches the vendor.
-2. **Loopback TCP peer.** For traffic that hits a captured proxy route from `127.0.0.1` / `::1`, devctl maps the client port to a managed process (pid, parent, or process group). Remote peers are not looked up, so a coincidental local pid cannot be blamed. Containers and non-loopback clients are best-effort — send the header.
-3. **LiteLLM spend logs:** `metadata.service` / `metadata.service_name` / `metadata.devctl_service`, else `user` / `end_user` when it is not an email.
-4. **OpenAI `user`** on a captured completion body, same email skip.
+2. **`x-litellm-metadata`** JSON with `service` / `service_name` / `devctl_service`. Not stripped — LiteLLM already uses this header.
+3. **Loopback TCP peer.** For traffic that hits a captured proxy route from `127.0.0.1` / `::1`, devctl maps the client port to a managed process (pid, parent, or process group) **when the request starts**, while the socket is still up. Looking up after the response races the client close and leaves `caller` empty. Remote peers are not looked up, so a coincidental local pid cannot be blamed. Containers and non-loopback clients are best-effort — send the header or `metadata.service`.
+4. **Completion body** `metadata.service` / `metadata.service_name` / `metadata.devctl_service` (LiteLLM extra body), else a non-email OpenAI `user`.
+5. **LiteLLM spend logs:** `metadata.service` / `metadata.service_name` / `metadata.devctl_service`, else `user` / `end_user` when it is not an email.
 
-TUI list shows caller next to status; detail has a `caller` line. CLI: `devctl llm --caller worker`. MCP/web: `caller` on `get_llm_calls` / `get_llm_call`.
+TUI list shows caller next to status; detail has `caller` then `via` (proxy) or `source` (LiteLLM). CLI: `devctl llm --caller worker`. MCP/web: `caller` on `get_llm_calls` / `get_llm_call`.
 
 ## Surfaces
 

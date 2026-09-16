@@ -84,6 +84,8 @@ class Recorder implements LlmCaptureRecorder {
   private responseLen = 0;
   private responseTruncated = false;
   private done = false;
+  private readonly headerCaller: string | undefined;
+  private readonly peerCaller: Promise<string | undefined>;
 
   constructor(
     private readonly begin: LlmCaptureBegin,
@@ -91,6 +93,11 @@ class Recorder implements LlmCaptureRecorder {
     private readonly deps: ProxyCaptureSinkDeps,
   ) {
     this.maxBytes = llmCaptureMaxBytes(source.capture);
+    // Resolve the peer while the inbound socket is still ESTABLISHED. Waiting
+    // until finish() races the client close and leaves caller empty so the UI
+    // only has the proxy source name (apigee-llm).
+    this.headerCaller = callerFromHeaders(begin.requestHeaders);
+    this.peerCaller = this.headerCaller === undefined ? lookupPeerCaller(begin, deps) : Promise.resolve(undefined);
   }
 
   setRequestBody(body: Buffer, opts?: { omitted?: boolean }): void {
@@ -149,33 +156,33 @@ class Recorder implements LlmCaptureRecorder {
         responseBody: this.responseChunks.length > 0 ? Buffer.concat(this.responseChunks).toString("utf8") : undefined,
         responseTruncated: this.responseTruncated,
         responseContentType: this.responseContentType,
-        caller: await resolveCaller(this.begin, requestBody, this.deps),
+        caller: await this.resolveCaller(requestBody),
       });
       this.deps.store.upsert([this.source.capture.prompts ? ingest : stripLlmBodies(ingest)]);
     } catch (err) {
       this.deps.log?.(`llm proxy capture ${this.source.name}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-}
 
-async function resolveCaller(
-  begin: LlmCaptureBegin,
-  requestBody: string | undefined,
-  deps: ProxyCaptureSinkDeps,
-): Promise<string | undefined> {
-  const fromHeader = callerFromHeaders(begin.requestHeaders);
-  if (fromHeader !== undefined) {
-    return fromHeader;
-  }
-  const peer = begin.peer;
-  const lookup = deps.lookupCaller;
-  if (peer && lookup && isLoopbackPeer(peer.address)) {
-    const fromPeer = await lookupCallerSafe(lookup, peer, deps);
+  private async resolveCaller(requestBody: string | undefined): Promise<string | undefined> {
+    if (this.headerCaller !== undefined) {
+      return this.headerCaller;
+    }
+    const fromPeer = await this.peerCaller;
     if (fromPeer !== undefined) {
       return fromPeer;
     }
+    return callerFromCompletionRequest(parseJsonish(requestBody));
   }
-  return callerFromCompletionRequest(parseJsonish(requestBody));
+}
+
+async function lookupPeerCaller(begin: LlmCaptureBegin, deps: ProxyCaptureSinkDeps): Promise<string | undefined> {
+  const peer = begin.peer;
+  const lookup = deps.lookupCaller;
+  if (!peer || !lookup || !isLoopbackPeer(peer.address)) {
+    return undefined;
+  }
+  return lookupCallerSafe(lookup, peer, deps);
 }
 
 async function lookupCallerSafe(

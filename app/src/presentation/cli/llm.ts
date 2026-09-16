@@ -4,6 +4,8 @@ import type { ClientRuntime } from "../../application/client-runtime.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage } from "../../domain/llm/llm.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
+const DETAIL_LABEL_WIDTH = 10;
+
 function formatTokens(call: LlmCall): string {
   const total = call.usage?.totalTokens ?? ((call.usage?.promptTokens ?? 0) + (call.usage?.completionTokens ?? 0));
   return total > 0 ? String(total) : "—";
@@ -136,7 +138,8 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
           return;
         }
         writeOut(formatLlmCallLine(call));
-        writeOut(`caller    ${formatCaller(call)}\n`);
+        writeOut(`${"caller".padEnd(DETAIL_LABEL_WIDTH)}${formatCaller(call)}\n`);
+        writeOut(`${(call.sourceType === "proxy" ? "via" : "source").padEnd(DETAIL_LABEL_WIDTH)}${call.source} (${call.sourceType})\n`);
         if (call.error) {
           writeOut(`error     ${call.error}\n`);
         }

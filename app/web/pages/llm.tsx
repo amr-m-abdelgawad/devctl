@@ -72,7 +72,7 @@ function LlmList(props: { payload?: LlmCallsPayload }) {
                 <TableCell className="text-right font-mono text-[11px]">{call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}</TableCell>
                 <TableCell className="text-right font-mono text-[11px]">{tokenCount(call)}</TableCell>
                 <TableCell className="text-right font-mono text-[11px]">{costLabel(call.cost)}</TableCell>
-                <TableCell className="text-muted-foreground">{call.source}</TableCell>
+                <TableCell className="text-muted-foreground">{call.source_type === "proxy" ? `via ${call.source}` : call.source}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -99,8 +99,8 @@ function LlmDetail(props: { call: LlmCallRow }) {
       {call.error ? <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">{call.error}</p> : null}
       <dl className="flex flex-col divide-y divide-border/50 text-xs">
         <Kv label="id" value={call.id} />
-        <Kv label="source" value={`${call.source} (${call.source_type})`} />
         <Kv label="caller" value={call.caller || "—"} />
+        <Kv label={call.source_type === "proxy" ? "via" : "source"} value={`${call.source} (${call.source_type})`} />
         <Kv label="model" value={call.model} />
         {call.routed_model ? <Kv label="routed" value={call.routed_model} /> : null}
         {call.vendor ? <Kv label="vendor" value={call.vendor} /> : null}

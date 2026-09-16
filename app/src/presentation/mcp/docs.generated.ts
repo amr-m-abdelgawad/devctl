@@ -1521,14 +1521,15 @@ Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completion
 
 ## Caller (which service made the call)
 
-Each stored call has an optional \`caller\` — the **service that issued the request**, not the LLM source (\`platform\`, \`apigee-llm\`, …). Attribution, in order:
+Each stored call has an optional \`caller\` — the **service that issued the request**, not the LLM source (\`platform\`, \`apigee-llm\`, …). On a \`type: proxy\` source the stored \`source\` name is the tagged route (often the Apigee/gateway route). Detail views label that **via**, so the gateway is not read as the caller. Attribution, in order:
 
 1. **\`X-Devctl-Service\`** (or \`X-Devctl-Service-Name\`) on the inbound proxy request. Host processes already get \`DEVCTL_SERVICE_NAME\` in their environment; send it as this header from the OpenAI / LiteLLM client. The proxy **strips** the header before forwarding so it never reaches the vendor.
-2. **Loopback TCP peer.** For traffic that hits a captured proxy route from \`127.0.0.1\` / \`::1\`, devctl maps the client port to a managed process (pid, parent, or process group). Remote peers are not looked up, so a coincidental local pid cannot be blamed. Containers and non-loopback clients are best-effort — send the header.
-3. **LiteLLM spend logs:** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\`, else \`user\` / \`end_user\` when it is not an email.
-4. **OpenAI \`user\`** on a captured completion body, same email skip.
+2. **\`x-litellm-metadata\`** JSON with \`service\` / \`service_name\` / \`devctl_service\`. Not stripped — LiteLLM already uses this header.
+3. **Loopback TCP peer.** For traffic that hits a captured proxy route from \`127.0.0.1\` / \`::1\`, devctl maps the client port to a managed process (pid, parent, or process group) **when the request starts**, while the socket is still up. Looking up after the response races the client close and leaves \`caller\` empty. Remote peers are not looked up, so a coincidental local pid cannot be blamed. Containers and non-loopback clients are best-effort — send the header or \`metadata.service\`.
+4. **Completion body** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\` (LiteLLM extra body), else a non-email OpenAI \`user\`.
+5. **LiteLLM spend logs:** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\`, else \`user\` / \`end_user\` when it is not an email.
 
-TUI list shows caller next to status; detail has a \`caller\` line. CLI: \`devctl llm --caller worker\`. MCP/web: \`caller\` on \`get_llm_calls\` / \`get_llm_call\`.
+TUI list shows caller next to status; detail has \`caller\` then \`via\` (proxy) or \`source\` (LiteLLM). CLI: \`devctl llm --caller worker\`. MCP/web: \`caller\` on \`get_llm_calls\` / \`get_llm_call\`.
 
 ## Surfaces
 
@@ -3114,7 +3115,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). \`/auth login\` suspends the TUI, runs \`gcloud auth application-default login\` on the real terminal, then restores the TUI. \`/auth logout\` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or \`~/.devctl/credentials\`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); request paths wrap in the live feed. **REQ** is the full request when a trace exists; **HOP** is the proxy hop (same split as the web UI). Click a route for full details. \`n\` start / \`x\` stop. If \`proxy.listen.port\` is missing, the screen says so and \`n\` reports the bind error in the status bar instead of crashing
-- **LLM** — recent calls from configured \`llm.sources\` (caller, model, status, tokens, cost, latency). \`enter\` opens detail (messages, usage, attributes); \`enter\` again jumps to a trace when one is present. Usage counts (\`prompt_tokens\`, \`max_tokens\`) are not secrets. \`/reveal\` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
+- **LLM** — recent calls from configured \`llm.sources\` (caller, model, status, tokens, cost, latency). \`enter\` opens detail (\`caller\`, then \`via\` for a proxy source or \`source\` for LiteLLM, messages, usage, attributes); \`enter\` again jumps to a trace when one is present. Usage counts (\`prompt_tokens\`, \`max_tokens\`) are not secrets. \`/reveal\` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. \`enter\` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. \`r\` reruns
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
 - **Profiles** — members; \`enter\` selects and offers start

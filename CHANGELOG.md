@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- LLM inspector proxy-capture records the **calling service** (`caller`), not the gateway route name, when the provider sits behind Apigee or another `type: proxy` source. Peer lookup runs when the request starts (a closed socket no longer leaves `caller` empty). Completion `metadata.service` and `x-litellm-metadata` are read the same way as LiteLLM spend logs. Detail views label the proxy source **via** so it is not mistaken for the caller.
+
 ## [0.12.0] - 2026-09-16
 
 ### Added

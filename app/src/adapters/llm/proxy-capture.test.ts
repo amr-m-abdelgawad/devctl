@@ -108,21 +108,49 @@ describe("ProxyCaptureSink recorder", () => {
     expect(lookedUp).toBe(0);
   });
 
-  test("falls back to an injected loopback peer lookup", async () => {
+  test("falls back to an injected loopback peer lookup started at begin", async () => {
     const store = new LlmCallManager();
-    await drive(
-      cfgWithProxySource(),
+    let lookedUp = 0;
+    const held = Promise.withResolvers<string>();
+    const sink = new ProxyCaptureSink({
+      cfg: () => cfgWithProxySource(),
       store,
-      {
-        routeName: "apigee-llm",
-        method: "POST",
-        path: "/llm/v1/chat/completions",
-        requestHeaders: jsonHeaders,
-        peer: { address: "127.0.0.1", port: 54321 },
+      lookupCaller: async () => {
+        lookedUp += 1;
+        return held.promise;
       },
-      async (peer) => (peer.port === 54321 ? "api" : undefined),
-    );
+    });
+    const rec = sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/v1/chat/completions",
+      requestHeaders: jsonHeaders,
+      peer: { address: "127.0.0.1", port: 54321 },
+    });
+    if (!rec) throw new Error("expected a recorder");
+    expect(lookedUp).toBe(1);
+    rec.setRequestBody(Buffer.from(JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from("{}"));
+    held.resolve("api");
+    await rec.finish({ status: 200, durationMs: 1, requestId: "req-9", timestamp: "2026-01-01T00:00:00.000Z" });
     expect(store.get("req-9")?.caller).toBe("api");
+  });
+
+  test("records caller from completion metadata.service when the peer is unknown", async () => {
+    const store = new LlmCallManager();
+    const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource(), store });
+    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+    if (!rec) throw new Error("expected a recorder");
+    rec.setRequestBody(Buffer.from(JSON.stringify({
+      model: "gpt-4o",
+      metadata: { service: "invoices-api" },
+      messages: [{ role: "user", content: "hi" }],
+    })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from("{}"));
+    await rec.finish({ status: 200, durationMs: 1, requestId: "req-meta", timestamp: "2026-01-01T00:00:00.000Z" });
+    expect(store.get("req-meta")?.caller).toBe("invoices-api");
   });
 
   test("does not look up a non-loopback peer", async () => {

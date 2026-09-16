@@ -42,7 +42,8 @@ export type LlmCaptureRecorder = {
   appendResponse(chunk: Buffer): boolean;
   // Terminal: emit exactly one ingest. Must tolerate a half-empty recorder
   // (no request body, no response body, status 502) and never throw. May be
-  // async when caller attribution looks up the peer process.
+  // async when caller attribution started at begin (peer lookup) is still
+  // settling.
   finish(meta: LlmCaptureFinish): void | Promise<void>;
 };
 

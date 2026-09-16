@@ -1,7 +1,9 @@
 const CALLER_MAX_CHARS = 64;
+const METADATA_SERVICE_KEYS = ["service", "service_name", "devctl_service"] as const;
 
 export const LLM_CALLER_HEADER = "x-devctl-service";
 const LLM_CALLER_HEADER_ALIASES = [LLM_CALLER_HEADER, "x-devctl-service-name"] as const;
+const LITELLM_METADATA_HEADER = "x-litellm-metadata";
 
 export function normalizeLlmCaller(raw: string): string | undefined {
   const value = raw.trim();
@@ -22,7 +24,7 @@ export function callerFromHeaders(headers: Record<string, string>): string | und
       return caller;
     }
   }
-  return undefined;
+  return callerFromMetadata(parseJsonObject(headerValueIgnoreCase(headers, LITELLM_METADATA_HEADER)));
 }
 
 export function isLlmCallerHeader(name: string): boolean {
@@ -31,7 +33,7 @@ export function isLlmCallerHeader(name: string): boolean {
 }
 
 export function callerFromSpendLog(row: Record<string, unknown>, metadata: Record<string, unknown>): string | undefined {
-  const tagged = firstNonEmptyString(metadata, ["service", "service_name", "devctl_service"]);
+  const tagged = callerFromMetadata(metadata);
   if (tagged !== undefined) {
     return tagged;
   }
@@ -39,10 +41,22 @@ export function callerFromSpendLog(row: Record<string, unknown>, metadata: Recor
 }
 
 export function callerFromCompletionRequest(request: unknown): string | undefined {
-  if (typeof request !== "object" || request === null || Array.isArray(request)) {
+  const rec = asObject(request);
+  if (rec === undefined) {
     return undefined;
   }
-  return firstNonEmptyString(request as Record<string, unknown>, ["user"]);
+  const tagged = callerFromMetadata(asObject(rec.metadata));
+  if (tagged !== undefined) {
+    return tagged;
+  }
+  return firstNonEmptyString(rec, ["user"]);
+}
+
+function callerFromMetadata(metadata: Record<string, unknown> | undefined): string | undefined {
+  if (metadata === undefined) {
+    return undefined;
+  }
+  return firstNonEmptyString(metadata, METADATA_SERVICE_KEYS);
 }
 
 export function headerValueIgnoreCase(headers: Record<string, string>, name: string): string {
@@ -70,6 +84,24 @@ function firstNonEmptyString(row: Record<string, unknown>, keys: readonly string
     }
   }
   return undefined;
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> | undefined {
+  if (raw.trim() === "") {
+    return undefined;
+  }
+  try {
+    return asObject(JSON.parse(raw) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
+function asObject(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
 }
 
 function looksLikeEmail(value: string): boolean {
