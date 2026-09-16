@@ -58,7 +58,7 @@ What sets it apart:
 - **Runs your real services, not images.** `npm`, `uv`, `python` start as native host processes — fast reloads, a debugger you can attach directly, no Dockerfile — with Docker/Podman services opt-in when a dependency needs them.
 - **Handles the cloud auth you'd otherwise hand-roll.** A loopback proxy mints and injects Google / IAP tokens on both HTTP and gRPC, so local code reaches IAP-protected backends with no token logic of its own. Tokens never touch the logs.
 - **Structured logs and traces, built in.** Every log is an OpenTelemetry-shaped record; an opt-in OTLP receiver and per-request tracing let you follow a request across services — and let an agent debug it.
-- **One session, three ways in.** The TUI, the CLI, and an MCP endpoint for your agent all drive the same supervisor — not three tools that each half-know the state.
+- **One session, four ways in.** The TUI, the CLI, an MCP endpoint for your agent, and an opt-in loopback web console all drive the same supervisor — not four tools that each half-know the state.
 
 ---
 
@@ -66,11 +66,11 @@ What sets it apart:
 
 | Surface | What you get |
 |---------|--------------|
-| **TUI** | Dashboard, services, logs, traces, identity, credentials, proxy, doctor, settings |
-| **CLI** | Start/stop, tasks, service-context exec, logs, Doctor, config provenance |
+| **TUI** | Dashboard, services, logs, traces, LLM inspector, identity, credentials, proxy, doctor, settings |
+| **CLI** | Start/stop, tasks, service-context exec, logs, LLM inspector, Doctor, config provenance, web |
 | **MCP** | Localhost endpoint so Claude, Cursor, Codex, or Kilo can operate and debug the stack |
 | **Proxy** | Loopback routes that inject Google / IAP tokens over HTTP and gRPC — bind `127.0.0.1` only |
-| **Telemetry** | OpenTelemetry-shaped logs, request traces, and an opt-in loopback OTLP receiver |
+| **Telemetry** | OpenTelemetry-shaped logs, request traces, an opt-in OTLP receiver, and a loopback web console |
 | **Runtime** | Host processes plus opt-in Docker/Podman services, hooks, and health-gated dependencies |
 | **Plugins** | Versioned SDK and a generic OIDC client-credentials reference provider |
 | **Doctor** | Ports, containers, tools, ADC, impersonation — reported, never auto-enabled |
@@ -141,12 +141,13 @@ flowchart LR
   TUI --> Supervisor
   CLI --> Supervisor
   MCP["MCP · 127.0.0.1"] --> Supervisor
+  Web["Web · 127.0.0.1"] --> Supervisor
   Supervisor --> Runtime["Host processes + containers"]
   Supervisor --> Proxy
   Supervisor --> Logs["Logs + traces"]
 ```
 
-The **supervisor** owns host processes, optional Docker/Podman containers, the proxy, the log and trace buffers, and `~/.devctl/state/<repo>/`. The TUI is a client. Agents talk HTTP to the same process — a stdio child of the TUI would die on quit. MCP is **off by default**. See [how it fits together](docs/overview.md).
+The **supervisor** owns host processes, optional Docker/Podman containers, the proxy, the log and trace buffers, and `~/.devctl/state/<repo>/`. The TUI is a client. Agents talk HTTP to the same process — a stdio child of the TUI would die on quit. MCP and the web console are **off by default**. See [how it fits together](docs/overview.md).
 
 ---
 
@@ -157,7 +158,7 @@ The **supervisor** owns host processes, optional Docker/Podman containers, the p
 | [Overview](docs/overview.md) | [TUI](docs/tui.md) | [Configuration](docs/configuration.md) | [Auth](docs/authentication.md) |
 | [Install](docs/installation.md) | [CLI](docs/cli.md) | [Services](docs/services.md) | [Impersonation](docs/impersonation.md) |
 | [Quick start](docs/quickstart.md) | [MCP](docs/mcp.md) | [Profiles](docs/profiles.md) | [IAP](docs/iap.md) |
-| [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Telemetry](docs/telemetry.md) | [Environment](docs/environment.md) | [Proxy](docs/proxy.md) |
+| [Demo](examples/demo-platform/README.md) | [Logs](docs/logs.md) · [Telemetry](docs/telemetry.md) · [LLM](docs/llm.md) | [Environment](docs/environment.md) | [Proxy](docs/proxy.md) |
 | [Agent skills](skills/README.md) | [Doctor](docs/doctor.md) · [Troubleshooting](docs/troubleshooting.md) | [Plugins](docs/plugins.md) | [Security](docs/security.md) |
 
 The full documentation site is also published as a [GitHub Wiki](https://github.com/amr-m-abdelgawad/devctl/wiki). Changing this repository (not YAML in some other repo): [contributor internals](docs/internals/README.md).
@@ -169,7 +170,7 @@ The full documentation site is also published as a [GitHub Wiki](https://github.
 - No hard-coded services, ports, profiles, or service accounts.
 - User identity and service identity are never silently swapped.
 - Tokens stay out of the TUI, logs, traces, and MCP output.
-- Proxy, token endpoint, OTLP receiver, and MCP bind **`127.0.0.1`** only; MCP and the OTLP receiver are **off by default**.
+- Proxy, token endpoint, OTLP receiver, MCP, and the web console bind **`127.0.0.1`** only; MCP, OTLP, and the web console are **off by default**.
 - Local services run with zero Google Cloud.
 
 See [Security](docs/security.md) for the full model.

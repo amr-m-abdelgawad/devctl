@@ -32,7 +32,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - `t` / `m` — timestamp and metadata columns (persist in `tui.json`).
 - `w` / `/wrap` — wrap every line (default) → clip with ellipsis → unwrap only the selected row.
 - `g` — jump to latest. Leaving the tail pins the view (`pinned · +N new`).
-- `←`/`→` or click a chip — cycle service filters. Digits `1`–`4` jump nav tabs, not log sources.
+- `←`/`→` or click a chip — cycle service filters. Digits `1`–`5` jump nav tabs, not log sources.
 - `\\` / `/split` — second pane on the same live stream, with its own service filter. Shared search. `|` focuses the other pane.
 - `enter` — details overlay (body summary, attributes table, severity number, `traceId`/`spanId`).
 
@@ -43,6 +43,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - `/export [path]` — write the **current** filters. Default file: `~/.devctl/exports/devctl-logs-<timestamp>.log`.
 - `/exports` or the **open folder** chip — reveal that directory.
 - `/history [id]` — load a persisted session (`LogManager.listSessions`).
+- `/system` / `/internal` — show or hide internal `auth` / `mcp` / `devctl` / `proxy` lines.
 - `/regex`, `/since`, `/until` — search and time range (`until` is exclusive of later lines).
 
 Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. `j`/`k` moves the highlight.
@@ -50,12 +51,13 @@ Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on th
 ## CLI
 
 ```bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--attribute key=value] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
 devctl logs export --output FILE   # explicit export subcommand
 devctl logs --trace <id>           # spans plus correlated logs for that trace
+devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 ```
 

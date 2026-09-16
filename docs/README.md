@@ -1,6 +1,6 @@
 # devctl wiki
 
-`devctl` is a configuration-driven local development orchestrator. It starts and stops services, resolves environment, optional Google identity, an auth-aware proxy, health checks, and centralized logs — from a keyboard-first TUI, a CLI, or an optional MCP server for coding agents.
+`devctl` is a configuration-driven local development orchestrator. It starts and stops services, resolves environment, optional Google identity, an auth-aware proxy, health checks, and centralized logs — from a keyboard-first TUI, a CLI, an optional MCP server for coding agents, or an opt-in loopback web console.
 
 The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](https://opentui.com/docs/) interface. There is no Go binary.
 
@@ -23,7 +23,8 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
 | [Logs](logs.md) | Buffer, filters, export, history |
-| [LLM inspector](llm.md) | LiteLLM spend logs (and later sources) in MCP, web, TUI, CLI |
+| [LLM inspector](llm.md) | LiteLLM spend logs and proxy-capture sources in MCP, web, TUI, CLI |
+| [Telemetry](telemetry.md) | OTLP receiver, traces, and the opt-in loopback [web console](telemetry.md#web-ui) |
 | [Doctor](doctor.md) | Environment and Google diagnostics |
 | [Troubleshooting](troubleshooting.md) | Symptom → fix |
 

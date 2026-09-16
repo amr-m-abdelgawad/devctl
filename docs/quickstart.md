@@ -21,7 +21,7 @@ With no config, the TUI opens **setup** instead of exiting: Enter writes a start
 1. Press `o` to pick a profile (if you defined any).
 2. On an empty dashboard, `enter` starts the default profile (first profile name alphabetically) after a plan overlay.
 3. `n` starts the highlighted row or the space-selected set; `x` stops; `R` restarts.
-4. `l` opens centralized logs. Identity is `a`. Credentials (never raw tokens) are the **credentials** tab.
+4. `l` opens centralized logs. Identity is `a`. Credentials (never raw tokens) are `/credentials`.
 
 See [TUI](tui.md) for every screen and key.
 

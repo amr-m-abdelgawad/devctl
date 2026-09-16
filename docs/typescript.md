@@ -50,9 +50,9 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`.
+Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`, `dismissed_notifications`.
 
-`mcp_disabled_tools` is a deny-list of MCP tool names that are on by default. `mcp_enabled_tools` opts in tools that are off by default (`exec_service`). See [MCP](mcp.md).
+`mcp_disabled_tools` is a deny-list of MCP tool names that are on by default. `mcp_enabled_tools` opts in tools that are off by default (`exec_service`). See [MCP](mcp.md). `/notify dismiss` appends this version to `dismissed_notifications` so the update banner does not return.
 
 Search order:
 

@@ -144,3 +144,5 @@ Changing the `plugins` **path list** hot-applies token providers, log parsers, a
 - [Environment](environment.md)
 - [Plugins](plugins.md)
 - [How it fits together](overview.md)
+- [Telemetry](telemetry.md)
+- [LLM inspector](llm.md)

@@ -242,3 +242,4 @@ MCP agent chips use brand colors (Claude terracotta, Cursor blue, Kilo gold, Cod
 - [MCP](mcp.md)
 - [Building from source](typescript.md)
 - [CLI](cli.md)
+- [Telemetry](telemetry.md)
