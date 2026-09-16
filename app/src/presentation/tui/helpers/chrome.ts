@@ -150,7 +150,7 @@ export function confirmCopy(kind: ConfirmKind, profile: string, detail?: Confirm
     const envName = detail?.env || "overlay";
     return {
       title: "Apply environment?",
-      body: `${named} is running with a different overlay. Enter switches to ${envName} for the next start. Press r to switch and restart now.`,
+      body: `${named} is running. Enter selects ${envName} for the next start. Press r to switch and restart now.`,
     };
   }
   if (kind === "restart-cascade") {
@@ -211,8 +211,8 @@ export function confirmHints(kind: ConfirmKind): FooterHint[] {
   }
   if (kind === "env-restart") {
     return [
-      { key: "enter", label: "switch only" },
-      { key: "r", label: "switch and restart" },
+      { key: "enter", label: "switch" },
+      { key: "r", label: "restart" },
       { key: "esc", label: "stay" },
     ];
   }

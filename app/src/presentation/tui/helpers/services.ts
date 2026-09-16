@@ -37,13 +37,13 @@ export const SERVICE_PANE_PAD = 2;
 
 export const SERVICE_LIST_MIN = 34;
 
-const SHOW_HEALTH_AT = 48;
+const SHOW_HEALTH_AT = 62;
 
-const SHOW_ENV_AT = 54;
+const SHOW_ENV_AT = 48;
 
-const SHOW_PORT_AT = 66;
+const SHOW_PORT_AT = 74;
 
-const SHOW_PID_AT = 78;
+const SHOW_PID_AT = 86;
 
 const LIST_PANE_SHARE = 0.48;
 
@@ -91,7 +91,7 @@ export function serviceListPaneWidth(termWidth: number, names: string[], stacked
   const longest = names.reduce((max, name) => Math.max(max, name.length), 0);
   const nameCol = Math.min(SERVICE_NAME_MAX, Math.max(SERVICE_NAME_MIN, longest + SERVICE_NAME_PAD));
   const wanted =
-    SERVICE_ROW_LEAD + SERVICE_STATE_COL + SERVICE_COL_GAP + nameCol + SERVICE_PANE_BORDER + SERVICE_PANE_PAD;
+    SERVICE_ROW_LEAD + SERVICE_STATE_COL + SERVICE_COL_GAP + SERVICE_ENV_COL + nameCol + SERVICE_PANE_BORDER + SERVICE_PANE_PAD;
   const cap = Math.max(SERVICE_LIST_MIN, Math.floor(termWidth * LIST_PANE_SHARE));
   return Math.min(cap, Math.max(SERVICE_LIST_MIN, wanted));
 }

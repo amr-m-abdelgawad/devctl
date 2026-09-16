@@ -275,7 +275,7 @@ describe("TUI helpers", () => {
     expect(confirmHints("restart-cascade").some((h) => h.key === "c")).toBe(true);
     expect(confirmCopy("env-restart", "", { services: ["api"], env: "deployed" }).title).toBe("Apply environment?");
     expect(confirmCopy("env-restart", "", { services: ["api"], env: "deployed" }).body).toContain("deployed");
-    expect(confirmHints("env-restart").some((h) => h.key === "r")).toBe(true);
+    expect(confirmHints("env-restart").some((h) => h.key === "r" && h.label === "restart")).toBe(true);
   });
 
   test("nav cycles the five primary tabs; other screens return home", () => {
@@ -569,8 +569,8 @@ describe("TUI helpers", () => {
   test("service name column grows with the list pane", () => {
     expect(serviceNameColumnWidth(40)).toBeGreaterThan(14);
     expect(serviceNameColumnWidth(80)).toBeGreaterThan(serviceNameColumnWidth(40));
-    expect(serviceRowShowsEnv(53)).toBe(false);
-    expect(serviceRowShowsEnv(54)).toBe(true);
+    expect(serviceRowShowsEnv(47)).toBe(false);
+    expect(serviceRowShowsEnv(48)).toBe(true);
     expect(serviceListPaneWidth(120, ["payment-gateway-worker-east"], false)).toBeGreaterThan(
       serviceListPaneWidth(120, ["api"], false),
     );
