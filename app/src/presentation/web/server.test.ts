@@ -152,6 +152,10 @@ function rawGet(port: number, path: string, headers: Record<string, string>): Pr
   return rawRequest(port, { path, headers }).then((res) => res.status);
 }
 
+function authGet(base: string, path: string): Promise<Response> {
+  return fetch(`${base}${path}`, { headers: { Authorization: `Bearer ${TEST_WEB_TOKEN}` } });
+}
+
 function controlHeaders(port: number, extra: Record<string, string> = {}): Record<string, string> {
   return {
     "content-type": "application/json",
@@ -194,48 +198,68 @@ describe("web http server", () => {
       expect(page.headers.get("access-control-allow-origin")).toBeNull();
       expect((await page.text()).toLowerCase()).toContain("<!doctype html>");
 
-      const status = await fetch(`${base}/api/status`);
+      const status = await authGet(base, "/api/status");
       expect(status.status).toBe(200);
       const statusBody = await status.json() as { profile: string; stats_series?: { cpu: number[] }; web: { running: boolean } };
       expect(statusBody.profile).toBe("local");
       expect(statusBody.stats_series?.cpu).toEqual([0.1]);
       expect(statusBody.web.running).toBe(true);
 
-      const services = await fetch(`${base}/api/services`);
+      const services = await authGet(base, "/api/services");
       expect((await services.json() as Array<{ name: string }>)[0]?.name).toBe("api");
 
-      const requests = await fetch(`${base}/api/requests`);
+      const requests = await authGet(base, "/api/requests");
       expect((await requests.json() as { total: number }).total).toBe(3);
 
-      const config = await fetch(`${base}/api/config`);
+      const config = await authGet(base, "/api/config");
       const configBody = await config.json() as { project: string; tasks: unknown[] };
       expect(configBody.project).toBe("demo");
       expect(configBody.tasks).toEqual([]);
 
-      const profiles = await fetch(`${base}/api/profiles`);
+      const profiles = await authGet(base, "/api/profiles");
       expect((await profiles.json() as Array<{ name: string }>)[0]?.name).toBe("local");
 
-      const logs = await fetch(`${base}/api/logs?level=ERROR`);
+      const logs = await authGet(base, "/api/logs?level=ERROR");
       expect(logs.status).toBe(200);
 
-      const trace = await fetch(`${base}/api/trace/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`);
+      const trace = await authGet(base, "/api/trace/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
       expect((await trace.json() as { trace_id: string }).trace_id).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
-      const request = await fetch(`${base}/api/request/req-1`);
+      const request = await authGet(base, "/api/request/req-1");
       expect((await request.json() as { request_id: string }).request_id).toBe("req-1");
 
-      const llm = await fetch(`${base}/api/llm`);
+      const llm = await authGet(base, "/api/llm");
       expect((await llm.json() as { calls: Array<{ id: string }> }).calls[0]?.id).toBe("chatcmpl-1");
 
-      const llmDetail = await fetch(`${base}/api/llm/chatcmpl-1`);
+      const llmDetail = await authGet(base, "/api/llm/chatcmpl-1");
       expect((await llmDetail.json() as { id: string }).id).toBe("chatcmpl-1");
 
-      const update = await fetch(`${base}/api/update`);
+      const update = await authGet(base, "/api/update");
       const updateBody = await update.json() as { current: string; newer: boolean; latest: string };
       expect(update.status).toBe(200);
       expect(updateBody.newer).toBe(false);
       expect(updateBody.latest).toBe("");
       expect(updateBody.current).toBeTruthy();
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("GET /api data routes require the bearer token", async () => {
+    const server = await listen();
+    const port = server.listenPort();
+    const base = `http://127.0.0.1:${port}`;
+    try {
+      for (const path of ["/api/status", "/api/logs", "/api/llm", "/api/config", "/api/llm/chatcmpl-1"]) {
+        const missing = await fetch(`${base}${path}`);
+        expect(missing.status).toBe(401);
+        const wrong = await fetch(`${base}${path}`, { headers: { Authorization: "Bearer nope" } });
+        expect(wrong.status).toBe(401);
+        const ok = await authGet(base, path);
+        expect(ok.status).toBe(200);
+      }
+      // The HTML shell stays anonymous so the SPA can bootstrap and read the token.
+      expect((await fetch(`${base}/`)).status).toBe(200);
     } finally {
       await server.stop();
     }
@@ -258,7 +282,7 @@ describe("web http server", () => {
     });
     await server.start();
     try {
-      const res = await fetch(`http://127.0.0.1:${server.listenPort()}/api/update`);
+      const res = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/update");
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({ current: "0.9.0", latest: "0.10.0", newer: true, kind: "npm" });
     } finally {

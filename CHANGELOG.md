@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Web console read APIs now require the per-bind bearer token and a loopback peer on every
+  `/api/*` route (status, logs, config, traces, LLM bodies), matching `POST /api/control` and
+  the MCP/token endpoints. Only the HTML shell at `/` is served anonymously (#71).
+- The web control token is delivered in the URL **fragment** (`#token=…`) instead of the query
+  string, so it is no longer sent as `Referer` or written to proxy access logs. `devctl web
+  start` prints only the console origin by default; `devctl web start --print-url` prints the
+  full one-time access link when needed (#77).
 - Supervisor RPC connections now cap the pre-auth inbound line buffer at 1 MiB and drop a
   connection that streams past it with no newline, so a local peer can no longer grow daemon
   memory before authenticating (#78).
