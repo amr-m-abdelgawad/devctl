@@ -119,7 +119,10 @@ export class RpcServer {
     });
     socketConn.on("data", (chunk) => {
       buf += chunk.toString("utf8");
-      if (buf.length > MAX_BUFFER_BYTES) {
+      // Measure the pending buffer in UTF-8 bytes, not UTF-16 code units, so a
+      // newline-free stream of multibyte characters can't retain ~2x the cap
+      // before this fires.
+      if (Buffer.byteLength(buf, "utf8") > MAX_BUFFER_BYTES) {
         this.deps.log("devctl", "WARN", "client connection exceeded max buffer; closing");
         buf = "";
         socketConn.destroy();

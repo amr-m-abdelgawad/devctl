@@ -182,3 +182,27 @@ test("runOnce caps captured stdout and forwards every line to onLine", async () 
   // Live logging is untouched: every emitted line reached onLine.
   expect(lines.length).toBe(32);
 });
+
+test("runOnce bounds a single unterminated line without dropping callbacks", async () => {
+  const mgr = new ProcessManager();
+  let onLineCalls = 0;
+  // ~2.1 MiB written with no trailing newline — the line pump must force-break
+  // it so the pending buffer cannot grow without bound.
+  const script = "process.stdout.write('x'.repeat(2_100_000))";
+  const result = await mgr.runOnce({
+    name: "flood",
+    args: [process.execPath, "-e", script],
+    shell: false,
+    workDir: "",
+    env: process.env as Record<string, string>,
+    graceMs: 1000,
+    onLine: () => {
+      onLineCalls += 1;
+    },
+  });
+  expect(result.code).toBe(0);
+  // Captured output stays bounded near the 1 MiB cap despite the ~2.1 MiB flood.
+  expect(result.stdout.length).toBeLessThan(1024 * 1024 + 128 * 1024);
+  // The forced line break(s) still reached onLine at least once.
+  expect(onLineCalls).toBeGreaterThan(0);
+});

@@ -147,6 +147,33 @@ describe("rpc server", () => {
     }
   });
 
+  test("caps the buffer by UTF-8 bytes, not UTF-16 code units", async () => {
+    const dir = tmp();
+    const path = socketPath(dir);
+    let dispatched = 0;
+    const server = testServer(async () => {
+      dispatched += 1;
+      return { ok: true };
+    });
+    try {
+      await server.listen(path);
+      const closed = await new Promise<boolean>((resolve, reject) => {
+        const conn = connect(path);
+        // ~1.2 MiB of 4-byte characters: ~600k UTF-16 code units (under a
+        // code-unit cap) but ~1.2 MiB of UTF-8 bytes (over the byte cap).
+        const payload = "😀".repeat(300_000);
+        conn.on("connect", () => conn.write(payload));
+        conn.on("close", () => resolve(true));
+        conn.on("error", () => resolve(true));
+        setTimeout(() => reject(new Error("connection was not closed")), 4000);
+      });
+      expect(closed).toBe(true);
+      expect(dispatched).toBe(0);
+    } finally {
+      server.close();
+    }
+  });
+
   test("an error on an accepted client socket is handled, not thrown", async () => {
     const dir = tmp();
     const path = socketPath(dir);
