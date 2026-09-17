@@ -390,7 +390,7 @@ complete allowlists.
 | \`http.<name>\` | \`request\` \`outputs\` \`cache\` \`expose\` |
 | \`http.<name>.request\` | \`method\` \`url\` \`headers\` \`body\` \`form\` \`auth\` \`timeout_seconds\` |
 | \`http.<name>.cache\` | \`jwt\` \`expires_in\` |
-| \`http.<name>.expose\` | \`enabled\` \`host\` \`response_headers\` (or the \`true\`/\`false\` shorthand) |
+| \`http.<name>.expose\` | \`enabled\` \`host\` \`response_headers\` \`allow_token_body\` (or the \`true\`/\`false\` shorthand) |
 | \`logs\` | \`max_memory_events\` \`persistence\` |
 | \`logs.persistence\` | \`enabled\` \`directory\` \`retention_days\` \`max_session_logs\` |
 | \`telemetry\` | \`otlp\` |

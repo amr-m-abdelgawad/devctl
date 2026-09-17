@@ -10,7 +10,31 @@ import {
 import { allServiceEnvConfigs } from "../service/environments.ts";
 
 const PROCESS_ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+// Fields scanned for a JWT `exp` when caching. Kept narrow on purpose: an
+// opaque refresh_token is not a JWT, so it must not join this list.
 export const JWT_TOKEN_FIELDS = ["access_token", "id_token", "token"] as const;
+// Output field names whose presence in an exposed recipe means the cached body
+// carries a credential. Broader than JWT_TOKEN_FIELDS because the expose gate
+// cares about any leaked secret, JWT or not (e.g. an opaque refresh_token).
+const EXPOSED_CREDENTIAL_FIELDS = ["access_token", "id_token", "token", "refresh_token", "client_secret"] as const;
+
+// True when an exposed recipe's cached body is likely to carry a credential:
+// a JWT-cached body, or an output whose JSON source path lands on a
+// credential-shaped field. The synthesized expose route serves that body to
+// any loopback caller with no inbound auth.
+export function recipeExposesTokenMaterial(recipe: HttpRecipeConfig): boolean {
+  if (recipe.cache.jwt) {
+    return true;
+  }
+  const credentialFields = EXPOSED_CREDENTIAL_FIELDS as readonly string[];
+  for (const source of Object.values(recipe.outputs)) {
+    const leaf = source.split(".").pop() ?? source;
+    if (credentialFields.includes(leaf)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function recipesReferencedIn(value: string): string[] {
   const names: string[] = [];

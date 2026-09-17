@@ -342,6 +342,11 @@ export type HttpExposeConfig = {
   enabled: boolean;
   host: string;
   response_headers: Record<string, string>;
+  // Opt-in acknowledgement that the exposed recipe body may contain token
+  // material (an access_token/id_token/token output, or a JWT-cached body).
+  // The synthesized expose route serves the cached body with no inbound auth,
+  // so config validation refuses such a recipe unless this is set.
+  allow_token_body: boolean;
 };
 
 export type HttpRecipeConfig = {
@@ -368,7 +373,7 @@ export function emptyHttpCache(): HttpCacheConfig {
 }
 
 export function emptyHttpExpose(): HttpExposeConfig {
-  return { enabled: false, host: "", response_headers: {} };
+  return { enabled: false, host: "", response_headers: {}, allow_token_body: false };
 }
 
 export function emptyHttpRecipe(): HttpRecipeConfig {

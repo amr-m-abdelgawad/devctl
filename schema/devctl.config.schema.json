@@ -519,7 +519,8 @@
                   "type": "object",
                   "additionalProperties": { "type": "string" },
                   "description": "Inbound CORS/response headers on the synthesized route"
-                }
+                },
+                "allow_token_body": { "type": "boolean", "description": "Acknowledge that the exposed cached body may contain token material (access_token/id_token/token output, or a JWT-cached body). Required to expose such a recipe, whose route serves the body with no inbound auth." }
               }
             }
           ]

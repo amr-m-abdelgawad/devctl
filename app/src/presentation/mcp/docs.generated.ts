@@ -872,8 +872,9 @@ http:
     expose:
       enabled: true
       host: idp-token.local
+      allow_token_body: true     # this recipe caches a token; see below
       response_headers:
-        Access-Control-Allow-Origin: "*"
+        Access-Control-Allow-Origin: "http://localhost:5173"
         Access-Control-Allow-Methods: "GET, OPTIONS"
         Access-Control-Allow-Headers: "Authorization, Content-Type, X-Devctl-Request-ID"
 
@@ -896,7 +897,7 @@ services:
 
 **Allowed refs inside a recipe request** (resolved at fetch time): \`\${services.*}\`, \`\${identity.user}\`, \`\${token}\`, \`\${http.<other>.<output>}\`. Recipe \`url\` / \`headers\` / \`form\` / \`body\` also expand \`\${NAME}\` / \`\${env.NAME}\` from the **supervisor process environment** so secrets like \`client_secret\` can live in the shell or keychain overlay, not in git. Service env still rejects \`\${env.NAME}\`.
 
-Load-time validation checks shape and names only (unknown recipe/output, cycles, reserved names, expose requires \`proxy.enabled\`). Values are not expanded until \`ensure()\`.
+Load-time validation checks shape and names only (unknown recipe/output, cycles, reserved names, expose requires \`proxy.enabled\`, and a token-bearing expose requires \`allow_token_body\`). Values are not expanded until \`ensure()\`.
 
 Unknown fields are rejected.
 
@@ -908,6 +909,12 @@ Unknown fields are rejected.
 When a recipe is exposed, host services also get \`DEVCTL_HTTP_<NAME>_URL\` (uppercase, hyphens → underscores), analogous to \`DEVCTL_TOKEN_URL\`. Containers skip it for the same loopback reason as the token endpoint.
 
 Recommend JWT consumers: put the snapshot in env **and** poll/read \`\${http.name.url}\` when they need a fresh token.
+
+### Exposing a token body is a loopback publish
+
+The synthesized expose route has **no inbound auth** — any local process (and, with a permissive CORS header, any web page whose origin you allow) that reaches the expose host receives the cached body verbatim. When that body is a credential (a recipe with \`cache.jwt: true\`, or an output that maps a credential field — one whose JSON source path ends in \`access_token\` / \`id_token\` / \`token\` / \`refresh_token\` / \`client_secret\`, regardless of the output's own name), you are publishing a live credential on loopback.
+
+\`devctl config validate\` **refuses** to expose such a recipe unless you set \`expose.allow_token_body: true\` to acknowledge it. Prefer to keep the snapshot in service env (\`\${http.name.token}\`) and expose only when a consumer genuinely needs to poll the URL. Do **not** pair a token expose with \`Access-Control-Allow-Origin: "*"\` — scope CORS to the specific loopback origin that needs it (Doctor warns on the wildcard). Containers cannot reach the expose host as loopback anyway, so an exposed token is for host-side consumers.
 
 ## Cache
 
@@ -962,6 +969,7 @@ http:
       expires_in: expires_in
     expose:
       enabled: true
+      allow_token_body: true     # the cached body is an access_token
 \`\`\`
 
 Consumers: \`APIGEE_TOKEN: \${http.apigee-token.token}\` at start, and \`\${http.apigee-token.url}\` / \`DEVCTL_HTTP_APIGEE_TOKEN_URL\` for refresh.
