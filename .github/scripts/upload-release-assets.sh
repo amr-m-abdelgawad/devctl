@@ -21,6 +21,14 @@ fi
 
 MAX_ATTEMPTS="${UPLOAD_ATTEMPTS:-5}"
 DELAY_SECONDS="${UPLOAD_RETRY_DELAY_SECONDS:-5}"
+if ! [[ "$MAX_ATTEMPTS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "UPLOAD_ATTEMPTS must be a positive integer (got ${UPLOAD_ATTEMPTS-unset})" >&2
+  exit 2
+fi
+if ! [[ "$DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
+  echo "UPLOAD_RETRY_DELAY_SECONDS must be a non-negative integer (got ${UPLOAD_RETRY_DELAY_SECONDS-unset})" >&2
+  exit 2
+fi
 
 upload_one() {
   local file="$1"

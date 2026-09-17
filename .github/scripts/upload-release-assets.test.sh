@@ -77,4 +77,19 @@ if run_upload v0.13.1 "$STAGING/dist/missing-binary" 2>/dev/null; then
   exit 1
 fi
 
+write_mock_gh 0
+if err="$(UPLOAD_ATTEMPTS=0 run_upload v0.13.1 "$STAGING/dist/devctl-linux-x64" 2>&1)"; then
+  echo "expected UPLOAD_ATTEMPTS=0 to fail before uploading" >&2
+  exit 1
+fi
+if [[ "$err" != *"positive integer"* ]]; then
+  echo "expected a positive-integer error for UPLOAD_ATTEMPTS=0" >&2
+  printf '%s\n' "$err" >&2
+  exit 1
+fi
+if [ -s "$STAGING/gh-log" ]; then
+  echo "UPLOAD_ATTEMPTS=0 must not call gh" >&2
+  exit 1
+fi
+
 echo "upload-release-assets.sh ok"
