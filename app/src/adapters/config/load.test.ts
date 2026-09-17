@@ -316,8 +316,9 @@ cache:
   expires_in: expires_in
 expose:
   enabled: true
+  allow_token_body: true
   response_headers:
-    Access-Control-Allow-Origin: "*"
+    Access-Control-Allow-Origin: "http://localhost:5173"
 `);
     const cfg = load(dir, "");
     expect(cfg.http.login?.request.form.grant_type).toBe("client_credentials");

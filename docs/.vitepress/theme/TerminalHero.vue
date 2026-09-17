@@ -9,7 +9,7 @@ const services = ref([
   { glyph: 'o', name: 'billing-console', state: 'STOPPED', on: false },
   { glyph: '✓', name: 'identity', state: 'HEALTHY', on: true },
   { glyph: '✓', name: 'invoices-api', state: 'HEALTHY', on: true },
-  { glyph: 'o', name: 'invoices-worker', state: 'STOPPED', on: false, sel: true },
+  { glyph: 'o', name: 'invoices-worker', state: 'STOPPED', on: false },
   { glyph: 'o', name: 'postgres', state: 'STOPPED', on: false },
   { glyph: '✓', name: 'telemetry', state: 'HEALTHY', on: true }
 ])
@@ -98,24 +98,24 @@ function resetDemo() {
 }
 
 const profiles = [
-  { name: 'backend', current: false, count: 4, services: [
+  { name: 'backend', count: 4, services: [
     { g: '✓', n: 'identity' }, { g: '✓', n: 'invoices-api' }, { g: 'o', n: 'invoices-worker' }, { g: '✓', n: 'telemetry' }
   ] },
-  { name: 'data', current: false, count: 1, services: [
+  { name: 'data', count: 1, services: [
     { g: 'o', n: 'postgres' }
   ] },
-  { name: 'full', current: false, count: 5, services: [
+  { name: 'full', count: 5, services: [
     { g: '✓', n: 'identity' }, { g: '✓', n: 'invoices-api' }, { g: 'o', n: 'invoices-worker' }, { g: 'o', n: 'billing-console' }, { g: '✓', n: 'telemetry' }
   ] },
-  { name: 'minimal', current: true, count: 3, services: [
+  { name: 'minimal', count: 3, services: [
     { g: '✓', n: 'identity' }, { g: '✓', n: 'invoices-api' }, { g: '✓', n: 'telemetry' }
   ] }
 ]
 
 const screens = [
-  { name: 'Dashboard', tab: 'dashboard', foot: 'dashboard', hints: '/ command   space select   * all   – none', title: 'Your running stack, in one view.', description: 'Click a service to start or stop it. Watch the running count and combined logs respond.', alt: 'devctl 0.6.0 dashboard: a services pane listing six services with three healthy in the minimal profile, next to their combined live logs.' },
-  { name: 'Logs', tab: 'logs', foot: 'logs', hints: '/ command   ↔ filter   e errors   i internal logs', title: 'Follow the output across services.', description: 'Choose a service or search the output. Your start and stop actions appear here, too.', alt: 'devctl centralized logs screen with per-service filter tabs and timestamped output from identity, invoices-api, and telemetry.' },
-  { name: 'Profiles', tab: '', foot: 'profiles', hints: '/ command   space set current   enter set and start', title: 'Choose the services for your task.', description: 'Start a profile to bring its services online together. Already running services stay up.', alt: 'devctl profiles screen listing backend, data, full, and minimal, with minimal current and its three services checked.' }
+  { name: 'Dashboard', tab: 'dashboard', foot: 'dashboard', title: 'Your running stack, in one view.', description: 'Click a service to start or stop it. Watch the running count and combined logs respond.' },
+  { name: 'Logs', tab: 'logs', foot: 'logs', title: 'Follow the output across services.', description: 'Choose a service or search the output. Your start and stop actions appear here, too.' },
+  { name: 'Profiles', tab: 'profiles', foot: 'profiles', title: 'Choose the services for your task.', description: 'Start a profile to bring its services online together. Already running services stay up.' }
 ]
 
 const screen = computed(() => screens[selected.value])
@@ -237,14 +237,14 @@ const screen = computed(() => screens[selected.value])
 .demo-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--vp-c-brand-1); margin-right: 6px; }
 .tui button { font: inherit; cursor: pointer; }
 .tui button:focus-visible, .demo-intro button:focus-visible { outline: 2px solid #6bd39a; outline-offset: 3px; }
-.tui-tab { min-height: 32px; border-bottom: 2px solid transparent; }
+.tui-tab { min-height: 44px; border-bottom: 2px solid transparent; }
 .tui-tab.on { border-bottom-color: #6bd39a; }
 .tk-svc-row:hover { background: #24382f; }
-.tk-filters button { min-height: 32px; }
+.tk-filters button { min-height: 44px; }
 .demo-search { width: 100%; display: flex; align-items: center; gap: 12px; color: var(--tk-dim); margin-top: 8px; }
 .demo-search input { min-width: 0; flex: 1; padding: 8px 10px; border: 1px solid var(--tk-line); border-radius: 4px; color: var(--tk-txt); background: #101b17; font: inherit; }
 .demo-search input:focus-visible { outline: 2px solid #6bd39a; }
-.demo-start { display: block; margin-top: 8px; padding: 7px 10px; color: #6bd39a; border: 1px solid var(--tk-line); border-radius: 4px; }
+.demo-start { min-height: 44px; display: block; margin-top: 8px; padding: 7px 10px; color: #6bd39a; border: 1px solid var(--tk-line); border-radius: 4px; }
 .demo-start:hover { background: #24382f; }
 .demo-feedback { min-height: 40px; padding-top: 12px; font: 11px/1.6 var(--vp-font-family-mono); color: var(--vp-c-brand-1); }
 .tk-full .tk-loglist { max-height: 300px; overflow-y: auto; }
@@ -290,7 +290,7 @@ const screen = computed(() => screens[selected.value])
 .tk-dash { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 12px; }
 .tk-svc-head { display: flex; gap: 10px; margin-bottom: 12px; }
 .tk-svc-cols { display: grid; grid-template-columns: 58px 1fr 72px; color: var(--tk-dim); padding: 0 2px 4px; }
-.tk-svc-row { display: grid; width: 100%; text-align: left; min-height: 38px; cursor: pointer; grid-template-columns: 10px 24px 12px 1fr 65px; align-items: center; gap: 0 4px; padding: 1px 2px; border-radius: 3px; }
+.tk-svc-row { display: grid; width: 100%; text-align: left; min-height: 44px; cursor: pointer; grid-template-columns: 10px 24px 12px 1fr 65px; align-items: center; gap: 0 4px; padding: 1px 2px; border-radius: 3px; }
 .tk-svc-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-svc-row.sel { background: #24382f; }
 .tk-caret { color: #6bd39a; }
@@ -355,7 +355,14 @@ const screen = computed(() => screens[selected.value])
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .tui-body { animation: tui-in .2s ease-out; }
+  .tui-body { animation: tui-in .25s ease-out; }
+  .tk-svc-row { transition: background .18s ease, box-shadow .18s ease; }
+  .tk-svc-row:hover { box-shadow: inset 2px 0 #6bd39a; }
+  .tk-glyph, .tk-name, .tk-state { transition: color .25s ease; }
+  .demo-start, .tk-filters button { transition: background .18s ease, transform .15s ease; }
+  .demo-start:active, .tk-filters button:active { transform: scale(.97); }
+  .tk-prof-card { transition: border-color .25s ease, background .25s ease; }
+  .tui-tab { transition: border-color .2s ease, color .2s ease; }
   .walkthrough-controls button { transition: background .2s, border-color .2s; }
   .walkthrough-controls button:hover { background: var(--vp-c-brand-soft); }
 }

@@ -11,6 +11,7 @@ import {
   parseHttpRef,
   recipeAuthMintsToken,
   recipeCycleIssues,
+  recipeExposesTokenMaterial,
   recipeRequestTexts,
   recipeUsesToken,
 } from "../../domain/http/recipes.ts";
@@ -323,6 +324,9 @@ function validateHttp(cfg: DevctlConfig): string[] {
     }
     if (recipe.expose.enabled && !cfg.proxy.enabled) {
       issues.push(`${prefix}.expose requires proxy.enabled`);
+    }
+    if (recipe.expose.enabled && !recipe.expose.allow_token_body && recipeExposesTokenMaterial(recipe)) {
+      issues.push(`${prefix}.expose serves a token-bearing body with no inbound auth; set ${prefix}.expose.allow_token_body: true to acknowledge, or do not expose this recipe`);
     }
     const mints = recipeAuthMintsToken(recipe);
     if (recipeUsesToken(recipe) && !mints) {

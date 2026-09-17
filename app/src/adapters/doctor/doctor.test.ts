@@ -50,6 +50,17 @@ describe("doctor", () => {
     expect(warn?.severity).toBe("warn");
   });
 
+  test("warns when an exposed recipe sets Access-Control-Allow-Origin: *", async () => {
+    const cfg = localCfg();
+    cfg.http.token = {
+      ...emptyHttpRecipe(),
+      expose: { enabled: true, host: "token.local", response_headers: { "Access-Control-Allow-Origin": "*" }, allow_token_body: true },
+    };
+    const report = await runDoctor(cfg, offlineHost());
+    const warn = report.checks.find((c) => c.name === "http.token expose CORS");
+    expect(warn?.severity).toBe("warn");
+  });
+
   test("reports real check progress while diagnostics run", async () => {
     const updates: { active: string; completed: number }[] = [];
     const report = await runDoctor(localCfg(), offlineHost(), (progress) => {

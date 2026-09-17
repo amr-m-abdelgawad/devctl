@@ -372,16 +372,17 @@ export function decodeRoute(value: unknown): RouteConfig {
 
 export function decodeHttpExpose(value: unknown): HttpExposeConfig {
   if (value === true) {
-    return { enabled: true, host: "", response_headers: {} };
+    return { enabled: true, host: "", response_headers: {}, allow_token_body: false };
   }
   if (value === false) {
-    return { enabled: false, host: "", response_headers: {} };
+    return { enabled: false, host: "", response_headers: {}, allow_token_body: false };
   }
   if (isRecord(value)) {
     return {
       enabled: value.enabled !== undefined ? asBoolean(value.enabled) : true,
       host: asString(value.host),
       response_headers: asStringMap(value.response_headers),
+      allow_token_body: asBoolean(value.allow_token_body),
     };
   }
   return emptyHttpExpose();

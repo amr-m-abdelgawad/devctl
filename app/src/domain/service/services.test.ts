@@ -82,7 +82,7 @@ describe("startup plan", () => {
       },
       outputs: { token: "access_token" },
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     c.services.worker!.environment.vars.TOKEN = "${http.login.token}";
     const plan = startupPlan(c, ["worker"], "");
