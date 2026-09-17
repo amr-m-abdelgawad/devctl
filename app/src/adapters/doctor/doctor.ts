@@ -138,6 +138,15 @@ export async function runDoctor(
       }
     }
   }
+  if (cfg.plugins.length > 0) {
+    checking("Config plugins");
+    add({
+      name: "Config plugins",
+      severity: "warn",
+      message: `${cfg.plugins.length} plugin(s) run in-process with full supervisor privileges`,
+      hint: `only load code you trust: ${cfg.plugins.map((plugin) => plugin.path).join(", ")}`,
+    });
+  }
   for (const [name, recipe] of Object.entries(cfg.http)) {
     const url = recipe.request.url;
     // Only a literal (non-interpolated) URL can be scheme-checked here.

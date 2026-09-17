@@ -19,7 +19,7 @@ export type WorkerRequest =
   | { id: number; type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
   | { id: number; type: "queryFacets"; filter: LogFilter }
   | { id: number; type: "exportTo"; path: string; filter: LogFilter }
-  | { type: "setPluginPaths"; paths: string[] }
+  | { type: "setPluginPaths"; paths: string[]; repoRoot?: string }
   | { type: "setSecrets"; extraMarkers: string[]; extraPatterns: string[] }
   | { id: number; type: "close" };
 

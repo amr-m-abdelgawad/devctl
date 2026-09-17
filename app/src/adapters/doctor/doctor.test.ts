@@ -39,6 +39,15 @@ describe("doctor", () => {
     expect(report.checks.some((c) => c.name === "Repository configuration")).toBe(true);
   });
 
+  test("warns that configured plugins run in-process", async () => {
+    const cfg = localCfg();
+    cfg.plugins = [{ path: "./plugins/team/index.ts" }];
+    const report = await runDoctor(cfg, offlineHost());
+    const warn = report.checks.find((c) => c.name === "Config plugins");
+    expect(warn?.severity).toBe("warn");
+    expect(warn?.hint).toContain("./plugins/team/index.ts");
+  });
+
   test("warns when a recipe URL is not https", async () => {
     const cfg = localCfg();
     cfg.http.token = {

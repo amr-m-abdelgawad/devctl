@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadPluginPaths, Registry } from "./registry.ts";
@@ -27,6 +27,37 @@ test("plugin loading negotiates SDK versions and isolates bad modules", async ()
   expect(registry.pluginPaths).toEqual([resolve(dir, "good.ts")]);
   expect(registry.loadErrors).toHaveLength(3);
   expect(registry.loadErrors.map((error) => error.message).join(" ")).toMatch(/incompatible.*boom.*check must be a function/);
+});
+
+test("refuses plugin paths outside the repository root", async () => {
+  const root = join(tmpdir(), `devctl-plugins-root-${Date.now()}-${Math.random()}`);
+  const outside = join(tmpdir(), `devctl-plugins-out-${Date.now()}-${Math.random()}`);
+  mkdirSync(root, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(root, "inside.ts"), "export const sdkVersion=1; export const environmentSources=[{name:'ok',load:()=>({})}];");
+  writeFileSync(join(outside, "evil.ts"), "export const sdkVersion=1; export const environmentSources=[{name:'evil',load:()=>({})}];");
+  const registry = await loadPluginPaths(["inside.ts", join(outside, "evil.ts"), `file://${join(outside, "evil.ts")}`], root);
+  expect(registry.pluginPaths).toEqual([resolve(root, "inside.ts")]);
+  expect(registry.environmentSources.some((source) => source.name === "evil")).toBe(false);
+  expect(registry.loadErrors).toHaveLength(2);
+  expect(registry.loadErrors.every((error) => /inside the repository root/.test(error.message))).toBe(true);
+});
+
+test("refuses an in-root symlink that resolves outside the repository", async () => {
+  if (process.platform === "win32") {
+    return; // symlink creation needs elevation on Windows CI
+  }
+  const root = join(tmpdir(), `devctl-plugins-symroot-${Date.now()}-${Math.random()}`);
+  const outside = join(tmpdir(), `devctl-plugins-symout-${Date.now()}-${Math.random()}`);
+  mkdirSync(root, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(outside, "evil.ts"), "export const sdkVersion=1; export const environmentSources=[{name:'evil',load:()=>({})}];");
+  symlinkSync(join(outside, "evil.ts"), join(root, "link.ts"));
+  const registry = await loadPluginPaths(["link.ts"], root);
+  expect(registry.environmentSources.some((source) => source.name === "evil")).toBe(false);
+  expect(registry.pluginPaths).toEqual([]);
+  expect(registry.loadErrors).toHaveLength(1);
+  expect(registry.loadErrors[0]?.message).toMatch(/symlink.*outside the repository/);
 });
 
 test("tracks plugin identity providers by origin rather than reserved names", () => {

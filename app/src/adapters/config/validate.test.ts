@@ -331,6 +331,10 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("plugins.0.path"))).toBe(false);
     cfg.plugins = [{ path: "./missing.ts" }];
     expect(validate(cfg)).toContain("plugins.0.path does not exist: ./missing.ts");
+    cfg.plugins = [{ path: "../escape.ts" }];
+    expect(validate(cfg).some((issue) => issue.includes("plugins.0.path") && issue.includes("inside the repository root"))).toBe(true);
+    cfg.plugins = [{ path: "/etc/evil.ts" }];
+    expect(validate(cfg).some((issue) => issue.includes("plugins.0.path") && issue.includes("inside the repository root"))).toBe(true);
   });
 
   test("rejects reserved http outputs, expose without proxy, missing outputs, and recipe cycles", () => {

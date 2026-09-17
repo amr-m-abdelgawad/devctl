@@ -1,6 +1,6 @@
 # Plugins
 
-Plugins extend devctl without changing the supervisor. A plugin is a JavaScript or TypeScript module loaded from `plugins[].path` when the supervisor starts. Relative paths are resolved from the repository root.
+Plugins extend devctl without changing the supervisor. A plugin is a JavaScript or TypeScript module loaded from `plugins[].path` when the supervisor starts. Relative paths are resolved from the repository root, and a plugin path **must resolve to a location inside that repository root** — an absolute path or `file:` URL that escapes it (or a `../` that climbs above it) is refused by `config validate` and skipped by the loader. This keeps a cloned repo's `.devctl` from pointing the in-process import at code elsewhere on your machine.
 
 ```yaml
 version: 1
@@ -80,7 +80,7 @@ The OIDC plugin is intentionally a reference implementation: it supports client 
 
 ## Operational notes
 
-- Plugin code runs inside the supervisor process and receives the same permissions. Only load code you trust.
+- Plugin code runs **inside the supervisor process** with its full privileges — it can mint tokens, intercept proxy traffic, inject environment values, and start processes. This is a trust boundary equivalent to running that module yourself: only load code you trust. Doctor lists the configured plugin paths as a warning so the boundary is visible. Repo-root containment (above) limits *where* the code can live; it does not vet *what* the code does.
 - Adding or removing `plugins[].path` entries is hot-applied on reload (token providers and proxy middleware swap immediately). Editing an already-loaded file still requires restarting the supervisor — Bun’s module cache does not reload the same path. A running service keeps its old environment until that service restarts.
 - A configured plugin path must exist. Invalid or missing paths are rejected during configuration validation.
 - Unknown custom environment sources, health types, and identity types are errors after plugins load.

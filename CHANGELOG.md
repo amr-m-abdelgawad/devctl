@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- Config plugins must now resolve to a path **inside the repository root**. An absolute path or
+  `file:` URL that escapes the repo (or a `../` climbing above it) is refused by `config validate`
+  and skipped by the loader, so a cloned repo's `.devctl` cannot point the in-process plugin
+  import at code elsewhere on the machine. Path resolution is unified in one shared helper used by
+  the loader, validator, reload watcher, and log worker (the log worker now resolves against the
+  repo root, not its cwd). Containment is also checked on the realpath so an in-root symlink cannot
+  point the import at code outside the repo. Doctor lists configured plugin paths as a warning,
+  since plugin code runs in-process with full supervisor privileges (#75).
 - HTTP recipes can no longer target a link-local / cloud-metadata host (`169.254.0.0/16`
   including `169.254.169.254` and its IPv4-mapped dotted/hex forms, IPv6 `fe80::/10`,
   `metadata.google.internal`, or `100.100.100.200`): a literal such
