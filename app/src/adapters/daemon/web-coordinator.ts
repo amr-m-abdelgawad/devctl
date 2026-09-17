@@ -36,7 +36,10 @@ export class WebCoordinator {
     if (base === "" || this.token === "") {
       return base;
     }
-    return `${base}?token=${encodeURIComponent(this.token)}`;
+    // Carry the token in the URL fragment, not the query string: a fragment is
+    // never sent as Referer, is not written to proxy access logs, and is not
+    // forwarded upstream. The SPA reads it from location.hash on load.
+    return `${base}#token=${encodeURIComponent(this.token)}`;
   }
 
   async start(): Promise<void> {

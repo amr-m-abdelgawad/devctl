@@ -15,7 +15,7 @@ import type {
 import { controlAuthHeaders } from "./session.ts";
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await fetch(path, { headers: controlAuthHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
     throw new Error(body.error || `${res.status} ${path}`);

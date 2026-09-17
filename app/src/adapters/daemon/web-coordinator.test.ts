@@ -35,7 +35,7 @@ describe("web coordinator", () => {
     expect(captured?.port).toBe(18901);
     expect(captured?.token).toMatch(/^[0-9a-f]{48}$/);
     expect(web.address()).toBe("127.0.0.2:18901");
-    expect(web.controlUrl()).toBe(`http://127.0.0.2:18901/?token=${captured?.token}`);
+    expect(web.controlUrl()).toBe(`http://127.0.0.2:18901/#token=${captured?.token}`);
     expect(logs.join("\n")).toContain("web UI listening on http://127.0.0.2:18901/");
     expect(logs.join("\n")).not.toContain(captured?.token ?? "missing");
   });
@@ -53,6 +53,6 @@ describe("web coordinator", () => {
     const first = await web.startExplicit();
     const second = await web.startExplicit();
     expect(first).toBe(second);
-    expect(first).toContain("?token=");
+    expect(first).toContain("#token=");
   });
 });

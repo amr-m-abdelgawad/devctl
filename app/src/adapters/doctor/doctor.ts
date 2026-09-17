@@ -147,6 +147,38 @@ export async function runDoctor(
       hint: `only load code you trust: ${cfg.plugins.map((plugin) => plugin.path).join(", ")}`,
     });
   }
+  for (const [name, recipe] of Object.entries(cfg.http)) {
+    const url = recipe.request.url;
+    // Only a literal (non-interpolated) URL can be scheme-checked here.
+    if (url === "" || url.includes("${")) {
+      continue;
+    }
+    if (!/^https:\/\//i.test(url.trim())) {
+      checking(`http.${name} url scheme`);
+      add({
+        name: `http.${name} url scheme`,
+        severity: "warn",
+        message: "recipe url is not https",
+        hint: "prefer https for a recipe that mints a token; http sends the minted credential in the clear",
+      });
+    }
+  }
+  for (const [name, recipe] of Object.entries(cfg.http)) {
+    if (!recipe.expose.enabled) {
+      continue;
+    }
+    const allowOrigin = Object.entries(recipe.expose.response_headers)
+      .find(([key]) => key.toLowerCase() === "access-control-allow-origin")?.[1];
+    if (allowOrigin?.trim() === "*") {
+      checking(`http.${name} expose CORS`);
+      add({
+        name: `http.${name} expose CORS`,
+        severity: "warn",
+        message: "expose route sets Access-Control-Allow-Origin: *",
+        hint: "a wildcard lets any web page read the cached recipe body; scope it to a specific loopback origin or drop it",
+      });
+    }
+  }
   checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {
     add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });

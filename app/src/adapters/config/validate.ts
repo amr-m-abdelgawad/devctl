@@ -1,5 +1,5 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
-import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import { existsSync } from "node:fs";
 import { findRefs, refResolvable } from "./refs.ts";
@@ -10,6 +10,7 @@ import {
   parseHttpRef,
   recipeAuthMintsToken,
   recipeCycleIssues,
+  recipeExposesTokenMaterial,
   recipeRequestTexts,
   recipeUsesToken,
 } from "../../domain/http/recipes.ts";
@@ -299,6 +300,17 @@ function validateHttp(cfg: DevctlConfig): string[] {
     const prefix = `http.${name}`;
     if (recipe.request.url === "") {
       issues.push(`${prefix}.request.url is required`);
+    } else if (findRefs(recipe.request.url).length === 0) {
+      // A literal (non-interpolated) URL can be host-checked now. Interpolated
+      // URLs are enforced at fetch time in the recipe runtime.
+      try {
+        const parsed = new URL(recipe.request.url);
+        if (isLinkLocalOrMetadataHost(parsed.hostname)) {
+          issues.push(`${prefix}.request.url targets a link-local or metadata host (${parsed.hostname})`);
+        }
+      } catch {
+        // Malformed literal URLs surface at fetch time; keep validation shape-only.
+      }
     }
     const hasBody = recipe.request.body !== "";
     const hasForm = Object.keys(recipe.request.form).length > 0;
@@ -312,6 +324,9 @@ function validateHttp(cfg: DevctlConfig): string[] {
     }
     if (recipe.expose.enabled && !cfg.proxy.enabled) {
       issues.push(`${prefix}.expose requires proxy.enabled`);
+    }
+    if (recipe.expose.enabled && !recipe.expose.allow_token_body && recipeExposesTokenMaterial(recipe)) {
+      issues.push(`${prefix}.expose serves a token-bearing body with no inbound auth; set ${prefix}.expose.allow_token_body: true to acknowledge, or do not expose this recipe`);
     }
     const mints = recipeAuthMintsToken(recipe);
     if (recipeUsesToken(recipe) && !mints) {

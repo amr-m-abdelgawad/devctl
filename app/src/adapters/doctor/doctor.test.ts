@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyContainer, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyService } from "../../domain/config/types.ts";
 import { createDoctorRunner, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 
@@ -46,6 +46,28 @@ describe("doctor", () => {
     const warn = report.checks.find((c) => c.name === "Config plugins");
     expect(warn?.severity).toBe("warn");
     expect(warn?.hint).toContain("./plugins/team/index.ts");
+  });
+
+  test("warns when a recipe URL is not https", async () => {
+    const cfg = localCfg();
+    cfg.http.token = {
+      ...emptyHttpRecipe(),
+      request: { ...emptyHttpRecipe().request, url: "http://idp.internal/token" },
+    };
+    const report = await runDoctor(cfg, offlineHost());
+    const warn = report.checks.find((c) => c.name === "http.token url scheme");
+    expect(warn?.severity).toBe("warn");
+  });
+
+  test("warns when an exposed recipe sets Access-Control-Allow-Origin: *", async () => {
+    const cfg = localCfg();
+    cfg.http.token = {
+      ...emptyHttpRecipe(),
+      expose: { enabled: true, host: "token.local", response_headers: { "Access-Control-Allow-Origin": "*" }, allow_token_body: true },
+    };
+    const report = await runDoctor(cfg, offlineHost());
+    const warn = report.checks.find((c) => c.name === "http.token expose CORS");
+    expect(warn?.severity).toBe("warn");
   });
 
   test("reports real check progress while diagnostics run", async () => {

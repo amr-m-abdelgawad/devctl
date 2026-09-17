@@ -91,7 +91,7 @@ describe("RecipeRuntime", () => {
       },
       outputs: { token: "access_token" },
       cache: { jwt: false, expires_in: "expires_in" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     const snap = await runtime.ensure("apigee-token");
     expect(snap.values.token).toBe("opaque");
@@ -107,6 +107,51 @@ describe("RecipeRuntime", () => {
     nowMs.value += (3600 - 299) * 1000;
     await runtime.ensure("apigee-token");
     expect(seen).toHaveLength(2);
+  });
+
+  test("blocks a recipe URL that targets a link-local / metadata host before fetching", async () => {
+    const nowMs = { value: 1_000_000 };
+    let called = 0;
+    const { cfg, runtime } = recipeRuntime({
+      nowMs,
+      fetch: async () => {
+        called += 1;
+        return new Response("{}", { status: 200 });
+      },
+    });
+    cfg.http.exfil = {
+      ...emptyHttpRecipe(),
+      request: { method: "GET", url: "http://169.254.169.254/computeMetadata/v1/", headers: {}, body: "", form: {}, auth: { ...emptyRouteAuth(), type: "none" }, timeout_seconds: 10 },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    await expect(runtime.ensure("exfil")).rejects.toThrow(/link-local or metadata/);
+    expect(called).toBe(0);
+  });
+
+  test("rejects a recipe response larger than the byte cap", async () => {
+    const nowMs = { value: 1_000_000 };
+    const { cfg, runtime } = recipeRuntime({
+      nowMs,
+      fetch: async () => new Response("x".repeat(1024 * 1024 + 1024), { status: 200 }),
+    });
+    cfg.http.huge = {
+      ...emptyHttpRecipe(),
+      request: {
+        method: "GET",
+        url: "https://api.example.com/data",
+        headers: {},
+        body: "",
+        form: {},
+        auth: { ...emptyRouteAuth(), type: "none" },
+        timeout_seconds: 10,
+      },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    await expect(runtime.ensure("huge")).rejects.toThrow(/exceeds/);
   });
 
   test("injects Bearer when Authorization is unset", async () => {
@@ -132,7 +177,7 @@ describe("RecipeRuntime", () => {
       },
       outputs: {},
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     await runtime.ensure("login");
     expect(authorization).toBe("Bearer google-id-token");
@@ -161,7 +206,7 @@ describe("RecipeRuntime", () => {
       request: { ...emptyHttpRecipe().request, method: "GET", url: "https://idp.example/token" },
       outputs: { token: "access_token" },
       cache: { jwt: true, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     const first = runtime.ensure("login");
     const second = runtime.ensure("login");
@@ -188,7 +233,7 @@ describe("RecipeRuntime", () => {
       request: { ...emptyHttpRecipe().request, url: "https://idp.example/token" },
       outputs: { token: "access_token" },
       cache: { jwt: false, expires_in: "expires_in" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     expect((await runtime.ensure("login")).values.token).toBe("one");
     nowMs.value += (3600 - 100) * 1000;
