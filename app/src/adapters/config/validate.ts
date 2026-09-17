@@ -1,5 +1,5 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
-import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -299,6 +299,17 @@ function validateHttp(cfg: DevctlConfig): string[] {
     const prefix = `http.${name}`;
     if (recipe.request.url === "") {
       issues.push(`${prefix}.request.url is required`);
+    } else if (findRefs(recipe.request.url).length === 0) {
+      // A literal (non-interpolated) URL can be host-checked now. Interpolated
+      // URLs are enforced at fetch time in the recipe runtime.
+      try {
+        const parsed = new URL(recipe.request.url);
+        if (isLinkLocalOrMetadataHost(parsed.hostname)) {
+          issues.push(`${prefix}.request.url targets a link-local or metadata host (${parsed.hostname})`);
+        }
+      } catch {
+        // Malformed literal URLs surface at fetch time; keep validation shape-only.
+      }
     }
     const hasBody = recipe.request.body !== "";
     const hasForm = Object.keys(recipe.request.form).length > 0;

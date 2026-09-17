@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyContainer, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyService } from "../../domain/config/types.ts";
 import { createDoctorRunner, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 
@@ -37,6 +37,17 @@ describe("doctor", () => {
     const report = await runDoctor(localCfg(), offlineHost());
     expect(report.checks.some((c) => c.name.startsWith("Impersonate "))).toBe(false);
     expect(report.checks.some((c) => c.name === "Repository configuration")).toBe(true);
+  });
+
+  test("warns when a recipe URL is not https", async () => {
+    const cfg = localCfg();
+    cfg.http.token = {
+      ...emptyHttpRecipe(),
+      request: { ...emptyHttpRecipe().request, url: "http://idp.internal/token" },
+    };
+    const report = await runDoctor(cfg, offlineHost());
+    const warn = report.checks.find((c) => c.name === "http.token url scheme");
+    expect(warn?.severity).toBe("warn");
   });
 
   test("reports real check progress while diagnostics run", async () => {

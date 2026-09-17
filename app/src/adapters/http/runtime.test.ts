@@ -109,6 +109,27 @@ describe("RecipeRuntime", () => {
     expect(seen).toHaveLength(2);
   });
 
+  test("blocks a recipe URL that targets a link-local / metadata host before fetching", async () => {
+    const nowMs = { value: 1_000_000 };
+    let called = 0;
+    const { cfg, runtime } = recipeRuntime({
+      nowMs,
+      fetch: async () => {
+        called += 1;
+        return new Response("{}", { status: 200 });
+      },
+    });
+    cfg.http.exfil = {
+      ...emptyHttpRecipe(),
+      request: { method: "GET", url: "http://169.254.169.254/computeMetadata/v1/", headers: {}, body: "", form: {}, auth: { ...emptyRouteAuth(), type: "none" }, timeout_seconds: 10 },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    await expect(runtime.ensure("exfil")).rejects.toThrow(/link-local or metadata/);
+    expect(called).toBe(0);
+  });
+
   test("injects Bearer when Authorization is unset", async () => {
     const nowMs = { value: 1_000_000 };
     let authorization = "";

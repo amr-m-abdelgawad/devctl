@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- HTTP recipes can no longer target a link-local / cloud-metadata host (`169.254.0.0/16`
+  including `169.254.169.254`, IPv6 `fe80::/10`, or `metadata.google.internal`): a literal such
+  URL fails `config validate` and an interpolated one is blocked at fetch time, before any minted
+  token is sent. Doctor warns on a literal non-`https` recipe URL (part of #74).
+
 ## [0.13.0] - 2026-09-17
 
 ### Added

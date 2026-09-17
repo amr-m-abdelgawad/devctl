@@ -898,6 +898,8 @@ services:
 
 Load-time validation checks shape and names only (unknown recipe/output, cycles, reserved names, expose requires \`proxy.enabled\`). Values are not expanded until \`ensure()\`.
 
+**Recipe URLs cannot target the metadata service.** A recipe mints a developer or impersonated-SA token inside the daemon, so its request URL is never allowed to resolve to a link-local / cloud-metadata host (\`169.254.0.0/16\` — including \`169.254.169.254\` — IPv6 \`fe80::/10\`, or \`metadata.google.internal\`). A literal such URL fails \`config validate\`; an interpolated one is blocked at fetch time. Prefer \`https\` — Doctor warns on a literal \`http://\` recipe URL, since \`http\` sends the minted token in the clear.
+
 Unknown fields are rejected.
 
 ## Consumption

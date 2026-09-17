@@ -1,5 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "./hosts.ts";
+import { formatHostPort, hostnameFromHostHeader, isLinkLocalOrMetadataHost, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "./hosts.ts";
+
+describe("isLinkLocalOrMetadataHost", () => {
+  test("blocks link-local and metadata targets", () => {
+    expect(isLinkLocalOrMetadataHost("169.254.169.254")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("169.254.0.1")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("::ffff:169.254.169.254")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("fe80::1")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("[fe80::1%eth0]")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("febf::abcd")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("metadata.google.internal")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("metadata")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("METADATA.GOOGLE.INTERNAL")).toBe(true);
+  });
+
+  test("allows ordinary and loopback hosts", () => {
+    expect(isLinkLocalOrMetadataHost("")).toBe(false);
+    expect(isLinkLocalOrMetadataHost("api.company.com")).toBe(false);
+    expect(isLinkLocalOrMetadataHost("127.0.0.1")).toBe(false);
+    expect(isLinkLocalOrMetadataHost("10.0.0.5")).toBe(false);
+    expect(isLinkLocalOrMetadataHost("169.253.0.1")).toBe(false);
+    expect(isLinkLocalOrMetadataHost("fe7f::1")).toBe(false);
+    expect(isLinkLocalOrMetadataHost("metadata.example.com")).toBe(false);
+  });
+});
 
 describe("isLoopbackBindHost", () => {
   test("allows loopback and empty (caller default)", () => {

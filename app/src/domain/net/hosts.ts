@@ -57,6 +57,32 @@ export function formatHostPort(host: string, port: number): string {
   return `${name}:${port}`;
 }
 
+const METADATA_HOSTNAMES = new Set(["metadata.google.internal", "metadata"]);
+
+/**
+ * Hosts an outbound recipe must not target without an explicit opt-in: IPv4
+ * link-local `169.254.0.0/16` (which includes the `169.254.169.254` cloud
+ * metadata endpoint), its IPv4-mapped form, IPv6 link-local `fe80::/10`, and
+ * the GCE metadata hostnames. Blocks SSRF of minted developer tokens to the
+ * instance metadata service. Empty/unknown is not blocked (handled elsewhere).
+ */
+export function isLinkLocalOrMetadataHost(host: string): boolean {
+  const normalized = normalizeHostname(host);
+  if (normalized === "") {
+    return false;
+  }
+  if (METADATA_HOSTNAMES.has(normalized)) {
+    return true;
+  }
+  if (isIpv4LinkLocal(normalized)) {
+    return true;
+  }
+  if (normalized.startsWith("::ffff:") && isIpv4LinkLocal(normalized.slice("::ffff:".length))) {
+    return true;
+  }
+  return isIpv6LinkLocal(normalized);
+}
+
 /** Peer address on an accepted connection. Missing/empty is not loopback. */
 export function isLoopbackPeer(addr?: string): boolean {
   if (addr === undefined) {
@@ -135,6 +161,27 @@ function isIpv4Loopback(host: string): boolean {
     return false;
   }
   return octets[0] === 127;
+}
+
+function isIpv4LinkLocal(host: string): boolean {
+  const parts = host.split(".");
+  if (parts.length !== 4) {
+    return false;
+  }
+  const octets = parts.map((part) => Number(part));
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return false;
+  }
+  return octets[0] === 169 && octets[1] === 254;
+}
+
+function isIpv6LinkLocal(host: string): boolean {
+  const first = host.split(":")[0] ?? "";
+  if (!/^[0-9a-f]{1,4}$/.test(first)) {
+    return false;
+  }
+  const n = Number.parseInt(first, 16);
+  return n >= 0xfe80 && n <= 0xfebf;
 }
 
 function isIpv4MappedLoopback(host: string): boolean {
