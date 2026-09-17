@@ -91,7 +91,7 @@ Recommend JWT consumers: put the snapshot in env **and** poll/read `${http.name.
 
 ### Exposing a token body is a loopback publish
 
-The synthesized expose route has **no inbound auth** — any local process (and, with a permissive CORS header, any web page whose origin you allow) that reaches the expose host receives the cached body verbatim. When that body is a credential (a recipe with `cache.jwt: true`, or an `access_token` / `id_token` / `token` / `refresh_token` / `client_secret` output), you are publishing a live credential on loopback.
+The synthesized expose route has **no inbound auth** — any local process (and, with a permissive CORS header, any web page whose origin you allow) that reaches the expose host receives the cached body verbatim. When that body is a credential (a recipe with `cache.jwt: true`, or an output that maps a credential field — one whose JSON source path ends in `access_token` / `id_token` / `token` / `refresh_token` / `client_secret`, regardless of the output's own name), you are publishing a live credential on loopback.
 
 `devctl config validate` **refuses** to expose such a recipe unless you set `expose.allow_token_body: true` to acknowledge it. Prefer to keep the snapshot in service env (`${http.name.token}`) and expose only when a consumer genuinely needs to poll the URL. Do **not** pair a token expose with `Access-Control-Allow-Origin: "*"` — scope CORS to the specific loopback origin that needs it (Doctor warns on the wildcard). Containers cannot reach the expose host as loopback anyway, so an exposed token is for host-side consumers.
 
