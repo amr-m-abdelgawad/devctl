@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-09-17
+
 ### Fixed
 
 - Config plugins must now resolve to a path **inside the repository root**. An absolute path or `file:` URL that escapes the repo (or a `../` climbing above it) is refused by `config validate` and skipped by the loader, so a cloned repo's `.devctl` cannot point the in-process plugin import at code elsewhere on the machine. Path resolution is unified in one shared helper used by the loader, validator, reload watcher, and log worker (the log worker now resolves against the repo root, not its cwd). Containment is also checked on the realpath so an in-root symlink cannot point the import at code outside the repo. Doctor lists configured plugin paths as a warning, since plugin code runs in-process with full supervisor privileges (#75).
@@ -503,7 +505,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.11.0...v0.12.0
