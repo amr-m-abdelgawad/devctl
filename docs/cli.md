@@ -97,7 +97,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Web
 
-`devctl web status|start|stop` controls the opt-in loopback console. `web start` prints the URL including `?token=` — open that URL so the SPA can store the token. `devctl status` prints a `WEB` line without the token. Off until `web.enabled: true` or you run `web start`. See [Telemetry](telemetry.md#web-ui).
+`devctl web status|start|stop` controls the opt-in loopback console. `web start` prints the console origin only; the control token travels in the URL fragment (`#token=`), and `web start --print-url` prints the full one-time link when you need it. `devctl status` prints a `WEB` line without the token. Off until `web.enabled: true` or you run `web start`. See [Telemetry](telemetry.md#web-ui).
 
 ## Exit codes
 

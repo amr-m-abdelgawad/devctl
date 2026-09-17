@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { takeTokenFromSearch } from "./session.ts";
+import { takeTokenFromHash } from "./session.ts";
 
-describe("takeTokenFromSearch", () => {
-  test("pulls the token and strips it from the query", () => {
-    expect(takeTokenFromSearch("?token=abc&x=1")).toEqual({ token: "abc", nextSearch: "?x=1" });
-    expect(takeTokenFromSearch("?token=abc")).toEqual({ token: "abc", nextSearch: "" });
+describe("takeTokenFromHash", () => {
+  test("pulls the token and strips it from the fragment", () => {
+    expect(takeTokenFromHash("#token=abc")).toEqual({ token: "abc", nextHash: "" });
+    expect(takeTokenFromHash("token=abc")).toEqual({ token: "abc", nextHash: "" });
   });
 
-  test("leaves the query alone when no token is present", () => {
-    expect(takeTokenFromSearch("?x=1")).toEqual({ token: "", nextSearch: "?x=1" });
-    expect(takeTokenFromSearch("")).toEqual({ token: "", nextSearch: "" });
-    expect(takeTokenFromSearch("?token=")).toEqual({ token: "", nextSearch: "?token=" });
+  test("leaves a routing fragment alone when no token is present", () => {
+    expect(takeTokenFromHash("#/services")).toEqual({ token: "", nextHash: "#/services" });
+    expect(takeTokenFromHash("")).toEqual({ token: "", nextHash: "" });
+    expect(takeTokenFromHash("#token=")).toEqual({ token: "", nextHash: "#token=" });
   });
 });
