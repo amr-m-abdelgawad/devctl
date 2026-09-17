@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -28,11 +29,27 @@ export function resolvePluginPath(rawPath: string, repoRoot: string): ResolvedPl
     return { fsPath: rawPath, importHref: rawPath, allowed: false, reason: `invalid path: ${message}` };
   }
   const root = resolve(repoRoot);
-  const rel = relative(root, fsPath);
-  const inside = rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
   const importHref = pathToFileURL(fsPath).href;
-  if (!inside) {
+  if (!containedIn(root, fsPath)) {
     return { fsPath, importHref, allowed: false, reason: `plugin path must be inside the repository root (${root})` };
   }
+  // Lexical containment can be defeated by an in-root symlink pointing outside
+  // the repo (`plugins/x.ts -> /tmp/evil.ts`): `import()` follows the link and
+  // runs the external module in-process. When the target exists, re-check
+  // containment on the realpath of both sides. A path that does not exist yet
+  // (e.g. at validate time) has no link to follow, so lexical containment holds.
+  try {
+    if (!containedIn(realpathSync(root), realpathSync(fsPath))) {
+      return { fsPath, importHref, allowed: false, reason: `plugin path resolves (via a symlink) outside the repository root (${root})` };
+    }
+  } catch {
+    // root or target missing — lexical containment above is authoritative.
+  }
   return { fsPath, importHref, allowed: true };
+}
+
+// True when `candidate` is a strict descendant of `root` (never root itself).
+function containedIn(root: string, candidate: string): boolean {
+  const rel = relative(root, candidate);
+  return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
