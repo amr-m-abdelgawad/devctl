@@ -415,6 +415,11 @@ describe("config validate", () => {
     cfg.http.login.cache = { jwt: true, expires_in: "" };
     cfg.http.login.expose.allow_token_body = false;
     expect(validate(cfg).some((issue) => issue.includes("expose serves a token-bearing body"))).toBe(true);
+
+    // An opaque refresh_token output is a credential too, even without cache.jwt.
+    cfg.http.login.cache = { jwt: false, expires_in: "" };
+    cfg.http.login.outputs = { refresh: "refresh_token" };
+    expect(validate(cfg).some((issue) => issue.includes("expose serves a token-bearing body"))).toBe(true);
   });
 
   test("rejects unknown llm source types and missing management hops", () => {

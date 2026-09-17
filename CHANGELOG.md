@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 - HTTP recipe `expose` now refuses, at `config validate` time, to publish a token-bearing cached
-  body (a `cache.jwt` recipe, or an `access_token`/`id_token`/`token` output) on its no-inbound-auth
-  loopback route unless the recipe sets `expose.allow_token_body: true` to acknowledge it. Doctor
+  body (a `cache.jwt` recipe, or an `access_token`/`id_token`/`token`/`refresh_token`/`client_secret`
+  output) on its no-inbound-auth loopback route unless the recipe sets `expose.allow_token_body: true`
+  to acknowledge it. Doctor
   also warns when an exposed recipe sets `Access-Control-Allow-Origin: *`. Docs no longer recommend
   a wildcard CORS header on token recipes (#73).
 
