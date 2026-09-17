@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 
 const selected = ref(0)
 
-const tabs = ['dashboard', 'logs', 'profiles']
+const showDemoDetails = ref(false)
 
 const services = ref([
   { glyph: 'o', name: 'billing-console', state: 'STOPPED', on: false },
@@ -122,12 +122,13 @@ const screen = computed(() => screens[selected.value])
 </script>
 
 <template>
-  <div class="walkthrough">
+  <div class="walkthrough" :class="{ 'show-demo-details': showDemoDetails }">
     <div class="demo-intro"><span><span class="demo-dot"></span> INTERACTIVE PLAYGROUND</span><button type="button" @click="resetDemo">Reset demo ↺</button></div>
     <div class="walkthrough-controls" role="group" aria-label="devctl TUI screens">
       <button v-for="(item, index) in screens" :key="item.name" type="button" :aria-pressed="selected === index" aria-controls="tui-window" @click="selected = index"><span aria-hidden="true">0{{ index + 1 }}</span>{{ item.name }}</button>
     </div>
 
+    <button type="button" class="demo-detail-toggle" :aria-expanded="showDemoDetails" aria-controls="tui-window" @click="showDemoDetails = !showDemoDetails">{{ showDemoDetails ? 'Hide log details' : 'Show log details' }}</button>
     <div id="tui-window" class="tui" role="region" aria-label="Interactive devctl demo">
       <div class="tui-top">
         <span class="tui-brand">devctl</span>
@@ -137,12 +138,6 @@ const screen = computed(() => screens[selected.value])
         <span class="pill pill-green">{{ running }}/6 running</span>
         <span class="pill pill-pink">BROWSER DEMO</span>
       </div>
-      <div class="tui-tabs">
-        <button v-for="(tab, index) in tabs" :key="tab" type="button" :aria-pressed="selected === index" :class="['tui-tab', { on: selected === index }]" @click="selected = index">{{ tab }}</button>
-        <span class="tui-gap" aria-hidden="true"></span>
-        <span class="tk-dim">click to explore</span>
-      </div>
-
       <div :key="selected" class="tui-body">
         <!-- Dashboard -->
         <div v-if="screen.tab === 'dashboard'" class="tk-dash">
@@ -232,6 +227,16 @@ const screen = computed(() => screens[selected.value])
 </template>
 
 <style scoped>
+.demo-detail-toggle { display: none; }
+@media (max-width: 640px) {
+  .demo-detail-toggle { display: block; min-height: 44px; margin: 0 0 10px; color: var(--vp-c-brand-1); font: 11px var(--vp-font-family-mono); cursor: pointer; }
+  .walkthrough:not(.show-demo-details) .tk-dash .tk-logs { display: none; }
+  .walkthrough:not(.show-demo-details) .tk-full .tk-time,
+  .walkthrough:not(.show-demo-details) .tk-full .tk-src { display: none; }
+  .walkthrough:not(.show-demo-details) .tk-full .tk-logline { grid-template-columns: 78px 34px minmax(0, 1fr); }
+  .walkthrough .tk-full .tk-msg { white-space: normal; overflow-wrap: anywhere; }
+}
+
 .demo-intro { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; font: 10px var(--vp-font-family-mono); color: var(--vp-c-text-2); letter-spacing: .08em; }
 .demo-intro button { min-height: 44px; cursor: pointer; letter-spacing: 0; }
 .demo-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--vp-c-brand-1); margin-right: 6px; }

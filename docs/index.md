@@ -84,6 +84,28 @@ const changelog = parseChangelog(changelogSource)
 const latestRelease = changelog.releases.find(release => !release.unreleased)
 const latestTeaser = changelogTeaser(latestRelease)
 
+const storyStep = ref(0)
+const story = [
+  { label: 'Start your backend', title: 'Bring up only what you need.', text: 'In the demo platform, the backend profile groups identity, the API, its worker, and telemetry. Start them together, then attach to the same session.', command: 'devctl start --profile backend', detail: 'Next: devctl attach', link: '/profiles' },
+  { label: 'Spot a failed request', title: 'Find the request that went wrong.', text: 'With proxy traffic flowing, open the proxy view and inspect a failed request. The request ID gives you a starting point for investigation.', command: '/proxy', detail: 'In the TUI · select a request to inspect it', link: '/proxy' },
+  { label: 'Follow the evidence', title: 'Connect the trace to the logs.', text: 'When trace data is available, follow the request into its span tree and correlated logs. See which service failed and what it reported.', command: '/trace <trace-id>', detail: 'Tracing requires emitted trace data; logs work on their own.', link: '/telemetry' },
+  { label: 'Fix and verify', title: 'Make the change. Check the result.', text: 'Edit your application, restart the affected service, and repeat the request. Inspect its health and output in the same session.', command: 'devctl restart invoices-api', detail: 'Then: devctl logs invoices-api', link: '/cli' }
+]
+const configExample = `version: 1
+project:
+  name: demo-platform
+services:
+  identity:
+    command: [python3, main.py]
+    working_dir: identity
+    ports:
+      http: 18001
+    health:
+      type: http
+      url: http://127.0.0.1:18001/health
+profiles:
+  minimal:
+    services: [identity]`
 const copyLabel = ref('Copy command')
 const activeProfile = ref('minimal')
 const profileExamples = {
@@ -120,6 +142,7 @@ async function copyInstall() {
         <button type="button" @click="copyInstall" :aria-label="copyLabel" :title="copyLabel"><Check v-if="copyLabel === 'Copied!'" :size="16" weight="regular" /><Copy v-else :size="16" weight="regular" /></button>
         <span class="hero-install-status" role="status">{{ copyLabel === 'Copy command' ? '' : copyLabel }}</span>
       </div>
+      <p class="install-requirements">Node.js 18+ · macOS, Linux &amp; Windows <a :href="withBase('/installation')">Requirements ↗</a></p>
       <div class="hero-actions">
         <a class="primary-link" :href="withBase('/quickstart')">Get started <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
         <a class="text-link" href="https://github.com/amr-m-abdelgawad/devctl">Explore on GitHub <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
@@ -140,6 +163,14 @@ async function copyInstall() {
       <a class="surface" :href="withBase('/tui')"><span class="surface-symbol" aria-hidden="true"><SquaresFour :size="28" weight="light" /></span><span class="surface-label">Terminal</span><h3>A home for your stack.</h3><p>Start services, follow logs, and check health in a keyboard-first terminal interface.</p><span class="surface-link">Explore the TUI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
       <a class="surface" :href="withBase('/cli')"><span class="surface-symbol" aria-hidden="true"><TerminalWindow :size="28" weight="light" /></span><span class="surface-label">Command line</span><h3>Make it a command.</h3><p>Bring the same controls to scripts and CI. Run tasks, inspect config, and keep moving.</p><span class="surface-link">Meet the CLI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
       <a class="surface" :href="withBase('/mcp')"><span class="surface-symbol" aria-hidden="true"><Sparkle :size="28" weight="light" /></span><span class="surface-label">AI agents</span><h3>Give AI the context.</h3><p>Connect your agent over MCP to inspect and operate the same local session. Enabled when you choose.</p><span class="surface-link">Connect with MCP <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
+    </div>
+  </section>
+
+  <section class="story-section landing-section" aria-labelledby="story-title">
+    <div class="section-heading"><div><p class="eyebrow">FROM STARTUP TO SOLVED</p><h2 id="story-title">One session.<br>The whole investigation.</h2></div><p>A typical debugging workflow<br>using the included demo platform.</p></div>
+    <div class="story-layout">
+      <div class="story-steps" role="group" aria-label="Explore a debugging workflow"><button v-for="(step, index) in story" :key="step.label" type="button" :aria-pressed="storyStep === index" aria-controls="story-detail" @click="storyStep = index"><span>0{{ index + 1 }}</span>{{ step.label }}<ArrowUpRight :size="14" /></button></div>
+      <div id="story-detail" class="story-detail" aria-live="polite" aria-atomic="true"><p class="eyebrow">STEP 0{{ storyStep + 1 }} / 04</p><h3>{{ story[storyStep].title }}</h3><p>{{ story[storyStep].text }}</p><pre><code>{{ story[storyStep].command }}</code></pre><p class="story-note">{{ story[storyStep].detail }}</p><a class="text-link" :href="withBase(story[storyStep].link)">Read the guide <ArrowUpRight :size="14" /></a></div>
     </div>
   </section>
 
@@ -177,12 +208,31 @@ async function copyInstall() {
     </div>
   </section>
 
+  <section class="config-section landing-section" aria-labelledby="config-title">
+    <div class="section-heading"><div><p class="eyebrow">YOUR REPO, DESCRIBED</p><h2 id="config-title">A little config.<br>A working picture.</h2></div><p>A minimal example adapted from the demo.<br>Run it from <code>examples/demo-platform</code> with Python 3.</p></div>
+    <div class="config-layout"><div class="config-code"><div>.devctl/config.yaml <span>YAML</span></div><pre><code>{{ configExample }}</code></pre></div><div class="config-explained"><ol><li><strong>Keep your start command.</strong><p>Run the existing Python service in its own directory. No application rewrite.</p></li><li><strong>Describe readiness.</strong><p>Give the HTTP port a name and check the service’s <code>/health</code> endpoint.</p></li><li><strong>Choose a working set.</strong><p>The <code>minimal</code> profile here contains just identity. Add services as your repo grows.</p></li></ol><div class="config-result"><span>THIS CONFIG STARTS</span><strong>identity <small>HTTP · 18001</small></strong><code>devctl start --profile minimal</code></div><a class="text-link" :href="withBase('/configuration')">Explore the config reference <ArrowUpRight :size="14" /></a></div></div>
+  </section>
+
+  <section class="fit-section landing-section" aria-labelledby="fit-title">
+    <div class="section-heading"><div><p class="eyebrow">WHERE IT FITS</p><h2 id="fit-title">Keep the tools.<br>Connect the workflow.</h2></div><p>Your existing tools keep their place. devctl brings the running session together.</p></div>
+    <div class="fit-comparisons">
+      <article class="fit-row"><div class="fit-tool"><span>01</span><h3>Docker Compose</h3><a href="https://docs.docker.com/compose/">Explore Compose <ArrowUpRight :size="13" /></a></div><div class="fit-purpose"><p class="fit-label">FOR YOUR CONTAINERS</p><p>Define multi-container applications, networks, and volumes.</p></div><div class="fit-addition"><p class="fit-label">WITH DEVCTL</p><p>Bring host processes and configured containers into one local session, with profiles and health checks.</p><small>Compose files aren’t imported automatically.</small></div></article>
+      <article class="fit-row"><div class="fit-tool"><span>02</span><h3>Task runners</h3><a href="https://taskfile.dev/">Explore Task <ArrowUpRight :size="13" /></a></div><div class="fit-purpose"><p class="fit-label">FOR THE REPEATABLE</p><p>Build, format, and generate code with commands you already trust.</p></div><div class="fit-addition"><p class="fit-label">WITH DEVCTL</p><p>Keep those commands. Give long-running services and named tasks a shared place to run.</p></div></article>
+      <article class="fit-row"><div class="fit-tool"><span>03</span><h3>Terminal tabs</h3><span class="fit-familiar">Your everyday workspace</span></div><div class="fit-purpose"><p class="fit-label">FOR DIRECT CONTROL</p><p>Open a shell, run a command, and work directly with a process.</p></div><div class="fit-addition"><p class="fit-label">WITH DEVCTL</p><p>See service state and logs together. Your CLI, TUI, and optional agent connection share one supervisor.</p></div></article>
+    </div>
+  </section>
+
   <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div></section>
 
   <section class="web-showcase landing-section" aria-labelledby="web-title">
     <div class="section-heading"><div><p class="eyebrow">A DIFFERENT PERSPECTIVE</p><h2 id="web-title">Same session.<br>Room to see more.</h2></div><div class="web-showcase-copy"><p>Follow services, requests, and traces in an optional local console. The same supervisor, with a wider view.</p><a class="text-link" :href="withBase('/telemetry')">Explore the web console <ArrowUpRight :size="14" /></a></div></div>
     <figure class="web-product"><a :href="withBase('/telemetry')"><img :src="webOverview" width="2880" height="1800" loading="lazy" decoding="async" alt="devctl web console showing service health, profile controls, proxy requests, and recent errors" /></a><figcaption><span>THE LOCAL CONSOLE</span><span>Opt-in · Loopback only · One shared session</span></figcaption></figure>
     <div class="web-notes"><p><strong>Your session, expanded.</strong> Services, traces, and logs together.</p><p><strong>Local by default.</strong> Start it when you need it with <code>devctl web start</code>; the token rides in the URL fragment.</p></div>
+  </section>
+
+  <section class="capability-section landing-section" aria-labelledby="capability-title">
+    <div class="section-heading"><div><p class="eyebrow">FOLLOW THE CONNECTIONS</p><h2 id="capability-title">More context.<br>Fewer blind spots.</h2></div></div>
+    <div class="capability-grid"><article><span class="capability-index">01 / TOPOLOGY</span><h3>See what depends on what.</h3><p>Open <code>/topology</code> to inspect startup waves, health, and dependencies. Select a service to see its connections.</p><a class="text-link" :href="withBase('/tui')">Explore the TUI <ArrowUpRight :size="14" /></a></article><article><span class="capability-index">02 / REQUEST TRACING</span><h3>Follow a request across services.</h3><p>Inspect spans and correlated logs when your services emit trace data. Connect proxy requests to the evidence behind them.</p><a class="text-link" :href="withBase('/telemetry')">Explore tracing <ArrowUpRight :size="14" /></a></article><article><span class="capability-index">03 / YOUR AGENT</span><h3>Ask a better-informed question.</h3><p>“Why is invoices-api failing?” Enable MCP and connect your agent to inspect <code>get_status</code>, <code>recent_errors</code>, and <code>get_logs</code>. You control which tools are available.</p><a class="text-link" :href="withBase('/mcp')">Connect an agent <ArrowUpRight :size="14" /></a></article></div>
   </section>
 
   <section class="demo-section landing-section" aria-labelledby="demo-title">
@@ -220,4 +270,6 @@ async function copyInstall() {
   </section>
 
   <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><p>Free and open source · MIT licensed</p></section>
+  <footer class="landing-footer" aria-label="Project links"><div class="footer-about"><strong>devctl<span>_</span></strong><p>Your local stack.<br>A shared view.</p><a href="https://github.com/amr-m-abdelgawad/devctl">Build with us on GitHub ↗</a></div><nav aria-label="Product documentation"><h3>Product</h3><a :href="withBase('/quickstart')">Quick start</a><a :href="withBase('/configuration')">Configuration</a><a :href="withBase('/tui')">Terminal interface</a><a :href="withBase('/mcp')">Agent integration</a></nav><nav aria-label="Project community"><h3>Get involved</h3><a href="https://github.com/amr-m-abdelgawad/devctl/issues/new">Report an issue</a><a href="https://github.com/amr-m-abdelgawad/devctl/issues">Discuss a feature</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/CONTRIBUTING.md">Contribute</a></nav><nav aria-label="Project information"><h3>Project</h3><a :href="withBase('/changelog')">Changelog</a><a :href="withBase('/installation')">Platforms &amp; installation</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/SECURITY.md">Report a vulnerability</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/LICENSE">MIT license</a></nav></footer>
+
 </div>
