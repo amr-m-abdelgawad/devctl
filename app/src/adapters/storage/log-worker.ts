@@ -40,7 +40,9 @@ async function handle(message: WorkerRequest): Promise<void> {
     return;
   }
   if (message.type === "setPluginPaths") {
-    const registry = await loadPluginPaths(message.paths);
+    // Resolve against the repo root (not the worker's cwd) so relative plugin
+    // paths and the repo-root containment check match the supervisor's.
+    const registry = await loadPluginPaths(message.paths, message.repoRoot);
     manager?.setParsers(registry.logParsers);
     return;
   }

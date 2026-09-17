@@ -124,11 +124,11 @@ export class WorkerLogStore implements LogStore {
     await this.rpc({ type: "exportTo", path, filter });
   }
 
-  setParsers(_parsers: LogParser[], pluginPaths?: readonly string[]): void {
+  setParsers(_parsers: LogParser[], pluginPaths?: readonly string[], repoRoot?: string): void {
     if (this.dead) {
       return;
     }
-    this.post({ type: "setPluginPaths", paths: [...(pluginPaths ?? [])] });
+    this.post({ type: "setPluginPaths", paths: [...(pluginPaths ?? [])], repoRoot });
   }
 
   setSecrets(extraMarkers: string[], extraPatterns: string[]): void {

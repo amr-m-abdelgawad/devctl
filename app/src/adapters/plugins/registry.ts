@@ -1,5 +1,4 @@
-import { pathToFileURL } from "node:url";
-import { isAbsolute, resolve } from "node:path";
+import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import { type HealthCheckConfig } from "../config/index.ts";
 import { type EnvironmentSource } from "../environment/environment.ts";
 import { type IdentityProvider } from "../../domain/identity/identity.ts";
@@ -67,13 +66,16 @@ export async function loadPluginPaths(paths: string[], baseDir = process.cwd()):
     if (path.trim() === "") {
       continue;
     }
+    const resolved = resolvePluginPath(path, baseDir);
+    if (!resolved.allowed) {
+      registry.loadErrors.push({ path, message: resolved.reason ?? "plugin path is not allowed" });
+      continue;
+    }
     try {
-      const resolved = path.startsWith("file:") ? path : (isAbsolute(path) ? path : resolve(baseDir, path));
-      const href = resolved.startsWith("file:") ? resolved : pathToFileURL(resolved).href;
-      const mod = (await import(href)) as PluginModule;
+      const mod = (await import(resolved.importHref)) as PluginModule;
       if (mod.sdkVersion !== PLUGIN_SDK_VERSION) throw new Error(`plugin SDK version ${String(mod.sdkVersion ?? "missing")} is incompatible; expected ${PLUGIN_SDK_VERSION}`);
       registry.register(mod);
-      registry.pluginPaths.push(resolved);
+      registry.pluginPaths.push(resolved.fsPath);
     } catch (err) {
       registry.loadErrors.push({ path, message: err instanceof Error ? err.message : String(err) });
     }

@@ -29,6 +29,20 @@ test("plugin loading negotiates SDK versions and isolates bad modules", async ()
   expect(registry.loadErrors.map((error) => error.message).join(" ")).toMatch(/incompatible.*boom.*check must be a function/);
 });
 
+test("refuses plugin paths outside the repository root", async () => {
+  const root = join(tmpdir(), `devctl-plugins-root-${Date.now()}-${Math.random()}`);
+  const outside = join(tmpdir(), `devctl-plugins-out-${Date.now()}-${Math.random()}`);
+  mkdirSync(root, { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  writeFileSync(join(root, "inside.ts"), "export const sdkVersion=1; export const environmentSources=[{name:'ok',load:()=>({})}];");
+  writeFileSync(join(outside, "evil.ts"), "export const sdkVersion=1; export const environmentSources=[{name:'evil',load:()=>({})}];");
+  const registry = await loadPluginPaths(["inside.ts", join(outside, "evil.ts"), `file://${join(outside, "evil.ts")}`], root);
+  expect(registry.pluginPaths).toEqual([resolve(root, "inside.ts")]);
+  expect(registry.environmentSources.some((source) => source.name === "evil")).toBe(false);
+  expect(registry.loadErrors).toHaveLength(2);
+  expect(registry.loadErrors.every((error) => /inside the repository root/.test(error.message))).toBe(true);
+});
+
 test("tracks plugin identity providers by origin rather than reserved names", () => {
   const registry = new Registry();
   registry.registerBuiltins();

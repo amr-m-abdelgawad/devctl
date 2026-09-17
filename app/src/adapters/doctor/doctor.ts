@@ -138,6 +138,15 @@ export async function runDoctor(
       }
     }
   }
+  if (cfg.plugins.length > 0) {
+    checking("Config plugins");
+    add({
+      name: "Config plugins",
+      severity: "warn",
+      message: `${cfg.plugins.length} plugin(s) run in-process with full supervisor privileges`,
+      hint: `only load code you trust: ${cfg.plugins.map((plugin) => plugin.path).join(", ")}`,
+    });
+  }
   checking("Google CLI installed");
   if (await host.hasCommand("gcloud")) {
     add({ name: "Google CLI installed", severity: "ok", message: "gcloud found" });

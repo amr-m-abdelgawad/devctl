@@ -1,8 +1,7 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
@@ -96,14 +95,15 @@ export function validate(cfg: DevctlConfig): string[] {
   issues.push(...validateWeb(cfg));
   issues.push(...validateLlm(cfg));
   for (const [index, plugin] of cfg.plugins.entries()) {
-    if (plugin.path === "") issues.push(`plugins.${index}.path is required`);
-    else {
-      try {
-        const path = plugin.path.startsWith("file:") ? fileURLToPath(plugin.path) : (isAbsolute(plugin.path) ? plugin.path : resolve(cfg.repoRoot, plugin.path));
-        if (!existsSync(path)) issues.push(`plugins.${index}.path does not exist: ${plugin.path}`);
-      } catch {
-        issues.push(`plugins.${index}.path is invalid: ${plugin.path}`);
-      }
+    if (plugin.path === "") {
+      issues.push(`plugins.${index}.path is required`);
+      continue;
+    }
+    const resolved = resolvePluginPath(plugin.path, cfg.repoRoot);
+    if (!resolved.allowed) {
+      issues.push(`plugins.${index}.path ${resolved.reason ?? "is not allowed"}: ${plugin.path}`);
+    } else if (!existsSync(resolved.fsPath)) {
+      issues.push(`plugins.${index}.path does not exist: ${plugin.path}`);
     }
   }
   if (cfg.logs.max_memory_events < 0) {

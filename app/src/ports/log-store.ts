@@ -10,7 +10,7 @@ export type LogStore = {
   queryFacets(filter: LogFilter): Promise<LogFacets>;
   snapshot(): LogSnapshot;
   exportTo(path: string, filter: LogFilter): Promise<void>;
-  setParsers(parsers: LogParser[], pluginPaths?: readonly string[]): void;
+  setParsers(parsers: LogParser[], pluginPaths?: readonly string[], repoRoot?: string): void;
   setSecrets(extraMarkers: string[], extraPatterns: string[]): void;
   close(): Promise<void>;
 };

@@ -1,5 +1,6 @@
 import { statSync, watch, type FSWatcher } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
+import { join } from "node:path";
+import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import {
   type DevctlConfig,
   type ServiceConfig,
@@ -61,7 +62,7 @@ export function applyRegistry(host: ReloadHost): void {
   if (host.registry.tokenProviders.length > 0) {
     host.tokens.replaceProviders(host.registry.tokenProviders);
   }
-  host.logs.setParsers(host.registry.logParsers, host.registry.pluginPaths);
+  host.logs.setParsers(host.registry.logParsers, host.registry.pluginPaths, host.cfg.repoRoot);
   host.proxy?.setMiddleware?.(host.registry.proxyMiddleware);
 }
 
@@ -69,8 +70,11 @@ export function pluginMtimes(paths: string[], repoRoot: string): Map<string, num
   const out = new Map<string, number>();
   for (const path of paths) {
     const resolved = resolvePluginPath(path, repoRoot);
+    if (!resolved.allowed) {
+      continue;
+    }
     try {
-      out.set(resolved, statSync(resolved).mtimeMs);
+      out.set(resolved.fsPath, statSync(resolved.fsPath).mtimeMs);
     } catch {
       // Missing files are already reported as plugin load errors.
     }
@@ -101,13 +105,6 @@ export async function reapplyPlugins(host: ReloadHost, next: DevctlConfig, prevP
   }
   host.pluginMtimes = current;
   return restart;
-}
-
-function resolvePluginPath(path: string, repoRoot: string): string {
-  if (path.startsWith("file:")) {
-    return path;
-  }
-  return isAbsolute(path) ? path : resolve(repoRoot, path);
 }
 
 export function checkPluginHealthTypes(registry: Registry | undefined, cfg: DevctlConfig): void {
