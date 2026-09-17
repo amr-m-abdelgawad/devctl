@@ -23,6 +23,10 @@ import type { TokenManager } from "../google/token.ts";
 const MS_PER_SECOND = 1000;
 const GET = "GET";
 const HEAD = "HEAD";
+// Cap the recipe response read so an oversized (or malicious) upstream body
+// cannot grow supervisor memory without bound. `AbortSignal.timeout` bounds
+// time only; this bounds bytes. Mirrors DEFAULT_LLM_CAPTURE_MAX_BYTES (1 MiB).
+const MAX_RESPONSE_BYTES = 1024 * 1024;
 
 export type RecipeFetch = (input: string, init: RequestInit) => Promise<Response>;
 export type RecipeScheduler = (ms: number, fn: () => void) => { cancel: () => void };
@@ -149,7 +153,7 @@ export class RecipeRuntime implements HttpRecipeRuntime {
       redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const text = await resp.text();
+    const text = await readCappedResponse(resp, name);
     const snapshot = buildSnapshot(cfg, name, recipe, resp.status, resp.headers.get("content-type") ?? "", text, this.deps.clock.unixMs());
     this.deps.log?.(`http recipe ${name} fetched status=${resp.status}`);
     return snapshot;
@@ -223,6 +227,42 @@ export class RecipeRuntime implements HttpRecipeRuntime {
 function defaultSchedule(ms: number, fn: () => void): { cancel: () => void } {
   const timer = setTimeout(fn, ms);
   return { cancel: () => clearTimeout(timer) };
+}
+
+// Read a response body while enforcing a hard byte ceiling, aborting the read
+// (and failing the recipe) as soon as it is exceeded rather than buffering the
+// whole body first. Falls back to text() when the body stream is unavailable.
+async function readCappedResponse(resp: Response, name: string): Promise<string> {
+  const body = resp.body;
+  if (!body) {
+    const text = await resp.text();
+    if (Buffer.byteLength(text) > MAX_RESPONSE_BYTES) {
+      throw newError(KindConfiguration, `http recipe ${name} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+    }
+    return text;
+  }
+  const reader = body.getReader();
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (value) {
+        size += value.byteLength;
+        if (size > MAX_RESPONSE_BYTES) {
+          await reader.cancel();
+          throw newError(KindConfiguration, `http recipe ${name} response exceeds ${MAX_RESPONSE_BYTES} bytes`);
+        }
+        chunks.push(Buffer.from(value));
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 function emptySnapshot(): HttpRecipeSnapshot {

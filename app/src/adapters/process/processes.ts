@@ -9,6 +9,15 @@ import { adoptContainer, startContainer, containerEnvironment, type ContainerCon
 const DEFAULT_GRACE_MS = 10_000;
 const KILL_WAIT_MS = 2_000;
 const ADOPT_POLL_MS = 500;
+// Cap per-stream captured output for a transient run (tasks, exec_service) so a
+// noisy command cannot grow supervisor memory without bound. Live logging via
+// `onLine` is untouched — only the returned string is capped, with a marker.
+const MAX_CAPTURE_BYTES = 1024 * 1024;
+const CAPTURE_TRUNCATED_MARKER = "\n...[truncated]\n";
+// Force-break an unterminated line in the line pump at this size so a
+// newline-free flood cannot grow the pending buffer without bound. Applies to
+// both transient captures and long-running service streaming.
+const MAX_LINE_BYTES = 1024 * 1024;
 
 export type Stream = "stdout" | "stderr";
 export type LineHandler = (stream: Stream, line: string) => void;
@@ -112,16 +121,31 @@ export class ProcessManager implements ProcessRuntime {
     } catch (err) {
       throw wrapError(KindProcessStart, `failed to run ${spec.name}`, err);
     }
-    let stdout = "";
-    let stderr = "";
+    // Cap each captured stream by UTF-8 byte size (tracked incrementally so it
+    // is O(1) per line), including the truncation marker. onLine still fires for
+    // every line, so live logging is unaffected by capture truncation.
+    const caps: Record<Stream, { text: string; bytes: number; truncated: boolean }> = {
+      stdout: { text: "", bytes: 0, truncated: false },
+      stderr: { text: "", bytes: 0, truncated: false },
+    };
     const collect = (stream: Stream, line: string): void => {
-      if (stream === "stdout") stdout += `${line}\n`; else stderr += `${line}\n`;
+      const cap = caps[stream];
+      if (!cap.truncated) {
+        const add = Buffer.byteLength(line, "utf8") + 1;
+        if (cap.bytes + add > MAX_CAPTURE_BYTES) {
+          cap.text += CAPTURE_TRUNCATED_MARKER;
+          cap.truncated = true;
+        } else {
+          cap.text += `${line}\n`;
+          cap.bytes += add;
+        }
+      }
       spec.onLine?.(stream, line);
     };
     const pumps = [pumpLines(proc.stdout, "stdout", collect), pumpLines(proc.stderr, "stderr", collect)];
     const code = await proc.exited;
     await Promise.all(pumps);
-    return { code: typeof code === "number" ? code : 0, stdout, stderr };
+    return { code: typeof code === "number" ? code : 0, stdout: caps.stdout.text, stderr: caps.stderr.text };
   }
 
   async startContainer(spec: ContainerLaunchSpec): Promise<Handle> {
@@ -311,6 +335,13 @@ async function pumpLines(stream: ReadableStream<Uint8Array> | number | undefined
     buf = lines.pop() ?? "";
     for (const line of lines) {
       handler(kind, line.replace(/\r$/, ""));
+    }
+    // Force a break on a pathologically long unterminated line so `buf` cannot
+    // grow without bound before a newline arrives. Shared with the long-running
+    // service path, so this only affects a single >1 MiB line with no newline.
+    if (Buffer.byteLength(buf, "utf8") >= MAX_LINE_BYTES) {
+      handler(kind, buf.replace(/\r$/, ""));
+      buf = "";
     }
   }
 }
