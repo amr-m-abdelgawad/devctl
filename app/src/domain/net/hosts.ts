@@ -57,6 +57,40 @@ export function formatHostPort(host: string, port: number): string {
   return `${name}:${port}`;
 }
 
+const METADATA_HOSTNAMES = new Set(["metadata.google.internal", "metadata"]);
+// Metadata endpoints that are not in the 169.254/16 link-local range and so
+// need naming explicitly. Alibaba Cloud uses 100.100.100.200.
+const METADATA_IPV4 = new Set(["100.100.100.200"]);
+
+/**
+ * Hosts an outbound recipe must not target without an explicit opt-in: IPv4
+ * link-local `169.254.0.0/16` (which includes the `169.254.169.254` cloud
+ * metadata endpoint), its IPv4-mapped forms (dotted and the hex form the URL
+ * parser canonicalizes brackets to, e.g. `::ffff:a9fe:a9fe`), IPv6 link-local
+ * `fe80::/10`, the GCE metadata hostnames, and known non-link-local metadata
+ * IPs. Blocks SSRF of minted developer tokens to the instance metadata service.
+ * Empty/unknown is not blocked (handled elsewhere).
+ */
+export function isLinkLocalOrMetadataHost(host: string): boolean {
+  const normalized = normalizeHostname(host);
+  if (normalized === "") {
+    return false;
+  }
+  if (METADATA_HOSTNAMES.has(normalized)) {
+    return true;
+  }
+  const octets = extractIpv4(normalized);
+  if (octets !== undefined) {
+    if (octets[0] === 169 && octets[1] === 254) {
+      return true;
+    }
+    if (METADATA_IPV4.has(octets.join("."))) {
+      return true;
+    }
+  }
+  return isIpv6LinkLocal(normalized);
+}
+
 /** Peer address on an accepted connection. Missing/empty is not loopback. */
 export function isLoopbackPeer(addr?: string): boolean {
   if (addr === undefined) {
@@ -135,6 +169,39 @@ function isIpv4Loopback(host: string): boolean {
     return false;
   }
   return octets[0] === 127;
+}
+
+// Extract IPv4 octets from a normalized hostname in any of the forms an IPv4
+// address can reach us as: dotted (`169.254.169.254`), IPv4-mapped dotted
+// (`::ffff:169.254.169.254`), or the IPv4-mapped hex pair the WHATWG URL parser
+// canonicalizes a bracketed mapped address to (`::ffff:a9fe:a9fe`). Returns
+// undefined for anything that is not an IPv4 address.
+function extractIpv4(host: string): number[] | undefined {
+  const candidate = host.startsWith("::ffff:") ? host.slice("::ffff:".length) : host;
+  const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(candidate);
+  if (hex) {
+    const hi = Number.parseInt(hex[1] ?? "", 16);
+    const lo = Number.parseInt(hex[2] ?? "", 16);
+    return [(hi >> 8) & 0xff, hi & 0xff, (lo >> 8) & 0xff, lo & 0xff];
+  }
+  const parts = candidate.split(".");
+  if (parts.length !== 4) {
+    return undefined;
+  }
+  const octets = parts.map((part) => Number(part));
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) {
+    return undefined;
+  }
+  return octets;
+}
+
+function isIpv6LinkLocal(host: string): boolean {
+  const first = host.split(":")[0] ?? "";
+  if (!/^[0-9a-f]{1,4}$/.test(first)) {
+    return false;
+  }
+  const n = Number.parseInt(first, 16);
+  return n >= 0xfe80 && n <= 0xfebf;
 }
 
 function isIpv4MappedLoopback(host: string): boolean {

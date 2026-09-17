@@ -139,6 +139,22 @@ export async function runDoctor(
     }
   }
   for (const [name, recipe] of Object.entries(cfg.http)) {
+    const url = recipe.request.url;
+    // Only a literal (non-interpolated) URL can be scheme-checked here.
+    if (url === "" || url.includes("${")) {
+      continue;
+    }
+    if (!/^https:\/\//i.test(url.trim())) {
+      checking(`http.${name} url scheme`);
+      add({
+        name: `http.${name} url scheme`,
+        severity: "warn",
+        message: "recipe url is not https",
+        hint: "prefer https for a recipe that mints a token; http sends the minted credential in the clear",
+      });
+    }
+  }
+  for (const [name, recipe] of Object.entries(cfg.http)) {
     if (!recipe.expose.enabled) {
       continue;
     }

@@ -9,6 +9,7 @@ import {
 import { KindConfiguration, newError } from "../../shared/errors.ts";
 import { getJsonPath, jsonValueToString } from "../../domain/http/json-path.ts";
 import { jwtExpiry } from "../../domain/http/jwt.ts";
+import { isLinkLocalOrMetadataHost } from "../../domain/net/hosts.ts";
 import {
   httpRecipesReferencedBy,
   JWT_TOKEN_FIELDS,
@@ -133,6 +134,10 @@ export class RecipeRuntime implements HttpRecipeRuntime {
     const userEmail = this.deps.userEmail();
     const interpolate = (value: string): string => resolveString(value, cfg, assigned, userEmail, extras);
     const url = interpolate(recipe.request.url);
+    // Never send a minted developer/SA token (or any recipe request) to the
+    // cloud metadata service or another link-local host. Enforced here because
+    // the URL is only known after interpolation.
+    assertRecipeUrlAllowed(name, url);
     const headers: Record<string, string> = {};
     for (const [key, value] of Object.entries(recipe.request.headers)) {
       headers[key] = interpolate(value);
@@ -227,6 +232,18 @@ export class RecipeRuntime implements HttpRecipeRuntime {
 function defaultSchedule(ms: number, fn: () => void): { cancel: () => void } {
   const timer = setTimeout(fn, ms);
   return { cancel: () => clearTimeout(timer) };
+}
+
+function assertRecipeUrlAllowed(name: string, url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw newError(KindConfiguration, `http recipe ${name} request.url is not a valid URL: ${url}`);
+  }
+  if (isLinkLocalOrMetadataHost(parsed.hostname)) {
+    throw newError(KindConfiguration, `http recipe ${name} request.url targets a link-local or metadata host (${parsed.hostname})`);
+  }
 }
 
 // Read a response body while enforcing a hard byte ceiling, aborting the read

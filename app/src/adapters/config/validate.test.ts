@@ -395,6 +395,21 @@ describe("config validate", () => {
     expect(validate(cfg)).toContain("http.login: ${token} requires request.auth.type iap or service_account");
   });
 
+  test("rejects a literal recipe URL that targets a link-local / metadata host", () => {
+    const cfg = withService("api");
+    cfg.http.meta = {
+      request: { method: "GET", url: "http://169.254.169.254/computeMetadata/v1/", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 0 },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    expect(validate(cfg).some((issue) => issue.includes("targets a link-local or metadata host"))).toBe(true);
+
+    // An interpolated URL is not host-checked at validate time (enforced at fetch).
+    cfg.http.meta.request.url = "https://${env.API_HOST}/token";
+    expect(validate(cfg).some((issue) => issue.includes("targets a link-local or metadata host"))).toBe(false);
+  });
+
   test("refuses exposing a token-bearing recipe body without allow_token_body", () => {
     const cfg = withService("api");
     cfg.proxy.enabled = true;
