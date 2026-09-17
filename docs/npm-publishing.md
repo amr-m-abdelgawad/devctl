@@ -45,7 +45,7 @@ The release workflow then:
 2. Tests that exact tarball on supported macOS, Linux/glibc, Linux/musl, and Windows runners.
 3. Generates `SHA256SUMS` and GitHub build-provenance attestations.
 4. Publishes the npm version with provenance if it is not already present.
-5. Finalizes the GitHub Release and opens a Homebrew checksum update pull request.
+5. Writes GitHub Release notes from that version's `CHANGELOG.md` section (headline, Fixed/Added entries, upgrade commands, trust notice) instead of auto-generated PR titles, then finalizes the GitHub Release and opens a Homebrew checksum update pull request.
 
 Publication is idempotent: rerunning a completed or partially completed workflow skips an npm version that is already on the registry and continues release finalization.
 

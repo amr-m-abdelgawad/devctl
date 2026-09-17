@@ -71,7 +71,7 @@ Jobs (all must pass except dependency-review skipped on non-PR):
 
 Bun version in CI is pinned to **1.4.2** (`oven-sh/setup-bun`).
 
-Other workflows: `release.yml` (tagged publishes, plus `workflow_dispatch` to retry an existing `v*` tag), `docs-wiki.yml` (wiki from `docs/`), `deploy-pages.yml` (VitePress). Compile-smoke also runs `.github/scripts/upload-release-assets.test.sh`.
+Other workflows: `release.yml` (tagged publishes, plus `workflow_dispatch` to retry an existing `v*` tag), `docs-wiki.yml` (wiki from `docs/`), `deploy-pages.yml` (VitePress). Compile-smoke also runs `.github/scripts/upload-release-assets.test.sh` and `.github/scripts/compose-github-release-notes.test.sh`.
 
 ## Architecture exceptions
 

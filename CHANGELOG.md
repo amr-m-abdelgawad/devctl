@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.13.1] - 2026-09-17
 
+Local hardening: plugins cannot load from outside the repo, recipes cannot hit cloud-metadata hosts, the web console requires its bearer token, and daemon memory buffers are capped.
+
+See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](docs/telemetry.md), and [Security](docs/security.md).
+
 ### Fixed
 
 - Config plugins must now resolve to a path **inside the repository root**. An absolute path or `file:` URL that escapes the repo (or a `../` climbing above it) is refused by `config validate` and skipped by the loader, so a cloned repo's `.devctl` cannot point the in-process plugin import at code elsewhere on the machine. Path resolution is unified in one shared helper used by the loader, validator, reload watcher, and log worker (the log worker now resolves against the repo root, not its cwd). Containment is also checked on the realpath so an in-root symlink cannot point the import at code outside the repo. Doctor lists configured plugin paths as a warning, since plugin code runs in-process with full supervisor privileges (#75).
