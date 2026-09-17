@@ -9,42 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Config plugins must now resolve to a path **inside the repository root**. An absolute path or
-  `file:` URL that escapes the repo (or a `../` climbing above it) is refused by `config validate`
-  and skipped by the loader, so a cloned repo's `.devctl` cannot point the in-process plugin
-  import at code elsewhere on the machine. Path resolution is unified in one shared helper used by
-  the loader, validator, reload watcher, and log worker (the log worker now resolves against the
-  repo root, not its cwd). Containment is also checked on the realpath so an in-root symlink cannot
-  point the import at code outside the repo. Doctor lists configured plugin paths as a warning,
-  since plugin code runs in-process with full supervisor privileges (#75).
-- HTTP recipes can no longer target a link-local / cloud-metadata host (`169.254.0.0/16`
-  including `169.254.169.254` and its IPv4-mapped dotted/hex forms, IPv6 `fe80::/10`,
-  `metadata.google.internal`, or `100.100.100.200`): a literal such
-  URL fails `config validate` and an interpolated one is blocked at fetch time, before any minted
-  token is sent. Doctor warns on a literal non-`https` recipe URL (part of #74).
-- HTTP recipe `expose` now refuses, at `config validate` time, to publish a token-bearing cached
-  body (a `cache.jwt` recipe, or an `access_token`/`id_token`/`token`/`refresh_token`/`client_secret`
-  output) on its no-inbound-auth loopback route unless the recipe sets `expose.allow_token_body: true`
-  to acknowledge it. Doctor
-  also warns when an exposed recipe sets `Access-Control-Allow-Origin: *`. Docs no longer recommend
-  a wildcard CORS header on token recipes (#73).
-- Web console read APIs now require the per-bind bearer token and a loopback peer on every
-  `/api/*` route (status, logs, config, traces, LLM bodies), matching `POST /api/control` and
-  the MCP/token endpoints. Only the HTML shell at `/` is served anonymously (#71).
-- The web control token is delivered in the URL **fragment** (`#token=…`) instead of the query
-  string, so it is no longer sent as `Referer` or written to proxy access logs. `devctl web
-  start` prints only the console origin by default; `devctl web start --print-url` prints the
-  full one-time access link when needed (#77).
-- Supervisor RPC connections now cap the pre-auth inbound line buffer at 1 MiB and drop a
-  connection that streams past it with no newline, so a local peer can no longer grow daemon
-  memory before authenticating (#78).
-- Transient task and `exec_service` output is capped at 1 MiB per stream in the captured result
-  (with a `...[truncated]` marker); live log lines are unaffected, so a noisy command can no
-  longer grow supervisor memory without bound (#76).
-- HTTP recipe responses are read with a 1 MiB ceiling, aborting the fetch instead of buffering
-  an oversized upstream body in the daemon (part of #74).
-- LLM proxy capture reads the request body with a read-time byte ceiling as a defensive
-  invariant (#72).
+- Config plugins must now resolve to a path **inside the repository root**. An absolute path or `file:` URL that escapes the repo (or a `../` climbing above it) is refused by `config validate` and skipped by the loader, so a cloned repo's `.devctl` cannot point the in-process plugin import at code elsewhere on the machine. Path resolution is unified in one shared helper used by the loader, validator, reload watcher, and log worker (the log worker now resolves against the repo root, not its cwd). Containment is also checked on the realpath so an in-root symlink cannot point the import at code outside the repo. Doctor lists configured plugin paths as a warning, since plugin code runs in-process with full supervisor privileges (#75).
+- HTTP recipes can no longer target a link-local / cloud-metadata host (`169.254.0.0/16` including `169.254.169.254` and its IPv4-mapped dotted/hex forms, IPv6 `fe80::/10`, `metadata.google.internal`, or `100.100.100.200`): a literal such URL fails `config validate` and an interpolated one is blocked at fetch time, before any minted token is sent. Doctor warns on a literal non-`https` recipe URL (part of #74).
+- HTTP recipe `expose` now refuses, at `config validate` time, to publish a token-bearing cached body (a `cache.jwt` recipe, or an `access_token`/`id_token`/`token`/`refresh_token`/`client_secret` output) on its no-inbound-auth loopback route unless the recipe sets `expose.allow_token_body: true` to acknowledge it. Doctor also warns when an exposed recipe sets `Access-Control-Allow-Origin: *`. Docs no longer recommend a wildcard CORS header on token recipes (#73).
+- Web console read APIs now require the per-bind bearer token and a loopback peer on every `/api/*` route (status, logs, config, traces, LLM bodies), matching `POST /api/control` and the MCP/token endpoints. Only the HTML shell at `/` is served anonymously (#71).
+- The web control token is delivered in the URL **fragment** (`#token=…`) instead of the query string, so it is no longer sent as `Referer` or written to proxy access logs. `devctl web start` prints only the console origin by default; `devctl web start --print-url` prints the full one-time access link when needed (#77).
+- Supervisor RPC connections now cap the pre-auth inbound line buffer at 1 MiB and drop a connection that streams past it with no newline, so a local peer can no longer grow daemon memory before authenticating (#78).
+- Transient task and `exec_service` output is capped at 1 MiB per stream in the captured result (with a `...[truncated]` marker); live log lines are unaffected, so a noisy command can no longer grow supervisor memory without bound (#76).
+- HTTP recipe responses are read with a 1 MiB ceiling, aborting the fetch instead of buffering an oversized upstream body in the daemon (part of #74).
+- LLM proxy capture reads the request body with a read-time byte ceiling as a defensive invariant (#72).
 
 ## [0.13.0] - 2026-09-17
 
