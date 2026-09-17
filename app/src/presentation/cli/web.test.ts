@@ -52,12 +52,12 @@ describe("devctl web", () => {
     expect(text).toBe("WEB  STOPPED\n");
   });
 
-  test("start prints the control URL with the session token", async () => {
+  test("start prints only the origin by default, never the token", async () => {
     const runtime = {
       openController: async () =>
         ({
           client: {},
-          webStart: async () => ({ url: "http://127.0.0.1:18900/?token=abc" }),
+          webStart: async () => ({ url: "http://127.0.0.1:18900/#token=abc" }),
           close: async () => {},
         }) as unknown as Controller,
     } as unknown as ClientRuntime;
@@ -70,6 +70,30 @@ describe("devctl web", () => {
     } finally {
       cap.restore();
     }
-    expect(cap.output()).toBe("http://127.0.0.1:18900/?token=abc\n");
+    const output = cap.output();
+    expect(output).toContain("http://127.0.0.1:18900/");
+    expect(output).not.toContain("abc");
+    expect(output).toContain("--print-url");
+  });
+
+  test("start --print-url prints the full access link including the token", async () => {
+    const runtime = {
+      openController: async () =>
+        ({
+          client: {},
+          webStart: async () => ({ url: "http://127.0.0.1:18900/#token=abc" }),
+          close: async () => {},
+        }) as unknown as Controller,
+    } as unknown as ClientRuntime;
+    const root = new Command();
+    root.option("-c, --config <path>");
+    addWeb(root, runtime);
+    const cap = captureStdout();
+    try {
+      await root.parseAsync(["node", "devctl", "web", "start", "--print-url"], { from: "node" });
+    } finally {
+      cap.restore();
+    }
+    expect(cap.output()).toBe("http://127.0.0.1:18900/#token=abc\n");
   });
 });

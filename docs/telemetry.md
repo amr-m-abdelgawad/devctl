@@ -118,10 +118,13 @@ web:
     port: 18900                  # default 18900
 ```
 
-`devctl web start` prints the control URL (including `?token=`), even if the
-listener is already running from `enabled: true`. Open that URL. `devctl web
-status|stop` and `devctl status` (the `WEB` line) report the listener without
-the token. Hash routes: `#/services`, `#/traces`, `#/llm`, `#/graph`, `#/logs`.
+`devctl web start` prints only the console **origin** by default (no token),
+even if the listener is already running from `enabled: true`. The control token
+travels in the URL **fragment** (`#token=…`, never sent as Referer or logged by
+proxies); run `devctl web start --print-url` to print the full one-time access
+link when you need it. `devctl web status|stop` and `devctl status` (the `WEB`
+line) report the listener without the token. Hash routes: `#/services`,
+`#/traces`, `#/llm`, `#/graph`, `#/logs`.
 Rebuild the embed with `cd app && bun run build:web` after editing `app/web/`.
 
 ![The Graph page — a dependency topology (upstream → midstream → downstream) plus live signals: traffic and errors, proxy latency, and host CPU/memory](assets/manual/web-graph.png)

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
-import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname } from "../../domain/net/hosts.ts";
+import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import type { UpdateCheck } from "../../domain/update.ts";
 import { VERSION } from "../../version.ts";
 import { bearerMatches } from "../../shared/bearer.ts";
@@ -132,7 +132,7 @@ export class WebHttpServer {
         await this.routePost(path, req, res);
         return;
       }
-      await this.routeGet(path, url.searchParams, res);
+      await this.routeGet(path, url.searchParams, req, res);
     } catch (err) {
       const message = err instanceof Error ? err.message : "internal error";
       const status = err instanceof HttpError ? err.status : 400;
@@ -141,7 +141,7 @@ export class WebHttpServer {
     }
   }
 
-  private async routeGet(path: string, query: URLSearchParams, res: ServerResponse): Promise<void> {
+  private async routeGet(path: string, query: URLSearchParams, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const host = this.opts.hostApi;
     if (path === "/") {
       writeHtml(res, pageHtml());
@@ -150,6 +150,14 @@ export class WebHttpServer {
     if (path === "/api/control") {
       writeMethodNotAllowed(res, ALLOW_POST);
       return;
+    }
+    // Every data-returning /api/* read requires the per-bind bearer and a
+    // loopback peer, matching POST /api/control and the MCP/token endpoints.
+    // Only the HTML shell at "/" is anonymous; logs, config, traces, and LLM
+    // bodies are not. Non-/api paths fall through to 404 without a token check.
+    if (path.startsWith("/api/")) {
+      assertLoopbackPeer(req);
+      assertControlAuthorized(req, this.opts.token);
     }
     if (path === "/api/status") {
       writeJson(res, 200, getStatusSummary(host.status()));
@@ -239,6 +247,12 @@ function originIsLoopback(value: string): boolean {
 function assertControlAuthorized(req: IncomingMessage, token: string): void {
   if (!bearerMatches(headerValue(req.headers.authorization), token)) {
     throw new HttpError(401, "unauthorized");
+  }
+}
+
+function assertLoopbackPeer(req: IncomingMessage): void {
+  if (!isLoopbackPeer(req.socket.remoteAddress)) {
+    throw new HttpError(403, "forbidden");
   }
 }
 

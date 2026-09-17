@@ -930,8 +930,8 @@ services:
       expect(started.web?.port).toBe(port);
       expect(started.web?.address).toContain(`127.0.0.1:${port}`);
       expect(started.web?.address).not.toContain("token=");
-      expect(startedRpc.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${port}/\\?token=[0-9a-f]{48}$`));
-      const token = new URL(startedRpc.url ?? "").searchParams.get("token") ?? "";
+      expect(startedRpc.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${port}/#token=[0-9a-f]{48}$`));
+      const token = new URLSearchParams(new URL(startedRpc.url ?? "").hash.slice(1)).get("token") ?? "";
       const page = await fetch(`http://127.0.0.1:${port}/`);
       expect(page.status).toBe(200);
       expect(page.headers.get("access-control-allow-origin")).toBeNull();

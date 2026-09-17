@@ -205,7 +205,7 @@ async function copyInstall() {
         <span>03</span>
         <div>
           <h3>Start it yourself.</h3>
-          <p><code>devctl web start</code> prints the URL and a per-bind token.</p>
+          <p><code>devctl web start</code> prints the console origin; the token rides in the URL fragment.</p>
         </div>
         <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
       </a>

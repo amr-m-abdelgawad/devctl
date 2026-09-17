@@ -428,7 +428,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Web
 
-\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the URL including \`?token=\` — open that URL so the SPA can store the token. \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Telemetry](telemetry.md#web-ui).
+\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full one-time link when you need it. \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Telemetry](telemetry.md#web-ui).
 
 ## Exit codes
 
@@ -1284,7 +1284,7 @@ async function copyInstall() {
         <span>03</span>
         <div>
           <h3>Start it yourself.</h3>
-          <p><code>devctl web start</code> prints the URL and a per-bind token.</p>
+          <p><code>devctl web start</code> prints the console origin; the token rides in the URL fragment.</p>
         </div>
         <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
       </a>
@@ -3005,10 +3005,13 @@ web:
     port: 18900                  # default 18900
 \`\`\`
 
-\`devctl web start\` prints the control URL (including \`?token=\`), even if the
-listener is already running from \`enabled: true\`. Open that URL. \`devctl web
-status|stop\` and \`devctl status\` (the \`WEB\` line) report the listener without
-the token. Hash routes: \`#/services\`, \`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`.
+\`devctl web start\` prints only the console **origin** by default (no token),
+even if the listener is already running from \`enabled: true\`. The control token
+travels in the URL **fragment** (\`#token=…\`, never sent as Referer or logged by
+proxies); run \`devctl web start --print-url\` to print the full one-time access
+link when you need it. \`devctl web status|stop\` and \`devctl status\` (the \`WEB\`
+line) report the listener without the token. Hash routes: \`#/services\`,
+\`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`.
 Rebuild the embed with \`cd app && bun run build:web\` after editing \`app/web/\`.
 
 ![The Graph page — a dependency topology (upstream → midstream → downstream) plus live signals: traffic and errors, proxy latency, and host CPU/memory](assets/manual/web-graph.png)
