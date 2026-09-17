@@ -7,11 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- Release publishing uploads GitHub assets one file at a time with retries, so a transient `HTTP 500: Error saving asset` from `uploads.github.com` no longer aborts the job after some binaries already landed. A failed `v*` tag can be retried from Actions with `workflow_dispatch` without moving the tag.
-
-## [0.13.1] - 2026-09-17
+## [0.13.1] - 2026-09-18
 
 Local hardening: plugins cannot load from outside the repo, recipes cannot hit cloud-metadata hosts, the web console requires its bearer token, and daemon memory buffers are capped.
 
@@ -28,6 +24,7 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - Transient task and `exec_service` output is capped at 1 MiB per stream in the captured result (with a `...[truncated]` marker); live log lines are unaffected, so a noisy command can no longer grow supervisor memory without bound (#76).
 - HTTP recipe responses are read with a 1 MiB ceiling, aborting the fetch instead of buffering an oversized upstream body in the daemon (part of #74).
 - LLM proxy capture reads the request body with a read-time byte ceiling as a defensive invariant (#72).
+- Release publishing uploads GitHub assets one file at a time with retries, so a transient `HTTP 500: Error saving asset` from `uploads.github.com` no longer aborts the job after some binaries already landed. A failed `v*` tag can be retried from Actions with `workflow_dispatch` without moving the tag.
 
 ## [0.13.0] - 2026-09-17
 
