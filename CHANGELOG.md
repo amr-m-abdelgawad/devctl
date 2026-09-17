@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Security
+### Fixed
 
 - Config plugins must now resolve to a path **inside the repository root**. An absolute path or
   `file:` URL that escapes the repo (or a `../` climbing above it) is refused by `config validate`
