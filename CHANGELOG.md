@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-09-18
+
+### Fixed
+
+- Compile smoke no longer generates GitHub release notes from the live `CHANGELOG.md`. The notes test uses a fixture, so a 0.13.1 Fixed bullet can describe the uploads `HTTP 500` retry without failing CI.
+
 ## [0.13.1] - 2026-09-18
 
 Local hardening: plugins cannot load from outside the repo, recipes cannot hit cloud-metadata hosts, the web console requires its bearer token, and daemon memory buffers are capped.
@@ -510,7 +516,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.2...HEAD
+[0.13.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.0...v0.12.1
