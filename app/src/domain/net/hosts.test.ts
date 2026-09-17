@@ -14,6 +14,16 @@ describe("isLinkLocalOrMetadataHost", () => {
     expect(isLinkLocalOrMetadataHost("METADATA.GOOGLE.INTERNAL")).toBe(true);
   });
 
+  test("blocks the IPv4-mapped hex form and non-link-local metadata IPs", () => {
+    // new URL("http://[::ffff:169.254.169.254]/").hostname === "[::ffff:a9fe:a9fe]"
+    expect(isLinkLocalOrMetadataHost("[::ffff:a9fe:a9fe]")).toBe(true);
+    expect(isLinkLocalOrMetadataHost("::ffff:a9fe:a9fe")).toBe(true);
+    // Alibaba Cloud metadata (outside 169.254/16).
+    expect(isLinkLocalOrMetadataHost("100.100.100.200")).toBe(true);
+    // A non-metadata mapped address is still allowed.
+    expect(isLinkLocalOrMetadataHost("::ffff:8.8.8.8")).toBe(false);
+  });
+
   test("allows ordinary and loopback hosts", () => {
     expect(isLinkLocalOrMetadataHost("")).toBe(false);
     expect(isLinkLocalOrMetadataHost("api.company.com")).toBe(false);
