@@ -379,6 +379,7 @@ export function mergeHttpRecipe(base: HttpRecipeConfig, raw: unknown): HttpRecip
       enabled: exposePresent.has("enabled") || raw.expose === true || raw.expose === false ? decoded.expose.enabled : base.expose.enabled,
       host: exposePresent.has("host") ? decoded.expose.host : base.expose.host,
       response_headers: exposePresent.has("response_headers") ? { ...base.expose.response_headers, ...decoded.expose.response_headers } : base.expose.response_headers,
+      allow_token_body: exposePresent.has("allow_token_body") ? decoded.expose.allow_token_body : base.expose.allow_token_body,
     },
   };
 }

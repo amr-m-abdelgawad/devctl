@@ -124,7 +124,7 @@ describe("config refs", () => {
       request: { method: "POST", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 0 },
       outputs: { token: "access_token" },
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     expect(refResolvable("http.login.token", cfg)).toBe(true);
     expect(refResolvable("http.login.body", cfg)).toBe(true);

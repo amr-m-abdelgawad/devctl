@@ -343,7 +343,7 @@ describe("config validate", () => {
       request: { method: "POST", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 10 },
       outputs: { body: "access_token" },
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     expect(validate(reserved)).toContain("http.login.outputs.body is reserved");
 
@@ -352,7 +352,7 @@ describe("config validate", () => {
       request: { method: "GET", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 0 },
       outputs: {},
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: true, host: "", response_headers: {} },
+      expose: { enabled: true, host: "", response_headers: {}, allow_token_body: false },
     };
     expect(validate(expose)).toContain("http.login.expose requires proxy.enabled");
 
@@ -362,13 +362,13 @@ describe("config validate", () => {
       request: { method: "GET", url: "https://a.example/${http.b.token}", headers: {}, body: "", form: {}, auth, timeout_seconds: 0 },
       outputs: { token: "access_token" },
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     cycle.http.b = {
       request: { method: "GET", url: "https://b.example/${http.a.token}", headers: {}, body: "", form: {}, auth, timeout_seconds: 0 },
       outputs: { token: "access_token" },
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     expect(validate(cycle).some((issue) => issue.includes("http recipe cycle"))).toBe(true);
   });
@@ -387,12 +387,34 @@ describe("config validate", () => {
       },
       outputs: {},
       cache: { jwt: false, expires_in: "" },
-      expose: { enabled: false, host: "", response_headers: {} },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
     };
     expect(validate(cfg)).toContain("http.login.request cannot set both body and form");
     cfg.http.login.request.body = "";
     cfg.http.login.request.form = { subject_token: "${token}" };
     expect(validate(cfg)).toContain("http.login: ${token} requires request.auth.type iap or service_account");
+  });
+
+  test("refuses exposing a token-bearing recipe body without allow_token_body", () => {
+    const cfg = withService("api");
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: 18800 };
+    cfg.http.login = {
+      request: { method: "POST", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 10 },
+      outputs: { token: "access_token" },
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: true, host: "login.local", response_headers: {}, allow_token_body: false },
+    };
+    expect(validate(cfg).some((issue) => issue.includes("expose serves a token-bearing body"))).toBe(true);
+
+    cfg.http.login.expose.allow_token_body = true;
+    expect(validate(cfg).some((issue) => issue.includes("expose serves a token-bearing body"))).toBe(false);
+
+    // A JWT-cached body is token material even without a named token output.
+    cfg.http.login.outputs = {};
+    cfg.http.login.cache = { jwt: true, expires_in: "" };
+    cfg.http.login.expose.allow_token_body = false;
+    expect(validate(cfg).some((issue) => issue.includes("expose serves a token-bearing body"))).toBe(true);
   });
 
   test("rejects unknown llm source types and missing management hops", () => {
