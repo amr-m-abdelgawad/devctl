@@ -158,3 +158,27 @@ test("runOnce captures output without registering a managed process", async () =
   expect(result).toEqual({ code: 0, stdout: "out\n", stderr: "err\n" });
   expect(mgr.all()).toHaveLength(0);
 });
+
+test("runOnce caps captured stdout and forwards every line to onLine", async () => {
+  const mgr = new ProcessManager();
+  const lines: number[] = [];
+  // Emit ~2 MiB of stdout in 64 KiB chunks so the capture exceeds the 1 MiB cap.
+  const script = "const c='x'.repeat(65536);for(let i=0;i<32;i++)console.log(c)";
+  const result = await mgr.runOnce({
+    name: "noisy",
+    args: [process.execPath, "-e", script],
+    shell: false,
+    workDir: "",
+    env: process.env as Record<string, string>,
+    graceMs: 1000,
+    onLine: (stream) => {
+      if (stream === "stdout") lines.push(1);
+    },
+  });
+  expect(result.code).toBe(0);
+  // Captured string is capped (cap + one final line + marker), well under the ~2 MiB emitted.
+  expect(result.stdout.length).toBeLessThan(1024 * 1024 + 128 * 1024);
+  expect(result.stdout.endsWith("\n...[truncated]\n")).toBe(true);
+  // Live logging is untouched: every emitted line reached onLine.
+  expect(lines.length).toBe(32);
+});

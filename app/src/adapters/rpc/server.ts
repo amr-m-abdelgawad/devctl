@@ -17,6 +17,11 @@ export type RpcServerDeps = {
 };
 
 const MAX_QUEUED_EVENTS = 2000;
+// Cap the inbound line buffer so a local peer cannot grow supervisor memory
+// without bound by streaming bytes with no newline — the buffer accumulates
+// before any token check, since auth runs per complete line in dispatchLine.
+// Matches the MCP body cap (1 MiB); RPC frames are small control messages.
+const MAX_BUFFER_BYTES = 1024 * 1024;
 
 export class RpcServer {
   private server?: Server;
@@ -114,6 +119,12 @@ export class RpcServer {
     });
     socketConn.on("data", (chunk) => {
       buf += chunk.toString("utf8");
+      if (buf.length > MAX_BUFFER_BYTES) {
+        this.deps.log("devctl", "WARN", "client connection exceeded max buffer; closing");
+        buf = "";
+        socketConn.destroy();
+        return;
+      }
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {

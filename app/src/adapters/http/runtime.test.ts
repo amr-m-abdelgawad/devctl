@@ -109,6 +109,30 @@ describe("RecipeRuntime", () => {
     expect(seen).toHaveLength(2);
   });
 
+  test("rejects a recipe response larger than the byte cap", async () => {
+    const nowMs = { value: 1_000_000 };
+    const { cfg, runtime } = recipeRuntime({
+      nowMs,
+      fetch: async () => new Response("x".repeat(1024 * 1024 + 1024), { status: 200 }),
+    });
+    cfg.http.huge = {
+      ...emptyHttpRecipe(),
+      request: {
+        method: "GET",
+        url: "https://api.example.com/data",
+        headers: {},
+        body: "",
+        form: {},
+        auth: { ...emptyRouteAuth(), type: "none" },
+        timeout_seconds: 10,
+      },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {} },
+    };
+    await expect(runtime.ensure("huge")).rejects.toThrow(/exceeds/);
+  });
+
   test("injects Bearer when Authorization is unset", async () => {
     const nowMs = { value: 1_000_000 };
     let authorization = "";

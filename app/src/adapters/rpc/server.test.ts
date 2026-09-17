@@ -120,6 +120,33 @@ describe("rpc server", () => {
     }
   });
 
+  test("drops a connection that buffers past the cap without a newline, before dispatch", async () => {
+    const dir = tmp();
+    const path = socketPath(dir);
+    let dispatched = 0;
+    const server = testServer(async () => {
+      dispatched += 1;
+      return { ok: true };
+    });
+    try {
+      await server.listen(path);
+      const closed = await new Promise<boolean>((resolve, reject) => {
+        const conn = connect(path);
+        // A tokenless payload larger than the 1 MiB buffer cap, with no
+        // newline so it never forms a complete line to authenticate.
+        const oversized = "x".repeat(1024 * 1024 + 1024);
+        conn.on("connect", () => conn.write(oversized));
+        conn.on("close", () => resolve(true));
+        conn.on("error", () => resolve(true));
+        setTimeout(() => reject(new Error("connection was not closed")), 4000);
+      });
+      expect(closed).toBe(true);
+      expect(dispatched).toBe(0);
+    } finally {
+      server.close();
+    }
+  });
+
   test("an error on an accepted client socket is handled, not thrown", async () => {
     const dir = tmp();
     const path = socketPath(dir);

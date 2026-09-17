@@ -9,6 +9,11 @@ import { adoptContainer, startContainer, containerEnvironment, type ContainerCon
 const DEFAULT_GRACE_MS = 10_000;
 const KILL_WAIT_MS = 2_000;
 const ADOPT_POLL_MS = 500;
+// Cap per-stream captured output for a transient run (tasks, exec_service) so a
+// noisy command cannot grow supervisor memory without bound. Live logging via
+// `onLine` is untouched — only the returned string is capped, with a marker.
+const MAX_CAPTURE_BYTES = 1024 * 1024;
+const CAPTURE_TRUNCATED_MARKER = "\n...[truncated]\n";
 
 export type Stream = "stdout" | "stderr";
 export type LineHandler = (stream: Stream, line: string) => void;
@@ -114,8 +119,26 @@ export class ProcessManager implements ProcessRuntime {
     }
     let stdout = "";
     let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     const collect = (stream: Stream, line: string): void => {
-      if (stream === "stdout") stdout += `${line}\n`; else stderr += `${line}\n`;
+      if (stream === "stdout") {
+        if (!stdoutTruncated) {
+          if (stdout.length >= MAX_CAPTURE_BYTES) {
+            stdout += CAPTURE_TRUNCATED_MARKER;
+            stdoutTruncated = true;
+          } else {
+            stdout += `${line}\n`;
+          }
+        }
+      } else if (!stderrTruncated) {
+        if (stderr.length >= MAX_CAPTURE_BYTES) {
+          stderr += CAPTURE_TRUNCATED_MARKER;
+          stderrTruncated = true;
+        } else {
+          stderr += `${line}\n`;
+        }
+      }
       spec.onLine?.(stream, line);
     };
     const pumps = [pumpLines(proc.stdout, "stdout", collect), pumpLines(proc.stderr, "stderr", collect)];

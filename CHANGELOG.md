@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Supervisor RPC connections now cap the pre-auth inbound line buffer at 1 MiB and drop a
+  connection that streams past it with no newline, so a local peer can no longer grow daemon
+  memory before authenticating (#78).
+- Transient task and `exec_service` output is capped at 1 MiB per stream in the captured result
+  (with a `...[truncated]` marker); live log lines are unaffected, so a noisy command can no
+  longer grow supervisor memory without bound (#76).
+- HTTP recipe responses are read with a 1 MiB ceiling, aborting the fetch instead of buffering
+  an oversized upstream body in the daemon (part of #74).
+- LLM proxy capture reads the request body with a read-time byte ceiling as a defensive
+  invariant (#72).
+
 ## [0.13.0] - 2026-09-17
 
 ### Added
