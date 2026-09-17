@@ -655,7 +655,11 @@ export class ProxyServer {
       // A compressed request body would be stored as unparseable bytes, so skip
       // capturing it (the full body is still streamed to the upstream verbatim).
       if (!requestIsEncoded(req) && length !== undefined && length <= recorder.maxBytes) {
-        const buffered = await readRequestBody(req);
+        // Pass the cap into the read as a read-time invariant so the memory
+        // ceiling does not depend on this guard's condition staying correct.
+        // (node:http already frames the body to Content-Length, so this backs
+        // up the guard rather than closing a reachable overflow today.)
+        const buffered = await readRequestBody(req, recorder.maxBytes);
         recorder.setRequestBody(buffered);
         return { body: buffered as unknown as BodyInit, duplex: undefined };
       }
@@ -775,12 +779,44 @@ function requestIsEncoded(req: IncomingMessage): boolean {
   return value !== "" && value !== "identity";
 }
 
-function readRequestBody(req: IncomingMessage): Promise<Buffer> {
+// Read the request body into a Buffer, enforcing a hard byte ceiling at read
+// time. node:http frames the body to Content-Length, so the ceiling is a
+// defensive invariant local to the read (independent of the caller's guard)
+// rather than a fix for a reachable overflow.
+function readRequestBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
+    let chunks: Buffer[] = [];
+    let size = 0;
+    let settled = false;
+    const fail = (err: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      chunks = [];
+      req.destroy();
+      reject(err);
+    };
+    req.on("data", (chunk: Buffer | string) => {
+      if (settled) {
+        return;
+      }
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      size += buf.length;
+      if (size > maxBytes) {
+        fail(new Error("request body exceeds capture cap"));
+        return;
+      }
+      chunks.push(buf);
+    });
+    req.on("end", () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
   });
 }
 

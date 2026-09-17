@@ -454,31 +454,154 @@
   .atmosphere-grid { background-size: 48px 48px; }
 }
 
-.VPHome .landing .hero-install {
-  position: relative;
-  width: 520px;
-  max-width: 100%;
-  margin: 30px auto 36px;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
-  background: var(--vp-c-bg);
-  box-shadow: 0 4px 16px -8px #00000018;
-  text-align: left;
-  overflow: visible;
-}
-.hero-install-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 10px 6px 18px; border-bottom: 1px solid var(--vp-c-divider); }
-.hero-install-label { display: inline-flex; align-items: center; gap: 8px; color: var(--vp-c-text-2); font: 9px var(--vp-font-family-mono); letter-spacing: .1em; }
-.hero-install-npm { margin-left: 4px; padding: 3px 6px; border: 1px solid var(--vp-c-divider); border-radius: 4px; font-size: 10px; letter-spacing: 0; }
-.hero-install-line { display: flex; align-items: baseline; gap: 12px; padding: 20px 18px; }
+.VPHome .landing .hero-install { position: relative; display: flex; align-items: center; width: fit-content; max-width: 100%; margin: 28px auto; padding: 5px 6px 5px 18px; border: 1px solid var(--vp-c-divider); border-radius: 8px; background: var(--vp-c-bg); text-align: left; }
+.hero-install-line { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .hero-install-prompt { color: var(--vp-c-text-3); font: 12px var(--vp-font-family-mono); user-select: none; }
-.VPHome .landing .hero-install code { background: transparent; padding: 0; border-radius: 0; min-width: 0; overflow-wrap: anywhere; font: 12px/1.8 var(--vp-font-family-mono); color: var(--vp-c-text-1); user-select: all; }
-.hero-install-verb { color: var(--vp-c-brand-1); }
+.VPHome .landing .hero-install code { background: transparent; padding: 0; min-width: 0; overflow-wrap: anywhere; font: 12px/1.8 var(--vp-font-family-mono); color: var(--vp-c-text-1); user-select: all; }
+.hero-install-verb { color: var(--vp-c-text-1); }
 .hero-install-flag { color: var(--vp-c-text-2); }
-.hero-install button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 76px; min-height: 36px; padding: 6px 10px; border-radius: 6px; color: var(--vp-c-text-2); font: 11px var(--vp-font-family-mono); cursor: pointer; }
+.hero-install button { display: grid; place-items: center; min-width: 44px; min-height: 44px; margin-left: 12px; border-radius: 5px; color: var(--vp-c-text-2); cursor: pointer; }
 .hero-install button:hover { color: var(--vp-c-brand-1); background: var(--vp-c-brand-soft); }
 .hero-install-status { position: absolute; top: calc(100% + 5px); right: 0; color: var(--vp-c-brand-1); font: 11px/1.5 var(--vp-font-family-mono); }
-@media (max-width: 520px) {
-  .hero-install-line { padding: 16px 14px; gap: 8px; }
+
+.VPHome .landing .hero-footnote a { display: inline-flex; align-items: center; gap: 5px; color: var(--vp-c-brand-1); text-decoration: underline; text-underline-offset: 4px; }
+.VPHome .landing .hero-preview { scroll-margin-top: 88px; }
+.VPHome .landing .hero-install button,
+.VPHome .landing .install-heading button { min-height: 44px; }
+@media (pointer: coarse) {
+  .VPHome .landing .hero-footnote a { min-height: 44px; }
+}
+
+/* Editorial landing rhythm: open sections, restrained color, product-led visuals. */
+.VPHome .landing .landing-hero { padding-top: 100px; }
+.VPHome .landing .hero-description { max-width: 480px; font-size: 18px; margin: 24px auto; }
+.VPHome .landing .hero-actions { margin-top: 26px; }
+.VPHome .landing .hero-preview { margin-top: 64px; padding: 22px; border-radius: 12px; background: var(--vp-c-bg); }
+.VPHome .landing .landing-section { padding-top: 120px; }
+.VPHome .landing h2 { font-size: clamp(34px, 4.3vw, 54px); letter-spacing: -.05em; line-height: 1.08; }
+.VPHome .landing .section-heading { margin-bottom: 48px; }
+.VPHome .landing .eyebrow { letter-spacing: .08em; font-size: 10px; }
+.VPHome .landing .surface-grid { border: 0; border-radius: 0; gap: 40px; overflow: visible; }
+.VPHome .landing .surface { padding: 28px 0 0; border: 0; border-top: 1px solid var(--vp-c-divider); }
+.VPHome .landing .surface:last-child { border-top: 1px solid var(--vp-c-divider); }
+.VPHome .landing .surface:hover { background: transparent; }
+.VPHome .landing .surface:hover h3 { color: var(--vp-c-brand-1); }
+.VPHome .landing .surface-symbol { color: var(--vp-c-text-1); margin-bottom: 24px; justify-items: start; }
+.VPHome .landing .surface-label { font: 12px var(--vp-font-family-base); letter-spacing: 0; }
+.VPHome .landing .surface h3 { font-size: 24px; line-height: 1.2; }
+.VPHome .landing .surface p { font-size: 15px; margin-bottom: 32px; }
+.VPHome .landing .surface-link { color: var(--vp-c-text-1); font-size: 13px; }
+.VPHome .landing .workflow-panel { border: 0; border-radius: 0; gap: 48px; }
+.VPHome .landing .workflow-options { padding: 0; gap: 0; }
+.VPHome .landing .workflow-options button { border-radius: 0; border: 0; border-bottom: 1px solid var(--vp-c-divider); padding: 22px 16px; }
+.VPHome .landing .workflow-options button[aria-pressed="true"] { border-color: var(--vp-c-divider); border-left: 2px solid var(--vp-c-brand-1); background: var(--landing-paper); }
+.VPHome .landing .workflow-example { border: 1px solid var(--vp-c-divider); border-radius: 12px; padding: 32px; }
+.VPHome .landing .setup-section { grid-template-columns: 1.15fr .85fr; }
+.VPHome .landing .setup-copy { grid-column: 2; grid-row: 1; }
+.VPHome .landing .setup-panel { grid-column: 1; grid-row: 1; border-radius: 12px; background: var(--vp-c-bg); padding: 28px; }
+.VPHome .landing .setup-steps li { padding: 20px 0; border-bottom: 1px solid var(--vp-c-divider); }
+.VPHome .landing .setup-steps li:last-child { border-bottom: 0; padding-bottom: 0; }
+.VPHome .landing .details-section { padding-top: 100px; margin-top: 100px; border-top: 1px solid var(--vp-c-divider); }
+.web-showcase-copy { max-width: 340px; }
+.web-showcase-copy p { color: var(--vp-c-text-2); font-size: 15px; line-height: 1.75; margin: 0 0 20px; }
+.web-product { margin: 0; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; background: #101914; }
+.web-product a { display: block; }
+.web-product img { display: block; width: 100%; height: auto; }
+.web-product figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 18px 24px; border-top: 1px solid #2b3c32; color: #a2b8ac; font: 10px/1.6 var(--vp-font-family-mono); }
+.web-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 22px; }
+.web-notes p { color: var(--vp-c-text-2); font-size: 14px; line-height: 1.7; }
+.web-notes strong { display: block; color: var(--vp-c-text-1); font-weight: 500; }
+.VPHome .landing .demo-band { padding: 40px 0; background: transparent; }
+.VPHome .landing .demo-band h2 { font-size: clamp(32px, 3.5vw, 44px); }
+.VPHome .landing .closing { border: 0; border-top: 1px solid var(--vp-c-divider); border-radius: 0; background: transparent; padding: 90px 0 30px; }
+.VPHome .landing .closing h2 { font-size: clamp(40px, 5.5vw, 68px); }
+@media (max-width: 900px) {
+  .VPHome .landing .surface-grid { gap: 24px; }
+  .VPHome .landing .workflow-panel { gap: 24px; }
+  .web-showcase-copy { max-width: 480px; margin-top: 24px; }
+}
+@media (max-width: 640px) {
+  .VPHome .landing .landing-hero { padding-top: 52px; }
+  .VPHome .landing .hero-description { font-size: 16px; }
+  .VPHome .landing .hero-install { padding-left: 12px; }
   .VPHome .landing .hero-install code { font-size: 11px; }
-  .hero-install-toolbar { padding-left: 14px; }
+  .hero-install-line { gap: 8px; }
+  .hero-install button { margin-left: 4px; }
+  .VPHome .landing .hero-preview { padding: 14px 10px; margin-top: 40px; }
+  .VPHome .landing .landing-section { padding-top: 72px; }
+  .VPHome .landing .section-heading { margin-bottom: 30px; }
+  .VPHome .landing .surface-grid { gap: 32px; }
+  .VPHome .landing .surface { padding: 24px 0 0; }
+  .VPHome .landing .surface-symbol { margin-bottom: 16px; }
+  .VPHome .landing .workflow-panel, .VPHome .landing .setup-section { grid-template-columns: 1fr; }
+  .VPHome .landing .setup-copy, .VPHome .landing .setup-panel { grid-column: auto; grid-row: auto; }
+  .VPHome .landing .workflow-example, .VPHome .landing .setup-panel { padding: 24px 20px; }
+  .VPHome .landing .details-section { margin-top: 72px; }
+  .web-notes { grid-template-columns: 1fr; gap: 0; }
+  .web-product figcaption { padding: 14px; }
+  .VPHome .landing .closing { padding-top: 64px; margin-top: 72px; }
+}
+
+/* Motion follows interaction: short responses, calm entrances, no moving text. */
+@media (prefers-reduced-motion: no-preference) {
+  .VPHome .landing .hero-install { animation: landing-arrive .7s .12s both cubic-bezier(.2,.7,.2,1); }
+  .VPHome .landing .hero-footnote a span { display: inline-block; transition: transform .2s ease; }
+  .VPHome .landing .hero-footnote a:hover span { transform: translateY(3px); }
+  .VPHome .landing .surface { transition: border-color .25s ease; }
+  .VPHome .landing .surface-symbol { transition: transform .3s cubic-bezier(.2,.7,.2,1), color .25s ease; }
+  .VPHome .landing .surface h3 { transition: color .25s ease; }
+  .VPHome .landing .surface:hover .surface-symbol,
+  .VPHome .landing .surface:focus-visible .surface-symbol { transform: translateY(-5px) rotate(-5deg); color: var(--vp-c-brand-1); }
+  .VPHome .landing .surface:hover { border-color: var(--vp-c-brand-1); }
+  .VPHome .landing .workflow-options button { transition: background .2s ease, padding-left .25s ease; }
+  .VPHome .landing .workflow-options button:hover { padding-left: 22px; }
+  .VPHome .landing .wt-box { animation: landing-arrive .3s ease-out; }
+  .VPHome .landing .detail-list a { transition: padding .25s ease; }
+  .VPHome .landing .detail-list a:hover { padding-left: 8px; padding-right: 8px; }
+  .VPHome .landing .hero-install button { transition: color .2s ease, background .2s ease, transform .15s ease; }
+  .VPHome .landing .hero-install button:active { transform: scale(.92); }
+  .web-product a { overflow: hidden; }
+  .VPHome .landing .setup-steps li { transition: transform .2s ease; }
+  .VPHome .landing .setup-steps li:hover { transform: translateX(4px); }
+}
+
+/* Release history: a compact introduction and an open editorial timeline. */
+.VPHome .landing.changelog .landing-hero { padding: 72px 0 44px; }
+.VPHome .landing.changelog .hero-copy { max-width: none; text-align: left; }
+.VPHome .landing.changelog .hero-copy .eyebrow,
+.VPHome .landing.changelog .hero-actions { justify-content: flex-start; }
+.VPHome .landing.changelog h1 { font-size: clamp(44px, 5.5vw, 68px); }
+.VPHome .landing.changelog .hero-description { max-width: 480px; margin: 22px 0; }
+.VPHome .landing.changelog .hero-footnote { margin-bottom: 0; }
+.VPHome .landing.changelog .changelog-jump { gap: 8px; padding-top: 24px; }
+.VPHome .landing.changelog .changelog-jump a { display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px; border: 1px solid var(--vp-c-divider); border-radius: 6px; }
+.VPHome .landing.changelog .changelog-jump a:hover { background: var(--landing-paper); }
+.VPHome .landing.changelog .landing-section { padding-top: 64px; }
+.VPHome .landing.changelog .section-heading { align-items: end; gap: 24px; margin-bottom: 36px; }
+.VPHome .landing.changelog .section-heading h2 { font-size: 32px; }
+.VPHome .landing.changelog .changelog-release { grid-template-columns: 220px minmax(0, 1fr); gap: 64px; padding: 48px 0; margin-top: 0; border-top: 1px solid var(--vp-c-divider); }
+.VPHome .landing.changelog .changelog-release + .changelog-release { margin-top: 0; }
+.VPHome .landing.changelog .release-meta { align-self: start; position: sticky; top: 96px; }
+.VPHome .landing.changelog .release-meta h2 { font-size: 38px; }
+.VPHome .landing.changelog .release-meta .eyebrow { color: var(--vp-c-text-3); margin-bottom: 12px; }
+.VPHome .landing.changelog .release-meta > p:not(.eyebrow) { margin: 14px 0 20px; font-size: 13px; }
+.release-badge { display: inline-block; padding: 5px 9px; margin-bottom: 20px; border-radius: 4px; background: var(--vp-c-brand-soft); color: var(--vp-c-brand-1); font: 11px var(--vp-font-family-mono); }
+.VPHome .landing.changelog .changelog-kind { color: var(--vp-c-text-1); font: 500 14px var(--vp-font-family-base); letter-spacing: 0; text-transform: none; }
+.VPHome .landing.changelog .changelog-kind svg { color: var(--vp-c-brand-1); }
+.VPHome .landing.changelog .changelog-items li { position: relative; border: 0; padding: 0 0 20px 18px; line-height: 1.85; }
+.VPHome .landing.changelog .changelog-items li::before { content: ''; position: absolute; top: 12px; left: 0; width: 4px; height: 4px; border-radius: 50%; background: var(--vp-c-text-3); }
+.VPHome .landing.changelog .changelog-items li:last-child { border: 0; padding-bottom: 0; }
+@media (max-width: 900px) {
+  .VPHome .landing.changelog .section-heading { display: block; }
+  .VPHome .landing.changelog .changelog-release { grid-template-columns: 170px minmax(0, 1fr); gap: 32px; }
+}
+@media (max-width: 640px) {
+  .VPHome .landing.changelog .landing-hero { padding-top: 48px; }
+  .VPHome .landing.changelog .changelog-release { grid-template-columns: 1fr; gap: 28px; padding: 36px 0; }
+  .VPHome .landing.changelog .release-meta { position: static; }
+  .VPHome .landing.changelog .changelog-jump a { min-height: 44px; }
+}
+@media (max-width: 640px) {
+  .VPHome .landing.changelog .changelog-jump { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 12px; }
+  .VPHome .landing.changelog .changelog-jump a { flex-shrink: 0; }
 }
