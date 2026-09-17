@@ -40,19 +40,23 @@ const KIND_ICONS: Record<string, Component> = {
 }
 
 const changelog = parseChangelog(changelogSource)
+// Empty Unreleased headings are placeholders, not release notes.
+const releases = changelog.releases.filter(release =>
+  !release.unreleased || release.sections.some(section => section.items.some(item => item.trim().length > 0))
+)
 const activeKind = ref('all')
 const landingRoot = ref<HTMLElement | null>(null)
 let revealObserver: IntersectionObserver | undefined
 let motionPreference: MediaQueryList | undefined
 
-const kinds = kindsIn(changelog.releases)
-const publishedCount = changelog.releases.filter(release => !release.unreleased).length
-const latest = changelog.releases.find(release => !release.unreleased)
+const kinds = kindsIn(releases)
+const publishedCount = releases.filter(release => !release.unreleased).length
+const latest = releases.find(release => !release.unreleased)
 const latestHref = latest ? `#${releaseAnchor(latest.version)}` : '#unreleased'
 
 const visibleReleases = computed(() => {
-  if (activeKind.value === 'all') return changelog.releases
-  return changelog.releases.flatMap(release => {
+  if (activeKind.value === 'all') return releases
+  return releases.flatMap(release => {
     const sections = release.sections.filter(section => section.kind === activeKind.value)
     return sections.length > 0 ? [{ ...release, sections }] : []
   })
@@ -63,7 +67,7 @@ function iconFor(kind: string): Component {
 }
 
 function releaseNumber(version: string): string {
-  return padReleaseIndex(changelog.releases.findIndex(release => release.version === version))
+  return padReleaseIndex(releases.findIndex(release => release.version === version))
 }
 
 function eyebrowFor(release: ChangelogRelease): string {
@@ -127,9 +131,9 @@ onUnmounted(() => {
       <div class="hero-copy">
         <p class="eyebrow"><span class="status-dot"></span> THE RECORD</p>
         <h1 id="changelog-title">What changed.<br>When it <span>shipped.</span></h1>
-        <p class="hero-description">Every notable change, newest first. Same source as the GitHub changelog — Keep a Changelog, Semantic Versioning.</p>
+        <p class="hero-description">New features, thoughtful improvements, and fixes. Follow what’s shipping in devctl.</p>
         <div class="hero-actions">
-          <a class="primary-link" :href="latestHref" @click="latest && jumpTo($event, latest.version)">Latest release <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
+          <a v-if="latest" class="primary-link" :href="latestHref" @click="latest && jumpTo($event, latest.version)">Latest release <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
           <a class="text-link" :href="SOURCE_URL" rel="noreferrer" target="_blank">Source on GitHub <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
         </div>
         <p class="hero-footnote">Sourced from CHANGELOG.md on main.</p>
@@ -144,7 +148,7 @@ onUnmounted(() => {
 
     <nav class="changelog-jump" aria-label="Jump to a version">
       <a
-        v-for="release in changelog.releases"
+        v-for="release in releases"
         :key="release.version"
         :href="`#${releaseAnchor(release.version)}`"
         :class="{ 'is-now': release.unreleased }"
@@ -155,7 +159,7 @@ onUnmounted(() => {
     <section class="landing-section" aria-labelledby="releases-title">
       <div class="section-heading">
         <div>
-          <p class="eyebrow">01 / RELEASES</p>
+          <p class="eyebrow">RELEASE HISTORY</p>
           <h2 id="releases-title">Newest first.</h2>
         </div>
         <div class="changelog-filters" role="group" aria-label="Filter by kind">
@@ -180,10 +184,11 @@ onUnmounted(() => {
         :data-unreleased="release.unreleased ? '' : undefined"
         :aria-labelledby="`${releaseAnchor(release.version)}-title`"
       >
-        <div>
+        <div class="release-meta">
+          <span v-if="release.version === latest?.version" class="release-badge">Latest release</span>
           <p class="eyebrow">{{ eyebrowFor(release) }}</p>
           <h2 :id="`${releaseAnchor(release.version)}-title`">{{ release.unreleased ? 'On the way' : release.version }}</h2>
-          <p v-if="release.date">{{ formatReleaseDate(release.date) }}</p>
+          <p v-if="release.date"><time :datetime="release.date">{{ formatReleaseDate(release.date) }}</time></p>
           <p v-else>Queued on main.</p>
           <a
             v-if="release.href"

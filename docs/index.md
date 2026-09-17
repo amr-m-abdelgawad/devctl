@@ -5,6 +5,7 @@ layout: home
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
+import webOverview from './assets/manual/web-overview.png'
 import TerminalHero from './.vitepress/theme/TerminalHero.vue'
 import changelogSource from '../CHANGELOG.md?raw'
 import { changelogTeaser, formatReleaseDate, parseChangelog } from './.vitepress/theme/changelog'
@@ -15,6 +16,7 @@ let motionPreference
 let pointerPreference
 let pointerFrame = 0
 let previewElement
+let copyFeedbackTimer
 
 function resetPreview() {
   cancelAnimationFrame(pointerFrame)
@@ -63,7 +65,7 @@ onMounted(() => {
       revealObserver.unobserve(entry.target)
     }
   }, { threshold: 0.06 })
-  landingRoot.value?.querySelectorAll('.section-heading, .surface, .workflow-panel, .setup-copy, .setup-panel, .details-section > div, .demo-band, .faq-section > div, .closing').forEach(element => {
+  landingRoot.value?.querySelectorAll('.section-heading, .surface, .workflow-panel, .setup-copy, .setup-panel, .details-section > div, .web-notes, .demo-band, .faq-section > div, .closing').forEach(element => {
     // Leave content already on screen visible; enhance only upcoming sections.
     if (element.getBoundingClientRect().top < window.innerHeight) return
     element.setAttribute('data-reveal', 'pending')
@@ -72,6 +74,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  clearTimeout(copyFeedbackTimer)
   revealObserver?.disconnect()
   motionPreference?.removeEventListener('change', updateMotionPreference)
   resetPreview()
@@ -84,18 +87,20 @@ const latestTeaser = changelogTeaser(latestRelease)
 const copyLabel = ref('Copy command')
 const activeProfile = ref('minimal')
 const profileExamples = {
-  minimal: { label: 'Keep it focused', description: 'The profile shown in the demo above: identity, the invoices API, and telemetry.', services: ['identity', 'invoices-api', 'telemetry'] },
+  minimal: { label: 'Keep it focused', description: 'Start with the essentials: identity, the invoices API, and telemetry.', services: ['identity', 'invoices-api', 'telemetry'] },
   backend: { label: 'Build an API', description: 'Focus on the backend. Bring up identity, the API, its worker, and telemetry as a single group.', services: ['identity', 'invoices-api', 'invoices-worker', 'telemetry'] },
   full: { label: 'Work end to end', description: 'Bring the console into the picture when your work crosses the frontend and backend.', services: ['identity', 'invoices-api', 'invoices-worker', 'billing-console', 'telemetry'] },
   data: { label: 'Start with data', description: 'Run the demo’s optional PostgreSQL container when you need a local database.', services: ['postgres'] }
 }
 async function copyInstall() {
+  clearTimeout(copyFeedbackTimer)
   try {
     await navigator.clipboard.writeText('npm install --global @amr-m-abdelgawad/devctl')
     copyLabel.value = 'Copied!'
   } catch {
     copyLabel.value = 'Select the command to copy'
   }
+  copyFeedbackTimer = setTimeout(() => { copyLabel.value = 'Copy command' }, 3500)
 }
 </script>
 
@@ -109,22 +114,19 @@ async function copyInstall() {
     <div class="hero-copy">
       <p class="eyebrow"><span class="status-dot"></span> THE LOCAL DEVELOPMENT ORCHESTRATOR</p>
       <h1 id="hero-title">More building.<br>Less <span>tab juggling.</span></h1>
-      <p class="hero-description">Your services, logs, and local stack. Together in one terminal. Keep everything in view with devctl — from the first process to the last request.</p>
+      <p class="hero-description">Your services, logs, and local stack. One terminal to start, inspect, and keep everything moving.</p>
       <div class="hero-install" aria-label="Install devctl with npm">
-        <div class="hero-install-toolbar">
-          <span class="hero-install-label"><TerminalWindow :size="14" weight="regular" /><span>QUICK INSTALL</span><span class="hero-install-npm">npm</span></span>
-          <button type="button" @click="copyInstall" :aria-label="copyLabel" :title="copyLabel"><Check v-if="copyLabel === 'Copied!'" :size="14" weight="regular" /><Copy v-else :size="14" weight="regular" /><span>{{ copyLabel === 'Copied!' ? 'Copied' : 'Copy' }}</span></button>
-        </div>
         <div class="hero-install-line"><span class="hero-install-prompt" aria-hidden="true">$</span><code><span class="hero-install-verb">npm install</span> <span class="hero-install-flag">--global</span> @amr-m-abdelgawad/devctl</code></div>
+        <button type="button" @click="copyInstall" :aria-label="copyLabel" :title="copyLabel"><Check v-if="copyLabel === 'Copied!'" :size="16" weight="regular" /><Copy v-else :size="16" weight="regular" /></button>
         <span class="hero-install-status" role="status">{{ copyLabel === 'Copy command' ? '' : copyLabel }}</span>
       </div>
       <div class="hero-actions">
         <a class="primary-link" :href="withBase('/quickstart')">Get started <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
         <a class="text-link" href="https://github.com/amr-m-abdelgawad/devctl">Explore on GitHub <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
       </div>
-      <p class="hero-footnote">Open source. Local first. Your workflow.</p>
+      <p class="hero-footnote">No account. Your machine. <a href="#interactive-demo">Try the demo <span aria-hidden="true">↓</span></a></p>
     </div>
-    <div class="hero-preview" @pointermove="followPointer" @pointerleave="resetPreview" @pointercancel="resetPreview">
+    <div id="interactive-demo" class="hero-preview" tabindex="-1" @pointermove="followPointer" @pointerleave="resetPreview" @pointercancel="resetPreview">
       <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true"><ArrowDownLeft :size="20" weight="regular" /></span></div>
       <TerminalHero />
     </div>
@@ -133,16 +135,16 @@ async function copyInstall() {
   <div class="landing-signal"><span>Less switching. <b>More context.</b></span><span>TUI <i>/</i> CLI <i>/</i> MCP</span><span>One shared session <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></div>
 
   <section class="landing-section" aria-labelledby="surfaces-title">
-    <div class="section-heading"><div><p class="eyebrow">01 / WORK YOUR WAY</p><h2 id="surfaces-title">One stack. Your kind of control.</h2></div><p>Stay hands-on, script the routine,<br>or let your agent take the next step.</p></div>
+    <div class="section-heading"><div><p class="eyebrow">WORK YOUR WAY</p><h2 id="surfaces-title">One stack. Your kind of control.</h2></div><p>Stay hands-on, script the routine,<br>or let your agent take the next step.</p></div>
     <div class="surface-grid">
-      <a class="surface" :href="withBase('/tui')"><span class="surface-symbol" aria-hidden="true"><SquaresFour :size="28" weight="light" /></span><span class="surface-label">FOR YOUR FLOW</span><h3>A home for your stack.</h3><p>Start services, follow logs, and check health in a keyboard-first terminal interface.</p><span class="surface-link">Explore the TUI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
-      <a class="surface" :href="withBase('/cli')"><span class="surface-symbol" aria-hidden="true"><TerminalWindow :size="28" weight="light" /></span><span class="surface-label">FOR THE REPEATABLE</span><h3>Make it a command.</h3><p>Bring the same controls to scripts and CI. Run tasks, inspect config, and keep moving.</p><span class="surface-link">Meet the CLI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
-      <a class="surface" :href="withBase('/mcp')"><span class="surface-symbol" aria-hidden="true"><Sparkle :size="28" weight="light" /></span><span class="surface-label">FOR YOUR AGENT</span><h3>Give AI the context.</h3><p>Connect your agent over MCP to inspect and operate the same local session. Enabled when you choose.</p><span class="surface-link">Connect with MCP <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
+      <a class="surface" :href="withBase('/tui')"><span class="surface-symbol" aria-hidden="true"><SquaresFour :size="28" weight="light" /></span><span class="surface-label">Terminal</span><h3>A home for your stack.</h3><p>Start services, follow logs, and check health in a keyboard-first terminal interface.</p><span class="surface-link">Explore the TUI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
+      <a class="surface" :href="withBase('/cli')"><span class="surface-symbol" aria-hidden="true"><TerminalWindow :size="28" weight="light" /></span><span class="surface-label">Command line</span><h3>Make it a command.</h3><p>Bring the same controls to scripts and CI. Run tasks, inspect config, and keep moving.</p><span class="surface-link">Meet the CLI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
+      <a class="surface" :href="withBase('/mcp')"><span class="surface-symbol" aria-hidden="true"><Sparkle :size="28" weight="light" /></span><span class="surface-label">AI agents</span><h3>Give AI the context.</h3><p>Connect your agent over MCP to inspect and operate the same local session. Enabled when you choose.</p><span class="surface-link">Connect with MCP <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></a>
     </div>
   </section>
 
   <section class="workflow-section landing-section" aria-labelledby="workflow-title">
-    <div class="section-heading"><div><p class="eyebrow">02 / FIND YOUR FOCUS</p><h2 id="workflow-title">The right services.<br>For the task at hand.</h2></div><p>Group services into named profiles.<br>Start the part of your stack you need.</p></div>
+    <div class="section-heading"><div><p class="eyebrow">FIND YOUR FOCUS</p><h2 id="workflow-title">The right services.<br>For the task at hand.</h2></div><p>Group services into named profiles.<br>Start the part of your stack you need.</p></div>
     <div class="workflow-panel">
       <div class="workflow-options" role="group" aria-label="Explore example profiles">
         <button v-for="(profile, name) in profileExamples" :key="name" type="button" :aria-pressed="activeProfile === name" @click="activeProfile = name"><span>{{ profile.label }}</span><code>{{ name }}</code><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></button>
@@ -166,7 +168,7 @@ async function copyInstall() {
   </section>
 
   <section class="setup-section landing-section" aria-labelledby="setup-title">
-    <div class="setup-copy"><p class="eyebrow">03 / FROM REPO TO RUNNING</p><h2 id="setup-title">Small setup.<br>Clear head.</h2><p>Start with Node.js. The npm package includes its own Bun runtime. Google Cloud is optional.</p><a class="text-link" :href="withBase('/installation')">Installation guide <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div>
+    <div class="setup-copy"><p class="eyebrow">FROM REPO TO RUNNING</p><h2 id="setup-title">Small setup.<br>Clear head.</h2><p>Start with Node.js. The npm package includes its own Bun runtime. Google Cloud is optional.</p><a class="text-link" :href="withBase('/installation')">Installation guide <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div>
     <div class="setup-panel">
       <div class="install-heading"><span>INSTALL ONCE. USE IN ANY REPO.</span><button type="button" @click="copyInstall" aria-live="polite"><Copy :size="14" weight="regular" /> {{ copyLabel }}</button></div>
       <div class="install-command"><span aria-hidden="true"><CaretRight :size="15" weight="regular" /></span><code>npm install --global @amr-m-abdelgawad/devctl</code></div>
@@ -175,50 +177,21 @@ async function copyInstall() {
     </div>
   </section>
 
-  <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">04 / THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div></section>
+  <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div></section>
 
-  <section class="details-section landing-section" aria-labelledby="web-title">
-    <div>
-      <p class="eyebrow">05 / WHEN YOU WANT A WINDOW</p>
-      <h2 id="web-title">Same session.<br>In a browser.</h2>
-      <p>An opt-in loopback console. Services, traces, and logs from the same supervisor. It stays off until you start it.</p>
-      <a class="text-link" :href="withBase('/telemetry')">Telemetry and the web UI <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
-    </div>
-    <div class="detail-list">
-      <a :href="withBase('/telemetry')">
-        <span>01</span>
-        <div>
-          <h3>See the session.</h3>
-          <p>Services, proxy requests, traces, and errors in one view.</p>
-        </div>
-        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
-      </a>
-      <a :href="withBase('/security')">
-        <span>02</span>
-        <div>
-          <h3>Stay on loopback.</h3>
-          <p>Host allowlist. Nothing advertised off this machine.</p>
-        </div>
-        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
-      </a>
-      <a :href="withBase('/cli')">
-        <span>03</span>
-        <div>
-          <h3>Start it yourself.</h3>
-          <p><code>devctl web start</code> prints the URL and a per-bind token.</p>
-        </div>
-        <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span>
-      </a>
-    </div>
+  <section class="web-showcase landing-section" aria-labelledby="web-title">
+    <div class="section-heading"><div><p class="eyebrow">A DIFFERENT PERSPECTIVE</p><h2 id="web-title">Same session.<br>Room to see more.</h2></div><div class="web-showcase-copy"><p>Follow services, requests, and traces in an optional local console. The same supervisor, with a wider view.</p><a class="text-link" :href="withBase('/telemetry')">Explore the web console <ArrowUpRight :size="14" /></a></div></div>
+    <figure class="web-product"><a :href="withBase('/telemetry')"><img :src="webOverview" width="2880" height="1800" loading="lazy" decoding="async" alt="devctl web console showing service health, profile controls, proxy requests, and recent errors" /></a><figcaption><span>THE LOCAL CONSOLE</span><span>Opt-in · Loopback only · One shared session</span></figcaption></figure>
+    <div class="web-notes"><p><strong>Your session, expanded.</strong> Services, traces, and logs together.</p><p><strong>Local by default.</strong> Start it when you need it with <code>devctl web start</code>.</p></div>
   </section>
 
   <section class="demo-section landing-section" aria-labelledby="demo-title">
-    <div class="demo-band"><div><p class="eyebrow">06 / TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div>
+    <div class="demo-band"><div><p class="eyebrow">TAKE A LOOK AROUND</p><h2 id="demo-title">Meet your practice stack.</h2><p>A console, an API, identity, and a worker. Explore the included demo platform before configuring your own repo.</p></div><a class="primary-link" href="https://github.com/amr-m-abdelgawad/devctl/tree/main/examples/demo-platform">Explore the demo <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div>
   </section>
 
   <section v-if="latestRelease" class="details-section landing-section" aria-labelledby="shipped-title">
     <div>
-      <p class="eyebrow">07 / JUST SHIPPED</p>
+      <p class="eyebrow">JUST SHIPPED</p>
       <h2 id="shipped-title">{{ latestRelease.version }} is out.</h2>
       <p v-if="latestRelease.date">{{ formatReleaseDate(latestRelease.date) }}</p>
       <a class="text-link" :href="withBase('/changelog')">Read the changelog <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a>
@@ -236,7 +209,7 @@ async function copyInstall() {
   </section>
 
   <section class="faq-section landing-section" aria-labelledby="faq-title">
-    <div><p class="eyebrow">08 / A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press enter.</h2><p>A little context for your first session.</p></div>
+    <div><p class="eyebrow">A FEW GOOD QUESTIONS</p><h2 id="faq-title">Before you<br>press enter.</h2><p>A little context for your first session.</p></div>
     <div class="faq-list">
       <details><summary>Do I need Docker or Google Cloud?</summary><p>Neither is required for local host processes. Use Docker or Podman when your configuration includes containers. Google Cloud tools are optional and only needed for the Google authentication features you choose to use. <a :href="withBase('/installation')">See installation requirements <span aria-hidden="true"><ArrowUpRight :size="12" weight="regular" /></span></a></p></details>
       <details><summary>Do I have to change my application code?</summary><p>Describe how your services run in <code>.devctl/config.yaml</code>: their commands, working directories, environment, and health checks. devctl works with that configuration. <a :href="withBase('/configuration')">Explore configuration <span aria-hidden="true"><ArrowUpRight :size="12" weight="regular" /></span></a></p></details>
