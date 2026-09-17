@@ -1860,9 +1860,16 @@ The release workflow then:
 2. Tests that exact tarball on supported macOS, Linux/glibc, Linux/musl, and Windows runners.
 3. Generates \`SHA256SUMS\` and GitHub build-provenance attestations.
 4. Publishes the npm version with provenance if it is not already present.
-5. Finalizes the GitHub Release and opens a Homebrew checksum update pull request.
+5. Writes GitHub Release notes from that version's \`CHANGELOG.md\` section (headline, Fixed/Added entries, upgrade commands, trust notice) instead of auto-generated PR titles, then finalizes the GitHub Release and opens a Homebrew checksum update pull request.
 
 Publication is idempotent: rerunning a completed or partially completed workflow skips an npm version that is already on the registry and continues release finalization.
+
+GitHub's uploads API can return \`HTTP 500: Error saving asset\` when several large binaries are sent at once. The publish job creates the draft without assets, then uploads each file sequentially with retries. If a tag's Release run still fails after that:
+
+1. Re-run the failed jobs on that tag workflow, or
+2. After this retry logic is on \`main\`, run **Release → Run workflow** and pass the existing tag (for example \`v0.13.1\`). That rebuilds from the tag using the workflow on the branch you dispatched from, so a publish fix does not require moving the tag.
+
+A draft left with only some assets is expected after a mid-upload 500; the next successful run replaces them with \`--clobber\`.
 
 ## Trust model
 

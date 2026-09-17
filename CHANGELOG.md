@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Release publishing uploads GitHub assets one file at a time with retries, so a transient `HTTP 500: Error saving asset` from `uploads.github.com` no longer aborts the job after some binaries already landed. A failed `v*` tag can be retried from Actions with `workflow_dispatch` without moving the tag.
+
 ## [0.13.1] - 2026-09-17
+
+Local hardening: plugins cannot load from outside the repo, recipes cannot hit cloud-metadata hosts, the web console requires its bearer token, and daemon memory buffers are capped.
+
+See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](docs/telemetry.md), and [Security](docs/security.md).
 
 ### Fixed
 

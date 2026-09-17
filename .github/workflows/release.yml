@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing v* tag to rebuild and publish (for example v0.13.1)
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -18,9 +27,12 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
+      # Build the tagged source. On workflow_dispatch this is inputs.tag so a
+      # publish-script fix on main can rebuild an existing tag without moving it.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          ref: ${{ inputs.tag || github.ref }}
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -34,7 +46,12 @@ jobs:
         id: version
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          tag="${RELEASE_TAG:?RELEASE_TAG is required}"
+          if [[ ! "$tag" =~ ^v[0-9] ]]; then
+            echo "Expected a v* tag, got $tag" >&2
+            exit 1
+          fi
+          version="${tag#v}"
           package_version="$(node -p "require('./app/package.json').version")"
           if [ "$version" != "$package_version" ]; then
             echo "Tag version $version does not match app/package.json version $package_version" >&2
@@ -152,6 +169,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm
     steps:
+      # Stay on the workflow ref so retry logic lives in this YAML/script tree,
+      # not the frozen tagged commit. Artifacts come from the build job.
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -188,39 +207,27 @@ jobs:
       - name: Create or refresh draft GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
+          VERSION: ${{ needs.build.outputs.version }}
         shell: bash
         run: |
-          notice="Trust notice: the standalone macOS, Linux, and Windows binaries are unsigned. Verify SHA256SUMS and the GitHub build-provenance attestations. The npm package is published separately with npm provenance."
+          notes="$(node .github/scripts/compose-github-release-notes.cjs "$VERSION" CHANGELOG.md)"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            body="$(gh release view "$TAG" --json body --jq .body)"
-            if [[ "$body" != *"Trust notice:"* ]]; then
-              combined_notes="$notice"$'\n\n'"$body"
-              gh release edit "$TAG" --notes "$combined_notes"
-            fi
-            gh release upload "$TAG" \
-              dist/devctl-linux-x64 \
-              dist/devctl-linux-arm64 \
-              dist/devctl-darwin-x64 \
-              dist/devctl-darwin-arm64 \
-              dist/devctl-windows-x64.exe \
-              dist/devctl-npm-package.tgz \
-              dist/SHA256SUMS \
-              --clobber
+            gh release edit "$TAG" --notes "$notes"
           else
             gh release create "$TAG" \
-              dist/devctl-linux-x64 \
-              dist/devctl-linux-arm64 \
-              dist/devctl-darwin-x64 \
-              dist/devctl-darwin-arm64 \
-              dist/devctl-windows-x64.exe \
-              dist/devctl-npm-package.tgz \
-              dist/SHA256SUMS \
               --draft \
-              --generate-notes \
-              --notes "$notice" \
+              --notes "$notes" \
               --title "$TAG"
           fi
+          bash .github/scripts/upload-release-assets.sh "$TAG" \
+            dist/devctl-linux-x64 \
+            dist/devctl-linux-arm64 \
+            dist/devctl-darwin-x64 \
+            dist/devctl-darwin-arm64 \
+            dist/devctl-windows-x64.exe \
+            dist/devctl-npm-package.tgz \
+            dist/SHA256SUMS
 
       - name: Check whether npm version already exists
         id: npm-status
@@ -241,7 +248,7 @@ jobs:
       - name: Finalize GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: gh release edit "$TAG" --draft=false --latest
 
       - name: Open Homebrew checksum update PR
@@ -249,7 +256,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         shell: bash
         run: |
           branch="automation/homebrew-$TAG"

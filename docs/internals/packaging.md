@@ -11,6 +11,8 @@
 
 `.github/scripts/compile-binaries.sh` runs `bun build --compile` for release targets. The npm package **embeds** those binaries; the Node launcher in `packaging/npm/` picks the right one.
 
+The Release publish job uploads those standalone files and the npm tarball **one at a time** (`.github/scripts/upload-release-assets.sh`) so a GitHub uploads API 500 does not abort a concurrent batch.
+
 Standalone binaries:
 
 - `Bun.isStandaloneExecutable` changes `_supervisor` argv (`supervisorSpawnCommand`)
