@@ -1,6 +1,7 @@
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { type ReactNode,useEffect,useRef } from "react";
 import { useDensity } from "./density.tsx";
+import { selectionScrollKey } from "./helpers/call-list.ts";
 import { overlayRect } from "./helpers/chrome.ts";
 import { padClip } from "./helpers/format.ts";
 import { tabChipWidth,visibleTabRange } from "./helpers/navigation.ts";
@@ -257,18 +258,22 @@ export function scrollBoxBy(box: ScrollBoxRenderable | null, delta: number): voi
   box.scrollBy({ x: 0, y: delta });
 }
 
-export function useScrollSelectedIntoView(selected: number, idPrefix: string) {
+export function useScrollSelectedIntoView(selected: number, idPrefix: string, pin?: string) {
   const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const trigger = selectionScrollKey(selected, pin);
   useEffect(() => {
     const box = scrollRef.current;
-    if (!box || selected < 0) {
+    const index = selectedRef.current;
+    if (!box || index < 0) {
       return;
     }
     const frame = requestAnimationFrame(() => {
-      box.scrollChildIntoView(`${idPrefix}-${selected}`);
+      box.scrollChildIntoView(`${idPrefix}-${index}`);
     });
     return () => cancelAnimationFrame(frame);
-  }, [idPrefix, selected]);
+  }, [idPrefix, trigger]);
   return scrollRef;
 }
 

@@ -25,9 +25,10 @@ import {
   llmRowShowsTokens,
   type LlmBodyMode,
 } from "../helpers/llm.ts";
-import { MetaBar, ROUNDED_BORDER, scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
-import { type Palette } from "../themes.ts";
 import { LlmInspector } from "../components/LlmInspector.tsx";
+import { useCallListScroll } from "../hooks/use-call-list.ts";
+import { MetaBar, ROUNDED_BORDER, scrollboxStyle } from "../layout.tsx";
+import { type Palette } from "../themes.ts";
 
 const ROW_PREFIX = "llm-row";
 const PANE_GUTTER = 4;
@@ -65,20 +66,19 @@ function CallHeader(props: { palette: Palette; width: number }) {
 function CallRow(props: {
   palette: Palette;
   call: LlmCall;
-  index: number;
   selected: boolean;
   width: number;
   onPick: () => void;
   onOpen: () => void;
 }) {
-  const { palette, call, index, selected, width, onPick, onOpen } = props;
+  const { palette, call, selected, width, onPick, onOpen } = props;
   const scale = useDensity();
   const showCaller = llmRowShowsCaller(width);
   const showTok = llmRowShowsTokens(width);
   const modelWidth = llmModelColumnWidth(width);
   return (
     <box
-      id={`${ROW_PREFIX}-${index}`}
+      id={`${ROW_PREFIX}-${call.id}`}
       height={scale.rowH}
       flexDirection="row"
       overflow="hidden"
@@ -125,7 +125,7 @@ export function LlmScreen(props: {
   const listWidth = llmListPaneWidth(width, stacked);
   const listInner = Math.max(LLM_LIST_MIN - 4, listWidth - PANE_GUTTER);
   const inspectorWidth = stacked ? Math.max(LLM_DETAIL_MIN, width - PANE_GUTTER) : Math.max(LLM_DETAIL_MIN, width - listWidth - PANE_GUTTER);
-  const scrollRef = useScrollSelectedIntoView(selected, ROW_PREFIX);
+  const { scrollRef, visibleCalls, visibleStart } = useCallListScroll(selected, ROW_PREFIX, calls, selectedCall?.id);
   const preview = selectedCall ? llmPreview(selectedCall) : "";
   const showInspector = enabled && calls.length > 0;
 
@@ -175,15 +175,14 @@ export function LlmScreen(props: {
           <CallHeader palette={palette} width={listInner} />
           <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
             <box flexDirection="column" overflow="hidden">
-              {calls.map((item, index) => (
+              {visibleCalls.map((item, index) => (
                 <CallRow
                   key={item.id}
                   palette={palette}
                   call={item}
-                  index={index}
-                  selected={index === selected}
+                  selected={visibleStart + index === selected}
                   width={listInner}
-                  onPick={() => onPick(index)}
+                  onPick={() => onPick(visibleStart + index)}
                   onOpen={() => onOpen(item)}
                 />
               ))}

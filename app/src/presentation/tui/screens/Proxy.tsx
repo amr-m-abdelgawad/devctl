@@ -24,7 +24,8 @@ import {
   trafficRowShowsCaller,
   type TrafficBodyMode,
 } from "../helpers/traffic.ts";
-import { Chip, KeyHints, MetaBar, ROUNDED_BORDER, ScreenFrame, Toolbar, scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
+import { useCallListScroll } from "../hooks/use-call-list.ts";
+import { Chip, KeyHints, MetaBar, ROUNDED_BORDER, ScreenFrame, Toolbar, scrollboxStyle } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 import { TrafficInspector } from "../components/TrafficInspector.tsx";
 
@@ -96,6 +97,7 @@ function RouteRow(props: {
 }
 
 const ROW_PREFIX = "traffic-row";
+const TRAFFIC_ROW_HEIGHT = 1;
 const PANE_GUTTER = 4;
 const STACK_INSPECTOR_MIN = 12;
 const ROUTES_PANE_MIN = 22;
@@ -119,18 +121,17 @@ function CallHeader(props: { palette: Palette; width: number }) {
 function CallRow(props: {
   palette: Palette;
   call: TrafficCall;
-  index: number;
   selected: boolean;
   width: number;
   onPick: () => void;
   onOpen: () => void;
 }) {
-  const { palette, call, index, selected, width, onPick, onOpen } = props;
+  const { palette, call, selected, width, onPick, onOpen } = props;
   const showCaller = trafficRowShowsCaller(width);
   return (
     <box
-      id={`${ROW_PREFIX}-${index}`}
-      height={1}
+      id={`${ROW_PREFIX}-${call.id}`}
+      height={TRAFFIC_ROW_HEIGHT}
       flexDirection="row"
       overflow="hidden"
       backgroundColor={selected ? palette.highlight : undefined}
@@ -180,7 +181,7 @@ export function ProxyScreen(props: {
   const listWidth = trafficListPaneWidth(trafficWidth, stacked);
   const listInner = Math.max(TRAFFIC_LIST_MIN - 4, listWidth - PANE_GUTTER);
   const inspectorWidth = stacked ? Math.max(TRAFFIC_DETAIL_MIN, trafficWidth - PANE_GUTTER) : Math.max(TRAFFIC_DETAIL_MIN, trafficWidth - listWidth - PANE_GUTTER);
-  const scrollRef = useScrollSelectedIntoView(selected, ROW_PREFIX);
+  const { scrollRef, visibleCalls, visibleStart } = useCallListScroll(selected, ROW_PREFIX, calls, selectedCall?.id);
   const preview = selectedCall ? trafficPreview(selectedCall) : "";
   const showInspector = calls.length > 0;
 
@@ -222,15 +223,14 @@ export function ProxyScreen(props: {
           <CallHeader palette={palette} width={listInner} />
           <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
             <box flexDirection="column" overflow="hidden">
-              {calls.map((item, index) => (
+              {visibleCalls.map((item, index) => (
                 <CallRow
                   key={item.id}
                   palette={palette}
                   call={item}
-                  index={index}
-                  selected={index === selected}
+                  selected={visibleStart + index === selected}
                   width={listInner}
-                  onPick={() => onPick(index)}
+                  onPick={() => onPick(visibleStart + index)}
                   onOpen={() => onOpen(item)}
                 />
               ))}
