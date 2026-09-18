@@ -15,5 +15,8 @@ describe("demo-platform TUI first-run flow", () => {
     const plan = startupPlan(cfg, resolved.services, resolved.profile);
     expect(plan.waves.flat()).toEqual(["identity", "llm", "invoices-api", "telemetry", "invoices-worker"]);
     expect(formatStarted(plan)).toBe("Started identity → llm → invoices-api → telemetry → invoices-worker");
+    const consolePlan = startupPlan(cfg, ["billing-console"], "console");
+    expect(consolePlan.waves.flat()).toEqual(["billing-console"]);
+    expect(consolePlan.blockers).toEqual([]);
   });
 });

@@ -18,6 +18,8 @@ describe("demo-platform config", () => {
     expect(cfg.profiles.backend?.services).toContain("invoices-worker");
     expect(cfg.profiles.backend?.services).not.toContain("postgres");
     expect(cfg.profiles.data?.services).toEqual(["postgres"]);
+    expect(cfg.profiles.console?.services).toEqual(["billing-console"]);
+    expect(cfg.profiles.console?.environments["billing-console"]).toBe("deployed");
     expect(cfg.services.postgres?.container?.image).toBe("postgres:16");
     expect(Object.keys(cfg.services["invoices-api"]?.environments ?? {}).sort()).toEqual(["deployed", "local"]);
     expect(cfg.services["invoices-api"]?.default_environment).toBe("local");

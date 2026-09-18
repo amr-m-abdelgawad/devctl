@@ -75,7 +75,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `services` | Process definitions |
 | `tasks` | Named transient commands run with `devctl run` |
 | `http` | Named outbound HTTP recipes — see [Custom HTTP APIs](http.md) |
-| `profiles` | Named service sets + extra env |
+| `profiles` | Named service sets, overlay binds, and per-service env |
 | `proxy` | Listen address, token endpoint, routes (`inspect.enabled` captures bodies) — see [Proxy](proxy.md) |
 | `logs` | In-memory cap and persistence |
 | `telemetry.otlp` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |

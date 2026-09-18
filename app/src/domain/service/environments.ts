@@ -1,4 +1,4 @@
-import { type EnvConfig, type ServiceConfig } from "../config/types.ts";
+import { emptyEnv, type DevctlConfig, type EnvConfig, type ServiceConfig } from "../config/types.ts";
 
 /** Overlay a named environment onto the service's base `environment`. */
 export function overlayEnv(base: EnvConfig, overlay: EnvConfig): EnvConfig {
@@ -89,4 +89,42 @@ function uniqueKeys(values: string[]): string[] {
     }
   }
   return out;
+}
+
+/** Overlay name bound on `profiles.<profile>.environments.<service>`, or "". */
+export function profileBoundOverlay(cfg: DevctlConfig, profile: string, service: string): string {
+  if (profile === "") {
+    return "";
+  }
+  return cfg.profiles[profile]?.environments[service] ?? "";
+}
+
+export function profileServiceEnvConfig(cfg: DevctlConfig, profile: string, service: string): EnvConfig {
+  if (profile === "") {
+    return emptyEnv();
+  }
+  return cfg.profiles[profile]?.service_environment[service] ?? emptyEnv();
+}
+
+/**
+ * Env that a profile start will actually apply: named overlay bind (else the
+ * session/default overlay) plus `service_environment` on top.
+ */
+export function effectiveProfileLaunchEnv(
+  cfg: DevctlConfig,
+  service: string,
+  profile: string,
+  sessionOverlay = "",
+): EnvConfig {
+  const svc = cfg.services[service];
+  if (!svc) {
+    return emptyEnv();
+  }
+  const bound = profileBoundOverlay(cfg, profile, service);
+  const env = effectiveServiceEnv(svc, bound !== "" ? bound : sessionOverlay);
+  const extra = profileServiceEnvConfig(cfg, profile, service);
+  if (Object.keys(extra.vars).length === 0 && Object.keys(extra.defaults).length === 0 && extra.required.length === 0) {
+    return env;
+  }
+  return overlayEnv(env, extra);
 }

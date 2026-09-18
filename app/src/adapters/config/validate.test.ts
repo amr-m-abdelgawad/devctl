@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, emptyRouteAuth, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyRouteAuth, emptyProfile, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
@@ -618,5 +618,34 @@ describe("config validate", () => {
     cfg.services.api!.default_environment = "local";
     cfg.services.api!.environments[""] = { vars: {}, required: [], defaults: {} };
     expect(validate(cfg)).toContain("services.api.environments has an empty name");
+  });
+
+  test("profile overlay bind and service_environment must name known services and overlays", () => {
+    const cfg = withService("api");
+    cfg.services.api!.environments = {
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    cfg.profiles.console = emptyProfile({
+      services: ["api"],
+      environments: { ghost: "deployed" },
+    });
+    expect(validate(cfg)).toContain('profiles.console.environments.ghost references unknown service "ghost"');
+    cfg.profiles.console = emptyProfile({
+      services: ["api"],
+      environments: { api: "staging" },
+    });
+    expect(validate(cfg)).toContain('profiles.console.environments.api "staging" is not defined on services.api');
+    cfg.profiles.console = emptyProfile({
+      services: ["api"],
+      environments: { api: "deployed" },
+      service_environment: { ghost: { vars: { FLAG: "1" }, required: [], defaults: {} } },
+    });
+    expect(validate(cfg)).toContain('profiles.console.service_environment.ghost references unknown service "ghost"');
+    cfg.profiles.console = emptyProfile({
+      services: ["api"],
+      environments: { api: "deployed" },
+      service_environment: { api: { vars: { FLAG: "1" }, required: [], defaults: {} } },
+    });
+    expect(validate(cfg)).toEqual([]);
   });
 });

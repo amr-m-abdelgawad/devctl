@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { emptyService } from "../config/types.ts";
+import { defaultConfig, emptyProfile, emptyService } from "../config/types.ts";
 import {
   allServiceEnvConfigs,
   defaultEnvironmentName,
+  effectiveProfileLaunchEnv,
   effectiveServiceEnv,
   namedEnvironmentNames,
   overlayEnv,
+  profileBoundOverlay,
   resolveEnvironmentName,
   serviceHasNamedEnvironments,
 } from "./environments.ts";
@@ -93,5 +95,22 @@ describe("service named environments", () => {
     expect(namedEnvironmentNames(svc)).toEqual([]);
     expect(resolveEnvironmentName(svc, "local")).toBe("");
     expect(effectiveServiceEnv(svc).vars.TOKEN).toBe("x");
+  });
+});
+
+describe("profile launch env", () => {
+  test("binds the named overlay and applies service_environment on top", () => {
+    const cfg = defaultConfig();
+    const svc = serviceWithEnvs();
+    cfg.services.api = svc;
+    cfg.profiles.console = emptyProfile({
+      services: ["api"],
+      environments: { api: "deployed" },
+      service_environment: { api: { vars: { FLAG: "1" }, required: [], defaults: {} } },
+    });
+    expect(profileBoundOverlay(cfg, "console", "api")).toBe("deployed");
+    const env = effectiveProfileLaunchEnv(cfg, "api", "console", "local");
+    expect(env.vars.AUTH_URL).toBe("https://identity.dev.example.com");
+    expect(env.vars.FLAG).toBe("1");
   });
 });

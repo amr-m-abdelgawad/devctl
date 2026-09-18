@@ -4,6 +4,7 @@ import {
   emptyEnv,
   emptyHealth,
   emptyIdentity,
+  emptyProfile,
   emptyService,
   emptyRouteAuth,
   emptyRouteInspect,
@@ -316,11 +317,13 @@ export function decodeServiceProxy(value: unknown): RouteConfig[] {
 
 export function decodeProfile(value: unknown): ProfileConfig {
   if (!isRecord(value)) {
-    return { services: [], environment: {} };
+    return emptyProfile();
   }
   return {
     services: asStringArray(value.services),
     environment: asStringMap(value.environment),
+    environments: asStringMap(value.environments),
+    service_environment: decodeEnvironments(value.service_environment),
   };
 }
 

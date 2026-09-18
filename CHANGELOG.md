@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Profiles can **bind named overlays** (`profiles.<name>.environments.<svc>`) and set **per-service env** (`service_environment`) that wins over service vars, so a UI-only profile can point at deployed backends. See [Profiles](docs/profiles.md).
 - LLM inspector **proxy-capture** sources can list extra `capture.paths` so a tagged route records proprietary (non-OpenAI) POST JSON endpoints such as `/generations/v1alpha2`. Built-in `/chat/completions`, `/completions`, and `/embeddings` capture is unchanged. Custom paths store the raw request/response — SSE is kept as text, not reassembled into a `chat.completion` — and copy model, token usage, and finish reason only when those standard JSON fields are present. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
 - **Traffic inspector** for proxied HTTP and gRPC hops: set `inspect.enabled` (and optional `inspect.max_bytes`, default 1 MiB) on a `proxy.routes` entry to capture redacted request/response bodies. List APIs omit bodies; `get_traffic_call` / `devctl traffic show` / the TUI proxy inspector / web `#/traffic/:id` include them. Direct sockets that never hit the proxy are not captured. `/reveal` cannot unmask these payloads. See [Proxy](docs/proxy.md#inspect-bodies).
 
 ### Changed
 
+- **Breaking:** `devctl start --profile X` starts **exactly** that profile's members. Omitted YAML/HTTP dependencies are not spawned. Named `devctl start invoices-api` with no profile still expands the local closure. Leftover `${services.X.url}` refs to omitted services fail that member with a blocker.
+- Start waves wait until every member with a health check is **healthy** before the **next** wave (not only `condition: service_healthy` edges). The last wave still returns after spawn unless `startup.wait_for_healthy` is set.
 - TUI and web LLM/traffic inspectors **pin the selected call by id**, so a newer hop does not steal the highlight or replace the payload you are reading. Click a web Traffic row (not just the timestamp) to open it. See [TUI](docs/tui.md) and [Web console](docs/web.md).
 - TUI LLM inspector is a **list plus live inspector**, matching the services screen. The call list has column headers (time, status, caller, model, latency, tokens); the inspector shows status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise JSON). `r` (or the conversation/json chip) switches the inspector and overlay to the raw request/response JSON. Click selects; click again or enter opens the full overlay. Empty states mention proxy sources as well as LiteLLM. See [TUI](docs/tui.md).
 - TUI **proxy** screen is a routes pane plus a traffic list and live inspector (pretty JSON / raw, `r` toggle, enter for overlay). Empty state explains `inspect.enabled` and that unproxied sockets are invisible.

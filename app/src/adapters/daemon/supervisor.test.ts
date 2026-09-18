@@ -3,7 +3,7 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyCommand, emptyHealth, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyCommand, emptyHealth, emptyProfile, emptyService } from "../../domain/config/types.ts";
 import { ConfigurationReloadFailed, SessionRecovered } from "../../shared/events.ts";
 import { MCP_TOOLS } from "../../presentation/mcp/tools.ts";
 import { available } from "../net/ports.ts";
@@ -1405,7 +1405,7 @@ describe("per-service launch context", () => {
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
     cfg.shutdown.grace_seconds = 0.2;
-    cfg.profiles.backend = { services: ["api"], environment: {} };
+    cfg.profiles.backend = emptyProfile({ services: ["api"] });
     cfg.services.api = {
       ...emptyService(),
       command: { args: [process.execPath, "-e", "setInterval(() => {}, 1000);"], shell: false },
@@ -1434,7 +1434,7 @@ describe("per-service launch context", () => {
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
     cfg.shutdown.grace_seconds = 0.2;
-    cfg.profiles.backend = { services: ["flaky"], environment: { PROFILE_MARKER: "backend-marker" } };
+    cfg.profiles.backend = emptyProfile({ services: ["flaky"], environment: { PROFILE_MARKER: "backend-marker" } });
     cfg.services.flaky = {
       ...emptyService(),
       environment: { vars: { OUT_FILE: markerFile, CRASH_MARKER: doneFile }, required: [], defaults: {} },
@@ -1482,7 +1482,7 @@ describe("adopted service health environments", () => {
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
     cfg.shutdown.grace_seconds = 1;
-    cfg.profiles.backend = { services: ["api"], environment: { DEVCTL_PROFILE_MARKER: "from-backend" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { DEVCTL_PROFILE_MARKER: "from-backend" } });
     cfg.services.api = {
       ...emptyService(),
       command: { args: ["python", "main.py"], shell: false },
@@ -1527,8 +1527,8 @@ describe("adopted service health environments", () => {
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
     cfg.shutdown.grace_seconds = 1;
-    cfg.profiles.one = { services: ["api"], environment: { DEVCTL_PROFILE_MARKER: "from-one" } };
-    cfg.profiles.two = { services: ["worker"], environment: { DEVCTL_PROFILE_MARKER: "from-two" } };
+    cfg.profiles.one = emptyProfile({ services: ["api"], environment: { DEVCTL_PROFILE_MARKER: "from-one" } });
+    cfg.profiles.two = emptyProfile({ services: ["worker"], environment: { DEVCTL_PROFILE_MARKER: "from-two" } });
     const healthFor = (outFile: string) => ({
       ...emptyHealth(),
       type: "command" as const,

@@ -367,7 +367,7 @@ complete allowlists.
 |---|---|
 | \`project\` | \`name\` |
 | \`google\` | \`project_id\` \`region\` |
-| \`profiles.<name>\` | \`services\` \`environment\` |
+| \`profiles.<name>\` | \`services\` \`environment\` \`environments\` \`service_environment\` |
 | \`service.health\` | \`type\` \`url\` \`address\` \`command\` \`interval_seconds\` \`timeout_seconds\` \`start_period_seconds\` \`unhealthy_threshold\` \`healthy_reset_threshold\` |
 | \`service.hooks\` | \`pre_start\` \`post_start\` |
 | \`service.container\` | \`image\` \`runtime\` \`ports\` \`env\` \`volumes\` \`user\` \`memory\` \`cpus\` \`read_only\` \`cap_drop\` \`pids_limit\` |
@@ -486,14 +486,29 @@ start profile — each service is switched independently.
   \`environment\`.
 - Selection is session state, not YAML. Switching does not rewrite the file.
 
+## Profiles
+
+\`profiles.<name>\` is a start allowlist plus optional env. Starting that profile
+does **not** pull in YAML/HTTP dependencies omitted from \`services\`. Named
+\`devctl start invoices-api\` with no profile still expands the local closure.
+
+- \`environments\` is service → overlay name (\`services.<svc>.environments.<name>\`).
+  Unknown services and unknown overlay names are rejected. Empty names too.
+- \`service_environment.<svc>\` is an \`EnvConfig\` (same shape as a service
+  overlay). Unknown services are rejected. Refs are validated like other env.
+- Fleet-wide \`environment\` still applies to every member and still loses to
+  service vars. Per-service keys live in \`service_environment\` so they can
+  retarget \`AUTH_URL\` at a deployed backend.
+
 ## Dependencies
 
 - Must name a service that exists.
 - A service may not depend on itself.
 - Cycles are rejected: *dependency cycle: a → b → a*. Recipe-to-recipe cycles
   are rejected separately: *http recipe cycle: a → b → a*.
-- Direction: \`dependencies\` means "start these first". \`start x\` walks **up**
-  and starts x's dependencies; \`stop x\` walks **down** and stops x's
+- Direction: \`dependencies\` means "start these first". \`start x\` (no profile)
+  walks **up** and starts x's dependencies; \`start --profile P\` starts **exactly**
+  P's members (omitted deps stay remote). \`stop x\` walks **down** and stops x's
   *dependents*, never its dependencies. Implicit recipe→service edges are
   startup-only: they do not cascade on stop.
 - A string dependency uses \`service_started\`. Use \`{ service: db, condition:
@@ -707,10 +722,10 @@ local overlay genuinely turns the proxy off.
 Merge order — later sources win:
 
 \`\`\`
-process → profile → dotenv → generated → keychain → secret_manager → defaults → vars → runtime
+process → profile → dotenv → generated → keychain → secret_manager → defaults → vars → profile_service → runtime
 \`\`\`
 
-\`process\`, \`defaults\`, \`vars\` and \`runtime\` always run. Listing
+\`process\`, \`defaults\`, \`vars\`, \`profile_service\` and \`runtime\` always run. Listing
 \`environment.sources\` **adds** optional sources (\`profile\`, \`dotenv\`,
 \`generated\`, \`keychain\`, \`secret_manager\`) to that always-on set — it does not
 replace it, and it does not reorder anything.
@@ -782,6 +797,9 @@ Every message names its path. Fix the path it names.
 | \`services.X.environment.K: unresolvable reference \${…}\` | referenced service or port name does not exist |
 | \`services.X.capabilities: unknown capability "c"\` | only the six listed above are accepted |
 | \`profiles.P references unknown service "S"\` | profile lists a service that is not defined |
+| \`profiles.P.environments.S references unknown service "S"\` | overlay bind names a service that is not defined |
+| \`profiles.P.environments.S "X" is not defined on services.S\` | overlay bind names an overlay the service does not have |
+| \`profiles.P.service_environment.S references unknown service "S"\` | per-service profile env for an unknown service |
 | \`proxy.routes[i]: duplicate route name N\` | often a per-service fragment colliding with a global route |
 | \`proxy.routes[i].auth.audience is required when auth.type is iap\` | IAP needs both audience and identity.type |
 | \`proxy.routes[i].auth.client_id is only valid when auth.type is iap\` | \`client_id\` / secret only apply to IAP user routes |

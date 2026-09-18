@@ -9,7 +9,7 @@ import type { TokenEndpoint } from "../proxy/proxy.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import { httpRecipeEnvUrlKey } from "../../domain/config/types.ts";
 import type { HttpValueMap } from "../config/refs.ts";
-import { effectiveServiceEnv, resolveEnvironmentName } from "../../domain/service/environments.ts";
+import { effectiveServiceEnv, resolveEnvironmentName, profileServiceEnvConfig } from "../../domain/service/environments.ts";
 
 export type EnvironmentBridgeDeps = {
   cfg: () => DevctlConfig;
@@ -90,6 +90,7 @@ export class EnvironmentBridge {
     const userEmail = this.deps.userEmail();
     const envName = resolveEnvironmentName(svc, selectedEnv !== undefined ? selectedEnv : this.serviceEnv.get(name));
     const serviceCfg = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
+    const profileServiceEnv = profileServiceEnvConfig(cfg, profile, name);
     const runtime = runtimeForService(name, "127.0.0.1", assigned, proxyURL, cfg.project.name, userEmail);
     if (envName !== "") {
       runtime.DEVCTL_SERVICE_ENV = envName;
@@ -108,6 +109,7 @@ export class EnvironmentBridge {
       profile,
       serviceCfg,
       profileEnv,
+      profileServiceEnv,
       assignedPorts: assigned,
       runtime,
       userEmail,

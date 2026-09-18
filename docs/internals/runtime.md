@@ -20,17 +20,18 @@ This page is the live service lifecycle: plans, spawn, health, restart, watch, r
 `startupPlan(cfg, selected, profile)`:
 
 1. Resolve selected names (profile list, or explicit services, or current profile).
-2. Expand dependencies (YAML `dependencies` **plus** implicit HTTP recipe services from env refs).
-3. Topological waves: a service starts in the first wave where all dependencies are in earlier waves.
+2. Expand dependencies (YAML `dependencies` **plus** implicit HTTP recipe services from env refs). When the profile exists in config, clip that closure to `profile.services ∪ selected` so omitted members stay remote.
+3. Topological waves: a service starts in the first wave where all in-set dependencies are in earlier waves.
 4. Parallelism inside a wave.
+5. Leftover `${services.X.*}` / HTTP recipe refs to services not in the start set become `Plan.blockers`.
 
 Orchestrator then:
 
-- Identity blockers (no ADC but SA required) → `fail` those names, continue others
+- Identity blockers (no ADC but SA required) plus env blockers → `fail` those names, continue others
 - `claimIfAlreadyUp` skips spawn
 - `assignPendingPorts` (including `auto`)
 - `startOne` per name in the wave
-- `awaitWaveHealth`: if `startup.wait_for_healthy`, poll until healthy or `timeout_seconds` (default 30s)
+- Before the **next** wave: `awaitWaveHealth` polls every launched service with a health check until healthy or `startup.timeout_seconds` (default 30s). The last wave only waits inside `startOne` when `startup.wait_for_healthy` is set.
 
 `startOne` hooks: `hooks.pre_start` / `post_start` as `ProcessRuntime.runOnce`. Empty command (`commandEmpty`) is a config error unless the service is container-only.
 

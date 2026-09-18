@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyService } from "../domain/config/types.ts";
+import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyProfile, emptyService } from "../domain/config/types.ts";
 import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../domain/service/container-limits.ts";
 import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
@@ -42,7 +42,16 @@ class MemoryProcesses implements ProcessRuntime {
     this.handles.delete(name);
     this.started.findLast((spec) => spec.name === name)?.onExit?.(1);
   }
-  async stop(name: string): Promise<void> { this.handles.delete(name); }
+  readonly stopBegan: string[] = [];
+  stopHold = new Map<string, Promise<void>>();
+  async stop(name: string): Promise<void> {
+    this.stopBegan.push(name);
+    const hold = this.stopHold.get(name);
+    if (hold) {
+      await hold;
+    }
+    this.handles.delete(name);
+  }
   get(name: string): ProcessHandle | undefined { return this.handles.get(name); }
   all(): ProcessHandle[] { return [...this.handles.values()]; }
 }
@@ -102,6 +111,74 @@ describe("ServiceOrchestrator", () => {
     const { orch, cfg, processes } = harness();
     expect(orch.planStart(cfg, ["api"], "").waves.flat()).toEqual(["api"]);
     expect(processes.started).toHaveLength(0);
+  });
+
+  test("later start waves wait for earlier wave health even with string deps", async () => {
+    let resolveCheck: ((result: HealthCheckResult) => void) | undefined;
+    const { orch, svc, cfg, session, processes } = harness({
+      lookup: () => ({
+        check: () => new Promise<HealthCheckResult>((done) => {
+          resolveCheck = done;
+        }),
+      }),
+    });
+    svc.health.type = "custom";
+    svc.health.interval_seconds = 60;
+    svc.startup.timeout_seconds = 2;
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.services.worker.health.type = "";
+    cfg.services.worker.dependencies = ["api"];
+    session.runtimes.set("worker", emptyRuntime("worker"));
+    const started = orch.start({ services: ["worker"] });
+    await until(() => processes.started.some((spec) => spec.name === "api") && resolveCheck !== undefined);
+    expect(processes.started.map((spec) => spec.name)).toEqual(["api"]);
+    resolveCheck!({ status: HealthHealthy, message: "ok" });
+    await started;
+    expect(processes.started.map((spec) => spec.name)).toEqual(["api", "worker"]);
+  });
+
+  test("stop waits for each wave before starting the next", async () => {
+    let release!: () => void;
+    const { orch, cfg, session, processes } = harness();
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.services.worker.health.type = "";
+    cfg.services.worker.dependencies = ["api"];
+    session.runtimes.set("worker", emptyRuntime("worker"));
+    await orch.start({ services: ["worker"] });
+    processes.stopHold.set("worker", new Promise<void>((done) => {
+      release = done;
+    }));
+    const stopping = orch.stop(["api"]);
+    await until(() => processes.stopBegan[0] === "worker");
+    expect(processes.stopBegan).toEqual(["worker"]);
+    release();
+    await stopping;
+    expect(processes.stopBegan).toEqual(["worker", "api"]);
+  });
+
+  test("profile overlay bind wins over the session overlay at spawn", async () => {
+    const { orch, cfg, session } = harness();
+    const api = cfg.services.api!;
+    api.environments = {
+      local: { vars: { MODE: "local" }, required: [], defaults: {} },
+      deployed: { vars: { MODE: "deployed" }, required: [], defaults: {} },
+    };
+    api.default_environment = "local";
+    cfg.profiles.remote = emptyProfile({ services: ["api"], environments: { api: "deployed" } });
+    session.serviceEnv.set("api", "local");
+    const seen: string[] = [];
+    session.resolveServiceExecution = async (_name, svc, profile, env, _clientEnv, _includeProcess, selectedEnv) => {
+      seen.push(selectedEnv ?? "");
+      return { env: { ...env, PROFILE: profile, MODE: svc.environment.vars.MODE ?? "" }, workDir: "/work" };
+    };
+    await orch.start({ services: ["api"], profile: "remote" });
+    expect(seen).toEqual(["deployed"]);
+    expect(session.serviceEnv.get("api")).toBe("deployed");
+    expect(session.serviceStartedEnv.get("api")).toBe("deployed");
   });
 
   test("starts processes and runs explicit-start hooks through the process port", async () => {
@@ -200,8 +277,8 @@ describe("ServiceOrchestrator", () => {
     cfg.services.worker.startup.wait_for_healthy = false;
     cfg.services.worker.health.type = "";
     session.runtimes.set("worker", emptyRuntime("worker"));
-    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "api-profile" } };
-    cfg.profiles.frontend = { services: ["worker"], environment: { MARKER: "worker-profile" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "api-profile" } });
+    cfg.profiles.frontend = emptyProfile({ services: ["worker"], environment: { MARKER: "worker-profile" } });
     await orch.start({ services: ["api"], profile: "backend" });
     await orch.start({ services: ["worker"], profile: "frontend" });
     await orch.restart(["api", "worker"]);
@@ -212,7 +289,7 @@ describe("ServiceOrchestrator", () => {
 
   test("a start that omits profile does not clear a stored per-service profile", async () => {
     const { orch, cfg, session } = harness();
-    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "api-profile" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "api-profile" } });
     await orch.start({ services: ["api"], profile: "backend" });
     await orch.start({ services: ["api"] });
     expect(session.serviceProfile.get("api")).toBe("backend");
@@ -232,8 +309,8 @@ describe("ServiceOrchestrator", () => {
 
   test("claiming an already-running service does not rewrite its stored profile", async () => {
     const { orch, cfg, session, processes } = harness();
-    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "api-profile" } };
-    cfg.profiles.frontend = { services: ["api"], environment: { MARKER: "other" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "api-profile" } });
+    cfg.profiles.frontend = emptyProfile({ services: ["api"], environment: { MARKER: "other" } });
     await orch.start({ services: ["api"], profile: "backend" });
     await orch.start({ services: ["api"], profile: "frontend" });
     expect(processes.started).toHaveLength(1);
@@ -271,9 +348,9 @@ describe("ServiceOrchestrator", () => {
 
   test("restart re-resolves profile environment from the current configuration", async () => {
     const { orch, cfg, processes } = harness();
-    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "old" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "old" } });
     await orch.start({ services: ["api"], profile: "backend" });
-    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "new" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "new" } });
     await orch.restart(["api"]);
     expect(processes.started.at(-1)?.env).toEqual({ MARKER: "new", PROFILE: "backend" });
   });
@@ -371,7 +448,7 @@ describe("ServiceOrchestrator", () => {
 
   test("crash restart preserves the service profile and skips hooks", async () => {
     const { orch, cfg, svc, session, processes } = harness();
-    cfg.profiles.backend = { services: ["api"], environment: { MARKER: "original" } };
+    cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "original" } });
     svc.restart = { enabled: true, policy: "on_failure", max_retries: 2, backoff_seconds: 0.01 };
     svc.hooks.pre_start = { args: ["before"], shell: false };
     await orch.start({ services: ["api"], profile: "backend" });

@@ -12,7 +12,7 @@ A mostly local example, modeled as a small invoicing platform, used by tests and
 | `telemetry` | Python 3 | — | log-shape / OTLP / trace showcase; also calls the LLM stub |
 | `postgres` | Docker (`postgres:16`) | 18004 | opt-in data profile; not in the default profiles |
 
-Profiles: `minimal` (identity + api + llm + telemetry), `backend` (+ worker), `full` (+ console), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
+Profiles: `minimal` (identity + api + llm + telemetry), `backend` (+ worker), `full` (+ console), `console` (billing UI against the `deployed` overlay — no local identity/api), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
 
 `postgres` is always in configuration, so Doctor still probes Docker even when you never start `data`. Default profiles do not start it.
 
@@ -39,7 +39,7 @@ bun run ../../app/src/bin.ts mcp --on        # optional agent URL
 bun run ../../app/src/bin.ts stop
 ```
 
-`devctl start` with no profile starts **backend** — the first profile name alphabetically (`backend`, `data`, `full`, `minimal`), same as MCP `start_services` with no names. It never starts every service. Pass `--profile full` for the console, `--profile data` for postgres.
+`devctl start` with no profile starts **backend** — the first profile name alphabetically (`backend`, `console`, `data`, `full`, `minimal`), same as MCP `start_services` with no names. It never starts every service. Pass `--profile full` for the console with local APIs, `--profile console` for the UI against the deployed overlay, `--profile data` for postgres.
 
 ## Credential, IAP, and identity patterns
 

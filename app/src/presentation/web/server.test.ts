@@ -1,7 +1,7 @@
 import { request as httpRequest } from "node:http";
 import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig } from "../../domain/config/types.ts";
+import { defaultConfig, emptyProfile } from "../../domain/config/types.ts";
 import { KindGeneral } from "../../shared/errors.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
@@ -15,7 +15,7 @@ const TEST_WEB_TOKEN = "test-web-control-token-aaaaaaaaaaaa";
 function host(): McpHost & { calls: ControlCall[] } {
   const cfg = defaultConfig();
   cfg.project.name = "demo";
-  cfg.profiles = { local: { services: ["api"], environment: {} } };
+  cfg.profiles = { local: emptyProfile({ services: ["api"] }) };
   const snap: StatusSnapshot = {
     session_id: "s",
     repo_root: "/r",

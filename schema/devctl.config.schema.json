@@ -176,6 +176,14 @@
         "environment": {
           "type": "object",
           "additionalProperties": { "type": "string" }
+        },
+        "environments": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "service_environment": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/serviceEnvironment" }
         }
       }
     },

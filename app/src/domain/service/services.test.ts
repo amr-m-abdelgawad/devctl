@@ -1,6 +1,6 @@
 import { profileId } from "../ids.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyExpose, emptyWatch, type DevctlConfig } from "../config/types.ts";
+import { defaultConfig, emptyExpose, emptyProfile, emptyWatch, type DevctlConfig } from "../config/types.ts";
 import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan, supervisorRestartAdvice } from "./services.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -92,12 +92,58 @@ describe("startup plan", () => {
     ]);
     expect(shutdownPlan(c, ["worker"]).waves).toEqual([["worker"]]);
   });
+
+  test("a configured profile does not start omitted dependencies", () => {
+    const c = cfg({ auth: [], api: ["auth"], worker: ["api"] });
+    c.profiles.api_only = emptyProfile({ services: ["api"] });
+    c.profiles.backend = emptyProfile({ services: ["auth", "api", "worker"] });
+    expect(startupPlan(c, ["api"], "api_only").waves).toEqual([["api"]]);
+    expect(startupPlan(c, ["worker"], "backend").waves).toEqual([["auth"], ["api"], ["worker"]]);
+  });
+
+  test("named start without a configured profile still expands dependencies", () => {
+    const c = cfg({ auth: [], api: ["auth"] });
+    expect(startupPlan(c, ["api"], "").waves).toEqual([["auth"], ["api"]]);
+  });
+
+  test("profile plus extra names clips deps to the profile union those names", () => {
+    const c = cfg({ auth: [], api: ["auth"], worker: ["api"] });
+    c.profiles.console = emptyProfile({ services: ["worker"] });
+    expect(startupPlan(c, ["api"], "console").waves.flat().sort()).toEqual(["api"]);
+  });
+
+  test("leftover local env refs on a clipped profile become plan blockers", () => {
+    const c = cfg({ identity: [], api: ["identity"] });
+    c.services.api!.environment.vars.AUTH_URL = "${services.identity.url}";
+    c.profiles.remote = emptyProfile({ services: ["api"] });
+    const plan = startupPlan(c, ["api"], "remote");
+    expect(plan.waves).toEqual([["api"]]);
+    expect(plan.blockers?.[0]?.name).toBe("api");
+    expect(plan.blockers?.[0]?.message).toContain("identity");
+  });
+
+  test("profile overlay bind and service_environment clear leftover local refs", () => {
+    const c = cfg({ identity: [], api: ["identity"] });
+    c.services.api!.environment.vars.AUTH_URL = "${services.identity.url}";
+    c.services.api!.environments = {
+      deployed: { vars: { AUTH_URL: "https://identity.example.com" }, required: [], defaults: {} },
+      local: { vars: { AUTH_URL: "${services.identity.url}" }, required: [], defaults: {} },
+    };
+    c.services.api!.default_environment = "local";
+    c.profiles.via_overlay = emptyProfile({ services: ["api"], environments: { api: "deployed" } });
+    expect(startupPlan(c, ["api"], "via_overlay").blockers).toEqual([]);
+    c.profiles.via_keys = emptyProfile({
+      services: ["api"],
+      service_environment: { api: { vars: { AUTH_URL: "https://identity.example.com" }, required: [], defaults: {} } },
+    });
+    expect(startupPlan(c, ["api"], "via_keys").blockers).toEqual([]);
+  });
 });
 
 describe("resolveProfile", () => {
   test("named services do not pull in the rest of the profile", () => {
     const c = cfg({ auth: [], api: ["auth"], worker: ["api"] });
-    c.profiles = { backend: { services: ["auth", "api", "worker"], environment: { REGION: "eu" } } };
+    c.profiles = { backend: emptyProfile({ services: ["auth", "api", "worker"], environment: { REGION: "eu" } }) };
     const named = resolveProfile(c, profileId("backend"), ["api"]);
     expect(named.services).toEqual(["api"]);
     expect(named.env.REGION).toBe("eu");
@@ -107,8 +153,8 @@ describe("resolveProfile", () => {
   test("empty start uses the active profile, then the first profile, and never every service", () => {
     const c = cfg({ auth: [], api: [], extra: [] });
     c.profiles = {
-      backend: { services: ["auth", "api"], environment: {} },
-      full: { services: ["auth", "api", "extra"], environment: {} },
+      backend: emptyProfile({ services: ["auth", "api"] }),
+      full: emptyProfile({ services: ["auth", "api", "extra"] }),
     };
     expect(firstProfileName(c)).toBe(profileId("backend"));
     expect(resolveStartRequest(c, { activeProfile: profileId("full") }).services).toEqual(["auth", "api", "extra"]);

@@ -350,10 +350,40 @@ function validateHttp(cfg: DevctlConfig): string[] {
 function validateProfiles(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
   for (const [name, profile] of Object.entries(cfg.profiles)) {
+    const prefix = `profiles.${name}`;
     for (const svc of profile.services) {
       if (!cfg.services[svc]) {
-        issues.push(`profiles.${name} references unknown service "${svc}"`);
+        issues.push(`${prefix} references unknown service "${svc}"`);
       }
+    }
+    for (const [svc, overlay] of Object.entries(profile.environments)) {
+      if (svc === "") {
+        issues.push(`${prefix}.environments has an empty service name`);
+        continue;
+      }
+      const target = cfg.services[svc];
+      if (!target) {
+        issues.push(`${prefix}.environments.${svc} references unknown service "${svc}"`);
+        continue;
+      }
+      if (overlay === "") {
+        issues.push(`${prefix}.environments.${svc} has an empty overlay name`);
+        continue;
+      }
+      if (!Object.hasOwn(target.environments, overlay)) {
+        issues.push(`${prefix}.environments.${svc} "${overlay}" is not defined on services.${svc}`);
+      }
+    }
+    for (const [svc, env] of Object.entries(profile.service_environment)) {
+      if (svc === "") {
+        issues.push(`${prefix}.service_environment has an empty service name`);
+        continue;
+      }
+      if (!cfg.services[svc]) {
+        issues.push(`${prefix}.service_environment.${svc} references unknown service "${svc}"`);
+        continue;
+      }
+      issues.push(...validateEnvRefs(`${prefix}.service_environment.${svc}`, env, cfg));
     }
   }
   return issues;

@@ -349,6 +349,8 @@ function mergeProfile(base: ProfileConfig, raw: unknown): ProfileConfig {
   return {
     services: raw.services !== undefined ? asStringArray(raw.services) : base.services,
     environment: raw.environment !== undefined ? { ...base.environment, ...asStringMap(raw.environment) } : base.environment,
+    environments: raw.environments !== undefined ? { ...base.environments, ...asStringMap(raw.environments) } : base.environments,
+    service_environment: raw.service_environment !== undefined ? mergeEnvironments(base.service_environment, raw.service_environment) : base.service_environment,
   };
 }
 

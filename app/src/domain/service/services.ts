@@ -1,6 +1,7 @@
 import { profileId, type ProfileId } from "../ids.ts";
-import { dependencyName, type Dependency, type DevctlConfig, type ServiceConfig } from "../config/types.ts";
-import { effectiveStartupDependencies } from "../http/recipes.ts";
+import { dependencyName, emptyEnv, type Dependency, type DevctlConfig, type ServiceConfig } from "../config/types.ts";
+import { effectiveStartupDependencies, implicitServiceDependencies, servicesReferencedInText } from "../http/recipes.ts";
+import { effectiveProfileLaunchEnv } from "./environments.ts";
 import { KindConfiguration, KindDependency, KindServiceNotFound, newError } from "../../shared/errors.ts";
 
 export const StateUnknown = "UNKNOWN";
@@ -162,7 +163,12 @@ function requireKnown(cfg: DevctlConfig, name: string): void {
 }
 
 export function startupPlan(cfg: DevctlConfig, selected: string[], profile: string): Plan {
-  const profileEnv = profile !== "" ? (cfg.profiles[profile]?.environment ?? {}) : {};
+  const profileCfg = profile !== "" ? cfg.profiles[profile] : undefined;
+  const profileEnv = profileCfg?.environment ?? {};
+  // A configured profile is an allowlist: omitted members stay remote even
+  // when YAML/HTTP deps name them. An unknown profile string is only a label
+  // (tests, formatPlan) and still expands the full closure.
+  const allowed = profileCfg ? new Set([...profileCfg.services, ...selected]) : undefined;
   const depsOf = (name: string): Dependency[] => effectiveStartupDependencies(cfg, name, profileEnv);
   const needed: Record<string, boolean> = {};
   const visit = (name: string): void => {
@@ -172,7 +178,11 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
     requireKnown(cfg, name);
     needed[name] = true;
     for (const dep of depsOf(name)) {
-      visit(dependencyName(dep));
+      const depName = dependencyName(dep);
+      if (allowed && !allowed.has(depName)) {
+        continue;
+      }
+      visit(depName);
     }
   };
   for (const name of selected) {
@@ -185,11 +195,47 @@ export function startupPlan(cfg: DevctlConfig, selected: string[], profile: stri
       steps.push({
         name,
         wave: i + 1,
-        dependencies: [...depsOf(name)],
+        dependencies: depsOf(name).filter((dep) => needed[dependencyName(dep)]),
       });
     }
   });
-  return { profile, steps, waves, blockers: [] };
+  return { profile, steps, waves, blockers: envBlockersForPlan(cfg, needed, profile) };
+}
+
+function envBlockersForPlan(cfg: DevctlConfig, needed: Record<string, boolean>, profile: string): PlanBlocker[] {
+  if (profile === "" || !cfg.profiles[profile]) {
+    return [];
+  }
+  const fleet = cfg.profiles[profile]?.environment ?? {};
+  const blockers: PlanBlocker[] = [];
+  for (const name of Object.keys(needed).sort()) {
+    const env = effectiveProfileLaunchEnv(cfg, name, profile);
+    const winning = { ...fleet, ...env.defaults, ...env.vars };
+    const missing = new Set<string>();
+    for (const value of Object.values(winning)) {
+      for (const svc of servicesReferencedInText(value)) {
+        if (cfg.services[svc] && !needed[svc]) {
+          missing.add(svc);
+        }
+      }
+    }
+    for (const dep of implicitServiceDependencies(cfg, emptyEnv(), winning)) {
+      const svc = dependencyName(dep);
+      if (cfg.services[svc] && !needed[svc]) {
+        missing.add(svc);
+      }
+    }
+    if (missing.size === 0) {
+      continue;
+    }
+    const listed = [...missing].sort();
+    const them = listed.length === 1 ? "it" : "them";
+    blockers.push({
+      name,
+      message: `${name} still references local ${listed.join(", ")}; add ${them} to this profile, bind environments.${name} to an overlay without those refs, or set service_environment`,
+    });
+  }
+  return blockers;
 }
 
 // Every service that depends on `selected`, directly or transitively,

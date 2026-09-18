@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyEnv, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyEnv, emptyProfile, emptyService } from "../../domain/config/types.ts";
 import {
   configExitText,
   configExtraFacts,
@@ -49,7 +49,7 @@ function sampleConfig() {
     identity: { type: "user", mode: "", service_account: "" },
     restart: { policy: "on_failure", max_retries: 2, backoff_seconds: 1 },
   };
-  cfg.profiles.backend = { services: ["identity", "invoices-api"], environment: { LOG_LEVEL: "INFO" } };
+  cfg.profiles.backend = emptyProfile({ services: ["identity", "invoices-api"], environment: { LOG_LEVEL: "INFO" } });
   cfg.templates["python-http"] = {
     ...emptyService(),
     health: { ...emptyService().health, type: "http" },

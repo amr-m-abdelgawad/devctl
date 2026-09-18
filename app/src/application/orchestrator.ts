@@ -1,7 +1,7 @@
 import { profileId } from "../domain/ids.ts";
 import { HealthMonitor } from "./health-monitor.ts";
 import { ServiceStarted, ServiceFailed, ServiceStopped, newEvent } from "../shared/events.ts";
-import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, dependencyName, dependencyCondition, type Command } from "../domain/config/types.ts";
+import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, type Command } from "../domain/config/types.ts";
 import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../shared/errors.ts";
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
@@ -32,7 +32,7 @@ import type { StartRequest } from "../domain/status.ts";
 import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
 import type { LifecycleSession } from "../ports/lifecycle-session.ts";
 import { recipesNeededForEnv } from "../domain/http/recipes.ts";
-import { effectiveServiceEnv, resolveEnvironmentName } from "../domain/service/environments.ts";
+import { effectiveServiceEnv, overlayEnv, profileBoundOverlay, profileServiceEnvConfig, resolveEnvironmentName } from "../domain/service/environments.ts";
 
 const HEALTH_POLL_MS = 100;
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
@@ -111,7 +111,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
     const plan = this.planStart(s.cfg, resolved.services, resolved.profile);
     const google = await s.detectGoogle(s.cfg.google.project_id);
-    plan.blockers = identityBlockers(s.cfg, plan.waves.flat(), google.adcAvailable);
+    plan.blockers = [...(plan.blockers ?? []), ...identityBlockers(s.cfg, plan.waves.flat(), google.adcAvailable)];
     const blocked = new Set(plan.blockers.map((blocker) => blocker.name));
     for (const blocker of plan.blockers) {
       await s.fail(blocker.name, newError(KindProcessStart, blocker.message));
@@ -142,7 +142,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     if (pending.length > 0) {
       await s.assignPendingPorts(pending);
     }
-    for (const wave of plan.waves) {
+    for (let i = 0; i < plan.waves.length; i += 1) {
+      const wave = plan.waves[i] ?? [];
       const launch = wave.filter((name) => pending.includes(name));
       if (launch.length > 0) {
         const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.profile, resolved.env, req.auto !== true)));
@@ -157,11 +158,16 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
           throw newError(KindProcessStart, "one or more services failed to start");
         }
       }
-      try {
-        await this.awaitWaveHealth(wave, plan.waves.flat());
-      } catch (err) {
-        s.log("devctl", "ERROR", humanMessage(err));
-        throw err;
+      // Later waves wait for this one. The last wave only waits inside
+      // startOne when wait_for_healthy is set — otherwise start() would
+      // refuse to return while a service was still UNHEALTHY and retrying.
+      if (i < plan.waves.length - 1) {
+        try {
+          await this.awaitWaveHealth(wave.filter((name) => !blocked.has(name)));
+        } catch (err) {
+          s.log("devctl", "ERROR", humanMessage(err));
+          throw err;
+        }
       }
     }
     s.persistState();
@@ -301,8 +307,14 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     const launchProfile = s.serviceProfile.get(name) ?? profile;
     const launchEnv = launchProfile !== "" ? profileEnvironment(s.cfg, launchProfile) : { ...profileEnv };
     s.serviceProfileEnv.set(name, launchEnv);
-    const envName = resolveEnvironmentName(svc, s.serviceEnv.get(name));
+    const bound = profileBoundOverlay(s.cfg, launchProfile, name);
+    const envName = resolveEnvironmentName(svc, bound !== "" ? bound : s.serviceEnv.get(name));
+    if (bound !== "") {
+      s.serviceEnv.set(name, envName);
+    }
     const launchService = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
+    const profileSvcEnv = profileServiceEnvConfig(s.cfg, launchProfile, name);
+    const recipeEnv = overlayEnv(launchService.environment, profileSvcEnv);
     let assigned: Record<string, number> = {};
     let env: Record<string, string> = {};
     let workDir = "";
@@ -310,7 +322,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     try {
       await s.prepareServiceIdentity(name, svc);
       assigned = s.ports.get(name) ?? {};
-      const needed = recipesNeededForEnv(s.cfg, launchService.environment, launchEnv);
+      const needed = recipesNeededForEnv(s.cfg, recipeEnv, launchEnv);
       if (needed.length > 0) {
         await s.ensureHttpRecipes(needed);
       }
@@ -416,11 +428,10 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
   }
 
-  private async awaitWaveHealth(wave: string[], planned: string[]): Promise<void> {
+  private async awaitWaveHealth(wave: string[]): Promise<void> {
     for (const name of wave) {
       const svc = this.host().cfg.services[name];
-      const requiredHealthy = planned.some((dependent) => (this.host().cfg.services[dependent]?.dependencies ?? []).some((dep) => dependencyName(dep) === name && dependencyCondition(dep) === "service_healthy"));
-      if (!svc || svc.health.type === "" || !requiredHealthy) {
+      if (!svc || svc.health.type === "") {
         continue;
       }
       const timeout = StartupPolicy.timeoutMs(svc, DEFAULT_STARTUP_TIMEOUT_MS);

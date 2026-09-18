@@ -1,6 +1,6 @@
 import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyRouteAuth, emptyProfile, emptyService } from "../../domain/config/types.ts";
 import { matchLog, type LogFilter, type LogPage, type LogPageRequest } from "../../adapters/storage/logs.ts";
 import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
@@ -70,7 +70,7 @@ function stubHost(): McpHost {
   const cfg = defaultConfig();
   cfg.repoRoot = "/repo";
   cfg.project.name = "demo";
-  cfg.profiles = { local: { services: ["api"], environment: {} } };
+  cfg.profiles = { local: emptyProfile({ services: ["api"] }) };
   const svc = emptyService();
   svc.command = { args: ["bun", "run", "dev"], shell: false };
   svc.working_dir = "api";

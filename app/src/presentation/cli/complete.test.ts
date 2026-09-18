@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyProfile, emptyService } from "../../domain/config/types.ts";
 import { completeLine, completionScript } from "./complete.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
 
@@ -7,7 +7,7 @@ describe("completions", () => {
   test("suggests commands and service names from config", () => {
     const cfg = defaultConfig();
     cfg.services.api = emptyService();
-    cfg.profiles.backend = { services: ["api"], environment: {} };
+    cfg.profiles.backend = emptyProfile({ services: ["api"] });
     expect(completeLine("devctl ", cfg)).toContain("start");
     expect(completeLine("devctl start ", cfg)).toContain("api");
     expect(completeLine("devctl start --profile ", cfg)).toContain("backend");

@@ -1,6 +1,9 @@
 # Profiles
 
-A profile is a named list of services plus optional extra environment.
+A profile is a named list of services plus optional extra environment. Starting
+a profile starts **exactly those members**. Dependencies you omitted stay
+remote — so a UI-only profile can talk to deployed identity instead of spawning
+it locally.
 
 ```yaml
 profiles:
@@ -14,23 +17,51 @@ profiles:
       LOG_LEVEL: DEBUG
   full:
     services: [identity, invoices-api, invoices-worker, billing-console]
+  console:
+    services: [billing-console]
+    environments:
+      billing-console: deployed
 ```
 
 ```bash
 devctl start --profile backend
+devctl start --profile console
 ```
+
+`devctl start invoices-api` with **no** profile still expands the local
+dependency closure (identity comes up too). `devctl start --profile backend invoices-api`
+starts invoices-api plus only those of its dependencies that are also in
+`backend`.
 
 The TUI **profiles** screen (`o` or `/profiles`) lists configured profiles. `enter` selects one and offers start. None are hard-coded.
 
-A profile's extra environment applies to every service started under it. To give **one** service two maps (local vs deployed) and switch them without touching the rest of the fleet, use `services.<name>.environments` instead — see [Environment](environment.md#per-service-named-overlays).
+## Environment on a profile
+
+`profiles.<name>.environment` is fleet-wide extra keys for every member. Those
+keys still lose to each service's own `environment:` map, so they cannot
+retarget `AUTH_URL`. Use one or both of:
+
+- `environments.<svc>: <overlay>` — bind `services.<svc>.environments.<overlay>`
+  for launches under this profile (the TUI env chip and `DEVCTL_SERVICE_ENV`
+  match). Unknown service or overlay names fail `devctl config validate`.
+- `service_environment.<svc>` — an `EnvConfig` (vars / defaults / required)
+  applied **after** that service's vars, so `AUTH_URL: https://identity.example`
+  actually wins.
+
+If a member still interpolates `${services.X.url}` (or an HTTP recipe that
+needs X) and X is not in the start set, start fails that member with a blocker
+telling you to add X, bind an overlay without those refs, or set
+`service_environment`.
+
+See [Environment](environment.md#per-service-named-overlays).
 
 ![The TUI profiles screen — the current profile highlighted, each profile showing its member services and count](assets/manual/tui-profiles.png)
 
-Empty-dashboard `enter` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is `backend`, not `data`, even though `data` is listed first in the file.
+Empty-dashboard `enter` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is `backend`, not `console` or `data`.
 
 `devctl start` / MCP `start_services` with **no** profile and **no** names starts the active session profile, or the first configured profile (alphabetically). With no profiles it fails closed. Pass `--profile` or explicit names to stay on a subset. It never expands to every service just because the list was empty.
 
-The demo also defines `data` (opt-in Docker/PostgreSQL). It is not a default profile; start it with `--profile data`.
+The demo also defines `data` (opt-in Docker/PostgreSQL) and `console` (billing UI against the `deployed` overlay). They are not default profiles; start them with `--profile data` / `--profile console`.
 
 ## Sessions
 

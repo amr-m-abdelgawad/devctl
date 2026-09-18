@@ -8,21 +8,22 @@ Default source order (`ENV_SOURCE_ORDER` / `environment.sources`):
 
 ```mermaid
 flowchart LR
-  process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> runtime
+  process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
 ```
 
-`process`, `defaults`, `vars`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
+`process`, `defaults`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
 
 | Source | What it loads |
 |--------|----------------|
 | `process` | The env of whichever CLI/TUI client most recently started or restarted this service (forwarded over the RPC as `client_env`), falling back to the supervisor's own environment if no client has done so yet — see below |
-| `profile` | `profiles.<name>.environment` |
+| `profile` | `profiles.<name>.environment` (fleet-wide; loses to service vars) |
 | `dotenv` | Repo-root then service working-dir: `.env`, `.env.development`, `.env.local`, `.env.<profile>` |
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API |
 | `defaults` | `services.<name>.environment.defaults` (and the selected `environments.<env>.defaults`) |
 | `vars` | Explicit `services.<name>.environment` keys (and the selected `environments.<env>` keys, which win) |
+| `profile_service` | `profiles.<name>.service_environment.<svc>` — per-service keys that win over vars |
 | `runtime` | Values `devctl` injects at start |
 
 `keychain` and `secret_manager` throw only when that source is listed and fetch fails.
@@ -52,7 +53,7 @@ References such as `${services.identity.ports.http}` resolve before process star
 
 ## Per-service named overlays
 
-`profiles.<name>.environment` is fleet-wide: every service started under that profile gets those extra keys. Named overlays on a **service** are independent of that, so one service can talk to a deployed identity while another stays fully local.
+`profiles.<name>.environment` is fleet-wide: every service started under that profile gets those extra keys, but they still lose to the service's own `environment:` map. To retarget one service at a deployed backend when you omit its local dependency from the profile, bind a named overlay or set `service_environment` — see [Profiles](profiles.md#environment-on-a-profile). Named overlays on a **service** can also be switched one at a time without a profile.
 
 ```yaml
 services:

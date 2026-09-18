@@ -43,7 +43,7 @@ devctl update [--json] [--check]
 
 ![devctl status — per-service state and health, plus the proxy, MCP, and web listener addresses](assets/manual/cli-status.png)
 
-- `start` with `--profile` starts that profile’s members (plus dependencies).
+- `start` with `--profile` starts **exactly** that profile’s members. Omitted dependencies are not spawned; point members at deployed backends with `environments` / `service_environment` (see [Profiles](profiles.md)).
 - `start` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
 - `start` always ensures a daemon and leaves it (and its services) running after the command exits — that is not conditional on any flag.
 - `--detach` is **deprecated**: it predates that always-on daemon and no longer changes behavior. Passing it prints a warning on stderr; it does nothing else.

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
-import { resolveEnvMap, type DevctlConfig, type ServiceConfig } from "../config/index.ts";
+import { resolveEnvMap, type DevctlConfig, type EnvConfig, type ServiceConfig } from "../config/index.ts";
 import type { HttpValueMap } from "../config/refs.ts";
 import { KindConfiguration, newError, wrapError } from "../../shared/errors.ts";
 import { credentialsDir } from "../storage/storage.ts";
@@ -28,6 +28,10 @@ export type EnvRequest = {
   // one for this service, e.g. an MCP-initiated start or a session-recovered
   // process.
   clientEnv?: Record<string, string>;
+  // Per-service keys from `profiles.<name>.service_environment.<svc>`.
+  // Applied after service vars so a profile can retarget AUTH_URL at a
+  // deployed backend. Empty when the launch profile has no entry.
+  profileServiceEnv?: EnvConfig;
   http?: HttpValueMap;
   // Containers should not copy the caller's entire shell into inspectable
   // container metadata. All explicitly configured environment layers remain.
@@ -48,12 +52,12 @@ export type EnvironmentSource = {
   load: (ctx: EnvSourceContext) => Record<string, string> | Promise<Record<string, string>>;
 };
 
-export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "generated", "keychain", "secret_manager", "defaults", "vars", "runtime"] as const;
+export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "generated", "keychain", "secret_manager", "defaults", "vars", "profile_service", "runtime"] as const;
 
 export type EnvSourceName = (typeof ENV_SOURCE_ORDER)[number];
 
 const SECRET_MANAGER_PATTERN = /^projects\/[^/]+\/secrets\/[^/]+(?:\/versions\/[^/]+)?$/;
-const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "defaults", "vars", "runtime"];
+const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "defaults", "vars", "profile_service", "runtime"];
 
 function dotenvSource(): EnvironmentSource {
   return {
@@ -117,6 +121,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
     defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail, req.http),
     vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http),
+    profile_service: resolveMaybe(flattenEnvConfig(req.profileServiceEnv), req.cfg, assignedAll, userEmail, req.http),
     runtime: req.runtime,
   };
   for (const name of sourceOrder(req.cfg)) {
@@ -129,12 +134,20 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
       Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll, userEmail, req.http));
     }
   }
-  for (const key of req.serviceCfg.environment.required) {
+  const required = [...req.serviceCfg.environment.required, ...(req.profileServiceEnv?.required ?? [])];
+  for (const key of required) {
     if ((out[key] ?? "").trim() === "") {
       throw newError(KindConfiguration, `service ${req.service} missing required environment variable ${key}`);
     }
   }
   return out;
+}
+
+function flattenEnvConfig(env?: EnvConfig): Record<string, string> {
+  if (!env) {
+    return {};
+  }
+  return { ...env.defaults, ...env.vars };
 }
 
 function collectAssigned(req: EnvRequest): Record<string, Record<string, number>> {

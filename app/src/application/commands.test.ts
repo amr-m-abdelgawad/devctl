@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { defaultConfig } from "../domain/config/types.ts";
+import { defaultConfig, emptyProfile } from "../domain/config/types.ts";
 import type { DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
 import { RunDoctor } from "./commands.ts";
@@ -31,7 +31,7 @@ test("profile commands preserve wire fields and resolve branded active/default p
   const { StartProfile, StartService, ResolveStart } = await import("./commands.ts");
   const { profileId } = await import("../domain/ids.ts");
   const cfg = defaultConfig();
-  cfg.profiles = { backend: { services: [], environment: { MODE: "backend" } }, full: { services: [], environment: { MODE: "full" } } };
+  cfg.profiles = { backend: emptyProfile({ services: [], environment: { MODE: "backend" } }), full: emptyProfile({ services: [], environment: { MODE: "full" } }) };
   const requests: import("../domain/status.ts").StartRequest[] = [];
   const start = new StartService(async (request) => { requests.push(request); return { profile: request.profile ?? "", steps: [], waves: [] }; });
   const env = { FROM_CLIENT: "yes" };

@@ -89,13 +89,23 @@ export function httpRecipesReferencedBy(recipe: HttpRecipeConfig): string[] {
   return uniqueRefs(recipeRequestTexts(recipe));
 }
 
+export function servicesReferencedInText(value: string): string[] {
+  const names: string[] = [];
+  for (const ref of findTemplateRefs(value)) {
+    const parts = ref.split(".");
+    const svc = parts[0] === "services" ? parts[1] : undefined;
+    if (svc && !names.includes(svc)) {
+      names.push(svc);
+    }
+  }
+  return names;
+}
+
 export function servicesReferencedBy(recipe: HttpRecipeConfig): string[] {
   const names: string[] = [];
   for (const text of recipeRequestTexts(recipe)) {
-    for (const ref of findTemplateRefs(text)) {
-      const parts = ref.split(".");
-      const svc = parts[0] === "services" ? parts[1] : undefined;
-      if (svc && !names.includes(svc)) {
+    for (const svc of servicesReferencedInText(text)) {
+      if (!names.includes(svc)) {
         names.push(svc);
       }
     }

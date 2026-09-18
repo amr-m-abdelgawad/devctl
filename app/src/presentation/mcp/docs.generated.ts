@@ -501,7 +501,7 @@ devctl update [--json] [--check]
 
 ![devctl status — per-service state and health, plus the proxy, MCP, and web listener addresses](assets/manual/cli-status.png)
 
-- \`start\` with \`--profile\` starts that profile’s members (plus dependencies).
+- \`start\` with \`--profile\` starts **exactly** that profile’s members. Omitted dependencies are not spawned; point members at deployed backends with \`environments\` / \`service_environment\` (see [Profiles](profiles.md)).
 - \`start\` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
 - \`start\` always ensures a daemon and leaves it (and its services) running after the command exits — that is not conditional on any flag.
 - \`--detach\` is **deprecated**: it predates that always-on daemon and no longer changes behavior. Passing it prints a warning on stderr; it does nothing else.
@@ -660,7 +660,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`services\` | Process definitions |
 | \`tasks\` | Named transient commands run with \`devctl run\` |
 | \`http\` | Named outbound HTTP recipes — see [Custom HTTP APIs](http.md) |
-| \`profiles\` | Named service sets + extra env |
+| \`profiles\` | Named service sets, overlay binds, and per-service env |
 | \`proxy\` | Listen address, token endpoint, routes (\`inspect.enabled\` captures bodies) — see [Proxy](proxy.md) |
 | \`logs\` | In-memory cap and persistence |
 | \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
@@ -853,21 +853,22 @@ Default source order (\`ENV_SOURCE_ORDER\` / \`environment.sources\`):
 
 \`\`\`mermaid
 flowchart LR
-  process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> runtime
+  process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
 \`\`\`
 
-\`process\`, \`defaults\`, \`vars\`, and \`runtime\` always run for host services. Container services deliberately omit \`process\` so the caller's whole shell is not stored in inspectable container metadata. If you set \`environment.sources\`, the listed optional sources (\`profile\`, \`dotenv\`, \`generated\`, \`keychain\`, \`secret_manager\`) are added to the always-on set.
+\`process\`, \`defaults\`, \`vars\`, \`profile_service\`, and \`runtime\` always run for host services. Container services deliberately omit \`process\` so the caller's whole shell is not stored in inspectable container metadata. If you set \`environment.sources\`, the listed optional sources (\`profile\`, \`dotenv\`, \`generated\`, \`keychain\`, \`secret_manager\`) are added to the always-on set.
 
 | Source | What it loads |
 |--------|----------------|
 | \`process\` | The env of whichever CLI/TUI client most recently started or restarted this service (forwarded over the RPC as \`client_env\`), falling back to the supervisor's own environment if no client has done so yet — see below |
-| \`profile\` | \`profiles.<name>.environment\` |
+| \`profile\` | \`profiles.<name>.environment\` (fleet-wide; loses to service vars) |
 | \`dotenv\` | Repo-root then service working-dir: \`.env\`, \`.env.development\`, \`.env.local\`, \`.env.<profile>\` |
 | \`generated\` | Built-in hook that always returns \`{}\`. A plugin may register \`environmentSources\` if you need generated values |
 | \`keychain\` | Named secrets from \`environment.secrets\` / the credential store |
 | \`secret_manager\` | Values that look like \`projects/*/secrets/*\` via the Google REST API |
 | \`defaults\` | \`services.<name>.environment.defaults\` (and the selected \`environments.<env>.defaults\`) |
 | \`vars\` | Explicit \`services.<name>.environment\` keys (and the selected \`environments.<env>\` keys, which win) |
+| \`profile_service\` | \`profiles.<name>.service_environment.<svc>\` — per-service keys that win over vars |
 | \`runtime\` | Values \`devctl\` injects at start |
 
 \`keychain\` and \`secret_manager\` throw only when that source is listed and fetch fails.
@@ -897,7 +898,7 @@ References such as \`\${services.identity.ports.http}\` resolve before process s
 
 ## Per-service named overlays
 
-\`profiles.<name>.environment\` is fleet-wide: every service started under that profile gets those extra keys. Named overlays on a **service** are independent of that, so one service can talk to a deployed identity while another stays fully local.
+\`profiles.<name>.environment\` is fleet-wide: every service started under that profile gets those extra keys, but they still lose to the service's own \`environment:\` map. To retarget one service at a deployed backend when you omit its local dependency from the profile, bind a named overlay or set \`service_environment\` — see [Profiles](profiles.md#environment-on-a-profile). Named overlays on a **service** can also be switched one at a time without a profile.
 
 \`\`\`yaml
 services:
@@ -2534,7 +2535,10 @@ The OIDC plugin is intentionally a reference implementation: it supports client 
 ` },
   { path: "docs/profiles.md", title: "Profiles", body: `# Profiles
 
-A profile is a named list of services plus optional extra environment.
+A profile is a named list of services plus optional extra environment. Starting
+a profile starts **exactly those members**. Dependencies you omitted stay
+remote — so a UI-only profile can talk to deployed identity instead of spawning
+it locally.
 
 \`\`\`yaml
 profiles:
@@ -2548,23 +2552,51 @@ profiles:
       LOG_LEVEL: DEBUG
   full:
     services: [identity, invoices-api, invoices-worker, billing-console]
+  console:
+    services: [billing-console]
+    environments:
+      billing-console: deployed
 \`\`\`
 
 \`\`\`bash
 devctl start --profile backend
+devctl start --profile console
 \`\`\`
+
+\`devctl start invoices-api\` with **no** profile still expands the local
+dependency closure (identity comes up too). \`devctl start --profile backend invoices-api\`
+starts invoices-api plus only those of its dependencies that are also in
+\`backend\`.
 
 The TUI **profiles** screen (\`o\` or \`/profiles\`) lists configured profiles. \`enter\` selects one and offers start. None are hard-coded.
 
-A profile's extra environment applies to every service started under it. To give **one** service two maps (local vs deployed) and switch them without touching the rest of the fleet, use \`services.<name>.environments\` instead — see [Environment](environment.md#per-service-named-overlays).
+## Environment on a profile
+
+\`profiles.<name>.environment\` is fleet-wide extra keys for every member. Those
+keys still lose to each service's own \`environment:\` map, so they cannot
+retarget \`AUTH_URL\`. Use one or both of:
+
+- \`environments.<svc>: <overlay>\` — bind \`services.<svc>.environments.<overlay>\`
+  for launches under this profile (the TUI env chip and \`DEVCTL_SERVICE_ENV\`
+  match). Unknown service or overlay names fail \`devctl config validate\`.
+- \`service_environment.<svc>\` — an \`EnvConfig\` (vars / defaults / required)
+  applied **after** that service's vars, so \`AUTH_URL: https://identity.example\`
+  actually wins.
+
+If a member still interpolates \`\${services.X.url}\` (or an HTTP recipe that
+needs X) and X is not in the start set, start fails that member with a blocker
+telling you to add X, bind an overlay without those refs, or set
+\`service_environment\`.
+
+See [Environment](environment.md#per-service-named-overlays).
 
 ![The TUI profiles screen — the current profile highlighted, each profile showing its member services and count](assets/manual/tui-profiles.png)
 
-Empty-dashboard \`enter\` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is \`backend\`, not \`data\`, even though \`data\` is listed first in the file.
+Empty-dashboard \`enter\` uses the first profile name **alphabetically** when no session profile is set — YAML key order does not matter. In the [demo platform](../examples/demo-platform/README.md) that is \`backend\`, not \`console\` or \`data\`.
 
 \`devctl start\` / MCP \`start_services\` with **no** profile and **no** names starts the active session profile, or the first configured profile (alphabetically). With no profiles it fails closed. Pass \`--profile\` or explicit names to stay on a subset. It never expands to every service just because the list was empty.
 
-The demo also defines \`data\` (opt-in Docker/PostgreSQL). It is not a default profile; start it with \`--profile data\`.
+The demo also defines \`data\` (opt-in Docker/PostgreSQL) and \`console\` (billing UI against the \`deployed\` overlay). They are not default profiles; start them with \`--profile data\` / \`--profile console\`.
 
 ## Sessions
 
@@ -3275,7 +3307,7 @@ stateDiagram-v2
 
 The TUI and CLI display \`HEALTHY\` / \`UNHEALTHY\` when the process is running and the health probe has an answer.
 
-Independent services in the same wave start and stop in parallel. Dependents wait. Cycles are configuration errors.
+Independent services in the same wave start and stop in parallel. After a start wave, every member with a health check must become healthy before the **next** wave launches (the same timeout as \`startup.timeout_seconds\`, default 30s). Members without a health check only need to have spawned. The last wave returns once processes are up unless a service sets \`startup.wait_for_healthy\`. Cycles are configuration errors.
 
 Dependencies accept either the original string form or a condition:
 
@@ -3290,7 +3322,7 @@ dependencies:
 
 ## Start, stop, restart
 
-Named start expands **up** the dependency graph (\`startupPlan\`): starting \`invoices-worker\` also starts \`identity\` and \`invoices-api\`, in that order.
+Named start expands **up** the dependency graph (\`startupPlan\`): starting \`invoices-worker\` also starts \`identity\` and \`invoices-api\`, in that order. Starting a **profile** does not: omitted members stay remote even if YAML names them as dependencies. See [Profiles](profiles.md).
 
 > **Breaking change:** stop no longer mirrors start. \`devctl stop x\` stops \`x\` and everything that (transitively) **depends on** \`x\` — never \`x\`'s own dependencies, which other running services may still need (\`shutdownPlan\`). Previously, stopping a leaf also stopped the dependencies it had pulled in; that direction was backwards and is not preserved.
 
@@ -3502,7 +3534,7 @@ trace, and read the responsible service's span and logs — all redacted.
 | \`devctl attach\` fails | No supervisor. Use \`devctl start\` first; attach never starts one |
 | \`devctl status\` looks empty | If the socket is down, status prints persisted state and exits 0 when nothing is running. The TUI still starts a supervisor; leftover PIDs from the previous session appear on the idle dashboard |
 | Start exits 5 or 6 | 5 = spawn failed; 6 = health never passed. Doctor then Logs |
-| \`start\` brought up extra services | Empty start uses the active or first profile **alphabetically**, plus dependencies — YAML key order does not matter (demo: \`backend\`, not \`data\`). Pass \`--profile\` or explicit names to stay narrower |
+| \`start\` brought up extra services | Empty start uses the active or first profile **alphabetically** — YAML key order does not matter (demo: \`backend\`, not \`data\`). A profile start no longer pulls omitted dependencies. Named \`devctl start invoices-api\` (no profile) still expands the local closure |
 | Docker / Podman missing or daemon down | A service in config declares \`container\` (the demo's \`postgres\` always does, even if you never start \`data\`). Install and start that runtime, or drop the service. Default profiles do not start postgres |
 | Doctor offers to kill a busy port that is Docker | It should not: ports owned by a running container service are healthy, and Doctor never offers to terminate the Docker or Podman daemon. Re-run Doctor after the container is up |
 | MCP tools work but nothing starts | \`get_status\` reports \`setup_mode: true\` — there is no \`.devctl\` yet. Have the agent call \`get_setup_guide\`, \`search_docs\`, and \`validate_config\`, write the files, then \`reload_config\` |

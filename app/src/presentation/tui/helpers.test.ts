@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyService, emptyProfile } from "../../domain/config/types.ts";
 import { formatBodySummary, logRecord } from "../../domain/logs/logs.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
@@ -16,9 +16,9 @@ function logEv(draft: Parameters<typeof logRecord>[0]) {
 describe("TUI helpers", () => {
   test("default profile is the first sorted name", () => {
     const cfg = defaultConfig();
-    cfg.profiles = { backend: { services: ["api"], environment: {} }, full: { services: ["api"], environment: {} } };
+    cfg.profiles = { backend: emptyProfile({ services: ["api"] }), full: emptyProfile({ services: ["api"] }) };
     expect(defaultProfileName(cfg)).toBe("backend");
-    cfg.profiles = { full: { services: ["api"], environment: {} }, zebra: { services: ["api"], environment: {} } };
+    cfg.profiles = { full: emptyProfile({ services: ["api"] }), zebra: emptyProfile({ services: ["api"] }) };
     expect(defaultProfileName(cfg)).toBe("full");
   });
 
@@ -662,7 +662,7 @@ describe("TUI helpers", () => {
   test("planServices ignores a stale profile name", () => {
     const cfg = defaultConfig();
     cfg.services = { api: emptyService() };
-    cfg.profiles = { backend: { services: ["api"], environment: {} } };
+    cfg.profiles = { backend: emptyProfile({ services: ["api"] }) };
     expect(planServices(cfg, ["api"], "missing")).toEqual({ services: ["api"], profile: "" });
     expect(planServices(cfg, [], "backend").profile).toBe("backend");
   });

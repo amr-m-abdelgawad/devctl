@@ -62,6 +62,11 @@ profiles:
       - billing-console
       - llm
       - telemetry
+  console:
+    services:
+      - billing-console
+    environments:
+      billing-console: deployed
 
 tasks:
   migrate:

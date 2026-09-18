@@ -166,7 +166,21 @@ export function emptyExpose(): ExposeConfig {
 export type ProfileConfig = {
   services: string[];
   environment: Record<string, string>;
+  // service name → `services.<name>.environments.<overlay>` to apply when this
+  // profile is the launch context.
+  environments: Record<string, string>;
+  // Per-service EnvConfig that wins over that service's own vars.
+  service_environment: Record<string, EnvConfig>;
 };
+
+export function emptyProfile(init: Partial<ProfileConfig> = {}): ProfileConfig {
+  return {
+    services: init.services ?? [],
+    environment: init.environment ?? {},
+    environments: init.environments ?? {},
+    service_environment: init.service_environment ?? {},
+  };
+}
 
 export type ProjectConfig = {
   name: string;

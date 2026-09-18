@@ -185,4 +185,23 @@ describe("environment precedence", () => {
     expect(env.LOCAL_USER_EMAIL).toBe("dev@example.com");
     expect(env.DEVCTL_USER_EMAIL).toBe("dev@example.com");
   });
+
+  test("profile_service overrides service vars and loses to runtime", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-profile-svc-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const svc = emptyService();
+    svc.environment.vars = { AUTH_URL: "http://127.0.0.1:1", SHARED: "vars" };
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "console",
+      serviceCfg: svc,
+      profileEnv: { AUTH_URL: "http://profile-fleet" },
+      profileServiceEnv: { vars: { AUTH_URL: "https://identity.example.com", FLAG: "1" }, required: [], defaults: {} },
+      assignedPorts: {},
+      runtime: { SHARED: "runtime" },
+    });
+    expect(env.AUTH_URL).toBe("https://identity.example.com");
+    expect(env.FLAG).toBe("1");
+    expect(env.SHARED).toBe("runtime");
+  });
 });
