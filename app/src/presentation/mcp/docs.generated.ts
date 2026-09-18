@@ -23,6 +23,8 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [How it fits together](overview.md) | Supervisor, TUI, CLI, MCP, and what lives on disk |
 | [Installation](installation.md) | npm, release binaries, source install, optional \`gcloud\` |
 | [Quick start](quickstart.md) | First session: setup → doctor → TUI |
+| [Onboard your repository](onboarding.md) | Inventory, configure, validate, and verify your own stack |
+| [Examples & recipes](examples.md) | Frontend, workers, containers, proxy, and tracing workflows |
 | [Developer setup](developer-setup.md) | Day-to-day loop without admin privileges |
 | [Demo platform](../examples/demo-platform/README.md) | Local invoicing example (no Google Cloud; opt-in Docker \`data\` profile) |
 | [Agent skills](../skills/README.md) | Onboard a repo: survey what it runs and author \`.devctl/\` |
@@ -31,6 +33,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 
 | Page | Side |
 |------|------|
+| [Web console](web.md) | Browser controls, dependency graph, logs, traces, and LLM calls |
 | [TUI](tui.md) | Screens, keys, slash commands, themes, settings |
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
@@ -428,7 +431,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Web
 
-\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full one-time link when you need it. \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Telemetry](telemetry.md#web-ui).
+\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full one-time link when you need it. \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Web console](web.md).
 
 ## Exit codes
 
@@ -533,7 +536,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`proxy\` | Listen address, token endpoint, routes |
 | \`logs\` | In-memory cap and persistence |
 | \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
-| \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Telemetry](telemetry.md) |
+| \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Web console](web.md) |
 | \`llm\` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
 | \`shutdown\` | \`stop_services_on_exit\`, \`grace_seconds\` |
@@ -818,6 +821,116 @@ flowchart LR
 - [Custom HTTP APIs](http.md)
 - [Configuration](configuration.md)
 - [Security](security.md)
+` },
+  { path: "docs/examples.md", title: "Examples & recipes", body: `# Examples & recipes
+
+Use the checked-in demo to try a complete session, then carry the relevant patterns into your own repository. These commands use the demo's real service and profile names; they assume a global [devctl installation](installation.md).
+
+## Prepare the demo
+
+Install Python 3 for the host services. The frontend additionally needs Bun; the data profile needs Docker. Clone the repository and enter the demo:
+
+\`\`\`bash
+git clone https://github.com/amr-m-abdelgawad/devctl.git
+cd devctl/examples/demo-platform
+devctl config validate
+devctl start --profile minimal
+devctl status
+\`\`\`
+
+The \`minimal\` profile starts identity, the invoices API, and the telemetry generator. These host services need neither Google credentials nor Docker. The demo already enables the proxy, OTLP receiver, and web console.
+
+| Recipe | Profile or service | What you learn |
+|---|---|---|
+| [Frontend + API](#frontend-api) | \`full\` | Group an application and wire service URLs |
+| [Background worker](#background-worker) | \`backend\` | Start dependencies and inspect worker output |
+| [Database + task](#database-task) | \`data\`, \`migrate\` | Use a container and a transient command |
+| [Distributed trace](#follow-a-distributed-trace) | \`minimal\` | Follow proxy traffic into spans and logs |
+| [Authenticated proxy](#authenticated-proxy) | worker routes | Inject Google credentials for a configured upstream |
+
+Doctor checks everything declared in the configuration, so it can report missing Docker or Google credentials even when your selected local profile does not use them. The worker's optional token-watch loop and authenticated routes require real Google setup; the checked-in cloud identifiers are examples.
+
+## Frontend + API
+
+With Bun installed, start the full profile:
+
+\`\`\`bash
+devctl start --profile full
+\`\`\`
+
+Open the billing app at [localhost:18003](http://127.0.0.1:18003). Its first start installs frontend dependencies if they are missing. This is the demo application's UI; the devctl management console runs separately on port 18900.
+
+The [billing-console service](../examples/demo-platform/.devctl/services/billing-console.yaml) declares its startup command and working directory, depends on \`invoices-api\`, and wires \`AUTH_URL\` and \`API_URL\` using named service-port references. That keeps the URLs aligned when a service port changes.
+
+For your repository, use its existing frontend command and actual environment variable names. Group the frontend and backend under a full profile while keeping a smaller backend profile for API-only work. See [Onboarding](onboarding.md).
+
+## Background worker
+
+\`\`\`bash
+devctl start --profile backend
+devctl logs invoices-worker
+devctl restart invoices-worker
+\`\`\`
+
+The demo worker polls the invoices API and finalizes queued jobs. Its configuration shows how to order startup and supply upstream URLs. The optional token-watch loop also demonstrates token refresh; credential errors from that loop require the Google setup described in the [demo README](../examples/demo-platform/README.md).
+
+Starting a named service expands its dependencies automatically. Restarting the worker restarts only that service. Stopping a shared dependency also stops its dependents, so use the narrowest service command that fits your task. See [Services](services.md#start-stop-restart).
+
+## Database + task
+
+With Docker running:
+
+\`\`\`bash
+devctl start --profile data
+devctl status
+devctl run migrate
+\`\`\`
+
+The [PostgreSQL definition](../examples/demo-platform/.devctl/services/postgres.yaml) uses \`container.image\`, named host/container ports, and a health check. It maps host port **18004** to PostgreSQL's container port **5432**. It lives in the separate \`data\` profile so the normal host-service profiles do not require Docker.
+
+The demo \`migrate\` task starts PostgreSQL as a dependency and prints a confirmation message; it does not apply a real database schema. Replace that task command with your repository's migration tool. Tasks run to completion and do not become continuously running services. See [hooks and tasks](services.md#hooks-and-one-off-tasks).
+
+## Follow a distributed trace
+
+\`\`\`bash
+devctl start --profile minimal
+devctl web start --print-url
+\`\`\`
+
+Open the printed console link and go to Traces. The telemetry generator periodically runs an \`invoice.fulfill\` workflow through the proxy, invoices API, and identity service. Select a trace to inspect overlapping spans and correlated logs. Some generated traces intentionally include a failed \`stripe.charge\` span to demonstrate error investigation.
+
+![Demo request waterfall spanning telemetry, proxy, invoices API, and identity](assets/manual/web-trace-waterfall.png)
+
+To inspect the same evidence from the terminal:
+
+\`\`\`bash
+devctl logs telemetry
+devctl logs --source otlp
+\`\`\`
+
+Copy a trace identifier from the console and pass it to \`devctl logs --trace <trace-id>\`. In your own application, deeper spans require instrumentation and the supported OTLP/HTTP+JSON exporter. See [Telemetry](telemetry.md) and the [web console tour](web.md).
+
+## Authenticated proxy
+
+The demo includes three routes to the same worker upstream: service-account impersonation, user IAP, and IAP with impersonation. They are useful configuration references, but they require your actual Google project, account, permissions, and audience before you can exercise the intended credentials.
+
+Start with the [demo's credential walkthrough](../examples/demo-platform/README.md#credential-iap-and-identity-patterns). Use [Authentication](authentication.md), [Impersonation](impersonation.md), and [IAP](iap.md) to choose the matching identity setup. Keep account identifiers consistent across routes and the worker's token-watch environment. Use [Doctor](doctor.md) to check the prerequisites before testing requests.
+
+For a local proxy request that needs no Google authentication, use the demo's API route while \`minimal\` is running:
+
+\`\`\`bash
+curl -i -H 'Host: invoices-api.local' http://127.0.0.1:18080/health
+\`\`\`
+
+The Host header selects the route without requiring a hosts-file entry. See [Proxy](proxy.md) for matching and upstream configuration.
+
+## Finish the session
+
+\`\`\`bash
+devctl down
+\`\`\`
+
+This stops the supervisor and managed services. To adapt a recipe, start with [Onboard your repository](onboarding.md), copy only the pieces your application uses, and run \`devctl config validate\` before starting it.
 ` },
   { path: "docs/http.md", title: "Custom HTTP APIs", body: `# Custom HTTP APIs
 
@@ -1314,8 +1427,8 @@ async function copyInstall() {
   <section class="details-section landing-section" aria-labelledby="details-title"><div><p class="eyebrow">THOUGHTFUL BY DEFAULT</p><h2 id="details-title">Your machine.<br>Your ground rules.</h2><p>One supervisor keeps processes, containers, the proxy, and logs in sync across every control surface.</p><a class="text-link" :href="withBase('/overview')">See how it fits together <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div><div class="detail-list"><a :href="withBase('/configuration')"><span>01</span><div><h3>Configuration, not custom code.</h3><p>Define services, profiles, health gates, and hooks in YAML.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/proxy')"><span>02</span><div><h3>Authentication, handled locally.</h3><p>An auth-aware proxy injects Google / IAP tokens. Tokens stay out of logs.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><a :href="withBase('/doctor')"><span>03</span><div><h3>Diagnostics without surprises.</h3><p>Doctor reports missing tools and setup issues. It never auto-enables anything.</p></div><span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a></div></section>
 
   <section class="web-showcase landing-section" aria-labelledby="web-title">
-    <div class="section-heading"><div><p class="eyebrow">A DIFFERENT PERSPECTIVE</p><h2 id="web-title">Same session.<br>Room to see more.</h2></div><div class="web-showcase-copy"><p>Follow services, requests, and traces in an optional local console. The same supervisor, with a wider view.</p><a class="text-link" :href="withBase('/telemetry')">Explore the web console <ArrowUpRight :size="14" /></a></div></div>
-    <figure class="web-product"><a :href="withBase('/telemetry')"><img :src="webOverview" width="2880" height="1800" loading="lazy" decoding="async" alt="devctl web console showing service health, profile controls, proxy requests, and recent errors" /></a><figcaption><span>THE LOCAL CONSOLE</span><span>Opt-in · Loopback only · One shared session</span></figcaption></figure>
+    <div class="section-heading"><div><p class="eyebrow">A DIFFERENT PERSPECTIVE</p><h2 id="web-title">Same session.<br>Room to see more.</h2></div><div class="web-showcase-copy"><p>Follow services, requests, and traces in an optional local console. The same supervisor, with a wider view.</p><a class="text-link" :href="withBase('/web')">Explore the web console <ArrowUpRight :size="14" /></a></div></div>
+    <figure class="web-product"><a :href="withBase('/web')"><img :src="webOverview" width="2880" height="1800" loading="lazy" decoding="async" alt="devctl web console showing service health, profile controls, proxy requests, and recent errors" /></a><figcaption><span>THE LOCAL CONSOLE</span><span>Opt-in · Loopback only · One shared session</span></figcaption></figure>
     <div class="web-notes"><p><strong>Your session, expanded.</strong> Services, traces, and logs together.</p><p><strong>Local by default.</strong> Start it when you need it with <code>devctl web start</code>; the token rides in the URL fragment.</p></div>
   </section>
 
@@ -1359,7 +1472,7 @@ async function copyInstall() {
   </section>
 
   <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><p>Free and open source · MIT licensed</p></section>
-  <footer class="landing-footer" aria-label="Project links"><div class="footer-about"><strong>devctl<span>_</span></strong><p>Your local stack.<br>A shared view.</p><a href="https://github.com/amr-m-abdelgawad/devctl">Build with us on GitHub ↗</a></div><nav aria-label="Product documentation"><h3>Product</h3><a :href="withBase('/quickstart')">Quick start</a><a :href="withBase('/configuration')">Configuration</a><a :href="withBase('/tui')">Terminal interface</a><a :href="withBase('/mcp')">Agent integration</a></nav><nav aria-label="Project community"><h3>Get involved</h3><a href="https://github.com/amr-m-abdelgawad/devctl/issues/new">Report an issue</a><a href="https://github.com/amr-m-abdelgawad/devctl/issues">Discuss a feature</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/CONTRIBUTING.md">Contribute</a></nav><nav aria-label="Project information"><h3>Project</h3><a :href="withBase('/changelog')">Changelog</a><a :href="withBase('/installation')">Platforms &amp; installation</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/SECURITY.md">Report a vulnerability</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/LICENSE">MIT license</a></nav></footer>
+  <footer class="landing-footer" aria-label="Project links"><div class="footer-about"><strong>devctl<span>_</span></strong><p>Your local stack.<br>A shared view.</p><a href="https://github.com/amr-m-abdelgawad/devctl">Build with us on GitHub ↗</a></div><nav aria-label="Product documentation"><h3>Product</h3><a :href="withBase('/quickstart')">Quick start</a><a :href="withBase('/onboarding')">Onboard your repo</a><a :href="withBase('/examples')">Examples &amp; recipes</a><a :href="withBase('/web')">Web console</a><a :href="withBase('/tui')">Terminal interface</a><a :href="withBase('/mcp')">Agent integration</a></nav><nav aria-label="Project community"><h3>Get involved</h3><a href="https://github.com/amr-m-abdelgawad/devctl/issues/new">Report an issue</a><a href="https://github.com/amr-m-abdelgawad/devctl/issues">Discuss a feature</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/CONTRIBUTING.md">Contribute</a></nav><nav aria-label="Project information"><h3>Project</h3><a :href="withBase('/changelog')">Changelog</a><a :href="withBase('/installation')">Platforms &amp; installation</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/SECURITY.md">Report a vulnerability</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/LICENSE">MIT license</a></nav></footer>
 
 </div>
 ` },
@@ -1931,6 +2044,127 @@ npm provenance shows that the JavaScript package was published by this repositor
 
 The tarball's \`package.json\` depends on \`bun\` (pinned to the bundled runtime), the native packages that must exist on disk (\`@opentui/core\` today), and the packages the bundler leaves as runtime \`import()\`s rather than inlining (\`node-fetch\` today, reached by the Google auth integration through gaxios). The Bun runtime and native packages are pinned to the exact version installed at build time — the frozen bundle is only validated against that build and their ABI is version-coupled, the same reason esbuild, sharp, and Bun pin their platform packages exact — while the pure-JS runtime imports ship as caret ranges from that version, so semver-compatible security patches still reach consumers without a republish. Every other application library is compiled into \`dist/devctl.js\`. The build scans the emitted bundle and fails if it references any external package that is not declared, or declares one the bundle no longer imports, so a dependency change cannot silently ship a broken install graph. To keep a native library on disk, add it to \`PUBLISHED_APP_DEPENDENCIES\` in \`app/scripts/npm-package.ts\`; for a package the bundler cannot inline (a dynamic \`import()\`), add it to \`PUBLISHED_RUNTIME_EXTERNALS\` there. Bun still needs its postinstall script; do not publish or install with \`--ignore-scripts\`.
 ` },
+  { path: "docs/onboarding.md", title: "Onboard your repository", body: `# Onboard your repository
+
+Turn the commands you already run into a shared local development session. Start with one working service, verify it, then add dependencies and profiles. You need [devctl installed](installation.md) and your application's own runtimes and dependencies available.
+
+## 1. Inventory what runs
+
+Read the repository's development instructions, package scripts, task runners, and Compose files. Record the following for each service:
+
+| Detail | What to record |
+|---|---|
+| Command | The exact command that already starts it locally |
+| Working directory | Its directory relative to the repository root |
+| Ports | The actual ports it listens on, unique across services |
+| Dependencies | Services that must start before this one |
+| Health | An existing health URL, TCP port, or command |
+| Environment | Required variable names and where their values come from |
+
+Keep a remote API as an upstream URL unless this repository also contains its runnable source. Use native container services for image-based dependencies such as PostgreSQL. See [Examples & recipes](examples.md) for working patterns.
+
+## 2. Describe the first service
+
+\`devctl setup\` can write a starter configuration. Review it against your inventory. Alternatively, create \`.devctl/config.yaml\` yourself.
+
+This complete example describes the existing identity service in the [demo platform](../examples/demo-platform/README.md). It assumes the repository root contains \`identity/main.py\`, which serves \`/health\` on port 18001. For your own application, replace the command, directory, port, and health URL with the values you verified in step 1.
+
+\`\`\`yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/schema/devctl.config.schema.json
+version: 1
+project:
+  name: local-stack
+services:
+  identity:
+    command: [python3, main.py]
+    working_dir: identity
+    ports:
+      http: 18001
+    health:
+      type: http
+      url: http://127.0.0.1:18001/health
+profiles:
+  minimal:
+    services: [identity]
+\`\`\`
+
+\`working_dir\` is relative to the directory containing \`.devctl\`, not \`.devctl\` itself. Prefer command argument lists. Commands containing shell operators such as \`&&\` need \`shell: true\`. A declared port must match what the application actually binds; declaring it does not rewrite the application's startup command.
+
+## 3. Wire environment and dependencies
+
+If your application uses dotenv files, add this top-level section to the existing configuration:
+
+\`\`\`yaml
+environment:
+  sources: [dotenv]
+\`\`\`
+
+The dotenv source reads \`.env\`, \`.env.development\`, \`.env.local\`, and \`.env.<profile>\` from the repository root and service directory. It does **not** load \`.env.example\`: create your real \`.env\` from the example and fill in required values before starting. Keep secrets out of committed YAML.
+
+For service-to-service addresses, reference named ports. For example, an API calling the identity service can use \`AUTH_URL: http://127.0.0.1:\${services.identity.ports.http}\` in its service environment.
+
+A string dependency such as \`dependencies: [identity]\` waits for the dependency process to start. When the caller must wait for readiness, use an object with \`service: identity\` and \`condition: service_healthy\`; the dependency must define a health check. See [Services](services.md#lifecycle) and [Environment](environment.md).
+
+## 4. Grow into profiles and modular files
+
+Keep a small profile for everyday work and a full profile for the complete application. Put optional containers in their own profile when the rest of the stack can run without them. Start profiles explicitly while setting up: \`devctl start --profile minimal\`.
+
+As you add services, move their definitions into individual files:
+
+\`\`\`text
+.devctl/
+  config.yaml
+  services/
+    identity.yaml
+    api.yaml
+  profiles/
+    minimal.yaml
+    full.yaml
+\`\`\`
+
+The filename is the service or profile key. A service file contains only its body (\`command\`, \`working_dir\`, and so on), without a \`services:\` wrapper. Keep \`version: 1\` in the main config and remove the old inline definition when moving it. See [Configuration](configuration.md) for merge rules and [Profiles](profiles.md) for grouping services.
+
+## 5. Validate, start, and inspect
+
+From your repository root:
+
+\`\`\`bash
+devctl config validate
+devctl config show
+devctl doctor
+devctl start --profile minimal
+devctl status
+devctl logs identity
+\`\`\`
+
+Substitute your own profile and service names. Validation checks configuration structure and references; a successful start and a passing health check establish that the command and endpoint work. Doctor reports missing tools, occupied ports, and optional identity requirements.
+
+If startup fails, read the failing service's logs. A missing required variable usually means the real dotenv file is absent or incomplete; a readiness timeout calls for checking the command, port, and health endpoint. During this initial setup, run \`devctl down\` before retrying a failed start so leftover processes do not obscure the original failure.
+
+Once the service is healthy, use \`devctl attach\` for the TUI or \`devctl web start --print-url\` for the [web console](web.md). Run \`devctl down\` when you finish testing. Commit the shared configuration and document prerequisites for teammates.
+
+## Let an agent help
+
+The [devctl-onboard skill](../skills/devctl-onboard/SKILL.md) follows the same inventory, draft, validate, and runtime verification sequence. Follow [Agent skills](../skills/README.md) to install or reference it in your coding agent, then ask:
+
+> Onboard this repository to devctl. Inventory the real startup commands, ports, dependencies, and environment variable names. Follow devctl-onboard, keep secrets out of YAML, validate the configuration, and verify the smallest local profile. Report any missing prerequisites.
+
+You can also connect through MCP before a configuration exists:
+
+\`\`\`bash
+devctl mcp --on
+devctl mcp
+\`\`\`
+
+The second command prints connection details. In setup mode, an agent can read \`get_setup_guide\`, validate candidate text with \`validate_config\`, write the configuration, then call \`reload_config\`. Service startup becomes available once a valid configuration is loaded. See [MCP](mcp.md) for client setup and tool controls.
+
+## Related
+
+- [Quick start](quickstart.md)
+- [Examples & recipes](examples.md)
+- [Configuration](configuration.md)
+- [Troubleshooting](troubleshooting.md)
+` },
   { path: "docs/overview.md", title: "How it fits together", body: `# How it fits together
 
 \`devctl\` is one product with four faces on the same supervisor.
@@ -2498,6 +2732,8 @@ devctl
 
 With no config, the TUI opens **setup** instead of exiting: Enter writes a starter config, Esc leaves.
 
+For a guided path from existing startup commands to a validated configuration, follow [Onboard your repository](onboarding.md). For working stack patterns, see [Examples & recipes](examples.md).
+
 ## In the TUI
 
 ![The devctl dashboard after \`enter\` starts a profile — services healthy on the left, a live log stream on the right](assets/manual/tui-dashboard.png)
@@ -3022,54 +3258,13 @@ The same trace in the TUI: a ◎ marker on a log row opens a full-width waterfal
 
 ## Web UI
 
-A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
-TUI (\`start\` / \`stop\` / \`restart\` / profile start / proxy / reload / run task).
-Overview and Graph also switch a service's named environment overlay (\`set_service_environment\`)
-without restarting; a pending overlay shows a Restart button so you can apply it.
-It is off until you enable it. It binds loopback only (no CORS). The Host
-allowlist accepts loopback names (\`127.0.0.0/8\`, \`localhost\`, \`::1\`, including
-\`[::1]\`, a missing or remapped port, and \`https://localhost\`) so WSL, Dev
-Containers, and forwarded ports work; it still rejects machine hostnames and
-public origins. Mutating \`POST /api/control\` requires \`Authorization: Bearer\`
-with the per-bind token printed by \`devctl web start\`, plus a loopback \`http\` or
-\`https\` \`Origin\` or \`Referer\` and \`Content-Type: application/json\`. Open that
-printed URL so the SPA can store the token; it is not embedded in the HTML.
-\`devctl status\` and MCP \`get_status\` report the listener address without the
-token. The listener serves a bundled SPA plus \`GET /api/*\` shapers that match MCP
-redaction. Mutations go through \`POST /api/control\` to the same MCP tools
-(except \`exec_service\`). \`GET /api/update\` reports whether a newer GitHub Release
-exists; the SPA shows a banner with a copy-install-command action. Later hides it
-for this tab; Don't remind me stores that version in \`localStorage\`.
+The [Web console](web.md) provides service controls, a dependency graph, structured logs, and a trace waterfall for the same supervisor session. It is off by default. Start it and print the access link with:
 
-![The web console overview — KPI tiles (services, requests, errors, P95 latency, throughput), the services table with lifecycle controls, profiles, live proxy requests, and recent errors](assets/manual/web-overview.png)
-
-\`\`\`yaml
-web:
-  enabled: true                  # default: false
-  listen:
-    host: 127.0.0.1              # loopback only; 0.0.0.0 / :: are rejected
-    port: 18900                  # default 18900
+\`\`\`bash
+devctl web start --print-url
 \`\`\`
 
-\`devctl web start\` prints only the console **origin** by default (no token),
-even if the listener is already running from \`enabled: true\`. The control token
-travels in the URL **fragment** (\`#token=…\`, never sent as Referer or logged by
-proxies); run \`devctl web start --print-url\` to print the full one-time access
-link when you need it. \`devctl web status|stop\` and \`devctl status\` (the \`WEB\`
-line) report the listener without the token. Hash routes: \`#/services\`,
-\`#/traces\`, \`#/llm\`, \`#/graph\`, \`#/logs\`.
-Rebuild the embed with \`cd app && bun run build:web\` after editing \`app/web/\`.
-
-![The Graph page — a dependency topology (upstream → midstream → downstream) plus live signals: traffic and errors, proxy latency, and host CPU/memory](assets/manual/web-graph.png)
-
-![The Logs page — the structured record stream with per-service and per-level filter chips and trace ids](assets/manual/web-logs.png)
-
-Overview KPIs use lifetime totals (\`proxy.requestTotal\`, \`logs.seen\` /
-\`logs.seenErrors\`). Tables and the graph stay windowed: last 100 proxy
-requests, last 200 log rows from MCP, last 10s for rate/latency.
-
-Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
-route port.
+Open the printed link to authorize lifecycle controls. Plain \`devctl web start\` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
 
 ## Redaction
 
@@ -3506,5 +3701,95 @@ Integration tests that need Google stay skipped unless credentials are present.
 - [TUI](tui.md)
 - [How it fits together](overview.md)
 - [Contributing](../CONTRIBUTING.md)
+` },
+  { path: "docs/web.md", title: "Web console", body: `# Web console
+
+Operate your local stack and investigate requests in a browser. The web console shares the supervisor with the TUI, CLI, and MCP, so a service started in one appears in the others.
+
+![Web console overview with service health, lifecycle controls, profiles, proxy requests, and recent errors](assets/manual/web-overview.png)
+
+## Open your session
+
+From a repository with a valid devctl configuration:
+
+\`\`\`bash
+devctl web start --print-url
+\`\`\`
+
+Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. Plain \`devctl web start\` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use \`devctl start --profile <name>\`.
+
+The console is off by default and normally listens at \`http://127.0.0.1:18900\`. You can check or stop its listener independently:
+
+\`\`\`bash
+devctl web status
+devctl web stop
+\`\`\`
+
+Stopping the web listener leaves your services running. Use \`devctl down\` when you want to shut down the session.
+
+To enable the console whenever the supervisor starts, merge this section into your existing \`.devctl/config.yaml\`:
+
+\`\`\`yaml
+web:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 18900
+\`\`\`
+
+Run \`devctl config validate\` after editing, then \`devctl reload\` if the supervisor is already running. The port must differ from the proxy, token endpoint, OTLP receiver, and gRPC route ports. The listener accepts loopback addresses only. See [Security](security.md) for the access model.
+
+## Control services
+
+The overview combines service status, profiles, recent proxy requests, and errors. Start a profile to bring up a group, or use a service's start, stop, and restart controls. The console also exposes proxy controls, configuration reload, and named tasks.
+
+When a service defines [named environment overlays](environment.md#per-service-named-overlays), use its Env selector in Overview or Graph. The selection becomes pending until you restart the service; the console offers a Restart action to apply it.
+
+Lifecycle rules match the CLI: stopping a service also stops its dependents; restarting a service normally restarts only that service. See [Services](services.md#start-stop-restart) before stopping a shared dependency.
+
+## Explore the dependency graph
+
+![Dependency graph with service topology, traffic, errors, latency, and host resource charts](assets/manual/web-graph.png)
+
+Open Graph to see dependencies alongside current service state and runtime signals. Use it to understand which services sit upstream of a failure before deciding what to restart.
+
+The overview counters use lifetime totals for the current supervisor, while tables and charts show recent windows: the last 100 proxy requests, up to 200 log rows, and a 10-second rate/latency window. Those displays need not have identical totals.
+
+## Follow a request into its trace
+
+![Trace waterfall with spans across services and correlated logs](assets/manual/web-trace-waterfall.png)
+
+1. Find a request in the overview's recent proxy traffic, or open Traces.
+2. Open its trace to inspect the span waterfall and identify an error or slow operation.
+3. Inspect the correlated logs for the same trace to see what the service reported.
+4. Make your change, restart the affected service if needed, and repeat the request.
+
+The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP+JSON**, not protobuf or gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
+
+## Read logs and LLM calls
+
+![Structured logs with service and severity filters and trace identifiers](assets/manual/web-logs.png)
+
+Open Logs to filter records by service and severity, inspect structured attributes, and follow trace identifiers. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
+
+The LLM view shows calls collected from configured inspector sources. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
+
+## If something is missing
+
+| Symptom | Next step |
+|---|---|
+| Browser cannot connect | Run \`devctl web status\`, then \`devctl web start --print-url\`; use the address it prints. |
+| Pages load but controls fail | Reopen the full access link from \`devctl web start --print-url\`, especially after the listener restarts. |
+| Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
+| No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
+| Cannot bind the listener | Check for a port conflict with \`devctl doctor\` and choose an unused loopback port. |
+
+## Related
+
+- [Examples & recipes](examples.md)
+- [TUI](tui.md)
+- [CLI](cli.md)
+- [Telemetry](telemetry.md)
+- [LLM inspector](llm.md)
 ` },
 ];

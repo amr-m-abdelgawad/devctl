@@ -89,54 +89,13 @@ The same trace in the TUI: a ◎ marker on a log row opens a full-width waterfal
 
 ## Web UI
 
-A loopback Telemetry & Trace Explorer with the same lifecycle controls as the
-TUI (`start` / `stop` / `restart` / profile start / proxy / reload / run task).
-Overview and Graph also switch a service's named environment overlay (`set_service_environment`)
-without restarting; a pending overlay shows a Restart button so you can apply it.
-It is off until you enable it. It binds loopback only (no CORS). The Host
-allowlist accepts loopback names (`127.0.0.0/8`, `localhost`, `::1`, including
-`[::1]`, a missing or remapped port, and `https://localhost`) so WSL, Dev
-Containers, and forwarded ports work; it still rejects machine hostnames and
-public origins. Mutating `POST /api/control` requires `Authorization: Bearer`
-with the per-bind token printed by `devctl web start`, plus a loopback `http` or
-`https` `Origin` or `Referer` and `Content-Type: application/json`. Open that
-printed URL so the SPA can store the token; it is not embedded in the HTML.
-`devctl status` and MCP `get_status` report the listener address without the
-token. The listener serves a bundled SPA plus `GET /api/*` shapers that match MCP
-redaction. Mutations go through `POST /api/control` to the same MCP tools
-(except `exec_service`). `GET /api/update` reports whether a newer GitHub Release
-exists; the SPA shows a banner with a copy-install-command action. Later hides it
-for this tab; Don't remind me stores that version in `localStorage`.
+The [Web console](web.md) provides service controls, a dependency graph, structured logs, and a trace waterfall for the same supervisor session. It is off by default. Start it and print the access link with:
 
-![The web console overview — KPI tiles (services, requests, errors, P95 latency, throughput), the services table with lifecycle controls, profiles, live proxy requests, and recent errors](assets/manual/web-overview.png)
-
-```yaml
-web:
-  enabled: true                  # default: false
-  listen:
-    host: 127.0.0.1              # loopback only; 0.0.0.0 / :: are rejected
-    port: 18900                  # default 18900
+```bash
+devctl web start --print-url
 ```
 
-`devctl web start` prints only the console **origin** by default (no token),
-even if the listener is already running from `enabled: true`. The control token
-travels in the URL **fragment** (`#token=…`, never sent as Referer or logged by
-proxies); run `devctl web start --print-url` to print the full one-time access
-link when you need it. `devctl web status|stop` and `devctl status` (the `WEB`
-line) report the listener without the token. Hash routes: `#/services`,
-`#/traces`, `#/llm`, `#/graph`, `#/logs`.
-Rebuild the embed with `cd app && bun run build:web` after editing `app/web/`.
-
-![The Graph page — a dependency topology (upstream → midstream → downstream) plus live signals: traffic and errors, proxy latency, and host CPU/memory](assets/manual/web-graph.png)
-
-![The Logs page — the structured record stream with per-service and per-level filter chips and trace ids](assets/manual/web-logs.png)
-
-Overview KPIs use lifetime totals (`proxy.requestTotal`, `logs.seen` /
-`logs.seenErrors`). Tables and the graph stay windowed: last 100 proxy
-requests, last 200 log rows from MCP, last 10s for rate/latency.
-
-Its port must differ from the proxy, token-endpoint, OTLP receiver, and any gRPC
-route port.
+Open the printed link to authorize lifecycle controls. Plain `devctl web start` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
 
 ## Redaction
 

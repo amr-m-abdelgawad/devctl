@@ -14,6 +14,8 @@ devctl
 
 With no config, the TUI opens **setup** instead of exiting: Enter writes a starter config, Esc leaves.
 
+For a guided path from existing startup commands to a validated configuration, follow [Onboard your repository](onboarding.md). For working stack patterns, see [Examples & recipes](examples.md).
+
 ## In the TUI
 
 ![The devctl dashboard after `enter` starts a profile — services healthy on the left, a live log stream on the right](assets/manual/tui-dashboard.png)

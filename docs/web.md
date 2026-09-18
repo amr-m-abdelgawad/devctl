@@ -1,0 +1,89 @@
+# Web console
+
+Operate your local stack and investigate requests in a browser. The web console shares the supervisor with the TUI, CLI, and MCP, so a service started in one appears in the others.
+
+![Web console overview with service health, lifecycle controls, profiles, proxy requests, and recent errors](assets/manual/web-overview.png)
+
+## Open your session
+
+From a repository with a valid devctl configuration:
+
+```bash
+devctl web start --print-url
+```
+
+Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. Plain `devctl web start` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use `devctl start --profile <name>`.
+
+The console is off by default and normally listens at `http://127.0.0.1:18900`. You can check or stop its listener independently:
+
+```bash
+devctl web status
+devctl web stop
+```
+
+Stopping the web listener leaves your services running. Use `devctl down` when you want to shut down the session.
+
+To enable the console whenever the supervisor starts, merge this section into your existing `.devctl/config.yaml`:
+
+```yaml
+web:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 18900
+```
+
+Run `devctl config validate` after editing, then `devctl reload` if the supervisor is already running. The port must differ from the proxy, token endpoint, OTLP receiver, and gRPC route ports. The listener accepts loopback addresses only. See [Security](security.md) for the access model.
+
+## Control services
+
+The overview combines service status, profiles, recent proxy requests, and errors. Start a profile to bring up a group, or use a service's start, stop, and restart controls. The console also exposes proxy controls, configuration reload, and named tasks.
+
+When a service defines [named environment overlays](environment.md#per-service-named-overlays), use its Env selector in Overview or Graph. The selection becomes pending until you restart the service; the console offers a Restart action to apply it.
+
+Lifecycle rules match the CLI: stopping a service also stops its dependents; restarting a service normally restarts only that service. See [Services](services.md#start-stop-restart) before stopping a shared dependency.
+
+## Explore the dependency graph
+
+![Dependency graph with service topology, traffic, errors, latency, and host resource charts](assets/manual/web-graph.png)
+
+Open Graph to see dependencies alongside current service state and runtime signals. Use it to understand which services sit upstream of a failure before deciding what to restart.
+
+The overview counters use lifetime totals for the current supervisor, while tables and charts show recent windows: the last 100 proxy requests, up to 200 log rows, and a 10-second rate/latency window. Those displays need not have identical totals.
+
+## Follow a request into its trace
+
+![Trace waterfall with spans across services and correlated logs](assets/manual/web-trace-waterfall.png)
+
+1. Find a request in the overview's recent proxy traffic, or open Traces.
+2. Open its trace to inspect the span waterfall and identify an error or slow operation.
+3. Inspect the correlated logs for the same trace to see what the service reported.
+4. Make your change, restart the affected service if needed, and repeat the request.
+
+The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP+JSON**, not protobuf or gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
+
+## Read logs and LLM calls
+
+![Structured logs with service and severity filters and trace identifiers](assets/manual/web-logs.png)
+
+Open Logs to filter records by service and severity, inspect structured attributes, and follow trace identifiers. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
+
+The LLM view shows calls collected from configured inspector sources. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
+
+## If something is missing
+
+| Symptom | Next step |
+|---|---|
+| Browser cannot connect | Run `devctl web status`, then `devctl web start --print-url`; use the address it prints. |
+| Pages load but controls fail | Reopen the full access link from `devctl web start --print-url`, especially after the listener restarts. |
+| Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
+| No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
+| Cannot bind the listener | Check for a port conflict with `devctl doctor` and choose an unused loopback port. |
+
+## Related
+
+- [Examples & recipes](examples.md)
+- [TUI](tui.md)
+- [CLI](cli.md)
+- [Telemetry](telemetry.md)
+- [LLM inspector](llm.md)

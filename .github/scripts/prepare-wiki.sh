@@ -66,10 +66,13 @@ cat > "${dest}/_Sidebar.md" <<EOF
 * [How it fits together](overview)
 * [Installation](installation)
 * [Quick start](quickstart)
+* [Onboard your repository](onboarding)
+* [Examples & recipes](examples)
 * [Developer setup](developer-setup)
 * [Agent skills](${blob}/skills/README.md)
 
 **Use**
+* [Web console](web)
 * [TUI](tui)
 * [CLI](cli)
 * [MCP](mcp)

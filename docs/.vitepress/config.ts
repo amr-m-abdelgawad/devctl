@@ -65,6 +65,9 @@ const siteConfig = withMermaid({
       {
         text: 'Guides',
         items: [
+          { text: 'Onboarding', link: '/onboarding' },
+          { text: 'Examples & recipes', link: '/examples' },
+          { text: 'Web console', link: '/web' },
           { text: 'TUI', link: '/tui' },
           { text: 'CLI', link: '/cli' },
           { text: 'MCP', link: '/mcp' },
@@ -97,6 +100,8 @@ const siteConfig = withMermaid({
           { text: 'How it fits together', link: '/overview' },
           { text: 'Installation', link: '/installation' },
           { text: 'Quick start', link: '/quickstart' },
+          { text: 'Onboard your repository', link: '/onboarding' },
+          { text: 'Examples & recipes', link: '/examples' },
           { text: 'Developer setup', link: '/developer-setup' },
           { text: 'Demo platform', link: `${blob}/examples/demo-platform/README.md` },
           { text: 'Agent skills', link: `${blob}/skills/README.md` }
@@ -106,6 +111,7 @@ const siteConfig = withMermaid({
         text: 'Using it',
         collapsed: false,
         items: [
+          { text: 'Web console', link: '/web' },
           { text: 'TUI', link: '/tui' },
           { text: 'CLI', link: '/cli' },
           { text: 'MCP', link: '/mcp' },

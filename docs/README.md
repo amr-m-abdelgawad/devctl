@@ -11,6 +11,8 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [How it fits together](overview.md) | Supervisor, TUI, CLI, MCP, and what lives on disk |
 | [Installation](installation.md) | npm, release binaries, source install, optional `gcloud` |
 | [Quick start](quickstart.md) | First session: setup → doctor → TUI |
+| [Onboard your repository](onboarding.md) | Inventory, configure, validate, and verify your own stack |
+| [Examples & recipes](examples.md) | Frontend, workers, containers, proxy, and tracing workflows |
 | [Developer setup](developer-setup.md) | Day-to-day loop without admin privileges |
 | [Demo platform](../examples/demo-platform/README.md) | Local invoicing example (no Google Cloud; opt-in Docker `data` profile) |
 | [Agent skills](../skills/README.md) | Onboard a repo: survey what it runs and author `.devctl/` |
@@ -19,6 +21,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 
 | Page | Side |
 |------|------|
+| [Web console](web.md) | Browser controls, dependency graph, logs, traces, and LLM calls |
 | [TUI](tui.md) | Screens, keys, slash commands, themes, settings |
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
