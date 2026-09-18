@@ -37,7 +37,7 @@ function OverflowMark(props: { palette: Palette; dir: "left" | "right" }) {
   const { palette, dir } = props;
   return (
     <box width={2} height={1} flexShrink={0} overflow="hidden">
-      <text fg={palette.muted}>{dir === "left" ? "‹" : "›"}</text>
+      <text fg={palette.muted} selectable={false}>{dir === "left" ? "‹" : "›"}</text>
     </box>
   );
 }
@@ -136,7 +136,7 @@ export function Chip(props: {
       flexShrink={0}
       onMouseDown={onMouseDown}
     >
-      <text fg={fg ?? colors.fg}>{label}</text>
+      <text fg={fg ?? colors.fg} selectable={false}>{label}</text>
     </box>
   );
 }

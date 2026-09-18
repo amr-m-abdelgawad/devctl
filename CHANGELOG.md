@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Web console **Traffic** view (`#/traffic` and `#/traffic/:id`) inspects captured proxy hops the same way; overview request paths link into a hop when a body was captured.
 - Demo platform (`examples/demo-platform`) routes local HTTP hops through the proxy with `inspect.enabled`, and ships an OpenAI-compatible **LLM stub** (`type: proxy`, no LiteLLM) so the traffic and LLM inspectors have live bodies without Google or a cloud key.
 
+### Fixed
+
+- TUI tab chips (nav, log service filters, and other chip buttons) no longer start a text selection highlight when you click them. Drag-to-copy still works on logs and inspector bodies.
+
 ## [0.14.1] - 2026-09-18
 
 ### Changed
