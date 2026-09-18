@@ -95,7 +95,7 @@ The [Web console](web.md) provides service controls, a dependency graph, structu
 devctl web start --print-url
 ```
 
-Open the printed link to authorize lifecycle controls. Plain `devctl web start` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
+Open the printed link to authorize lifecycle controls. The browser keeps that token after the first visit (7-day TTL). Plain `devctl web start` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
 
 ## Redaction
 

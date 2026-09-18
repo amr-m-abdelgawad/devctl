@@ -558,7 +558,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Web
 
-\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full one-time link when you need it. \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Web console](web.md).
+\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full access link when you need it. After the first authorized visit, the browser keeps the token (7-day TTL, same as MCP). \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Web console](web.md).
 
 ## Exit codes
 
@@ -2374,7 +2374,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 
 ## Web
 
-An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. \`devctl web start\` prints a URL with a per-bind token; \`devctl status\` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
+An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. \`devctl web start\` prints a URL with a session token (reused across listener restarts for 7 days); \`devctl status\` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
 
 ## Configuration vs preferences
 
@@ -3047,14 +3047,14 @@ flowchart TB
   ok --> web["Web UI"]
 \`\`\`
 
-Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopback name (\`127.0.0.0/8\`, \`localhost\`, \`::1\`) — the port may differ, so WSL / Dev Container forwarding still works — and \`POST /api/control\` needs a loopback \`http\` or \`https\` Origin or Referer plus a per-bind bearer token.
+Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopback name (\`127.0.0.0/8\`, \`localhost\`, \`::1\`) — the port may differ, so WSL / Dev Container forwarding still works — and \`POST /api/control\` needs a loopback \`http\` or \`https\` Origin or Referer plus a session bearer token.
 
 | Listener | Auth at the door |
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
 | **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer. Query \`identity\`/\`audience\` must match a declared route or service identity. Google mints are rate-limited. Returns \`access_token\` to that caller |
 | **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (session token, 7-day TTL, \`devctl mcp --rotate\`). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
-| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). \`POST /api/control\` needs \`Authorization: Bearer\` (per-bind token from \`devctl web start\`) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\`. HTML is not framed. \`get_status\` does not include the token |
+| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). Every \`/api/*\` route needs \`Authorization: Bearer\` (session token, 7-day TTL, \`~/.devctl/state/<repoID>/web-token\`; the SPA keeps it in localStorage after the first \`#token=\` visit) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\` on \`POST /api/control\`. HTML is not framed. \`get_status\` does not include the token |
 
 Host child processes always get \`DEVCTL_INTERNAL_TOKEN\`. They only get \`DEVCTL_TOKEN_URL\` when \`proxy.token_endpoint.enabled\` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 
@@ -3110,7 +3110,7 @@ Two checkouts do not share a lock. \`repoID\` is \`sha256(canonical repo root)\`
 
 | Path | Mode / note |
 |------|-------------|
-| \`~/.devctl/state/<repoID>/\` | \`state.json\`, \`devctl.lock\`, \`rpc-token\`, and on Unix \`devctl.sock\`. Windows attach uses \`\\\\.\\pipe\\devctl-<repoID>\` plus the same \`rpc-token\` |
+| \`~/.devctl/state/<repoID>/\` | \`state.json\`, \`devctl.lock\`, \`rpc-token\`, \`mcp-token\`, \`web-token\`, and on Unix \`devctl.sock\`. Windows attach uses \`\\\\.\\pipe\\devctl-<repoID>\` plus the same \`rpc-token\`. MCP and web bearers last 7 days (mode \`0600\`) |
 | leftover \`~/.devctl/sessions/\` | Migrated once |
 | Stale lock from a dead PID | Replaced |
 | \`~/.devctl/credentials/\` | Directory \`0700\`, files \`0600\` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
@@ -3129,6 +3129,7 @@ Override the home directory with \`DEVCTL_HOME\`.
 - Anyone who can reach your user account can reach \`127.0.0.1\` listeners.
 - Supervisor RPC requires the per-checkout \`rpc-token\` (Unix socket mode \`0700\` plus the token; Windows named pipe plus the token).
 - MCP is off until you flip it. Treat the copied bearer token like a session secret; it lasts 7 days or until \`devctl mcp --rotate\`.
+- Web UI is off until you flip it. Treat the control token like a session secret; it lasts 7 days (file plus browser \`localStorage\`) after the first \`#token=\` visit.
 - \`/reveal\` and log export write what you can already see on that machine.
 - Doctor never enables Google APIs or grants IAM.
 
@@ -3474,7 +3475,7 @@ The [Web console](web.md) provides service controls, a dependency graph, structu
 devctl web start --print-url
 \`\`\`
 
-Open the printed link to authorize lifecycle controls. Plain \`devctl web start\` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
+Open the printed link to authorize lifecycle controls. The browser keeps that token after the first visit (7-day TTL). Plain \`devctl web start\` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
 
 ## Redaction
 
@@ -3927,7 +3928,7 @@ From a repository with a valid devctl configuration:
 devctl web start --print-url
 \`\`\`
 
-Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. Plain \`devctl web start\` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use \`devctl start --profile <name>\`.
+Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. The browser stores the token after the first authorized visit (7-day TTL, same as MCP), so closing the tab and opening the same origin again stays authorized. Plain \`devctl web start\` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use \`devctl start --profile <name>\`.
 
 The console is off by default and normally listens at \`http://127.0.0.1:18900\`. You can check or stop its listener independently:
 
@@ -3994,7 +3995,7 @@ The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspe
 | Symptom | Next step |
 |---|---|
 | Browser cannot connect | Run \`devctl web status\`, then \`devctl web start --print-url\`; use the address it prints. |
-| Pages load but controls fail | Reopen the full access link from \`devctl web start --print-url\`, especially after the listener restarts. |
+| Pages load but controls fail | Reopen the access link from \`devctl web start --print-url\` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
 | No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
 | Cannot bind the listener | Check for a port conflict with \`devctl doctor\` and choose an unused loopback port. |

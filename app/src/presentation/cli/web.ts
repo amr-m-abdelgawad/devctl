@@ -43,7 +43,7 @@ export function addWeb(root: Command, runtime: ClientRuntime): void {
         }
         const origin = started.url.split("#")[0] ?? started.url;
         writeOut(`web console: ${origin}\n`);
-        writeOut("open it with the one-time access link (contains the control token): devctl web start --print-url\n");
+        writeOut("first visit needs the access link (contains the control token): devctl web start --print-url\n");
       } finally {
         await ctrl.close();
       }

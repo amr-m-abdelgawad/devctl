@@ -1,7 +1,16 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig } from "../../domain/config/types.ts";
+import { defaultConfig, type DevctlConfig } from "../../domain/config/types.ts";
 import type { McpHost, WebListener } from "../../ports/web-host.ts";
-import { WebCoordinator } from "./web-coordinator.ts";
+import { WebCoordinator, type WebCoordinatorDeps } from "./web-coordinator.ts";
+
+function tmpHome(): string {
+  const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-web-coord-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  process.env.DEVCTL_HOME = dir;
+  return dir;
+}
 
 function fakeListener(opts: { host?: string; port: number }): WebListener {
   return {
@@ -13,6 +22,18 @@ function fakeListener(opts: { host?: string; port: number }): WebListener {
   };
 }
 
+function coordinator(cfg: DevctlConfig, extra: Partial<WebCoordinatorDeps> = {}) {
+  const repo = tmpHome();
+  return new WebCoordinator({
+    repoRoot: () => repo,
+    cfg: () => cfg,
+    createListener: (opts) => fakeListener(opts),
+    hostApi: () => ({}) as McpHost,
+    log: () => undefined,
+    ...extra,
+  });
+}
+
 describe("web coordinator", () => {
   test("passes the configured listen host and a control token to the listener factory", async () => {
     const cfg = defaultConfig();
@@ -21,13 +42,11 @@ describe("web coordinator", () => {
     cfg.web.listen.port = 18901;
     const logs: string[] = [];
     let captured: { host?: string; port: number; token: string } | undefined;
-    const web = new WebCoordinator({
-      cfg: () => cfg,
+    const web = coordinator(cfg, {
       createListener: (opts) => {
         captured = { host: opts.host, port: opts.port, token: opts.token };
         return fakeListener(opts);
       },
-      hostApi: () => ({}) as McpHost,
       log: (_service, _level, message) => logs.push(message),
     });
     await web.start();
@@ -44,15 +63,22 @@ describe("web coordinator", () => {
     const cfg = defaultConfig();
     cfg.web.enabled = true;
     cfg.web.listen.port = 18900;
-    const web = new WebCoordinator({
-      cfg: () => cfg,
-      createListener: (opts) => fakeListener(opts),
-      hostApi: () => ({}) as McpHost,
-      log: () => undefined,
-    });
+    const web = coordinator(cfg);
     const first = await web.startExplicit();
     const second = await web.startExplicit();
     expect(first).toBe(second);
+    expect(first).toContain("#token=");
+  });
+
+  test("stop then start reuses the persisted control token", async () => {
+    const cfg = defaultConfig();
+    cfg.web.enabled = true;
+    cfg.web.listen.port = 18900;
+    const web = coordinator(cfg);
+    const first = await web.startExplicit();
+    await web.stop();
+    const second = await web.startExplicit();
+    expect(second).toBe(first);
     expect(first).toContain("#token=");
   });
 });

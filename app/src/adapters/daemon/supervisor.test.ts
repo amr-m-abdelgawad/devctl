@@ -944,6 +944,10 @@ services:
       expect(denied.status).toBe(401);
       await sup.dispatch("web_stop", null);
       expect(sup.snapshot().web?.running).toBe(false);
+      const restarted = await sup.dispatch("web_start", null) as { url?: string };
+      expect(restarted.url).toBe(startedRpc.url);
+      await sup.dispatch("web_stop", null);
+      expect(sup.snapshot().web?.running).toBe(false);
     } finally {
       await sup.shutdown(false);
     }

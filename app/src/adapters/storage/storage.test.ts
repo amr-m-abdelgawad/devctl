@@ -2,7 +2,7 @@ import { spawn } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readOrCreateWebToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, webTokenPath, writePersistedState } from "./storage.ts";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 
 describe("session storage", () => {
@@ -66,6 +66,31 @@ describe("session storage", () => {
     const rotated = rotateMcpToken("/repo");
     expect(rotated).not.toBe(reminted);
     expect(readOrCreateMcpToken("/repo")).toBe(rotated);
+  });
+
+  test("web token survives listener restarts instead of rotating every bind", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-web-token-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    expect(existsSync(webTokenPath("/repo"))).toBe(false);
+    const first = readOrCreateWebToken("/repo");
+    expect(first.length).toBeGreaterThan(0);
+    expect(existsSync(webTokenPath("/repo"))).toBe(true);
+    expect(readOrCreateWebToken("/repo")).toBe(first);
+    expect(readOrCreateWebToken("/other-repo")).not.toBe(first);
+    writeFileSync(webTokenPath("/repo"), "");
+    expect(readOrCreateWebToken("/repo")).not.toBe(first);
+  });
+
+  test("web token remints after TTL like MCP", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-web-token-ttl-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    const first = readOrCreateWebToken("/repo");
+    const path = webTokenPath("/repo");
+    const staleSec = (Date.now() - (MCP_TOKEN_TTL_MS + 5_000)) / 1000;
+    utimesSync(path, staleSec, staleSec);
+    expect(readOrCreateWebToken("/repo")).not.toBe(first);
   });
 
   test("RPC token is reused across supervisor restarts and isolated per repo", () => {

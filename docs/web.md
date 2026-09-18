@@ -12,7 +12,7 @@ From a repository with a valid devctl configuration:
 devctl web start --print-url
 ```
 
-Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. Plain `devctl web start` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use `devctl start --profile <name>`.
+Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. The browser stores the token after the first authorized visit (7-day TTL, same as MCP), so closing the tab and opening the same origin again stays authorized. Plain `devctl web start` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use `devctl start --profile <name>`.
 
 The console is off by default and normally listens at `http://127.0.0.1:18900`. You can check or stop its listener independently:
 
@@ -79,7 +79,7 @@ The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector
 | Symptom | Next step |
 |---|---|
 | Browser cannot connect | Run `devctl web status`, then `devctl web start --print-url`; use the address it prints. |
-| Pages load but controls fail | Reopen the full access link from `devctl web start --print-url`, especially after the listener restarts. |
+| Pages load but controls fail | Reopen the access link from `devctl web start --print-url` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
 | No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
 | Cannot bind the listener | Check for a port conflict with `devctl doctor` and choose an unused loopback port. |

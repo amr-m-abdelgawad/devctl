@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - TUI tab chips (nav, log service filters, and other chip buttons) no longer start a text selection highlight when you click them. Drag-to-copy still works on logs and inspector bodies.
+- Web console authorization now persists like MCP: the control token is reused from `~/.devctl/state/<repoID>/web-token` across listener restarts (7-day TTL), and the SPA stores it in `localStorage` so closing the tab and opening the same origin again stays authorized. `devctl web start --print-url` is still needed for the first visit, after the TTL, or when a different repository is using that port.
 
 ## [0.14.1] - 2026-09-18
 

@@ -320,8 +320,15 @@ export function randomSecret(): string {
   return randomBytes(24).toString("hex");
 }
 
+const MCP_TOKEN_FILE = "mcp-token";
+const WEB_TOKEN_FILE = "web-token";
+
 export function mcpTokenPath(repoRoot: string): string {
-  return join(sessionDir(repoRoot), "mcp-token");
+  return join(sessionDir(repoRoot), MCP_TOKEN_FILE);
+}
+
+export function webTokenPath(repoRoot: string): string {
+  return join(sessionDir(repoRoot), WEB_TOKEN_FILE);
 }
 
 export function rpcTokenPath(repoRoot: string): string {
@@ -346,31 +353,48 @@ export function readOrCreateRpcToken(repoRoot: string): string {
   return token;
 }
 
-export function mcpTokenAgeMs(repoRoot: string, now = Date.now()): number | undefined {
-  const path = mcpTokenPath(repoRoot);
+function ttlTokenAgeMs(path: string, now: number): number | undefined {
   if (!existsSync(path)) {
     return undefined;
   }
   return Math.max(0, now - statSync(path).mtimeMs);
 }
 
+function rotateTtlToken(path: string): string {
+  const token = randomSecret();
+  writeFileSecure(path, token);
+  return token;
+}
+
+function readOrCreateTtlToken(path: string, ttlMs: number, now: number): string {
+  if (existsSync(path)) {
+    const existing = readFileSync(path, "utf8").trim();
+    const age = now - statSync(path).mtimeMs;
+    if (existing !== "" && age < ttlMs) {
+      return existing;
+    }
+  }
+  return rotateTtlToken(path);
+}
+
+export function mcpTokenAgeMs(repoRoot: string, now = Date.now()): number | undefined {
+  return ttlTokenAgeMs(mcpTokenPath(repoRoot), now);
+}
+
 // Pasted into external agent configs, so the token survives daemon restarts
 // until TTL (7 days) or an explicit rotate. A leaked snippet must not stay
 // valid forever.
 export function readOrCreateMcpToken(repoRoot: string, now = Date.now()): string {
-  const path = mcpTokenPath(repoRoot);
-  if (existsSync(path)) {
-    const existing = readFileSync(path, "utf8").trim();
-    const age = now - statSync(path).mtimeMs;
-    if (existing !== "" && age < MCP_TOKEN_TTL_MS) {
-      return existing;
-    }
-  }
-  return rotateMcpToken(repoRoot);
+  return readOrCreateTtlToken(mcpTokenPath(repoRoot), MCP_TOKEN_TTL_MS, now);
 }
 
 export function rotateMcpToken(repoRoot: string): string {
-  const token = randomSecret();
-  writeFileSecure(mcpTokenPath(repoRoot), token);
-  return token;
+  return rotateTtlToken(mcpTokenPath(repoRoot));
+}
+
+// Same 7-day TTL as MCP. The SPA keeps the token in localStorage after the
+// first `#token=` visit, so reminting on every web bind would treat a
+// reopened tab as unauthorized.
+export function readOrCreateWebToken(repoRoot: string, now = Date.now()): string {
+  return readOrCreateTtlToken(webTokenPath(repoRoot), MCP_TOKEN_TTL_MS, now);
 }

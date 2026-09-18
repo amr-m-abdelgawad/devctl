@@ -258,6 +258,7 @@ export class Supervisor {
       persistState: () => this.persistState(),
     });
     this.web = new WebCoordinator({
+      repoRoot: () => this.cfg.repoRoot,
       cfg: () => this.cfg,
       createListener: deps.createWebListener,
       hostApi: () => this.asMcpHost(),

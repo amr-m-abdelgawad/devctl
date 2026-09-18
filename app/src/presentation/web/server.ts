@@ -153,7 +153,7 @@ export class WebHttpServer {
       writeMethodNotAllowed(res, ALLOW_POST);
       return;
     }
-    // Every data-returning /api/* read requires the per-bind bearer and a
+    // Every data-returning /api/* read requires the session bearer and a
     // loopback peer, matching POST /api/control and the MCP/token endpoints.
     // Only the HTML shell at "/" is anonymous; logs, config, traces, and LLM
     // bodies are not. Non-/api paths fall through to 404 without a token check.

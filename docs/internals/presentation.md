@@ -98,7 +98,7 @@ Default-off: `exec_service` (opt in via TUI `mcp_enabled_tools`). Deny-list: `mc
 
 ## Web UI — `presentation/web/` + `app/web/`
 
-`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, control POSTs including `set_service_environment`). Same bearer and loopback rules. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm, traffic). Rebuild assets after UI changes.
+`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, control POSTs including `set_service_environment`). Same bearer and loopback rules. The token is disk-backed (`web-token`, 7-day TTL) and the SPA persists it in `localStorage` after the first `#token=` visit. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm, traffic). Rebuild assets after UI changes.
 
 `web.control.ts` / `api.ts` talk to those HTTP routes. This is not a second orchestrator.
 

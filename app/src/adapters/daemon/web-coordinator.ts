@@ -1,8 +1,9 @@
 import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
-import { randomSecret } from "../storage/storage.ts";
+import { readOrCreateWebToken } from "../storage/storage.ts";
 
 export type WebCoordinatorDeps = {
+  repoRoot: () => string;
   cfg: () => DevctlConfig;
   createListener: WebListenerFactory;
   hostApi: () => McpHost;
@@ -11,11 +12,12 @@ export type WebCoordinatorDeps = {
 
 export class WebCoordinator {
   private listener?: WebListener;
-  private token = "";
+  private token: string;
   private readonly deps: WebCoordinatorDeps;
 
   constructor(deps: WebCoordinatorDeps) {
     this.deps = deps;
+    this.token = readOrCreateWebToken(deps.repoRoot());
   }
 
   get instance(): WebListener | undefined {
@@ -57,7 +59,6 @@ export class WebCoordinator {
   async stop(): Promise<void> {
     await this.listener?.stop();
     this.listener = undefined;
-    this.token = "";
   }
 
   private async bind(): Promise<void> {
@@ -65,7 +66,7 @@ export class WebCoordinator {
       return;
     }
     const listen = this.deps.cfg().web.listen;
-    this.token = randomSecret();
+    this.token = readOrCreateWebToken(this.deps.repoRoot());
     this.listener = this.deps.createListener({
       host: listen.host || LOCALHOST,
       port: listen.port,

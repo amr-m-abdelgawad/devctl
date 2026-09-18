@@ -14,14 +14,23 @@ import type {
   TrafficCallsPayload,
   UpdateCheckPayload,
 } from "./types.ts";
-import { controlAuthHeaders } from "./session.ts";
+import { controlAuthHeaders, forgetControlToken } from "./session.ts";
+
+const HTTP_UNAUTHORIZED = 401;
+
+function rejectUnlessOk(res: Response, fallback: string, bodyError?: string): void {
+  if (res.status === HTTP_UNAUTHORIZED) {
+    forgetControlToken();
+  }
+  if (!res.ok) {
+    throw new Error(bodyError || `${res.status} ${fallback}`);
+  }
+}
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: controlAuthHeaders() });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
-    throw new Error(body.error || `${res.status} ${path}`);
-  }
+  const body = res.ok ? undefined : await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+  rejectUnlessOk(res, path, body?.error);
   return res.json() as Promise<T>;
 }
 
@@ -113,11 +122,9 @@ export async function postControl(tool: ControlTool, args: ControlArgs = {}): Pr
       throw new Error(text || `${res.status} /api/control`);
     }
   }
-  if (!res.ok) {
-    const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
-      ? body.error
-      : `${res.status} /api/control`;
-    throw new Error(message);
-  }
+  const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
+    ? body.error
+    : undefined;
+  rejectUnlessOk(res, "/api/control", message);
   return body;
 }
