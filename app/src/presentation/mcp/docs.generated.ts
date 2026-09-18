@@ -123,6 +123,127 @@ See [examples/admin-iam.yaml](../examples/admin-iam.yaml) for a permission-distr
 
 \`devctl\` is a modular monolith with ports-and-adapters layering. The process model is unchanged: the CLI and TUI talk to a long-lived supervisor over a local socket; MCP and the web UI use supervisor-managed HTTP listeners. This page is the living layer map. For the file-by-file source map, see [Internals](internals/index.md).
 
+## System map
+
+These diagrams show **runtime calls, composition, and data flow**, not permitted TypeScript imports. Solid arrows follow the labeled relationship; dotted arrows identify an implementation or optional provider. The [layer rules](#layers) below still govern source dependencies.
+
+### Control and service lifecycle
+
+The CLI and TUI reach the daemon over local RPC. MCP and the web console are HTTP listeners **inside the daemon**: they receive injected host APIs and do not make a second socket connection through the RPC server. Bootstrap constructs the implementations and injects the contracts.
+
+\`\`\`mermaid
+flowchart TD
+  entry["devctl entrypoint"]
+  entry -->|client mode| client
+  entry -->|daemon mode| boot
+
+  subgraph client_process["Client process"]
+    client["Client bootstrap"]
+    surfaces["CLI / OpenTUI"]
+    controller["Controller / RPC client"]
+    client -->|wires| surfaces
+    surfaces -->|injected Controller| controller
+  end
+
+  subgraph daemon_process["Daemon process — one supervisor per repository"]
+    boot["Daemon bootstrap"]
+    rpc["Local RPC server"]
+    mcp["MCP HTTP listener"]
+    web["Web HTTP listener"]
+    supervisor["Supervisor / session state"]
+    config["Config pipeline"]
+    commands["Application commands"]
+    orchestrator["Service orchestrator"]
+    domain["Domain policies"]
+    runtime["ProcessRuntime port"]
+    processes["Process runtime adapter<br/>host processes"]
+    containers["Docker / Podman runner"]
+
+    boot -->|composes and injects| supervisor
+    rpc -->|dispatches requests| supervisor
+    mcp -->|injected host API| supervisor
+    web -->|injected host API| supervisor
+    supervisor -->|loads / reloads| config
+    supervisor -->|delegates mutations| commands
+    commands -->|service lifecycle| orchestrator
+    orchestrator -->|applies| domain
+    orchestrator -->|launch / stop through| runtime
+    runtime -.->|implemented by| processes
+    processes -->|container workloads| containers
+  end
+
+  controller -->|socket / named pipe| rpc
+  agent["Coding agent"] -->|loopback HTTP| mcp
+  browser["Browser"] -->|loopback HTTP| web
+  click entry "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/bin.ts"
+  click client "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/bootstrap/client.ts"
+  click controller "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/rpc/controller.ts"
+  click boot "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/bootstrap/daemon.ts"
+  click rpc "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/rpc/server.ts"
+  click mcp "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/presentation/mcp/server.ts"
+  click web "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/presentation/web/server.ts"
+  click supervisor "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/daemon/supervisor.ts"
+  click commands "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/application/commands.ts"
+  click orchestrator "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/application/orchestrator.ts"
+  click domain "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/domain/service/policies.ts"
+  click runtime "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/ports/process-runtime.ts"
+  click processes "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/process/processes.ts"
+  click containers "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/containers/containers.ts"
+  click config "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/config/index.ts"
+\`\`\`
+
+The supervisor owns session state and delegates lifecycle actions through injected application commands. The orchestrator applies domain policies and calls the \`ProcessRuntime\` port; its adapter handles host processes and delegates container workloads to the Docker/Podman runner. The diagram's port-to-adapter arrow describes runtime wiring, not an import from the port into its implementation.
+
+### Identity and observability
+
+\`\`\`mermaid
+flowchart TD
+  supervisor["Supervisor / coordinators"]
+  proxy["Loopback HTTP / gRPC proxy"]
+  identity["Token providers and cache<br/>Google / IAP"]
+  oidc["Optional OIDC plugin"]
+  output["Host / container output"]
+  logs["Log store<br/>optional disk persistence"]
+  otlp["OTLP HTTP+JSON receiver"]
+  spans["In-memory span store"]
+
+  supervisor -->|manages| proxy
+  proxy -->|requests credentials| identity
+  oidc -.->|registers token provider| identity
+  output -->|lifecycle log callbacks| logs
+  otlp -->|redacted log records| logs
+  otlp -->|trace spans| spans
+  proxy -->|request logs| logs
+  proxy -->|request spans| spans
+  supervisor -->|queries via store ports| logs
+  supervisor -->|queries via store ports| spans
+  click supervisor "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/daemon/supervisor.ts"
+  click proxy "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/daemon/proxy-coordinator.ts"
+  click identity "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/google/token.ts"
+  click oidc "https://github.com/amr-m-abdelgawad/devctl/blob/main/plugins/oidc/index.ts"
+  click logs "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/storage/worker-log-store.ts"
+  click otlp "https://github.com/amr-m-abdelgawad/devctl/blob/main/app/src/adapters/telemetry/otlp-http.ts"
+\`\`\`
+
+Log records and spans have separate stores. Process output reaches logging through lifecycle callbacks, while the OTLP receiver accepts logs and spans over HTTP+JSON. The proxy records request telemetry and requests credentials from the token subsystem; optional plugins can register additional token providers. Coordinators and ingestion paths are abbreviated here; see [Logs, telemetry, and LLM](internals/logs-telemetry.md) for the complete data path, including the separate LLM call store.
+
+### Follow the map into the code
+
+Linked diagram nodes open their source on GitHub. These guides provide the same navigation when viewing the diagram in a renderer that disables node links:
+
+| Area | Read next |
+|---|---|
+| Entrypoint, client, and daemon composition | [Bootstrap](internals/bootstrap.md) and [Process model](internals/process-model.md) |
+| CLI/TUI transport and daemon HTTP listeners | [RPC](internals/rpc.md) and [Presentation](internals/presentation.md) |
+| Commands, domain policies, and runtime contracts | [Application](internals/application.md), [Domain](internals/domain.md), and [Ports](internals/ports.md) |
+| Host processes and containers | [Runtime](internals/runtime.md) |
+| Configuration loading and reload | [Config pipeline](internals/config-pipeline.md) |
+| Credentials and proxy traffic | [Identity and proxy](internals/identity-proxy.md) |
+| Logs, spans, persistence, and LLM calls | [Logs, telemetry, and LLM](internals/logs-telemetry.md) |
+| npm wrapper and executable distribution | [Packaging](internals/packaging.md) |
+
+Packaging happens before execution, so it is documented separately from the running session. Both diagrams use the site's light/dark theme instead of fixed node colors.
+
 ## Layers
 
 \`\`\`text

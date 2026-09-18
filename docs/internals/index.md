@@ -14,6 +14,8 @@ A file-by-file orientation of the repository: how two processes talk, which laye
 
 It does not re-teach YAML for services, IAP audiences, or TUI keybinds. Those remain in the user pages. When an internals page needs product context, it links out.
 
+Start with the [system map](https://amr-m-abdelgawad.github.io/devctl/architecture#system-map) for the client/daemon boundary, service lifecycle, and identity and observability flows. Then use the reading order below to explore each subsystem.
+
 ## Read in this order
 
 New contributors should follow this path once. After that, jump by subsystem.
