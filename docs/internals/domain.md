@@ -28,7 +28,7 @@ Current schema version: `CurrentVersion = 1`.
 | `container-limits.ts` | Parse `memory` / `cpus` / `pids_limit` into a Docker/Podman shape. |
 | `watch.ts` | Pure helpers for file-watch restart (paths, ignore globs). |
 
-Waves: `startupPlan` returns `Plan { profile, steps, waves, blockers? }`. A configured profile clips the dependency closure to `profile.services ∪ selected`. Independent services share a wave (`Promise.allSettled` in the orchestrator); the next wave waits until members with health checks are healthy. Shutdown reverses dependencies unless `shutdownPlanExact` (stop only the named set).
+Waves: `startupPlan` returns `Plan { profile, steps, waves, blockers? }`. A configured profile clips the dependency closure to `profile.services ∪ selected`. Independent services share a wave (`Promise.allSettled` in the orchestrator); the next wave waits only for members a later step depends on with `condition: service_healthy`. Shutdown reverses dependencies unless `shutdownPlanExact` (stop only the named set).
 
 ## `domain/status.ts`
 

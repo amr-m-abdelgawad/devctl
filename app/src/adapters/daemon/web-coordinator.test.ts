@@ -117,4 +117,48 @@ describe("web coordinator", () => {
     expect(second).toBe(first);
     expect(first).toContain("#token=");
   });
+
+  test("deferred rebind logs a bind failure instead of an unhandled rejection", async () => {
+    const cfg = defaultConfig();
+    cfg.web.enabled = true;
+    cfg.web.listen.port = 18900;
+    let running = false;
+    const errors: string[] = [];
+    const rejections: unknown[] = [];
+    const onUnhandled = (reason: unknown) => {
+      rejections.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const web = coordinator(cfg, {
+        createListener: (opts) => ({
+          start: async () => {
+            if (opts.port === 18901) {
+              throw new Error("EADDRINUSE");
+            }
+            running = true;
+          },
+          stop: async () => {
+            running = false;
+          },
+          isRunning: () => running,
+          listenPort: () => opts.port,
+          address: () => `127.0.0.1:${opts.port}`,
+        }),
+        log: (_service, level, message) => {
+          if (level === "ERROR") {
+            errors.push(message);
+          }
+        },
+      });
+      await web.start();
+      cfg.web.listen.port = 18901;
+      await web.sync();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(rejections).toEqual([]);
+      expect(errors.join("\n")).toContain("EADDRINUSE");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });

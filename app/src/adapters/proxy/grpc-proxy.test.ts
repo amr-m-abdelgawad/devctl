@@ -1,7 +1,8 @@
 import * as http2 from "node:http2";
 import type { ServerHttp2Stream } from "node:http2";
 import { describe, expect, test } from "bun:test";
-import { GrpcProxyServer } from "./grpc-proxy.ts";
+import { PassThrough } from "node:stream";
+import { GrpcProxyServer, writeWithBackpressure } from "./grpc-proxy.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 import { defaultConfig, emptyRouteAuth, type RouteConfig } from "../../domain/config/types.ts";
 import { TrafficCallRing } from "../traffic/store.ts";
@@ -110,6 +111,16 @@ async function call(port: number, path: string, body: string, headers: Record<st
 }
 
 describe("GrpcProxyServer", () => {
+  test("writeWithBackpressure pauses the source when dest.write returns false", () => {
+    const src = new PassThrough();
+    const dest = new PassThrough({ highWaterMark: 8 });
+    src.resume();
+    dest.pause();
+    expect(src.isPaused()).toBe(false);
+    writeWithBackpressure(src, dest, Buffer.alloc(32));
+    expect(src.isPaused()).toBe(true);
+  });
+
   test("injects the minted Authorization, ignores the client's, and relays body + trailers", async () => {
     const up = await startUpstream();
     const port = await reservePort();

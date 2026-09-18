@@ -96,6 +96,7 @@ export function usePreferences({
   const committedAppearance = useRef(webAppearance);
   const [webEnabled, setWebEnabled] = useState(controller?.cfg.web.enabled === true);
   const [webPort, setWebPort] = useState(() => controller?.cfg.web.listen.port || DEFAULT_WEB_PORT);
+  const committedWebPort = useRef(webPort);
   const prefsLocked = tuiPrefsLocked(resolveTuiOverridePath());
   const userPath = userTuiConfigPath();
   const repoPath = repoTuiConfigPath(repoRoot || process.cwd());
@@ -173,6 +174,7 @@ export function usePreferences({
     }
     if (controller?.cfg.web.listen.port) {
       setWebPort(controller.cfg.web.listen.port);
+      committedWebPort.current = controller.cfg.web.listen.port;
     }
   }, [controller?.cfg.web.enabled, controller?.cfg.web.listen.port]);
 
@@ -260,8 +262,13 @@ export function usePreferences({
   const applyWebPort = useCallback((port: number) => {
     const next = clampMcpPort(port);
     setWebPort(next);
+    committedWebPort.current = next;
     persistLocalWeb({ web_port: next }, `web port ${next}`);
   }, [persistLocalWeb]);
+
+  const previewWebPort = useCallback((port: number) => {
+    setWebPort(clampMcpPort(port));
+  }, []);
 
   const applyReset = useCallback(() => {
     const defaults = settingsDefaults();
@@ -404,7 +411,7 @@ export function usePreferences({
         return;
       }
       if (item.id === "web_port") {
-        applyWebPort(webPort + dir);
+        previewWebPort(webPort + dir);
         return;
       }
       if (item.id === "mouse") {
@@ -430,7 +437,7 @@ export function usePreferences({
       applyLogTimestamps,
       applyScroll,
       applyWebAppearance,
-      applyWebPort,
+      previewWebPort,
       fontSize,
       leaderMs,
       logMetadata,
@@ -462,6 +469,7 @@ export function usePreferences({
     setLogTimestamps(committedTimestamps.current);
     setLogMetadata(committedMetadata.current);
     setWebAppearance(committedAppearance.current);
+    setWebPort(committedWebPort.current);
   }, [screen]);
 
   return {

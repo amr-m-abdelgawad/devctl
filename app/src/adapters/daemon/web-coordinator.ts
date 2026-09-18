@@ -1,6 +1,7 @@
 import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
 import { formatHostPort } from "../../domain/net/hosts.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
+import { humanMessage } from "../../shared/errors.ts";
 import { readOrCreateWebToken } from "../storage/storage.ts";
 
 export type WebCoordinatorDeps = {
@@ -74,9 +75,13 @@ export class WebCoordinator {
     }
     const rebind = (): void => {
       void (async () => {
-        await this.stop();
-        if (wantEnabled) {
-          await this.start();
+        try {
+          await this.stop();
+          if (wantEnabled) {
+            await this.start();
+          }
+        } catch (err) {
+          this.deps.log("web", "ERROR", `web ${humanMessage(err)}`);
         }
       })();
     };

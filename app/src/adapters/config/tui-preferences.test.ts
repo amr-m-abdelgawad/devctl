@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultCopyKeybind, displayWithMod, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, repoTuiConfigPath, resetTuiPreferences, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath, withMod } from "./tui-preferences.ts";
+import { defaultCopyKeybind, displayWithMod, getPreferenceSnapshot, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, repoTuiConfigPath, resetTuiPreferences, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath, withMod } from "./tui-preferences.ts";
 
 describe("tui.json", () => {
   test("parses jsonc and merges keybinds with defaults", () => {
@@ -356,6 +356,41 @@ describe("tui.json", () => {
         delete process.env.DEVCTL_HOME;
       } else {
         process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
+  test("DEVCTL_TUI_CONFIG provenance is override, not an ignored repo overlay", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const prevOverride = process.env.DEVCTL_TUI_CONFIG;
+    const stamp = Date.now();
+    const home = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-override-home-${stamp}`);
+    const repo = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-override-repo-${stamp}`);
+    mkdirSync(home, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    process.env.DEVCTL_HOME = home;
+    delete process.env.DEVCTL_TUI_CONFIG;
+    saveTuiPreferences({ theme: "gruvbox", mouse: false }, { repoRoot: repo, scope: "repo" });
+    const override = join(home, "session.json");
+    writeFileSync(override, JSON.stringify({ theme: "nord" }));
+    process.env.DEVCTL_TUI_CONFIG = override;
+    try {
+      const snap = getPreferenceSnapshot(repo);
+      expect(snap.locked).toBe(true);
+      expect(snap.values.theme).toBe("nord");
+      expect(snap.layers.theme).toBe("override");
+      expect(snap.values.mouse).toBe(true);
+      expect(snap.layers.mouse).toBe("default");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+      if (prevOverride === undefined) {
+        delete process.env.DEVCTL_TUI_CONFIG;
+      } else {
+        process.env.DEVCTL_TUI_CONFIG = prevOverride;
       }
     }
   });

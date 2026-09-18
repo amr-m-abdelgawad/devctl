@@ -67,6 +67,26 @@ describe("traffic domain", () => {
     expect(stripTrafficBodies(redacted).response).toBeUndefined();
   });
 
+  test("redacts secrets inside base64 data, including gRPC-JSON frames", () => {
+    const detector = new Detector(["api_key"], []);
+    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.sig";
+    const binary = httpTrafficPayload(Buffer.concat([Buffer.from([0x00]), Buffer.from(jwt)]), "application/octet-stream", {});
+    expect(binary.encoding).toBe("base64");
+    const redactedHttp = redactTrafficCall(detector, call({ request: binary }));
+    expect(redactedHttp.request?.data).toBeDefined();
+    const decodedHttp = Buffer.from(redactedHttp.request?.data ?? "", "base64").toString("latin1");
+    expect(decodedHttp).not.toContain(jwt);
+    expect(decodedHttp).toContain(REDACTED_VALUE);
+
+    const frames = grpcFrame('{"api_key":"sk-live","ok":true}');
+    const grpc = grpcTrafficPayload(frames, {});
+    const redactedGrpc = redactTrafficCall(detector, call({ transport: "grpc", request: grpc }));
+    expect(JSON.stringify(redactedGrpc.request?.text)).not.toContain("sk-live");
+    const decodedGrpc = Buffer.from(redactedGrpc.request?.data ?? "", "base64").toString("utf8");
+    expect(decodedGrpc).not.toContain("sk-live");
+    expect(decodedGrpc).toContain(REDACTED_VALUE);
+  });
+
   test("pretty-prints JSON HTTP bodies and keeps binary as base64", () => {
     const json = httpTrafficPayload(Buffer.from('{"id":1}'), "application/json", {});
     expect(json.text).toContain("\n");

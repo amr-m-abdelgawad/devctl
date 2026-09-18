@@ -283,8 +283,8 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       kind: "cycle",
       name: "Web port",
       value: String(state.webPort),
-      hint: "← → save",
-      detail: "Writes web.listen.port to .devctl/config.local.yaml (loopback host unchanged) and reloads. Other YAML keys are left alone.",
+      hint: "← → preview    enter  save",
+      detail: "Arrows preview web.listen.port. Enter writes .devctl/config.local.yaml (loopback host unchanged) and reloads. Other YAML keys are left alone.",
     },
     {
       id: "user_file",

@@ -33,7 +33,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
 
-Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. Free-text log lines also strip `Bearer` tokens, JWT-shaped strings (`eyJ…`), Google access tokens (`ya29.`), and `id_token=` / `access_token=` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config. `X-Devctl-Service` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
+Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. Free-text log lines also strip `Bearer` tokens, JWT-shaped strings (`eyJ…`), Google access tokens (`ya29.`), and `id_token=` / `access_token=` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic `data` is decoded before redaction so a base64/raw view cannot recover a secret the pretty `text` already masked. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config. `X-Devctl-Service` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
 ---
 

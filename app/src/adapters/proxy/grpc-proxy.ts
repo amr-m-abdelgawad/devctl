@@ -311,6 +311,11 @@ export class GrpcProxyServer {
     recorder: TrafficCaptureRecorder | undefined,
     side: "request" | "response",
   ): void {
+    dest.on("drain", () => {
+      if (!writableDestroyed(dest) && typeof src.resume === "function") {
+        src.resume();
+      }
+    });
     src.on("data", (chunk: Buffer | string) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       if (recorder) {
@@ -324,9 +329,7 @@ export class GrpcProxyServer {
           // best-effort
         }
       }
-      if (!writableDestroyed(dest)) {
-        dest.write(chunk);
-      }
+      writeWithBackpressure(src, dest, buf);
     });
     if (side === "request") {
       src.on("end", () => {
@@ -389,6 +392,20 @@ export class GrpcProxyServer {
 
 function writableDestroyed(stream: NodeJS.WritableStream): boolean {
   return Boolean((stream as NodeJS.WritableStream & { destroyed?: boolean }).destroyed);
+}
+
+export function writeWithBackpressure(src: NodeJS.ReadableStream, dest: NodeJS.WritableStream, chunk: Buffer): void {
+  if (writableDestroyed(dest)) {
+    src.pause();
+    return;
+  }
+  try {
+    if (!dest.write(chunk)) {
+      src.pause();
+    }
+  } catch {
+    src.pause();
+  }
 }
 
 function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: number } | undefined {

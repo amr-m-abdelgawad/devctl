@@ -1,7 +1,7 @@
 import { profileId } from "../domain/ids.ts";
 import { HealthMonitor } from "./health-monitor.ts";
 import { ServiceStarted, ServiceFailed, ServiceStopped, newEvent } from "../shared/events.ts";
-import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, type Command } from "../domain/config/types.ts";
+import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, dependencyCondition, dependencyName, type Command } from "../domain/config/types.ts";
 import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../shared/errors.ts";
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
@@ -158,12 +158,14 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
           throw newError(KindProcessStart, "one or more services failed to start");
         }
       }
-      // Later waves wait for this one. The last wave only waits inside
-      // startOne when wait_for_healthy is set — otherwise start() would
-      // refuse to return while a service was still UNHEALTHY and retrying.
+      // Later waves wait only for service_healthy edges into this one.
+      // The last wave only waits inside startOne when wait_for_healthy is
+      // set — otherwise start() would refuse to return while a service was
+      // still UNHEALTHY and retrying.
       if (i < plan.waves.length - 1) {
         try {
-          await this.awaitWaveHealth(wave.filter((name) => !blocked.has(name)));
+          const remaining = plan.waves.slice(i + 1).flat();
+          await this.awaitWaveHealth(wave.filter((name) => !blocked.has(name)), remaining, plan);
         } catch (err) {
           s.log("devctl", "ERROR", humanMessage(err));
           throw err;
@@ -428,8 +430,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     }
   }
 
-  private async awaitWaveHealth(wave: string[]): Promise<void> {
-    for (const name of wave) {
+  private async awaitWaveHealth(wave: string[], remaining: string[], plan: Plan): Promise<void> {
+    for (const name of namesNeedingHealthWait(wave, remaining, plan)) {
       const svc = this.host().cfg.services[name];
       if (!svc || svc.health.type === "") {
         continue;
@@ -470,6 +472,27 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;
   }
+}
+
+function namesNeedingHealthWait(wave: string[], remaining: string[], plan: Plan): string[] {
+  const later = new Set(remaining);
+  const inWave = new Set(wave);
+  const needed = new Set<string>();
+  for (const step of plan.steps) {
+    if (!later.has(step.name)) {
+      continue;
+    }
+    for (const dep of step.dependencies) {
+      if (dependencyCondition(dep) !== "service_healthy") {
+        continue;
+      }
+      const depName = dependencyName(dep);
+      if (inWave.has(depName)) {
+        needed.add(depName);
+      }
+    }
+  }
+  return [...needed];
 }
 
 function sleep(ms: number): Promise<void> {

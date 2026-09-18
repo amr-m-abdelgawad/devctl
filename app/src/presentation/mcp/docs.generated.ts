@@ -2884,7 +2884,7 @@ proxy:
 
 \`inspect: true\` is the same as \`enabled: true\` with the default cap. Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs.
 
-Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP \`get_traffic_calls\`, web \`/api/traffic\`) strip bodies; one-id fetch (\`get_traffic_call\`, \`devctl traffic show\`, TUI overlay, web \`#/traffic/:id\`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; \`/reveal\` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA frames are stored as \`application/grpc\` base64 (5-byte length prefix kept); if the first message looks like JSON, a pretty-printed \`text\` view is also kept.
+Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP \`get_traffic_calls\`, web \`/api/traffic\`) strip bodies; one-id fetch (\`get_traffic_call\`, \`devctl traffic show\`, TUI overlay, web \`#/traffic/:id\`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; \`/reveal\` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA frames are stored as \`application/grpc\` base64 (5-byte length prefix kept); if the first message looks like JSON, a pretty-printed \`text\` view is also kept. Redaction runs on decoded bytes (and on that JSON text), not on the base64 alphabet, so the raw \`data\` view cannot recover a secret the \`text\` view already masked.
 
 Caller attribution reuses the LLM path: \`X-Devctl-Service\` or a loopback peer lookup, so the inspector can label which service issued the call.
 
@@ -3032,7 +3032,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
 
-Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. Free-text log lines also strip \`Bearer\` tokens, JWT-shaped strings (\`eyJ…\`), Google access tokens (\`ya29.\`), and \`id_token=\` / \`access_token=\` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config. \`X-Devctl-Service\` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
+Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. Free-text log lines also strip \`Bearer\` tokens, JWT-shaped strings (\`eyJ…\`), Google access tokens (\`ya29.\`), and \`id_token=\` / \`access_token=\` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic \`data\` is decoded before redaction so a base64/raw view cannot recover a secret the pretty \`text\` already masked. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config. \`X-Devctl-Service\` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
 ---
 
@@ -3310,7 +3310,7 @@ stateDiagram-v2
 
 The TUI and CLI display \`HEALTHY\` / \`UNHEALTHY\` when the process is running and the health probe has an answer.
 
-Independent services in the same wave start and stop in parallel. After a start wave, every member with a health check must become healthy before the **next** wave launches (the same timeout as \`startup.timeout_seconds\`, default 30s). Members without a health check only need to have spawned. The last wave returns once processes are up unless a service sets \`startup.wait_for_healthy\`. Cycles are configuration errors.
+Independent services in the same wave start and stop in parallel. After a start wave, members that a later wave depends on with \`condition: service_healthy\` must become healthy before that later wave launches (the same timeout as \`startup.timeout_seconds\`, default 30s). Other members only need to have spawned. The last wave returns once processes are up unless a service sets \`startup.wait_for_healthy\`. Cycles are configuration errors.
 
 Dependencies accept either the original string form or a condition:
 
@@ -3593,7 +3593,7 @@ When services exist but none are running, the dashboard empty state:
 
 - \`enter\` starts the default profile (first profile name alphabetically) after a plan overlay
 - \`n\` / \`x\` start or stop the highlighted row (or the space-selected set)
-- a **lifecycle panel** shows start and stop waves; later start waves wait for health and do not run if a wave fails
+- a **lifecycle panel** shows start and stop waves; later start waves wait for \`service_healthy\` dependents and do not run if a wave fails
 - the panel stays open until \`esc\` so you can read the result
 - \`o\` picks a profile, then confirms start
 
@@ -3661,7 +3661,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
 - **Profiles** — members; \`enter\` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
-- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles. Reset asks first. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only
+- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only; layer badges then show \`override\` or \`default\`, not an ignored overlay.
 - **MCP** — Listen \`[ ON ]\` / \`[ OFF ]\`, port stepper \`‹ N ›\`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked \`read\` or \`write\`; \`space\` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
 \`/reveal\` toggles secret env values for this session only. The header shows \`secrets shown\`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.

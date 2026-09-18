@@ -31,7 +31,7 @@ Orchestrator then:
 - `claimIfAlreadyUp` skips spawn
 - `assignPendingPorts` (including `auto`)
 - `startOne` per name in the wave
-- Before the **next** wave: `awaitWaveHealth` polls every launched service with a health check until healthy or `startup.timeout_seconds` (default 30s). The last wave only waits inside `startOne` when `startup.wait_for_healthy` is set.
+- Before the **next** wave: `awaitWaveHealth` polls members that a later wave depends on with `condition: service_healthy` until healthy or `startup.timeout_seconds` (default 30s). The last wave only waits inside `startOne` when `startup.wait_for_healthy` is set.
 
 `startOne` hooks: `hooks.pre_start` / `post_start` as `ProcessRuntime.runOnce`. Empty command (`commandEmpty`) is a config error unless the service is container-only.
 

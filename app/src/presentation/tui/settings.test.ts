@@ -77,6 +77,7 @@ describe("settings", () => {
     expect(sample.find((item) => item.id === "timestamps")?.kind).toBe("toggle");
     expect(sample.find((item) => item.id === "web")?.kind).toBe("toggle");
     expect(sample.find((item) => item.id === "web_port")?.value).toBe("18900");
+    expect(sample.find((item) => item.id === "web_port")?.hint).toContain("preview");
     expect(formatScope("repo")).toBe("this repo");
     expect(cyclePreferenceScope("repo", 1)).toBe("user");
     expect(cycleScrollSpeed(3, 1)).toBe(4);

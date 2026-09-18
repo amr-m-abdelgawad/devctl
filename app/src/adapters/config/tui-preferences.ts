@@ -244,9 +244,12 @@ export function resetTuiPreferences(opts?: SaveTuiPreferencesOpts): string {
   return saveTuiPreferences(preferenceResetPatch(), opts);
 }
 
-function layerForKey(key: string, files: { override?: Record<string, unknown>; repo?: Record<string, unknown>; user?: Record<string, unknown>; team?: Record<string, unknown> }): PreferenceLayer {
+function layerForKey(key: string, files: { override?: Record<string, unknown>; repo?: Record<string, unknown>; user?: Record<string, unknown>; team?: Record<string, unknown> }, locked: boolean): PreferenceLayer {
   if (files.override && files.override[key] !== undefined) {
     return "override";
+  }
+  if (locked) {
+    return "default";
   }
   if (files.repo && files.repo[key] !== undefined) {
     return "repo";
@@ -288,7 +291,7 @@ export function getPreferenceSnapshot(
   };
   const layers: Record<string, PreferenceLayer> = {};
   for (const key of PROVENANCE_KEYS) {
-    layers[key] = layerForKey(key, files);
+    layers[key] = layerForKey(key, files, locked);
   }
   const write = locked ? overridePath : scope === "repo" ? repoPath : userPath;
   return {

@@ -28,7 +28,7 @@ When services exist but none are running, the dashboard empty state:
 
 - `enter` starts the default profile (first profile name alphabetically) after a plan overlay
 - `n` / `x` start or stop the highlighted row (or the space-selected set)
-- a **lifecycle panel** shows start and stop waves; later start waves wait for health and do not run if a wave fails
+- a **lifecycle panel** shows start and stop waves; later start waves wait for `service_healthy` dependents and do not run if a wave fails
 - the panel stays open until `esc` so you can read the result
 - `o` picks a profile, then confirms start
 
@@ -96,7 +96,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Config** — merged view including **tasks**. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/diff` shows provenance (`devctl config diff`). `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
-- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port (writes `.devctl/config.local.yaml`), about, scoped reset. `←`/`→` writes the highlighted cycle or toggles. Reset asks first. Default writes `~/.devctl/state/<repoID>/tui.json`; switch Save to for `~/.devctl/tui.json`. MCP listen always stays per checkout. `DEVCTL_TUI_CONFIG` keeps changes session-only
+- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port (writes `.devctl/config.local.yaml`), about, scoped reset. `←`/`→` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first. Default writes `~/.devctl/state/<repoID>/tui.json`; switch Save to for `~/.devctl/tui.json`. MCP listen always stays per checkout. `DEVCTL_TUI_CONFIG` keeps changes session-only; layer badges then show `override` or `default`, not an ignored overlay.
 - **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked `read` or `write`; `space` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
 `/reveal` toggles secret env values for this session only. The header shows `secrets shown`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.

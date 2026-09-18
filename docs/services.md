@@ -159,7 +159,7 @@ stateDiagram-v2
 
 The TUI and CLI display `HEALTHY` / `UNHEALTHY` when the process is running and the health probe has an answer.
 
-Independent services in the same wave start and stop in parallel. After a start wave, every member with a health check must become healthy before the **next** wave launches (the same timeout as `startup.timeout_seconds`, default 30s). Members without a health check only need to have spawned. The last wave returns once processes are up unless a service sets `startup.wait_for_healthy`. Cycles are configuration errors.
+Independent services in the same wave start and stop in parallel. After a start wave, members that a later wave depends on with `condition: service_healthy` must become healthy before that later wave launches (the same timeout as `startup.timeout_seconds`, default 30s). Other members only need to have spawned. The last wave returns once processes are up unless a service sets `startup.wait_for_healthy`. Cycles are configuration errors.
 
 Dependencies accept either the original string form or a condition:
 

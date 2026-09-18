@@ -113,7 +113,7 @@ describe("ServiceOrchestrator", () => {
     expect(processes.started).toHaveLength(0);
   });
 
-  test("later start waves wait for earlier wave health even with string deps", async () => {
+  test("string dependencies do not wait for earlier-wave health before the next wave", async () => {
     let resolveCheck: ((result: HealthCheckResult) => void) | undefined;
     const { orch, svc, cfg, session, processes } = harness({
       lookup: () => ({
@@ -130,6 +130,31 @@ describe("ServiceOrchestrator", () => {
     cfg.services.worker.startup.wait_for_healthy = false;
     cfg.services.worker.health.type = "";
     cfg.services.worker.dependencies = ["api"];
+    session.runtimes.set("worker", emptyRuntime("worker"));
+    const started = orch.start({ services: ["worker"] });
+    await until(() => processes.started.some((spec) => spec.name === "worker"));
+    expect(processes.started.map((spec) => spec.name)).toEqual(["api", "worker"]);
+    resolveCheck!({ status: HealthHealthy, message: "ok" });
+    await started;
+  });
+
+  test("service_healthy dependencies wait for earlier-wave health before the next wave", async () => {
+    let resolveCheck: ((result: HealthCheckResult) => void) | undefined;
+    const { orch, svc, cfg, session, processes } = harness({
+      lookup: () => ({
+        check: () => new Promise<HealthCheckResult>((done) => {
+          resolveCheck = done;
+        }),
+      }),
+    });
+    svc.health.type = "custom";
+    svc.health.interval_seconds = 60;
+    svc.startup.timeout_seconds = 2;
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.services.worker.health.type = "";
+    cfg.services.worker.dependencies = [{ service: "api", condition: "service_healthy" }];
     session.runtimes.set("worker", emptyRuntime("worker"));
     const started = orch.start({ services: ["worker"] });
     await until(() => processes.started.some((spec) => spec.name === "api") && resolveCheck !== undefined);
