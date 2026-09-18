@@ -150,7 +150,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         source: { type: "string", description: "Configured llm.sources[].name" },
         source_type: { type: "string", description: "Driver type, e.g. litellm" },
         model: { type: "string" },
-        caller: { type: "string", description: "Service that originated the call" },
+        caller: { type: "string", description: "Service that originated the call; use \"-\" for calls with no known caller" },
         status: { type: "string", description: "ok or error" },
         search: { type: "string" },
         since: { type: "string" },

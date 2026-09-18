@@ -1,5 +1,22 @@
 import { spawn } from "bun";
+import { readFile, readlink } from "node:fs/promises";
 import { processAlive } from "../storage/storage.ts";
+
+// /proc on Linux exposes process identity and memory without `ps`/`lsof`, which
+// a minimal container image (e.g. a uv/python-slim base) often does not ship.
+// USER_HZ (clock ticks reported in /proc) and the page size are effectively
+// fixed at 100 and 4 KiB on Linux hosts/containers; they only affect a start
+// timestamp and an RSS figure, never correctness of anything else.
+const PROC_USER_HZ = 100;
+const PROC_PAGE_KB = 4;
+
+async function readProcText(path: string): Promise<string> {
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
+}
 
 export async function killProcessTreeUnix(pid: number, signal: "SIGTERM" | "SIGKILL"): Promise<void> {
   if (pid <= 0) {
@@ -24,9 +41,80 @@ export type ProcessIdentity = {
   startTime?: string;
 };
 
+// Turn /proc/<pid>/cmdline (NUL-separated argv, often with a trailing NUL) into
+// a space-joined command line. Empty for a kernel thread (empty cmdline).
+export function parseProcCmdline(text: string): string {
+  return text.split("\0").filter((part) => part !== "").join(" ").trim();
+}
+
+// The `starttime` field (clock ticks after boot) from /proc/<pid>/stat. Read
+// from AFTER the final ')' so a `comm` containing spaces/parens cannot shift the
+// offset; starttime is field 22, i.e. index 19 counting state(3) as index 0.
+export function parseProcStatStarttimeTicks(text: string): number | undefined {
+  const close = text.lastIndexOf(")");
+  if (close < 0) {
+    return undefined;
+  }
+  const rest = text.slice(close + 1).trim().split(/\s+/);
+  const ticks = Number(rest[19]);
+  return Number.isFinite(ticks) && ticks >= 0 ? ticks : undefined;
+}
+
+// The `comm` field (process name) from /proc/<pid>/stat, between the first '('
+// and the last ')'. Used as the command for a kernel thread with empty cmdline.
+export function parseProcStatComm(text: string): string {
+  const open = text.indexOf("(");
+  const close = text.lastIndexOf(")");
+  if (open < 0 || close <= open) {
+    return "";
+  }
+  return text.slice(open + 1, close);
+}
+
+// Resident set size in KiB from /proc/<pid>/statm (field 2 is resident pages).
+export function parseProcStatmResidentKb(text: string): number | undefined {
+  const resident = Number(text.trim().split(/\s+/)[1]);
+  return Number.isInteger(resident) && resident >= 0 ? resident * PROC_PAGE_KB : undefined;
+}
+
+export function parseProcUptimeSeconds(text: string): number | undefined {
+  const token = text.trim().split(/\s+/)[0] ?? "";
+  if (token === "") {
+    return undefined;
+  }
+  const seconds = Number(token);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
+}
+
+async function inspectProcessProc(pid: number, sampledAt: number): Promise<ProcessIdentity | undefined> {
+  const stat = await readProcText(`/proc/${pid}/stat`);
+  const command = parseProcCmdline(await readProcText(`/proc/${pid}/cmdline`)) || parseProcStatComm(stat);
+  if (command === "") {
+    return undefined; // fall back to ps/lsof
+  }
+  let cwd = "";
+  try {
+    cwd = await readlink(`/proc/${pid}/cwd`);
+  } catch {
+    cwd = "";
+  }
+  const ticks = parseProcStatStarttimeTicks(stat);
+  const uptime = parseProcUptimeSeconds(await readProcText("/proc/uptime"));
+  const startTime = ticks !== undefined && uptime !== undefined
+    ? new Date(sampledAt - (uptime - ticks / PROC_USER_HZ) * 1000).toISOString()
+    : undefined;
+  return { pid, command, cwd, startTime };
+}
+
 export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity | undefined> {
   if (!processAlive(pid)) {
     return undefined;
+  }
+  if (process.platform === "linux") {
+    const viaProc = await inspectProcessProc(pid, Date.now());
+    if (viaProc !== undefined) {
+      return viaProc;
+    }
   }
   const command = await captureProcessOutput(["ps", "-p", String(pid), "-o", "command="]);
   // BSD/Linux `ps lstart` has no timezone suffix. Date.parse therefore
@@ -116,6 +204,21 @@ export async function sampleResourceUsageUnix(pids: number[]): Promise<Map<numbe
     const memoryKB = Number(rssStr);
     if (Number.isFinite(pid) && Number.isFinite(cpuPercent) && Number.isFinite(memoryKB)) {
       result.set(pid, { pid, cpuPercent, memoryKB });
+    }
+  }
+  // On Linux, back-fill memory from /proc for any pid `ps` did not report — a
+  // minimal container may have no `ps` at all, so this keeps the memory column
+  // alive. CPU% still needs `ps` (a single /proc sample cannot reproduce its
+  // lifetime average without guessing the clock rate), so it stays 0 here.
+  if (process.platform === "linux") {
+    for (const pid of pids) {
+      if (result.has(pid)) {
+        continue;
+      }
+      const memoryKB = parseProcStatmResidentKb(await readProcText(`/proc/${pid}/statm`));
+      if (memoryKB !== undefined) {
+        result.set(pid, { pid, cpuPercent: 0, memoryKB });
+      }
     }
   }
   return result;

@@ -1,3 +1,4 @@
+import { LLM_CALLER_NONE } from "./caller.ts";
 import { LLM_STATUS_ERROR, type LlmCall, type LlmCallFilter } from "./types.ts";
 
 export function matchesLlmCall(filter: LlmCallFilter, call: LlmCall): boolean {
@@ -10,8 +11,11 @@ export function matchesLlmCall(filter: LlmCallFilter, call: LlmCall): boolean {
   if (filter.model && call.model !== filter.model && call.routedModel !== filter.model) {
     return false;
   }
-  if (filter.caller && call.caller !== filter.caller) {
-    return false;
+  if (filter.caller) {
+    const caller = (call.caller ?? "").trim();
+    if (filter.caller === LLM_CALLER_NONE ? caller !== "" : caller !== filter.caller) {
+      return false;
+    }
   }
   if (filter.status && call.status !== filter.status) {
     return false;

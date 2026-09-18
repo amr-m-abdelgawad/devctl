@@ -38,6 +38,17 @@ describe("llm domain", () => {
     expect(matchesLlmCall({ requestId: "req-1" }, row)).toBe(true);
   });
 
+  test("caller '-' selects only calls with no caller", () => {
+    const attributed = call({ caller: "worker" });
+    const unattributed = call({ caller: undefined });
+    const blank = call({ caller: "  " });
+    expect(matchesLlmCall({ caller: "-" }, attributed)).toBe(false);
+    expect(matchesLlmCall({ caller: "-" }, unattributed)).toBe(true);
+    expect(matchesLlmCall({ caller: "-" }, blank)).toBe(true);
+    // A named filter never matches an unattributed call.
+    expect(matchesLlmCall({ caller: "worker" }, unattributed)).toBe(false);
+  });
+
   test("redacts secrets in bodies and attributes and can drop bodies", () => {
     const detector = new Detector(["api_key"], []);
     const redacted = redactLlmCall(detector, call({

@@ -1612,11 +1612,11 @@ Each stored call has an optional \`caller\` — the **service that issued the re
 
 1. **\`X-Devctl-Service\`** (or \`X-Devctl-Service-Name\`) on the inbound proxy request. Host processes already get \`DEVCTL_SERVICE_NAME\` in their environment; send it as this header from the OpenAI / LiteLLM client. The proxy **strips** the header before forwarding so it never reaches the vendor.
 2. **\`x-litellm-metadata\`** JSON with \`service\` / \`service_name\` / \`devctl_service\`. Not stripped — LiteLLM already uses this header.
-3. **Loopback TCP peer.** For traffic that hits a captured proxy route from \`127.0.0.1\` / \`::1\`, devctl maps the client port to a managed process (pid, parent, or process group) **when the request starts**, while the socket is still up. Looking up after the response races the client close and leaves \`caller\` empty. Remote peers are not looked up, so a coincidental local pid cannot be blamed. Containers and non-loopback clients are best-effort — send the header or \`metadata.service\`.
+3. **Loopback TCP peer.** For traffic that hits a captured proxy route from \`127.0.0.1\` / \`::1\`, devctl maps the client port to a managed process (pid, parent, or process group) **when the request starts**, while the socket is still up. Looking up after the response races the client close and leaves \`caller\` empty. On Linux this reads \`/proc\` directly (\`/proc/net/tcp[6]\` for the socket owner, \`/proc/<pid>/stat\` for parent/group) so it works in a minimal container that ships neither \`lsof\` nor \`ps\`; macOS falls back to \`lsof\`/\`ps\`, Windows to \`netstat\`. Remote peers are not looked up, so a coincidental local pid cannot be blamed. A client that runs in a **different** container or network namespace than the daemon (its socket owner is the runtime, not a managed process), or any non-loopback client, is best-effort — send the header or \`metadata.service\`.
 4. **Completion body** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\` (LiteLLM extra body), else a non-email OpenAI \`user\`.
 5. **LiteLLM spend logs:** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\`, else \`user\` / \`end_user\` when it is not an email.
 
-TUI list shows caller next to status; detail has \`caller\` then \`via\` (proxy) or \`source\` (LiteLLM). CLI: \`devctl llm --caller worker\`. MCP/web: \`caller\` on \`get_llm_calls\` / \`get_llm_call\`.
+TUI list shows caller next to status; detail has \`caller\` then \`via\` (proxy) or \`source\` (LiteLLM). Filter by caller everywhere: CLI \`devctl llm --caller worker\`, the TUI \`/caller worker\` command, the web console caller dropdown, and MCP \`get_llm_calls\`'s \`caller\`. Pass \`-\` (CLI also accepts \`none\`) to show only calls with **no** known caller.
 
 ## Surfaces
 
@@ -3284,6 +3284,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/credentials\` | \`/creds\` | Open credential store status |
 | \`/proxy\` | \`/p\` | Open the proxy screen |
 | \`/llm\` | | Open the LLM inspector |
+| \`/caller <service>\` | | Filter LLM calls by originating service (- for none, empty clears) |
 | \`/mcp\` | \`/agent\` | Open the MCP server screen for coding agents |
 | \`/doctor\` | \`/d\` | Run environment diagnostics |
 | \`/stats\` | \`/metrics\` | View system and service statistics |

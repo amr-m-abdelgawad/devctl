@@ -14,6 +14,9 @@ describe("LLM caller helpers", () => {
     expect(normalizeLlmCaller("")).toBeUndefined();
     expect(normalizeLlmCaller("api\nworker")).toBeUndefined();
     expect(normalizeLlmCaller("a".repeat(80))).toHaveLength(64);
+    // The no-caller sentinel can never be a real caller.
+    expect(normalizeLlmCaller("-")).toBeUndefined();
+    expect(normalizeLlmCaller(" - ")).toBeUndefined();
   });
 
   test("reads X-Devctl-Service before the name alias or LiteLLM metadata", () => {

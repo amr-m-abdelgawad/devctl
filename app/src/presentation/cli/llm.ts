@@ -63,7 +63,7 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
   const llm = root.command("llm").description("inspect LLM calls from configured sources");
   llm
     .option("--source <name>", "filter by llm source name")
-    .option("--caller <name>", "filter by originating service")
+    .option("--caller <name>", "filter by originating service (use '-' or 'none' for calls with no caller)")
     .option("--model <name>", "filter by requested or routed model")
     .option("--status <status>", "ok or error")
     .option("--search <text>", "substring search")
@@ -86,7 +86,7 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
       try {
         const filter: LlmCallFilter = {
           source: opts.source,
-          caller: opts.caller,
+          caller: opts.caller === "none" ? "-" : opts.caller,
           model: opts.model,
           status: opts.status === "ok" || opts.status === "error" ? opts.status : undefined,
           search: opts.search,

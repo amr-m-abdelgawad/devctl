@@ -30,11 +30,17 @@ function pretty(value: unknown): string {
   }
 }
 
-function LlmList(props: { payload?: LlmCallsPayload }) {
-  const { payload } = props;
+function LlmList(props: { payload?: LlmCallsPayload; caller: string }) {
+  const { payload, caller } = props;
   const calls = payload?.calls ?? [];
   const errors = payload?.errors ?? [];
   if (calls.length === 0 && errors.length === 0) {
+    if (caller === CALLER_NONE) {
+      return <Empty>No calls without a caller.</Empty>;
+    }
+    if (caller !== "") {
+      return <Empty>No calls from caller “{caller}”.</Empty>;
+    }
     return <Empty>No LLM calls yet. Enable llm.sources in config.</Empty>;
   }
   return (
@@ -153,13 +159,40 @@ function Payload(props: { title: string; body: string }) {
   );
 }
 
+// Reserved filter value for calls with no known caller (matches the CLI's
+// `--caller -` and the daemon's LLM_CALLER_NONE sentinel).
+const CALLER_NONE = "-";
+
+function CallerFilter(props: { caller: string; callers: string[]; onCaller: (value: string) => void }) {
+  const { caller, callers, onCaller } = props;
+  return (
+    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground sm:ml-auto">
+      caller
+      <select
+        value={caller}
+        onChange={(event) => onCaller(event.currentTarget.value)}
+        className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+      >
+        <option value="">All callers</option>
+        {callers.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+        <option value={CALLER_NONE}>No caller</option>
+      </select>
+    </label>
+  );
+}
+
 export function LlmPage(props: {
   payload?: LlmCallsPayload;
   detail?: LlmCallRow;
   llmId?: string;
   error: string;
+  caller: string;
+  callers: string[];
+  onCaller: (value: string) => void;
 }) {
-  const { payload, detail, llmId, error } = props;
+  const { payload, detail, llmId, error, caller, callers, onCaller } = props;
   if (!llmId) {
     return (
       <Card>
@@ -169,10 +202,11 @@ export function LlmPage(props: {
             {(payload?.calls.length ?? 0) > 0 ? <Badge variant="muted">{payload?.calls.length} recent</Badge> : null}
           </div>
           <span className="text-[11px] text-muted-foreground">LiteLLM spend logs and other configured sources</span>
+          <CallerFilter caller={caller} callers={callers} onCaller={onCaller} />
         </CardHeader>
         <CardContent className="pt-0">
           {error ? <div className="mb-2 text-sm text-destructive">{error}</div> : null}
-          <LlmList payload={payload} />
+          <LlmList payload={payload} caller={caller} />
         </CardContent>
       </Card>
     );

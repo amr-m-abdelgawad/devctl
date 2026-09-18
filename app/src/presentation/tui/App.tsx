@@ -549,6 +549,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     onUpdateApplied: notifications.hideCurrent,
     workspace,
     logView,
+    llmView,
     diagnostics,
     lifecycleActions,
   });
@@ -878,6 +879,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             cfg={cfg}
             page={llmView.page}
             error={llmView.error}
+            caller={llmView.caller}
             selected={listCursor}
             width={width}
             onPick={setSelected}

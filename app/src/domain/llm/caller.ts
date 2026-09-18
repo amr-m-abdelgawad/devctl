@@ -1,6 +1,11 @@
 const CALLER_MAX_CHARS = 64;
 const METADATA_SERVICE_KEYS = ["service", "service_name", "devctl_service"] as const;
 
+// Reserved filter value meaning "calls with no known caller". A real caller can
+// never equal this (normalizeLlmCaller rejects it), so it is unambiguous as a
+// filter selector across the CLI (`--caller -`), MCP, web, and TUI.
+export const LLM_CALLER_NONE = "-";
+
 export const LLM_CALLER_HEADER = "x-devctl-service";
 const LLM_CALLER_HEADER_ALIASES = [LLM_CALLER_HEADER, "x-devctl-service-name"] as const;
 const LITELLM_METADATA_HEADER = "x-litellm-metadata";
@@ -8,6 +13,13 @@ const LITELLM_METADATA_HEADER = "x-litellm-metadata";
 export function normalizeLlmCaller(raw: string): string | undefined {
   const value = raw.trim();
   if (value === "" || value.includes("\n") || value.includes("\r")) {
+    return undefined;
+  }
+  // Never accept the reserved no-caller sentinel as a real caller, so a source
+  // that emits a bare "-" (an unresolved shell expansion, a literal dash in
+  // metadata.service) cannot both count as a caller and match the no-caller
+  // filter.
+  if (value === LLM_CALLER_NONE) {
     return undefined;
   }
   if (looksLikeEmail(value)) {

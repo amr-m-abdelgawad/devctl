@@ -18,6 +18,7 @@ import { type ConfirmKind, type Overlay, type Screen, type SlashPicker } from ".
 import type { TuiWorkspace } from "../workspace.ts";
 import type { useDiagnostics } from "./use-diagnostics.ts";
 import type { useLifecycle } from "./use-lifecycle.ts";
+import type { useLlmView } from "./use-llm-view.ts";
 import type { useLogView } from "./use-log-view.ts";
 
 const COMMAND_LOCK_MS = 50;
@@ -26,6 +27,7 @@ type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
   logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
+  llmView: Pick<ReturnType<typeof useLlmView>, "setCaller">;
   workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
   setOverlay: Dispatch<SetStateAction<Overlay>>;
   setQuery: Dispatch<SetStateAction<string>>;
@@ -94,6 +96,7 @@ export function useCommandDispatcher({
   onUpdateApplied,
   workspace,
   logView,
+  llmView,
   diagnostics,
   lifecycleActions,
 }: Options) {
@@ -296,6 +299,14 @@ export function useCommandDispatcher({
           case "tokens":
             setScreen(spec.name);
             return;
+          case "caller": {
+            const raw = (args[0] ?? "").trim();
+            const value = raw === "none" ? "-" : raw;
+            llmView.setCaller(value);
+            setScreen("llm");
+            setStatus(value === "" ? "caller filter cleared" : value === "-" ? "filtering: no caller" : `filtering caller: ${value}`);
+            return;
+          }
           case "import": {
             const kind = args[0] ?? "";
             const write = args.includes("--write");

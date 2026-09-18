@@ -132,6 +132,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/credentials` | `/creds` | Open credential store status |
 | `/proxy` | `/p` | Open the proxy screen |
 | `/llm` | | Open the LLM inspector |
+| `/caller <service>` | | Filter LLM calls by originating service (- for none, empty clears) |
 | `/mcp` | `/agent` | Open the MCP server screen for coding agents |
 | `/doctor` | `/d` | Run environment diagnostics |
 | `/stats` | `/metrics` | View system and service statistics |

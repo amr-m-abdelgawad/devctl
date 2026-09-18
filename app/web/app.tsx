@@ -109,6 +109,11 @@ export function App() {
   const [llmCalls, setLlmCalls] = useState<LlmCallsPayload | undefined>(undefined);
   const [llmDetail, setLlmDetail] = useState<LlmCallRow | undefined>(undefined);
   const [llmError, setLlmError] = useState("");
+  // Active caller filter ("" = all, "-" = no caller) and the option list. The
+  // options are refreshed only on an unfiltered poll so selecting one caller
+  // never collapses the list to just that caller.
+  const [llmCaller, setLlmCaller] = useState("");
+  const [llmCallers, setLlmCallers] = useState<string[]>([]);
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
@@ -296,10 +301,16 @@ export function App() {
     }
     let cancelled = false;
     const run = (): void => {
-      void fetchLlmCalls().then((payload) => {
+      void fetchLlmCalls(llmCaller ? { caller: llmCaller } : {}).then((payload) => {
         if (!cancelled) {
           setLlmCalls(payload);
           setLlmError("");
+          if (llmCaller === "") {
+            const names = Array.from(
+              new Set(payload.calls.map((call) => (call.caller ?? "").trim()).filter((name) => name !== "")),
+            ).sort((a, b) => a.localeCompare(b));
+            setLlmCallers(names);
+          }
         }
       }).catch((err: unknown) => {
         if (!cancelled) {
@@ -313,7 +324,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [route.name, route.llmId]);
+  }, [route.name, route.llmId, llmCaller]);
 
   useEffect(() => {
     if (route.name !== "llm" || !route.llmId) {
@@ -575,7 +586,15 @@ export function App() {
             />
           ) : null}
           {route.name === "llm" ? (
-            <LlmPage payload={llmCalls} detail={llmDetail} llmId={route.llmId} error={llmError} />
+            <LlmPage
+              payload={llmCalls}
+              detail={llmDetail}
+              llmId={route.llmId}
+              error={llmError}
+              caller={llmCaller}
+              callers={llmCallers}
+              onCaller={setLlmCaller}
+            />
           ) : null}
         </main>
         </div>

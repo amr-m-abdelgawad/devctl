@@ -3,6 +3,8 @@ import {
   callerServiceForPeer,
   parseLsofLocalTcpOwner,
   parseNetstatLocalTcpOwner,
+  parseProcNetTcpInode,
+  parseProcPidStat,
   parsePsPidColumn,
   type PeerCallerLookups,
 } from "./peer-caller.ts";
@@ -34,6 +36,47 @@ describe("peer TCP owner parsers", () => {
     expect(parseNetstatLocalTcpOwner(text, 54321)).toBe(4242);
     expect(parsePsPidColumn("    77\n")).toBe(77);
     expect(parsePsPidColumn("")).toBeUndefined();
+  });
+});
+
+describe("proc parsers (lsof/ps-free path)", () => {
+  // 0xD431 = 54321 (client ephemeral), 0x43F8 = 17400 (proxy listen).
+  const tcp = [
+    "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode",
+    "   0: 0100007F:D431 0100007F:43F8 01 00000000:00000000 00:00000000 00000000  1000        0 45678 1 0000 100 0 0 10 0",
+    "   1: 0100007F:43F8 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1000        0 11111 1 0000 100 0 0 10 0",
+  ].join("\n");
+
+  test("resolves the inode by local port, never the remote", () => {
+    // The service socket (local D431) wins; the proxy socket (local 43F8, remote
+    // D431) must not be picked when searching for the client port.
+    expect(parseProcNetTcpInode(tcp, 0xd431)).toBe("45678");
+    expect(parseProcNetTcpInode(tcp, 0x43f8)).toBe("11111");
+    expect(parseProcNetTcpInode(tcp, 0x1234)).toBeUndefined();
+  });
+
+  test("reads an IPv4-mapped tcp6 row", () => {
+    const tcp6 = [
+      "  sl  local_address                         rem_address                        st ... inode",
+      "   0: 0000000000000000FFFF00000100007F:D431 0000000000000000FFFF00000100007F:43F8 01 00000000:00000000 00:00000000 00000000  1000        0 99999 1 0000 100 0 0 10 0",
+    ].join("\n");
+    expect(parseProcNetTcpInode(tcp6, 0xd431)).toBe("99999");
+  });
+
+  test("prefers an ESTABLISHED row and skips inode 0 (TIME_WAIT)", () => {
+    const rows = [
+      "   0: 0100007F:D431 0100007F:43F8 08 00000000:00000000 00:00000000 00000000  1000        0 22222 1 0000 100 0 0 10 0",
+      "   1: 0100007F:D431 0100007F:43F8 06 00000000:00000000 00:00000000 00000000     0        0 0 0 0000 100 0 0 10 0",
+      "   2: 0100007F:D431 0100007F:43F8 01 00000000:00000000 00:00000000 00000000  1000        0 33333 1 0000 100 0 0 10 0",
+    ].join("\n");
+    expect(parseProcNetTcpInode(rows, 0xd431)).toBe("33333");
+  });
+
+  test("parses ppid/pgid from /proc/<pid>/stat, tolerating parens in comm", () => {
+    expect(parseProcPidStat("100 (python3) S 50 40 40 0 -1 4194560 1 0 0 0")).toEqual({ ppid: 50, pgid: 40 });
+    // comm renamed with spaces and an embedded ')': fields still read after the last ')'.
+    expect(parseProcPidStat("4242 (uv run (py)) S 4200 4100 4100 0 -1 0 0")).toEqual({ ppid: 4200, pgid: 4100 });
+    expect(parseProcPidStat("garbage-without-parens")).toBeUndefined();
   });
 });
 

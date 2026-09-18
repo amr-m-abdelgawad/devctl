@@ -50,20 +50,29 @@ function CallRow(props: {
   );
 }
 
+function callerLabel(caller: string): string {
+  if (caller === "") {
+    return "";
+  }
+  return caller === "-" ? "caller: none" : `caller: ${caller}`;
+}
+
 export function LlmScreen(props: {
   palette: Palette;
   cfg?: DevctlConfig;
   page: LlmCallPage;
   error: string;
+  caller?: string;
   selected: number;
   width: number;
   onPick: (index: number) => void;
   onOpen: (call: LlmCall) => void;
 }) {
-  const { palette, cfg, page, error, selected, width, onPick, onOpen } = props;
+  const { palette, cfg, page, error, caller = "", selected, width, onPick, onOpen } = props;
   const enabled = cfg?.llm.enabled === true;
   const calls = page.calls ?? [];
   const errors = page.errors ?? [];
+  const filterLabel = callerLabel(caller);
   return (
     <ScreenFrame palette={palette} title="llm">
       <MetaBar
@@ -71,9 +80,10 @@ export function LlmScreen(props: {
         items={[
           { text: enabled ? "enabled" : "off", tone: enabled ? "success" : "idle" },
           { text: `${calls.length} calls`, tone: "info" },
+          ...(filterLabel !== "" ? [{ text: filterLabel, tone: "accent" as const }] : []),
           ...(errors.length > 0 ? [{ text: `${errors.length} source error${errors.length === 1 ? "" : "s"}`, tone: "warning" as const }] : []),
         ]}
-        hints={[{ key: "enter", label: "detail" }]}
+        hints={[{ key: "enter", label: "detail" }, { key: "/caller", label: "filter" }]}
       />
       {error ? (
         <text fg={palette.error} wrapMode="word">
@@ -88,7 +98,11 @@ export function LlmScreen(props: {
       {!enabled ? (
         <EmptyState palette={palette} title="LLM inspector is off" body="Set llm.enabled: true and add llm.sources (type: litellm) in .devctl/config.yaml." />
       ) : calls.length === 0 ? (
-        <EmptyState palette={palette} title="No LLM calls yet" body="The inspector polls LiteLLM spend logs. Start the source service, or set path_prefix / management_endpoint if it sits behind a proxy." />
+        filterLabel !== "" ? (
+          <EmptyState palette={palette} title="No calls match this filter" body={`No LLM calls with ${filterLabel}. Clear with /caller.`} />
+        ) : (
+          <EmptyState palette={palette} title="No LLM calls yet" body="The inspector polls LiteLLM spend logs. Start the source service, or set path_prefix / management_endpoint if it sits behind a proxy." />
+        )
       ) : (
         <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
           <box flexDirection="column" overflow="hidden">
