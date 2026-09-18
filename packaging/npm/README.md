@@ -37,4 +37,4 @@ Documentation and source: [github.com/amr-m-abdelgawad/devctl](https://github.co
 - Linux: arm64 and x64, including glibc and musl distributions
 - Windows: x64
 
-This free npm distribution runs devctl's JavaScript with Bun's official runtime. It does not claim that the optional standalone GitHub binaries are signed by Apple or Microsoft.
+This free npm distribution runs a bundled JavaScript build on Bun's official runtime, with OpenTUI's native library installed from `@opentui/core`. It does not claim that the optional standalone GitHub binaries are signed by Apple or Microsoft.

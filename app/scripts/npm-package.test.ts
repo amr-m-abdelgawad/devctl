@@ -7,9 +7,11 @@ import {
   GENERATED_PACKAGE_FILES,
   assertPackageFileAllowlist,
   baseReleaseVersion,
+  bundleExternalPackages,
   createPublishedPackageJson,
   fallbackVersionFromSource,
   normalizeReleaseVersion,
+  publishedExternalSpecs,
   validateVersionAlignment,
 } from "./npm-package.ts";
 
@@ -39,7 +41,7 @@ describe("npm package versioning", () => {
 });
 
 describe("published npm metadata", () => {
-  test("copies runtime dependencies, pins Bun, and removes private", () => {
+  test("publishes only Bun and the resolved externals, pins Bun, and removes private", () => {
     const generated = createPublishedPackageJson(
       {
         name: "@amr-m-abdelgawad/devctl",
@@ -48,12 +50,73 @@ describe("published npm metadata", () => {
         dependencies: { shouldNotSurvive: "1.0.0" },
         license: "MIT",
       },
-      { version: "1.2.3", dependencies: { yaml: "^2.9.0", commander: "^15.0.0" } },
+      {
+        version: "1.2.3",
+        dependencies: {
+          "@opentui/core": "^0.5.11",
+          yaml: "^2.9.0",
+          commander: "^15.0.0",
+          "google-auth-library": "^11.0.2",
+          "new-lib": "^1.0.0",
+        },
+      },
       "1.2.3",
+      { "@opentui/core": "0.5.11", "node-fetch": "^3.3.2" },
     );
     expect(generated.private).toBeUndefined();
     expect(generated.version).toBe("1.2.3");
-    expect(generated.dependencies).toEqual({ bun: BUNDLED_BUN_VERSION, commander: "^15.0.0", yaml: "^2.9.0" });
+    // The native package is pinned to the resolved version (not the declared
+    // "^0.5.11"); ordinary app libraries are dropped (bundled into dist).
+    expect(generated.dependencies).toEqual({ "@opentui/core": "0.5.11", bun: BUNDLED_BUN_VERSION, "node-fetch": "^3.3.2" });
+    expect(generated.dependencies).not.toHaveProperty("yaml");
+    expect(generated.dependencies).not.toHaveProperty("new-lib");
+    expect(generated.dependencies).not.toHaveProperty("google-auth-library");
+  });
+
+  test("rejects an app package that depends on Bun, omits OpenTUI, or resolves no native version", () => {
+    const template = { name: "@amr-m-abdelgawad/devctl", license: "MIT" };
+    const resolved = { "@opentui/core": "0.5.11" };
+    expect(() =>
+      createPublishedPackageJson(template, { dependencies: { bun: "1.4.2", "@opentui/core": "^0.5.11" } }, "1.2.3", resolved),
+    ).toThrow("must not depend on Bun");
+    expect(() => createPublishedPackageJson(template, { dependencies: { yaml: "^2.9.0" } }, "1.2.3", resolved)).toThrow(
+      "missing published runtime dependency @opentui/core",
+    );
+    // Declared in app/package.json but no resolved version handed in: the pure
+    // function refuses rather than copying the floating spec through.
+    expect(() => createPublishedPackageJson(template, { dependencies: { "@opentui/core": "^0.5.11" } }, "1.2.3", {})).toThrow(
+      "missing resolved version for @opentui/core",
+    );
+  });
+});
+
+describe("published external pinning policy", () => {
+  test("pins native packages exact and caret-ranges pure-JS runtime imports", () => {
+    const installed: Record<string, string> = { "@opentui/core": "0.5.11", "node-fetch": "3.3.2" };
+    const specs = publishedExternalSpecs((name) => installed[name] ?? "0.0.0");
+    // Native (dlopen, ABI-coupled to the frozen bundle) is exact, like esbuild's
+    // @esbuild/* and bun's @oven/*; the pure-JS runtime import is a caret range.
+    expect(specs).toEqual({ "@opentui/core": "0.5.11", "node-fetch": "^3.3.2" });
+  });
+});
+
+describe("bundle external packages", () => {
+  test("reports real bare imports and ignores builtins, relatives, and strings", () => {
+    const bundle = [
+      "#!/usr/bin/env bun",
+      'import x from"@opentui/core";',
+      'const nf = (await import("node-fetch")).default;',
+      'const lp = require("left-pad");', // dynamic require of a real package
+      'const fsp = require("fs/promises");', // node builtin subpath
+      'const cr = require("node:crypto");', // node: prefixed builtin
+      'const w = await import("ws");', // Bun ships a built-in ws shim
+      'import y from"./local.js";', // relative
+      'export * from"@scope/thing/deep/path";', // scoped subpath -> @scope/thing
+      'Buffer.from("data");', // method call, not an import
+      'const s = "text mentioning import(\\"decoy-pkg\\")";', // string literal
+      "const t = `require(\"template-decoy\")`;", // template literal
+    ].join("\n");
+    expect(bundleExternalPackages(bundle)).toEqual(["@opentui/core", "@scope/thing", "left-pad", "node-fetch"]);
   });
 });
 

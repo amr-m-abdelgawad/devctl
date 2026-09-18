@@ -1382,7 +1382,7 @@ Or try the latest version without a global installation:
 npx @amr-m-abdelgawad/devctl@latest
 \`\`\`
 
-The npm package contains bundled JavaScript, not a compiled devctl executable. Its small Node launcher invokes the package-local official Bun runtime and forwards the terminal, arguments, current directory, environment, signals, and exit status. npm provenance links public releases to this repository's release workflow.
+The npm package contains bundled JavaScript, not a compiled devctl executable. Its small Node launcher invokes the package-local official Bun runtime and forwards the terminal, arguments, current directory, environment, signals, and exit status. Its other install-time dependencies are \`@opentui/core\`, which supplies the platform-native TUI library, and a small set of libraries the bundler keeps external (\`node-fetch\` today). npm provenance links public releases to this repository's release workflow.
 
 Do not install with \`--ignore-scripts\`: Bun's npm package uses its installation script to select the runtime for the current operating system and CPU.
 
@@ -1926,6 +1926,10 @@ A draft left with only some assets is expected after a mid-upload 500; the next 
 ## Trust model
 
 npm provenance shows that the JavaScript package was published by this repository's workflow. GitHub attestations and \`SHA256SUMS\` establish the origin and integrity of standalone release files. They are free, but they do not replace Apple Developer ID notarization or Windows Authenticode signing; standalone binaries remain explicitly unsigned.
+
+## Published install graph
+
+The tarball's \`package.json\` depends on \`bun\` (pinned to the bundled runtime), the native packages that must exist on disk (\`@opentui/core\` today), and the packages the bundler leaves as runtime \`import()\`s rather than inlining (\`node-fetch\` today, reached by the Google auth integration through gaxios). The Bun runtime and native packages are pinned to the exact version installed at build time — the frozen bundle is only validated against that build and their ABI is version-coupled, the same reason esbuild, sharp, and Bun pin their platform packages exact — while the pure-JS runtime imports ship as caret ranges from that version, so semver-compatible security patches still reach consumers without a republish. Every other application library is compiled into \`dist/devctl.js\`. The build scans the emitted bundle and fails if it references any external package that is not declared, or declares one the bundle no longer imports, so a dependency change cannot silently ship a broken install graph. To keep a native library on disk, add it to \`PUBLISHED_APP_DEPENDENCIES\` in \`app/scripts/npm-package.ts\`; for a package the bundler cannot inline (a dynamic \`import()\`), add it to \`PUBLISHED_RUNTIME_EXTERNALS\` there. Bun still needs its postinstall script; do not publish or install with \`--ignore-scripts\`.
 ` },
   { path: "docs/overview.md", title: "How it fits together", body: `# How it fits together
 

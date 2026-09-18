@@ -17,7 +17,7 @@ Or try the latest version without a global installation:
 npx @amr-m-abdelgawad/devctl@latest
 ```
 
-The npm package contains bundled JavaScript, not a compiled devctl executable. Its small Node launcher invokes the package-local official Bun runtime and forwards the terminal, arguments, current directory, environment, signals, and exit status. npm provenance links public releases to this repository's release workflow.
+The npm package contains bundled JavaScript, not a compiled devctl executable. Its small Node launcher invokes the package-local official Bun runtime and forwards the terminal, arguments, current directory, environment, signals, and exit status. Its other install-time dependencies are `@opentui/core`, which supplies the platform-native TUI library, and a small set of libraries the bundler keeps external (`node-fetch` today). npm provenance links public releases to this repository's release workflow.
 
 Do not install with `--ignore-scripts`: Bun's npm package uses its installation script to select the runtime for the current operating system and CPU.
 

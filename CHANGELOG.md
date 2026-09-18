@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The npm tarball no longer re-exports the full application dependency tree. Install-time dependencies are the official `bun` runtime, native packages that must exist on disk (`@opentui/core` today), and the few libraries the bundler cannot inline because they are reached through a runtime `import()` (`node-fetch`, pulled by the Google auth integration through gaxios). Every other `app/package.json` dependency is bundled into `dist/devctl.js` automatically, and the build fails if the bundle references any external package that is not declared, so adding a JS library later cannot silently ship a broken install graph.
+
 ## [0.14.0] - 2026-09-18
 
 ### Added

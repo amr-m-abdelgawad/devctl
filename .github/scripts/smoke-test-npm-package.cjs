@@ -111,6 +111,13 @@ function packageRoot() {
   return join(root, "node_modules", "@amr-m-abdelgawad", "devctl");
 }
 
+function publishedDependencies() {
+  // Read the manifest straight from the tarball so the check is identical in
+  // every mode; npx installs into npm's cache, where packageRoot() does not point.
+  const extracted = run("tar", ["-xzOf", tarball, "package/package.json"], { quiet: true });
+  return JSON.parse(extracted.stdout).dependencies ?? {};
+}
+
 function removeTemporaryRoot() {
   const retryable = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -159,11 +166,23 @@ try {
   assert.match(devctl(["--config", config, "config", "validate"]).stdout, /configuration is valid/);
   devctl(["--config", config, "doctor", "--json"], { acceptedExitCodes: [0, 2] });
 
+  const publishedDeps = publishedDependencies();
+  assert.deepEqual(Object.keys(publishedDeps).sort(), ["@opentui/core", "bun", "node-fetch"]);
+  // Native/binary externals are pinned exact (frozen bundle, version-coupled ABI);
+  // pure-JS runtime imports ship as semver ranges so patches reach consumers.
+  assert.match(publishedDeps.bun, /^\d+\.\d+\.\d+$/, "the bundled Bun runtime must be pinned to an exact version");
+  assert.match(publishedDeps["@opentui/core"], /^\d+\.\d+\.\d+$/, "native @opentui/core must be pinned to an exact version");
+  assert.match(publishedDeps["node-fetch"], /^[\^~]\d+\.\d+\.\d+$/, "pure-JS runtime imports must ship as a semver range");
+
   if (mode !== "npx") {
     const installedRoot = packageRoot();
     const bunExecutable = require.resolve("bun/bin/bun.exe", { paths: [join(installedRoot, "bin")] });
     assert.ok(existsSync(bunExecutable), "the package-local Bun runtime is missing");
-    run(bunExecutable, ["-e", "await import('@opentui/core'); console.log('OpenTUI loaded')"], { cwd: installedRoot });
+    // The bundle reaches @opentui/core and node-fetch (gaxios' non-browser fetch)
+    // through runtime imports, so both must resolve from the installed package.
+    run(bunExecutable, ["-e", "await import('@opentui/core'); await import('node-fetch'); console.log('runtime externals loaded')"], {
+      cwd: installedRoot,
+    });
     testTuiInPseudoTerminal();
   }
 
