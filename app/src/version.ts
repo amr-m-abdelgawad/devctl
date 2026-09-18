@@ -1,4 +1,4 @@
-export const VERSION = process.env.DEVCTL_VERSION ?? "0.13.2";
+export const VERSION = process.env.DEVCTL_VERSION ?? "0.14.0";
 
 export function versionLine(): string {
   return `devctl ${VERSION}`;

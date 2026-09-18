@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-18
+
+### Added
+
+- LLM inspector **caller filter** across every surface. CLI `devctl llm --caller <service>` and MCP `get_llm_calls`'s `caller` already filtered by originating service; the web console now has a caller dropdown and the TUI a `/caller <service>` command (shown in the LLM screen meta bar). All four accept the reserved value `-` (CLI also `none`) to show only calls with **no** known caller, so unattributed traffic can be isolated. A bare `-` can never be a real caller (rejected at ingest), so the selector is unambiguous.
+
+### Fixed
+
+- `devctl status` process **memory and identity** now read from `/proc` on Linux when `ps`/`lsof` are absent (the same minimal-container gap as the caller fix). Resident memory comes from `/proc/<pid>/statm` and the command/cwd/start-time from `/proc/<pid>/cmdline`, the `cwd` symlink, and `/proc/<pid>/stat`, so the memory column and process detail populate in a `uv`/python-slim container. CPU% still comes from `ps` (a single `/proc` sample cannot reproduce its lifetime average without assuming the clock rate), so it reads 0 where `ps` is unavailable.
+- LLM inspector caller attribution (loopback TCP peer, method 3) now reads `/proc` directly on Linux instead of shelling out to `lsof` and `ps`. A minimal dev-container image (for example a `uv`/python-slim base) ships neither tool, so `ownerPidForPort` and the parent/process-group walk silently returned nothing and every `type: proxy` capture stored an empty `caller`. The daemon now resolves the socket owner from `/proc/net/tcp[6]` and its ancestry from `/proc/<pid>/stat`, both always present in a Linux container, so caller attribution no longer requires `lsof`/`ps` to be installed — a service running in the same container/namespace as the daemon (e.g. a FastAPI or Temporal worker started with `uv`) is resolved from the kernel socket tables with no header or metadata on the service side. `lsof`/`ps` remain the fallback on Linux and the primary path on macOS; Windows still uses `netstat`. Reading another process's `/proc/<pid>/fd` requires the same uid, so a client running as a different user than the daemon, or in a *different* container/namespace (or any non-loopback client), is still best-effort — send `X-Devctl-Service` or completion `metadata.service`.
+
 ## [0.13.2] - 2026-09-18
 
 ### Fixed
@@ -516,7 +527,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.2...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.14.0...HEAD
+[0.14.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.2...v0.14.0
 [0.13.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.12.1...v0.13.0
