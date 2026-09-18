@@ -51,6 +51,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     reload: async () => ({ restart_required: [], changes: {} }),
     forgetService() {},
     syncServiceWatchers() {},
+    syncWebListener: async () => undefined,
   };
 }
 

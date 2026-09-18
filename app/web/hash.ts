@@ -14,7 +14,7 @@ export function parseHash(hash: string): Route {
   if (head === "traffic") {
     return { name: "traffic", trafficId: decodeHashId(parts[1]) };
   }
-  if (head === "graph" || head === "logs" || head === "services") {
+  if (head === "graph" || head === "logs" || head === "services" || head === "settings") {
     return { name: head };
   }
   return { name: "services" };

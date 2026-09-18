@@ -4,7 +4,7 @@ import { scrollboxStyle,useScrollSelectedIntoView } from "../layout.tsx";
 import { groupedSettings,selectedSettingsItem,settingsIndex,sizeMeter,type SettingsItem,type UiScale } from "../settings.ts";
 import { type Palette } from "../themes.ts";
 
-const NAME_WIDTH = 14;
+const NAME_WIDTH = 16;
 const KIND_WIDTH = 2;
 const DETAIL_H = 5;
 const ROW_PREFIX = "settings-row";
@@ -44,7 +44,7 @@ export function SettingsScreen(props: {
           Preferences
         </text>
         <text fg={palette.muted} wrapMode="none">
-          {locked ? "DEVCTL_TUI_CONFIG is set — changes stay in this session." : "Changes save to your user tui.json unless noted."}
+          {locked ? "DEVCTL_TUI_CONFIG is set — changes stay in this session." : "This repository overlay by default. Switch Save to for every checkout. MCP listen always stays per checkout."}
         </text>
       </box>
       <box flexGrow={1} paddingLeft={scale.pad} paddingRight={scale.pad} overflow="hidden" flexShrink={1}>
@@ -89,10 +89,10 @@ function SettingsList(props: {
                   {section.group}
                 </text>
               </box>
-              {section.group === "MCP" ? (
+              {section.group === "Listeners" ? (
                 <box height={1} overflow="hidden">
                   <text fg={palette.muted} wrapMode="none">
-                    {"dedicated page — also /mcp or /agent"}
+                    {"MCP listen is per checkout. Web writes .devctl/config.local.yaml."}
                   </text>
                 </box>
               ) : null}
@@ -206,7 +206,7 @@ function SettingsDetail(props: { palette: Palette; item?: SettingsItem; scale: U
 }
 
 function valueColor(palette: Palette, item: SettingsItem, active: boolean): string {
-  if (item.id === "mouse") {
+  if (item.id === "mouse" || item.id === "timestamps" || item.id === "metadata" || item.id === "web") {
     return item.value === "on" ? palette.success : palette.text;
   }
   if (item.kind === "page") {

@@ -96,7 +96,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Config** — merged view including **tasks**. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/diff` shows provenance (`devctl config diff`). `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
-- **Settings** — grouped prefs: theme, display size, mouse, leader timeout, **MCP settings page**, about, reset. `←`/`→` writes the highlighted cycle or toggles mouse. Reset asks before restoring defaults. Saves to `~/.devctl/tui.json` unless `DEVCTL_TUI_CONFIG` is set
+- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port (writes `.devctl/config.local.yaml`), about, scoped reset. `←`/`→` writes the highlighted cycle or toggles. Reset asks first. Default writes `~/.devctl/state/<repoID>/tui.json`; switch Save to for `~/.devctl/tui.json`. MCP listen always stays per checkout. `DEVCTL_TUI_CONFIG` keeps changes session-only
 - **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked `read` or `write`; `space` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
 `/reveal` toggles secret env values for this session only. The header shows `secrets shown`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.
@@ -175,7 +175,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/import compose [path] [--write]` | | Preview a Compose mapping; add --write to save |
 | `/diff` | `/provenance` | Show winning config sources and what they shadowed |
 | `/themes [name]` | `/theme` | List available themes |
-| `/settings` | `/prefs`, `/preferences` | Open TUI settings (theme, mouse, MCP page) |
+| `/settings` | `/prefs`, `/preferences` | Open TUI settings (scope, theme, listeners, reset) |
 | `/help` | `/?` | Show the help dialog |
 | `/refresh` | | Refresh status and logs |
 | `/edit` | | Open configuration in $EDITOR |
@@ -183,7 +183,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/reveal` | | Reveal or hide secret environment values (not log, LLM, or traffic payloads) |
 | `/copy` | | Copy the highlighted selection to the clipboard |
 
-`/reload` re-reads `.devctl`. `/diff` is the same provenance view as `devctl config diff`. `/themes` opens a picker with live preview; Enter saves to `~/.devctl/tui.json`.
+`/reload` re-reads `.devctl`. `/diff` is the same provenance view as `devctl config diff`. `/themes` opens a picker with live preview; Enter saves to the current settings scope (`this repo` overlay or user `tui.json`).
 
 ### App
 

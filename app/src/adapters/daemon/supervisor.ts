@@ -62,7 +62,9 @@ import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
 import { callerServiceForPeer } from "../process/peer-caller.ts";
-import { loadTuiConfig } from "../config/tui-preferences.ts";
+import { getPreferenceSnapshot, loadTuiConfig, resetTuiPreferences, saveTuiPreferences } from "../config/tui-preferences.ts";
+import { patchRepoLocalConfig } from "../config/local-overlay.ts";
+import { isPreferenceScope, type PreferenceScope, type PreferenceWrite, type TuiPreferencePatch } from "../../domain/ui/preferences.ts";
 import { Detector } from "../secrets/detector.ts";
 import {
   HealthUnknown,
@@ -391,6 +393,7 @@ export class Supervisor {
       reload: () => self.reload(),
       forgetService: (name) => self.forgetService(name),
       syncServiceWatchers: () => self.serviceWatchers.sync(self.cfg.services),
+      syncWebListener: () => self.web.sync(),
     };
   }
 
@@ -858,7 +861,36 @@ export class Supervisor {
       getLlmCall: (id) => this.queryLlmCall(id),
       trafficCallsPage: (req) => this.queryTrafficCallsPage(req),
       getTrafficCall: (id) => this.queryTrafficCall(id),
+      getPreferences: (scope) => this.preferenceSnapshot(scope),
+      setPreferences: (patch) => this.setPreferences(patch),
     };
+  }
+
+  private preferenceSnapshot(scope?: PreferenceScope) {
+    return getPreferenceSnapshot(this.cfg.repoRoot, {
+      yamlKeymap: this.cfg.ui.keymap,
+      scope: isPreferenceScope(scope) ? scope : "repo",
+      webEnabled: this.cfg.web.enabled,
+      webPort: this.cfg.web.listen.port,
+    });
+  }
+
+  private async setPreferences(patch: PreferenceWrite) {
+    const scope: PreferenceScope = patch.scope === "user" ? "user" : "repo";
+    const opts = { repoRoot: this.cfg.repoRoot, scope };
+    if (patch.reset === true) {
+      resetTuiPreferences(opts);
+    } else {
+      const partial = tuiPatchFromWrite(patch);
+      if (Object.values(partial).some((value) => value !== undefined)) {
+        saveTuiPreferences(partial, opts);
+      }
+    }
+    if (patch.local && (patch.local.web_enabled !== undefined || patch.local.web_port !== undefined)) {
+      patchRepoLocalConfig(this.cfg.repoRoot, patch.local);
+      await this.reload();
+    }
+    return this.preferenceSnapshot(scope);
   }
 
   async reload(): Promise<ReloadResult> {
@@ -1129,6 +1161,47 @@ export class Supervisor {
     this.log(service, "INFO", `environment set to ${resolved}`);
     return { service, env: resolved };
   }
+}
+
+function tuiPatchFromWrite(patch: PreferenceWrite): TuiPreferencePatch {
+  const partial: TuiPreferencePatch = {};
+  if (patch.theme !== undefined) {
+    partial.theme = patch.theme;
+  }
+  if (patch.font_size !== undefined) {
+    partial.font_size = patch.font_size;
+  }
+  if (patch.mouse !== undefined) {
+    partial.mouse = patch.mouse;
+  }
+  if (patch.leader_timeout !== undefined) {
+    partial.leader_timeout = patch.leader_timeout;
+  }
+  if (patch.scroll_speed !== undefined) {
+    partial.scroll_speed = patch.scroll_speed;
+  }
+  if (patch.log_timestamps !== undefined) {
+    partial.log_timestamps = patch.log_timestamps;
+  }
+  if (patch.log_metadata !== undefined) {
+    partial.log_metadata = patch.log_metadata;
+  }
+  if (patch.web_appearance !== undefined) {
+    partial.web_appearance = patch.web_appearance;
+  }
+  if (patch.mcp_enabled !== undefined) {
+    partial.mcp_enabled = patch.mcp_enabled;
+  }
+  if (patch.mcp_port !== undefined) {
+    partial.mcp_port = patch.mcp_port;
+  }
+  if (patch.mcp_disabled_tools !== undefined) {
+    partial.mcp_disabled_tools = patch.mcp_disabled_tools;
+  }
+  if (patch.mcp_enabled_tools !== undefined) {
+    partial.mcp_enabled_tools = patch.mcp_enabled_tools;
+  }
+  return partial;
 }
 
 export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult {

@@ -55,7 +55,7 @@ export function allCommands(): CommandSpec[] {
     { name: "setup", aliases: ["init"], desc: "Open setup guidance", leader: "i", group: "nav" },
     { name: "dashboard", aliases: ["home"], desc: "Return to the dashboard", leader: "h", group: "nav" },
     { name: "themes", aliases: ["theme"], desc: "List available themes", leader: "t", group: "ui" },
-    { name: "settings", aliases: ["prefs", "preferences"], desc: "Open TUI settings (theme, mouse, MCP page)", leader: "", group: "ui" },
+    { name: "settings", aliases: ["prefs", "preferences"], desc: "Open TUI settings (scope, theme, listeners, reset)", leader: "", group: "ui" },
     { name: "help", aliases: ["?"], desc: "Show the help dialog", leader: "", group: "ui" },
     { name: "refresh", aliases: [], desc: "Refresh status and logs", leader: "r", group: "ui" },
     { name: "regex", aliases: [], desc: "Toggle regex log search", leader: "", group: "logs" },

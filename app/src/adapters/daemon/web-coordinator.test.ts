@@ -70,6 +70,42 @@ describe("web coordinator", () => {
     expect(first).toContain("#token=");
   });
 
+  test("sync starts when enabled and stops when disabled, without dropping an already-correct bind", async () => {
+    const cfg = defaultConfig();
+    cfg.web.enabled = false;
+    cfg.web.listen.port = 18900;
+    let starts = 0;
+    let stops = 0;
+    let running = false;
+    const web = coordinator(cfg, {
+      createListener: (opts) => ({
+        start: async () => {
+          starts += 1;
+          running = true;
+        },
+        stop: async () => {
+          stops += 1;
+          running = false;
+        },
+        isRunning: () => running,
+        listenPort: () => opts.port,
+        address: () => `127.0.0.1:${opts.port}`,
+      }),
+    });
+    await web.sync();
+    expect(starts).toBe(0);
+    cfg.web.enabled = true;
+    await web.sync();
+    expect(starts).toBe(1);
+    await web.sync();
+    expect(starts).toBe(1);
+    cfg.web.enabled = false;
+    await web.sync();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(stops).toBe(1);
+    expect(running).toBe(false);
+  });
+
   test("stop then start reuses the persisted control token", async () => {
     const cfg = defaultConfig();
     cfg.web.enabled = true;

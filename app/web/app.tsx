@@ -3,6 +3,7 @@ import {
   ArrowClockwiseIcon,
   ArrowsLeftRightIcon,
   FlowArrowIcon,
+  GearIcon,
   GraphIcon,
   IconContext,
   PlayIcon,
@@ -12,7 +13,7 @@ import {
   StopIcon,
   type Icon,
 } from "./icons.ts";
-import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchTrafficCall, fetchTrafficCalls, fetchUpdate, postControl } from "./api.ts";
+import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchPreferences, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchTrafficCall, fetchTrafficCalls, fetchUpdate, postControl } from "./api.ts";
 import { percentile, type SeriesPoint } from "./charts.tsx";
 import { ControlNotice } from "./components/controls.tsx";
 import { UpdateNotice } from "./components/update-notice.tsx";
@@ -30,6 +31,7 @@ import { LogsPage } from "./pages/logs.tsx";
 import { LlmPage } from "./pages/llm.tsx";
 import { TrafficPage } from "./pages/traffic.tsx";
 import { TracesPage } from "./pages/traces.tsx";
+import { SettingsPage } from "./pages/settings.tsx";
 import type {
   ConfigSummary,
   ControlArgs,
@@ -68,6 +70,7 @@ const NAV: Array<{ name: RouteName; label: string; icon: Icon }> = [
   { name: "traffic", label: "Traffic", icon: ArrowsLeftRightIcon },
   { name: "graph", label: "Graph", icon: GraphIcon },
   { name: "logs", label: "Logs", icon: ScrollIcon },
+  { name: "settings", label: "Settings", icon: GearIcon },
 ];
 
 type RateSample = { t: number; reqs: number; errs: number; p50: number; p95: number };
@@ -152,6 +155,13 @@ export function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+  useEffect(() => {
+    void fetchPreferences().then((prefs) => {
+      document.documentElement.dataset.appearance = prefs.values.web_appearance;
+    }).catch(() => {
+      // Appearance stays at the committed dark tokens if preferences are unavailable.
+    });
   }, []);
   useEffect(() => {
     traceMsRef.current = traceMsById;
@@ -698,6 +708,14 @@ export function App() {
               error={trafficError}
               search={trafficSearch}
               onSearch={setTrafficSearch}
+            />
+          ) : null}
+          {route.name === "settings" ? (
+            <SettingsPage
+              status={status}
+              busy={Boolean(busy)}
+              onBusy={setBusy}
+              onNotice={setNotice}
             />
           ) : null}
         </main>

@@ -81,6 +81,45 @@ function host(): McpHost & { calls: ControlCall[] } {
     stopProxy: async () => {
       calls.push({ tool: "stop_proxy", args: {} });
     },
+    getPreferences: (scope) => ({
+      values: {
+        theme: "devctl",
+        font_size: 14,
+        mouse: true,
+        leader_timeout: 2000,
+        scroll_speed: 3,
+        log_timestamps: true,
+        log_metadata: true,
+        web_appearance: "dark" as const,
+        mcp_enabled: false,
+      },
+      scope: scope === "user" ? "user" : "repo",
+      locked: false,
+      paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
+      layers: {},
+      local: { web_enabled: true, web_port: 18900 },
+    }),
+    setPreferences: async (patch) => {
+      calls.push({ tool: "set_preferences", args: patch });
+      return {
+        values: {
+          theme: "devctl",
+          font_size: 14,
+          mouse: true,
+          leader_timeout: 2000,
+          scroll_speed: 3,
+          log_timestamps: true,
+          log_metadata: true,
+          web_appearance: "dark" as const,
+          mcp_enabled: false,
+        },
+        scope: patch.scope === "user" ? "user" : "repo",
+        locked: false,
+        paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
+        layers: {},
+        local: { web_enabled: patch.local?.web_enabled === true, web_port: patch.local?.web_port ?? 18900 },
+      };
+    },
     getTrace: async (id) => ({ ...tree, traceId: id }),
     traceRequest: async (id) => ({ ...tree, requestId: id }),
     llmCallsPage: () => ({
@@ -269,6 +308,9 @@ describe("web http server", () => {
       const trafficDetail = await authGet(base, "/api/traffic/req-1");
       expect((await trafficDetail.json() as { id: string; request?: { text?: string } }).request?.text).toContain("ok");
 
+      const prefs = await authGet(base, "/api/preferences");
+      expect((await prefs.json() as { scope: string; local: { web_port: number } }).local.web_port).toBe(18900);
+
       const update = await authGet(base, "/api/update");
       const updateBody = await update.json() as { current: string; newer: boolean; latest: string };
       expect(update.status).toBe(200);
@@ -285,7 +327,7 @@ describe("web http server", () => {
     const port = server.listenPort();
     const base = `http://127.0.0.1:${port}`;
     try {
-      for (const path of ["/api/status", "/api/logs", "/api/llm", "/api/config", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
+      for (const path of ["/api/status", "/api/logs", "/api/llm", "/api/config", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
         const missing = await fetch(`${base}${path}`);
         expect(missing.status).toBe(401);
         const wrong = await fetch(`${base}${path}`, { headers: { Authorization: "Bearer nope" } });

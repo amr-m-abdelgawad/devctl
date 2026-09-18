@@ -100,6 +100,42 @@ function stubHost(): McpHost {
     startProxy: async () => undefined,
     stopProxy: async () => undefined,
     setServiceEnvironment: (service, name) => ({ service, env: name }),
+    getPreferences: (scope) => ({
+      values: {
+        theme: "devctl",
+        font_size: 14,
+        mouse: true,
+        leader_timeout: 2000,
+        scroll_speed: 3,
+        log_timestamps: true,
+        log_metadata: true,
+        web_appearance: "dark" as const,
+        mcp_enabled: false,
+      },
+      scope: scope === "user" ? "user" : "repo",
+      locked: false,
+      paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
+      layers: { theme: "default" as const },
+      local: { web_enabled: false, web_port: 18900 },
+    }),
+    setPreferences: async (patch) => ({
+      values: {
+        theme: patch.theme ?? "devctl",
+        font_size: 14,
+        mouse: true,
+        leader_timeout: 2000,
+        scroll_speed: 3,
+        log_timestamps: true,
+        log_metadata: true,
+        web_appearance: "dark" as const,
+        mcp_enabled: false,
+      },
+      scope: patch.scope === "user" ? "user" : "repo",
+      locked: false,
+      paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
+      layers: { theme: "repo" as const },
+      local: { web_enabled: patch.local?.web_enabled === true, web_port: patch.local?.web_port ?? 18900 },
+    }),
   };
 }
 
@@ -148,12 +184,23 @@ describe("mcp tools", () => {
     expect(JSON.stringify(result)).not.toContain("inline-secret");
   });
 
-  test("web control allows mutating tools except exec", () => {
+  test("web control allows mutating tools except exec", async () => {
     expect(isWebControlTool("start_services")).toBe(true);
     expect(isWebControlTool("set_service_environment")).toBe(true);
     expect(isWebControlTool("stop_proxy")).toBe(true);
+    expect(isWebControlTool("set_preferences")).toBe(true);
+    expect(isWebControlTool("get_preferences")).toBe(false);
     expect(isWebControlTool("list_services")).toBe(false);
     expect(isWebControlTool("exec_service")).toBe(false);
+  });
+
+  test("get_preferences and set_preferences round-trip through the host", async () => {
+    const got = (await callMcpTool(stubHost(), "get_preferences", { scope: "repo" })) as { scope: string; local: { web_port: number } };
+    expect(got.scope).toBe("repo");
+    expect(got.local.web_port).toBe(18900);
+    const set = (await callMcpTool(stubHost(), "set_preferences", { scope: "user", theme: "nord" })) as { values: { theme: string }; scope: string };
+    expect(set.scope).toBe("user");
+    expect(set.values.theme).toBe("nord");
   });
 
   test("get_config shows an env-ref client_secret template and never a resolved secret", async () => {

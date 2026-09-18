@@ -1,4 +1,5 @@
 import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
+import { formatHostPort } from "../../domain/net/hosts.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
 import { readOrCreateWebToken } from "../storage/storage.ts";
 
@@ -59,6 +60,35 @@ export class WebCoordinator {
   async stop(): Promise<void> {
     await this.listener?.stop();
     this.listener = undefined;
+  }
+
+  async sync(): Promise<void> {
+    const cfg = this.deps.cfg();
+    const host = cfg.web.listen.host || LOCALHOST;
+    const port = cfg.web.listen.port;
+    const wantEnabled = cfg.web.enabled;
+    const running = this.listener?.isRunning() === true;
+    const sameBind = running && this.listener !== undefined && this.listener.listenPort() === port && this.listener.address() === formatHostPort(host, port);
+    if (wantEnabled && sameBind) {
+      return;
+    }
+    const rebind = (): void => {
+      void (async () => {
+        await this.stop();
+        if (wantEnabled) {
+          await this.start();
+        }
+      })();
+    };
+    if (running) {
+      // Dropping the listener inside an in-flight /api/control request would
+      // prevent the JSON reply from reaching the browser. Finish this turn first.
+      setTimeout(rebind, 0);
+      return;
+    }
+    if (wantEnabled) {
+      await this.start();
+    }
   }
 
   private async bind(): Promise<void> {

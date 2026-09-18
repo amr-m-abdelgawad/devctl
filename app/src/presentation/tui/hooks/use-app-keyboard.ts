@@ -22,8 +22,8 @@ import {
   type KeyLike,
 } from "../keymap.ts";
 import { mcpToolAtRow } from "../screens/Mcp.tsx";
-import { cycleFontSize, selectedSettingsItem, settingsDefaults } from "../settings.ts";
-import { hasPrimaryMod, type TuiConfig } from "../tui-config.ts";
+import { cycleFontSize, selectedSettingsItem } from "../settings.ts";
+import { DEFAULT_FONT_SIZE, hasPrimaryMod, type TuiConfig } from "../tui-config.ts";
 import type { useDiagnostics } from "./use-diagnostics.ts";
 import type { useLifecycle } from "./use-lifecycle.ts";
 import type { useLogView } from "./use-log-view.ts";
@@ -42,7 +42,7 @@ type Options = {
   logView: Pick<ReturnType<typeof useLogView>, "logSlice" | "logSliceB" | "logSearch" | "logSearchFocused" | "logsFullscreen" | "applyLogCursor" | "applyDashboardLogCursor" | "dashboardLogCursor" | "logPinned" | "logSources" | "logService" | "logServiceB" | "splitLogs" | "splitFocus" | "toggleSplitLogs" | "cycleSplitFocus" | "setActiveLogService" | "logs" | "logShowTimestamps" | "logShowMeta" | "logWrap" | "showSystemLogs" | "jumpToLatestLogs" | "toggleSystemLogs" | "clearLogs" | "setLogSearch" | "setLogSearchFocused" | "setLogsFullscreen" | "setLogService" | "setLogShowTimestamps" | "setLogShowMeta" | "setPaused" | "setErrorOnly" | "setLogWrap">;
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart" | "planBusy">;
   mcp: Pick<ReturnType<typeof useMcpControls>, "applyMcpPortDraft" | "toggleMcp" | "toggleMcpTool" | "copyFocusedMcpSnippet" | "persistMcpPort" | "restartMcpOnPort" | "setMcpPortDraft">;
-  preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "persistPrefs">;
+  preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "applyLogTimestamps" | "applyLogMetadata">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "doctor" | "refreshAuth" | "setDoctorTick">;
   refs: KeyboardRefs;
 };
@@ -249,7 +249,7 @@ export function useAppKeyboard({
       return;
     }
     if (hasPrimaryMod(key) && name === "0") {
-      applyFont(settingsDefaults().font_size);
+      applyFont(DEFAULT_FONT_SIZE);
       return;
     }
     if (screen === "logs" && !logSearchFocused && (key.sequence === "\\" || name === "\\")) {

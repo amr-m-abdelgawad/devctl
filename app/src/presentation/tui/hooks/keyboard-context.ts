@@ -160,7 +160,8 @@ export type ScreenKeyCtx = KeyboardUi & {
   restartMcpOnPort: ReturnType<typeof useMcpControls>["restartMcpOnPort"];
   setMcpPortDraft: ReturnType<typeof useMcpControls>["setMcpPortDraft"];
   settingRows: ReturnType<typeof usePreferences>["settingRows"];
-  persistPrefs: ReturnType<typeof usePreferences>["persistPrefs"];
+  applyLogTimestamps: ReturnType<typeof usePreferences>["applyLogTimestamps"];
+  applyLogMetadata: ReturnType<typeof usePreferences>["applyLogMetadata"];
   cycleSetting: ReturnType<typeof usePreferences>["cycleSetting"];
   toggleMouse: ReturnType<typeof usePreferences>["toggleMouse"];
   setDoctorTick: ReturnType<typeof useDiagnostics>["setDoctorTick"];

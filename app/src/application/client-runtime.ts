@@ -1,4 +1,4 @@
-import type { TuiConfig, TuiKeybinds, TuiPreferencePatch } from "../domain/ui/preferences.ts";
+import type { TuiConfig, TuiKeybinds, TuiPreferencePatch, SaveTuiPreferencesOpts, LocalWebPatch } from "../domain/ui/preferences.ts";
 import type { DevctlConfig } from "../domain/config/types.ts";
 import type { ConfigDiffEntry } from "../domain/config/provenance.ts";
 import type { GoogleStatus } from "../domain/identity/google-status.ts";
@@ -65,9 +65,11 @@ export type DaemonLauncher = (repoRoot: string, configPath: string) => Promise<v
 /** Client-side use cases and local operations supplied by the composition root. */
 export type ClientRuntime = {
   loadTuiConfig(startDir: string, yamlKeymap?: TuiKeybinds): TuiConfig;
-  saveTuiPreferences(partial: TuiPreferencePatch): string;
+  saveTuiPreferences(partial: TuiPreferencePatch, opts?: SaveTuiPreferencesOpts): string;
   resolveTuiOverridePath(startDir?: string): string | undefined;
   userTuiConfigPath(): string;
+  repoTuiConfigPath(repoRoot: string): string;
+  patchRepoLocalConfig(repoRoot: string, patch: LocalWebPatch): string;
   listSessions(root?: string): string[];
   loadSessionEvents(session: string, root?: string): LogEvent[];
   load(startDir: string, explicit: string): DevctlConfig;

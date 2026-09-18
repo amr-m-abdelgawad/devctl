@@ -1,6 +1,17 @@
 import { VERSION, versionLine } from "../../version.ts";
 import { THEME_NAMES } from "./themes.ts";
-import { DEFAULT_FONT_SIZE, DEFAULT_LEADER_TIMEOUT_MS, displayWithMod } from "./tui-config.ts";
+import {
+  DEFAULT_FONT_SIZE,
+  DEFAULT_LEADER_TIMEOUT_MS,
+  DEFAULT_SCROLL_SPEED,
+  DEFAULT_WEB_APPEARANCE,
+  displayWithMod,
+  nearestScrollSpeed,
+  preferenceResetPatch,
+  SCROLL_SPEEDS,
+  type PreferenceScope,
+  type WebAppearance,
+} from "./tui-config.ts";
 
 export const LEADER_STEPS_MS = [1000, 2000, 3000] as const;
 export const FONT_SIZES = [12, 14, 16, 18, 20, 22] as const;
@@ -8,8 +19,24 @@ export const DEFAULT_THEME = "devctl";
 export { DEFAULT_FONT_SIZE };
 
 export type SettingsKind = "cycle" | "toggle" | "action" | "info" | "page";
-export type SettingsGroup = "Appearance" | "Input" | "MCP" | "About";
-export type SettingsId = "theme" | "font" | "mouse" | "leader" | "mcp" | "file" | "version" | "reset";
+export type SettingsGroup = "Scope" | "Appearance" | "Input" | "Logs" | "Listeners" | "About";
+export type SettingsId =
+  | "scope"
+  | "theme"
+  | "font"
+  | "web_appearance"
+  | "mouse"
+  | "leader"
+  | "scroll"
+  | "timestamps"
+  | "metadata"
+  | "mcp"
+  | "web"
+  | "web_port"
+  | "user_file"
+  | "repo_file"
+  | "version"
+  | "reset";
 
 export type SettingsItem = {
   id: SettingsId;
@@ -29,6 +56,17 @@ export type SettingsState = {
   locked: boolean;
   configPath: string;
   mcpRunning?: boolean;
+  scope: PreferenceScope;
+  scrollSpeed: number;
+  logTimestamps: boolean;
+  logMetadata: boolean;
+  webAppearance: WebAppearance;
+  webEnabled: boolean;
+  webPort: number;
+  webRunning?: boolean;
+  userPath: string;
+  repoPath: string;
+  localPath: string;
 };
 
 export function tuiPrefsLocked(overridePath?: string): boolean {
@@ -69,6 +107,26 @@ export function nearestFontSize(current: number): number {
 
 export function cycleFontSize(current: number, dir: 1 | -1): number {
   return cycleChoice([...FONT_SIZES], nearestFontSize(current), dir);
+}
+
+export function cycleScrollSpeed(current: number, dir: 1 | -1): number {
+  return cycleChoice([...SCROLL_SPEEDS], nearestScrollSpeed(current), dir);
+}
+
+export function cycleWebAppearance(current: WebAppearance, dir: 1 | -1): WebAppearance {
+  return cycleChoice(["dark", "light"] as const, current, dir);
+}
+
+export function cyclePreferenceScope(current: PreferenceScope, dir: 1 | -1): PreferenceScope {
+  return cycleChoice(["repo", "user"] as const, current, dir);
+}
+
+export function formatScrollSpeed(speed: number): string {
+  return `${nearestScrollSpeed(speed)}`;
+}
+
+export function formatScope(scope: PreferenceScope): string {
+  return scope === "repo" ? "this repo" : "all repos";
 }
 
 export type UiScale = {
@@ -114,9 +172,21 @@ export function formatFontSize(size: number): string {
 
 export function settingsItems(state: SettingsState): SettingsItem[] {
   const persist = state.locked
-    ? "Applies this session only. DEVCTL_TUI_CONFIG overrides the user file."
+    ? "Applies this session only. DEVCTL_TUI_CONFIG overrides saved files."
     : `Saved to ${state.configPath}.`;
+  const scopeHint = state.scope === "repo" ? "this repository overlay" : "your user tui.json (every checkout)";
   return [
+    {
+      id: "scope",
+      group: "Scope",
+      kind: "cycle",
+      name: "Save to",
+      value: formatScope(state.scope),
+      hint: "← →  this repo / all repos",
+      detail: state.locked
+        ? `DEVCTL_TUI_CONFIG is set — writes stay in this session. Would have written ${state.configPath}.`
+        : `This repository writes ${state.repoPath}. All repositories writes ${state.userPath}. Current writes go to ${state.configPath}.`,
+    },
     {
       id: "theme",
       group: "Appearance",
@@ -124,7 +194,7 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       name: "Theme",
       value: state.themeName,
       hint: "← → save    enter  picker",
-      detail: `Arrows write the theme to the user file. Enter opens the picker. ${persist}`,
+      detail: `Arrows write the theme to ${scopeHint}. Enter opens the picker. ${persist}`,
     },
     {
       id: "font",
@@ -134,6 +204,15 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       value: formatFontSize(state.fontSize),
       hint: "← → save",
       detail: `Scales content padding and list-row height. Default keeps a thin rule between chrome and panes. Compact sits toolbars flush against borders. Header, nav, and status stay one line. Does not change the terminal font. ${persist}`,
+    },
+    {
+      id: "web_appearance",
+      group: "Appearance",
+      kind: "cycle",
+      name: "Web console",
+      value: state.webAppearance,
+      hint: "← → save",
+      detail: `Dark or light tokens for the loopback web console. Does not change this TUI theme. ${persist}`,
     },
     {
       id: "mouse",
@@ -154,24 +233,76 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       detail: `How long ${displayWithMod("x")} waits for the next key. ${persist}`,
     },
     {
-      id: "mcp",
-      group: "MCP",
-      kind: "page",
-      name: "Settings page",
-      value: state.mcpRunning ? "running  →  /mcp" : "off  →  /mcp",
-      hint: "enter  open the MCP page",
-      detail: "Opens a dedicated MCP page (also /mcp or /agent). Start or stop the localhost server, change the port, and copy Claude, Cursor, Codex, and Kilo Code config.",
+      id: "scroll",
+      group: "Input",
+      kind: "cycle",
+      name: "Scroll speed",
+      value: formatScrollSpeed(state.scrollSpeed),
+      hint: "← → save",
+      detail: `Lines moved by j/k and wheel in scrollable panes. ${persist}`,
     },
     {
-      id: "file",
+      id: "timestamps",
+      group: "Logs",
+      kind: "toggle",
+      name: "Timestamps",
+      value: state.logTimestamps ? "on" : "off",
+      hint: "space or enter  toggle",
+      detail: `Same as t on the logs screen. ${persist}`,
+    },
+    {
+      id: "metadata",
+      group: "Logs",
+      kind: "toggle",
+      name: "Metadata",
+      value: state.logMetadata ? "on" : "off",
+      hint: "space or enter  toggle",
+      detail: `Same as m on the logs screen. ${persist}`,
+    },
+    {
+      id: "mcp",
+      group: "Listeners",
+      kind: "page",
+      name: "MCP",
+      value: state.mcpRunning ? "running  →  /mcp" : "off  →  /mcp",
+      hint: "enter  open the MCP page",
+      detail: "Opens the MCP page (also /mcp or /agent). Listen, port, and tool lists save to this repository overlay.",
+    },
+    {
+      id: "web",
+      group: "Listeners",
+      kind: "toggle",
+      name: "Web console",
+      value: state.webEnabled ? (state.webRunning ? "on · listening" : "on") : "off",
+      hint: "space or enter  toggle",
+      detail: `Writes web.enabled to ${state.localPath}, then reloads so the listener starts or stops. Hand-edited keys in that overlay stay.`,
+    },
+    {
+      id: "web_port",
+      group: "Listeners",
+      kind: "cycle",
+      name: "Web port",
+      value: String(state.webPort),
+      hint: "← → save",
+      detail: "Writes web.listen.port to .devctl/config.local.yaml (loopback host unchanged) and reloads. Other YAML keys are left alone.",
+    },
+    {
+      id: "user_file",
       group: "About",
       kind: "info",
-      name: "File",
-      value: state.configPath,
+      name: "User file",
+      value: state.userPath,
       hint: "read-only",
-      detail: state.locked
-        ? `Using ${state.configPath} from DEVCTL_TUI_CONFIG.`
-        : `User preferences live in ${state.configPath}.`,
+      detail: `Defaults for every checkout. ${state.locked ? `Overridden this session by ${state.configPath}.` : "Theme and input follow the Save to toggle."}`,
+    },
+    {
+      id: "repo_file",
+      group: "About",
+      kind: "info",
+      name: "Repo file",
+      value: state.repoPath,
+      hint: "read-only",
+      detail: "Per-checkout overlay. MCP listen always lands here. Later sources win.",
     },
     {
       id: "version",
@@ -189,17 +320,17 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       name: "Reset",
       value: "defaults",
       hint: "enter  confirm reset",
-      detail: `Restore theme ${DEFAULT_THEME}, display ${formatFontSize(DEFAULT_FONT_SIZE)}, mouse on, leader ${formatLeader(DEFAULT_LEADER_TIMEOUT_MS)}. Enter asks first. ${persist}`,
+      detail: `Restore theme ${DEFAULT_THEME}, display ${formatFontSize(DEFAULT_FONT_SIZE)}, mouse on, leader ${formatLeader(DEFAULT_LEADER_TIMEOUT_MS)}, scroll ${DEFAULT_SCROLL_SPEED}, log columns on, web console ${DEFAULT_WEB_APPEARANCE}. Applies to ${scopeHint}. MCP listen is left as-is. ${persist}`,
     },
   ];
 }
 
-export function settingsDefaults(): { theme: string; mouse: boolean; leader_timeout: number; font_size: number } {
-  return { theme: DEFAULT_THEME, mouse: true, leader_timeout: DEFAULT_LEADER_TIMEOUT_MS, font_size: DEFAULT_FONT_SIZE };
+export function settingsDefaults(): ReturnType<typeof preferenceResetPatch> {
+  return preferenceResetPatch();
 }
 
 export function groupedSettings(items: SettingsItem[]): { group: SettingsGroup; items: SettingsItem[] }[] {
-  const order: SettingsGroup[] = ["Appearance", "Input", "MCP", "About"];
+  const order: SettingsGroup[] = ["Scope", "Appearance", "Input", "Logs", "Listeners", "About"];
   return order.flatMap((group) => {
     const rows = items.filter((item) => item.group === group);
     if (rows.length === 0) {

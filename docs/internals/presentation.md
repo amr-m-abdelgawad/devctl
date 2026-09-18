@@ -57,7 +57,7 @@ Hook map:
 | `use-service-environment.ts` | Env inspect (redacted) |
 | `use-config-editor.ts` | Buffer validate via `validateConfigText` before write |
 | `use-mcp-controls.ts` | MCP start/stop/tools |
-| `use-preferences.ts` | Theme, keys, persist `tui.json` |
+| `use-preferences.ts` | Scope, theme, persist `tui.json` layers + allowlisted local YAML |
 | `use-notifications.ts` | GitHub update check; dismiss / later receipts |
 | `use-command-dispatcher.ts` | Slash / command catalog |
 | `use-setup-wizard.ts` | First-run |
@@ -82,13 +82,13 @@ Streamable HTTP, JSON-RPC 2.0, protocol `2025-03-26`. Bind loopback only. Bearer
 
 Tools (names are the RPC contract; do not rename lightly):
 
-Inspect: `list_services`, `get_service`, `get_status`, `get_requests`, `get_llm_calls`, `get_llm_call`, `get_traffic_calls`, `get_traffic_call`, `list_profiles`, `get_config`, `get_config_sources`
+Inspect: `list_services`, `get_service`, `get_status`, `get_preferences`, `get_requests`, `get_llm_calls`, `get_llm_call`, `get_traffic_calls`, `get_traffic_call`, `list_profiles`, `get_config`, `get_config_sources`
 
 Logs: `get_logs`, `get_trace`, `trace_request`, `recent_errors`
 
 Diagnostics: `run_doctor`, `search_docs`, `get_doc`, `validate_config`
 
-Control (mutating): `start_services`, `stop_services`, `restart_services`, `reload_config`, `run_task`, `start_proxy`, `stop_proxy`
+Control (mutating): `start_services`, `stop_services`, `restart_services`, `set_service_environment`, `reload_config`, `set_preferences`, `run_task`, `start_proxy`, `stop_proxy`
 
 Setup: `get_setup_guide`
 

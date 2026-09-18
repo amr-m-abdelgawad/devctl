@@ -3,6 +3,11 @@ export const DEFAULT_FONT_SIZE = 14;
 export const DEFAULT_SCROLL_SPEED = 3;
 export const DEFAULT_ATTENTION_VOLUME = 0.4;
 export const TUI_CONFIG_ENV = "DEVCTL_TUI_CONFIG";
+export const SCROLL_SPEEDS = [1, 2, 3, 4, 5, 6] as const;
+export type WebAppearance = "dark" | "light";
+export const DEFAULT_WEB_APPEARANCE: WebAppearance = "dark";
+export type PreferenceScope = "user" | "repo";
+export type PreferenceLayer = "default" | "team" | "user" | "repo" | "override";
 
 export type CursorStyle = "block" | "underline" | "line" | "default";
 export type DiffStyle = "auto" | "stacked";
@@ -49,6 +54,7 @@ export type TuiConfig = {
   attention: TuiAttentionConfig;
   log_timestamps: boolean;
   log_metadata: boolean;
+  web_appearance: WebAppearance;
   mcp_enabled: boolean;
   mcp_port?: number;
   // Deny-list: names of MCP tools turned off. Combined at boot with
@@ -179,6 +185,7 @@ export function defaultTuiConfig(): TuiConfig {
     },
     log_timestamps: true,
     log_metadata: true,
+    web_appearance: DEFAULT_WEB_APPEARANCE,
     mcp_enabled: false,
   };
 }
@@ -188,14 +195,155 @@ export type TuiPreferencePatch = {
   mouse?: boolean;
   leader_timeout?: number;
   font_size?: number;
+  scroll_speed?: number;
   log_timestamps?: boolean;
   log_metadata?: boolean;
+  web_appearance?: WebAppearance;
   mcp_enabled?: boolean;
   mcp_port?: number | null;
   mcp_disabled_tools?: string[];
   mcp_enabled_tools?: string[];
   dismissed_notifications?: string[];
 };
+
+export type SaveTuiPreferencesOpts = {
+  repoRoot?: string;
+  scope?: PreferenceScope;
+};
+
+export type LocalWebPatch = {
+  web_enabled?: boolean;
+  web_port?: number;
+};
+
+export type PreferenceWrite = TuiPreferencePatch & {
+  scope?: PreferenceScope;
+  reset?: boolean;
+  local?: LocalWebPatch;
+};
+
+export function isPreferenceScope(value: unknown): value is PreferenceScope {
+  return value === "user" || value === "repo";
+}
+
+export function preferenceResetPatch(): TuiPreferencePatch {
+  return {
+    theme: "devctl",
+    mouse: true,
+    leader_timeout: DEFAULT_LEADER_TIMEOUT_MS,
+    font_size: DEFAULT_FONT_SIZE,
+    scroll_speed: DEFAULT_SCROLL_SPEED,
+    log_timestamps: true,
+    log_metadata: true,
+    web_appearance: DEFAULT_WEB_APPEARANCE,
+  };
+}
+
+export function parsePreferenceWrite(args: Record<string, unknown>): PreferenceWrite {
+  const out: PreferenceWrite = {};
+  if (isPreferenceScope(args.scope)) {
+    out.scope = args.scope;
+  }
+  if (args.reset === true) {
+    out.reset = true;
+  }
+  if (typeof args.theme === "string") {
+    out.theme = args.theme;
+  }
+  if (typeof args.font_size === "number" && Number.isFinite(args.font_size)) {
+    out.font_size = Math.round(args.font_size);
+  }
+  if (typeof args.mouse === "boolean") {
+    out.mouse = args.mouse;
+  }
+  if (typeof args.leader_timeout === "number" && Number.isFinite(args.leader_timeout)) {
+    out.leader_timeout = args.leader_timeout;
+  }
+  if (typeof args.scroll_speed === "number" && Number.isFinite(args.scroll_speed)) {
+    out.scroll_speed = args.scroll_speed;
+  }
+  if (typeof args.log_timestamps === "boolean") {
+    out.log_timestamps = args.log_timestamps;
+  }
+  if (typeof args.log_metadata === "boolean") {
+    out.log_metadata = args.log_metadata;
+  }
+  if (isWebAppearance(args.web_appearance)) {
+    out.web_appearance = args.web_appearance;
+  }
+  if (typeof args.mcp_enabled === "boolean") {
+    out.mcp_enabled = args.mcp_enabled;
+  }
+  if (args.mcp_port === null) {
+    out.mcp_port = null;
+  } else if (typeof args.mcp_port === "number" && Number.isInteger(args.mcp_port)) {
+    out.mcp_port = args.mcp_port;
+  }
+  if (Array.isArray(args.mcp_disabled_tools)) {
+    out.mcp_disabled_tools = args.mcp_disabled_tools.filter((name): name is string => typeof name === "string");
+  }
+  if (Array.isArray(args.mcp_enabled_tools)) {
+    out.mcp_enabled_tools = args.mcp_enabled_tools.filter((name): name is string => typeof name === "string");
+  }
+  if (isPlainRecord(args.local)) {
+    const local: LocalWebPatch = {};
+    if (typeof args.local.web_enabled === "boolean") {
+      local.web_enabled = args.local.web_enabled;
+    }
+    if (typeof args.local.web_port === "number" && Number.isInteger(args.local.web_port)) {
+      local.web_port = args.local.web_port;
+    }
+    if (local.web_enabled !== undefined || local.web_port !== undefined) {
+      out.local = local;
+    }
+  }
+  return out;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export type PreferenceValues = {
+  theme: string;
+  font_size: number;
+  mouse: boolean;
+  leader_timeout: number;
+  scroll_speed: number;
+  log_timestamps: boolean;
+  log_metadata: boolean;
+  web_appearance: WebAppearance;
+  mcp_enabled: boolean;
+  mcp_port?: number;
+};
+
+export type PreferenceSnapshot = {
+  values: PreferenceValues;
+  scope: PreferenceScope;
+  locked: boolean;
+  paths: {
+    user: string;
+    repo: string;
+    write: string;
+    team?: string;
+    override?: string;
+    local: string;
+  };
+  layers: Record<string, PreferenceLayer>;
+  local: {
+    web_enabled: boolean;
+    web_port: number;
+  };
+};
+
+export function isWebAppearance(value: unknown): value is WebAppearance {
+  return value === "dark" || value === "light";
+}
+
+export function nearestScrollSpeed(current: number): number {
+  const steps = [...SCROLL_SPEEDS];
+  return steps.reduce((best, step) => (Math.abs(step - current) < Math.abs(best - current) ? step : best), steps[0]!);
+}
 
 export type ParsedKey = {
   name: string;

@@ -89,6 +89,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     saveTuiPreferences,
     resolveTuiOverridePath,
     userTuiConfigPath,
+    repoTuiConfigPath,
+    patchRepoLocalConfig,
     validateConfigText,
     freePort,
     readTextFile,
@@ -143,45 +145,6 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   // unlike `status`, which is a transient one-line message for the last
   // action, this is state the user needs to keep seeing.
   const [configReloadError, setConfigReloadError] = useState<string | undefined>(undefined);
-  const preferences = usePreferences({
-    tui,
-    controller,
-    resolveTuiOverridePath,
-    terminalBackground,
-    userTuiConfigPath,
-    snap,
-    setStatus,
-    saveTuiPreferences,
-    setPaletteIndex,
-    setOverlay,
-    setConfirmKind,
-    setScreen,
-    setSelected,
-    screen,
-  });
-  const {
-    themeName,
-    setThemeName,
-    fontSize,
-    prefsLocked,
-    palette,
-    rootBackground,
-    settingRows,
-    persistPrefs,
-    persistTheme,
-    activateSetting,
-  } = preferences;
-  const notifications = useNotifications({
-    checkUpdate: workspace.checkUpdate,
-    dismissed: tui.dismissed_notifications ?? [],
-    prefsLocked,
-    saveTuiPreferences,
-    setStatus,
-  });
-
-  const diagnostics = useDiagnostics({ controller, workspace, cfg, snap, screen, configReloadError, setSnap, setStatus });
-  const { google, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick } = diagnostics;
-  const copyKey = tui.keybinds.copy ?? defaultCopyKeybind();
   const names = useMemo(() => Object.keys(cfg?.services ?? {}).sort(), [cfg]);
   const refresh = useCallback(async () => {
     if (!controller) {
@@ -199,8 +162,52 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       return undefined;
     }
   }, [controller, profile]);
-
   const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
+  const preferences = usePreferences({
+    tui,
+    controller,
+    resolveTuiOverridePath,
+    terminalBackground,
+    userTuiConfigPath,
+    repoTuiConfigPath,
+    patchRepoLocalConfig,
+    snap,
+    setStatus,
+    saveTuiPreferences,
+    setPaletteIndex,
+    setOverlay,
+    setConfirmKind,
+    setScreen,
+    setSelected,
+    setLogShowTimestamps: logView.setLogShowTimestamps,
+    setLogShowMeta: logView.setLogShowMeta,
+    screen,
+  });
+  const {
+    themeName,
+    setThemeName,
+    fontSize,
+    scrollSpeed,
+    prefsLocked,
+    palette,
+    rootBackground,
+    settingRows,
+    persistPrefs,
+    persistTheme,
+    activateSetting,
+  } = preferences;
+  const liveTui = useMemo(() => ({ ...tui, scroll_speed: scrollSpeed }), [scrollSpeed, tui]);
+  const notifications = useNotifications({
+    checkUpdate: workspace.checkUpdate,
+    dismissed: tui.dismissed_notifications ?? [],
+    prefsLocked,
+    saveTuiPreferences,
+    setStatus,
+  });
+
+  const diagnostics = useDiagnostics({ controller, workspace, cfg, snap, screen, configReloadError, setSnap, setStatus });
+  const { google, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick } = diagnostics;
+  const copyKey = tui.keybinds.copy ?? defaultCopyKeybind();
   const llmView = useLlmView({ controller, screen });
   const trafficView = useTrafficView({ controller, screen });
   const {
@@ -326,7 +333,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     tui,
     controller,
     cfg,
-    persistPrefs,
+    persistPrefs: (partial, message) => persistPrefs(partial, message, "repo"),
     snap,
     refresh,
     setStatus,
@@ -602,7 +609,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
   );
 
   useAppKeyboard({
-    tui,
+    tui: liveTui,
     controller,
     cfg,
     snap,

@@ -50,23 +50,21 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`, `dismissed_notifications`.
+Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `web_appearance`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`, `dismissed_notifications`.
 
 `mcp_disabled_tools` is a deny-list of MCP tool names that are on by default. `mcp_enabled_tools` opts in tools that are off by default (`exec_service`). See [MCP](mcp.md). `/notify dismiss` appends this version to `dismissed_notifications` so the update banner does not return.
 
-Search order:
+Search order (later sources win). `DEVCTL_TUI_CONFIG` / `OPENCODE_TUI_CONFIG` is exclusive and session-only for writes:
 
 ```mermaid
 flowchart TB
-  env{"DEVCTL_TUI_CONFIG<br/>or OPENCODE_TUI_CONFIG exists?"}
-  env -->|yes| only["Use that file only"]
-  env -->|no| first["First existing of<br/>./tui.jsonc · .devctl/tui.jsonc · ~/.devctl/tui.jsonc"]
-  first --> merge{"~/.devctl/tui.json is a different path?"}
-  merge -->|yes| overlay["Merge user file on top"]
-  merge -->|no| done["Use that file"]
+  defaults["Hardcoded defaults"] --> yaml["config.yaml ui.keymap"]
+  yaml --> team["./tui.json or .devctl/tui.json if present"]
+  team --> user["~/.devctl/tui.json  all repos"]
+  user --> repo["~/.devctl/state/repoID/tui.json  this checkout"]
 ```
 
-Settings writes go to `~/.devctl/tui.json` unless the env override is set (then changes apply for this session only).
+Settings default to **this repository**. Theme, mouse, leader, scroll, log columns, and web appearance follow the Save to toggle. MCP listen / port / tool lists always write the repo overlay. `dismissed_notifications` stay user-global. `DEVCTL_TUI_CONFIG` still wins as the only file when set.
 
 `keybinds` merge with the built-in defaults, so you only override what you change. Defaults use `cmd` on macOS and `ctrl` on Linux/Windows (`command+c` / `ctrl+c` in the TUI).
 

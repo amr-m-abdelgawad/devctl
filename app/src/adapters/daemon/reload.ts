@@ -53,6 +53,7 @@ export type ReloadHost = {
   reload(): Promise<ReloadResult>;
   forgetService(name: string): void;
   syncServiceWatchers(): void;
+  syncWebListener(): Promise<void>;
 };
 
 export function applyRegistry(host: ReloadHost): void {
@@ -292,6 +293,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
     }
     host.log("devctl", "INFO", "proxy configuration changed; proxy restarted");
   }
+  await host.syncWebListener();
   host.bus.publish(
     newEvent(ConfigurationChanged, "", {
       restart_required: result.restart_required,

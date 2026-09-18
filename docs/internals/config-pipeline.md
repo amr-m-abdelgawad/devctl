@@ -78,11 +78,11 @@ Unknown fields are checked with a prefix (`services.api.…`) so errors name the
 
 Not YAML. `tui-preferences.ts`:
 
-1. `DEVCTL_TUI_CONFIG` / `OPENCODE_TUI_CONFIG` → that file only
-2. Else first of `./tui.jsonc`, `.devctl/tui.jsonc`, `~/.devctl/tui.jsonc`
-3. Merge `~/.devctl/tui.json` on top if it is a different path
+1. Hardcoded defaults, then `config.yaml` `ui.keymap`
+2. `DEVCTL_TUI_CONFIG` / `OPENCODE_TUI_CONFIG` → that file only (writes stay in-session)
+3. Else merge, later wins: team `./tui.json` or `.devctl/tui.json` → `~/.devctl/tui.json` → `~/.devctl/state/<repoID>/tui.json`
 
-Writes go to `~/.devctl/tui.json` unless the env override is set.
+Settings default to the repo overlay. MCP listen always writes the repo file. `dismissed_notifications` stay in the user file. Allowlisted stack overlay writes (`web.enabled`, `web.listen.port`) go to `.devctl/config.local.yaml` then `reload` + `syncWebListener`.
 
 ## Reload
 

@@ -7,6 +7,7 @@ import { formatBodySummary, redactLogRecord, redactSpan, type LogRecord } from "
 import { redactLlmCall, stripLlmBodies, type LlmCall } from "../../domain/llm/llm.ts";
 import { redactTrafficCall, stripTrafficBodies, type TrafficCall } from "../../domain/traffic/traffic.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
+import { parsePreferenceWrite, isPreferenceScope } from "../../domain/ui/preferences.ts";
 import { effectiveServiceEnv, namedEnvironmentNames, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
@@ -79,6 +80,21 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     category: "inspect",
     description: "Profile, session, identity flags (no tokens), proxy, and log counts",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_preferences",
+    label: "Get preferences",
+    summary: "Resolved TUI/web prefs and write paths",
+    category: "inspect",
+    description:
+      "Return resolved operator preferences (theme, input, log columns, web appearance, MCP listen) with layer provenance (default/team/user/repo/override) and write paths. Pass scope=user or scope=repo (default repo) to label the current save target. Stack overlay fields web.enabled and web.listen.port are included as local.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["user", "repo"], description: "Save-target label; default repo" },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "get_logs",
@@ -342,6 +358,41 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     mutates: true,
     description: "Reload .devctl configuration",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "set_preferences",
+    label: "Set preferences",
+    summary: "Save TUI/web prefs or the web console overlay",
+    category: "control",
+    mutates: true,
+    description:
+      "Write operator preferences. scope=repo (default) writes this checkout's overlay; scope=user writes ~/.devctl/tui.json. MCP listen, port, and tool lists always write to the repo overlay. reset=true restores advertised defaults in that scope (MCP listen is left as-is). local.web_enabled / local.web_port patch .devctl/config.local.yaml (creating it if missing) then reload so the web listener starts, stops, or rebinds. Other YAML keys are preserved. dismissed_notifications stay user-global.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        scope: { type: "string", enum: ["user", "repo"] },
+        theme: { type: "string" },
+        font_size: { type: "number" },
+        mouse: { type: "boolean" },
+        leader_timeout: { type: "number" },
+        scroll_speed: { type: "number" },
+        log_timestamps: { type: "boolean" },
+        log_metadata: { type: "boolean" },
+        web_appearance: { type: "string", enum: ["dark", "light"] },
+        mcp_enabled: { type: "boolean" },
+        mcp_port: { type: ["number", "null"] },
+        reset: { type: "boolean" },
+        local: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            web_enabled: { type: "boolean" },
+            web_port: { type: "integer" },
+          },
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: "run_task",
@@ -968,6 +1019,18 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return getService(host, args.name);
     case "get_status":
       return getStatusSummary(host.status());
+    case "get_preferences": {
+      if (!host.getPreferences) {
+        throw new Error("getPreferences is unavailable");
+      }
+      return host.getPreferences(isPreferenceScope(args.scope) ? args.scope : "repo");
+    }
+    case "set_preferences": {
+      if (!host.setPreferences) {
+        throw new Error("setPreferences is unavailable");
+      }
+      return host.setPreferences(parsePreferenceWrite(args));
+    }
     case "get_logs":
       return getLogs(host, args);
     case "get_trace":

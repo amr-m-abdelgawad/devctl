@@ -66,7 +66,7 @@ An opt-in loopback console on the same supervisor (services, traces, logs, LLM i
 |------|--------|
 | Services, profiles, HTTP recipes, proxy, Google project | `.devctl/config.yaml` and modular YAML |
 | Machine overlay (gitignored) | `.devctl/config.local.yaml` and `~/.devctl/config.local.yaml` |
-| TUI theme, keys, MCP listen flag | `~/.devctl/tui.json` (or `DEVCTL_TUI_CONFIG`) |
+| TUI theme, keys, MCP listen, web appearance | `~/.devctl/tui.json` plus per-checkout `~/.devctl/state/<repoID>/tui.json` (or `DEVCTL_TUI_CONFIG`) |
 | Session / lock / socket | `~/.devctl/state/<repoID>/` |
 | Persisted logs | `~/.devctl/logs/` |
 | Log exports | `~/.devctl/exports/` |

@@ -9,6 +9,7 @@ export { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
 export { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
 export { FlowArrowIcon } from "@phosphor-icons/react/dist/csr/FlowArrow";
 export { GaugeIcon } from "@phosphor-icons/react/dist/csr/Gauge";
+export { GearIcon } from "@phosphor-icons/react/dist/csr/Gear";
 export { GraphIcon } from "@phosphor-icons/react/dist/csr/Graph";
 export { LightningIcon } from "@phosphor-icons/react/dist/csr/Lightning";
 export { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";

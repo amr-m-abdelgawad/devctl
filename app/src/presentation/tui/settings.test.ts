@@ -3,10 +3,13 @@ import { DEFAULT_LEADER_TIMEOUT_MS } from "./tui-config.ts";
 import {
   cycleFontSize,
   cycleLeader,
+  cyclePreferenceScope,
+  cycleScrollSpeed,
   cycleTheme,
   FONT_SIZES,
   formatFontSize,
   formatLeader,
+  formatScope,
   groupedSettings,
   selectedSettingsItem,
   settingsDefaults,
@@ -17,40 +20,66 @@ import {
   isCompactScale,
   isTightScale,
   uiScaleFor,
+  type SettingsState,
 } from "./settings.ts";
 
-const sample = settingsItems({
-  themeName: "nord",
-  fontSize: 14,
-  mouse: true,
-  leaderMs: 2000,
-  locked: false,
-  configPath: "/tmp/tui.json",
-});
+function sampleState(partial: Partial<SettingsState> = {}): SettingsState {
+  return {
+    themeName: "nord",
+    fontSize: 14,
+    mouse: true,
+    leaderMs: 2000,
+    locked: false,
+    configPath: "/tmp/state/repo/tui.json",
+    scope: "repo",
+    scrollSpeed: 3,
+    logTimestamps: true,
+    logMetadata: true,
+    webAppearance: "dark",
+    webEnabled: false,
+    webPort: 18900,
+    userPath: "/tmp/home/tui.json",
+    repoPath: "/tmp/state/repo/tui.json",
+    localPath: "/tmp/repo/.devctl/config.local.yaml",
+    ...partial,
+  };
+}
+
+const sample = settingsItems(sampleState());
 
 describe("settings", () => {
-  test("groups appearance, input, mcp, then about", () => {
-    expect(groupedSettings(sample).map((section) => section.group)).toEqual(["Appearance", "Input", "MCP", "About"]);
+  test("groups scope, appearance, input, logs, listeners, then about", () => {
+    expect(groupedSettings(sample).map((section) => section.group)).toEqual([
+      "Scope",
+      "Appearance",
+      "Input",
+      "Logs",
+      "Listeners",
+      "About",
+    ]);
   });
 
-  test("mcp row is a page link to /mcp", () => {
+  test("mcp row is a page link to /mcp under listeners", () => {
     const mcp = sample.find((item) => item.id === "mcp");
     expect(mcp?.kind).toBe("page");
-    expect(mcp?.group).toBe("MCP");
-    expect(mcp?.name).toBe("Settings page");
+    expect(mcp?.group).toBe("Listeners");
+    expect(mcp?.name).toBe("MCP");
     expect(mcp?.value).toContain("/mcp");
     expect(mcp?.value).toContain("→");
-    expect(mcp?.detail).toContain("dedicated MCP page");
-    const running = settingsItems({
-      themeName: "nord",
-      fontSize: 14,
-      mouse: true,
-      leaderMs: 2000,
-      locked: false,
-      configPath: "/tmp/tui.json",
-      mcpRunning: true,
-    }).find((item) => item.id === "mcp");
+    const running = settingsItems(sampleState({ mcpRunning: true })).find((item) => item.id === "mcp");
     expect(running?.value).toContain("running");
+  });
+
+  test("scope and log columns are first-class rows", () => {
+    expect(sample.find((item) => item.id === "scope")?.value).toBe("this repo");
+    expect(settingsItems(sampleState({ scope: "user" })).find((item) => item.id === "scope")?.value).toBe("all repos");
+    expect(sample.find((item) => item.id === "scroll")?.value).toBe("3");
+    expect(sample.find((item) => item.id === "timestamps")?.kind).toBe("toggle");
+    expect(sample.find((item) => item.id === "web")?.kind).toBe("toggle");
+    expect(sample.find((item) => item.id === "web_port")?.value).toBe("18900");
+    expect(formatScope("repo")).toBe("this repo");
+    expect(cyclePreferenceScope("repo", 1)).toBe("user");
+    expect(cycleScrollSpeed(3, 1)).toBe(4);
   });
 
   test("theme and leader cycle wrap", () => {
@@ -86,22 +115,22 @@ describe("settings", () => {
 
   test("selection clamps and names the current row", () => {
     expect(settingsIndex(sample, 99)).toBe(sample.length - 1);
-    expect(selectedSettingsItem(sample, 0)?.id).toBe("theme");
-    expect(selectedSettingsItem(sample, 1)?.id).toBe("font");
-    expect(selectedSettingsItem(sample, 2)?.kind).toBe("toggle");
+    expect(selectedSettingsItem(sample, 0)?.id).toBe("scope");
+    expect(selectedSettingsItem(sample, 1)?.id).toBe("theme");
+    expect(selectedSettingsItem(sample, 2)?.id).toBe("font");
   });
 
   test("locked copy says session only", () => {
-    const locked = settingsItems({
-      themeName: "nord",
+    const locked = settingsItems(sampleState({
+      locked: true,
       fontSize: 16,
       mouse: false,
       leaderMs: 1000,
-      locked: true,
       configPath: "/tmp/override.json",
-    });
+    }));
     expect(locked[0]?.detail).toContain("DEVCTL_TUI_CONFIG");
     expect(settingsDefaults().theme).toBe("devctl");
+    expect(settingsDefaults().scroll_speed).toBe(3);
   });
 
   test("prefs lock only when an override path was resolved", () => {

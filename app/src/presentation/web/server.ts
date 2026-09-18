@@ -184,6 +184,14 @@ export class WebHttpServer {
       writeJson(res, 200, getConfigSummary(host.config()));
       return;
     }
+    if (path === "/api/preferences") {
+      if (!host.getPreferences) {
+        throw new HttpError(400, "preferences are unavailable");
+      }
+      const scope = query.get("scope") ?? "repo";
+      writeJson(res, 200, host.getPreferences(scope === "user" ? "user" : "repo"));
+      return;
+    }
     if (path === "/api/profiles") {
       writeJson(res, 200, listProfiles(host.config()));
       return;

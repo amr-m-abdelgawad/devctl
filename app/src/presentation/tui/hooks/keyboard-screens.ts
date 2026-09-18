@@ -31,10 +31,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     checked, detailName, bootErrorMissing, bootError, logSearchFocused,
     logSources, logService, logShowTimestamps, logShowMeta, logWrap, showSystemLogs,
     logPinned, dashboardLogCursor, applyLogCursor, applyDashboardLogCursor, jumpToLatestLogs,
-    toggleSystemLogs, clearLogs, setLogService, setLogShowTimestamps,
-    setLogShowMeta, setPaused, setErrorOnly, setLogWrap, beginStart, beginStop, beginRestart,
+    toggleSystemLogs, clearLogs, setLogService, setPaused, setErrorOnly, setLogWrap, beginStart, beginStop, beginRestart,
     applyMcpPortDraft, toggleMcp, toggleMcpTool, copyFocusedMcpSnippet, persistMcpPort,
-    restartMcpOnPort, setMcpPortDraft, settingRows, persistPrefs, cycleSetting, toggleMouse,
+    restartMcpOnPort, setMcpPortDraft, settingRows, applyLogTimestamps, applyLogMetadata, cycleSetting,
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
     toggleChecked, createStarterConfig: _createStarterConfig, startWizard, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
@@ -105,15 +104,11 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     return;
   }
   if (screen === "logs" && name === "t") {
-    const next = !logShowTimestamps;
-    setLogShowTimestamps(next);
-    persistPrefs({ log_timestamps: next }, next ? "timestamps on" : "timestamps off");
+    applyLogTimestamps(!logShowTimestamps);
     return;
   }
   if (screen === "logs" && name === "m") {
-    const next = !logShowMeta;
-    setLogShowMeta(next);
-    persistPrefs({ log_metadata: next }, next ? "metadata on" : "metadata off");
+    applyLogMetadata(!logShowMeta);
     return;
   }
   if (name === "down" || name === "j") {
@@ -307,8 +302,8 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     }
     if (screen === "settings") {
       const item = selectedSettingsItem(settingRows, listCursor);
-      if (item?.id === "mouse") {
-        toggleMouse();
+      if (item?.kind === "toggle") {
+        cycleSetting(1, listCursor);
       }
       return;
     }

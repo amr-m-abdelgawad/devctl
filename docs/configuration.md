@@ -62,7 +62,7 @@ The repository's own `config.local.yaml` overrides the one in your home
 directory, not the other way round: overlays are applied home-first so the
 repo-specific file gets the last word.
 
-TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in `tui.json` — see [Building from source](typescript.md) and [TUI](tui.md).
+TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in `tui.json` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch **only** `web.enabled` and `web.listen.port` into `.devctl/config.local.yaml` (created if missing; other keys are left alone).
 
 ## Top-level keys
 

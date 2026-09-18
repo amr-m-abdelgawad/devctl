@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultCopyKeybind, displayWithMod, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath, withMod } from "./tui-preferences.ts";
+import { defaultCopyKeybind, displayWithMod, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, repoTuiConfigPath, resetTuiPreferences, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath, withMod } from "./tui-preferences.ts";
 
 describe("tui.json", () => {
   test("parses jsonc and merges keybinds with defaults", () => {
@@ -216,13 +216,22 @@ describe("tui.json", () => {
   });
 
   test("a YAML ui.keymap applies on top of the hardcoded defaults", () => {
+    const prevHome = process.env.DEVCTL_HOME;
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-tui-yaml-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
-    const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
-    expect(cfg.keybinds.leader).toBe("ctrl+z");
-    expect(cfg.keybinds.quit).toBe("x");
-    // Untouched bindings still come from the hardcoded defaults.
-    expect(cfg.keybinds.command_list).toBe(withMod("p"));
+    process.env.DEVCTL_HOME = dir;
+    try {
+      const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
+      expect(cfg.keybinds.leader).toBe("ctrl+z");
+      expect(cfg.keybinds.quit).toBe("x");
+      expect(cfg.keybinds.command_list).toBe(withMod("p"));
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
   });
 
   test("tui.json still wins over a YAML ui.keymap for the same binding", () => {
@@ -238,6 +247,110 @@ describe("tui.json", () => {
       const cfg = loadTuiConfig(dir, { leader: "ctrl+z", quit: "x" });
       expect(cfg.keybinds.leader).toBe("ctrl+y");
       expect(cfg.keybinds.quit).toBe("x");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
+  test("repo overlay wins over the user file and does not leak MCP into another checkout", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const stamp = Date.now();
+    const home = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-home-${stamp}`);
+    const repoA = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-a-${stamp}`);
+    const repoB = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-b-${stamp}`);
+    mkdirSync(home, { recursive: true });
+    mkdirSync(repoA, { recursive: true });
+    mkdirSync(repoB, { recursive: true });
+    process.env.DEVCTL_HOME = home;
+    try {
+      saveTuiPreferences({ theme: "nord", mcp_enabled: false });
+      const repoPath = saveTuiPreferences({ mcp_enabled: true, theme: "gruvbox" }, { repoRoot: repoA, scope: "repo" });
+      expect(repoPath).toBe(repoTuiConfigPath(repoA));
+      const loadedA = loadTuiConfig(repoA);
+      expect(loadedA.theme).toBe("gruvbox");
+      expect(loadedA.mcp_enabled).toBe(true);
+      const loadedB = loadTuiConfig(repoB);
+      expect(loadedB.theme).toBe("nord");
+      expect(loadedB.mcp_enabled).toBe(false);
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
+  test("MCP fields write to the repo overlay even when the UI scope is user", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const stamp = Date.now();
+    const home = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-mcp-home-${stamp}`);
+    const repo = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-mcp-repo-${stamp}`);
+    mkdirSync(home, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    process.env.DEVCTL_HOME = home;
+    try {
+      saveTuiPreferences({ theme: "nord", mcp_enabled: true, mcp_port: 18721 }, { repoRoot: repo, scope: "user" });
+      expect(loadTuiConfig(repo).mcp_enabled).toBe(true);
+      expect(loadTuiConfig(repo).theme).toBe("nord");
+      const other = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-mcp-other-${stamp}`);
+      mkdirSync(other, { recursive: true });
+      expect(loadTuiConfig(other).mcp_enabled).toBe(false);
+      expect(loadTuiConfig(other).theme).toBe("nord");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
+  test("repo reset writes defaults into the overlay and leaves the user file alone", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const stamp = Date.now();
+    const home = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-reset-home-${stamp}`);
+    const repo = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-reset-repo-${stamp}`);
+    mkdirSync(home, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    process.env.DEVCTL_HOME = home;
+    try {
+      saveTuiPreferences({ theme: "nord" });
+      saveTuiPreferences({ theme: "gruvbox", mcp_enabled: true }, { repoRoot: repo, scope: "repo" });
+      resetTuiPreferences({ repoRoot: repo, scope: "repo" });
+      expect(loadTuiConfig(repo).theme).toBe("devctl");
+      expect(loadTuiConfig(repo).mcp_enabled).toBe(true);
+      const other = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-reset-other-${stamp}`);
+      mkdirSync(other, { recursive: true });
+      expect(loadTuiConfig(other).theme).toBe("nord");
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+
+  test("team tui.json loses to the user file, which loses to the repo overlay", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const stamp = Date.now();
+    const home = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-layers-home-${stamp}`);
+    const repo = join(process.env.TMPDIR ?? "/tmp", `devctl-pref-layers-repo-${stamp}`);
+    mkdirSync(home, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+    process.env.DEVCTL_HOME = home;
+    writeFileSync(join(repo, "tui.json"), JSON.stringify({ theme: "tokyonight", mouse: false }));
+    try {
+      saveTuiPreferences({ theme: "nord", mouse: true });
+      saveTuiPreferences({ theme: "gruvbox" }, { repoRoot: repo, scope: "repo" });
+      const cfg = loadTuiConfig(repo);
+      expect(cfg.theme).toBe("gruvbox");
+      expect(cfg.mouse).toBe(true);
     } finally {
       if (prevHome === undefined) {
         delete process.env.DEVCTL_HOME;

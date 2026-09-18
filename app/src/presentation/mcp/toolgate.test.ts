@@ -42,7 +42,7 @@ describe("tool metadata", () => {
 
   test("exactly the state-changing tools are marked as mutating", () => {
     const mutating = MCP_TOOLS.filter((t) => t.mutates).map((t) => t.name).sort();
-    expect(mutating).toEqual(["exec_service", "reload_config", "restart_services", "run_task", "set_service_environment", "start_proxy", "start_services", "stop_proxy", "stop_services"]);
+    expect(mutating).toEqual(["exec_service", "reload_config", "restart_services", "run_task", "set_preferences", "set_service_environment", "start_proxy", "start_services", "stop_proxy", "stop_services"]);
   });
 });
 

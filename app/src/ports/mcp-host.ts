@@ -4,6 +4,7 @@ import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "..
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../domain/traffic/traffic.ts";
 import type { LogFilter, LogPage, LogPageRequest } from "../domain/logs/logs.ts";
 import type { ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../domain/status.ts";
+import type { PreferenceScope, PreferenceSnapshot, PreferenceWrite } from "../domain/ui/preferences.ts";
 
 export type McpHost = {
   status(): StatusSnapshot;
@@ -26,6 +27,8 @@ export type McpHost = {
   stopProxy(): Promise<void>;
   getTrace?(traceId: string): TraceResponse | Promise<TraceResponse>;
   traceRequest?(requestId: string): TraceResponse | Promise<TraceResponse>;
+  getPreferences?(scope?: PreferenceScope): PreferenceSnapshot;
+  setPreferences?(patch: PreferenceWrite): Promise<PreferenceSnapshot>;
 };
 
 export type McpListener = {

@@ -175,7 +175,7 @@ export function confirmCopy(kind: ConfirmKind, profile: string, detail?: Confirm
   if (kind === "reset-prefs") {
     return {
       title: "Reset preferences",
-      body: "Restore theme, display size, mouse, and leader timeout to defaults? This overwrites your saved tui.json values.",
+      body: "Restore theme, display size, mouse, leader, scroll, log columns, and web console appearance to defaults? This overwrites saved values in the current save scope. MCP listen is left as-is.",
     };
   }
   if (kind === "free-port") {

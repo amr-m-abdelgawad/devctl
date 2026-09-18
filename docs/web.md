@@ -23,7 +23,7 @@ devctl web stop
 
 Stopping the web listener leaves your services running. Use `devctl down` when you want to shut down the session.
 
-To enable the console whenever the supervisor starts, merge this section into your existing `.devctl/config.yaml`:
+**Settings** (`#/settings`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write `tui.json` layers. **Web console on/off and port** write only `web.enabled` / `web.listen.port` into gitignored `.devctl/config.local.yaml` (created if missing) and reload so the listener starts, stops, or rebinds. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
 
 ```yaml
 web:
@@ -33,7 +33,7 @@ web:
     port: 18900
 ```
 
-Run `devctl config validate` after editing, then `devctl reload` if the supervisor is already running. The port must differ from the proxy, token endpoint, OTLP receiver, and gRPC route ports. The listener accepts loopback addresses only. See [Security](security.md) for the access model.
+Run `devctl config validate` after a hand edit, then `devctl reload` if the supervisor is already running. A settings save already reloads. The port must differ from the proxy, token endpoint, OTLP receiver, and gRPC route ports. The listener accepts loopback addresses only. See [Security](security.md) for the access model.
 
 ## Control services
 

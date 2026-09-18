@@ -1,4 +1,5 @@
-import { loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath } from "../adapters/config/tui-preferences.ts";
+import { loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath } from "../adapters/config/tui-preferences.ts";
+import { patchRepoLocalConfig } from "../adapters/config/local-overlay.ts";
 import type { ClientRuntime } from "../application/client-runtime.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readPersistedState, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
@@ -20,7 +21,7 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
   const doctorHost = deps?.doctorHost ?? createDoctorHost({ tokens });
   const updates = githubUpdate();
   const client: ClientRuntime = {
-    loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, listSessions, loadSessionEvents,
+    loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath, patchRepoLocalConfig, listSessions, loadSessionEvents,
     loadPath, validateConfigText, discover, configDiff,
     openTui, findDaemon, tryDial, assertMethodAllowed,
     readPersistedState, rotateMcpToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,

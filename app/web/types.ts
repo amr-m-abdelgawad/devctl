@@ -82,7 +82,8 @@ export type ControlTool =
   | "reload_config"
   | "run_task"
   | "start_proxy"
-  | "stop_proxy";
+  | "stop_proxy"
+  | "set_preferences";
 
 export type ControlArgs = {
   services?: string[];
@@ -91,6 +92,51 @@ export type ControlArgs = {
   name?: string;
   service?: string;
   restart?: boolean;
+  scope?: "user" | "repo";
+  theme?: string;
+  font_size?: number;
+  mouse?: boolean;
+  leader_timeout?: number;
+  scroll_speed?: number;
+  log_timestamps?: boolean;
+  log_metadata?: boolean;
+  web_appearance?: "dark" | "light";
+  mcp_enabled?: boolean;
+  mcp_port?: number | null;
+  reset?: boolean;
+  local?: { web_enabled?: boolean; web_port?: number };
+};
+
+export type PreferenceLayer = "default" | "team" | "user" | "repo" | "override";
+
+export type PreferenceSnapshot = {
+  values: {
+    theme: string;
+    font_size: number;
+    mouse: boolean;
+    leader_timeout: number;
+    scroll_speed: number;
+    log_timestamps: boolean;
+    log_metadata: boolean;
+    web_appearance: "dark" | "light";
+    mcp_enabled: boolean;
+    mcp_port?: number;
+  };
+  scope: "user" | "repo";
+  locked: boolean;
+  paths: {
+    user: string;
+    repo: string;
+    write: string;
+    team?: string;
+    override?: string;
+    local: string;
+  };
+  layers: Record<string, PreferenceLayer>;
+  local: {
+    web_enabled: boolean;
+    web_port: number;
+  };
 };
 
 export type LogRow = {
@@ -199,7 +245,7 @@ export type TrafficCallsPayload = {
   next_cursor?: string;
 };
 
-export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "traffic";
+export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "traffic" | "settings";
 
 export type Route = {
   name: RouteName;

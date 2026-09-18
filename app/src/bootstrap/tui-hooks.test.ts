@@ -167,6 +167,8 @@ test("preference previews revert on navigation and overrides keep changes sessio
   const props: Parameters<typeof usePreferences>[0] = {
     tui: defaultTuiConfig(), controller: undefined, snap: undefined, terminalBackground: undefined,
     resolveTuiOverridePath: () => "/virtual/override.json", userTuiConfigPath: () => "/virtual/tui.json",
+    repoTuiConfigPath: () => "/virtual/state/tui.json",
+    patchRepoLocalConfig: () => "/virtual/repo/.devctl/config.local.yaml",
     saveTuiPreferences: () => { saved++; return "/virtual/tui.json"; },
     setStatus: (status) => { if (typeof status === "string") statuses.push(status); },
     setPaletteIndex: () => {}, setOverlay: () => {}, setConfirmKind: () => {}, setScreen: () => {}, setSelected: () => {}, screen: "settings",

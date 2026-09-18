@@ -75,5 +75,7 @@ export function noticeFor(tool: ControlTool, result: unknown, args: ControlArgs 
         : false;
       return restarted ? `Switched ${service} to ${envName} and restarted` : `Switched ${service} to ${envName}`;
     }
+    case "set_preferences":
+      return args.reset ? "Preferences reset" : "Preferences saved";
   }
 }

@@ -5,6 +5,7 @@ import type {
   LogsPayload,
   LlmCallRow,
   LlmCallsPayload,
+  PreferenceSnapshot,
   ProfileRow,
   RequestsPayload,
   ServiceRow,
@@ -105,6 +106,10 @@ export function fetchTrafficCall(id: string): Promise<TrafficCallRow> {
 
 export function fetchUpdate(): Promise<UpdateCheckPayload> {
   return getJson("/api/update");
+}
+
+export function fetchPreferences(scope: "user" | "repo" = "repo"): Promise<PreferenceSnapshot> {
+  return getJson(`/api/preferences?scope=${scope}`);
 }
 
 export async function postControl(tool: ControlTool, args: ControlArgs = {}): Promise<unknown> {

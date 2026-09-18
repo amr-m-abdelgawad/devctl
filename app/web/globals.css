@@ -157,3 +157,36 @@
 .u-title {
   display: none;
 }
+
+html[data-appearance="light"] {
+  --background: #eef3f0;
+  --foreground: #14201b;
+  --card: #f7faf8;
+  --card-foreground: #14201b;
+  --elevated: #ffffff;
+  --popover: #ffffff;
+  --popover-foreground: #14201b;
+  --primary: #0f7a58;
+  --primary-foreground: #f3fff9;
+  --secondary: #dce8e2;
+  --secondary-foreground: #14201b;
+  --muted: #e3ebe6;
+  --muted-foreground: #4d6359;
+  --accent: #d5ece2;
+  --accent-foreground: #0d2a20;
+  --destructive: #b42336;
+  --destructive-foreground: #fff5f5;
+  --border: #c9d8d0;
+  --input: #b7c9bf;
+  --ring: #0f7a58;
+  --success: #1a8a52;
+  --warning: #9a6b12;
+  --info: #1c6f86;
+  --danger: #b42336;
+}
+
+html[data-appearance="light"] body {
+  background:
+    radial-gradient(900px 480px at 100% -8%, rgba(15, 122, 88, 0.08), transparent 60%),
+    var(--background);
+}

@@ -9,13 +9,13 @@ import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { toolEnabled, type McpToolDef } from "../../mcp/tools.ts";
 import { writeClipboard } from "../clipboard.ts";
 import { mcpSnippetIndexAtRow } from "../screens/Mcp.tsx";
-import { type TuiConfig, type TuiPreferencePatch, mcpToolPreferenceLists } from "../tui-config.ts";
+import { type PreferenceScope, type TuiConfig, type TuiPreferencePatch, mcpToolPreferenceLists } from "../tui-config.ts";
 
 type Options = {
   tui: TuiConfig;
   controller: Controller | undefined;
   cfg: DevctlConfig | undefined;
-  persistPrefs: (partial: TuiPreferencePatch, message: string) => void;
+  persistPrefs: (partial: TuiPreferencePatch, message: string, persistScope?: PreferenceScope) => void;
   snap: StatusSnapshot | undefined;
   refresh: () => Promise<StatusSnapshot | undefined>;
   setStatus: Dispatch<SetStateAction<string>>;
@@ -40,10 +40,10 @@ export function useMcpControls({
       setMcpPort(port);
       const root = cfg?.repoRoot ?? process.cwd();
       if (isDerivedMcpPort(root, port)) {
-        persistPrefs({ mcp_port: null }, `MCP port ${port} (default)`);
+        persistPrefs({ mcp_port: null }, `MCP port ${port} (default)`, "repo");
         return;
       }
-      persistPrefs({ mcp_port: port }, `MCP port ${port}`);
+      persistPrefs({ mcp_port: port }, `MCP port ${port}`, "repo");
     },
     [cfg, persistPrefs],
   );
@@ -83,7 +83,7 @@ export function useMcpControls({
     const next = turningOff ? [...current, tool.name] : current.filter((name) => name !== tool.name);
     try {
       const applied = await controller.mcpSetTools(next);
-      persistPrefs(mcpToolPreferenceLists(applied), `${tool.label} ${turningOff ? "disabled" : "enabled"}`);
+      persistPrefs(mcpToolPreferenceLists(applied), `${tool.label} ${turningOff ? "disabled" : "enabled"}`, "repo");
       await refresh();
     } catch (err) {
       setStatus(humanMessage(err));
@@ -98,11 +98,11 @@ export function useMcpControls({
     try {
       if (snap?.mcp?.running) {
         await controller.mcpStop();
-        persistPrefs({ mcp_enabled: false }, "MCP off");
+        persistPrefs({ mcp_enabled: false }, "MCP off", "repo");
         setStatus("MCP stopped");
       } else {
         await controller.mcpStart({ port: mcpPort });
-        persistPrefs({ mcp_enabled: true }, "MCP on");
+        persistPrefs({ mcp_enabled: true }, "MCP on", "repo");
         setStatus("MCP started");
       }
       await refresh();
