@@ -37,7 +37,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
     toggleChecked, createStarterConfig: _createStarterConfig, startWizard, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
-    runCommand, openEnvPicker,
+    runCommand, openEnvPicker, toggleLlmBodyMode,
   } = ctx;
 
   const onLogFilters = (screen === "logs" || screen === "dashboard") && !logSearchFocused;
@@ -93,6 +93,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   }
   if (screen === "auth" && name === "r") {
     void refreshAuth();
+    return;
+  }
+  if (screen === "llm" && name === "r") {
+    toggleLlmBodyMode();
     return;
   }
   if (screen === "logs" && name === "t") {

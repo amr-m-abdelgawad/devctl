@@ -125,6 +125,10 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       }
       return true;
     }
+    if (overlay === "llm-details" && name === "r") {
+      ctx.toggleLlmBodyMode();
+      return true;
+    }
     if (overlay === "trace" && name === "return") {
       ctx.openSpanLogs();
       return true;

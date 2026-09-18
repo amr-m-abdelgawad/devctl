@@ -640,6 +640,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setLlmDetail: llmView.setDetail,
       llmDetail: llmView.detail,
       llmCalls: llmView.page.calls,
+      toggleLlmBodyMode: llmView.toggleBodyMode,
       openTrace,
       openRequest,
       openSpanLogs,
@@ -882,6 +883,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             caller={llmView.caller}
             selected={listCursor}
             width={width}
+            bodyMode={llmView.bodyMode}
+            onToggleBody={llmView.toggleBodyMode}
             onPick={setSelected}
             onOpen={(call) => {
               llmView.setDetail(call);
@@ -1003,7 +1006,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
         <LogDetailsOverlay palette={palette} event={logDetail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
       ) : null}
       {overlay === "llm-details" ? (
-        <LlmDetailsOverlay palette={palette} call={llmView.detail} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
+        <LlmDetailsOverlay palette={palette} call={llmView.detail} bodyMode={llmView.bodyMode} onToggleBody={llmView.toggleBodyMode} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
       ) : null}
       {overlay === "trace" || overlay === "span-details" ? (
         <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} requestContext={traceRequestContext} />

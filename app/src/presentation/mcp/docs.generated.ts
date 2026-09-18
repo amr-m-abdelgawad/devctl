@@ -1862,8 +1862,8 @@ Query stays on the store (RPC \`llm_calls_page\` / \`get_llm_call\`). Secrets ar
 | Surface | Entry |
 |---------|--------|
 | MCP | \`get_llm_calls\` (filter + cursor) and \`get_llm_call\` in **inspect**. List pages omit bodies; detail includes redacted payloads. |
-| Web | \`#/llm\` and \`#/llm/:id\` — list (model, caller, status, tokens, cost, latency) and detail (messages, usage, attributes, jump to trace). |
-| TUI | \`llm\` nav tab, \`/llm\`, enter for detail; enter again jumps to a trace when \`traceId\` is present. The list shows which service issued the call when known. |
+| Web | \`#/llm\` and \`#/llm/:id\` — list plus live inspector (conversation transcript or request/response JSON, copy/find/wrap). Search matches stored bodies. Jump to a trace when \`trace_id\` is present. |
+| TUI | \`llm\` nav tab, \`/llm\`, enter for the full overlay; enter again jumps to a trace when \`traceId\` is present. The list shows caller, model, latency, and tokens; the inspector shows the selected call's conversation (or JSON) without leaving the screen. \`r\` toggles conversation vs raw JSON. |
 | CLI | \`devctl llm\` (filters including \`--caller\`, \`--json\`, \`--follow\`) and \`devctl llm show <id>\`. |
 
 The \`proxy\` source buffers completion bodies only on the routes it is told to capture; all other proxy traffic still streams without buffering. Additional pull-style source types can plug in through \`LlmSourceFactory\` / plugin \`llmSources\`; a push source (like \`proxy\`) feeds the store directly rather than being polled.
@@ -3531,7 +3531,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`?\` | Grouped help — \`j\`/\`k\` scroll when the list is taller than the terminal |
 | \`tab\` / \`shift+tab\` / \`1\`–\`5\` | Cycle or jump the **five nav tabs**. Other screens are \`/auth\`, \`/credentials\`, \`/doctor\`, \`/config\`, \`/profiles\`, \`/setup\`, \`/stats\`, \`/topology\`, \`/tokens\`, \`/settings\`, \`/mcp\`. On a secondary screen, \`tab\` returns to the dashboard. When the strip is wider than the terminal it slides (\`‹\` \`›\`). |
 | \`s\` \`l\` \`a\` \`p\` \`d\` \`c\` \`u\` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
-| \`r\` | Refresh snapshot (doctor \`r\` re-runs checks) |
+| \`r\` | Refresh snapshot (doctor \`r\` re-runs checks; LLM \`r\` toggles conversation / raw JSON) |
 | \`R\` | Restart selected services |
 | \`j\` \`k\` / arrows | Move selection |
 | \`enter\` | Start (empty dashboard) or open service detail |
@@ -3566,7 +3566,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). \`/auth login\` suspends the TUI, runs \`gcloud auth application-default login\` on the real terminal, then restores the TUI. \`/auth logout\` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or \`~/.devctl/credentials\`
 - **Proxy** — status + routes (match and upstream wrap instead of clipping); request paths wrap in the live feed. **REQ** is the full request when a trace exists; **HOP** is the proxy hop (same split as the web UI). Click a route for full details. \`n\` start / \`x\` stop. If \`proxy.listen.port\` is missing, the screen says so and \`n\` reports the bind error in the status bar instead of crashing
-- **LLM** — recent calls from configured \`llm.sources\` (caller, model, status, tokens, cost, latency). \`enter\` opens detail (\`caller\`, then \`via\` for a proxy source or \`source\` for LiteLLM, messages, usage, attributes); \`enter\` again jumps to a trace when one is present. Usage counts (\`prompt_tokens\`, \`max_tokens\`) are not secrets. \`/reveal\` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
+- **LLM** — list of recent calls (time, status, caller, model, latency, tokens) with a live inspector for the selected row: status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise JSON). \`r\` (or the conversation/json chip) switches the inspector and overlay between the transcript and the raw request/response JSON. Click selects; click again or \`enter\` opens the full overlay (payload, attributes; \`enter\` again jumps to a trace when one is present). \`/caller\` filters. Usage counts are not secrets. \`/reveal\` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. \`enter\` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. \`r\` reruns
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
 - **Profiles** — members; \`enter\` selects and offers start
@@ -3896,7 +3896,7 @@ The proxy emits request spans. Deeper application spans require your services to
 
 Open Logs to filter records by service and severity, inspect structured attributes, and follow trace identifiers. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
-The LLM view shows calls collected from configured inspector sources. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
+The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for the raw request and response (copy, wrap, find). Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
 
 ## If something is missing
 

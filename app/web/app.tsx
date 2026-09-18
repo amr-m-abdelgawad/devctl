@@ -114,6 +114,7 @@ export function App() {
   // never collapses the list to just that caller.
   const [llmCaller, setLlmCaller] = useState("");
   const [llmCallers, setLlmCallers] = useState<string[]>([]);
+  const [llmSearch, setLlmSearch] = useState("");
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
@@ -291,21 +292,28 @@ export function App() {
   }, [route.name, route.traceId]);
 
   useEffect(() => {
-    if (route.name !== "llm" || route.llmId) {
-      if (route.name !== "llm") {
-        setLlmCalls(undefined);
-        setLlmDetail(undefined);
-        setLlmError("");
-      }
+    if (route.name !== "llm") {
+      setLlmCalls(undefined);
+      setLlmDetail(undefined);
+      setLlmError("");
       return;
     }
     let cancelled = false;
     const run = (): void => {
-      void fetchLlmCalls(llmCaller ? { caller: llmCaller } : {}).then((payload) => {
+      const params: Record<string, string> = {};
+      if (llmCaller) {
+        params.caller = llmCaller;
+      }
+      if (llmSearch) {
+        params.search = llmSearch;
+      }
+      void fetchLlmCalls(params).then((payload) => {
         if (!cancelled) {
           setLlmCalls(payload);
-          setLlmError("");
-          if (llmCaller === "") {
+          if (!route.llmId) {
+            setLlmError("");
+          }
+          if (llmCaller === "" && llmSearch === "") {
             const names = Array.from(
               new Set(payload.calls.map((call) => (call.caller ?? "").trim()).filter((name) => name !== "")),
             ).sort((a, b) => a.localeCompare(b));
@@ -324,7 +332,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [route.name, route.llmId, llmCaller]);
+  }, [route.name, route.llmId, llmCaller, llmSearch]);
 
   useEffect(() => {
     if (route.name !== "llm" || !route.llmId) {
@@ -334,23 +342,27 @@ export function App() {
       return;
     }
     const requested = route.llmId;
-    setLlmDetail(undefined);
     let cancelled = false;
-    void fetchLlmCall(requested).then((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setLlmDetail(payload);
-      setLlmError("");
-    }).catch((err: unknown) => {
-      if (cancelled) {
-        return;
-      }
-      setLlmDetail(undefined);
-      setLlmError(err instanceof Error ? err.message : "llm call failed");
-    });
+    const run = (): void => {
+      void fetchLlmCall(requested).then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setLlmDetail(payload);
+        setLlmError("");
+      }).catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setLlmDetail(undefined);
+        setLlmError(err instanceof Error ? err.message : "llm call failed");
+      });
+    };
+    run();
+    const timer = window.setInterval(run, POLL_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [route.name, route.llmId]);
 
@@ -593,7 +605,9 @@ export function App() {
               error={llmError}
               caller={llmCaller}
               callers={llmCallers}
+              search={llmSearch}
               onCaller={setLlmCaller}
+              onSearch={setLlmSearch}
             />
           ) : null}
         </main>

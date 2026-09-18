@@ -68,7 +68,7 @@ The proxy emits request spans. Deeper application spans require your services to
 
 Open Logs to filter records by service and severity, inspect structured attributes, and follow trace identifiers. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
-The LLM view shows calls collected from configured inspector sources. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
+The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for the raw request and response (copy, wrap, find). Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
 
 ## If something is missing
 

@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - LLM inspector **proxy-capture** sources can list extra `capture.paths` so a tagged route records proprietary (non-OpenAI) POST JSON endpoints such as `/generations/v1alpha2`. Built-in `/chat/completions`, `/completions`, and `/embeddings` capture is unchanged. Custom paths store the raw request/response — SSE is kept as text, not reassembled into a `chat.completion` — and copy model, token usage, and finish reason only when those standard JSON fields are present. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
 
+### Changed
+
+- TUI LLM inspector is a **list plus live inspector**, matching the services screen. The call list has column headers (time, status, caller, model, latency, tokens); the inspector shows status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise JSON). `r` (or the conversation/json chip) switches the inspector and overlay to the raw request/response JSON. Click selects; click again or enter opens the full overlay. Empty states mention proxy sources as well as LiteLLM. See [TUI](docs/tui.md).
+- Web console LLM view is a **list plus live inspector**: selecting a call keeps the table visible and opens a conversation transcript (copy, find) or a wrap-able request/response JSON split. Search hits stored bodies; `j`/`k` moves the list. See [Web console](docs/web.md).
+
 ## [0.14.1] - 2026-09-18
 
 ### Changed

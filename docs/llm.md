@@ -155,8 +155,8 @@ Query stays on the store (RPC `llm_calls_page` / `get_llm_call`). Secrets are re
 | Surface | Entry |
 |---------|--------|
 | MCP | `get_llm_calls` (filter + cursor) and `get_llm_call` in **inspect**. List pages omit bodies; detail includes redacted payloads. |
-| Web | `#/llm` and `#/llm/:id` — list (model, caller, status, tokens, cost, latency) and detail (messages, usage, attributes, jump to trace). |
-| TUI | `llm` nav tab, `/llm`, enter for detail; enter again jumps to a trace when `traceId` is present. The list shows which service issued the call when known. |
+| Web | `#/llm` and `#/llm/:id` — list plus live inspector (conversation transcript or request/response JSON, copy/find/wrap). Search matches stored bodies. Jump to a trace when `trace_id` is present. |
+| TUI | `llm` nav tab, `/llm`, enter for the full overlay; enter again jumps to a trace when `traceId` is present. The list shows caller, model, latency, and tokens; the inspector shows the selected call's conversation (or JSON) without leaving the screen. `r` toggles conversation vs raw JSON. |
 | CLI | `devctl llm` (filters including `--caller`, `--json`, `--follow`) and `devctl llm show <id>`. |
 
 The `proxy` source buffers completion bodies only on the routes it is told to capture; all other proxy traffic still streams without buffering. Additional pull-style source types can plug in through `LlmSourceFactory` / plugin `llmSources`; a push source (like `proxy`) feeds the store directly rather than being polled.

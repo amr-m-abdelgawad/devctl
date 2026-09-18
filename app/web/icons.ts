@@ -10,6 +10,7 @@ export { FlowArrowIcon } from "@phosphor-icons/react/dist/csr/FlowArrow";
 export { GaugeIcon } from "@phosphor-icons/react/dist/csr/Gauge";
 export { GraphIcon } from "@phosphor-icons/react/dist/csr/Graph";
 export { LightningIcon } from "@phosphor-icons/react/dist/csr/Lightning";
+export { MagnifyingGlassIcon } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
 export { PlayIcon } from "@phosphor-icons/react/dist/csr/Play";
 export { RobotIcon } from "@phosphor-icons/react/dist/csr/Robot";
 export { ScrollIcon } from "@phosphor-icons/react/dist/csr/Scroll";

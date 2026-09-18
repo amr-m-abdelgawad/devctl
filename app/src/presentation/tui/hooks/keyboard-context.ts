@@ -57,6 +57,7 @@ export type KeyboardUi = {
   setLlmDetail: Dispatch<SetStateAction<LlmCall | undefined>>;
   llmDetail?: LlmCall;
   llmCalls: LlmCall[];
+  toggleLlmBodyMode: () => void;
   openTrace: (traceId: string) => void;
   openRequest: (requestId: string) => void;
   openSpanLogs: (index?: number) => void;

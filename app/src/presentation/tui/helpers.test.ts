@@ -306,7 +306,9 @@ describe("TUI helpers", () => {
     expect(footerHints("logs", "span-details").some((h) => h.label === "back")).toBe(true);
     expect(footerHints("config", "config-edit").some((h) => h.key === displayWithMod("s"))).toBe(true);
     expect(footerHints("llm", "none").some((h) => h.key === "enter" && h.label === "detail")).toBe(true);
+    expect(footerHints("llm", "none").some((h) => h.key === "r" && h.label === "json")).toBe(true);
     expect(footerHints("llm", "llm-details").some((h) => h.key === "esc")).toBe(true);
+    expect(footerHints("llm", "llm-details").some((h) => h.key === "r" && h.label === "json")).toBe(true);
   });
 
   test("grouped commands keep command groups", () => {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Controller } from "../../../application/client-runtime.ts";
 import type { LlmCall, LlmCallPage } from "../../../domain/llm/llm.ts";
 import { humanMessage } from "../../../shared/errors.ts";
+import { toggleLlmBodyMode, type LlmBodyMode } from "../helpers/llm.ts";
 import type { Screen } from "../types.ts";
 
 const POLL_MS = 2000;
@@ -16,6 +17,10 @@ export function useLlmView(opts: { controller?: Controller; screen: Screen }) {
   const [error, setError] = useState("");
   // Active caller filter: "" = all, "-" = calls with no caller, else a service.
   const [caller, setCaller] = useState("");
+  const [bodyMode, setBodyMode] = useState<LlmBodyMode>("conversation");
+  const toggleBodyMode = useCallback(() => {
+    setBodyMode(toggleLlmBodyMode);
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!controller) {
@@ -46,5 +51,5 @@ export function useLlmView(opts: { controller?: Controller; screen: Screen }) {
     return () => clearInterval(timer);
   }, [screen, controller, refresh]);
 
-  return { page, detail, setDetail, error, refresh, caller, setCaller };
+  return { page, detail, setDetail, error, refresh, caller, setCaller, bodyMode, toggleBodyMode };
 }
