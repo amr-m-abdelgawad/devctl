@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- LLM inspector **proxy-capture** sources can list extra `capture.paths` so a tagged route records proprietary (non-OpenAI) POST JSON endpoints such as `/generations/v1alpha2`. Built-in `/chat/completions`, `/completions`, and `/embeddings` capture is unchanged. Custom paths store the raw request/response — SSE is kept as text, not reassembled into a `chat.completion` — and copy model, token usage, and finish reason only when those standard JSON fields are present. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
+
 ## [0.14.1] - 2026-09-18
 
 ### Changed

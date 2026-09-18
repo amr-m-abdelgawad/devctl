@@ -26,9 +26,9 @@ import { mapProxyCapture } from "./proxy-capture-map.ts";
 // Matched as substrings so any mount prefix (e.g. /llm/v1/chat/completions)
 // still resolves. `/completions` also covers `/chat/completions`. Only formats
 // the mapper/SSE reassembler understands (OpenAI chat + text completions and
-// embeddings) are listed; Anthropic `/messages` and the OpenAI Responses API
-// use different request/stream shapes and are intentionally excluded so we
-// never store an empty or mis-parsed body.
+// embeddings) are listed by default; Anthropic `/messages` and the OpenAI
+// Responses API use different request/stream shapes and are excluded unless
+// named in `capture.paths` (those extra paths store raw bodies instead).
 const COMPLETION_PATH_HINTS = ["/completions", "/embeddings"];
 
 export type LlmCallerLookup = (peer: { address: string; port: number }) => Promise<string | undefined>;
@@ -54,14 +54,15 @@ export class ProxyCaptureSink implements LlmCaptureSink {
     if (!contentTypeIsJson(input.requestHeaders)) {
       return undefined;
     }
-    if (!isCompletionPath(input.path)) {
-      return undefined;
-    }
     const source = this.matchingSource(input.routeName);
     if (!source) {
       return undefined;
     }
-    return new Recorder(input, source, this.deps);
+    const openai = isCompletionPath(input.path);
+    if (!openai && !matchesConfiguredPaths(input.path, source.capture.paths)) {
+      return undefined;
+    }
+    return new Recorder(input, source, this.deps, !openai);
   }
 
   private matchingSource(routeName: string): LlmSourceConfig | undefined {
@@ -91,6 +92,7 @@ class Recorder implements LlmCaptureRecorder {
     private readonly begin: LlmCaptureBegin,
     private readonly source: LlmSourceConfig,
     private readonly deps: ProxyCaptureSinkDeps,
+    private readonly raw: boolean,
   ) {
     this.maxBytes = llmCaptureMaxBytes(source.capture);
     // Resolve the peer while the inbound socket is still ESTABLISHED. Waiting
@@ -157,6 +159,7 @@ class Recorder implements LlmCaptureRecorder {
         responseTruncated: this.responseTruncated,
         responseContentType: this.responseContentType,
         caller: await this.resolveCaller(requestBody),
+        raw: this.raw,
       });
       this.deps.store.upsert([this.source.capture.prompts ? ingest : stripLlmBodies(ingest)]);
     } catch (err) {
@@ -200,8 +203,29 @@ async function lookupCallerSafe(
 }
 
 function isCompletionPath(path: string): boolean {
-  const lower = path.toLowerCase();
+  const lower = requestPathname(path);
   return COMPLETION_PATH_HINTS.some((hint) => lower.includes(hint));
+}
+
+function matchesConfiguredPaths(path: string, extraPaths: string[]): boolean {
+  const lower = requestPathname(path);
+  return extraPaths.some((hint) => {
+    const needle = hint.trim().toLowerCase();
+    return needle !== "" && lower.includes(needle);
+  });
+}
+
+function requestPathname(path: string): string {
+  const query = path.indexOf("?");
+  const hash = path.indexOf("#");
+  let end = path.length;
+  if (query !== -1) {
+    end = Math.min(end, query);
+  }
+  if (hash !== -1) {
+    end = Math.min(end, hash);
+  }
+  return path.slice(0, end).toLowerCase();
 }
 
 function contentTypeIsJson(headers: Record<string, string>): boolean {

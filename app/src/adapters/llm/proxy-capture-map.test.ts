@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { LLM_OPERATION_CHAT, LLM_OPERATION_EMBEDDING, LLM_STATUS_ERROR, LLM_STATUS_OK } from "../../domain/llm/llm.ts";
+import { LLM_OPERATION_CHAT, LLM_OPERATION_EMBEDDING, LLM_OPERATION_OTHER, LLM_STATUS_ERROR, LLM_STATUS_OK } from "../../domain/llm/llm.ts";
 import { assembleSseCompletion, mapProxyCapture, type ProxyCaptureInput } from "./proxy-capture-map.ts";
 
 function base(overrides: Partial<ProxyCaptureInput> = {}): ProxyCaptureInput {
@@ -130,6 +130,52 @@ describe("mapProxyCapture", () => {
     }));
     expect(call.operation).toBe(LLM_OPERATION_EMBEDDING);
     expect(call.usage).toEqual({ promptTokens: 2, completionTokens: undefined, totalTokens: 2 });
+  });
+
+  test("stores proprietary JSON as-is on a raw capture", () => {
+    const request = { contents: [{ text: "hi" }], model: "internal-llm" };
+    const response = { candidates: [{ text: "yo" }], usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 }, finish_reason: "stop" };
+    const call = mapProxyCapture(base({
+      path: "/generations/v1alpha2",
+      raw: true,
+      requestBody: JSON.stringify(request),
+      responseBody: JSON.stringify(response),
+    }));
+    expect(call.request).toEqual(request);
+    expect(call.response).toEqual(response);
+    expect(call.operation).toBe(LLM_OPERATION_OTHER);
+    expect(call.model).toBe("internal-llm");
+    expect(call.usage).toEqual({ promptTokens: 3, completionTokens: 1, totalTokens: 4 });
+    expect(call.attributes.schema).toBe("raw");
+    expect(call.attributes.finish_reason).toBe("stop");
+  });
+
+  test("keeps raw SSE text instead of fabricating a chat.completion", () => {
+    const sse = [
+      "data: {\"delta\":\"Hel\"}",
+      "data: {\"delta\":\"lo\"}",
+      "data: [DONE]",
+      "",
+    ].join("\n");
+    const call = mapProxyCapture(base({
+      path: "/generations/v1alpha2",
+      raw: true,
+      responseContentType: "text/event-stream",
+      responseBody: sse,
+    }));
+    expect(call.response).toBe(sse);
+    expect(call.attributes.schema).toBe("raw");
+    expect(call.attributes.stream).toBe(true);
+    expect(call.usage).toBeUndefined();
+    expect((call.response as string).includes("chat.completion")).toBe(false);
+  });
+
+  test("does not mark an OpenAI capture as raw", () => {
+    const call = mapProxyCapture(base({
+      requestBody: JSON.stringify({ model: "gpt-4o", messages: [] }),
+      responseBody: JSON.stringify({ model: "gpt-4o", choices: [] }),
+    }));
+    expect(call.attributes.schema).toBeUndefined();
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyLlmSource, type DevctlConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { LLM_OPERATION_OTHER } from "../../domain/llm/llm.ts";
 import { LlmCallManager } from "./store.ts";
 import { ProxyCaptureSink, type ProxyCaptureSinkDeps } from "./proxy-capture.ts";
 
@@ -30,6 +31,7 @@ describe("ProxyCaptureSink.begin", () => {
     const chat = "/llm/v1/chat/completions";
     expect(sink.begin({ routeName: "apigee-llm", method: "GET", path: chat, requestHeaders: jsonHeaders })).toBeUndefined();
     expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/models", requestHeaders: jsonHeaders })).toBeUndefined();
+    expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/generations/v1alpha2", requestHeaders: jsonHeaders })).toBeUndefined();
     expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: chat, requestHeaders: { "content-type": "text/plain" } })).toBeUndefined();
     expect(sink.begin({ routeName: "other", method: "POST", path: chat, requestHeaders: jsonHeaders })).toBeUndefined();
     // Formats the reassembler does not understand are not captured.
@@ -42,6 +44,72 @@ describe("ProxyCaptureSink.begin", () => {
     cfg.llm.enabled = false;
     const sink = new ProxyCaptureSink({ cfg: () => cfg, store: new LlmCallManager() });
     expect(sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders })).toBeUndefined();
+  });
+
+  test("captures a configured proprietary path in addition to OpenAI completions", () => {
+    const sink = new ProxyCaptureSink({
+      cfg: () => cfgWithProxySource((source) => { source.capture.paths = ["/generations/v1alpha2"]; }),
+      store: new LlmCallManager(),
+    });
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/generations/v1alpha2",
+      requestHeaders: jsonHeaders,
+    })).toBeDefined();
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/generations/v1alpha2?alt=json",
+      requestHeaders: jsonHeaders,
+    })).toBeDefined();
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/v1/chat/completions",
+      requestHeaders: jsonHeaders,
+    })).toBeDefined();
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/v1/messages",
+      requestHeaders: jsonHeaders,
+    })).toBeUndefined();
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "GET",
+      path: "/generations/v1alpha2",
+      requestHeaders: jsonHeaders,
+    })).toBeUndefined();
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/v1/models",
+      requestHeaders: jsonHeaders,
+    })).toBeUndefined();
+  });
+
+  test("captures /messages only when it is listed in capture.paths", () => {
+    const sink = new ProxyCaptureSink({
+      cfg: () => cfgWithProxySource((source) => { source.capture.paths = ["/messages"]; }),
+      store: new LlmCallManager(),
+    });
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/v1/messages",
+      requestHeaders: jsonHeaders,
+    })).toBeDefined();
+  });
+
+  test("does not treat /completions in the query string as a completion path", () => {
+    const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource(), store: new LlmCallManager() });
+    expect(sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/v1/models?q=/completions",
+      requestHeaders: jsonHeaders,
+    })).toBeUndefined();
   });
 });
 
@@ -198,5 +266,41 @@ describe("ProxyCaptureSink recorder", () => {
     expect(rec.appendResponse(Buffer.from("more"))).toBe(false);
     await rec.finish({ status: 200, durationMs: 1, requestId: "req-cap", timestamp: "2026-01-01T00:00:00.000Z" });
     expect(store.get("req-cap")?.attributes.response_truncated).toBe(true);
+  });
+
+  test("stores proprietary JSON on a configured path without inventing usage", async () => {
+    const store = new LlmCallManager();
+    const sink = new ProxyCaptureSink({
+      cfg: () => cfgWithProxySource((source) => { source.capture.paths = ["/generations/v1alpha2"]; }),
+      store,
+    });
+    const rec = sink.begin({
+      routeName: "apigee-llm",
+      method: "POST",
+      path: "/llm/generations/v1alpha2",
+      requestHeaders: jsonHeaders,
+    });
+    if (!rec) throw new Error("expected a recorder");
+    rec.setRequestBody(Buffer.from(JSON.stringify({ contents: [{ text: "hi" }] })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from(JSON.stringify({ candidates: [{ text: "yo" }] })));
+    await rec.finish({ status: 200, durationMs: 12, requestId: "req-raw", timestamp: "2026-01-01T00:00:00.000Z" });
+    const call = store.get("req-raw");
+    expect(call?.operation).toBe(LLM_OPERATION_OTHER);
+    expect(call?.model).toBe("unknown");
+    expect(call?.usage).toBeUndefined();
+    expect(call?.durationMs).toBe(12);
+    expect(call?.attributes.schema).toBe("raw");
+    expect(call?.request).toEqual({ contents: [{ text: "hi" }] });
+    expect(call?.response).toEqual({ candidates: [{ text: "yo" }] });
+  });
+
+  test("still maps OpenAI completions when capture.paths is set", async () => {
+    const store = new LlmCallManager();
+    await drive(cfgWithProxySource((source) => { source.capture.paths = ["/generations/v1alpha2"]; }), store);
+    const call = store.get("req-9");
+    expect(call?.model).toBe("gpt-4o");
+    expect(call?.usage?.totalTokens).toBe(2);
+    expect(call?.attributes.schema).toBeUndefined();
   });
 });

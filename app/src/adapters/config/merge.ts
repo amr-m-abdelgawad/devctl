@@ -301,6 +301,7 @@ function decodeLlmSource(raw: Record<string, unknown>): LlmSourceConfig {
     capture: {
       prompts: capture.prompts === undefined ? true : asBoolean(capture.prompts),
       max_bytes: asNumber(capture.max_bytes),
+      paths: asStringArray(capture.paths),
     },
     poll_seconds: asNumber(raw.poll_seconds),
   };

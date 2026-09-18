@@ -103,7 +103,7 @@ export const knownLlmSource = [
 ];
 export const knownLlmAuth = ["type", "token_env", "header"];
 export const knownLlmVia = ["route"];
-export const knownLlmCapture = ["prompts", "max_bytes"];
+export const knownLlmCapture = ["prompts", "max_bytes", "paths"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];
 

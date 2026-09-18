@@ -33,6 +33,10 @@ export type ProxyCaptureInput = {
   responseTruncated?: boolean;
   responseContentType: string;
   caller?: string;
+  // When true, the path did not match the OpenAI completion hints. Store the
+  // parsed JSON (or raw SSE text) instead of reassembling a chat.completion,
+  // and extract model/usage/finish_reason only when those standard keys exist.
+  raw?: boolean;
 };
 
 // Map a captured OpenAI-compatible completion (JSON or reassembled SSE) into the
@@ -42,7 +46,7 @@ export type ProxyCaptureInput = {
 export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
   const request = parseJsonish(input.requestBody);
   const isSse = input.responseContentType.toLowerCase().includes("text/event-stream");
-  const response = isSse ? assembleSseCompletion(input.responseBody ?? "") : parseJsonish(input.responseBody);
+  const response = capturedResponse(input, isSse);
   const reqRec = asRecord(request);
   const respRec = asRecord(response);
 
@@ -50,7 +54,7 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
   const routedModel = firstString(respRec, ["model"]);
   const errText = errorText(respRec, input.status);
   const failed = input.status >= HTTP_ERROR_MIN || errText !== "";
-  const finishReason = finishReasonOf(respRec);
+  const finishReason = capturedFinishReason(respRec, input.raw === true);
 
   return {
     id: input.requestId,
@@ -81,10 +85,36 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
       response_id: firstString(respRec, ["id"]) || undefined,
       request_omitted: input.requestOmitted ? true : undefined,
       response_truncated: input.responseTruncated ? true : undefined,
+      schema: input.raw ? "raw" : undefined,
     },
     requestId: input.requestId,
     traceId: input.traceId,
   };
+}
+
+function capturedResponse(input: ProxyCaptureInput, isSse: boolean): unknown {
+  if (input.raw) {
+    return rawResponseBody(input.responseBody, isSse);
+  }
+  if (isSse) {
+    return assembleSseCompletion(input.responseBody ?? "");
+  }
+  return parseJsonish(input.responseBody);
+}
+
+function rawResponseBody(body: string | undefined, isSse: boolean): unknown {
+  if (isSse) {
+    return body === undefined || body === "" ? undefined : body;
+  }
+  return parseJsonish(body);
+}
+
+function capturedFinishReason(response: Record<string, unknown> | undefined, raw: boolean): string {
+  const fromChoices = finishReasonOf(response);
+  if (fromChoices !== "" || !raw) {
+    return fromChoices;
+  }
+  return firstString(response, ["finish_reason"]);
 }
 
 // Reassemble a streamed chat/text completion from its SSE frames into a normal

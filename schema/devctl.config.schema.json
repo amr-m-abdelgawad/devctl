@@ -636,7 +636,12 @@
       "additionalProperties": false,
       "properties": {
         "prompts": { "type": "boolean", "description": "Ingest request/response bodies. Default true. Secrets are still redacted." },
-        "max_bytes": { "type": "number", "minimum": 0, "description": "proxy source only: per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." }
+        "max_bytes": { "type": "number", "minimum": 0, "description": "proxy source only: per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." },
+        "paths": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "proxy source only: extra inbound path substrings to capture as raw HTTP pairs, in addition to the built-in OpenAI completion paths. Matched case-insensitively as substrings of the request pathname so a route mount prefix does not need repeating. Token usage, model, and finish reason are extracted when present in standard JSON fields; otherwise omitted."
+        }
       }
     }
   }

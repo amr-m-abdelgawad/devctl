@@ -1831,12 +1831,15 @@ llm:
       capture:
         prompts: true             # false → keep metadata, drop bodies
         max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
+        paths:                    # optional; extra POST JSON paths to capture raw
+          - /generations/v1alpha2
 \`\`\`
 
 Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completions\`) and every OpenAI-compatible completion, chat, embedding, or streamed (\`text/event-stream\`) call is parsed and fed into the same store as any other source. All surfaces below then work unchanged.
 
 - **Only tagged routes are buffered.** \`via.route\` names the one route to capture; all other proxy traffic still streams untouched. The request is buffered only when its \`content-length\` is within \`max_bytes\`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing.
-- **Only OpenAI-compatible completions are captured.** Capture engages on a \`POST\` with a JSON request content-type on a completion-shaped path (\`/chat/completions\`, \`/completions\`, \`/embeddings\`); \`GET /models\`, \`/model/info\`, health checks, and CORS preflights are ignored. Anthropic-native \`/messages\` and the OpenAI Responses API (\`/responses\`) use different request/stream shapes and are not captured — route those through LiteLLM's OpenAI-compatible endpoint instead.
+- **OpenAI-compatible completions are captured by default.** Capture engages on a \`POST\` with a JSON request content-type on a completion-shaped path (\`/chat/completions\`, \`/completions\`, \`/embeddings\`); \`GET /models\`, \`/model/info\`, health checks, and CORS preflights are ignored. Anthropic-native \`/messages\` and the OpenAI Responses API (\`/responses\`) use different request/stream shapes and are not captured unless listed in \`capture.paths\`.
+- **\`capture.paths\` adds proprietary endpoints.** Each entry is a path substring (must start with \`/\`, not \`/\` alone) matched case-insensitively against the inbound request pathname, so a route mount prefix does not need repeating — \`/generations/v1alpha2\` matches \`/llm/generations/v1alpha2\`. Matching POST JSON is stored as a raw HTTP pair: parsed JSON bodies, or raw SSE text (not reassembled into a \`chat.completion\`). Model, token usage, and finish reason are copied when those standard JSON fields are present (\`model\`, \`usage.prompt_tokens\` / \`input_tokens\`, \`choices[0].finish_reason\`); otherwise they are omitted and \`model\` shows \`unknown\`. Built-in OpenAI paths on the same source still use the OpenAI mapper.
 - **\`proxy\` has no management hop.** It captures from \`via.route\` and must not set \`service\`, \`endpoint\`, or \`management_*\`; config validation rejects those.
 - **Redaction is unchanged** — the same \`secrets\` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`) are counts, not credentials, so they stay visible. Cost is unavailable from a \`proxy\` source, and a streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, emptyRouteAuth, defaultConfig, type RouteAuthConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyRouteAuth, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
@@ -459,7 +459,7 @@ describe("config validate", () => {
       management_service: "",
       management_port: "",
       auth: { type: "bearer", token_env: "", header: "" },
-      capture: { prompts: true, max_bytes: 0 },
+      capture: { prompts: true, max_bytes: 0, paths: [] },
       poll_seconds: 0,
     }];
     const issues = validate(cfg);
@@ -490,7 +490,7 @@ describe("config validate", () => {
       management_service: "",
       management_port: "",
       auth: { type: "", token_env: "", header: "" },
-      capture: { prompts: true, max_bytes: 0 },
+      capture: { prompts: true, max_bytes: 0, paths: [] },
       poll_seconds: 0,
     }];
     expect(validate(cfg)).toEqual([]);
@@ -513,7 +513,7 @@ describe("config validate", () => {
       management_service: "",
       management_port: "",
       auth: { type: "", token_env: "", header: "" },
-      capture: { prompts: true, max_bytes: 0 },
+      capture: { prompts: true, max_bytes: 0, paths: [] },
       poll_seconds: 0,
     }];
     const issues = validate(cfg);
@@ -544,10 +544,46 @@ describe("config validate", () => {
       management_service: "",
       management_port: "",
       auth: { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "x-litellm-api-key" },
-      capture: { prompts: true, max_bytes: 0 },
+      capture: { prompts: true, max_bytes: 0, paths: [] },
       poll_seconds: 5,
     }];
     expect(validate(cfg)).toEqual([]);
+  });
+
+  test("accepts capture.paths on a proxy source and rejects empty, relative, or root entries", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    const source: LlmSourceConfig = {
+      name: "apigee-llm",
+      type: "proxy",
+      service: "",
+      port: "",
+      endpoint: "",
+      path_prefix: "",
+      headers: {},
+      via: { route: "apigee-llm" },
+      management_endpoint: "",
+      management_service: "",
+      management_port: "",
+      auth: { type: "", token_env: "", header: "" },
+      capture: { prompts: true, max_bytes: 0, paths: ["/generations/v1alpha2"] },
+      poll_seconds: 0,
+    };
+    cfg.llm.sources = [source];
+    expect(validate(cfg)).toEqual([]);
+
+    source.capture.paths = [""];
+    expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must be a non-empty path"))).toBe(true);
+    source.capture.paths = ["generations"];
+    expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must start with /"))).toBe(true);
+    source.capture.paths = ["/"];
+    expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must name a path, not /"))).toBe(true);
   });
 
   test("named environments require a known default_environment and reject empty names", () => {

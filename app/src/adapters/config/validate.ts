@@ -635,8 +635,25 @@ function validateLlmSource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: s
     issues.push(...validateLlmManagementHop(cfg, source, prefix));
   }
   issues.push(...validateLlmAuth(source, prefix));
+  issues.push(...validateLlmCapture(source, prefix));
   if (source.poll_seconds < 0) {
     issues.push(`${prefix}.poll_seconds must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLlmCapture(source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  for (const [index, path] of source.capture.paths.entries()) {
+    const trimmed = path.trim();
+    const loc = `${prefix}.capture.paths[${index}]`;
+    if (trimmed === "") {
+      issues.push(`${loc} must be a non-empty path`);
+    } else if (!trimmed.startsWith("/")) {
+      issues.push(`${loc} must start with /`);
+    } else if (trimmed === "/") {
+      issues.push(`${loc} must name a path, not /`);
+    }
   }
   return issues;
 }

@@ -462,6 +462,7 @@ export type LlmViaConfig = {
 export type LlmCaptureConfig = {
   prompts: boolean;
   max_bytes: number;
+  paths: string[];
 };
 
 export type LlmSourceConfig = {
@@ -495,7 +496,7 @@ export function emptyLlmVia(): LlmViaConfig {
 }
 
 export function emptyLlmCapture(): LlmCaptureConfig {
-  return { prompts: true, max_bytes: 0 };
+  return { prompts: true, max_bytes: 0, paths: [] };
 }
 
 export function emptyLlmSource(): LlmSourceConfig {
