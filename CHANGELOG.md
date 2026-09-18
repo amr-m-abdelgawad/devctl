@@ -10,11 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - LLM inspector **proxy-capture** sources can list extra `capture.paths` so a tagged route records proprietary (non-OpenAI) POST JSON endpoints such as `/generations/v1alpha2`. Built-in `/chat/completions`, `/completions`, and `/embeddings` capture is unchanged. Custom paths store the raw request/response — SSE is kept as text, not reassembled into a `chat.completion` — and copy model, token usage, and finish reason only when those standard JSON fields are present. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
+- **Traffic inspector** for proxied HTTP and gRPC hops: set `inspect.enabled` (and optional `inspect.max_bytes`, default 1 MiB) on a `proxy.routes` entry to capture redacted request/response bodies. List APIs omit bodies; `get_traffic_call` / `devctl traffic show` / the TUI proxy inspector / web `#/traffic/:id` include them. Direct sockets that never hit the proxy are not captured. `/reveal` cannot unmask these payloads. See [Proxy](docs/proxy.md#inspect-bodies).
 
 ### Changed
 
+- TUI and web LLM/traffic inspectors **pin the selected call by id**, so a newer hop does not steal the highlight or replace the payload you are reading. Click a web Traffic row (not just the timestamp) to open it. See [TUI](docs/tui.md) and [Web console](docs/web.md).
 - TUI LLM inspector is a **list plus live inspector**, matching the services screen. The call list has column headers (time, status, caller, model, latency, tokens); the inspector shows status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise JSON). `r` (or the conversation/json chip) switches the inspector and overlay to the raw request/response JSON. Click selects; click again or enter opens the full overlay. Empty states mention proxy sources as well as LiteLLM. See [TUI](docs/tui.md).
+- TUI **proxy** screen is a routes pane plus a traffic list and live inspector (pretty JSON / raw, `r` toggle, enter for overlay). Empty state explains `inspect.enabled` and that unproxied sockets are invisible.
 - Web console LLM view is a **list plus live inspector**: selecting a call keeps the table visible and opens a conversation transcript (copy, find) or a wrap-able request/response JSON split. Search hits stored bodies; `j`/`k` moves the list. See [Web console](docs/web.md).
+- Web console **Traffic** view (`#/traffic` and `#/traffic/:id`) inspects captured proxy hops the same way; overview request paths link into a hop when a body was captured.
+- Demo platform (`examples/demo-platform`) routes local HTTP hops through the proxy with `inspect.enabled`, and ships an OpenAI-compatible **LLM stub** (`type: proxy`, no LiteLLM) so the traffic and LLM inspectors have live bodies without Google or a cloud key.
 
 ## [0.14.1] - 2026-09-18
 

@@ -6,6 +6,7 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LlmCaptureSink } from "../../ports/llm-capture.ts";
+import type { TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 import { GrpcProxyServer } from "../proxy/grpc-proxy.ts";
 import { ProxyServer, TokenEndpoint, type ProxyMiddleware } from "../proxy/proxy.ts";
 import type { Detector } from "../secrets/detector.ts";
@@ -26,6 +27,7 @@ export type ProxyCoordinatorDeps = {
   // Optional LLM body-capture sink, shared (singleton) so it survives proxy
   // restarts and reads live config; passed to each ProxyServer instance.
   capture?: LlmCaptureSink;
+  traffic?: TrafficCaptureSink;
   persistState: () => void;
 };
 
@@ -80,6 +82,7 @@ export class ProxyCoordinator {
       this.deps.spans,
       this.deps.recipes,
       this.deps.capture,
+      this.deps.traffic,
     );
     await this.server.start();
     const cfg = this.deps.cfg();
@@ -97,7 +100,7 @@ export class ProxyCoordinator {
     // A dedicated loopback HTTP/2 listener per grpc route, sharing the same
     // token/log/bus/detector plumbing as the HTTP proxy.
     for (const route of cfg.proxy.routes.filter(isGrpcRoute)) {
-      const grpc = new GrpcProxyServer(route, this.deps.tokens, this.deps.logs, this.deps.bus, this.deps.detector, this.deps.spans);
+      const grpc = new GrpcProxyServer(route, this.deps.tokens, this.deps.logs, this.deps.bus, this.deps.detector, this.deps.spans, this.deps.traffic);
       await grpc.start();
       this.grpc.push(grpc);
     }

@@ -106,7 +106,7 @@ export const NAV_ITEMS: NavItem[] = [
 
 export function screenListCount(
   screen: Screen,
-  counts: { doctor: number; settings: number; profiles: number; services: number; logs?: number; mcp?: number; config?: number; llm?: number },
+  counts: { doctor: number; settings: number; profiles: number; services: number; logs?: number; mcp?: number; config?: number; llm?: number; proxy?: number },
 ): number {
   if (screen === "doctor") {
     return counts.doctor;
@@ -135,6 +135,9 @@ export function screenListCount(
   }
   if (screen === "llm") {
     return counts.llm ?? 0;
+  }
+  if (screen === "proxy") {
+    return counts.proxy ?? 0;
   }
   return 0;
 }

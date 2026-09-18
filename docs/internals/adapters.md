@@ -104,6 +104,10 @@ Token endpoint (`GET /token`) is loopback + internal token (`DEVCTL_INTERNAL_TOK
 
 `LlmCoordinator` polls **pull** sources; `litellm.ts` / `litellm-map.ts` map spend logs. The **push** `proxy` driver (`proxy-driver.ts`) is fed out-of-band by `proxy-capture.ts` (the `LlmCaptureSink` the HTTP proxy calls) + `proxy-capture-map.ts` (JSON/SSE bodies → ingest). `store.ts` is the ring; `factory.ts` registers drivers including plugins.
 
+## `adapters/traffic/`
+
+`TrafficCallRing` is the in-memory store (redact at upsert). `ProxyTrafficSink` implements `TrafficCaptureSink` for HTTP and gRPC proxies: per-route `inspect.enabled`, skip recipe `expose` hops, tee bodies up to `max_bytes`, never fail the proxied call.
+
 ## `adapters/telemetry/`
 
 `otlp-http.ts` — optional loopback OTLP HTTP receiver feeding `LogStore` / `SpanStore`.

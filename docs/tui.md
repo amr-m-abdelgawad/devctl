@@ -56,7 +56,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | `?` | Grouped help — `j`/`k` scroll when the list is taller than the terminal |
 | `tab` / `shift+tab` / `1`–`5` | Cycle or jump the **five nav tabs**. Other screens are `/auth`, `/credentials`, `/doctor`, `/config`, `/profiles`, `/setup`, `/stats`, `/topology`, `/tokens`, `/settings`, `/mcp`. On a secondary screen, `tab` returns to the dashboard. When the strip is wider than the terminal it slides (`‹` `›`). |
 | `s` `l` `a` `p` `d` `c` `u` | Direct letter nav when no overlay owns keys (services, logs, identity, proxy, doctor, config, setup) |
-| `r` | Refresh snapshot (doctor `r` re-runs checks; LLM `r` toggles conversation / raw JSON) |
+| `r` | Refresh snapshot (doctor `r` re-runs checks; LLM `r` toggles conversation / raw JSON; proxy `r` toggles pretty JSON / raw) |
 | `R` | Restart selected services |
 | `j` `k` / arrows | Move selection |
 | `enter` | Start (empty dashboard) or open service detail |
@@ -90,8 +90,8 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. `w` cycles wrap all / clip / wrap selected. `\\` / `/split` opens a second pane on the same live stream (independent service filter, shared search). `/trace <id>` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). `/auth login` suspends the TUI, runs `gcloud auth application-default login` on the real terminal, then restores the TUI. `/auth logout` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or `~/.devctl/credentials`
-- **Proxy** — status + routes (match and upstream wrap instead of clipping); request paths wrap in the live feed. **REQ** is the full request when a trace exists; **HOP** is the proxy hop (same split as the web UI). Click a route for full details. `n` start / `x` stop. If `proxy.listen.port` is missing, the screen says so and `n` reports the bind error in the status bar instead of crashing
-- **LLM** — list of recent calls (time, status, caller, model, latency, tokens) with a live inspector for the selected row: status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise JSON). `r` (or the conversation/json chip) switches the inspector and overlay between the transcript and the raw request/response JSON. Click selects; click again or `enter` opens the full overlay (payload, attributes; `enter` again jumps to a trace when one is present). `/caller` filters. Usage counts are not secrets. `/reveal` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
+- **Proxy** — status + routes (inspect chip when `inspect.enabled`); list of captured hops plus a live inspector (pretty JSON / raw). `r` toggles body mode. Click a hop or `enter` opens the overlay (`enter` again jumps to a trace when one is present). The highlighted hop stays selected when newer hops arrive; `j`/`k` moves. Empty state explains `inspect.enabled` and that unproxied `127.0.0.1` sockets are invisible. `n` start / `x` stop. If `proxy.listen.port` is missing, the screen says so and `n` reports the bind error in the status bar instead of crashing. See [Proxy](proxy.md#inspect-bodies)
+- **LLM** — list of recent calls (time, status, caller, model, latency, tokens) with a live inspector for the selected row: status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise JSON). `r` (or the conversation/json chip) switches the inspector and overlay between the transcript and the raw request/response JSON. Click selects; click again or `enter` opens the full overlay (payload, attributes; `enter` again jumps to a trace when one is present). The highlighted call stays selected when newer calls arrive. `/caller` filters. Usage counts are not secrets. `/reveal` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. `enter` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. `r` reruns
 - **Config** — merged view including **tasks**. `v` / `/buffer` opens a validate/save overlay on `cfg.configPath` (invalid YAML is not written; `esc` discards). `e` / `/edit` still opens `$EDITOR` / `DEVCTL_EDITOR`. `/diff` shows provenance (`devctl config diff`). `/reload` re-reads after an external edit
 - **Profiles** — members; `enter` selects and offers start
@@ -99,7 +99,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Settings** — grouped prefs: theme, display size, mouse, leader timeout, **MCP settings page**, about, reset. `←`/`→` writes the highlighted cycle or toggles mouse. Reset asks before restoring defaults. Saves to `~/.devctl/tui.json` unless `DEVCTL_TUI_CONFIG` is set
 - **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked `read` or `write`; `space` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
-`/reveal` toggles secret env values for this session only. The header shows `secrets shown`. It does not restore log lines or LLM request/response bodies; those are redacted when stored.
+`/reveal` toggles secret env values for this session only. The header shows `secrets shown`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.
 
 ## Slash commands
 
@@ -180,7 +180,7 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/refresh` | | Refresh status and logs |
 | `/edit` | | Open configuration in $EDITOR |
 | `/buffer` | | Edit configuration in a validate/save buffer |
-| `/reveal` | | Reveal or hide secret environment values (not log or LLM payloads) |
+| `/reveal` | | Reveal or hide secret environment values (not log, LLM, or traffic payloads) |
 | `/copy` | | Copy the highlighted selection to the clipboard |
 
 `/reload` re-reads `.devctl`. `/diff` is the same provenance view as `devctl config diff`. `/themes` opens a picker with live preview; Enter saves to `~/.devctl/tui.json`.

@@ -1,8 +1,13 @@
-description: Telemetry agent — cycles awkward JSON log shapes, OTLP/HTTP, and W3C traces for the Logs and Trace screens
+description: Telemetry agent — cycles awkward JSON log shapes, OTLP/HTTP, W3C traces, and stub LLM calls for the Logs, Trace, Traffic, and LLM screens
 command:
   - python3
   - main.py
 working_dir: telemetry
+dependencies:
+  - service: llm
+    condition: service_healthy
+environment:
+  LLM_URL: ${services.llm.url}
 health:
   type: process
 extends: python-http

@@ -27,6 +27,7 @@ import { useDiagnostics } from "./hooks/use-diagnostics.ts";
 import { useLifecycle } from "./hooks/use-lifecycle.ts";
 import { useLogView } from "./hooks/use-log-view.ts";
 import { useLlmView } from "./hooks/use-llm-view.ts";
+import { useTrafficView } from "./hooks/use-traffic-view.ts";
 import { useMcpControls } from "./hooks/use-mcp-controls.ts";
 import { useNotifications } from "./hooks/use-notifications.ts";
 import { usePreferences } from "./hooks/use-preferences.ts";
@@ -39,6 +40,7 @@ import { HelpOverlay } from "./overlays/Help.tsx";
 import { LeaderOverlay } from "./overlays/Leader.tsx";
 import { LogDetailsOverlay } from "./overlays/LogDetails.tsx";
 import { LlmDetailsOverlay } from "./overlays/LlmDetails.tsx";
+import { TrafficDetailsOverlay } from "./overlays/TrafficDetails.tsx";
 import { PlanOverlay } from "./overlays/Plan.tsx";
 import { RouteDetailsOverlay } from "./overlays/RouteDetails.tsx";
 import { ScrollTextOverlay } from "./overlays/ScrollText.tsx";
@@ -200,6 +202,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
 
   const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
   const llmView = useLlmView({ controller, screen });
+  const trafficView = useTrafficView({ controller, screen });
   const {
     logs,
     setLogs,
@@ -277,9 +280,14 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     mcp: mcpRowCount(),
     config: Object.keys(cfg?.tasks ?? {}).length,
     llm: llmView.page.calls.length,
+    proxy: trafficView.page.calls.length,
   });
   const cursorState = screen === "logs" ? (splitLogs && splitFocus === 1 ? logSelectedB : logSelected) : selected;
-  const listCursor = listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
+  const listCursor = screen === "llm"
+    ? Math.max(0, llmView.selectedIndex)
+    : screen === "proxy"
+      ? Math.max(0, trafficView.selectedIndex)
+      : listCount <= 0 ? Math.max(0, cursorState) : Math.max(0, Math.min(cursorState, listCount - 1));
   const envService = screen === "detail" ? detailName : screen === "services" ? (names[listCursor] ?? "") : "";
   const inspectorEnvName = snap?.services[envService]?.env ?? "";
   const { inspectorEnv, inspectorEnvStatus, inspectorEnvError, resolveEnvironment } = useServiceEnvironment({ controller, cfg, envService, envName: inspectorEnvName });
@@ -641,6 +649,12 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       llmDetail: llmView.detail,
       llmCalls: llmView.page.calls,
       toggleLlmBodyMode: llmView.toggleBodyMode,
+      moveLlmCursor: llmView.move,
+      trafficCalls: trafficView.page.calls,
+      setTrafficDetail: trafficView.setDetail,
+      trafficDetail: trafficView.detail,
+      toggleTrafficBodyMode: trafficView.toggleBodyMode,
+      moveTrafficCursor: trafficView.move,
       openTrace,
       openRequest,
       openSpanLogs,
@@ -865,13 +879,21 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             palette={palette}
             cfg={cfg}
             snap={snap}
+            page={trafficView.page}
+            error={trafficView.error}
+            selected={listCursor}
             width={width}
+            bodyMode={trafficView.bodyMode}
+            onToggleBody={trafficView.toggleBodyMode}
+            onPick={trafficView.pick}
+            onOpen={(call) => {
+              trafficView.setDetail(call);
+              setOverlay("traffic-details");
+            }}
             onSelectRoute={(route) => {
               setRouteDetail(route);
               setOverlay("route-details");
             }}
-            onOpenTrace={openTrace}
-            onFollowRequest={openRequest}
           />
         ) : null}
         {screen === "llm" ? (
@@ -885,7 +907,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             width={width}
             bodyMode={llmView.bodyMode}
             onToggleBody={llmView.toggleBodyMode}
-            onPick={setSelected}
+            onPick={llmView.pick}
             onOpen={(call) => {
               llmView.setDetail(call);
               setOverlay("llm-details");
@@ -1007,6 +1029,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       ) : null}
       {overlay === "llm-details" ? (
         <LlmDetailsOverlay palette={palette} call={llmView.detail} bodyMode={llmView.bodyMode} onToggleBody={llmView.toggleBodyMode} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
+      ) : null}
+      {overlay === "traffic-details" ? (
+        <TrafficDetailsOverlay palette={palette} call={trafficView.detail} bodyMode={trafficView.bodyMode} onToggleBody={trafficView.toggleBodyMode} termW={width} termH={height} scrollRef={logDetailsScrollRef} onViewTrace={openTrace} />
       ) : null}
       {overlay === "trace" || overlay === "span-details" ? (
         <TraceOverlay palette={palette} trace={traceDetail?.tree} selected={traceSpanIndex} onSelect={setTraceSpanIndex} onOpenLogs={openSpanLogs} termW={width} termH={height} scrollRef={traceScrollRef} requestContext={traceRequestContext} />

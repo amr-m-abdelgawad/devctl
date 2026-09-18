@@ -63,6 +63,7 @@ export function useAppKeyboard({
   const {
     screen, onQuit, closeOverlay, confirmKind, confirmDetail, portTarget, profile, listCursor, names, runCommand,
     copySelection, setOverlay, setConfirmKind, setConfirmDetail, setPortTarget, setLogDetail, setLlmDetail, llmCalls,
+    setTrafficDetail, trafficCalls,
     setProfile, setStatus, setSlashIndex, setQuery, setSlashPicker, setScreen, freePort, openDetail, applyServiceEnv,
   } = ui;
   const {
@@ -153,6 +154,14 @@ export function useAppKeyboard({
       }
       return;
     }
+    if (screen === "proxy") {
+      const call = trafficCalls[listCursor];
+      if (call) {
+        setTrafficDetail(call);
+        setOverlay("traffic-details");
+      }
+      return;
+    }
     if (screen === "profiles") {
       const keys = Object.keys(cfg?.profiles ?? {}).sort();
       const pick = keys[listCursor];
@@ -223,7 +232,7 @@ export function useAppKeyboard({
     if (name && (screen === "dashboard" || screen === "services")) {
       openDetail(name);
     }
-  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, llmCalls, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLlmDetail, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
+  }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, llmCalls, trafficCalls, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLlmDetail, setTrafficDetail, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
 
   useKeyboard((key: KeyLike) => {
     const name = (key.name ?? "").toLowerCase();

@@ -14,7 +14,7 @@ describe("demo-platform config", () => {
     const root = resolve(import.meta.dir, "../../../../examples/demo-platform");
     const cfg = load(root, "");
     expect(cfg.project.name).toBe("demo-platform");
-    expect(Object.keys(cfg.services).sort()).toEqual(["billing-console", "identity", "invoices-api", "invoices-worker", "postgres", "telemetry"]);
+    expect(Object.keys(cfg.services).sort()).toEqual(["billing-console", "identity", "invoices-api", "invoices-worker", "llm", "postgres", "telemetry"]);
     expect(cfg.profiles.backend?.services).toContain("invoices-worker");
     expect(cfg.profiles.backend?.services).not.toContain("postgres");
     expect(cfg.profiles.data?.services).toEqual(["postgres"]);
@@ -26,6 +26,12 @@ describe("demo-platform config", () => {
     expect(cfg.proxy.token_endpoint.enabled).toBe(true);
     expect(cfg.telemetry.otlp.enabled).toBe(true);
     expect(cfg.telemetry.otlp.listen.port).toBe(18418);
+    expect(cfg.llm.enabled).toBe(true);
+    expect(cfg.llm.sources[0]?.type).toBe("proxy");
+    expect(cfg.llm.sources[0]?.via.route).toBe("llm");
+    expect(cfg.proxy.routes.find((route) => route.name === "invoices-api")?.inspect?.enabled).toBe(true);
+    expect(cfg.proxy.routes.find((route) => route.name === "identity")?.inspect?.enabled).toBe(true);
+    expect(cfg.proxy.routes.find((route) => route.name === "llm")?.inspect?.enabled).toBe(true);
 
     // Three routes at the same upstream (invoices-worker), one per
     // non-"none" auth pattern — see config.yaml's comments for why.

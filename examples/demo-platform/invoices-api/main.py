@@ -72,7 +72,7 @@ def emit_json(record: dict[str, object]) -> None:
 
 
 def ping_identity_health(trace_id: str, parent_span: str) -> None:
-    req = urllib.request.Request(f"{AUTH_URL}/health", method="GET")
+    req = otel.hub_request(AUTH_URL, "/health")
     req.add_header("traceparent", otel.format_traceparent(trace_id, parent_span))
     try:
         urllib.request.urlopen(req, timeout=2).read()
@@ -82,10 +82,7 @@ def ping_identity_health(trace_id: str, parent_span: str) -> None:
 
 def whoami(token: str) -> dict[str, object] | None:
     global IDENTITY_FAILURES
-    req = urllib.request.Request(
-        f"{AUTH_URL}/whoami",
-        headers={"Authorization": f"Bearer {token}"},
-    )
+    req = otel.hub_request(AUTH_URL, "/whoami", headers={"Authorization": f"Bearer {token}"})
     try:
         with urllib.request.urlopen(req, timeout=2) as resp:
             return json.loads(resp.read().decode())

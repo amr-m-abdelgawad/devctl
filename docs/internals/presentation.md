@@ -11,6 +11,7 @@ Commander tree in `cli.ts` `newRoot(runtime, launchDaemon)`.
 | `lifecycle.ts` | `start`, `stop`, `restart`, `run`, `exec`, `status`, `down`, `attach` |
 | `logs.ts` | `logs`, hidden `_supervisor` is **not** here — `addDaemon` is session log helpers; `_supervisor` is `addSupervisor` in `cli.ts` |
 | `llm.ts` | `llm` inspector |
+| `traffic.ts` | `traffic` inspector |
 | `auth.ts` | `auth login/logout/status/refresh` |
 | `listeners.ts` | `proxy`, `mcp` |
 | `web.ts` | `web` |
@@ -51,6 +52,7 @@ Hook map:
 | `use-lifecycle.ts` | Start/stop/restart/plan |
 | `use-log-view.ts` | Filter, window, follow, paging |
 | `use-llm-view.ts` | LLM inspector paging |
+| `use-traffic-view.ts` | Proxy traffic inspector paging |
 | `use-diagnostics.ts` | Doctor |
 | `use-service-environment.ts` | Env inspect (redacted) |
 | `use-config-editor.ts` | Buffer validate via `validateConfigText` before write |
@@ -80,7 +82,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol `2025-03-26`. Bind loopback only. Bearer
 
 Tools (names are the RPC contract; do not rename lightly):
 
-Inspect: `list_services`, `get_service`, `get_status`, `get_requests`, `get_llm_calls`, `get_llm_call`, `list_profiles`, `get_config`, `get_config_sources`
+Inspect: `list_services`, `get_service`, `get_status`, `get_requests`, `get_llm_calls`, `get_llm_call`, `get_traffic_calls`, `get_traffic_call`, `list_profiles`, `get_config`, `get_config_sources`
 
 Logs: `get_logs`, `get_trace`, `trace_request`, `recent_errors`
 
@@ -96,7 +98,7 @@ Default-off: `exec_service` (opt in via TUI `mcp_enabled_tools`). Deny-list: `mc
 
 ## Web UI — `presentation/web/` + `app/web/`
 
-`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, control POSTs including `set_service_environment`). Same bearer and loopback rules. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm). Rebuild assets after UI changes.
+`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, control POSTs including `set_service_environment`). Same bearer and loopback rules. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm, traffic). Rebuild assets after UI changes.
 
 `web.control.ts` / `api.ts` talk to those HTTP routes. This is not a second orchestrator.
 

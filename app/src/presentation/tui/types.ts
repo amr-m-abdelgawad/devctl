@@ -31,6 +31,7 @@ export type Overlay =
   | "config-edit"
   | "route-details"
   | "llm-details"
+  | "traffic-details"
   | "scroll-text"
   | "setup-wizard"
   | "trace"

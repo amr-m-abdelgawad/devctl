@@ -1,0 +1,16 @@
+description: OpenAI-compatible LLM stub for the inspector — no LiteLLM, no cloud
+command:
+  - python3
+  - main.py
+working_dir: llm
+ports:
+  http: 18005
+health:
+  type: http
+  url: http://127.0.0.1:18005/health
+extends: python-http
+startup:
+  wait_for_healthy: true
+  timeout_seconds: 20
+capabilities:
+  - local_http

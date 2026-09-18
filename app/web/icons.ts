@@ -2,6 +2,7 @@ export type { Icon } from "@phosphor-icons/react/dist/lib/types";
 export { IconContext } from "@phosphor-icons/react/dist/lib/context";
 export { ArrowCircleUpIcon } from "@phosphor-icons/react/dist/csr/ArrowCircleUp";
 export { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwise";
+export { ArrowsLeftRightIcon } from "@phosphor-icons/react/dist/csr/ArrowsLeftRight";
 export { ArrowLeftIcon } from "@phosphor-icons/react/dist/csr/ArrowLeft";
 export { ArrowsClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowsClockwise";
 export { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";

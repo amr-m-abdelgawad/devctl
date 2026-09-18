@@ -15,6 +15,7 @@ import { applyExtraAuthHeaders, mintAuthToken } from "../http/identity.ts";
 import { type TokenManager, isTokenMintRateLimited, TOKEN_MINT_WINDOW_MS } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
+import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 import { isLlmCallerHeader } from "../../domain/llm/caller.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
@@ -108,6 +109,8 @@ export class ProxyServer {
   // it captures completion bodies only on routes a proxy LLM source tags, and
   // returns undefined for everything else so untagged traffic is untouched.
   private readonly capture?: LlmCaptureSink;
+  // Optional traffic inspector sink. Per-route inspect.enabled; best-effort.
+  private readonly traffic?: TrafficCaptureSink;
   private middleware: ProxyMiddleware[];
   private server?: Server;
   private running = false;
@@ -126,6 +129,7 @@ export class ProxyServer {
     spans?: SpanStore,
     recipes?: HttpRecipeRuntime,
     capture?: LlmCaptureSink,
+    traffic?: TrafficCaptureSink,
   ) {
     this.cfg = cfg;
     this.tokens = tokens;
@@ -137,6 +141,7 @@ export class ProxyServer {
     this.spans = spans;
     this.recipes = recipes;
     this.capture = capture;
+    this.traffic = traffic;
   }
 
   // The effective upstream base URL for a route. A hand-written route uses its
@@ -409,7 +414,7 @@ export class ProxyServer {
     let errorDetail: string | undefined;
     // Declared outside the try so the finally can close the capture even when
     // the upstream errors or the client disconnects mid-response.
-    let recorder: LlmCaptureRecorder | undefined;
+    let recorder: HttpCaptureTee | undefined;
     try {
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
@@ -621,22 +626,43 @@ export class ProxyServer {
     path: string,
     headers: Record<string, string>,
     req: IncomingMessage,
-  ): LlmCaptureRecorder | undefined {
-    if (!this.capture) {
-      return undefined;
+  ): HttpCaptureTee | undefined {
+    const peer = capturePeer(req);
+    const tees: HttpCaptureTee[] = [];
+    if (this.capture) {
+      try {
+        const recorder = this.capture.begin({
+          routeName,
+          method,
+          path,
+          requestHeaders: { ...headers },
+          peer,
+        });
+        if (recorder) {
+          tees.push(safeHttpTee(recorder));
+        }
+      } catch {
+        // capture is best-effort
+      }
     }
-    try {
-      const recorder = this.capture.begin({
-        routeName,
-        method,
-        path,
-        requestHeaders: { ...headers },
-        peer: capturePeer(req),
-      });
-      return recorder ? safeRecorder(recorder) : undefined;
-    } catch {
-      return undefined;
+    if (this.traffic) {
+      try {
+        const recorder = this.traffic.begin({
+          routeName,
+          method,
+          path,
+          requestHeaders: { ...headers },
+          transport: "http",
+          peer,
+        });
+        if (recorder) {
+          tees.push(safeHttpTee(recorder));
+        }
+      } catch {
+        // capture is best-effort
+      }
     }
+    return combineHttpTees(tees);
   }
 
   // For a capture target with a known, in-cap content-length, buffer the request
@@ -645,7 +671,7 @@ export class ProxyServer {
   private async prepareRequestBody(
     req: IncomingMessage,
     method: string,
-    recorder: LlmCaptureRecorder | undefined,
+    recorder: HttpCaptureTee | undefined,
   ): Promise<{ body: BodyInit | undefined; duplex: "half" | undefined }> {
     if (method === "GET" || method === "HEAD") {
       return { body: undefined, duplex: undefined };
@@ -669,7 +695,7 @@ export class ProxyServer {
   }
 
   private async finishCapture(
-    recorder: LlmCaptureRecorder | undefined,
+    recorder: HttpCaptureTee | undefined,
     status: number,
     started: number,
     requestID: string,
@@ -839,7 +865,49 @@ function stripLlmCallerHeaders(headers: Record<string, string>): void {
 // Wrap a capture recorder so no method it defines — including a throwing
 // property getter for maxBytes — can ever escape into the proxy request path.
 // Capture is strictly best-effort; the proxied request must be unaffected.
-function safeRecorder(inner: LlmCaptureRecorder): LlmCaptureRecorder {
+type HttpCaptureTee = {
+  readonly maxBytes: number;
+  setRequestBody(body: Buffer, opts?: { omitted?: boolean }): void;
+  setResponseContentType(contentType: string): void;
+  appendResponse(chunk: Buffer): boolean;
+  finish(meta: { status: number; durationMs: number; requestId: string; traceId?: string; timestamp: string }): void | Promise<void>;
+};
+
+function combineHttpTees(tees: HttpCaptureTee[]): HttpCaptureTee | undefined {
+  if (tees.length === 0) {
+    return undefined;
+  }
+  if (tees.length === 1) {
+    return tees[0];
+  }
+  return {
+    maxBytes: Math.max(...tees.map((tee) => tee.maxBytes)),
+    setRequestBody: (body, opts) => {
+      for (const tee of tees) {
+        tee.setRequestBody(body, opts);
+      }
+    },
+    setResponseContentType: (contentType) => {
+      for (const tee of tees) {
+        tee.setResponseContentType(contentType);
+      }
+    },
+    appendResponse: (chunk) => {
+      let keep = false;
+      for (const tee of tees) {
+        if (tee.appendResponse(chunk)) {
+          keep = true;
+        }
+      }
+      return keep;
+    },
+    finish: async (meta) => {
+      await Promise.all(tees.map((tee) => tee.finish(meta)));
+    },
+  };
+}
+
+function safeHttpTee(inner: LlmCaptureRecorder | TrafficCaptureRecorder): HttpCaptureTee {
   let maxBytes = 0;
   try {
     maxBytes = inner.maxBytes;

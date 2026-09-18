@@ -7,6 +7,7 @@ import { KindGeneral, hintError, parseError, wrapError } from "../../shared/erro
 import { type BusEvent } from "../../shared/events.ts";
 import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../storage/logs.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
+import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
 import { bootstrapLogPath, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
@@ -403,6 +404,15 @@ export class Controller {
   async getLlmCall(id: string): Promise<LlmCall | undefined> {
     const raw = await this.call("get_llm_call", { id });
     return raw === null || raw === undefined ? undefined : raw as LlmCall;
+  }
+
+  async trafficCallsPage(req: TrafficCallFilter & TrafficCallPageRequest): Promise<TrafficCallPage> {
+    return (await this.call("traffic_calls_page", req)) as TrafficCallPage;
+  }
+
+  async getTrafficCall(id: string): Promise<TrafficCall | undefined> {
+    const raw = await this.call("get_traffic_call", { id });
+    return raw === null || raw === undefined ? undefined : raw as TrafficCall;
   }
 
   async proxyStart(): Promise<void> {

@@ -4,6 +4,7 @@ import type { LlmCall, LlmCallPage } from "../../../domain/llm/llm.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { toggleLlmBodyMode, type LlmBodyMode } from "../helpers/llm.ts";
 import type { Screen } from "../types.ts";
+import { useCallListSelection } from "./use-call-list.ts";
 
 const POLL_MS = 2000;
 const PAGE_LIMIT = 200;
@@ -21,6 +22,7 @@ export function useLlmView(opts: { controller?: Controller; screen: Screen }) {
   const toggleBodyMode = useCallback(() => {
     setBodyMode(toggleLlmBodyMode);
   }, []);
+  const selection = useCallListSelection(page.calls);
 
   const refresh = useCallback(async () => {
     if (!controller) {
@@ -51,5 +53,18 @@ export function useLlmView(opts: { controller?: Controller; screen: Screen }) {
     return () => clearInterval(timer);
   }, [screen, controller, refresh]);
 
-  return { page, detail, setDetail, error, refresh, caller, setCaller, bodyMode, toggleBodyMode };
+  return {
+    page,
+    detail,
+    setDetail,
+    error,
+    refresh,
+    caller,
+    setCaller,
+    bodyMode,
+    toggleBodyMode,
+    selectedIndex: selection.selectedIndex,
+    pick: selection.pick,
+    move: selection.move,
+  };
 }

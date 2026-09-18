@@ -15,6 +15,9 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlencode, urlparse
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+import traceutil as otel
+
 NAME = os.environ.get("DEVCTL_SERVICE_NAME", "invoices-worker")
 PORT = int(os.environ.get("SERVICE_PORT") or os.environ.get("HTTP_PORT") or "18002")
 API_URL = os.environ.get("API_URL", "http://127.0.0.1:18000").rstrip("/")
@@ -50,7 +53,7 @@ def finalize_trace(job: dict[str, object]) -> None:
 
 
 def fetch_jobs() -> list[dict[str, object]]:
-    req = urllib.request.Request(f"{API_URL}/jobs")
+    req = otel.hub_request(API_URL, "/jobs")
     try:
         with urllib.request.urlopen(req, timeout=2) as resp:
             body = json.loads(resp.read().decode())
@@ -91,7 +94,7 @@ def poll() -> None:
             continue
         for job in queued:
             job_id = job.get("id")
-            req = urllib.request.Request(f"{API_URL}/jobs/{job_id}/complete", method="POST")
+            req = otel.hub_request(API_URL, f"/jobs/{job_id}/complete", method="POST")
             try:
                 urllib.request.urlopen(req, timeout=2).read()
                 PROCESSED += 1

@@ -70,7 +70,7 @@ export function allCommands(): CommandSpec[] {
     { name: "trace", aliases: [], desc: "Search logs for a request or trace id", leader: "", group: "logs", usage: "<id>" },
     { name: "filter", aliases: [], desc: "Toggle ERROR+ log filter", leader: "", group: "logs" },
     { name: "system", aliases: ["internal"], desc: "Show or hide internal auth/mcp/devctl/proxy logs", leader: "", group: "logs" },
-    { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values (not log or LLM payloads)", leader: "", group: "ui" },
+    { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values (not log, LLM, or traffic payloads)", leader: "", group: "ui" },
     { name: "wrap", aliases: [], desc: "Cycle log wrap: all lines, clip, or selected row", leader: "", group: "logs" },
     { name: "copy", aliases: [], desc: "Copy the highlighted selection to the clipboard", leader: "", group: "ui" },
     { name: "export", aliases: [], desc: "Write filtered logs to ~/.devctl/exports", leader: "", group: "logs" },

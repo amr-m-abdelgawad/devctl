@@ -10,6 +10,8 @@ import type {
   ServiceRow,
   StatusSummary,
   TracePayload,
+  TrafficCallRow,
+  TrafficCallsPayload,
   UpdateCheckPayload,
 } from "./types.ts";
 import { controlAuthHeaders } from "./session.ts";
@@ -75,6 +77,21 @@ export function fetchLlmCalls(params: Record<string, string> = {}): Promise<LlmC
 
 export function fetchLlmCall(id: string): Promise<LlmCallRow> {
   return getJson(`/api/llm/${encodeURIComponent(id)}`);
+}
+
+export function fetchTrafficCalls(params: Record<string, string> = {}): Promise<TrafficCallsPayload> {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== "") {
+      query.set(key, value);
+    }
+  }
+  const suffix = query.size > 0 ? `?${query.toString()}` : "";
+  return getJson(`/api/traffic${suffix}`);
+}
+
+export function fetchTrafficCall(id: string): Promise<TrafficCallRow> {
+  return getJson(`/api/traffic/${encodeURIComponent(id)}`);
 }
 
 export function fetchUpdate(): Promise<UpdateCheckPayload> {

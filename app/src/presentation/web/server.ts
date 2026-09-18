@@ -15,6 +15,8 @@ import {
   getLogs,
   getLlmCallTool,
   getLlmCalls,
+  getTrafficCallTool,
+  getTrafficCalls,
   getRequests,
   getStatusSummary,
   getTraceTool,
@@ -175,7 +177,7 @@ export class WebHttpServer {
       return;
     }
     if (path === "/api/requests") {
-      writeJson(res, 200, getRequests(host.status()));
+      writeJson(res, 200, await getRequests(host));
       return;
     }
     if (path === "/api/config") {
@@ -197,6 +199,15 @@ export class WebHttpServer {
     const llmId = matchParam(path, "/api/llm/");
     if (llmId !== undefined) {
       writeJson(res, 200, await getLlmCallTool(host, { id: decodeURIComponent(llmId) }));
+      return;
+    }
+    if (path === "/api/traffic") {
+      writeJson(res, 200, await getTrafficCalls(host, queryArgs(query)));
+      return;
+    }
+    const trafficId = matchParam(path, "/api/traffic/");
+    if (trafficId !== undefined) {
+      writeJson(res, 200, await getTrafficCallTool(host, { id: decodeURIComponent(trafficId) }));
       return;
     }
     const traceId = matchParam(path, "/api/trace/");

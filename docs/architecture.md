@@ -202,7 +202,9 @@ client). Identity cache, credential entries, and service-account probes live in
 `adapters/daemon/identity-coordinator.ts`. Client/profile environment resolution
 lives in `adapters/daemon/environment-bridge.ts`. Proxy and token-endpoint bind
 live in `adapters/daemon/proxy-coordinator.ts`. LLM inspector polling lives in
-`adapters/llm/` (LiteLLM driver, in-memory call store, coordinator). Named outbound HTTP recipes
+`adapters/llm/` (LiteLLM driver, in-memory call store, coordinator). Traffic inspector
+capture lives in `adapters/traffic/` (ring store + `ProxyTrafficSink` teed from HTTP and
+gRPC proxies). Named outbound HTTP recipes
 (`HttpRecipeRuntime`) live in `adapters/http/`; the supervisor constructs
 `RecipeRuntime`, reuses `TokenManager`, and passes it into the environment
 bridge and proxy. MCP listen and the tool deny-list

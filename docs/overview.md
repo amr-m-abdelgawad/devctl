@@ -5,7 +5,7 @@
 ```mermaid
 flowchart TB
   tui["TUI — OpenTUI screens and keys"]
-  cli["CLI — start / stop / logs / llm / auth"]
+  cli["CLI — start / stop / logs / llm / traffic / auth"]
   mcp["MCP — http://127.0.0.1:port/mcp"]
   web["Web — loopback explorer and control"]
   sup["Supervisor"]

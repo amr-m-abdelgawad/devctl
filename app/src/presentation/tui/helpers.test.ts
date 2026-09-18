@@ -309,6 +309,9 @@ describe("TUI helpers", () => {
     expect(footerHints("llm", "none").some((h) => h.key === "r" && h.label === "json")).toBe(true);
     expect(footerHints("llm", "llm-details").some((h) => h.key === "esc")).toBe(true);
     expect(footerHints("llm", "llm-details").some((h) => h.key === "r" && h.label === "json")).toBe(true);
+    expect(footerHints("proxy", "none").some((h) => h.key === "r" && h.label === "raw")).toBe(true);
+    expect(footerHints("proxy", "traffic-details").some((h) => h.key === "esc")).toBe(true);
+    expect(footerHints("proxy", "traffic-details").some((h) => h.key === "r" && h.label === "raw")).toBe(true);
   });
 
   test("grouped commands keep command groups", () => {
@@ -845,6 +848,8 @@ describe("TUI helpers", () => {
     expect(screenListCount("setup", counts)).toBe(9);
     expect(screenListCount("config", counts)).toBe(0);
     expect(screenListCount("config", { ...counts, config: 4 })).toBe(4);
+    expect(screenListCount("proxy", counts)).toBe(0);
+    expect(screenListCount("proxy", { ...counts, proxy: 6 })).toBe(6);
   });
 
   test("namedPickerItems filters task and service names", () => {

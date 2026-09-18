@@ -12,11 +12,11 @@ devctl proxy status
 devctl proxy stop
 ```
 
-The TUI **proxy** tab (`p`) shows status, routes, and a live log of recent requests. `n` starts, `x` stops. SA email is shown when a route uses one.
+The TUI **proxy** tab (`p`) shows status, routes, and a live inspector of hops captured on `inspect.enabled` routes. `n` starts, `x` stops. `r` toggles pretty JSON vs raw. SA email is shown when a route uses one.
 
 ![The TUI proxy tab — routes with their auth (none/user, service account, IAP) on the left and a live request feed (method, status, duration, proxy hop, identity, route, path) on the right](assets/manual/tui-proxy.png)
 
-Each request gets `X-Devctl-Request-ID` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include `Authorization` headers. Bodies are streamed.
+Each request gets `X-Devctl-Request-ID` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include `Authorization` headers. Bodies are streamed unless a route opts into [inspect](#inspect-bodies).
 
 WebSocket upgrades use the same route matching, identity injection, middleware, request logging, and statistics as ordinary HTTP traffic (HMR and other upgraded connections behind a route). Active upgraded sockets are closed during proxy shutdown so `devctl down` cannot hang.
 
@@ -237,11 +237,41 @@ Managed processes receive `DEVCTL_TOKEN_URL` (rewritten to the bound port after 
 
 The proxy keeps the last 100 requests in memory — method, path, matched route (blank for a request that matched no route, still logged as a 404), identity key used, status, duration, and request id — and reports a running total/error count alongside them. This is part of the regular status snapshot, so it updates the same way everything else in the TUI does: the moment a request refreshes a token or hits a route, the **proxy** tab reflects it without pressing `r` or restarting anything.
 
-Paths are redacted the same way response header values already are, since a query string can carry secrets. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart.
+Paths are redacted the same way response header values already are, since a query string can carry secrets. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart. This ring is **metadata-only**; request and response bodies are not stored here.
+
+## Inspect bodies
+
+devctl is a reverse proxy, not a transparent interceptor. Request and response bodies exist only on hops that already traverse a listener we own: HTTP `proxy.listen` routes and `transport: grpc` dedicated ports. A service calling `http://127.0.0.1:<peer-port>` directly never hits the proxy. There is no iptables/pf redirect or HTTPS MITM.
+
+To inspect traffic *between* services in this stack, expose those services (`expose` / `proxy.gateway`) and have callers use `${services.<name>.url}` so the call is a proxy hop. gRPC already must dial the route's `listen` port.
+
+Capture is **per-route and off by default**:
+
+```yaml
+proxy:
+  routes:
+    - name: invoices-api
+      inspect:
+        enabled: true
+        max_bytes: 1048576   # default 1 MiB when omitted or 0
+```
+
+`inspect: true` is the same as `enabled: true` with the default cap. Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs.
+
+Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP `get_traffic_calls`, web `/api/traffic`) strip bodies; one-id fetch (`get_traffic_call`, `devctl traffic show`, TUI overlay, web `#/traffic/:id`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; `/reveal` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA frames are stored as `application/grpc` base64 (5-byte length prefix kept); if the first message looks like JSON, a pretty-printed `text` view is also kept.
+
+Caller attribution reuses the LLM path: `X-Devctl-Service` or a loopback peer lookup, so the inspector can label which service issued the call.
+
+| Surface | What you get |
+|---------|----------------|
+| TUI proxy screen | List + live inspector (pretty JSON / raw). `r` toggles. Enter opens the overlay; enter again jumps to a trace when `traceId` is present. |
+| Web | `#/traffic` and `#/traffic/:id`. Overview request paths link here when a captured body exists. |
+| MCP | `get_traffic_calls` (inspect, bodies omitted) and `get_traffic_call` (bodies included). |
+| CLI | `devctl traffic` / `devctl traffic show <id>`. `--follow` polls. |
 
 ## Tracing
 
-Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md). The proxy request ring is metadata-only; LLM prompts, tokens, and cost live on the [LLM inspector](llm.md). A route that carries OpenAI-compatible completion traffic can additionally be captured into that inspector — bodies and all — without a management API; see [Proxy-capture source](llm.md#proxy-capture-source-type-proxy).
+Each proxied request (HTTP and gRPC) is also recorded as an OpenTelemetry **span** — method, route, status, duration, identity — and the proxy propagates a `traceparent` and `X-Devctl-Request-ID` to the upstream, so a service's own spans and logs share the request's trace. An incoming `traceparent` is honored; a bare request-id header is not adopted as the trace id. Open the trace from a log row in the TUI, `devctl logs --trace <id>`, or the MCP `get_trace` / `trace_request` tools. See [Telemetry](telemetry.md). The proxy request ring is metadata-only; LLM prompts, tokens, and cost live on the [LLM inspector](llm.md). HTTP and gRPC bodies on inspect-enabled routes live on the [traffic inspector](#inspect-bodies). A route that carries OpenAI-compatible completion traffic can additionally be captured into the LLM inspector — bodies and all — without a management API; see [Proxy-capture source](llm.md#proxy-capture-source-type-proxy).
 
 ## Request flow
 

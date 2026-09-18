@@ -114,6 +114,7 @@ The model is what makes "debug, don't grep" possible over [MCP](mcp.md):
 - `get_trace <trace_id>` / `trace_request <request_id>` — the span tree plus the correlated logs.
 - `get_requests` — the proxy's recent requests (with ids), and `recent_errors` — the latest error/fatal records.
 - `get_llm_calls` / `get_llm_call` — LLM traffic from configured sources (LiteLLM spend logs first). Each call includes `caller` when the originating service is known. See [LLM inspector](llm.md).
+- `get_traffic_calls` / `get_traffic_call` — HTTP and gRPC hops captured on `inspect.enabled` proxy routes. List pages omit bodies. See [Proxy](proxy.md#inspect-bodies).
 
 An agent can ask "why did this request fail", resolve the request id to its
 trace, and read the responsible service's span and logs — all redacted.

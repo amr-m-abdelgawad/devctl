@@ -21,12 +21,13 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 
 | Page | Side |
 |------|------|
-| [Web console](web.md) | Browser controls, dependency graph, logs, traces, and LLM calls |
+| [Web console](web.md) | Browser controls, dependency graph, logs, traces, LLM, and traffic |
 | [TUI](tui.md) | Screens, keys, slash commands, themes, settings |
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
 | [Logs](logs.md) | Buffer, filters, export, history |
 | [LLM inspector](llm.md) | LiteLLM spend logs and proxy-capture sources in MCP, web, TUI, CLI |
+| [Proxy](proxy.md) | Auth-aware reverse proxy, expose, and optional body inspect |
 | [Telemetry](telemetry.md) | OTLP receiver, traces, and the opt-in loopback [web console](telemetry.md#web-ui) |
 | [Doctor](doctor.md) | Environment and Google diagnostics |
 | [Troubleshooting](troubleshooting.md) | Symptom → fix |
@@ -49,7 +50,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Authentication](authentication.md) | ADC, project source, `devctl auth` |
 | [Impersonation](impersonation.md) | Service-account tokens without keys |
 | [IAP](iap.md) | Audience, user vs SA identity tokens |
-| [Proxy](proxy.md) | Loopback routes, token endpoint, recipe expose |
+| [Proxy](proxy.md) | Loopback routes, token endpoint, recipe expose, body inspect |
 | [Admin setup](admin-setup.md) | IAM and APIs administrators own |
 | [Security](security.md) | Redaction, bind rules, credential files |
 

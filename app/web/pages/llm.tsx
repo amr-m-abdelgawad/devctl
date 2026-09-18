@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MagnifyingGlassIcon } from "../icons.ts";
 import { clockMs, durationMs } from "../format.ts";
-import { hrefFor } from "../hash.ts";
+import { hrefFor, activeInspectId, setInspectHash } from "../hash.ts";
 import { llmSourceValue } from "../llm.ts";
 import { cn } from "../lib/utils.ts";
 import { LlmInspector, useLlmBodyMode } from "../components/llm-inspector.tsx";
@@ -34,8 +34,9 @@ export function LlmPage(props: {
     return status === "" ? rows : rows.filter((call) => call.status === status);
   }, [payload, status]);
   const errors = payload?.errors ?? [];
-  const inspectorCall = detail?.id === llmId ? detail : undefined;
-  const loadingDetail = Boolean(llmId) && detail?.id !== llmId;
+  const selectedId = activeInspectId(llmId, calls[0]?.id);
+  const inspectorCall = detail?.id === selectedId ? detail : undefined;
+  const loadingDetail = Boolean(selectedId) && detail?.id !== selectedId;
 
   useEffect(() => {
     setDraft(search);
@@ -52,11 +53,10 @@ export function LlmPage(props: {
   }, [draft, onSearch, search]);
 
   useEffect(() => {
-    const first = calls[0];
-    if (llmId || !first) {
+    if (llmId || !calls[0]) {
       return;
     }
-    window.location.hash = hrefFor("llm", first.id);
+    setInspectHash("llm", calls[0].id);
   }, [llmId, calls]);
 
   useEffect(() => {
@@ -72,15 +72,15 @@ export function LlmPage(props: {
         return;
       }
       event.preventDefault();
-      const index = Math.max(0, calls.findIndex((call) => call.id === llmId));
+      const index = Math.max(0, calls.findIndex((call) => call.id === selectedId));
       const next = calls[Math.min(calls.length - 1, Math.max(0, index + delta))];
       if (next) {
-        window.location.hash = hrefFor("llm", next.id);
+        setInspectHash("llm", next.id);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [calls, llmId]);
+  }, [calls, selectedId]);
 
   return (
     <div className="grid min-h-[36rem] flex-1 grid-cols-1 gap-4 lg:h-[calc(100dvh-7.5rem)] lg:min-h-0 lg:grid-cols-[minmax(20rem,34%)_minmax(0,1fr)]">
@@ -113,7 +113,7 @@ export function LlmPage(props: {
               {item.source}: {item.message}
             </p>
           ))}
-          <LlmList calls={calls} caller={caller} search={search} selectedId={llmId} />
+          <LlmList calls={calls} caller={caller} search={search} selectedId={selectedId} />
         </CardContent>
       </Card>
       <Card className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -169,7 +169,7 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
                 call.status === "error" && !selected ? "bg-destructive/[0.06]" : undefined,
               )}
               onClick={() => {
-                window.location.hash = hrefFor("llm", call.id);
+                setInspectHash("llm", call.id);
               }}
             >
               <TableCell className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">{clockMs(call.timestamp)}</TableCell>

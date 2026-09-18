@@ -10,14 +10,14 @@ dependencies:
 ports:
   http: 18000
 environment:
-  AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+  AUTH_URL: ${services.identity.url}
   required:
     - AUTH_URL
   defaults:
     LOG_LEVEL: INFO
 environments:
   local:
-    AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+    AUTH_URL: ${services.identity.url}
     MODE: local
   deployed:
     AUTH_URL: https://identity.dev.example.com

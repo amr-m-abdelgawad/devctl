@@ -10,6 +10,7 @@ import { addConfig, addReload } from "./config.ts";
 import { addAttach, addDown, addEnv, addExec, addRestart, addRun, addStart, addStatus, addStop } from "./lifecycle.ts";
 import { addDaemon, addLogs } from "./logs.ts";
 import { addLlm } from "./llm.ts";
+import { addTraffic } from "./traffic.ts";
 import { addMcp, addProxy } from "./listeners.ts";
 import { addWeb } from "./web.ts";
 import { addUpdate } from "./update.ts";
@@ -42,6 +43,7 @@ export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): C
   addDown(root, runtime);
   addLogs(root, runtime);
   addLlm(root, runtime);
+  addTraffic(root, runtime);
   addDaemon(root, runtime);
   addDoctor(root, runtime);
   addSetup(root, runtime);

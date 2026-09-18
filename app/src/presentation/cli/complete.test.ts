@@ -15,6 +15,7 @@ describe("completions", () => {
     cfg.services.api.environments = { local: { vars: {}, required: [], defaults: {} }, deployed: { vars: {}, required: [], defaults: {} } };
     expect(completeLine("devctl env api ", cfg)).toEqual(expect.arrayContaining(["deployed", "local", "--json"]));
     expect(completeLine("devctl completion ", cfg)).toEqual(["bash", "fish", "zsh"]);
+    expect(completeLine("devctl traffic ", cfg)).toEqual(expect.arrayContaining(["show", "--route", "--json", "--follow"]));
   });
 
   test("prints a zsh script", () => {

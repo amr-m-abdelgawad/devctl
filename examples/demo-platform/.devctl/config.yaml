@@ -45,12 +45,14 @@ profiles:
     services:
       - identity
       - invoices-api
+      - llm
       - telemetry
   backend:
     services:
       - identity
       - invoices-api
       - invoices-worker
+      - llm
       - telemetry
   full:
     services:
@@ -58,6 +60,7 @@ profiles:
       - invoices-api
       - invoices-worker
       - billing-console
+      - llm
       - telemetry
 
 tasks:
@@ -83,7 +86,9 @@ proxy:
       match:
         host: billing.local
       upstream:
-        url: http://127.0.0.1:18003
+        service: billing-console
+        port: http
+      inspect: true
       auth:
         type: none
         identity: user
@@ -91,7 +96,31 @@ proxy:
       match:
         host: invoices-api.local
       upstream:
-        url: http://127.0.0.1:18000
+        service: invoices-api
+        port: http
+      inspect:
+        enabled: true
+        max_bytes: 1048576
+      auth:
+        type: none
+        identity: user
+    - name: identity
+      match:
+        host: identity.local
+      upstream:
+        service: identity
+        port: http
+      inspect: true
+      auth:
+        type: none
+        identity: user
+    - name: llm
+      match:
+        host: llm.local
+      upstream:
+        service: llm
+        port: http
+      inspect: true
       auth:
         type: none
         identity: user
@@ -104,7 +133,8 @@ proxy:
       match:
         host: invoices-worker-sa.local
       upstream:
-        url: http://127.0.0.1:18002
+        service: invoices-worker
+        port: http
       auth:
         # Plain service-account impersonation: a real OAuth access token for
         # the impersonated account. No IAP involved, no audience needed.
@@ -116,7 +146,8 @@ proxy:
       match:
         host: invoices-worker-user.local
       upstream:
-        url: http://127.0.0.1:18002
+        service: invoices-worker
+        port: http
       auth:
         # IAP for the developer's own ADC identity — no impersonation.
         type: iap
@@ -127,7 +158,8 @@ proxy:
       match:
         host: invoices-worker.local
       upstream:
-        url: http://127.0.0.1:18002
+        service: invoices-worker
+        port: http
       auth:
         # IAP on top of impersonation: an IAP identity token minted for the
         # impersonated account. A local demo audience: replace this with the
@@ -157,6 +189,22 @@ web:
   listen:
     host: 127.0.0.1
     port: 18900
+
+# Local OpenAI-compatible stub (`services.llm`), captured off the `llm` proxy
+# route. No LiteLLM, no cloud key. Extra `capture.paths` records the stub's
+# proprietary /generations/v1alpha2 POST as a raw JSON pair.
+llm:
+  enabled: true
+  sources:
+    - name: llm-stub
+      type: proxy
+      via:
+        route: llm
+      capture:
+        prompts: true
+        max_bytes: 1048576
+        paths:
+          - /generations/v1alpha2
 
 logs:
   max_memory_events: 50000

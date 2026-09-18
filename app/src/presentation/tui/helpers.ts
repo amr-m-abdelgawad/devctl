@@ -1,4 +1,5 @@
 // Compatibility exports for existing helper consumers. Implementations are grouped by responsibility.
+export * from "./helpers/call-list.ts";
 export * from "./helpers/chrome.ts";
 export * from "./helpers/command-catalog.ts";
 export * from "./helpers/format.ts";

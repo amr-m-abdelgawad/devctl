@@ -3,7 +3,9 @@ import type { ServerHttp2Stream } from "node:http2";
 import { describe, expect, test } from "bun:test";
 import { GrpcProxyServer } from "./grpc-proxy.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
-import { emptyRouteAuth, type RouteConfig } from "../../domain/config/types.ts";
+import { defaultConfig, emptyRouteAuth, type RouteConfig } from "../../domain/config/types.ts";
+import { TrafficCallRing } from "../traffic/store.ts";
+import { ProxyTrafficSink } from "../traffic/capture.ts";
 import { type CredentialRecord, type CredentialStore } from "../storage/credentials.ts";
 
 function memoryStore(): CredentialStore {
@@ -225,6 +227,38 @@ describe("GrpcProxyServer", () => {
       client.close();
       await server.stop();
       await new Promise<void>((r) => hang.close(() => r()));
+    }
+  });
+
+  test("tees DATA frames into the traffic store up to max_bytes", async () => {
+    const up = await startUpstream();
+    const port = await reservePort();
+    const route = grpcRoute(up.url, port);
+    route.auth = { ...emptyRouteAuth(), type: "none", identity: { type: "user", service_account: "" } };
+    route.inspect = { enabled: true, max_bytes: 8 };
+    const cfg = defaultConfig();
+    cfg.proxy.enabled = true;
+    cfg.proxy.routes = [route];
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({ cfg: () => cfg, store });
+    const server = new GrpcProxyServer(route, tokens(), undefined, undefined, undefined, undefined, sink);
+    await server.start();
+    try {
+      const res = await call(port, "/say.Hello", "payload-too-long");
+      expect(res.body).toBe("payload-too-long");
+      expect(res.trailers["grpc-status"]).toBe("0");
+      const deadline = Date.now() + 1000;
+      while (store.queryPage({}).calls.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      const captured = store.queryPage({}).calls[0];
+      expect(captured?.transport).toBe("grpc");
+      expect(captured?.request?.truncated).toBe(true);
+      expect(captured?.request?.encoding).toBe("base64");
+      expect(Buffer.from(captured?.request?.data ?? "", "base64").length).toBe(8);
+    } finally {
+      await server.stop();
+      await up.close();
     }
   });
 });

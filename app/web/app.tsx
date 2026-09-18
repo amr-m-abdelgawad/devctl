@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwiseIcon,
+  ArrowsLeftRightIcon,
   FlowArrowIcon,
   GraphIcon,
   IconContext,
@@ -11,7 +12,7 @@ import {
   StopIcon,
   type Icon,
 } from "./icons.ts";
-import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchUpdate, postControl } from "./api.ts";
+import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchTrafficCall, fetchTrafficCalls, fetchUpdate, postControl } from "./api.ts";
 import { percentile, type SeriesPoint } from "./charts.tsx";
 import { ControlNotice } from "./components/controls.tsx";
 import { UpdateNotice } from "./components/update-notice.tsx";
@@ -21,12 +22,13 @@ import { TooltipProvider } from "./components/ui/tooltip.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { cn } from "./lib/utils.ts";
 import { DevctlLogo } from "./brand.tsx";
-import { hrefFor, parseHash } from "./hash.ts";
+import { activeInspectId, hrefFor, parseHash } from "./hash.ts";
 import { advanceRingCounter, emptyRingCounter, lifetimeTotal, logLifetime } from "./lifetime.ts";
 import { OverviewPage, type OverviewSummary } from "./pages/overview.tsx";
 import { GraphPage } from "./pages/graph.tsx";
 import { LogsPage } from "./pages/logs.tsx";
 import { LlmPage } from "./pages/llm.tsx";
+import { TrafficPage } from "./pages/traffic.tsx";
 import { TracesPage } from "./pages/traces.tsx";
 import type {
   ConfigSummary,
@@ -43,6 +45,8 @@ import type {
   ServiceRow,
   StatusSummary,
   TracePayload,
+  TrafficCallRow,
+  TrafficCallsPayload,
   UpdateCheckPayload,
 } from "./types.ts";
 import {
@@ -61,6 +65,7 @@ const NAV: Array<{ name: RouteName; label: string; icon: Icon }> = [
   { name: "services", label: "Overview", icon: SquaresFourIcon },
   { name: "traces", label: "Traces", icon: FlowArrowIcon },
   { name: "llm", label: "LLM", icon: RobotIcon },
+  { name: "traffic", label: "Traffic", icon: ArrowsLeftRightIcon },
   { name: "graph", label: "Graph", icon: GraphIcon },
   { name: "logs", label: "Logs", icon: ScrollIcon },
 ];
@@ -115,6 +120,10 @@ export function App() {
   const [llmCaller, setLlmCaller] = useState("");
   const [llmCallers, setLlmCallers] = useState<string[]>([]);
   const [llmSearch, setLlmSearch] = useState("");
+  const [trafficCalls, setTrafficCalls] = useState<TrafficCallsPayload | undefined>(undefined);
+  const [trafficDetail, setTrafficDetail] = useState<TrafficCallRow | undefined>(undefined);
+  const [trafficError, setTrafficError] = useState("");
+  const [trafficSearch, setTrafficSearch] = useState("");
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
@@ -291,6 +300,9 @@ export function App() {
     };
   }, [route.name, route.traceId]);
 
+  const llmInspectId = route.name === "llm" ? activeInspectId(route.llmId, llmCalls?.calls[0]?.id) : undefined;
+  const trafficInspectId = route.name === "traffic" ? activeInspectId(route.trafficId, trafficCalls?.calls[0]?.id) : undefined;
+
   useEffect(() => {
     if (route.name !== "llm") {
       setLlmCalls(undefined);
@@ -335,13 +347,14 @@ export function App() {
   }, [route.name, route.llmId, llmCaller, llmSearch]);
 
   useEffect(() => {
-    if (route.name !== "llm" || !route.llmId) {
-      if (!route.llmId) {
-        setLlmDetail(undefined);
-      }
+    if (route.name !== "llm") {
       return;
     }
-    const requested = route.llmId;
+    if (!llmInspectId) {
+      setLlmDetail(undefined);
+      return;
+    }
+    const requested = llmInspectId;
     let cancelled = false;
     const run = (): void => {
       void fetchLlmCall(requested).then((payload) => {
@@ -364,7 +377,74 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [route.name, route.llmId]);
+  }, [route.name, llmInspectId]);
+
+  useEffect(() => {
+    if (route.name !== "traffic") {
+      setTrafficCalls(undefined);
+      setTrafficDetail(undefined);
+      setTrafficError("");
+      return;
+    }
+    let cancelled = false;
+    const run = (): void => {
+      const params: Record<string, string> = {};
+      if (trafficSearch) {
+        params.search = trafficSearch;
+      }
+      void fetchTrafficCalls(params).then((payload) => {
+        if (!cancelled) {
+          setTrafficCalls(payload);
+          if (!route.trafficId) {
+            setTrafficError("");
+          }
+        }
+      }).catch((err: unknown) => {
+        if (!cancelled) {
+          setTrafficError(err instanceof Error ? err.message : "traffic calls failed");
+        }
+      });
+    };
+    run();
+    const timer = window.setInterval(run, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [route.name, route.trafficId, trafficSearch]);
+
+  useEffect(() => {
+    if (route.name !== "traffic") {
+      return;
+    }
+    if (!trafficInspectId) {
+      setTrafficDetail(undefined);
+      return;
+    }
+    const requested = trafficInspectId;
+    let cancelled = false;
+    const run = (): void => {
+      void fetchTrafficCall(requested).then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setTrafficDetail(payload);
+        setTrafficError("");
+      }).catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setTrafficDetail(undefined);
+        setTrafficError(err instanceof Error ? err.message : "traffic call failed");
+      });
+    };
+    run();
+    const timer = window.setInterval(run, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [route.name, trafficInspectId]);
 
   useEffect(() => {
     if (!trace?.trace_id || trace.spans.length === 0) {
@@ -608,6 +688,16 @@ export function App() {
               search={llmSearch}
               onCaller={setLlmCaller}
               onSearch={setLlmSearch}
+            />
+          ) : null}
+          {route.name === "traffic" ? (
+            <TrafficPage
+              payload={trafficCalls}
+              detail={trafficDetail}
+              trafficId={route.trafficId}
+              error={trafficError}
+              search={trafficSearch}
+              onSearch={setTrafficSearch}
             />
           ) : null}
         </main>

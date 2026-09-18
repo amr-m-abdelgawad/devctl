@@ -28,6 +28,7 @@ import traceutil as otel
 NAME = os.environ.get("DEVCTL_SERVICE_NAME", "telemetry")
 OTLP = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").rstrip("/")
 PROXY = os.environ.get("DEVCTL_PROXY_URL", "http://127.0.0.1:18080").rstrip("/")
+LLM_URL = os.environ.get("LLM_URL", "").rstrip("/")
 PID = os.getpid()
 
 ROUTES = [
@@ -250,9 +251,10 @@ def emit_traced(
 
 
 def probe_proxy(trace_id: str, parent_span: str) -> int:
-    req = urllib.request.Request(f"{PROXY}/fulfill", method="GET")
-    req.add_header("Host", "invoices-api.local")
-    req.add_header("traceparent", otel.format_traceparent(trace_id, parent_span))
+    req = otel.hub_request(PROXY, "/fulfill", headers={
+        "Host": "invoices-api.local",
+        "traceparent": otel.format_traceparent(trace_id, parent_span),
+    })
     try:
         with urllib.request.urlopen(req, timeout=3) as resp:
             resp.read()
@@ -261,6 +263,38 @@ def probe_proxy(trace_id: str, parent_span: str) -> int:
         return int(err.code)
     except (urllib.error.URLError, TimeoutError):
         return 0
+
+
+def probe_llm(seq: int) -> None:
+    if LLM_URL == "":
+        return
+    proprietary = seq % 8 == 4
+    stream = seq % 8 == 0
+    if proprietary:
+        path = "/generations/v1alpha2"
+        payload: dict[str, object] = {
+            "model": "demo-stub",
+            "prompt": f"summarize invoice {seq}",
+            "max_tokens": 64,
+        }
+    else:
+        path = "/v1/chat/completions"
+        payload = {
+            "model": "demo-stub",
+            "messages": [
+                {"role": "system", "content": "You are the invoices copilot."},
+                {"role": "user", "content": f"Draft a dunning note for invoice {seq}."},
+            ],
+            "stream": stream,
+        }
+        if stream:
+            payload["stream_options"] = {"include_usage": True}
+    data = json.dumps(payload).encode()
+    req = otel.hub_request(LLM_URL, path, method="POST", data=data, headers={"Content-Type": "application/json"})
+    try:
+        urllib.request.urlopen(req, timeout=2).read()
+    except (urllib.error.URLError, TimeoutError, urllib.error.HTTPError):
+        pass
 
 
 def traced_roundtrip(seq: int) -> None:
@@ -450,6 +484,7 @@ def main() -> None:
         "pid": PID,
         "otlp": OTLP or "(unset — enable telemetry.otlp)",
         "proxy": PROXY,
+        "llm": LLM_URL or "(unset — start the llm service)",
     })
     seq = 0
     while True:
@@ -457,6 +492,7 @@ def main() -> None:
         SHAPES[(seq - 1) % len(SHAPES)](seq)
         if seq % 4 == 0:
             traced_roundtrip(seq)
+            probe_llm(seq)
         time.sleep(random.uniform(0.45, 1.1))
 
 

@@ -25,6 +25,8 @@ flowchart LR
   Store --> CLI
 ```
 
+The demo's `minimal` profile (`examples/demo-platform`) includes a stdlib OpenAI-compatible **stub** (`services.llm`) captured with `type: proxy` — no LiteLLM and no cloud key. See the [demo README](../examples/demo-platform/README.md#traffic-inspector-and-llm-stub).
+
 ## Config
 
 Top-level `llm`. Unknown fields are rejected. Bearer tokens must come from the environment (`token_env`); never inline keys.

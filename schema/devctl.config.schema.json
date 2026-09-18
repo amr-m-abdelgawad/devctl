@@ -440,7 +440,23 @@
           "type": "object",
           "additionalProperties": { "type": "string" },
           "description": "Headers added to every response on this route (overriding the upstream's), e.g. CORS Access-Control-Allow-*. A CORS preflight (OPTIONS with Access-Control-Request-Method) is answered directly with these headers instead of being forwarded to the upstream."
+        },
+        "inspect": {
+          "description": "Opt-in capture of request/response bodies on this proxy hop for the traffic inspector. Default off. `true` enables capture with the 1 MiB default cap. Ignored when the proxy is off. Direct sockets that never hit this route are not captured.",
+          "oneOf": [
+            { "type": "boolean" },
+            { "$ref": "#/$defs/routeInspect" }
+          ]
         }
+      }
+    },
+    "routeInspect": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Opt-in capture of request/response bodies on this proxy hop for the traffic inspector. Default off. Ignored when the proxy is off. Direct sockets that never hit this route are not captured.",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "max_bytes": { "type": "number", "minimum": 0, "description": "Per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." }
       }
     },
     "httpRecipe": {

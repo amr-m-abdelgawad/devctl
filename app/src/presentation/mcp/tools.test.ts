@@ -443,6 +443,71 @@ describe("mcp tools", () => {
     expect(JSON.stringify(detail.request)).toContain(REDACTED_VALUE);
   });
 
+  test("get_traffic_calls omits bodies and get_traffic_call redacts them", async () => {
+    const host = stubHost();
+    const call = {
+      seq: 1,
+      id: "req-secret",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      method: "POST",
+      path: "/invoices",
+      route: "invoices-api",
+      transport: "http" as const,
+      status: 200,
+      request: { text: '{"token":"super-secret"}', encoding: "utf8" as const },
+      response: { text: '{"ok":true}', encoding: "utf8" as const },
+      attributes: { token: "super-secret" },
+    };
+    host.trafficCallsPage = () => ({
+      calls: [call],
+      nextCursor: "next",
+      hasNext: false,
+    });
+    host.getTrafficCall = (id) => (id === call.id ? call : undefined);
+    const page = (await callMcpTool(host, "get_traffic_calls", {})) as {
+      calls: Array<{ id: string; request?: unknown; attributes: Record<string, unknown> }>;
+    };
+    expect(page.calls).toHaveLength(1);
+    expect(page.calls[0]?.id).toBe(call.id);
+    expect(page.calls[0]?.request).toBeUndefined();
+    expect(JSON.stringify(page.calls)).not.toContain("super-secret");
+    const detail = (await callMcpTool(host, "get_traffic_call", { id: call.id })) as {
+      request: unknown;
+      attributes: Record<string, unknown>;
+    };
+    expect(JSON.stringify(detail)).not.toContain("super-secret");
+    expect(JSON.stringify(detail.request)).toContain(REDACTED_VALUE);
+  });
+
+  test("get_requests marks a hop captured when a traffic call exists", async () => {
+    const host = stubHost();
+    const snap = sampleSnap();
+    snap.proxy.recentRequests = [{
+      timestamp: "2026-01-01T00:00:00.000Z",
+      requestId: "req-1",
+      method: "GET",
+      path: "/invoices",
+      route: "invoices-api",
+      identity: "user",
+      status: 200,
+      durationMs: 4,
+    }];
+    host.status = () => snap;
+    host.getTrafficCall = (id) => (id === "req-1" ? {
+      seq: 1,
+      id: "req-1",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      method: "GET",
+      path: "/invoices",
+      route: "invoices-api",
+      transport: "http",
+      status: 200,
+      attributes: {},
+    } : undefined);
+    const requests = (await callMcpTool(host, "get_requests", {})) as { requests: Array<{ request_id: string; captured: boolean }> };
+    expect(requests.requests[0]?.captured).toBe(true);
+  });
+
   test("get_requests and recent_errors use status and error logs", async () => {
     const host = stubHost();
     const requests = (await callMcpTool(host, "get_requests", {})) as { total: number; errors: number; requests: unknown[] };

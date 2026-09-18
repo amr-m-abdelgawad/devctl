@@ -9,6 +9,8 @@ import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyLlmSource, type RouteAuthConfig, type RouteConfig } from "../../domain/config/types.ts";
 import { LlmCallManager } from "../llm/store.ts";
 import { ProxyCaptureSink } from "../llm/proxy-capture.ts";
+import { TrafficCallRing } from "../traffic/store.ts";
+import { ProxyTrafficSink } from "../traffic/capture.ts";
 import type { LlmCaptureBegin, LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
 import { startMockIapServer } from "../google/testdata/mock-iap-server.ts";
 import { type CredentialRecord, type CredentialStore } from "../storage/credentials.ts";
@@ -1371,6 +1373,89 @@ describe("proxy LLM capture", () => {
       expect(call?.request).toBeUndefined();
       expect(call?.attributes.request_omitted).toBe(true);
       expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("hello there");
+    } finally {
+      await close();
+    }
+  });
+});
+
+describe("proxy traffic inspect", () => {
+  async function setupInspectProxy(
+    handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
+    opts: { inspect?: boolean; maxBytes?: number } = {},
+  ) {
+    const upstream = createServer(handler);
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+    const proxyPort = await reservePort();
+    const dc = defaultConfig();
+    dc.proxy.enabled = true;
+    dc.proxy.listen = { host: "127.0.0.1", port: proxyPort };
+    dc.proxy.routes.push({
+      name: "route",
+      match: { host: "", path: "" },
+      upstream: { url: `http://127.0.0.1:${upPort}` },
+      auth: NONE_AUTH,
+      inspect: { enabled: opts.inspect ?? true, max_bytes: opts.maxBytes ?? 0 },
+    });
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({ cfg: () => dc, store });
+    const server = new ProxyServer(dc.proxy, undefined, undefined, undefined, undefined, [], undefined, undefined, undefined, undefined, sink);
+    await server.start();
+    return {
+      proxyPort,
+      store,
+      close: async (): Promise<void> => {
+        await server.stop();
+        await new Promise<void>((resolve) => upstream.close(() => resolve()));
+      },
+    };
+  }
+
+  test("captures request and response bodies when inspect.enabled is true", async () => {
+    let receivedBody = "";
+    const { proxyPort, store, close } = await setupInspectProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (c) => chunks.push(Buffer.from(c)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks).toString("utf8");
+        res.setHeader("content-type", "application/json");
+        res.end('{"ok":true}');
+      });
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/invoices`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"id":1}',
+      });
+      expect(await resp.text()).toBe('{"ok":true}');
+      expect(receivedBody).toBe('{"id":1}');
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const call = store.get(requestId);
+      expect(call?.id).toBe(requestId);
+      expect(call?.request?.text).toContain('"id"');
+      expect(call?.response?.text).toContain('"ok"');
+    } finally {
+      await close();
+    }
+  });
+
+  test("does not capture bodies when inspect is off, and still forwards the hop", async () => {
+    const { proxyPort, store, close } = await setupInspectProxy((req, res) => {
+      req.resume();
+      res.end("pong");
+    }, { inspect: false });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/invoices`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"id":1}',
+      });
+      expect(await resp.text()).toBe("pong");
+      expect(store.queryPage({}).calls).toEqual([]);
     } finally {
       await close();
     }

@@ -11,6 +11,7 @@ import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
 import { injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
+import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 
 // gRPC status codes we synthesize when the request never reaches the upstream,
 // or when the client abandons it.
@@ -40,6 +41,7 @@ export class GrpcProxyServer {
     private readonly bus?: Bus,
     private readonly detector?: Detector,
     private readonly spans?: SpanStore,
+    private readonly traffic?: TrafficCaptureSink,
   ) {}
 
   address(): string {
@@ -134,6 +136,7 @@ export class GrpcProxyServer {
     const ident = fromRoute(this.route.auth);
     const identityKey = tokenIdentityKey(ident);
     let recorded = false;
+    const recorder = this.beginCapture(method, headers, front);
     const finish = (status: number, grpcStatus: string, error?: string): void => {
       if (recorded) return;
       recorded = true;
@@ -160,6 +163,7 @@ export class GrpcProxyServer {
       this.spans?.append(proxyRecordToSpan(record));
       this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${this.route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
       this.bus?.publish(newEvent(ProxyRequest, this.route.name, { status, request_id: requestID, duration, identity: identityKey }));
+      void this.finishCapture(recorder, status, grpcStatus, started, requestID, ctx.traceId);
     };
     const fail = (grpcStatus: string, message: string): void => {
       // Deliver the failure as a gRPC trailers-only response the client SDK
@@ -202,6 +206,8 @@ export class GrpcProxyServer {
         finish(Number(uh[":status"] ?? 200), String(uh["grpc-status"]));
         return;
       }
+      const contentType = headerString(uh, "content-type") ?? "application/grpc";
+      recorder?.setResponseContentType(contentType);
       front.respond(this.frontResponseHeaders(uh), { waitForTrailers: true });
       front.on("wantTrailers", () => {
         try {
@@ -211,7 +217,7 @@ export class GrpcProxyServer {
         }
         finish(Number(uh[":status"] ?? 200), String(upTrailers["grpc-status"] ?? "0"));
       });
-      upReq.pipe(front, { end: false });
+      this.pipeWithCapture(upReq, front, recorder, "response");
       upReq.on("end", () => {
         try {
           front.end();
@@ -242,7 +248,93 @@ export class GrpcProxyServer {
         upReq.destroy();
       }
     });
-    front.pipe(upReq);
+    this.pipeWithCapture(front, upReq, recorder, "request");
+  }
+
+  private beginCapture(
+    path: string,
+    headers: IncomingHttpHeaders,
+    front: ServerHttp2Stream,
+  ): TrafficCaptureRecorder | undefined {
+    if (!this.traffic) {
+      return undefined;
+    }
+    try {
+      const requestHeaders: Record<string, string> = {};
+      for (const [key, value] of Object.entries(headers)) {
+        if (value === undefined) {
+          continue;
+        }
+        requestHeaders[key] = Array.isArray(value) ? value.join(", ") : String(value);
+      }
+      return this.traffic.begin({
+        routeName: this.route.name,
+        method: "POST",
+        path,
+        requestHeaders,
+        transport: "grpc",
+        peer: grpcCapturePeer(front),
+      });
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async finishCapture(
+    recorder: TrafficCaptureRecorder | undefined,
+    status: number,
+    grpcStatus: string,
+    started: number,
+    requestID: string,
+    traceId?: string,
+  ): Promise<void> {
+    if (!recorder) {
+      return;
+    }
+    try {
+      await recorder.finish({
+        status,
+        grpcStatus,
+        durationMs: Date.now() - started,
+        requestId: requestID,
+        traceId,
+        timestamp: new Date(started).toISOString(),
+      });
+    } catch {
+      // capture is best-effort; never let it disturb the proxied stream
+    }
+  }
+
+  private pipeWithCapture(
+    src: NodeJS.ReadableStream,
+    dest: NodeJS.WritableStream,
+    recorder: TrafficCaptureRecorder | undefined,
+    side: "request" | "response",
+  ): void {
+    src.on("data", (chunk: Buffer | string) => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      if (recorder) {
+        try {
+          if (side === "request") {
+            recorder.appendRequest(buf);
+          } else {
+            recorder.appendResponse(buf);
+          }
+        } catch {
+          // best-effort
+        }
+      }
+      if (!writableDestroyed(dest)) {
+        dest.write(chunk);
+      }
+    });
+    if (side === "request") {
+      src.on("end", () => {
+        if (!writableDestroyed(dest)) {
+          dest.end();
+        }
+      });
+    }
   }
 
   // Copy client request headers minus pseudo-headers, HTTP/2-illegal connection
@@ -293,6 +385,19 @@ export class GrpcProxyServer {
   private log(level: "INFO" | "WARN" | "ERROR", message: string, requestID = "", identity = ""): void {
     this.logs?.append({ timestamp: new Date().toISOString(), service: "proxy", source: "proxy", level, message, pid: 0, request_id: requestID, identity });
   }
+}
+
+function writableDestroyed(stream: NodeJS.WritableStream): boolean {
+  return Boolean((stream as NodeJS.WritableStream & { destroyed?: boolean }).destroyed);
+}
+
+function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: number } | undefined {
+  const socket = stream.session?.socket;
+  const port = socket?.remotePort;
+  if (!Number.isInteger(port) || port === undefined || port <= 0) {
+    return undefined;
+  }
+  return { address: socket?.remoteAddress ?? "", port };
 }
 
 function headerString(headers: IncomingHttpHeaders, name: string): string | undefined {

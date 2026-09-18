@@ -1,15 +1,33 @@
 import { type DevctlConfig, hasListenPort } from "../../../domain/config/types.ts";
 import { secretTemplateLabel } from "../../../domain/config/env-ref.ts";
-import { type ProxyRequestSnapshot,type StatusSnapshot } from "../../../domain/status.ts";
+import type { TrafficCall, TrafficCallPage } from "../../../domain/traffic/traffic.ts";
+import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
 import { padClip } from "../helpers/format.ts";
-import { PROXY_DURATION_MISSING, proxyDurationView, proxyRequestPath } from "../helpers/proxy.ts";
-import { Chip,KeyHints,MetaBar,ScreenFrame,Toolbar,scrollboxStyle } from "../layout.tsx";
+import {
+  TRAFFIC_CALLER_COL,
+  TRAFFIC_CURSOR_COL,
+  TRAFFIC_DETAIL_MIN,
+  TRAFFIC_LAT_COL,
+  TRAFFIC_LIST_MIN,
+  TRAFFIC_METHOD_COL,
+  TRAFFIC_STATUS_COL,
+  TRAFFIC_TIME_COL,
+  formatTrafficCaller,
+  formatTrafficClock,
+  formatTrafficDuration,
+  formatTrafficStatus,
+  inspectEnabledCount,
+  trafficListPaneWidth,
+  trafficPreview,
+  trafficRowShowsCaller,
+  type TrafficBodyMode,
+} from "../helpers/traffic.ts";
+import { Chip, KeyHints, MetaBar, ROUNDED_BORDER, ScreenFrame, Toolbar, scrollboxStyle, useScrollSelectedIntoView } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
+import { TrafficInspector } from "../components/TrafficInspector.tsx";
 
-// Routes pane still has a max width, but match/upstream wrap instead of
-// clipping. Click-through RouteDetailsOverlay remains the full record.
 export type RouteDetailInfo = {
   name: string;
   authType: string;
@@ -34,116 +52,14 @@ function authTone(auth: string): "info" | "primary" | "idle" {
   return "idle";
 }
 
-function statusColor(palette: Palette, status: number, error?: string): string {
-  if (error || status >= 500) {
+function statusColor(palette: Palette, call: TrafficCall): string {
+  if (call.status >= 500 || (call.grpcStatus !== undefined && call.grpcStatus !== "0" && call.grpcStatus !== "")) {
     return palette.error;
   }
-  if (status === 0 || status >= 400) {
+  if (call.status === 0 || call.status >= 400) {
     return palette.warning;
   }
   return palette.success;
-}
-
-function identityBadge(palette: Palette, identity: string): { label: string; color: string } {
-  if (identity.startsWith("sa:")) {
-    return { label: "SA", color: palette.primary };
-  }
-  if (identity !== "") {
-    return { label: "USR", color: palette.info };
-  }
-  return { label: "—", color: palette.muted };
-}
-
-// padClip keeps a trailing gutter in every cell. Column widths still need
-// room for realistic content plus that gutter (OPTIONS is 7, so METHOD is 8).
-const REQ_TIME_COL = 9;
-const REQ_METHOD_COL = 8;
-const REQ_STATUS_COL = 4;
-const REQ_MS_COL = 8;
-const REQ_ID_COL = 4;
-const REQ_ROUTE_MIN = 8;
-const REQ_ROUTE_GAP = 2;
-const REQ_ERROR_MAX = 64;
-const NO_ROUTE_LABEL = "(none)";
-
-type ReqColumns = {
-  showMethod: boolean;
-  routeCol: number;
-};
-
-function RequestField(props: { width: number; fg: string; text: string }) {
-  const { width, fg, text } = props;
-  return (
-    <box width={width} flexShrink={0} overflow="hidden">
-      <text fg={fg} wrapMode="none">
-        {padClip(text, width)}
-      </text>
-    </box>
-  );
-}
-
-function RequestRow(props: {
-  palette: Palette;
-  req: ProxyRequestSnapshot;
-  cols: ReqColumns;
-  onOpenTrace?: (traceId: string) => void;
-  onFollowRequest?: (requestId: string) => void;
-}) {
-  const { palette, req, cols, onOpenTrace, onFollowRequest } = props;
-  const color = statusColor(palette, req.status, req.error);
-  const statusLabel = req.status > 0 ? String(req.status) : "ERR";
-  const badge = identityBadge(palette, req.identity);
-  const routeLabel = req.route || NO_ROUTE_LABEL;
-  const detail = proxyRequestPath(req, REQ_ERROR_MAX);
-  const dur = proxyDurationView(req);
-  const traceId = req.traceId;
-  // Prefer following the whole request (opens its trace and pre-filters logs on
-  // the request id); fall back to the trace-only jump when no follow handler.
-  const onMouseDown = onFollowRequest && req.requestId
-    ? () => onFollowRequest(req.requestId)
-    : traceId && onOpenTrace
-      ? () => onOpenTrace(traceId)
-      : undefined;
-  return (
-    <box
-      flexShrink={0}
-      flexDirection="row"
-      alignItems="flex-start"
-      overflow="hidden"
-      onMouseDown={onMouseDown}
-    >
-      <RequestField width={REQ_TIME_COL} fg={palette.muted} text={req.timestamp.slice(11, 19)} />
-      {cols.showMethod ? <RequestField width={REQ_METHOD_COL} fg={palette.text} text={req.method} /> : null}
-      <RequestField width={REQ_STATUS_COL} fg={color} text={statusLabel} />
-      <RequestField width={REQ_MS_COL} fg={dur.request === PROXY_DURATION_MISSING ? palette.muted : palette.text} text={dur.request} />
-      <RequestField width={REQ_MS_COL} fg={palette.muted} text={dur.hop} />
-      <RequestField width={REQ_ID_COL} fg={badge.color} text={badge.label} />
-      <RequestField width={cols.routeCol} fg={req.route ? palette.info : palette.muted} text={routeLabel} />
-      <box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
-        <text fg={req.error ? palette.error : palette.text} wrapMode="char" truncate={false} flexShrink={0} width="100%">
-          {detail}
-        </text>
-      </box>
-    </box>
-  );
-}
-
-function RequestHeader(props: { palette: Palette; cols: ReqColumns }) {
-  const { palette, cols } = props;
-  return (
-    <box height={1} flexDirection="row" overflow="hidden" flexShrink={0} backgroundColor={palette.element}>
-      <RequestField width={REQ_TIME_COL} fg={palette.muted} text="TIME" />
-      {cols.showMethod ? <RequestField width={REQ_METHOD_COL} fg={palette.muted} text="METHOD" /> : null}
-      <RequestField width={REQ_STATUS_COL} fg={palette.muted} text="ST" />
-      <RequestField width={REQ_MS_COL} fg={palette.muted} text="REQ" />
-      <RequestField width={REQ_MS_COL} fg={palette.muted} text="HOP" />
-      <RequestField width={REQ_ID_COL} fg={palette.muted} text="WHO" />
-      <RequestField width={cols.routeCol} fg={palette.muted} text="ROUTE" />
-      <box flexGrow={1} overflow="hidden">
-        <text fg={palette.muted}>PATH</text>
-      </box>
-    </box>
-  );
 }
 
 function RouteRow(props: {
@@ -153,9 +69,10 @@ function RouteRow(props: {
   identity: string;
   upstream: string;
   match?: string;
+  inspect?: boolean;
   onMouseDown?: () => void;
 }) {
-  const { palette, name, auth, identity, upstream, match, onMouseDown } = props;
+  const { palette, name, auth, identity, upstream, match, inspect, onMouseDown } = props;
   return (
     <box flexDirection="column" flexShrink={0} overflow="hidden" onMouseDown={onMouseDown}>
       <text fg={palette.text} wrapMode="none">
@@ -164,6 +81,7 @@ function RouteRow(props: {
       <box height={1} flexDirection="row" overflow="hidden" flexShrink={0}>
         <Chip palette={palette} label={auth || "no auth"} tone={authTone(auth)} />
         {identity ? <Chip palette={palette} label={identity} tone="idle" /> : null}
+        {inspect ? <Chip palette={palette} label="inspect" tone="accent" /> : null}
       </box>
       {match ? (
         <text fg={palette.muted} wrapMode="word">
@@ -177,46 +95,178 @@ function RouteRow(props: {
   );
 }
 
-// Routes are configuration on the left; recent requests are the live,
-// side-by-side feed on the right — each its own bordered panel so the two
-// never visually run into each other, matching how the services screen
-// splits list + detail. Narrow terminals stack them instead.
-const ROUTES_PANE_MIN = 26;
-const ROUTES_PANE_MAX = 56;
-const PANE_GUTTER = 2;
-const REQ_SHOW_METHOD_AT = 54;
-const REQ_ROUTE_COL_WIDE = 20;
-const REQ_ROUTE_COL_TIGHT = 12;
+const ROW_PREFIX = "traffic-row";
+const PANE_GUTTER = 4;
+const STACK_INSPECTOR_MIN = 12;
+const ROUTES_PANE_MIN = 22;
+const ROUTES_PANE_MAX = 40;
+
+function CallHeader(props: { palette: Palette; width: number }) {
+  const { palette, width } = props;
+  const showCaller = trafficRowShowsCaller(width);
+  return (
+    <box height={1} flexDirection="row" overflow="hidden">
+      <text fg={palette.muted}>{padClip("", TRAFFIC_CURSOR_COL)}</text>
+      <text fg={palette.muted}>{padClip("time", TRAFFIC_TIME_COL)}</text>
+      <text fg={palette.muted}>{padClip("st", TRAFFIC_STATUS_COL)}</text>
+      <text fg={palette.muted}>{padClip("verb", TRAFFIC_METHOD_COL)}</text>
+      {showCaller ? <text fg={palette.muted}>{padClip("caller", TRAFFIC_CALLER_COL)}</text> : null}
+      <text fg={palette.muted}>{padClip("lat", TRAFFIC_LAT_COL)}</text>
+    </box>
+  );
+}
+
+function CallRow(props: {
+  palette: Palette;
+  call: TrafficCall;
+  index: number;
+  selected: boolean;
+  width: number;
+  onPick: () => void;
+  onOpen: () => void;
+}) {
+  const { palette, call, index, selected, width, onPick, onOpen } = props;
+  const showCaller = trafficRowShowsCaller(width);
+  return (
+    <box
+      id={`${ROW_PREFIX}-${index}`}
+      height={1}
+      flexDirection="row"
+      overflow="hidden"
+      backgroundColor={selected ? palette.highlight : undefined}
+      onMouseDown={() => {
+        if (selected) {
+          onOpen();
+          return;
+        }
+        onPick();
+      }}
+    >
+      <text fg={palette.primary}>{padClip(selected ? "›" : " ", TRAFFIC_CURSOR_COL)}</text>
+      <text fg={palette.muted}>{padClip(formatTrafficClock(call.timestamp), TRAFFIC_TIME_COL)}</text>
+      <text fg={statusColor(palette, call)}>{padClip(formatTrafficStatus(call), TRAFFIC_STATUS_COL)}</text>
+      <text fg={palette.text}>{padClip(call.method, TRAFFIC_METHOD_COL)}</text>
+      {showCaller ? <text fg={palette.text}>{padClip(formatTrafficCaller(call.caller), TRAFFIC_CALLER_COL)}</text> : null}
+      <text fg={palette.muted}>{padClip(formatTrafficDuration(call.durationMs), TRAFFIC_LAT_COL)}</text>
+    </box>
+  );
+}
 
 export function ProxyScreen(props: {
   palette: Palette;
   cfg?: DevctlConfig;
   snap?: StatusSnapshot;
+  page: TrafficCallPage;
+  error: string;
+  selected: number;
   width: number;
+  bodyMode: TrafficBodyMode;
+  onToggleBody: () => void;
+  onPick: (index: number) => void;
+  onOpen: (call: TrafficCall) => void;
   onSelectRoute?: (route: RouteDetailInfo) => void;
-  onOpenTrace?: (traceId: string) => void;
-  onFollowRequest?: (requestId: string) => void;
 }) {
-  const { palette, cfg, snap, width, onSelectRoute, onOpenTrace, onFollowRequest } = props;
+  const { palette, cfg, snap, page, error, selected, width, bodyMode, onToggleBody, onPick, onOpen, onSelectRoute } = props;
   const routes = snap?.proxy.routes ?? [];
   const listenConfigured = hasListenPort(cfg?.proxy.listen);
   const routeCfgByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r]));
   const matchByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r.match]));
-  const recentRequests = snap?.proxy.recentRequests ?? [];
-  const requestTotal = snap?.proxy.requestTotal ?? 0;
-  const requestErrors = snap?.proxy.requestErrors ?? 0;
-
+  const inspectCount = inspectEnabledCount(cfg?.proxy.routes ?? []);
+  const calls = page.calls ?? [];
+  const selectedCall = calls[selected];
   const stacked = width < NARROW_WIDTH;
-  const routesWidth = Math.max(ROUTES_PANE_MIN, Math.min(ROUTES_PANE_MAX, Math.floor(width * 0.36)));
-  const requestsWidth = stacked ? width - PANE_GUTTER : width - routesWidth - PANE_GUTTER;
-  const reqInner = Math.max(20, requestsWidth - 2);
-  const showMethod = reqInner >= REQ_SHOW_METHOD_AT;
-  const routeColCap = reqInner >= REQ_SHOW_METHOD_AT ? REQ_ROUTE_COL_WIDE : REQ_ROUTE_COL_TIGHT;
-  const routeCol = recentRequests.reduce(
-    (max, r) => Math.min(routeColCap, Math.max(max, (r.route || NO_ROUTE_LABEL).length + REQ_ROUTE_GAP)),
-    REQ_ROUTE_MIN,
+  const routesWidth = Math.max(ROUTES_PANE_MIN, Math.min(ROUTES_PANE_MAX, Math.floor(width * 0.28)));
+  const trafficWidth = stacked ? width : Math.max(TRAFFIC_LIST_MIN, width - routesWidth - PANE_GUTTER);
+  const listWidth = trafficListPaneWidth(trafficWidth, stacked);
+  const listInner = Math.max(TRAFFIC_LIST_MIN - 4, listWidth - PANE_GUTTER);
+  const inspectorWidth = stacked ? Math.max(TRAFFIC_DETAIL_MIN, trafficWidth - PANE_GUTTER) : Math.max(TRAFFIC_DETAIL_MIN, trafficWidth - listWidth - PANE_GUTTER);
+  const scrollRef = useScrollSelectedIntoView(selected, ROW_PREFIX);
+  const preview = selectedCall ? trafficPreview(selectedCall) : "";
+  const showInspector = calls.length > 0;
+
+  const trafficList = (
+    <box
+      flexGrow={showInspector && !stacked ? 0 : 1}
+      flexShrink={0}
+      minWidth={showInspector && !stacked ? TRAFFIC_LIST_MIN : undefined}
+      width={showInspector && !stacked ? listWidth : undefined}
+      border
+      borderStyle={ROUNDED_BORDER}
+      borderColor={palette.borderActive}
+      backgroundColor={palette.panel}
+      title="traffic"
+      titleColor={palette.primary}
+      flexDirection="column"
+      overflow="hidden"
+    >
+      <MetaBar
+        palette={palette}
+        items={[
+          { text: snap?.proxy.running ? "RUNNING" : "STOPPED", tone: snap?.proxy.running ? "success" : "idle" },
+          { text: `${calls.length} hop${calls.length === 1 ? "" : "s"}`, tone: "info" },
+          { text: `${inspectCount} inspect`, tone: inspectCount > 0 ? "accent" : "idle" },
+        ]}
+        hints={[{ key: "enter", label: "detail" }, { key: "r", label: "raw" }, { key: "n", label: "start" }, { key: "x", label: "stop" }]}
+      />
+      {error ? <text fg={palette.error} wrapMode="word">{error}</text> : null}
+      {calls.length === 0 ? (
+        <EmptyState
+          palette={palette}
+          title={inspectCount === 0 ? "Traffic inspector is off" : "No captured hops yet"}
+          body={inspectCount === 0
+            ? "Set inspect.enabled: true on a proxy.routes hop (HTTP listen or gRPC listen). Direct 127.0.0.1 sockets that never hit the proxy are invisible. Callers should use ${services.<name>.url} or the gRPC listen port."
+            : "Send a request through an inspect-enabled proxy route. Unproxied service-to-service sockets are not captured."}
+        />
+      ) : (
+        <box flexGrow={1} flexDirection="column" overflow="hidden">
+          <CallHeader palette={palette} width={listInner} />
+          <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
+            <box flexDirection="column" overflow="hidden">
+              {calls.map((item, index) => (
+                <CallRow
+                  key={item.id}
+                  palette={palette}
+                  call={item}
+                  index={index}
+                  selected={index === selected}
+                  width={listInner}
+                  onPick={() => onPick(index)}
+                  onOpen={() => onOpen(item)}
+                />
+              ))}
+              {page.hasNext ? <text fg={palette.muted}>{"… older hops omitted"}</text> : null}
+            </box>
+          </scrollbox>
+        </box>
+      )}
+    </box>
   );
-  const cols: ReqColumns = { showMethod, routeCol };
+
+  const trafficPane = showInspector ? (
+    <box flexGrow={1} flexDirection={stacked ? "column" : "row"} overflow="hidden" minWidth={stacked ? undefined : 30}>
+      {trafficList}
+      <box
+        flexGrow={2}
+        minWidth={stacked ? undefined : TRAFFIC_DETAIL_MIN}
+        minHeight={stacked ? STACK_INSPECTOR_MIN : undefined}
+        border
+        borderStyle={ROUNDED_BORDER}
+        borderColor={palette.border}
+        backgroundColor={palette.panel}
+        title={selectedCall?.route || "hop"}
+        titleColor={palette.primary}
+        overflow="hidden"
+        flexDirection="column"
+      >
+        {preview !== "" ? (
+          <box height={1} overflow="hidden" paddingLeft={1} paddingRight={1}>
+            <text fg={palette.muted} wrapMode="none">{preview}</text>
+          </box>
+        ) : null}
+        <TrafficInspector palette={palette} call={selectedCall} width={inspectorWidth} bodyMode={bodyMode} onToggleBody={onToggleBody} />
+      </box>
+    </box>
+  ) : trafficList;
 
   return (
     <ScreenFrame palette={palette} title="proxy">
@@ -228,18 +278,12 @@ export function ProxyScreen(props: {
             ? (snap?.proxy.address ? [{ text: snap.proxy.address, tone: "info" as const }] : [])
             : [{ text: "no listen.port", tone: "warning" as const }]),
           { text: `${routes.length} routes`, tone: routes.length > 0 ? "primary" : "idle" },
-          ...(requestTotal > 0
-            ? [
-                { text: `${requestTotal} requests`, tone: "idle" as const },
-                ...(requestErrors > 0 ? [{ text: `${requestErrors} errors`, tone: "warning" as const }] : []),
-              ]
-            : []),
+          { text: `${inspectCount} inspect`, tone: inspectCount > 0 ? "accent" : "idle" },
         ]}
       />
       <box flexGrow={1} flexDirection={stacked ? "column" : "row"} overflow="hidden">
         <box
-          flexGrow={stacked ? 1 : 0}
-          flexBasis={stacked ? 0 : undefined}
+          flexGrow={stacked ? 0 : 0}
           flexShrink={0}
           minWidth={stacked ? undefined : ROUTES_PANE_MIN}
           width={stacked ? undefined : routesWidth}
@@ -270,86 +314,47 @@ export function ProxyScreen(props: {
                 </text>
               ) : null}
               <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-              <box flexDirection="column" overflow="hidden" gap={1}>
-                {routes.map((r) => {
-                  const match = matchByName.get(r.name);
-                  const matchText = match && (match.host || match.path) ? `${match.host || "*"}${match.path ? match.path : ""}` : undefined;
-                  const full = routeCfgByName.get(r.name);
-                  return (
-                    <RouteRow
-                      key={r.name}
-                      palette={palette}
-                      name={r.name}
-                      auth={r.auth}
-                      identity={r.identity}
-                      upstream={r.upstream}
-                      match={matchText}
-                      onMouseDown={
-                        onSelectRoute
-                          ? () =>
-                              onSelectRoute({
-                                name: r.name,
-                                authType: full?.auth.type || r.auth,
-                                identityType: full?.auth.identity.type ?? "",
-                                serviceAccount: full?.auth.identity.service_account || full?.auth.service_account || "",
-                                audience: full?.auth.audience ?? "",
-                                clientId: full?.auth.client_id ?? "",
-                                clientSecret: secretTemplateLabel(full?.auth.client_secret ?? "") ?? ((full?.auth.client_secret ?? "").trim() ? "inline" : ""),
-                                matchHost: full?.match.host ?? "",
-                                matchPath: full?.match.path ?? "",
-                                upstream: r.upstream,
-                              })
-                          : undefined
-                      }
-                    />
-                  );
-                })}
-              </box>
-            </scrollbox>
-            </>
-          )}
-        </box>
-        <box
-          flexGrow={1}
-          flexBasis={0}
-          minWidth={stacked ? undefined : 30}
-          minHeight={stacked ? 10 : undefined}
-          border
-          borderStyle="rounded"
-          borderColor={palette.borderActive}
-          title="requests"
-          titleColor={palette.primary}
-          flexDirection="column"
-          overflow="hidden"
-        >
-          {recentRequests.length === 0 ? (
-            <box paddingLeft={1} paddingRight={1}>
-              <text fg={palette.muted} wrapMode="word">
-                {listenConfigured
-                  ? snap?.proxy.running
-                    ? "No requests seen yet. Send one through the proxy to see it show up here — no need to restart or press r."
-                    : "Start the proxy, then send it a request to see live traffic here."
-                  : "Pin proxy.listen.port, then press n to start. Starting with port 0 fails."}
-              </text>
-            </box>
-          ) : (
-            <>
-              {onFollowRequest ? (
-                <text fg={palette.muted} wrapMode="none">
-                  {padClip("click a request to follow it across logs & trace", reqInner)}
-                </text>
-              ) : null}
-              <RequestHeader palette={palette} cols={cols} />
-              <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-                <box flexDirection="column" overflow="hidden">
-                  {recentRequests.map((req) => (
-                    <RequestRow key={req.requestId} palette={palette} req={req} cols={cols} onOpenTrace={onOpenTrace} onFollowRequest={onFollowRequest} />
-                  ))}
+                <box flexDirection="column" overflow="hidden" gap={1}>
+                  {routes.map((r) => {
+                    const match = matchByName.get(r.name);
+                    const matchText = match && (match.host || match.path) ? `${match.host || "*"}${match.path ? match.path : ""}` : undefined;
+                    const full = routeCfgByName.get(r.name);
+                    return (
+                      <RouteRow
+                        key={r.name}
+                        palette={palette}
+                        name={r.name}
+                        auth={r.auth}
+                        identity={r.identity}
+                        upstream={r.upstream}
+                        match={matchText}
+                        inspect={full?.inspect?.enabled === true}
+                        onMouseDown={
+                          onSelectRoute
+                            ? () =>
+                                onSelectRoute({
+                                  name: r.name,
+                                  authType: full?.auth.type || r.auth,
+                                  identityType: full?.auth.identity.type ?? "",
+                                  serviceAccount: full?.auth.identity.service_account || full?.auth.service_account || "",
+                                  audience: full?.auth.audience ?? "",
+                                  clientId: full?.auth.client_id ?? "",
+                                  clientSecret: secretTemplateLabel(full?.auth.client_secret ?? "") ?? ((full?.auth.client_secret ?? "").trim() ? "inline" : ""),
+                                  matchHost: full?.match.host ?? "",
+                                  matchPath: full?.match.path ?? "",
+                                  upstream: r.upstream,
+                                })
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
                 </box>
               </scrollbox>
             </>
           )}
         </box>
+        {trafficPane}
       </box>
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
         <KeyHints
@@ -357,6 +362,8 @@ export function ProxyScreen(props: {
           hints={[
             { key: "n", label: "start proxy" },
             { key: "x", label: "stop proxy" },
+            { key: "r", label: "raw" },
+            { key: "enter", label: "detail" },
           ]}
         />
       </Toolbar>

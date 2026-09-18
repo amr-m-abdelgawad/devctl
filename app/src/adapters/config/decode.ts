@@ -6,6 +6,7 @@ import {
   emptyIdentity,
   emptyService,
   emptyRouteAuth,
+  emptyRouteInspect,
   emptyExpose,
   emptyWatch,
   DEFAULT_WATCH_IGNORE,
@@ -21,6 +22,7 @@ import {
   type RestartConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type RouteInspectConfig,
   type RouteIdentity,
   type ServiceConfig,
   type StartupConfig,
@@ -348,6 +350,19 @@ export function decodeRouteAuth(value: unknown): RouteAuthConfig {
   };
 }
 
+export function decodeRouteInspect(value: unknown): RouteInspectConfig {
+  if (value === true) {
+    return { enabled: true, max_bytes: 0 };
+  }
+  if (value === false || value === undefined || !isRecord(value)) {
+    return emptyRouteInspect();
+  }
+  return {
+    enabled: asBoolean(value.enabled),
+    max_bytes: asNumber(value.max_bytes),
+  };
+}
+
 export function decodeRoute(value: unknown): RouteConfig {
   if (!isRecord(value)) {
     return {
@@ -355,6 +370,7 @@ export function decodeRoute(value: unknown): RouteConfig {
       match: { host: "", path: "" },
       upstream: { url: "" },
       auth: emptyRouteAuth(),
+      inspect: emptyRouteInspect(),
     };
   }
   const match = isRecord(value.match) ? value.match : {};
@@ -367,6 +383,7 @@ export function decodeRoute(value: unknown): RouteConfig {
     auth: decodeRouteAuth(value.auth),
     response_headers: asStringMap(value.response_headers),
     listen: isRecord(value.listen) ? { host: asString(value.listen.host), port: asNumber(value.listen.port) } : undefined,
+    inspect: decodeRouteInspect(value.inspect),
   };
 }
 

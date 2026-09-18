@@ -14,7 +14,7 @@ devctl start --profile minimal
 devctl status
 ```
 
-The `minimal` profile starts identity, the invoices API, and the telemetry generator. These host services need neither Google credentials nor Docker. The demo already enables the proxy, OTLP receiver, and web console.
+The `minimal` profile starts identity, the invoices API, the LLM stub, and the telemetry generator. These host services need neither Google credentials nor Docker. The demo already enables the proxy (with body inspect on local hops), OTLP receiver, web console, and a `type: proxy` LLM source.
 
 | Recipe | Profile or service | What you learn |
 |---|---|---|
@@ -22,6 +22,7 @@ The `minimal` profile starts identity, the invoices API, and the telemetry gener
 | [Background worker](#background-worker) | `backend` | Start dependencies and inspect worker output |
 | [Database + task](#database-task) | `data`, `migrate` | Use a container and a transient command |
 | [Distributed trace](#follow-a-distributed-trace) | `minimal` | Follow proxy traffic into spans and logs |
+| [Traffic inspector and LLM stub](#traffic-inspector-and-llm-stub) | `minimal` | Capture HTTP bodies and stub OpenAI calls |
 | [Authenticated proxy](#authenticated-proxy) | worker routes | Inject Google credentials for a configured upstream |
 
 Doctor checks everything declared in the configuration, so it can report missing Docker or Google credentials even when your selected local profile does not use them. The worker's optional token-watch loop and authenticated routes require real Google setup; the checked-in cloud identifiers are examples.
@@ -36,7 +37,7 @@ devctl start --profile full
 
 Open the billing app at [localhost:18003](http://127.0.0.1:18003). Its first start installs frontend dependencies if they are missing. This is the demo application's UI; the devctl management console runs separately on port 18900.
 
-The [billing-console service](../examples/demo-platform/.devctl/services/billing-console.yaml) declares its startup command and working directory, depends on `invoices-api`, and wires `AUTH_URL` and `API_URL` using named service-port references. That keeps the URLs aligned when a service port changes.
+The [billing-console service](../examples/demo-platform/.devctl/services/billing-console.yaml) declares its startup command and working directory, depends on `invoices-api`, and wires `AUTH_URL` and `API_URL` to `${services.<name>.url}` so local overlays go through the proxy hub (`identity.local` / `invoices-api.local`). Vite rewrites those to `DEVCTL_PROXY_URL` plus a `Host` header so you do not need `/etc/hosts`.
 
 For your repository, use its existing frontend command and actual environment variable names. Group the frontend and backend under a full profile while keeping a smaller backend profile for API-only work. See [Onboarding](onboarding.md).
 
@@ -85,6 +86,17 @@ devctl logs --source otlp
 ```
 
 Copy a trace identifier from the console and pass it to `devctl logs --trace <trace-id>`. In your own application, deeper spans require instrumentation and the supported OTLP/HTTP+JSON exporter. See [Telemetry](telemetry.md) and the [web console tour](web.md).
+
+## Traffic inspector and LLM stub
+
+The demo's local HTTP routes (`identity`, `invoices-api`, `billing-console`, `llm`) set `inspect.enabled`, and callers use hub URLs so those hops appear on the TUI proxy screen and web `#/traffic` with redacted bodies. `llm` is a stdlib OpenAI-compatible stub (not LiteLLM); a `type: proxy` source captures `/v1/chat/completions` and `/generations/v1alpha2` onto the LLM inspector. Telemetry generates both kinds of traffic while `minimal` is running.
+
+```bash
+devctl traffic
+devctl llm
+```
+
+See [Proxy inspect](proxy.md#inspect-bodies) and [LLM inspector](llm.md#proxy-capture-source-type-proxy).
 
 ## Authenticated proxy
 

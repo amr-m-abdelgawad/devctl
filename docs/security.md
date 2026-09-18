@@ -4,7 +4,7 @@
 
 **Loopback, redaction, no private keys.**
 
-Tokens never sit in the TUI, logs, LLM inspector, or MCP output. Listeners bind `127.0.0.1`. Service-account keys are never created.
+Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP output. Listeners bind `127.0.0.1`. Service-account keys are never created.
 
 <p>
   <a href="#what-we-guarantee"><strong>Guarantees</strong></a>
@@ -33,7 +33,7 @@ Tokens never sit in the TUI, logs, LLM inspector, or MCP output. Listeners bind 
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
 
-Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. Free-text log lines also strip `Bearer` tokens, JWT-shaped strings (`eyJ…`), Google access tokens (`ya29.`), and `id_token=` / `access_token=` assignments. LLM inspector payloads (prompts, responses, attributes) are redacted with the same detector at ingest and again on MCP/web output. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config. `X-Devctl-Service` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
+Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. Free-text log lines also strip `Bearer` tokens, JWT-shaped strings (`eyJ…`), Google access tokens (`ya29.`), and `id_token=` / `access_token=` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config. `X-Devctl-Service` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
 ---
 
@@ -72,7 +72,7 @@ flowchart LR
   hide -->|/reveal this session| show["Values shown · header: secrets shown"]
 ```
 
-`/reveal` lasts for this TUI session only. The header says **secrets shown** so it cannot stay silent. It only unmasks **service environment** values (and `/diff` / `--print-env`). Log lines and LLM inspector payloads are redacted at ingest; `/reveal` cannot restore them.
+`/reveal` lasts for this TUI session only. The header says **secrets shown** so it cannot stay silent. It only unmasks **service environment** values (and `/diff` / `--print-env`). Log lines, LLM inspector payloads, and traffic inspector bodies are redacted at ingest; `/reveal` cannot restore them.
 
 Redaction is the default everywhere a value is shown. For example, `devctl exec <service> --print-env` masks secret-like names before printing:
 

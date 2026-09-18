@@ -173,6 +173,27 @@ describe("config validate", () => {
     expect(validate(respHeaders)).toContain("proxy.routes[0].response_headers is not supported on a grpc route");
   });
 
+  test("rejects negative inspect.max_bytes and accepts omitted inspect", () => {
+    const ok = withService("api");
+    ok.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      inspect: { enabled: true, max_bytes: 0 },
+    });
+    expect(validate(ok).filter((issue) => issue.includes("inspect"))).toEqual([]);
+    const bad = withService("api");
+    bad.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      inspect: { enabled: true, max_bytes: -1 },
+    });
+    expect(validate(bad)).toContain("proxy.routes[0].inspect.max_bytes must be >= 0");
+  });
+
   test("rejects a mixed client_secret that is not a whole ${…} reference", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({

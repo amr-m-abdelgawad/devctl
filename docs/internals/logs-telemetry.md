@@ -1,6 +1,6 @@
 # Logs, telemetry, LLM inspector
 
-Three related stores, one redaction story. User pages: [logs.md](../logs.md), [telemetry.md](../telemetry.md), [llm.md](../llm.md).
+Three related stores, one redaction story. User pages: [logs.md](../logs.md), [telemetry.md](../telemetry.md), [llm.md](../llm.md), [proxy.md](../proxy.md#inspect-bodies).
 
 ## Log store
 
@@ -32,7 +32,7 @@ Export: `logs` RPC with `export` path, or client-side `writeLogExport`.
 
 ## Redaction
 
-`adapters/secrets/detector.ts` + `domain/logs/redact.ts` + `shared/redaction.ts`. Markers include PASSWORD, TOKEN, SECRET, … plus `secrets.extra_markers` / `extra_patterns`. Name markers match as delimited tokens (`API_TOKEN`) so they do not fire on `prompt_tokens`. MCP and web always redact at output. Logs and LLM calls are also redacted at ingest (irreversible). TUI `/reveal` unmasks service env and `/diff` only.
+`adapters/secrets/detector.ts` + `domain/logs/redact.ts` + `shared/redaction.ts`. Markers include PASSWORD, TOKEN, SECRET, … plus `secrets.extra_markers` / `extra_patterns`. Name markers match as delimited tokens (`API_TOKEN`) so they do not fire on `prompt_tokens`. MCP and web always redact at output. Logs, LLM calls, and traffic inspector hops are also redacted at ingest (irreversible). TUI `/reveal` unmasks service env and `/diff` only.
 
 Never log `Authorization`. Proxy request logs are structured without header dumps.
 
@@ -60,6 +60,10 @@ Plugins may register other `LlmSourceDriver`s (pull by default).
 Store: `LlmCallManager` (ring + redact). List endpoints strip bodies (`stripLlmBodies`); `get_llm_call` returns one call for detail overlays. `caller` is the originating service when known (`domain/llm/caller.ts`): `X-Devctl-Service`, `x-litellm-metadata` / body `metadata.service`, loopback peer at `begin` → `adapters/process/peer-caller.ts` (injected into `ProxyCaptureSink`, not imported from llm), LiteLLM spend-log metadata / non-email `user`. A proxy source's `source` name is the tagged route; UIs label it `via`.
 
 `capture.prompts` gates prompt/response retention (the push path applies `stripLlmBodies` itself, since it bypasses the coordinator); `capture.max_bytes` bounds a captured body; `capture.paths` lists extra proxy path substrings to capture as raw pairs. Poll interval: `poll_seconds` (default 5, pull only).
+
+## Traffic inspector
+
+HTTP and gRPC proxies tee bodies into `TrafficCallRing` via `TrafficCaptureSink` when `proxy.routes[].inspect.enabled` is true. The HTTP proxy may start both LLM and traffic tees and share one in-cap buffered request body. List endpoints strip bodies (`stripTrafficBodies`); `get_traffic_call` returns one hop. Caller uses the same `X-Devctl-Service` / loopback peer path as LLM. Recipe `expose` routes are skipped. `/reveal` cannot unmask ingest-redacted payloads. User page: [proxy.md](../proxy.md#inspect-bodies).
 
 ## Resource sampler
 

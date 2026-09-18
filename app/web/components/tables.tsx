@@ -1,4 +1,5 @@
 import { clockMs, durationMs } from "../format.ts";
+import { hrefFor } from "../hash.ts";
 import { serviceColor } from "../palette.ts";
 import type { LogRow, RequestRow } from "../types.ts";
 import { Empty, TraceLink } from "./primitives.tsx";
@@ -48,7 +49,11 @@ export function RequestTable(props: { requests: RequestRow[]; onJumpRequest?: (i
             <TableRow key={row.request_id} className={row.status >= 500 ? "bg-destructive/[0.06]" : undefined}>
               <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{clockMs(row.timestamp)}</TableCell>
               <TableCell><Badge variant="outline" className="font-mono text-[10px]">{row.method}</Badge></TableCell>
-              <TableCell className="max-w-[280px] truncate font-mono text-xs" title={row.path}>{row.path}</TableCell>
+              <TableCell className="max-w-[280px] truncate font-mono text-xs" title={row.path}>
+                {row.captured ? (
+                  <a href={hrefFor("traffic", row.request_id)} className="hover:underline">{row.path}</a>
+                ) : row.path}
+              </TableCell>
               <TableCell className={`font-mono font-medium tabular-nums ${statusClass(row.status)}`}>{row.status}</TableCell>
               <TableCell className="text-right">
                 {traceMs !== undefined ? (

@@ -15,6 +15,8 @@ Ports are TypeScript types (and tiny aliases) under `app/src/ports/`. They are t
 | `LlmCallStore` | `llm-call-store.ts` | `adapters/llm/store.ts` | Inspector ring |
 | `LlmSource` / factory | `llm-source.ts` | `adapters/llm/factory.ts`, LiteLLM + proxy drivers, plugins | Pull (spend logs) or push (proxy capture) sources |
 | `LlmCaptureSink` | `llm-capture.ts` | `adapters/llm/proxy-capture.ts` | Proxy tees completion bodies into the LLM store without importing the llm package |
+| `TrafficCallStore` | `traffic-call-store.ts` | `adapters/traffic/store.ts` | Traffic inspector ring |
+| `TrafficCaptureSink` | `traffic-capture.ts` | `adapters/traffic/capture.ts` | HTTP/gRPC proxies tee bodies into the traffic store without importing the traffic package |
 | `HttpRecipeRuntime` | `http-recipe-runtime.ts` | `adapters/http/runtime.ts` | Named outbound fetches + cache |
 | `DoctorRunner` | `doctor-runner.ts` | `adapters/doctor/doctor.ts` | Diagnostics without adapter types in application |
 | `McpHost` / `McpListener` / factory | `mcp-host.ts` | Supervisor facade + `McpHttpServer` | MCP tools call this, not `Supervisor` |
@@ -51,7 +53,7 @@ When you need a new capability during `startOne`, add it here (and on the superv
 
 ## `McpHost`
 
-Subset of daemon operations MCP and the web UI share: status, logs page, LLM, config, validate text, start/stop/restart, reload, doctor, exec, tasks, proxy, traces. `config()` for MCP is a **redacted** summary via tools; full `config_snapshot` stays RPC-only.
+Subset of daemon operations MCP and the web UI share: status, logs page, LLM, traffic, config, validate text, start/stop/restart, reload, doctor, exec, tasks, proxy, traces. `config()` for MCP is a **redacted** summary via tools; full `config_snapshot` stays RPC-only.
 
 ## Do not add
 

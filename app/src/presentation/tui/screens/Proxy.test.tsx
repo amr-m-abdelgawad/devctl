@@ -1,13 +1,12 @@
 import { act, createElement } from "react";
 import { describe, expect, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
-import type { ProxyRequestSnapshot, StatusSnapshot } from "../../../domain/status.ts";
+import type { StatusSnapshot } from "../../../domain/status.ts";
+import type { TrafficCall } from "../../../domain/traffic/traffic.ts";
 import { paletteFor } from "../themes.ts";
 import { ProxyScreen } from "./Proxy.tsx";
 
-const LONG_PATH = "/api/v1/invoices/fulfill/cache-miss-then-policy-check-then-billing-authorize";
-
-function snapshot(requests: ProxyRequestSnapshot[]): StatusSnapshot {
+function snapshot(): StatusSnapshot {
   return {
     session_id: "s",
     repo_root: "/r",
@@ -17,9 +16,9 @@ function snapshot(requests: ProxyRequestSnapshot[]): StatusSnapshot {
       running: true,
       address: "127.0.0.1:18080",
       routes: [{ name: "invoices", identity: "", upstream: "http://127.0.0.1:8080", auth: "none" }],
-      requestTotal: requests.length,
+      requestTotal: 1,
       requestErrors: 0,
-      recentRequests: requests,
+      recentRequests: [],
     },
     identity: { user: "", project: "", project_source: "", adc: false, service_accounts: {}, service_account_status: {}, iap: false },
     logs: { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 },
@@ -27,65 +26,70 @@ function snapshot(requests: ProxyRequestSnapshot[]): StatusSnapshot {
   };
 }
 
-describe("ProxyScreen requests", () => {
-  test("path wraps and shows request duration plus proxy hop", async () => {
+function hop(overrides: Partial<TrafficCall> = {}): TrafficCall {
+  return {
+    seq: 1,
+    id: "r1",
+    timestamp: "2026-09-14T12:00:00.000Z",
+    method: "POST",
+    path: "/invoices",
+    route: "invoices",
+    transport: "http",
+    status: 200,
+    durationMs: 12,
+    attributes: {},
+    request: { encoding: "utf8", text: '{\n  "id": 1\n}', contentType: "application/json" },
+    response: { encoding: "utf8", text: '{\n  "ok": true\n}', contentType: "application/json" },
+    ...overrides,
+  };
+}
+
+describe("ProxyScreen traffic inspector", () => {
+  test("lists a captured hop and shows the JSON body", async () => {
     let setup!: Awaited<ReturnType<typeof testRender>>;
     await act(async () => {
       setup = await testRender(
         createElement(ProxyScreen, {
           palette: paletteFor("devctl"),
-          snap: snapshot([
-            {
-              timestamp: "2026-09-14T12:00:00.000Z",
-              requestId: "r1",
-              method: "GET",
-              path: LONG_PATH,
-              route: "invoices",
-              identity: "user",
-              status: 200,
-              durationMs: 12,
-              traceDurationMs: 142,
-            },
-          ]),
-          width: 110,
+          snap: snapshot(),
+          page: { calls: [hop()], nextCursor: "", hasNext: false },
+          error: "",
+          selected: 0,
+          width: 120,
+          bodyMode: "json",
+          onToggleBody: () => undefined,
+          onPick: () => undefined,
+          onOpen: () => undefined,
         }),
-        { width: 110, height: 22 },
+        { width: 120, height: 24 },
       );
     });
     await setup.renderOnce();
     try {
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("REQ");
-      expect(frame).toContain("HOP");
-      expect(frame).toContain("142ms");
-      expect(frame).toContain("12ms");
-      expect(frame).toContain("/api/v1/invoice");
-      expect(frame).toContain("fulfill");
-      expect(frame).toContain("authorize");
+      expect(frame).toContain("invoices");
+      expect(frame).toContain("POST");
+      expect(frame).toContain('"id": 1');
     } finally {
       await act(async () => setup.renderer.destroy());
     }
   });
 
-  test("without a trace the hop is labeled and the path still wraps", async () => {
+  test("empty state mentions inspect.enabled", async () => {
     let setup!: Awaited<ReturnType<typeof testRender>>;
     await act(async () => {
       setup = await testRender(
         createElement(ProxyScreen, {
           palette: paletteFor("devctl"),
-          snap: snapshot([
-            {
-              timestamp: "2026-09-14T12:00:00.000Z",
-              requestId: "r2",
-              method: "POST",
-              path: LONG_PATH,
-              route: "invoices",
-              identity: "",
-              status: 201,
-              durationMs: 74,
-            },
-          ]),
+          snap: snapshot(),
+          page: { calls: [], nextCursor: "", hasNext: false },
+          error: "",
+          selected: 0,
           width: 110,
+          bodyMode: "json",
+          onToggleBody: () => undefined,
+          onPick: () => undefined,
+          onOpen: () => undefined,
         }),
         { width: 110, height: 22 },
       );
@@ -93,11 +97,7 @@ describe("ProxyScreen requests", () => {
     await setup.renderOnce();
     try {
       const frame = setup.captureCharFrame();
-      expect(frame).toContain("74ms");
-      expect(frame).toContain("—");
-      expect(frame).not.toContain("142ms");
-      expect(frame).toContain("fulfill");
-      expect(frame).toContain("authorize");
+      expect(frame).toContain("inspect.enabled");
     } finally {
       await act(async () => setup.renderer.destroy());
     }

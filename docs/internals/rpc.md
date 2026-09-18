@@ -64,6 +64,8 @@ Incompatible daemon: `assertMethodAllowed` blocks everything except `logs`, `log
 | `trace_request` | `{ request_id }` | `TraceResponse` | Proxy `X-Devctl-Request-ID` |
 | `llm_calls_page` | LLM filter + page | `LlmCallPage` | |
 | `get_llm_call` | `{ id }` | call or empty | Includes bodies (redacted downstream) |
+| `traffic_calls_page` | traffic filter + page | `TrafficCallPage` | |
+| `get_traffic_call` | `{ id }` | call or empty | Includes bodies (redacted downstream) |
 | `proxy_start` | `null` | `null` | Clears suppression |
 | `proxy_stop` | `null` | `null` | Sets suppression so `start()` will not auto-bind |
 | `mcp_start` | `{ port? }` | `null` | Explicit port wins; else saved TUI pref |

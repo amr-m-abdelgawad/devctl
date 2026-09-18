@@ -4,14 +4,15 @@ A mostly local example, modeled as a small invoicing platform, used by tests and
 
 | Service | Stack | Port | Role |
 |---|---|---|---|
-| `identity` | Python 3 (stdlib `http.server`) | 18001 | session login / whoami |
-| `invoices-api` | Python 3 | 18000 | invoice job queue; calls identity; JSON access logs |
-| `invoices-worker` | Python 3 | 18002 | polls invoices-api, finalizes jobs, watches its own token |
-| `billing-console` | React + Vite (Bun) | 18003 | admin console UI |
-| `telemetry` | Python 3 | — | log-shape / OTLP / trace showcase (see below) |
+| `identity` | Python 3 (stdlib `http.server`) | 18001 | session login / whoami; reached through the proxy |
+| `invoices-api` | Python 3 | 18000 | invoice job queue; calls identity through the proxy |
+| `invoices-worker` | Python 3 | 18002 | polls invoices-api through the proxy, finalizes jobs, watches its own token |
+| `billing-console` | React + Vite (Bun) | 18003 | admin console UI (Vite proxies `/api` and `/auth` through the hub) |
+| `llm` | Python 3 | 18005 | OpenAI-compatible stub (`/v1/chat/completions`, `/generations/v1alpha2`) |
+| `telemetry` | Python 3 | — | log-shape / OTLP / trace showcase; also calls the LLM stub |
 | `postgres` | Docker (`postgres:16`) | 18004 | opt-in data profile; not in the default profiles |
 
-Profiles: `minimal` (identity + api + telemetry), `backend` (+ worker), `full` (+ console), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
+Profiles: `minimal` (identity + api + llm + telemetry), `backend` (+ worker), `full` (+ console), `data` (postgres only; needs Docker). Config is modular under `.devctl/`. `devctl run migrate` is a one-off task that starts postgres first.
 
 `postgres` is always in configuration, so Doctor still probes Docker even when you never start `data`. Default profiles do not start it.
 
@@ -121,9 +122,20 @@ What to look for in the overlay:
 - Kind glyphs: ◀ server, ▶ client, ● internal, ▲ producer, ▼ consumer.
 - An occasional `stripe.charge` **ERR** in the middle of the tree (card declined + `exception` event). `api_key` / `authorization` on that span redact to `********`.
 - Correlated logs under the inspector: cache miss, invoices-api db/pdf lines, identity session lookup, stripe, queue — same `trace_id`, matching `span_id` highlighted.
-- Proxy tab: recent `invoices-api` `/fulfill` rows are the same traces — click one.
+- Proxy tab: recent `invoices-api` `/fulfill` rows are the same traces, now with captured bodies (`inspect.enabled`). Click one.
 
-Doctor probes still hit `/health` with **no** `traceparent`, so identity and invoices-api stay fast. Restart `telemetry`, `invoices-api`, and `identity` after pulling this example so `/fulfill` and the nested OTLP spans are live.
+Doctor probes still hit `/health` with **no** `traceparent`, so identity and invoices-api stay fast. Restart `telemetry`, `invoices-api`, `identity`, and `llm` after pulling this example so `/fulfill`, the nested OTLP spans, and stub LLM calls are live.
+
+## Traffic inspector and LLM stub
+
+Local HTTP hops (`identity`, `invoices-api`, `billing-console`, `llm`) set `inspect.enabled` so request/response bodies land on the TUI **proxy** screen and web `#/traffic`. Callers use `${services.<name>.url}` (a `*.local` hub address). Python and Vite cannot resolve those hosts without `/etc/hosts`, so they send the request to `DEVCTL_PROXY_URL` with a `Host` header — the same pattern as `curl -H 'Host: invoices-api.local' http://127.0.0.1:18080/health`. Direct `127.0.0.1:<port>` sockets are not captured.
+
+`llm` is a stdlib OpenAI-compatible **stub**, not LiteLLM. The `llm-stub` source is `type: proxy` on the `llm` route (`/v1/chat/completions`, plus `capture.paths: [/generations/v1alpha2]`). Telemetry POSTs through the hub every few ticks (JSON, SSE, and the proprietary path). Open the TUI LLM tab or web `#/llm` — no cloud key.
+
+```bash
+bun run ../../app/src/bin.ts traffic
+bun run ../../app/src/bin.ts llm
+```
 
 ### TUI
 
@@ -136,7 +148,8 @@ bun run ../../app/src/bin.ts                 # Logs tab: filter telemetry
 - Filter **telemetry**. Cycle `shape=` in search (`f`) — try `no-severity`, `no-message-key`, `nested-secret`, `traced`.
 - Enter a row: attributes table, `level — (0)` on the no-severity lines, redacted secrets, `source otlp` on receiver lines.
 - Enter again on a ◎ row (or click **view trace**): waterfall timeline, span inspector, correlated logs. `j`/`k` moves the selected span. Every other fulfill paints `stripe.charge` as `error`.
-- Proxy tab: recent `invoices-api` `/fulfill` rows are the same traces — click one.
+- Proxy tab: captured hops with pretty JSON / raw (`r`). `/fulfill` and identity `/health` from the pipeline show bodies.
+- LLM tab: stub chat, SSE, and `/generations/v1alpha2`. Caller is `telemetry`.
 
 ### CLI / MCP
 
@@ -149,6 +162,6 @@ bun run ../../app/src/bin.ts logs --source otlp
 bun run ../../app/src/bin.ts logs --trace '<32-hex-id>'
 ```
 
-MCP tools on the same session: `get_logs` (body / attributes / severity / traceId), `get_trace`, `trace_request`, `recent_errors`. `get_status` includes recent proxy requests with `trace_id`.
+MCP tools on the same session: `get_logs` (body / attributes / severity / traceId), `get_trace`, `trace_request`, `recent_errors`, `get_traffic_calls` / `get_traffic_call`, `get_llm_calls` / `get_llm_call`. `get_status` includes recent proxy requests with `trace_id` and `captured` when a body exists.
 
 Wiki: [docs](../../docs/README.md).

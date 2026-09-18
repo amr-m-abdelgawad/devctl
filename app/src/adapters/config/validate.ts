@@ -390,6 +390,7 @@ function validateProxy(cfg: DevctlConfig): string[] {
     }
     issues.push(...validateRouteUpstream(route, prefix, cfg));
     issues.push(...validateRouteAuth(route, prefix));
+    issues.push(...validateRouteInspect(route, prefix));
     if (isGrpcRoute(route)) {
       issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
     }
@@ -481,6 +482,16 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
 
 function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
   return validateAuthConfig(route.auth, prefix);
+}
+
+function validateRouteInspect(route: RouteConfig, prefix: string): string[] {
+  if (route.inspect === undefined) {
+    return [];
+  }
+  if (route.inspect.max_bytes < 0) {
+    return [`${prefix}.inspect.max_bytes must be >= 0`];
+  }
+  return [];
 }
 
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {

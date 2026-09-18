@@ -113,6 +113,33 @@ function host(): McpHost & { calls: ControlCall[] } {
       request: { messages: [] },
       attributes: {},
     }),
+    trafficCallsPage: () => ({
+      calls: [{
+        seq: 1,
+        id: "req-1",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        method: "GET",
+        path: "/invoices",
+        route: "invoices-api",
+        transport: "http",
+        status: 200,
+        attributes: {},
+      }],
+      nextCursor: "",
+      hasNext: false,
+    }),
+    getTrafficCall: async (id) => ({
+      seq: 1,
+      id,
+      timestamp: "2026-01-01T00:00:00.000Z",
+      method: "GET",
+      path: "/invoices",
+      route: "invoices-api",
+      transport: "http",
+      status: 200,
+      request: { text: '{"ok":true}', encoding: "utf8" },
+      attributes: {},
+    }),
   };
 }
 
@@ -234,6 +261,14 @@ describe("web http server", () => {
       const llmDetail = await authGet(base, "/api/llm/chatcmpl-1");
       expect((await llmDetail.json() as { id: string }).id).toBe("chatcmpl-1");
 
+      const traffic = await authGet(base, "/api/traffic");
+      const trafficBody = await traffic.json() as { calls: Array<{ id: string; request?: unknown }> };
+      expect(trafficBody.calls[0]?.id).toBe("req-1");
+      expect(trafficBody.calls[0]?.request).toBeUndefined();
+
+      const trafficDetail = await authGet(base, "/api/traffic/req-1");
+      expect((await trafficDetail.json() as { id: string; request?: { text?: string } }).request?.text).toContain("ok");
+
       const update = await authGet(base, "/api/update");
       const updateBody = await update.json() as { current: string; newer: boolean; latest: string };
       expect(update.status).toBe(200);
@@ -250,7 +285,7 @@ describe("web http server", () => {
     const port = server.listenPort();
     const base = `http://127.0.0.1:${port}`;
     try {
-      for (const path of ["/api/status", "/api/logs", "/api/llm", "/api/config", "/api/llm/chatcmpl-1"]) {
+      for (const path of ["/api/status", "/api/logs", "/api/llm", "/api/config", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
         const missing = await fetch(`${base}${path}`);
         expect(missing.status).toBe(401);
         const wrong = await fetch(`${base}${path}`, { headers: { Authorization: "Bearer nope" } });

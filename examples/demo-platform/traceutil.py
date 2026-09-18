@@ -7,6 +7,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 
 KIND_INTERNAL = 1
 KIND_SERVER = 2
@@ -19,6 +20,39 @@ STATUS_ERROR = 2
 
 def otlp_endpoint() -> str:
     return os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").rstrip("/")
+
+
+def hub_request(
+    base: str,
+    path: str,
+    *,
+    method: str = "GET",
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> urllib.request.Request:
+    """Hit `base`+path, rewriting `*.local` hub URLs through DEVCTL_PROXY_URL.
+
+    Python (and Vite) cannot resolve `invoices-api.local` without /etc/hosts, so
+    the demo uses the injected proxy URL plus a Host header — the same pattern
+    as the telemetry fulfill probe. Callers that already use a loopback URL are
+    left unchanged.
+    """
+    parsed = urlparse(base)
+    proxy = os.environ.get("DEVCTL_PROXY_URL", "").rstrip("/")
+    service = os.environ.get("DEVCTL_SERVICE_NAME", "")
+    suffix = path if path.startswith("/") else f"/{path}"
+    extra = dict(headers or {})
+    if proxy and parsed.hostname and parsed.hostname.endswith(".local"):
+        url = f"{proxy}{suffix}"
+        extra.setdefault("Host", parsed.hostname)
+    else:
+        url = f"{base.rstrip('/')}{suffix}"
+    if service:
+        extra.setdefault("X-Devctl-Service", service)
+    req = urllib.request.Request(url, data=data, method=method)
+    for key, value in extra.items():
+        req.add_header(key, value)
+    return req
 
 
 def hex_id(nbytes: int) -> str:

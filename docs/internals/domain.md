@@ -80,6 +80,16 @@ Named outbound recipes (not the reverse proxy):
 | `redact.ts` | Body/header redaction. |
 | `caller.ts` | Normalize caller names; header / spend-log / completion-body extraction. |
 
+## `domain/traffic/`
+
+| File | Role |
+|------|------|
+| `traffic.ts` | Barrel: `TrafficCall`, paging, redact, payload builders. |
+| `types.ts` | Call, payload, filter, page types. |
+| `match.ts` | Filter matching including body search. |
+| `redact.ts` | `redactTrafficCall` / `stripTrafficBodies`. |
+| `payload.ts` | HTTP/gRPC body views (pretty JSON, gRPC base64 + optional JSON text). |
+
 ## `domain/telemetry/`
 
 | File | Role |

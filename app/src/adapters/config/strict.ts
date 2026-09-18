@@ -25,6 +25,7 @@ import {
   knownRestart,
   knownRoute,
   knownRouteAuth,
+  knownRouteInspect,
   knownSecrets,
   knownService,
   knownServiceLogs,
@@ -256,6 +257,9 @@ function serviceProxyPathKnown(parts: string[]): string[] {
   if (kind === "listen") {
     return knownListen;
   }
+  if (kind === "inspect") {
+    return knownRouteInspect;
+  }
   return knownRoute;
 }
 
@@ -274,6 +278,9 @@ function routePathKnown(path: string): string[] {
   }
   if (path.endsWith(".listen")) {
     return knownListen;
+  }
+  if (path.endsWith(".inspect")) {
+    return knownRouteInspect;
   }
   if (path.includes("proxy.routes") && path.split(".").length === ROUTE_DOT_COUNT + 1) {
     return knownRoute;

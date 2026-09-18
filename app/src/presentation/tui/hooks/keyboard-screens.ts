@@ -9,6 +9,7 @@ import { isBound, isClearLogsKey, isPageDownKey, isPageUpKey, isRestartKey, type
 import { scrollBoxBy } from "../layout.tsx";
 import { mcpToolAtRow } from "../screens/Mcp.tsx";
 import { selectedSettingsItem } from "../settings.ts";
+import type { Screen } from "../types.ts";
 import type { ScreenKeyCtx } from "./keyboard-context.ts";
 
 export type ScreenDigitCtx = Pick<ScreenKeyCtx, "screen" | "listCursor" | "setMcpPortDraft">;
@@ -37,7 +38,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
     setChecked, setStatus, setSelected, setProfile, refresh,
     toggleChecked, createStarterConfig: _createStarterConfig, startWizard, setConfirmKind, setConfirmDetail, setOverlay, openConfigBuffer,
-    runCommand, openEnvPicker, toggleLlmBodyMode,
+    runCommand, openEnvPicker, toggleLlmBodyMode, toggleTrafficBodyMode, moveLlmCursor, moveTrafficCursor,
   } = ctx;
 
   const onLogFilters = (screen === "logs" || screen === "dashboard") && !logSearchFocused;
@@ -99,6 +100,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     toggleLlmBodyMode();
     return;
   }
+  if (screen === "proxy" && name === "r") {
+    toggleTrafficBodyMode();
+    return;
+  }
   if (screen === "logs" && name === "t") {
     const next = !logShowTimestamps;
     setLogShowTimestamps(next);
@@ -134,6 +139,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
       applyDashboardLogCursor(dashboardLogCursor + 1);
       return;
     }
+    if (moveCallListCursor(screen, 1, moveLlmCursor, moveTrafficCursor)) {
+      return;
+    }
     setSelected((i) => Math.min(Math.max(listCount - 1, 0), i + 1));
     return;
   }
@@ -160,6 +168,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
       applyDashboardLogCursor(dashboardLogCursor - 1);
       return;
     }
+    if (moveCallListCursor(screen, -1, moveLlmCursor, moveTrafficCursor)) {
+      return;
+    }
     setSelected((i) => Math.max(0, Math.min(i, Math.max(listCount - 1, 0)) - 1));
     return;
   }
@@ -181,6 +192,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
       applyDashboardLogCursor(Math.max(0, dashboardLogCursor) + page);
       return;
     }
+    if (moveCallListCursor(screen, page, moveLlmCursor, moveTrafficCursor)) {
+      return;
+    }
     setSelected((i) => Math.min(Math.max(listCount - 1, 0), i + page));
     return;
   }
@@ -200,6 +214,9 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     }
     if (screen === "dashboard" && (logPinned || dashboardLogCursor >= 0)) {
       applyDashboardLogCursor(Math.max(0, dashboardLogCursor) - page);
+      return;
+    }
+    if (moveCallListCursor(screen, -page, moveLlmCursor, moveTrafficCursor)) {
       return;
     }
     setSelected((i) => Math.max(0, i - page));
@@ -389,4 +406,21 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   if ((screen === "logs" || screen === "dashboard") && isClearLogsKey(key)) {
     clearLogs();
   }
+}
+
+function moveCallListCursor(
+  screen: Screen,
+  delta: number,
+  moveLlmCursor: (delta: number) => void,
+  moveTrafficCursor: (delta: number) => void,
+): boolean {
+  if (screen === "llm") {
+    moveLlmCursor(delta);
+    return true;
+  }
+  if (screen === "proxy") {
+    moveTrafficCursor(delta);
+    return true;
+  }
+  return false;
 }

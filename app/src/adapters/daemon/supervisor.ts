@@ -20,7 +20,7 @@ import { WebCoordinator } from "./web-coordinator.ts";
 import { ProxyCoordinator } from "./proxy-coordinator.ts";
 import { ResourceSampler } from "./resource-sampler.ts";
 import { buildSnapshot, formatStatusFromSnapshot, type SnapshotHost } from "./snapshot.ts";
-import { asLogFilter, asLlmCallFilter, asStringArray, asStringRecord, isRecord } from "../rpc/params.ts";
+import { asLogFilter, asLlmCallFilter, asTrafficCallFilter, asStringArray, asStringRecord, isRecord } from "../rpc/params.ts";
 import { RpcServer } from "../rpc/server.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
 import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
@@ -46,13 +46,17 @@ import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
+import type { TrafficCallStore } from "../../ports/traffic-call-store.ts";
 import type { LlmSourceFactory } from "../../ports/llm-source.ts";
 import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../domain/logs/logs.ts";
 import { isTraceId } from "../../domain/logs/ids.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
+import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { LlmCallManager } from "../llm/store.ts";
+import { TrafficCallRing } from "../traffic/store.ts";
 import { LlmCoordinator } from "../llm/coordinator.ts";
 import { ProxyCaptureSink } from "../llm/proxy-capture.ts";
+import { ProxyTrafficSink } from "../traffic/capture.ts";
 import { llmSourceFactory } from "../llm/factory.ts";
 import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
@@ -90,9 +94,11 @@ export class Supervisor {
   private readonly logs: LogStore;
   private readonly spans: SpanStore;
   private readonly llmStore: LlmCallStore;
+  private readonly trafficStore: TrafficCallStore;
   private llmFactory: LlmSourceFactory;
   private readonly llm: LlmCoordinator;
   private readonly llmCapture: ProxyCaptureSink;
+  private readonly trafficCapture: ProxyTrafficSink;
   private readonly procs: ProcessManager;
   private readonly tokens: TokenManager;
   private readonly recipes: HttpRecipeRuntime;
@@ -175,10 +181,17 @@ export class Supervisor {
     this.logs = deps.logs;
     this.spans = new SpanManager(undefined, this.detector);
     this.llmStore = new LlmCallManager(this.detector);
+    this.trafficStore = new TrafficCallRing(this.detector);
     this.llmFactory = llmSourceFactory([]);
     this.llmCapture = new ProxyCaptureSink({
       cfg: () => this.cfg,
       store: this.llmStore,
+      log: (message) => this.log("devctl", "WARN", message),
+      lookupCaller: (peer) => callerServiceForPeer(peer, () => this.procs.all()),
+    });
+    this.trafficCapture = new ProxyTrafficSink({
+      cfg: () => this.cfg,
+      store: this.trafficStore,
       log: (message) => this.log("devctl", "WARN", message),
       lookupCaller: (peer) => callerServiceForPeer(peer, () => this.procs.all()),
     });
@@ -220,6 +233,7 @@ export class Supervisor {
       internalTok: () => this.internalTok,
       middleware: () => this.registry?.proxyMiddleware ?? [],
       capture: this.llmCapture,
+      traffic: this.trafficCapture,
       persistState: () => this.persistState(),
     });
     this.env = new EnvironmentBridge({
@@ -517,6 +531,14 @@ export class Supervisor {
         });
       case "get_llm_call":
         return this.queryLlmCall(typeof rec.id === "string" ? rec.id : "");
+      case "traffic_calls_page":
+        return this.queryTrafficCallsPage({
+          ...asTrafficCallFilter(rec),
+          cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
+          limit: typeof rec.limit === "number" ? rec.limit : undefined,
+        });
+      case "get_traffic_call":
+        return this.queryTrafficCall(typeof rec.id === "string" ? rec.id : "");
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
         // itself is also called from start() and reload(), which must not
@@ -833,6 +855,8 @@ export class Supervisor {
       traceRequest: (requestId) => this.queryTraceByRequest(requestId),
       llmCallsPage: (req) => this.queryLlmCallsPage(req),
       getLlmCall: (id) => this.queryLlmCall(id),
+      trafficCallsPage: (req) => this.queryTrafficCallsPage(req),
+      getTrafficCall: (id) => this.queryTrafficCall(id),
     };
   }
 
@@ -861,6 +885,7 @@ export class Supervisor {
     await this.telemetry.stop();
     await this.llm.stop();
     this.llmStore.close();
+    this.trafficStore.close();
     this.spans.close();
     await this.stopMcp();
     await this.web.stop();
@@ -923,6 +948,14 @@ export class Supervisor {
 
   queryLlmCall(id: string): LlmCall | undefined {
     return this.llmStore.get(id);
+  }
+
+  queryTrafficCallsPage(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage {
+    return this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+  }
+
+  queryTrafficCall(id: string): TrafficCall | undefined {
+    return this.trafficStore.get(id);
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {

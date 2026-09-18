@@ -46,6 +46,7 @@ export type RequestRow = {
   duration_ms: number;
   trace_duration_ms?: number;
   error?: string;
+  captured?: boolean;
 };
 
 export type RequestsPayload = {
@@ -165,12 +166,46 @@ export type LlmCallsPayload = {
   errors?: Array<{ source: string; message: string; status?: number }>;
 };
 
-export type RouteName = "services" | "traces" | "graph" | "logs" | "llm";
+export type TrafficPayload = {
+  text?: string;
+  data?: string;
+  encoding?: "utf8" | "base64";
+  omitted?: boolean;
+  truncated?: boolean;
+  contentType?: string;
+};
+
+export type TrafficCallRow = {
+  id: string;
+  timestamp: string;
+  method: string;
+  path: string;
+  route: string;
+  transport: string;
+  caller?: string;
+  status: number;
+  grpc_status?: string;
+  duration_ms?: number;
+  request?: TrafficPayload;
+  response?: TrafficPayload;
+  attributes: Record<string, unknown>;
+  request_id?: string;
+  trace_id?: string;
+};
+
+export type TrafficCallsPayload = {
+  calls: TrafficCallRow[];
+  has_more?: boolean;
+  next_cursor?: string;
+};
+
+export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "traffic";
 
 export type Route = {
   name: RouteName;
   traceId?: string;
   llmId?: string;
+  trafficId?: string;
 };
 
 export type UpdateCheckPayload = {

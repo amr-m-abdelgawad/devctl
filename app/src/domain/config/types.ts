@@ -245,6 +245,28 @@ export function emptyRouteAuth(): RouteAuthConfig {
   };
 }
 
+// Per-route body capture for the traffic inspector. Default off so existing
+// routes stay metadata-only. max_bytes 0 means the 1 MiB default.
+export const DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES = 1_048_576;
+
+export type RouteInspectConfig = {
+  enabled: boolean;
+  max_bytes: number;
+};
+
+export function emptyRouteInspect(): RouteInspectConfig {
+  return { enabled: false, max_bytes: 0 };
+}
+
+export function routeInspectEnabled(route: RouteConfig): boolean {
+  return route.inspect?.enabled === true;
+}
+
+export function routeInspectMaxBytes(route: RouteConfig): number {
+  const cap = route.inspect?.max_bytes ?? 0;
+  return cap > 0 ? cap : DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
+}
+
 export type RouteConfig = {
   name: string;
   // "" / "http" (default) → the shared HTTP/1.1 listener, matched by host/path.
@@ -262,6 +284,9 @@ export type RouteConfig = {
   response_headers?: Record<string, string>;
   // Only for a grpc route: the dedicated loopback address the client dials.
   listen?: ListenConfig;
+  // Opt-in HTTP/gRPC body capture for the traffic inspector. Ignored when the
+  // proxy is off. Recipe `expose` routes are never captured as live RPCs.
+  inspect?: RouteInspectConfig;
 };
 
 export function isGrpcRoute(route: RouteConfig): boolean {

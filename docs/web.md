@@ -62,13 +62,17 @@ The overview counters use lifetime totals for the current supervisor, while tabl
 
 The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP+JSON**, not protobuf or gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
 
-## Read logs and LLM calls
+## Read logs, LLM calls, and traffic
 
 ![Structured logs with service and severity filters and trace identifiers](assets/manual/web-logs.png)
 
 Open Logs to filter records by service and severity, inspect structured attributes, and follow trace identifiers. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
-The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for the raw request and response (copy, wrap, find). Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
+The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for the raw request and response (copy, wrap, find). The selected call stays open when newer calls arrive. Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
+
+## Inspect proxied HTTP and gRPC bodies
+
+The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector for hops captured on `inspect.enabled` proxy routes. Click a row to inspect pretty JSON or raw (copy, find, wrap). The selected hop stays open when newer hops arrive. `j`/`k` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
 
 ## If something is missing
 
@@ -87,3 +91,4 @@ The LLM view is a list plus live inspector. Select a call to read the conversati
 - [CLI](cli.md)
 - [Telemetry](telemetry.md)
 - [LLM inspector](llm.md)
+- [Proxy](proxy.md)

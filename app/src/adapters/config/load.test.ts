@@ -171,6 +171,56 @@ proxy:
     expect(cfg.proxy.routes[0]?.auth.audience).toBe("/projects/1/iap");
   });
 
+  test("decodes per-route inspect capture", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        max_bytes: 4096
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 4096 });
+  });
+
+  test("decodes inspect: true as enabled with default max_bytes", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-true-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect: true
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0 });
+  });
+
   test("decodes optional IAP OAuth client fields", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-iap-oauth-${Date.now()}`;
     writeFile(

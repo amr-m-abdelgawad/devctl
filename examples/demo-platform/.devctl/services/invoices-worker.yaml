@@ -9,7 +9,7 @@ dependencies:
 ports:
   http: 18002
 environment:
-  API_URL: http://127.0.0.1:${services.invoices-api.ports.http}
+  API_URL: ${services.invoices-api.url}
   # Pulled by main.py's token-watch loop from devctl's token endpoint
   # (proxy.token_endpoint in config.yaml) — the outbound half of credential
   # refresh, where a service holds a URL instead of a token. Matches the

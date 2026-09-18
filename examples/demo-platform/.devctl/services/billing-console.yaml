@@ -9,15 +9,15 @@ dependencies:
 ports:
   http: 18003
 environment:
-  AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
-  API_URL: http://127.0.0.1:${services.invoices-api.ports.http}
+  AUTH_URL: ${services.identity.url}
+  API_URL: ${services.invoices-api.url}
   required:
     - AUTH_URL
     - API_URL
 environments:
   local:
-    AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
-    API_URL: http://127.0.0.1:${services.invoices-api.ports.http}
+    AUTH_URL: ${services.identity.url}
+    API_URL: ${services.invoices-api.url}
     MODE: local
   deployed:
     AUTH_URL: https://identity.dev.example.com

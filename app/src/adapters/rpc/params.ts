@@ -1,4 +1,5 @@
 import type { LlmCallFilter, LlmCallStatus } from "../../domain/llm/llm.ts";
+import type { TrafficCallFilter, TrafficTransport } from "../../domain/traffic/traffic.ts";
 import type { LogFilter } from "../../domain/logs/logs.ts";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -50,6 +51,28 @@ export function asLlmCallFilter(rec: Record<string, unknown>): LlmCallFilter {
     until: nonemptyString(rec.until),
     requestId: nonemptyString(rec.requestId) ?? nonemptyString(rec.request_id),
     traceId: nonemptyString(rec.traceId) ?? nonemptyString(rec.trace_id),
+  };
+}
+
+function asTrafficTransport(value: string): TrafficTransport | undefined {
+  if (value === "http" || value === "grpc") {
+    return value;
+  }
+  return undefined;
+}
+
+export function asTrafficCallFilter(rec: Record<string, unknown>): TrafficCallFilter {
+  return {
+    route: nonemptyString(rec.route),
+    caller: nonemptyString(rec.caller),
+    method: nonemptyString(rec.method),
+    status: nonemptyString(typeof rec.status === "string" ? rec.status : rec.status !== undefined ? String(rec.status) : ""),
+    search: nonemptyString(rec.search),
+    since: nonemptyString(rec.since),
+    until: nonemptyString(rec.until),
+    requestId: nonemptyString(rec.requestId) ?? nonemptyString(rec.request_id),
+    traceId: nonemptyString(rec.traceId) ?? nonemptyString(rec.trace_id),
+    transport: asTrafficTransport(typeof rec.transport === "string" ? rec.transport : ""),
   };
 }
 

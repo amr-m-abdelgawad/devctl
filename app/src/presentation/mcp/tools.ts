@@ -5,6 +5,7 @@ import { configDiff } from "../../domain/config/provenance.ts";
 import { Detector } from "../../shared/redaction.ts";
 import { formatBodySummary, redactLogRecord, redactSpan, type LogRecord } from "../../domain/logs/logs.ts";
 import { redactLlmCall, stripLlmBodies, type LlmCall } from "../../domain/llm/llm.ts";
+import { redactTrafficCall, stripTrafficBodies, type TrafficCall } from "../../domain/traffic/traffic.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
 import { effectiveServiceEnv, namedEnvironmentNames, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { getDoc, searchDocs } from "./docs-search.ts";
@@ -12,6 +13,7 @@ import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
 export const MCP_LLM_CAP = 200;
+export const MCP_TRAFFIC_CAP = 200;
 
 export const MCP_RESOURCE_URIS = [
   "devctl://status",
@@ -134,7 +136,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     label: "Recent requests",
     summary: "Proxy request ring with trace ids",
     category: "inspect",
-    description: "Recent proxy requests with method, path, status, duration, request id, and trace id.",
+    description: "Recent proxy requests with method, path, status, duration, request id, trace id, and captured when a traffic-inspector body exists.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -168,6 +170,44 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "One LLM call including redacted bodies",
     category: "inspect",
     description: "One LLM call by id, including redacted request and response payloads when the source captured them.",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_traffic_calls",
+    label: "Traffic calls",
+    summary: "Filtered proxied HTTP/gRPC hops, bodies omitted",
+    category: "inspect",
+    description:
+      "Recent HTTP and gRPC hops captured on proxy routes with inspect.enabled. Direct sockets that never hit the proxy are invisible. Capped at 200 per page. Secrets are redacted. Request and response bodies are omitted; use get_traffic_call for a single hop. Pass cursor=next_cursor to page toward older calls.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        route: { type: "string", description: "proxy.routes[].name" },
+        caller: { type: "string", description: "Service that originated the call; use \"-\" for calls with no known caller" },
+        method: { type: "string" },
+        status: { type: "string", description: "HTTP status, grpc-status, ok, or error" },
+        search: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        cursor: { type: "string", description: "Opaque cursor from a previous next_cursor" },
+        request_id: { type: "string" },
+        trace_id: { type: "string" },
+        transport: { type: "string", description: "http or grpc" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_traffic_call",
+    label: "Traffic call detail",
+    summary: "One proxied hop including redacted bodies",
+    category: "inspect",
+    description: "One captured proxy hop by id, including redacted request and response payloads when inspect.enabled captured them. /reveal cannot unmask these bodies.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -658,12 +698,18 @@ export async function traceRequestTool(host: McpHost, args: Record<string, unkno
   return mcpTrace(detectorFor(host.config()), await host.traceRequest(requestId));
 }
 
-export function getRequests(snap: StatusSnapshot): unknown {
+export async function getRequests(host: McpHost): Promise<unknown> {
+  const snap = host.status();
+  const recent = snap.proxy.recentRequests ?? [];
+  const lookup = host.getTrafficCall;
+  const lookups = lookup
+    ? await Promise.all(recent.map((req) => lookup(req.requestId)))
+    : [];
   return {
     running: snap.proxy.running,
     total: snap.proxy.requestTotal ?? 0,
     errors: snap.proxy.requestErrors ?? 0,
-    requests: (snap.proxy.recentRequests ?? []).map((req) => ({
+    requests: recent.map((req, index) => ({
       timestamp: req.timestamp,
       request_id: req.requestId,
       trace_id: req.traceId,
@@ -674,6 +720,7 @@ export function getRequests(snap: StatusSnapshot): unknown {
       duration_ms: req.durationMs,
       trace_duration_ms: req.traceDurationMs,
       error: req.error,
+      captured: lookups[index] !== undefined,
     })),
   };
 }
@@ -751,6 +798,70 @@ export async function getLlmCallTool(host: McpHost, args: Record<string, unknown
     throw new Error(`llm call ${id} not found`);
   }
   return mcpLlmCall(detectorFor(host.config()), call, true);
+}
+
+export function mcpTrafficCall(detector: Detector, call: TrafficCall, bodies: boolean): Record<string, unknown> {
+  const redacted = redactTrafficCall(detector, call);
+  const shown = bodies ? redacted : stripTrafficBodies(redacted);
+  return {
+    id: shown.id,
+    timestamp: shown.timestamp,
+    method: shown.method,
+    path: shown.path,
+    route: shown.route,
+    transport: shown.transport,
+    caller: shown.caller,
+    status: shown.status,
+    grpc_status: shown.grpcStatus,
+    duration_ms: shown.durationMs,
+    request: shown.request,
+    response: shown.response,
+    attributes: shown.attributes,
+    request_id: shown.requestId,
+    trace_id: shown.traceId,
+  };
+}
+
+export async function getTrafficCalls(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  if (!host.trafficCallsPage) {
+    throw new Error("traffic store is unavailable");
+  }
+  const cursor = typeof args.cursor === "string" ? args.cursor : undefined;
+  const page = await host.trafficCallsPage({
+    route: nonempty(typeof args.route === "string" ? args.route : ""),
+    caller: nonempty(typeof args.caller === "string" ? args.caller : ""),
+    method: nonempty(typeof args.method === "string" ? args.method : ""),
+    status: nonempty(typeof args.status === "string" ? args.status : args.status !== undefined ? String(args.status) : ""),
+    search: nonempty(typeof args.search === "string" ? args.search : ""),
+    since: nonempty(typeof args.since === "string" ? args.since : ""),
+    until: nonempty(typeof args.until === "string" ? args.until : ""),
+    requestId: nonempty(typeof args.request_id === "string" ? args.request_id : ""),
+    traceId: nonempty(typeof args.trace_id === "string" ? args.trace_id : ""),
+    transport: args.transport === "http" || args.transport === "grpc" ? args.transport : undefined,
+    cursor,
+    limit: MCP_TRAFFIC_CAP,
+  });
+  const detector = detectorFor(host.config());
+  return {
+    calls: page.calls.map((call) => mcpTrafficCall(detector, call, false)),
+    has_more: page.hasNext,
+    next_cursor: page.nextCursor,
+  };
+}
+
+export async function getTrafficCallTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  const id = typeof args.id === "string" ? args.id : "";
+  if (id === "") {
+    throw new Error("id is required");
+  }
+  if (!host.getTrafficCall) {
+    throw new Error("traffic store is unavailable");
+  }
+  const call = await host.getTrafficCall(id);
+  if (!call) {
+    throw new Error(`traffic call ${id} not found`);
+  }
+  return mcpTrafficCall(detectorFor(host.config()), call, true);
 }
 
 export function listProfiles(cfg: DevctlConfig): unknown {
@@ -864,11 +975,15 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
     case "trace_request":
       return traceRequestTool(host, args);
     case "get_requests":
-      return getRequests(host.status());
+      return getRequests(host);
     case "get_llm_calls":
       return getLlmCalls(host, args);
     case "get_llm_call":
       return getLlmCallTool(host, args);
+    case "get_traffic_calls":
+      return getTrafficCalls(host, args);
+    case "get_traffic_call":
+      return getTrafficCallTool(host, args);
     case "recent_errors":
       return getLogs(host, { ...args, level: "ERROR" });
     case "list_profiles":
