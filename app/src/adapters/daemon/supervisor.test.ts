@@ -1749,6 +1749,10 @@ proxy:
 
   test("start overlay persists the name, reloads, and fails on a missing file", async () => {
     const dir = tmp();
+    const overlayName = () => {
+      process.env.DEVCTL_HOME = dir;
+      return readPersistedState(dir)?.config_overlay;
+    };
     mkdirSync(join(dir, ".devctl", "overlays"), { recursive: true });
     const configPath = join(dir, ".devctl", "config.yaml");
     writeConfig(
@@ -1784,12 +1788,12 @@ proxy:
       await expect(sup.start({ services: ["api"], overlay: "missing" })).rejects.toThrow(
         'overlay "missing" not found: .devctl/overlays/missing.yaml',
       );
-      expect(readPersistedState(dir)?.config_overlay).toBeUndefined();
+      expect(overlayName()).toBeUndefined();
       await sup.start({ services: ["api"], overlay: "night" });
       const snap = (await sup.dispatch("config_snapshot", null)) as { proxy: { enabled: boolean }; project: { name: string } };
       expect(snap.proxy.enabled).toBe(false);
       expect(snap.project.name).toBe("night");
-      expect(readPersistedState(dir)?.config_overlay).toBe("night");
+      expect(overlayName()).toBe("night");
     } finally {
       await sup.stop([]).catch(() => {});
     }
