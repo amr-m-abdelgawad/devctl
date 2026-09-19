@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WATCH_DEBOUNCE_MS, emptyService } from "../../domain/config/types.ts";
-import { load } from "./load.ts";
+import { load, loadPath } from "./load.ts";
 import { mergeService } from "./merge.ts";
 import { configDiff } from "./provenance.ts";
 
@@ -1023,5 +1023,71 @@ services:
 `);
     const cfg = load(dir, "");
     expect(cfg.proxy.routes).toEqual([]);
+  });
+});
+
+describe("session overlay", () => {
+  test("loadPath merges a session overlay presence-aware after config.local.yaml", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-session-overlay-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+project:
+  name: main
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      stderr: true
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/config.local.yaml",
+      `
+project:
+  name: repo-local
+proxy:
+  listen:
+    port: 9001
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/overlays/night.yaml",
+      `
+project:
+  name: night
+proxy:
+  enabled: false
+`,
+    );
+    const cfg = loadPath(dir, join(dir, ".devctl", "config.yaml"), { overlay: "night" });
+    expect(cfg.proxy.enabled).toBe(false);
+    expect(cfg.proxy.listen.port).toBe(9001);
+    expect(cfg.proxy.listen.host).toBe("127.0.0.1");
+    expect(cfg.project.name).toBe("night");
+    expect(cfg.services.api?.logs.stdout).toBe(true);
+    const entry = configDiff(cfg).find((item) => item.path === "proxy.enabled");
+    expect(entry?.value).toBe(false);
+    expect(entry?.layer).toBe("session_overlay");
+    expect(entry?.source).toBe(join(dir, ".devctl", "overlays", "night.yaml"));
+    expect(entry?.shadowed.map((item) => item.layer)).toContain("main");
+  });
+
+  test("a missing session overlay file fails with a clear error", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-session-overlay-missing-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", "version: 1\nservices:\n  api:\n    command: echo hi\n");
+    expect(() => loadPath(dir, join(dir, ".devctl", "config.yaml"), { overlay: "missing" })).toThrow(
+      'overlay "missing" not found: .devctl/overlays/missing.yaml',
+    );
   });
 });

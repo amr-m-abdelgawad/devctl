@@ -33,6 +33,8 @@ flowchart LR
 
 The daemon remembers each service's `client_env` only in memory, per service, never on disk. A crash/health-triggered auto-restart or an MCP-initiated `start`/`restart` reuses the last one a real client supplied; a service that has never been started/restarted by a real client this daemon's lifetime — e.g. one adopted from a prior session by `recoverSession()` — has none, and falls back to the daemon's own (possibly stale) environment.
 
+`devctl start --env KEY=VAL` (repeatable) overlays those keys on `client_env` for this start only. Values may contain `=`. Missing `=` is an error. Named `devctl start --env FOO=bar api` applies `FOO` to `api` only — not to dependencies or other services that start in the same wave. A profile-only start with no service names applies `--env` to every service that start actually launches (the resolved start set). These overrides are ephemeral: in-memory `client_env` only, not YAML and not `state.json`. Process-env-sized `client_env` still comes from the calling client's OS environment; `--env` wins for the targeted keys.
+
 This memory does not survive the daemon process itself being replaced (upgrade, crash, `devctl down` then a fresh start): a new daemon starts with no client history at all, so anything it restarts before a client issues a fresh `start`/`restart` runs on whatever environment that new daemon process itself inherited at spawn. If a service depends on env that changed since the daemon last started, restart it explicitly (`devctl restart <service>` or the TUI) rather than relying on an automatic restart to pick it up.
 
 ## Runtime-generated variables
@@ -78,7 +80,7 @@ services:
 
 Each overlay is an `EnvConfig` (`vars` / `defaults` / `required`) merged onto the service's base `environment` — named keys win, `required` is the union (including when a template and a service both declare `required` on the same named overlay). `default_environment` is the YAML default when nothing is selected for this session; if omitted, the first name alphabetically wins.
 
-Selection is **session state** (`~/.devctl/state/<repo>/state.json` `service_environments`), not YAML. Switch one service at a time:
+Selection is **session state** (`~/.devctl/state/<repo>/state.json` `service_environments`), not YAML. This is separate from `devctl start --overlay`, which selects a whole-config file under `.devctl/overlays/`. Switch one service at a time:
 
 - TUI: `e` or `/env` on the dashboard, services, or detail screens. Switching a running service asks: Enter = switch only, `r` = switch and restart.
 - CLI: `devctl env invoices-api deployed`

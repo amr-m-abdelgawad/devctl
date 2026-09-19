@@ -7,7 +7,7 @@ import { ProcessManager, inspectProcess, processAlive } from "../adapters/proces
 import { TokenManager, googleTokenProviders } from "../adapters/google/token.ts";
 import { systemClock } from "../adapters/system/clock.ts";
 import { osFileSystem } from "../adapters/system/filesystem.ts";
-import { loadOrEmpty, stopOnExit } from "../adapters/config/index.ts";
+import { discover, loadOrEmpty, stopOnExit } from "../adapters/config/index.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { FileSystem } from "../ports/filesystem.ts";
 import { ServiceOrchestrator } from "../application/orchestrator.ts";
@@ -18,7 +18,7 @@ import type { ProcessManager as Processes } from "../adapters/process/processes.
 import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
 import { createDaemonLogStore } from "../adapters/storage/worker-log-store.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
-import { acquireLock, newSessionID } from "../adapters/storage/storage.ts";
+import { acquireLock, newSessionID, persistedConfigOverlay } from "../adapters/storage/storage.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
 import { McpHttpServer } from "../presentation/mcp/server.ts";
 import { WebHttpServer } from "../presentation/web/server.ts";
@@ -118,7 +118,13 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // already decided one should exist, so a missing configuration here means
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An
   // invalid configuration still throws.
-  const cfg = loadOrEmpty(repoRoot, configPath);
+  let overlay: string | undefined;
+  try {
+    overlay = persistedConfigOverlay(discover(repoRoot, configPath).repoRoot);
+  } catch {
+    overlay = undefined;
+  }
+  const cfg = loadOrEmpty(repoRoot, configPath, { overlay });
   const { supervisor: sup } = await createDaemon(cfg);
   // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
   // but it can also receive a signal directly (system shutdown, an

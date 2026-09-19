@@ -55,17 +55,27 @@ export function addStart(root: Command, runtime: ClientRuntime): void {
     .command("start")
     .argument("[services...]", "services to start")
     .option("--profile <name>", "profile to start")
+    .option("--overlay <name>", "apply .devctl/overlays/<name>.yaml for this session (sticky like --profile)")
+    .option("--env <kv>", "set KEY=VAL on this start for targeted services (repeatable)", collectRepeatable, [] as string[])
     .option("--detach", "deprecated, no longer changes behavior: the daemon already outlives this command; use `devctl down` to stop it")
     .option("--json", "machine-readable output")
-    .action(async (services: string[], opts: { profile?: string; detach?: boolean; json?: boolean }) => {
+    .action(async (services: string[], opts: { profile?: string; overlay?: string; env?: string[]; detach?: boolean; json?: boolean }) => {
       if (opts.detach) {
         process.stderr.write(
           "warning: --detach is deprecated and no longer changes behavior — the daemon already keeps running after `start` exits; use `devctl down` to stop it\n",
         );
       }
+      const extra_env = parseEnvPairs(opts.env);
+      const overlay = opts.overlay && opts.overlay !== "" ? opts.overlay : undefined;
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
-        const plan = await ctrl.start({ services, profile: opts.profile, detach: opts.detach === true });
+        const plan = await ctrl.start({
+          services,
+          profile: opts.profile,
+          overlay,
+          extra_env: Object.keys(extra_env).length > 0 ? extra_env : undefined,
+          detach: opts.detach === true,
+        });
         if (opts.json) {
           writeOut(JSON.stringify(plan, null, 2) + "\n");
           return;
@@ -78,6 +88,22 @@ export function addStart(root: Command, runtime: ClientRuntime): void {
         await ctrl.close();
       }
     });
+}
+
+export function collectRepeatable(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
+export function parseEnvPairs(pairs: string[] | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of pairs ?? []) {
+    const eq = pair.indexOf("=");
+    if (eq <= 0) {
+      throw new Error(`invalid --env "${pair}": expected KEY=VAL`);
+    }
+    out[pair.slice(0, eq)] = pair.slice(eq + 1);
+  }
+  return out;
 }
 
 export function addStop(root: Command, runtime: ClientRuntime): void {

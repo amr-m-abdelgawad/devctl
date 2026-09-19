@@ -385,11 +385,15 @@ duplicate-route-name check.
 
 Overlays merge after the repo config, later wins:
 built-in defaults → repo `.devctl` → `~/.devctl/config.local.yaml` →
-`.devctl/config.local.yaml` — the repo-local overlay wins over the home one.
-Overlays are presence-aware:
+`.devctl/config.local.yaml` → `.devctl/overlays/<name>.yaml` (session,
+`devctl start --overlay <name>`). The repo-local overlay wins over the home
+one; a session overlay wins over both locals. Session overlays use the **same
+keys** as `config.local.yaml` — they are not a second language. Presence-aware:
 `false`, `0` and
 empty collections in an overlay do override, so `proxy.enabled: false` in a
-local overlay genuinely turns the proxy off.
+local or session overlay genuinely turns the proxy off. A missing
+`--overlay` name fails with `overlay "X" not found: .devctl/overlays/X.yaml`.
+Named overlay files may be committed; do not gitignore all of `overlays/`.
 
 ---
 

@@ -81,7 +81,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -133,6 +133,7 @@ export class Supervisor {
   // No configuration on disk yet — see StatusSnapshot.setup_mode. Cleared by
   // the first reload that successfully loads one.
   private setupMode: boolean;
+  private configOverlay?: string;
   private readonly serviceWatchers: ServiceWatchers;
   private pluginMtimes = new Map<string, number>();
 
@@ -169,6 +170,7 @@ export class Supervisor {
   ) {
     this.healthCheckers = deps.healthCheckers;
     this.cfg = cfg;
+    this.configOverlay = persistedConfigOverlay(cfg.repoRoot);
     this.sessionID = deps.sessionID;
     this.internalTok = randomSecret();
     this.clock = deps.clock;
@@ -388,6 +390,7 @@ export class Supervisor {
       get proxy() { return self.proxy.instance; },
       get recipes() { return self.recipes; },
       persistState: () => self.persistState(),
+      get configOverlay() { return self.configOverlay; },
       log: (service, level, message) => self.log(service, level, message),
       refreshIdentity: () => self.refreshIdentity(),
       startProxy: () => self.startProxy(),
@@ -430,6 +433,8 @@ export class Supervisor {
       processAliveFn: (pid) => self.processAliveFn(pid),
       serviceWorkDir: (svc) => self.serviceWorkDir(svc),
       persistState: () => self.persistState(),
+      get configOverlay() { return self.configOverlay; },
+      set configOverlay(value) { self.configOverlay = value; },
       setState: (name, state, health, pid, lastError) => self.setState(name, state, health, pid, lastError),
       log: (service, level, message) => self.log(service, level, message),
     };
@@ -486,8 +491,10 @@ export class Supervisor {
         return this.commands.startService.execute({
           services: asStringArray(rec.services),
           profile: typeof rec.profile === "string" && rec.profile !== "" ? rec.profile : undefined,
+          overlay: typeof rec.overlay === "string" && rec.overlay !== "" ? rec.overlay : undefined,
           detach: rec.detach === true,
           client_env: asStringRecord(rec.client_env),
+          extra_env: asStringRecord(rec.extra_env),
         });
       case "stop":
         await this.commands.stopService.execute(asStringArray(rec.services));
@@ -616,7 +623,22 @@ export class Supervisor {
   }
 
   async start(req: StartRequest): Promise<Plan> {
+    await this.applySessionOverlay(req.overlay);
     return this.orchestrator.start(req);
+  }
+
+  private async applySessionOverlay(name?: string): Promise<void> {
+    if (!name) {
+      return;
+    }
+    const previous = this.configOverlay;
+    this.configOverlay = name;
+    try {
+      await this.reload();
+    } catch (err) {
+      this.configOverlay = previous;
+      throw err;
+    }
   }
 
   private lifecycleSession(): LifecycleSession {
@@ -1143,6 +1165,7 @@ export class Supervisor {
       profile: this.profile,
       processes,
       service_environments,
+      config_overlay: this.configOverlay,
     });
   }
 

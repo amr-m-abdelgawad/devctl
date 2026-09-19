@@ -5,7 +5,7 @@ The CLI and the TUI share one supervisor. Global flag: `--config <path>` (file o
 ```text
 devctl                         # TUI (attaches to a daemon, spawning one if none is running)
 devctl version
-devctl start [svc…] [--profile] [--detach] [--json]
+devctl start [svc…] [--profile] [--overlay <name>] [--env KEY=VAL] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--cascade] [--json]
 devctl run <task> [--json]
@@ -29,7 +29,7 @@ devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--rotate] [--json]
 devctl web status|start|stop
-devctl config validate|show|diff [--json]
+devctl config validate|show|diff [--json] [--overlay <name>]
 devctl attach
 devctl completion zsh|bash|fish
 devctl update [--json] [--check]
@@ -44,6 +44,8 @@ devctl update [--json] [--check]
 ![devctl status — per-service state and health, plus the proxy, MCP, and web listener addresses](assets/manual/cli-status.png)
 
 - `start` with `--profile` starts **exactly** that profile’s members. Omitted dependencies are not spawned; point members at deployed backends with `environments` / `service_environment` (see [Profiles](profiles.md)).
+- `start --overlay <name>` merges `.devctl/overlays/<name>.yaml` after `config.local.yaml` (same keys, presence-aware). The name is sticky for the session like `--profile` — omit it on later starts to keep it. Recorded in `state.json` as `config_overlay`. A missing file fails with `overlay "X" not found: .devctl/overlays/X.yaml`.
+- `start --env KEY=VAL` (repeatable) overlays those keys on this start’s `client_env` for the services named on the command. A profile-only start with no names applies them to every service that start launches. Ephemeral: not written to YAML or `state.json`.
 - `start` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
 - `start` always ensures a daemon and leaves it (and its services) running after the command exits — that is not conditional on any flag.
 - `--detach` is **deprecated**: it predates that always-on daemon and no longer changes behavior. Passing it prints a warning on stderr; it does nothing else.

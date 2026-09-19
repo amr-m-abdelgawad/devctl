@@ -1633,6 +1633,106 @@ describe("reload reconciliation", () => {
     writeFileSync(configPath, yaml);
   }
 
+  test("state.json round-trips config_overlay and reload applies it", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl", "overlays"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: main
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    writeFileSync(
+      join(dir, ".devctl", "overlays", "night.yaml"),
+      `project:
+  name: night
+proxy:
+  enabled: false
+`,
+    );
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    expect(cfg.proxy.enabled).toBe(true);
+    cfg.logs.persistence.enabled = false;
+    writePersistedState(dir, {
+      session_id: "2026-08-30T00-00-00Z-abc123",
+      repo_root: dir,
+      profile: "",
+      processes: [],
+      config_overlay: "night",
+    });
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.reload();
+      const snap = (await sup.dispatch("config_snapshot", null)) as { proxy: { enabled: boolean }; project: { name: string } };
+      expect(snap.proxy.enabled).toBe(false);
+      expect(snap.project.name).toBe("night");
+      expect(readPersistedState(dir)?.config_overlay).toBe("night");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("start overlay persists the name, reloads, and fails on a missing file", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl", "overlays"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: main
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    writeFileSync(
+      join(dir, ".devctl", "overlays", "night.yaml"),
+      `project:
+  name: night
+proxy:
+  enabled: false
+`,
+    );
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await expect(sup.start({ services: ["api"], overlay: "missing" })).rejects.toThrow(
+        'overlay "missing" not found: .devctl/overlays/missing.yaml',
+      );
+      expect(readPersistedState(dir)?.config_overlay).toBeUndefined();
+      await sup.start({ services: ["api"], overlay: "night" });
+      const snap = (await sup.dispatch("config_snapshot", null)) as { proxy: { enabled: boolean }; project: { name: string } };
+      expect(snap.proxy.enabled).toBe(false);
+      expect(snap.project.name).toBe("night");
+      expect(readPersistedState(dir)?.config_overlay).toBe("night");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
   test("a service added by reload appears immediately, stopped", async () => {
     const dir = tmp();
     mkdirSync(join(dir, ".devctl"), { recursive: true });

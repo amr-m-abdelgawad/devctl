@@ -17,9 +17,16 @@ import { validate } from "./validate.ts";
 // drifts out of sync. candidateText is the hook: it substitutes the given
 // text at the point loadPath() would otherwise read configPath from disk,
 // and everything downstream of that runs exactly as it does for a real load.
-export function validateConfigText(repoRoot: string, configPath: string, text: string): string[] {
+export type LoadOpts = {
+  candidateText?: string;
+  // Session overlay stem: `.devctl/overlays/<name>.yaml`. Applied after
+  // home + repo `config.local.yaml` so the session layer wins.
+  overlay?: string;
+};
+
+export function validateConfigText(repoRoot: string, configPath: string, text: string, overlay?: string): string[] {
   try {
-    loadPath(repoRoot, configPath, { candidateText: text });
+    loadPath(repoRoot, configPath, { candidateText: text, overlay });
     return [];
   } catch (err) {
     // One array entry per distinct problem would be nice, but the underlying
@@ -38,9 +45,9 @@ export function validateConfigText(repoRoot: string, configPath: string, text: s
   }
 }
 
-export function load(startDir: string, explicit: string): DevctlConfig {
+export function load(startDir: string, explicit: string, opts?: LoadOpts): DevctlConfig {
   const { repoRoot, configPath } = discover(startDir, explicit);
-  return loadPath(repoRoot, configPath);
+  return loadPath(repoRoot, configPath, opts);
 }
 
 // load(), except that "there is no configuration yet" yields an empty config
@@ -52,9 +59,9 @@ export function load(startDir: string, explicit: string): DevctlConfig {
 // Only KindConfigurationMissing is swallowed. A configuration that exists but
 // is invalid still throws: silently replacing a broken config with an empty
 // one would hide the user's real error and invite an agent to overwrite it.
-export function loadOrEmpty(startDir: string, explicit: string): DevctlConfig {
+export function loadOrEmpty(startDir: string, explicit: string, opts?: LoadOpts): DevctlConfig {
   try {
-    return load(startDir, explicit);
+    return load(startDir, explicit, opts);
   } catch (err) {
     if (!isKind(err, KindConfigurationMissing)) {
       throw err;
@@ -70,7 +77,7 @@ export function loadOrEmpty(startDir: string, explicit: string): DevctlConfig {
   }
 }
 
-export function loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig {
+export function loadPath(repoRoot: string, configPath: string, opts?: LoadOpts): DevctlConfig {
   let cfg = defaultConfig();
   const presence = newConfigPresence();
   decodeFile(configPath, cfg, presence, opts?.candidateText, "main");
@@ -81,6 +88,7 @@ export function loadPath(repoRoot: string, configPath: string, opts?: { candidat
     loadModular(dir, cfg, presence);
   }
   cfg = applyLocalOverlays(cfg, repoRoot, configPath, presence);
+  cfg = applySessionOverlay(cfg, repoRoot, configPath, presence, opts?.overlay);
   cfg = migrate(cfg);
   try {
     applyTemplates(cfg, presence);
@@ -109,6 +117,33 @@ function applyLocalOverlays(cfg: DevctlConfig, repoRoot: string, configPath: str
     // the main file and any modular files have already contributed.
     decodeFile(path, cfg, presence, undefined, path === homeLocal ? "home_local" : "repo_local");
   }
+  return cfg;
+}
+
+export function sessionOverlayRelPath(name: string): string {
+  return `${ConfigDirName}/overlays/${name}.yaml`;
+}
+
+export function sessionOverlayPath(repoRoot: string, name: string): string {
+  return join(repoRoot, ConfigDirName, "overlays", `${name}.yaml`);
+}
+
+function applySessionOverlay(cfg: DevctlConfig, repoRoot: string, configPath: string, presence: ConfigPresence, overlay?: string): DevctlConfig {
+  const name = overlay?.trim() ?? "";
+  if (name === "") {
+    return cfg;
+  }
+  if (name.includes("/") || name.includes("\\") || name.includes("..") || basename(name) !== name) {
+    throw newError(KindConfiguration, `overlay "${name}" not found: ${sessionOverlayRelPath(name)}`);
+  }
+  const path = sessionOverlayPath(repoRoot, name);
+  if (path === configPath) {
+    return cfg;
+  }
+  if (!fileExists(path)) {
+    throw newError(KindConfiguration, `overlay "${name}" not found: ${sessionOverlayRelPath(name)}`);
+  }
+  decodeFile(path, cfg, presence, undefined, "session_overlay");
   return cfg;
 }
 

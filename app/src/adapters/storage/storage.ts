@@ -196,6 +196,11 @@ export function writePersistedState(repoRoot: string, state: PersistedState): vo
   writeFileSecure(statePath(repoRoot), `${JSON.stringify(state, null, 2)}\n`);
 }
 
+export function persistedConfigOverlay(repoRoot: string): string | undefined {
+  const name = readPersistedState(repoRoot)?.config_overlay;
+  return name && name !== "" ? name : undefined;
+}
+
 export type LockFile = {
   pid: number;
   socket: string;

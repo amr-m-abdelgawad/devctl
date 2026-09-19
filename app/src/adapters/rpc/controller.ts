@@ -1,6 +1,6 @@
 import { createConnection, type Socket } from "node:net";
 import { spawn } from "bun";
-import { type DevctlConfig, defaultConfig, load, loadOrEmpty } from "../config/index.ts";
+import { type DevctlConfig, defaultConfig, discover, load, loadOrEmpty } from "../config/index.ts";
 import { resolveDaemonTarget } from "../daemon/daemon.ts";
 import { osEnviron } from "../environment/environment.ts";
 import { KindGeneral, hintError, parseError, wrapError } from "../../shared/errors.ts";
@@ -9,7 +9,7 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogPath, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogPath, persistedConfigOverlay, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -529,6 +529,14 @@ export async function findDaemon(startDir: string, explicitRepo: string, explici
   return { repoRoot: target.repoRoot, client };
 }
 
+function overlayFromPersisted(startDir: string, configPath: string): string | undefined {
+  try {
+    return persistedConfigOverlay(discover(startDir, configPath).repoRoot);
+  } catch {
+    return undefined;
+  }
+}
+
 // allowMissingConfig is opt-in and belongs to exactly one caller: `devctl mcp
 // --on`, which must be able to bring a daemon up in a repository that has no
 // .devctl yet so an agent can be pointed at the MCP server and asked to
@@ -540,7 +548,9 @@ export async function openController(
   startSupervisor: boolean,
   opts?: { allowMissingConfig?: boolean },
 ): Promise<Controller> {
-  const cfg = opts?.allowMissingConfig === true ? loadOrEmpty(startDir, configPath) : load(startDir, configPath);
+  const cfg = opts?.allowMissingConfig === true
+    ? loadOrEmpty(startDir, configPath, { overlay: overlayFromPersisted(startDir, configPath) })
+    : load(startDir, configPath, { overlay: overlayFromPersisted(startDir, configPath) });
   const ctrl = new Controller(cfg);
   if (!startSupervisor) {
     ctrl.client = await tryDial(cfg.repoRoot);
@@ -587,7 +597,7 @@ export async function openTui(startDir: string, configPath: string): Promise<Con
   if (existing) {
     return attachAndSnapshot(existing);
   }
-  const cfg = load(startDir, configPath);
+  const cfg = load(startDir, configPath, { overlay: overlayFromPersisted(startDir, configPath) });
   const ctrl = new Controller(cfg);
   const leftover = readPersistedState(cfg.repoRoot);
   ctrl.client = await ensureSupervisor(cfg.repoRoot, cfg.configPath);

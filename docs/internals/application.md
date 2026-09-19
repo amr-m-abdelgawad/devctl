@@ -33,8 +33,10 @@ Classes with `execute(...)`. They exist so CLI, TUI, MCP, and RPC dispatch the s
 
 ### `start`
 
+The supervisor applies a session `overlay` (persist + reload) before `orchestrator.start`.
+
 1. Resolve names/profile (`resolveStartRequest`). Empty `profile` from RPC/MCP is “omitted”, not “clear stored profile”.
-2. Store `client_env` per service **only if the request carried one** (MCP/internal starts must not blank a previous real client env).
+2. Store `client_env` per service **only if the request carried one** (MCP/internal starts must not blank a previous real client env). `extra_env` then overlays those keys for `req.services` names, or for the full resolved set on a profile-only start.
 3. Reset restart counts unless `req.auto`.
 4. Compute waves; compute `identityBlockers`; `fail()` blocked services.
 5. Auto-start proxy unless `proxySuppressed`.

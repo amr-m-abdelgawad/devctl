@@ -6,10 +6,17 @@ export type StartRequest = {
   services?: string[];
   profile?: string;
   detach?: boolean;
+  // Session-selected `.devctl/overlays/<name>.yaml`. Sticky like profile:
+  // a later start that omits this field keeps the recorded name.
+  overlay?: string;
   // The calling client's own OS environment, forwarded so the daemon can
   // resolve each started service's env from whichever client most recently
   // started/restarted it, rather than the daemon's own stale process.env.
   client_env?: Record<string, string>;
+  // Ephemeral KEY=VAL overrides for this start only (not YAML, not state).
+  // Applied on top of `client_env` for `services` names when those are set,
+  // or for the full resolved start set on a profile-only start.
+  extra_env?: Record<string, string>;
   // Internal only: marks a start the supervisor issued for its own
   // automatic (health-triggered) restart, as opposed to one a real client
   // asked for. A real caller should never set this — it suppresses the

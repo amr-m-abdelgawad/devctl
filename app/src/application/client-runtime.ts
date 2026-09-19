@@ -72,9 +72,9 @@ export type ClientRuntime = {
   patchRepoLocalConfig(repoRoot: string, patch: LocalWebPatch): string;
   listSessions(root?: string): string[];
   loadSessionEvents(session: string, root?: string): LogEvent[];
-  load(startDir: string, explicit: string): DevctlConfig;
-  loadOrEmpty(startDir: string, explicit: string): DevctlConfig;
-  loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string }): DevctlConfig;
+  load(startDir: string, explicit: string, opts?: { overlay?: string; candidateText?: string }): DevctlConfig;
+  loadOrEmpty(startDir: string, explicit: string, opts?: { overlay?: string; candidateText?: string }): DevctlConfig;
+  loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string; overlay?: string }): DevctlConfig;
   validate(cfg: DevctlConfig): string[];
   validateConfigText(repoRoot: string, configPath: string, text: string): string[];
   discover(startDir: string, explicit: string): { repoRoot: string; configPath: string };

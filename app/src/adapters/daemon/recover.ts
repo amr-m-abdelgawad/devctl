@@ -44,6 +44,7 @@ export type RecoverHost = {
   persistState(): void;
   setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void;
   log(service: string, level: string, message: string): void;
+  configOverlay?: string;
 };
 
 export async function resolveAdoptedHealthEnv(
@@ -198,6 +199,9 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
   }
   restorePersistedLaunchContext(host, persisted.profile);
   restorePersistedServiceEnvironments(host, persisted.service_environments ?? {});
+  if (persisted.config_overlay) {
+    host.configOverlay = persisted.config_overlay;
+  }
   const adopted: string[] = [];
   for (const [name, svc] of Object.entries(host.cfg.services)) {
     if (!svc.container) continue;

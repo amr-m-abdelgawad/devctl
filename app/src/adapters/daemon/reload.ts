@@ -48,6 +48,8 @@ export type ReloadHost = {
   readonly proxy?: { isRunning(): boolean; setMiddleware?(middleware: ProxyMiddleware[]): void };
   readonly recipes?: { reset(): void };
   persistState(): void;
+  // Recorded session overlay stem; reload must keep applying it.
+  configOverlay?: string;
   log(service: string, level: string, message: string): void;
   refreshIdentity(): Promise<void>;
   startProxy(): Promise<void>;
@@ -255,7 +257,7 @@ export function watchConfig(host: ReloadHost): void {
 export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> {
   let next: DevctlConfig;
   try {
-    next = load(host.cfg.repoRoot, host.cfg.configPath);
+    next = load(host.cfg.repoRoot, host.cfg.configPath, { overlay: host.configOverlay });
   } catch (err) {
     // this.cfg is untouched at this point, so the daemon keeps running on
     // its last-known-good config — but an already-attached client (which

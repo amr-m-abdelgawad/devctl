@@ -34,7 +34,7 @@ Waves: `startupPlan` returns `Plan { profile, steps, waves, blockers? }`. A conf
 
 Wire/UI snapshots: `StartRequest`, `StatusSnapshot`, `IdentitySnapshot`, `ProxySnapshot`, `McpSnapshot`, `ReloadResult`, `TraceResponse`, `CredentialEntrySnapshot`, log/LLM page aliases used across RPC. Keep this module free of adapter classes.
 
-`StartRequest.auto` is **internal**. Only health-triggered restarts set it so the restart counter is not reset.
+`StartRequest.auto` is **internal**. Only health-triggered restarts set it so the restart counter is not reset. `overlay` is the sticky session config layer; `extra_env` is ephemeral process-env for targeted services.
 
 ## `domain/identity/`
 

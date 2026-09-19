@@ -100,6 +100,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
         s.clientEnv.set(name, req.client_env);
       }
     }
+    applyExtraEnv(s.clientEnv, req, resolved.services);
     // A real start request forgives past restarts for everything it names —
     // see resetRestartCount. `auto` marks a start restart() issued for its
     // own automatic (health-triggered) relaunch, which must preserve the
@@ -493,6 +494,26 @@ function namesNeedingHealthWait(wave: string[], remaining: string[], plan: Plan)
     }
   }
   return [...needed];
+}
+
+function extraEnvTargets(req: StartRequest, resolved: string[]): string[] {
+  const named = (req.services ?? []).filter((name) => name !== "");
+  if (named.length === 0) {
+    return resolved;
+  }
+  const allowed = new Set(resolved);
+  return named.filter((name) => allowed.has(name));
+}
+
+function applyExtraEnv(clientEnv: Map<string, Record<string, string>>, req: StartRequest, resolved: string[]): void {
+  const extra = req.extra_env;
+  if (!extra || Object.keys(extra).length === 0) {
+    return;
+  }
+  for (const name of extraEnvTargets(req, resolved)) {
+    const base = clientEnv.get(name) ?? req.client_env ?? {};
+    clientEnv.set(name, { ...base, ...extra });
+  }
 }
 
 function sleep(ms: number): Promise<void> {
