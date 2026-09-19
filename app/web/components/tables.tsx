@@ -82,8 +82,11 @@ export function RequestTable(props: { requests: RequestRow[]; onJumpRequest?: (i
   );
 }
 
-export function logRowKey(row: LogRow): string {
-  return `${row.seq ?? "x"}:${row.timestamp}:${row.service}:${row.message}`;
+export function logRowKey(row: LogRow, index: number): string {
+  if (typeof row.seq === "number") {
+    return `seq:${row.seq}`;
+  }
+  return `row:${index}`;
 }
 
 export function LogTable(props: { events: LogRow[]; showTrace?: boolean; selected?: string; onSelect?: (key: string) => void }) {
@@ -103,15 +106,27 @@ export function LogTable(props: { events: LogRow[]; showTrace?: boolean; selecte
         </TableRow>
       </TableHeader>
       <TableBody>
-        {events.slice().reverse().map((row) => {
+        {events.map((row, index) => ({ row, key: logRowKey(row, index) })).reverse().map(({ row, key }) => {
           const level = row.level || row.severityText || "info";
           const isError = level.toLowerCase().includes("error") || level.toLowerCase() === "fatal";
-          const key = logRowKey(row);
+          const selectable = Boolean(onSelect);
           return (
             <TableRow
               key={key}
-              className={cn(isError ? "bg-destructive/[0.06]" : undefined, selected === key ? "bg-primary/10" : onSelect ? "cursor-pointer hover:bg-accent/40" : undefined)}
+              tabIndex={selectable ? 0 : undefined}
+              aria-selected={selectable ? selected === key : undefined}
+              className={cn(
+                isError ? "bg-destructive/[0.06]" : undefined,
+                selected === key ? "bg-primary/10" : selectable ? "cursor-pointer hover:bg-accent/40" : undefined,
+                selectable ? "outline-none focus-visible:bg-accent/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring" : undefined,
+              )}
               onClick={onSelect ? () => onSelect(key) : undefined}
+              onKeyDown={onSelect ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(key);
+                }
+              } : undefined}
             >
               <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{clockMs(row.timestamp)}</TableCell>
               <TableCell>

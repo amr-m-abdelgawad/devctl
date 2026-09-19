@@ -47,12 +47,12 @@ export function prettyJson(value: unknown): string {
   }
 }
 
-export function coerceJsonInput(input: unknown): JsonInput {
+export function coerceJsonInput(input: unknown, parseStrings = true): JsonInput {
   if (input === undefined) {
     return { kind: "text", value: undefined, pretty: "" };
   }
   if (typeof input === "string") {
-    return coerceJsonString(input);
+    return parseStrings ? coerceJsonString(input) : { kind: "text", value: input, pretty: input };
   }
   if (isJsonValue(input)) {
     return { kind: "json", value: input, pretty: prettyJson(input) };
@@ -66,7 +66,13 @@ export function formatJsonPath(path: readonly JsonPathSegment[]): string {
   }
   let out = "$";
   for (const segment of path) {
-    out += typeof segment === "number" ? `[${segment}]` : `.${segment}`;
+    if (typeof segment === "number") {
+      out += `[${segment}]`;
+    } else if (isIdentKey(segment)) {
+      out += `.${segment}`;
+    } else {
+      out += `[${JSON.stringify(segment)}]`;
+    }
   }
   return out;
 }
@@ -283,7 +289,7 @@ function collectJsonNodes(
 }
 
 function jsonNodeId(path: readonly JsonPathSegment[]): string {
-  return formatJsonPath(path);
+  return JSON.stringify(path);
 }
 
 function walkJson(
@@ -323,7 +329,7 @@ function walkJson(
 }
 
 function forceExpandMatches(value: unknown, collapsed: Set<string>, search: string, parseEmbedded: boolean): void {
-  const keepOpen = new Set<string>(["$"]);
+  const keepOpen = new Set<string>([jsonNodeId([])]);
   for (const row of collectJsonNodes(value, new Set(), parseEmbedded, search)) {
     if (row.matched) {
       addAncestorIds(row.path, keepOpen);
@@ -338,11 +344,15 @@ function forceExpandMatches(value: unknown, collapsed: Set<string>, search: stri
 
 function addAncestorIds(path: readonly JsonPathSegment[], keepOpen: Set<string>): void {
   let prefix: JsonPathSegment[] = [];
-  keepOpen.add("$");
+  keepOpen.add(jsonNodeId([]));
   for (const segment of path) {
     keepOpen.add(jsonNodeId(prefix));
     prefix = [...prefix, segment];
   }
+}
+
+function isIdentKey(key: string): boolean {
+  return /^[A-Za-z_$][\w$]*$/.test(key);
 }
 
 function nodeMatches(path: readonly JsonPathSegment[], value: unknown, search: string): boolean {

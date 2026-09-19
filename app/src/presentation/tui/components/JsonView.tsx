@@ -17,9 +17,10 @@ export function JsonView(props: {
   compact?: boolean;
   wide?: boolean;
   maxChars?: number;
+  parseStrings?: boolean;
 }) {
-  const { palette, input, compact = false, wide = true, maxChars } = props;
-  const coerced = coerceJsonInput(input);
+  const { palette, input, compact = false, wide = true, maxChars, parseStrings = true } = props;
+  const coerced = coerceJsonInput(input, parseStrings);
   if (coerced.pretty === "") {
     return <text fg={palette.muted}>{"empty"}</text>;
   }
@@ -33,7 +34,7 @@ export function JsonView(props: {
   if (compact) {
     return <JsonPretty palette={palette} pretty={clipPretty(coerced.pretty, maxChars)} wide={wide} />;
   }
-  return <JsonTree palette={palette} input={coerced.value} />;
+  return <JsonTree palette={palette} input={coerced.value} signature={coerced.pretty} />;
 }
 
 function JsonPretty(props: { palette: Palette; pretty: string; wide: boolean }) {
@@ -49,12 +50,12 @@ function JsonPretty(props: { palette: Palette; pretty: string; wide: boolean }) 
   );
 }
 
-function JsonTree(props: { palette: Palette; input: unknown }) {
-  const { palette, input } = props;
+function JsonTree(props: { palette: Palette; input: unknown; signature: string }) {
+  const { palette, input, signature } = props;
   const [collapsed, setCollapsed] = useState(() => initialCollapsedIds(input, JSON_DEFAULT_EXPAND_DEPTH));
   useEffect(() => {
     setCollapsed(initialCollapsedIds(input, JSON_DEFAULT_EXPAND_DEPTH));
-  }, [input]);
+  }, [signature]);
   const rows = visibleJsonTree(input, { collapsed });
   return (
     <box flexDirection="column" overflow="hidden">

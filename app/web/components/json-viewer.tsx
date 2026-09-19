@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useState, type KeyboardEvent, type ReactNode } from "react";
 import { CaretDownIcon, CaretRightIcon, CheckIcon, CodeIcon, CopyIcon, TreeStructureIcon } from "../icons.ts";
 import {
   coerceJsonInput,
@@ -44,21 +44,23 @@ export function JsonViewer(props: {
   needle?: string;
   wrap?: boolean;
   className?: string;
+  parseStrings?: boolean;
 }) {
-  const { title, input, needle = "", wrap = true, className } = props;
-  const coerced = useMemo(() => coerceJsonInput(input), [input]);
+  const { title, input, needle = "", wrap = true, className, parseStrings = true } = props;
+  const coerced = useMemo(() => coerceJsonInput(input, parseStrings), [input, parseStrings]);
+  const signature = coerced.pretty;
   const [view, setView] = useState<ViewMode>(readViewMode);
   const [collapsed, setCollapsed] = useState(() => initialCollapsedIds(input));
   const [selected, setSelected] = useState<readonly JsonPathSegment[]>([]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     setCollapsed(initialCollapsedIds(input));
     setSelected([]);
-  }, [input]);
+  }, [signature]);
   const rows = useMemo(
     () => visibleJsonTree(input, { collapsed, needle }),
     [input, collapsed, needle],
   );
-  const selectedId = formatJsonPath(selected);
+  const selectedId = JSON.stringify(selected);
   const selectedRow = rows.find((row) => row.id === selectedId);
   const search = needle.trim();
   const matched = search.length < JSON_FIND_MIN || coerced.pretty.toLowerCase().includes(search.toLowerCase()) || rows.some((row) => row.matched);
@@ -182,6 +184,7 @@ function TreePane(props: {
   onSetCollapsed: (id: string, nextCollapsed: boolean) => void;
 }) {
   const { rows, selectedId, collapsed, onSelect, onToggle, onSetCollapsed } = props;
+  const activeId = rows.some((row) => row.id === selectedId) ? treeItemDomId(selectedId) : undefined;
   const onKey = (event: KeyboardEvent<HTMLDivElement>): void => {
     const index = Math.max(0, rows.findIndex((row) => row.id === selectedId));
     const current = rows[index];
@@ -212,6 +215,7 @@ function TreePane(props: {
     <div
       role="tree"
       tabIndex={0}
+      aria-activedescendant={activeId}
       onKeyDown={onKey}
       className="json-tree max-h-[min(40rem,70vh)] overflow-auto rounded-md bg-muted/40 px-1.5 py-1.5 font-mono text-[12px] leading-6 outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
@@ -239,6 +243,7 @@ function TreeRow(props: {
   const { row, selected, collapsed, onSelect, onToggle } = props;
   return (
     <div
+      id={treeItemDomId(row.id)}
       role="treeitem"
       aria-expanded={row.expandable ? !collapsed : undefined}
       aria-selected={selected}
@@ -250,19 +255,22 @@ function TreeRow(props: {
       )}
       onClick={onSelect}
     >
-      <button
-        type="button"
-        className="mt-0.5 size-4 shrink-0 text-muted-foreground"
-        onClick={(event) => {
-          event.stopPropagation();
-          if (row.expandable) {
+      {row.expandable ? (
+        <button
+          type="button"
+          tabIndex={-1}
+          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          onClick={(event) => {
+            event.stopPropagation();
             onToggle();
-          }
-        }}
-        aria-label={row.expandable ? "Toggle node" : "Leaf"}
-      >
-        {row.expandable ? (collapsed ? <CaretRightIcon className="size-3" /> : <CaretDownIcon className="size-3" />) : <span className="inline-block size-3" />}
-      </button>
+          }}
+          aria-label="Toggle node"
+        >
+          {collapsed ? <CaretRightIcon className="size-3" /> : <CaretDownIcon className="size-3" />}
+        </button>
+      ) : (
+        <span className="mt-0.5 inline-block size-4 shrink-0" aria-hidden />
+      )}
       {row.depth === 0 ? null : <span className="json-key">{row.key}</span>}
       {row.depth === 0 ? null : <span className="json-punct">:</span>}
       {row.expandable ? (
@@ -313,6 +321,10 @@ export function CopyTextButton(props: { text: string; label?: string }) {
       {label ? <span>{copied ? "Copied" : label}</span> : null}
     </Button>
   );
+}
+
+function treeItemDomId(id: string): string {
+  return `json-node-${id}`;
 }
 
 function copyValue(row: JsonTreeNode): string {

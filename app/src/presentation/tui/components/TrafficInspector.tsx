@@ -114,13 +114,13 @@ function JsonBody(props: { palette: Palette; call: TrafficCall; compact: boolean
       {request === "" ? null : (
         <>
           <text fg={palette.muted}>{"request"}</text>
-          <JsonView palette={palette} input={request} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} />
+          <JsonView palette={palette} input={request} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
         </>
       )}
       {response === "" ? null : (
         <>
           <text fg={palette.muted}>{"response"}</text>
-          <JsonView palette={palette} input={response} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} />
+          <JsonView palette={palette} input={response} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
         </>
       )}
     </box>

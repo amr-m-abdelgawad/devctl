@@ -62,7 +62,7 @@ export function LogsPage(props: {
     }
     return true;
   });
-  const selectedEvent = events.find((row) => logRowKey(row) === selected);
+  const selectedEvent = events.find((row, index) => logRowKey(row, index) === selected);
   return (
     <Card>
       <CardHeader>
