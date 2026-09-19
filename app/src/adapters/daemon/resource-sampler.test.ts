@@ -28,7 +28,10 @@ describe("resource sampler", () => {
     expect(sampler.series().cpu).toHaveLength(2);
   });
 
-  test("poll writes cpu/memory onto runtimes that have a live pid", async () => {
+  // Bun 1.4.2 on Windows can segfault in sampleResourceUsageWindows
+  // (PowerShell Get-Process spawn). processes.test.ts already skips the
+  // same hop; Linux still covers a live pid.
+  test.skipIf(process.platform === "win32")("poll writes cpu/memory onto runtimes that have a live pid", async () => {
     const rt = emptyRuntime("api");
     rt.state = StateHealthy;
     rt.pid = process.pid;
