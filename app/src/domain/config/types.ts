@@ -281,6 +281,9 @@ export type RouteInspectConfig = {
   enabled: boolean;
   max_bytes: number;
   grpc?: RouteInspectGrpcConfig;
+  // When true, text/event-stream responses are stored as SSE frames (or a
+  // reassembled OpenAI chat.completion). Default false: raw teed text.
+  capture_sse?: boolean;
 };
 
 export function emptyRouteInspect(): RouteInspectConfig {
@@ -298,6 +301,10 @@ export function routeInspectEnabled(route: RouteConfig): boolean {
 export function routeInspectMaxBytes(route: RouteConfig): number {
   const cap = route.inspect?.max_bytes ?? 0;
   return cap > 0 ? cap : DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
+}
+
+export function routeInspectCaptureSse(route: RouteConfig): boolean {
+  return route.inspect?.capture_sse === true;
 }
 
 export const ROUTE_GRPC_OK_LOG_INFO = "info";

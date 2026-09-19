@@ -536,6 +536,10 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "max_bytes": { "type": "number", "minimum": 0, "description": "Per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." },
+        "capture_sse": {
+          "type": "boolean",
+          "description": "When true and the response Content-Type is text/event-stream (prefix or charset parameter), store parsed SSE frames instead of the raw event-stream text. Generic events become a JSON array of blank-line-delimited frame strings. OpenAI-shaped chat/completion streams are reassembled into pretty chat.completion JSON. Default false. The forwarded stream is still teed with no extra delay; max_bytes / truncated still apply. Non-SSE responses and request bodies ignore this flag."
+        },
         "grpc": {
           "type": "object",
           "additionalProperties": false,

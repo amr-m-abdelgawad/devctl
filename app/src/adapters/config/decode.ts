@@ -408,6 +408,7 @@ export function decodeRouteInspect(value: unknown): RouteInspectConfig {
   return {
     enabled: asBoolean(value.enabled),
     max_bytes: asNumber(value.max_bytes),
+    ...(value.capture_sse !== undefined ? { capture_sse: asBoolean(value.capture_sse) } : {}),
     ...(grpc ? { grpc } : {}),
   };
 }

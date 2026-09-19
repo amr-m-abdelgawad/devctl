@@ -275,4 +275,165 @@ describe("ProxyTrafficSink recorder", () => {
     expect(JSON.parse(fell?.request?.text ?? "")).toEqual({ "1": 42 });
     expect(JSON.parse(fell?.response?.text ?? "")).toEqual({ "1": 42 });
   });
+
+  test("stores generic SSE as a JSON array of frames when capture_sse is on", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({
+          inspect: { enabled: true, max_bytes: 1024, capture_sse: true },
+        });
+      }),
+      store,
+    });
+    const rec = sink.begin(begin);
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    rec.setRequestBody(Buffer.from("data: hello\n\ndata: world\n\n"));
+    rec.setResponseContentType("text/event-stream; charset=utf-8");
+    rec.appendResponse(Buffer.from("data: hello\n\ndata: world\n\n"));
+    await rec.finish({
+      status: 200,
+      durationMs: 4,
+      requestId: "sse-frames",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("sse-frames");
+    expect(JSON.parse(call?.response?.text ?? "")).toEqual(["data: hello", "data: world"]);
+    expect(call?.response?.truncated).toBeFalsy();
+    expect(call?.request?.text).toBe("data: hello\n\ndata: world\n\n");
+  });
+
+  test("assembles OpenAI-shaped chat SSE into pretty chat.completion JSON", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({
+          inspect: { enabled: true, max_bytes: 4096, capture_sse: true },
+        });
+      }),
+      store,
+    });
+    const rec = sink.begin(begin);
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const raw = [
+      'data: {"id":"chatcmpl-2","model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}',
+      'data: {"id":"chatcmpl-2","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"lo"},"finish_reason":null}]}',
+      'data: {"id":"chatcmpl-2","model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
+      "data: [DONE]",
+      "",
+    ].join("\n\n");
+    rec.setResponseContentType("text/event-stream");
+    rec.appendResponse(Buffer.from(raw));
+    await rec.finish({
+      status: 200,
+      durationMs: 8,
+      requestId: "sse-openai",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("sse-openai");
+    const parsed = JSON.parse(call?.response?.text ?? "") as {
+      object: string;
+      id: string;
+      choices: Array<{ message: { content: string }; finish_reason: string }>;
+    };
+    expect(parsed.object).toBe("chat.completion");
+    expect(parsed.id).toBe("chatcmpl-2");
+    expect(parsed.choices[0]?.message.content).toBe("Hello");
+    expect(parsed.choices[0]?.finish_reason).toBe("stop");
+    expect(call?.response?.text).toContain("\n");
+  });
+
+  test("keeps raw SSE text when capture_sse is false or omitted", async () => {
+    const raw = "data: hello\n\ndata: world\n\n";
+    for (const inspect of [
+      { enabled: true, max_bytes: 1024 },
+      { enabled: true, max_bytes: 1024, capture_sse: false },
+    ]) {
+      const store = new TrafficCallRing();
+      const sink = new ProxyTrafficSink({
+        cfg: () => cfgWithInspect((item) => {
+          item.proxy.routes[0] = inspectRoute({ inspect });
+        }),
+        store,
+      });
+      const rec = sink.begin(begin);
+      if (!rec) {
+        throw new Error("expected a recorder");
+      }
+      rec.setResponseContentType("text/event-stream");
+      rec.appendResponse(Buffer.from(raw));
+      const requestId = `sse-raw-${inspect.capture_sse === false ? "false" : "omit"}`;
+      await rec.finish({
+        status: 200,
+        durationMs: 1,
+        requestId,
+        timestamp: "2026-01-01T00:00:00.000Z",
+      });
+      expect(store.get(requestId)?.response?.text).toBe(raw);
+    }
+  });
+
+  test("ignores capture_sse for non-SSE JSON", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({
+          inspect: { enabled: true, max_bytes: 1024, capture_sse: true },
+        });
+      }),
+      store,
+    });
+    const rec = sink.begin(begin);
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    rec.setRequestBody(Buffer.from('{"id":1}'));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from('{"ok":true}'));
+    await rec.finish({
+      status: 200,
+      durationMs: 2,
+      requestId: "sse-json",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("sse-json");
+    expect(call?.request?.text).toContain('"id"');
+    expect(call?.response?.text).toContain('"ok"');
+    expect(call?.response?.text).not.toContain("data:");
+  });
+
+  test("marks SSE capture truncated when the tee hits max_bytes", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({
+          inspect: { enabled: true, max_bytes: 14, capture_sse: true },
+        });
+      }),
+      store,
+    });
+    const rec = sink.begin(begin);
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const raw = "data: hello\n\ndata: world-and-more\n\n";
+    expect(rec.appendResponse(Buffer.from(raw))).toBe(false);
+    rec.setResponseContentType("text/event-stream");
+    await rec.finish({
+      status: 200,
+      durationMs: 1,
+      requestId: "sse-trunc",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("sse-trunc");
+    expect(call?.response?.truncated).toBe(true);
+    const frames = JSON.parse(call?.response?.text ?? "") as string[];
+    expect(Array.isArray(frames)).toBe(true);
+    expect(frames[0]).toBe("data: hello");
+    expect(Buffer.from(raw).subarray(0, 14).toString("utf8")).toContain("data: hello");
+  });
 });

@@ -97,6 +97,7 @@ Named outbound recipes (not the reverse proxy):
 | `match.ts` | Filter matching including body search. |
 | `redact.ts` | `redactTrafficCall` / `stripTrafficBodies`. |
 | `payload.ts` | HTTP/gRPC body views (pretty JSON, gRPC base64 + optional JSON text). |
+| `sse-frames.ts` | Blank-line SSE event split; `text/event-stream` content-type check. |
 
 ## `domain/telemetry/`
 

@@ -221,6 +221,55 @@ proxy:
     expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0 });
   });
 
+  test("decodes inspect.capture_sse and rejects unknown inspect keys", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-sse-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        capture_sse: true
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0, capture_sse: true });
+
+    const unknown = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-sse-unknown-${Date.now()}`;
+    writeFile(
+      unknown,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        capture_frames: true
+`,
+    );
+    expect(() => load(unknown, "")).toThrow(/unknown fields: proxy\.routes\.0\.inspect\.capture_frames/);
+  });
+
   test("decodes inspect.grpc.decoder when a plugin path is present", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-grpc-${Date.now()}`;
     writeFile(dir, "plugins/decoders.ts", "export const sdkVersion = 1;\n");
