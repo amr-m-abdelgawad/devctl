@@ -1953,7 +1953,7 @@ The folded body is a single string with newlines. Severity is taken from the fir
 
 Optional \`services.<name>.logs.dedupe_access_line: true\` (off by default) drops a plain uvicorn-style access line when the previous event from the same pid already has the same method, path, and status in attributes within 1ms. Always-on HTTP-status folding (\`             200\`) is unchanged.
 
-Ingest also copies \`devctl.request_id\` from a proxy hop onto a nearby service stdout/stderr line that names the same gRPC method or HTTP method+path (50ms window; every still-eligible candidate is kept). HTTP hops require a request-target (\`/…\`, \`http(s)://…\`, \`host:port\`, or \`*\`). If the service line arrived first, the tagged record is re-emitted and persisted so live views and session reload see the request id. A proxy \`caller\` attribute, when present, must match the service name. \`--dedupe-request-id\` (MCP \`dedupe_request_id\`) then collapses those pairs at query time, keeping the structured proxy attributes and the richer body.
+Ingest also copies \`devctl.request_id\` from a proxy hop onto a nearby service stdout/stderr line that names the same gRPC method or HTTP method+path (50ms window behind the newest seen event timestamp; every still-eligible candidate is kept). HTTP hops require a request-target (\`/…\`, \`http(s)://…\`, \`host:port\`, or \`*\`). If the service line arrived first, the tagged record is re-emitted and persisted so live views and session reload see the request id. A proxy \`caller\` attribute, when present, must match the service name. \`--dedupe-request-id\` (MCP \`dedupe_request_id\`) then collapses those pairs at query time, keeping the structured proxy attributes and the richer body.
 
 ## Buffer and persistence
 

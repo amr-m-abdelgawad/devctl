@@ -36,7 +36,7 @@ describe("TUI helpers", () => {
       pid: 0,
       seq: 1,
     });
-    const serviceEvent = logEv({ timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", level: "INFO", message: "ready", pid: 0, seq: 1 });
+    const serviceEvent = logEv({ timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", level: "INFO", message: "ready", pid: 0, seq: 2 });
     // Stopping every service must not clear the view — there's no `snap` parameter to react to that.
     expect(appendVisibleLogs([], [systemEvent, serviceEvent], "", 50)).toEqual([systemEvent, serviceEvent]);
     const later = logEv({ timestamp: "2026-08-30T00:01:00.000Z", service: "api", source: "api", level: "INFO", message: "ready again", pid: 0, seq: 1 });
@@ -85,6 +85,29 @@ describe("TUI helpers", () => {
     const next = appendVisibleLogs([first], [tagged], "", 50);
     expect(next).toHaveLength(1);
     expect(next[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
+  });
+
+  test("appendVisibleLogs keeps one row when a batch repeats a fresh seq", () => {
+    const first = logEv({
+      timestamp: "2026-08-30T00:00:01.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "ERROR",
+      message: "poll_activity_task_queue",
+      seq: 7,
+    });
+    const tagged = logEv({
+      timestamp: "2026-08-30T00:00:01.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "ERROR",
+      message: "poll_activity_task_queue",
+      seq: 7,
+      request_id: "req-hop-6",
+    });
+    const next = appendVisibleLogs([], [first, tagged], "", 50);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-6");
   });
 
   test("live log append filters only the incoming batch and keeps the cap", () => {

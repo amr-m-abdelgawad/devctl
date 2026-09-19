@@ -99,6 +99,7 @@ export class LogManager {
   private serviceLogs = new Map<string, ServiceLogConfig>();
   private lastByServicePid = new Map<string, LogRecord>();
   private recentCorrelate: LogRecord[] = [];
+  private correlateHorizonNano = 0;
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -393,7 +394,8 @@ export class LogManager {
   }
 
   private rememberCorrelate(event: LogRecord): void {
-    const cutoff = event.timeUnixNano - PROXY_HOP_CORRELATE_WINDOW_MS * NANOS_PER_MS;
+    this.correlateHorizonNano = Math.max(this.correlateHorizonNano, event.timeUnixNano);
+    const cutoff = this.correlateHorizonNano - PROXY_HOP_CORRELATE_WINDOW_MS * NANOS_PER_MS;
     this.recentCorrelate.push(event);
     this.recentCorrelate = this.recentCorrelate.filter((row) => row.timeUnixNano >= cutoff);
   }

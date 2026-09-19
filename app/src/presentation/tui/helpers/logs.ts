@@ -383,9 +383,18 @@ export function appendVisibleLogs(current: LogRecord[], incoming: LogRecord[], s
   const known = new Set(current.map((row) => row.seq));
   const replacements = new Map<number, LogRecord>();
   const fresh: LogRecord[] = [];
+  const freshIndexes = new Map<number, number>();
   for (const event of accepted) {
     if (event.seq > 0 && known.has(event.seq)) {
       replacements.set(event.seq, event);
+    } else if (event.seq > 0) {
+      const index = freshIndexes.get(event.seq);
+      if (index !== undefined) {
+        fresh[index] = event;
+      } else {
+        freshIndexes.set(event.seq, fresh.length);
+        fresh.push(event);
+      }
     } else {
       fresh.push(event);
     }

@@ -123,7 +123,11 @@ function waitForPingReady() {
   const deadline = Date.now() + 10_000;
   let last = "";
   while (Date.now() < deadline) {
-    last = devctl(["--config", config, "logs", "ping"], { quiet: true }).stdout ?? "";
+    const remaining = Math.max(1, deadline - Date.now());
+    last = devctl(["--config", config, "logs", "ping"], {
+      quiet: true,
+      timeout: remaining,
+    }).stdout ?? "";
     if (pattern.test(last)) {
       process.stdout.write(last);
       return;
