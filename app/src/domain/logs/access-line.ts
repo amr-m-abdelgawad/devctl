@@ -11,7 +11,7 @@ const PATH_KEYS = ["http.target", "url.path", "http.route", "path"];
 const STATUS_KEYS = ["http.status_code", "http.response.status_code", "status"];
 
 export function shouldDropAccessLine(prev: LogRecord, next: LogRecord, windowMs = DEFAULT_ACCESS_LINE_DEDUPE_WINDOW_MS): boolean {
-  if (!samePid(prev, next)) {
+  if (prev.service !== next.service || !samePid(prev, next)) {
     return false;
   }
   if (Math.abs(next.timeUnixNano - prev.timeUnixNano) > windowMs * NANOS_PER_MS) {

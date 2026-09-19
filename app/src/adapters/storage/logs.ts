@@ -65,6 +65,10 @@ function decodeLogCursor(raw: string): LogCursor | undefined {
   return undefined;
 }
 
+function accessLineKey(service: string, pid: number): string {
+  return `${service}\0${pid}`;
+}
+
 function withoutFilterDimension(filter: LogFilter, dimension: "services" | "level" | "source"): LogFilter {
   const copy = { ...filter };
   copy[dimension] = undefined;
@@ -88,7 +92,7 @@ export class LogManager {
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
-  private lastByPid = new Map<number, LogRecord>();
+  private lastByServicePid = new Map<string, LogRecord>();
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -325,7 +329,7 @@ export class LogManager {
       return undefined;
     }
     if (this.serviceLogs.get(ev.service)?.dedupe_access_line === true) {
-      this.rememberPidEvent(ev.pid, next);
+      this.rememberAccessLine(ev.service, ev.pid, next);
     }
     this.nextSeq += 1;
     this.recorded += 1;
@@ -361,13 +365,13 @@ export class LogManager {
     if (!(ev.pid > 0)) {
       return false;
     }
-    const prev = this.lastByPid.get(ev.pid);
+    const prev = this.lastByServicePid.get(accessLineKey(ev.service, ev.pid));
     return prev !== undefined && shouldDropAccessLine(prev, next);
   }
 
-  private rememberPidEvent(pid: number, event: LogRecord): void {
+  private rememberAccessLine(service: string, pid: number, event: LogRecord): void {
     if (pid > 0) {
-      this.lastByPid.set(pid, event);
+      this.lastByServicePid.set(accessLineKey(service, pid), event);
     }
   }
 
