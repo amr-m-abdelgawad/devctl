@@ -36,7 +36,7 @@ function recipes(): HttpRecipeRuntime {
 function spans(): SpanStore {
   return {
     append: (span) => span as never,
-    getTrace: () => ({ traceId: "", spans: [] }),
+    getTrace: () => ({ traceId: "", spans: [], roots: [] }),
     envelopeMs: () => undefined,
     findTraceIdByRequestId: () => undefined,
     recent: () => [],
@@ -100,7 +100,7 @@ function coordinator(cfg: () => DevctlConfig, logs: LogStore): ProxyCoordinator 
     recipes: recipes(),
     logs,
     spans: spans(),
-    bus: { publish() {}, subscribe() { return () => undefined; } } as Bus,
+    bus: { publish() {}, subscribe() { return () => undefined; } } as unknown as Bus,
     detector: { redactText: (text: string) => text } as Detector,
     internalTok: () => "internal-token",
     middleware: () => [],

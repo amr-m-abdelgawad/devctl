@@ -28,7 +28,7 @@ test("CLI config validation uses the supplied loader and validator", async () =>
   const client = createClient();
   const cfg = defaultConfig();
   const invalid = new Error("injected invalid configuration");
-  const calls: string[][] = [];
+  const calls: unknown[][] = [];
   client.load = (...args) => { calls.push(args); return cfg; };
   client.validate = (loaded) => { expect(loaded).toBe(cfg); throw invalid; };
   const root = newRoot(client, async () => { throw new Error("unexpected daemon launch"); });
