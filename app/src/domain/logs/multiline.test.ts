@@ -67,6 +67,15 @@ describe("MultilineAssembler", () => {
     const due = assembler.flushDue(1_080);
     expect(due).toHaveLength(1);
     expect(due[0]?.body).toBe("still open");
+    expect(due[0]?.arrivedMs).toBe(1_000);
+  });
+
+  test("keeps the first line's arrival time across continuations", () => {
+    const assembler = new MultilineAssembler();
+    expect(assembler.push(ingest("INFO GET /api/health"), 1_000)).toEqual([]);
+    expect(assembler.push(ingest("             200"), 1_040)).toEqual([]);
+    const folded = assembler.flushAll();
+    expect(folded[0]?.arrivedMs).toBe(1_000);
   });
 
   test("severity comes from the first classifying line after ANSI strip", () => {

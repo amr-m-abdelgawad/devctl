@@ -326,10 +326,10 @@ export class LogManager {
     if (folded.severityNumber !== SeverityUnspecified && ev.severityNumber === undefined) {
       ev.severityNumber = folded.severityNumber;
     }
-    return this.commitIngest(ev);
+    return this.commitIngest(ev, folded.arrivedMs);
   }
 
-  private commitIngest(ev: LogIngest): LogRecord | undefined {
+  private commitIngest(ev: LogIngest, arrivedMs = Date.now()): LogRecord | undefined {
     const skipParse = ev.body !== undefined || ev.source === "otlp";
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
@@ -355,7 +355,7 @@ export class LogManager {
       this.eventStart = (this.eventStart + 1) % this.max;
     }
     this.tagRecentServiceLogs(next);
-    this.rememberCorrelate(next);
+    this.rememberCorrelate(next, arrivedMs);
     this.publishRecord(next);
     return next;
   }
@@ -404,8 +404,8 @@ export class LogManager {
     this.recentCorrelate = this.recentCorrelate.filter((row) => row.arrivedMs >= cutoff);
   }
 
-  private rememberCorrelate(event: LogRecord): void {
-    this.recentCorrelate.push({ event, arrivedMs: Date.now() });
+  private rememberCorrelate(event: LogRecord, arrivedMs = Date.now()): void {
+    this.recentCorrelate.push({ event, arrivedMs });
   }
 
   private publishRecord(event: LogRecord): void {
