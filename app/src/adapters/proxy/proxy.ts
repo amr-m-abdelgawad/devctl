@@ -169,6 +169,12 @@ export class ProxyServer {
   }
 
   listenBind(): { host: string; port: number } {
+    // Prefer the address actually bound at start() so an in-place config
+    // mutation cannot hide a listen change from applyConfig().
+    if (this.addr !== "") {
+      const colon = this.addr.lastIndexOf(":");
+      return { host: this.addr.slice(0, colon), port: Number(this.addr.slice(colon + 1)) || 0 };
+    }
     return {
       host: this.cfg.listen.host || "127.0.0.1",
       port: this.cfg.listen.port,

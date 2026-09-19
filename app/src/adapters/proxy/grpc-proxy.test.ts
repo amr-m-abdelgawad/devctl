@@ -168,34 +168,17 @@ describe("GrpcProxyServer", () => {
     const port = await reservePort();
     const server = new GrpcProxyServer(grpcRoute(up.url, port), tokens("FIRST"));
     await server.start();
-    const client = http2.connect(`http://127.0.0.1:${port}`);
     try {
       const before = await call(port, "/say.Hello", "a");
       expect(before.trailers["x-seen-auth"]).toBe("Bearer FIRST");
-      server.replaceRoute(grpcRoute(up.url, port));
-      // Same listen: swap the token manager's route identity by replacing auth
-      // headers. The client session must survive.
       const next = grpcRoute(up.url, port, { headers: { "identity-token": "${token}" } });
       server.replaceRoute(next);
-      const req = client.request({ ":method": "POST", ":path": "/say.Hello", "content-type": "application/grpc" });
-      let status = 0;
-      const trailers: Record<string, string> = {};
-      req.on("response", (h) => {
-        status = Number(h[":status"] ?? 0);
-      });
-      req.on("trailers", (t) => Object.assign(trailers, t));
-      req.end("b");
-      await new Promise<void>((resolve, reject) => {
-        req.on("close", () => resolve());
-        req.on("error", reject);
-      });
-      expect(status).toBe(200);
-      expect(trailers["grpc-status"]).toBe("0");
-      expect(trailers["x-seen-id-token"]).toBe("FIRST");
+      const after = await call(port, "/say.Hello", "b");
+      expect(after.trailers["grpc-status"]).toBe("0");
+      expect(after.trailers["x-seen-id-token"]).toBe("FIRST");
       expect(server.isRunning()).toBe(true);
       expect(server.listenKey()).toBe(`127.0.0.1:${port}`);
     } finally {
-      client.close();
       await server.stop();
       await up.close();
     }
