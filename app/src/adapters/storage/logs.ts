@@ -336,7 +336,7 @@ export class LogManager {
     const built = buildLogRecord(ev, parsed, this.nextSeq);
     const redacted = this.detector ? redactLogRecord(this.detector, built) : built;
     this.expireCorrelate(Date.now());
-    const next = this.attachProxyRequestId(redacted);
+    const next = this.attachProxyRequestId(redacted, arrivedMs);
     if (this.shouldDropAccessDuplicate(ev, next)) {
       return undefined;
     }
@@ -354,34 +354,38 @@ export class LogManager {
       this.events[this.eventStart] = next;
       this.eventStart = (this.eventStart + 1) % this.max;
     }
-    this.tagRecentServiceLogs(next);
+    this.tagRecentServiceLogs(next, arrivedMs);
     this.rememberCorrelate(next, arrivedMs);
     this.publishRecord(next);
     return next;
   }
 
-  private attachProxyRequestId(event: LogRecord): LogRecord {
+  private attachProxyRequestId(event: LogRecord, arrivedMs: number): LogRecord {
     if (requestIdAttribute(event) !== "") {
       return event;
     }
     for (const prev of this.recentCorrelate) {
-      if (shouldTagServiceLogWithProxyHop(prev.event, event)) {
+      if (this.inCorrelateArrivalWindow(prev.arrivedMs, arrivedMs) && shouldTagServiceLogWithProxyHop(prev.event, event)) {
         return withRequestId(event, requestIdAttribute(prev.event));
       }
     }
     return event;
   }
 
-  private tagRecentServiceLogs(event: LogRecord): void {
+  private tagRecentServiceLogs(event: LogRecord, arrivedMs: number): void {
     const requestId = requestIdAttribute(event);
     if (requestId === "") {
       return;
     }
     for (const prev of this.recentCorrelate) {
-      if (shouldTagServiceLogWithProxyHop(event, prev.event)) {
+      if (this.inCorrelateArrivalWindow(prev.arrivedMs, arrivedMs) && shouldTagServiceLogWithProxyHop(event, prev.event)) {
         this.replaceRecord(prev.event.seq, withRequestId(prev.event, requestId));
       }
     }
+  }
+
+  private inCorrelateArrivalWindow(prevArrivedMs: number, arrivedMs: number): boolean {
+    return Math.abs(prevArrivedMs - arrivedMs) <= PROXY_HOP_CORRELATE_WINDOW_MS;
   }
 
   private replaceRecord(seq: number, updated: LogRecord): void {

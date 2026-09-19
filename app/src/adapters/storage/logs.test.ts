@@ -991,6 +991,34 @@ describe("LogManager proxy hop request-id tagging", () => {
     expect(worker?.attributes[REQUEST_ID_ATTR]).toBeUndefined();
   });
 
+  test("folded process lines still tag when the proxy arrives inside the window", async () => {
+    const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-fold-in", 0, 0);
+    mgr.setServiceLogs({
+      worker: { stdout: true, stderr: true, multiline: { max_wait_ms: 500 } },
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    const arrivalInsideWindowMs = 20;
+    await Bun.sleep(arrivalInsideWindowMs);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-8",
+    });
+    const worker = mgr.query({}).find((event) => event.service === "worker");
+    expect(worker?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-8");
+  });
+
   test("folded process lines keep their first-line arrival time", async () => {
     const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-fold", 0, 0);
     mgr.setServiceLogs({
