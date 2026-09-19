@@ -114,7 +114,12 @@ describe("ProxyTrafficSink recorder", () => {
 
   test("inflates gzip-compressed gRPC frames before JSON decode", async () => {
     const store = new TrafficCallRing();
-    const sink = new ProxyTrafficSink({ cfg: () => cfgWithInspect(), store });
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({ inspect: { enabled: true, max_bytes: 1024 } });
+      }),
+      store,
+    });
     const rec = sink.begin({ ...begin, transport: "grpc", path: "/pkg.Svc/Json" });
     if (!rec) {
       throw new Error("expected a recorder");
