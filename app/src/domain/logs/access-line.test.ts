@@ -47,6 +47,19 @@ describe("shouldDropAccessLine", () => {
     expect(shouldDropAccessLine(structured({ pid: 9 }), plain({ pid: 10 }))).toBe(false);
   });
 
+  test("keeps the pair when services differ", () => {
+    const other = logRecord({
+      seq: 2,
+      service: "web",
+      source: "stdout",
+      pid: 9,
+      timeUnixNano: T0,
+      message: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK',
+      body: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK',
+    });
+    expect(shouldDropAccessLine(structured({ pid: 9 }), other)).toBe(false);
+  });
+
   test("does not drop a structured JSON follow-up", () => {
     const next = logRecord({
       seq: 2,

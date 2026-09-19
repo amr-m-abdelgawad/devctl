@@ -775,6 +775,29 @@ describe("LogManager dedupe_access_line", () => {
     expect(events[0]?.attributes.path).toBe("/health");
   });
 
+  test("does not drop another service's access line that shares a pid", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "pair-pid", 0, 0);
+    mgr.setServiceLogs({
+      api: { stdout: true, stderr: true, dedupe_access_line: true },
+      web: { stdout: true, stderr: true, dedupe_access_line: true },
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      pid: 1,
+      message: '{"method":"GET","path":"/health","status":200}',
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "web",
+      source: "stdout",
+      pid: 1,
+      message: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK',
+    });
+    expect(mgr.query({})).toHaveLength(2);
+  });
+
   test("does not change always-on HTTP status folding", () => {
     const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "status-fold", 0, 0);
     mgr.setServiceLogs({ api: { stdout: true, stderr: true, dedupe_access_line: true } });
