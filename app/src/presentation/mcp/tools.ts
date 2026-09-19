@@ -87,7 +87,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Resolved TUI/web prefs and write paths",
     category: "inspect",
     description:
-      "Return resolved operator preferences (theme, input, log columns, web appearance, MCP listen) with layer provenance (default/team/user/repo/override) and write paths. Pass scope=user or scope=repo (default repo) to label the current save target. Stack overlay fields web.enabled, web.listen.port, proxy.inspect_max_bytes, and llm.capture_max_bytes are included as local.",
+      "Return resolved operator preferences (theme, input, log columns, web appearance, MCP listen) with layer provenance (default/team/user/repo/override) and write paths. Pass scope=user or scope=repo (default repo) to label the current save target. Stack overlay fields web.enabled, web.listen.port, and local.inspect_max_bytes are included as local. Writing local.inspect_max_bytes persists proxy.inspect_max_bytes and llm.capture_max_bytes.",
     inputSchema: {
       type: "object",
       properties: {

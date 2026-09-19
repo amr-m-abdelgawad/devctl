@@ -2,6 +2,7 @@ import {
   asBoolean,
   asNumber,
   asString,
+  decodeStrictNumber,
   asStringArray,
   asStringMap,
   decodeCommand,
@@ -280,7 +281,7 @@ export function applyLlm(llm: LlmConfig, raw: Record<string, unknown>): void {
     llm.enabled = asBoolean(raw.enabled);
   }
   if (raw.capture_max_bytes !== undefined) {
-    llm.capture_max_bytes = asNumber(raw.capture_max_bytes);
+    llm.capture_max_bytes = decodeStrictNumber(raw.capture_max_bytes);
   }
   if (!Array.isArray(raw.sources)) {
     return;
@@ -353,7 +354,7 @@ export function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): vo
     proxy.enabled = asBoolean(raw.enabled);
   }
   if (raw.inspect_max_bytes !== undefined) {
-    proxy.inspect_max_bytes = asNumber(raw.inspect_max_bytes);
+    proxy.inspect_max_bytes = decodeStrictNumber(raw.inspect_max_bytes);
   }
   if (raw.gateway !== undefined) {
     proxy.gateway = asBoolean(raw.gateway);

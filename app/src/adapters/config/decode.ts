@@ -74,6 +74,19 @@ export function asNumber(value: unknown): number {
   return 0;
 }
 
+// Keep unusable values as NaN (and numeric Infinity as Infinity) so validate
+// can reject them. asNumber("eight") would become 0.
+export function decodeStrictNumber(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  }
+  return Number.NaN;
+}
+
 export function asBoolean(value: unknown): boolean {
   return value === true;
 }

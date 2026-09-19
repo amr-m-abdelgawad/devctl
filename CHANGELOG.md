@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Review follow-ups for the platform-audit Phase 2 surface: malformed or non-finite route timeouts stay invalid instead of decoding to unlimited `0`; a config-disabled proxy starts again on reload when `proxy.enabled` becomes true (unless suppressed); gRPC sessions are keyed by upstream URL and do not open after a deadline; HTTP timeouts disconnect a started response; request-body forwarding preserves backpressure; SSE capture matches `text/event-stream` exactly, keeps frame whitespace, and joins split `data:` fields; listen-key compare canonicalizes equivalent IPv6 literals; `--env KEY=VAL` stays off the stored client environment.
 - Request-id log dedupe keeps the earlier sequence/time when a later richer record survives, `--dedupe-request-id` exports apply the same collapse, and `via.route` validation uses the trimmed name.
 - Proxy-hop request-id tagging re-emits and persists a reverse-order update, keeps every candidate ingested in the last 50ms of arrival time (matching requires both the 50ms event-time window and the pair's ingest arrivals; folded process lines keep the first line's arrival), and ignores HTTP hop text whose target is not `/…`, an absolute URI, `host:port`, or `*`. TUI live append replaces a repeated positive `seq` inside the same batch.
+- Malformed `proxy.inspect_max_bytes` / `llm.capture_max_bytes` values stay invalid instead of decoding to the 1 MiB default.
 
 ## [0.15.0] - 2026-09-19
 

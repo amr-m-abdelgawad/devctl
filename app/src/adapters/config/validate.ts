@@ -449,8 +449,8 @@ function validateProxy(cfg: DevctlConfig): string[] {
   if (cfg.proxy.listen.port !== 0 && (cfg.proxy.listen.port < MIN_PORT || cfg.proxy.listen.port > MAX_PORT)) {
     issues.push("proxy.listen.port is invalid");
   }
-  if (cfg.proxy.inspect_max_bytes < 0) {
-    issues.push("proxy.inspect_max_bytes must be >= 0");
+  if (!isNonNegativeFinite(cfg.proxy.inspect_max_bytes)) {
+    issues.push("proxy.inspect_max_bytes must be a finite number >= 0");
   }
   const seenRoutes: Record<string, boolean> = {};
   const seenGrpcPorts = new Set<number>();
@@ -797,8 +797,8 @@ function validateLlm(cfg: DevctlConfig): string[] {
   if (cfg.llm.enabled && cfg.llm.sources.length === 0) {
     issues.push("llm.sources must list at least one source when llm.enabled is true");
   }
-  if (cfg.llm.capture_max_bytes < 0) {
-    issues.push("llm.capture_max_bytes must be >= 0");
+  if (!isNonNegativeFinite(cfg.llm.capture_max_bytes)) {
+    issues.push("llm.capture_max_bytes must be a finite number >= 0");
   }
   const names = new Set<string>();
   for (const [index, source] of cfg.llm.sources.entries()) {

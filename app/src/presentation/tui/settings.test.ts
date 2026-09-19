@@ -81,6 +81,7 @@ describe("settings", () => {
     expect(sample.find((item) => item.id === "web_port")?.hint).toContain("preview");
     expect(sample.find((item) => item.id === "inspect_cap")?.value).toBe("1 MiB");
     expect(sample.find((item) => item.id === "inspect_cap")?.kind).toBe("cycle");
+    expect(sample.find((item) => item.id === "inspect_cap")?.detail).toContain("LLM source capture.max_bytes");
     expect(formatScope("repo")).toBe("this repo");
     expect(cyclePreferenceScope("repo", 1)).toBe("user");
     expect(cycleScrollSpeed(3, 1)).toBe(4);

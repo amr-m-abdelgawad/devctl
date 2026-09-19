@@ -296,7 +296,7 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       name: "Inspect body cap",
       value: formatInspectCap(inspectCapBytes(state.inspectMaxBytes)),
       hint: "← → save",
-      detail: `Default capture size for traffic and LLM bodies. Writes proxy.inspect_max_bytes and llm.capture_max_bytes to ${state.localPath}, then reloads. Per-route max_bytes still wins.`,
+      detail: `Default capture size for traffic and LLM bodies. Writes proxy.inspect_max_bytes and llm.capture_max_bytes to ${state.localPath}, then reloads. Positive per-route max_bytes and LLM source capture.max_bytes values override the global values.`,
     },
     {
       id: "user_file",

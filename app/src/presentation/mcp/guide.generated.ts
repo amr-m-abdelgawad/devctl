@@ -856,8 +856,8 @@ Every message names its path. Fix the path it names.
 | \`proxy.routes[i].auth.credentials is not valid JSON: PATH\` | credentials file is not JSON |
 | \`proxy.routes[i].auth.credentials has no refresh_token\` | authorized_user file needs a refresh token |
 | \`proxy.routes[i].auth.credentials client_id does not match auth.client_id\` | file belongs to a different OAuth client |
-| \`proxy.inspect_max_bytes must be >= 0\` | negative default inspect cap |
-| \`llm.capture_max_bytes must be >= 0\` | negative default LLM capture cap |
+| \`proxy.inspect_max_bytes must be a finite number >= 0\` | negative or non-finite default inspect cap |
+| \`llm.capture_max_bytes must be a finite number >= 0\` | negative or non-finite default LLM capture cap |
 | \`proxy.routes[i].inspect.max_bytes must be >= 0\` | negative capture cap |
 | \`llm.sources[i].capture.max_bytes must be >= 0\` | negative per-source capture cap |
 | \`proxy.routes[i].timeout.idle_ms must be a finite number >= 0\` | negative or non-finite idle hop deadline |
