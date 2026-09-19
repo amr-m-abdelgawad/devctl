@@ -118,6 +118,22 @@ function publishedDependencies() {
   return JSON.parse(extracted.stdout).dependencies ?? {};
 }
 
+function waitForPingReady() {
+  const pattern = /npm smoke ready/;
+  const deadline = Date.now() + 10_000;
+  let last = "";
+  while (Date.now() < deadline) {
+    last = devctl(["--config", config, "logs", "ping"], { quiet: true }).stdout ?? "";
+    if (pattern.test(last)) {
+      process.stdout.write(last);
+      return;
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  }
+  process.stdout.write(last);
+  assert.match(last, pattern);
+}
+
 function removeTemporaryRoot() {
   const retryable = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -188,7 +204,7 @@ try {
 
   devctl(["--config", config, "start", "ping"]);
   assert.match(devctl(["--config", config, "status"]).stdout, /ping\s+(RUNNING|HEALTHY)/);
-  assert.match(devctl(["--config", config, "logs", "ping"]).stdout, /npm smoke ready/);
+  waitForPingReady();
   const mcp = devctl(["--config", config, "mcp", "--on", "--json"]);
   assert.equal(JSON.parse(mcp.stdout).running, true);
   devctl(["--config", config, "mcp", "--off", "--json"]);
