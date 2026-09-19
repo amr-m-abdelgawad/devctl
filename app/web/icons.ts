@@ -5,7 +5,10 @@ export { ArrowClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowClockwis
 export { ArrowsLeftRightIcon } from "@phosphor-icons/react/dist/csr/ArrowsLeftRight";
 export { ArrowLeftIcon } from "@phosphor-icons/react/dist/csr/ArrowLeft";
 export { ArrowsClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowsClockwise";
+export { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
+export { CaretRightIcon } from "@phosphor-icons/react/dist/csr/CaretRight";
 export { CheckIcon } from "@phosphor-icons/react/dist/csr/Check";
+export { CodeIcon } from "@phosphor-icons/react/dist/csr/Code";
 export { CopyIcon } from "@phosphor-icons/react/dist/csr/Copy";
 export { FlowArrowIcon } from "@phosphor-icons/react/dist/csr/FlowArrow";
 export { GaugeIcon } from "@phosphor-icons/react/dist/csr/Gauge";
@@ -20,4 +23,5 @@ export { SquaresFourIcon } from "@phosphor-icons/react/dist/csr/SquaresFour";
 export { StackIcon } from "@phosphor-icons/react/dist/csr/Stack";
 export { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 export { TimerIcon } from "@phosphor-icons/react/dist/csr/Timer";
+export { TreeStructureIcon } from "@phosphor-icons/react/dist/csr/TreeStructure";
 export { WarningIcon } from "@phosphor-icons/react/dist/csr/Warning";

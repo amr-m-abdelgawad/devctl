@@ -25,7 +25,7 @@ export function TrafficDetailsOverlay(props: {
   }
   const traceId = call.traceId?.trim() ?? "";
   const title = clipText(`${call.method} ${call.path}` || "traffic", TITLE_MAX);
-  const closeHint = `${traceId ? "enter view trace  ·  " : ""}r ${trafficBodyModeHint(bodyMode)}  ·  j/k scroll  ·  esc close  ·  /reveal is env only`;
+  const closeHint = `${traceId ? "enter view trace  ·  " : ""}r ${trafficBodyModeHint(bodyMode)}  ·  click ▸ expand json  ·  j/k scroll  ·  esc close  ·  /reveal is env only`;
   return (
     <OverlayShell
       palette={palette}

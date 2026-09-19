@@ -27,7 +27,7 @@ export function LlmDetailsOverlay(props: {
   const title = clipText(call.model || "llm call", TITLE_MAX);
   const canToggle = llmTurns(call).length > 0;
   const bodyHint = canToggle ? `r ${llmBodyModeHint(bodyMode)}  ·  ` : "";
-  const closeHint = `${traceId ? "enter view trace  ·  " : ""}${bodyHint}j/k scroll  ·  esc close  ·  /reveal is env only`;
+  const closeHint = `${traceId ? "enter view trace  ·  " : ""}${bodyHint}click ▸ expand json  ·  j/k scroll  ·  esc close  ·  /reveal is env only`;
   return (
     <OverlayShell
       palette={palette}

@@ -8,6 +8,7 @@ import { toneColor } from "../components/status.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import type { RequestRow, RequestsPayload, SpanRow, TracePayload } from "../types.ts";
+import { JsonViewer } from "../components/json-viewer.tsx";
 import { Waterfall } from "../waterfall.tsx";
 
 function serviceName(span: SpanRow): string {
@@ -79,14 +80,7 @@ function SpanDetail(props: { span?: SpanRow }) {
         <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">{span.status.message}</p>
       ) : null}
       {attrs.length > 0 ? (
-        <dl className="flex flex-col divide-y divide-border/50 text-xs">
-          {attrs.map(([key, value]) => (
-            <div key={key} className="grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] gap-3 py-1.5">
-              <dt className="truncate font-mono text-muted-foreground" title={key}>{key}</dt>
-              <dd className="break-words font-mono text-foreground/90">{String(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <JsonViewer title="Attributes" input={span.attributes} />
       ) : <p className="text-xs text-muted-foreground">No attributes.</p>}
     </div>
   );

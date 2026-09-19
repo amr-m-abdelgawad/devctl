@@ -1,4 +1,9 @@
+import { coerceJsonInput } from "./json-view.ts";
 import type { LlmCallRow, LlmUsageRow } from "./types.ts";
+
+export function prettyJson(value: unknown): string {
+  return coerceJsonInput(value).pretty;
+}
 
 export type LlmTurn = {
   role: string;
@@ -23,20 +28,6 @@ export function llmTurns(call: Pick<LlmCallRow, "request" | "response">): LlmTur
 
 export function llmTurnsMarkdown(turns: readonly LlmTurn[]): string {
   return turns.map((turn) => `**${turn.role}**\n${turn.content}`).join("\n\n");
-}
-
-export function prettyJson(value: unknown): string {
-  if (value === undefined) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value, null, 2) ?? "";
-  } catch {
-    return String(value);
-  }
 }
 
 export function llmTokenTotal(usage?: LlmUsageRow): number {

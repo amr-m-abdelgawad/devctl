@@ -1,4 +1,5 @@
 import type { LlmCall, LlmUsage } from "../../../domain/llm/llm.ts";
+import { coerceJsonInput } from "../../../shared/json-view.ts";
 
 export const LLM_CURSOR_COL = 2;
 export const LLM_TIME_COL = 9;
@@ -97,17 +98,7 @@ export function formatLlmStatus(status: LlmCall["status"]): string {
 }
 
 export function formatLlmJson(value: unknown): string {
-  if (value === undefined) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value, null, 2) ?? "";
-  } catch {
-    return String(value);
-  }
+  return coerceJsonInput(value).pretty;
 }
 
 export function clipLlmJson(value: unknown, maxChars: number): string {

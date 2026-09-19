@@ -338,7 +338,7 @@ Caller attribution reuses the LLM path: `X-Devctl-Service` or a loopback peer lo
 
 | Surface | What you get |
 |---------|----------------|
-| TUI proxy screen | List + live inspector (pretty JSON / raw). `r` toggles. Enter opens the overlay; enter again jumps to a trace when `traceId` is present. |
+| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). `r` toggles. Enter opens the overlay tree; enter again jumps to a trace when `traceId` is present. |
 | Web | `#/traffic` and `#/traffic/:id`. Overview request paths link here when a captured body exists. |
 | MCP | `get_traffic_calls` (inspect, bodies omitted) and `get_traffic_call` (bodies included). |
 | CLI | `devctl traffic` / `devctl traffic show <id>`. `--follow` polls. |

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- TUI and web consoles **format JSON everywhere it is shown**: syntax-colored pretty text in compact TUI inspectors, a click-to-expand tree in TUI overlays, and a navigable web viewer (tree / pretty, path breadcrumb, find, copy path or value) on Traffic, LLM, Logs, and span attributes. See [Web console](docs/web.md) and [TUI](docs/tui.md).
 - Config reload **hot-swaps proxy routes** when listen addresses are unchanged, so HTTP, token-endpoint, and gRPC sockets stay up; a listener restarts only on bind/enable change. See [Proxy](docs/proxy.md).
 
 ### Fixed

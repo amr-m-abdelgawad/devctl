@@ -37,6 +37,7 @@ import {
   type TraceHeaderChip,
   type TraceRow,
 } from "../helpers/traces.ts";
+import { JsonView } from "../components/JsonView.tsx";
 import { Chip, OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { isCompactScale } from "../settings.ts";
 import { serviceColor, type Palette } from "../themes.ts";
@@ -304,11 +305,7 @@ function SpanInspector(props: {
             />
           ) : null}
           {attrs.length === 0 ? null : <text fg={palette.muted}>{"attributes"}</text>}
-          {attrs.map(([key, value]) => (
-            <text key={key} fg={palette.text} wrapMode="word">
-              {`${key}  ${stringifyAnyValue(value)}`}
-            </text>
-          ))}
+          {attrs.length === 0 ? null : <JsonView palette={palette} input={span.attributes} />}
           {span.events.length === 0 ? null : <text fg={palette.muted}>{`events  ${span.events.length}`}</text>}
           {span.events.map((event, index) => (
             <box key={`${event.name}-${index}`} flexDirection="column" overflow="hidden">

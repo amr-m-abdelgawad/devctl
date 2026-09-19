@@ -1,6 +1,7 @@
 import { type ScrollBoxRenderable } from "@opentui/core";
 import { type Ref } from "react";
 import { formatBodySummary, stringifyAnyValue, type LogRecord } from "../../../domain/logs/logs.ts";
+import { JsonView } from "../components/JsonView.tsx";
 import { displayLogLevel, prettyPrintLogRecord, prettyPrintLogRaw, stripAnsi } from "../helpers/logs.ts";
 import { OverlayShell, scrollboxStyle } from "../layout.tsx";
 import { serviceColor, type Palette } from "../themes.ts";
@@ -61,17 +62,13 @@ export function LogDetailsOverlay(props: {
           {bodyPretty === undefined ? null : (
             <>
               <text fg={palette.muted}>{"body"}</text>
-              <text fg={palette.text} wrapMode="word">
-                {bodyPretty}
-              </text>
+              <JsonView palette={palette} input={{ body: event.body, attributes: event.attributes }} />
             </>
           )}
           {rawPretty === undefined || rawPretty === bodyPretty ? null : (
             <>
               <text fg={palette.muted}>{"raw"}</text>
-              <text fg={palette.text} wrapMode="word">
-                {rawPretty}
-              </text>
+              <JsonView palette={palette} input={event.raw} />
             </>
           )}
           {traceId && onViewTrace ? (

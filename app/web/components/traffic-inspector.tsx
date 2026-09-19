@@ -1,16 +1,14 @@
-import { useState, type ReactNode } from "react";
-import { CheckIcon, CopyIcon } from "../icons.ts";
+import { useState } from "react";
 import { durationMs } from "../format.ts";
 import { hrefFor } from "../hash.ts";
 import { trafficIsError, trafficPayloadView, trafficStatusLabel, type TrafficBodyMode } from "../traffic.ts";
 import { cn } from "../lib/utils.ts";
+import { CopyTextButton, JsonViewer } from "./json-viewer.tsx";
 import { Empty, TraceLink } from "./primitives.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import type { TrafficCallRow } from "../types.ts";
 
-const COPY_FEEDBACK_MS = 2_000;
-const FIND_MIN = 2;
 const BODY_MODE_KEY = "devctl.traffic.bodyMode";
 
 function persistBodyMode(mode: TrafficBodyMode): void {
@@ -83,7 +81,7 @@ export function TrafficInspector(props: {
           <ModeTab label="Raw" active={bodyMode === "raw"} onClick={() => onBodyMode("raw")} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <CopyButton text={[request, response].filter((part) => part !== "").join("\n\n")} label="Copy" />
+          <CopyTextButton text={[request, response].filter((part) => part !== "").join("\n\n")} label="Copy" />
           <Button type="button" size="xs" variant={wrapJson ? "secondary" : "ghost"} onClick={() => setWrapJson((value) => !value)}>
             {wrapJson ? "Unwrap" : "Wrap"}
           </Button>
@@ -104,8 +102,8 @@ export function TrafficInspector(props: {
           <Empty>{loading ? "Loading payload…" : "No request/response body."}</Empty>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
-            <JsonPane title="Request" body={request} wrap={wrapJson} needle={needle} />
-            <JsonPane title="Response" body={response} wrap={wrapJson} needle={needle} />
+            <JsonViewer title="Request" input={request} wrap={wrapJson} needle={needle} />
+            <JsonViewer title="Response" input={response} wrap={wrapJson} needle={needle} />
           </div>
         )}
       </div>
@@ -128,36 +126,6 @@ function ModeTab(props: { label: string; active: boolean; onClick: () => void })
   );
 }
 
-function JsonPane(props: { title: string; body: string; wrap: boolean; needle: string }) {
-  const { title, body, wrap, needle } = props;
-  if (body === "") {
-    return (
-      <div className="min-w-0">
-        <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-        <p className="text-xs text-muted-foreground">empty</p>
-      </div>
-    );
-  }
-  const matched = needle.length < FIND_MIN || body.toLowerCase().includes(needle.toLowerCase());
-  return (
-    <div className="min-w-0">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-        <CopyButton text={body} />
-      </div>
-      <pre
-        className={cn(
-          "rounded-md bg-muted/40 p-2.5 font-mono text-[11px] leading-relaxed text-foreground/90",
-          wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto",
-          needle.length >= FIND_MIN && !matched ? "opacity-40" : "",
-        )}
-      >
-        {highlight(body, needle)}
-      </pre>
-    </div>
-  );
-}
-
 function Kv(props: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
@@ -167,45 +135,3 @@ function Kv(props: { label: string; value: string }) {
   );
 }
 
-function CopyButton(props: { text: string; label?: string }) {
-  const { text, label } = props;
-  const [copied, setCopied] = useState(false);
-  const copy = (): void => {
-    if (text === "") {
-      return;
-    }
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
-    }).catch(() => {
-      setCopied(false);
-    });
-  };
-  return (
-    <Button type="button" size="xs" variant="ghost" className="h-6 gap-1 px-1.5 text-muted-foreground" onClick={copy} disabled={text === ""}>
-      {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-      {label ? <span>{copied ? "Copied" : label}</span> : null}
-    </Button>
-  );
-}
-
-function highlight(text: string, needle: string): ReactNode {
-  if (needle.length < FIND_MIN) {
-    return text;
-  }
-  const lower = text.toLowerCase();
-  const find = needle.toLowerCase();
-  const parts: ReactNode[] = [];
-  let start = 0;
-  let index = lower.indexOf(find);
-  let key = 0;
-  while (index !== -1) {
-    parts.push(text.slice(start, index));
-    parts.push(<mark key={key} className="rounded-sm bg-warning/40 text-foreground">{text.slice(index, index + needle.length)}</mark>);
-    start = index + needle.length;
-    index = lower.indexOf(find, start);
-    key += 1;
-  }
-  parts.push(text.slice(start));
-  return parts;
-}
