@@ -81,6 +81,10 @@ export function unresolvedLlmSourceTypes(cfg: DevctlConfig): Array<{ source: str
   return unresolved;
 }
 
+export function isValidationWarning(issue: string): boolean {
+  return issue.startsWith("warning:");
+}
+
 export function validate(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
   if (cfg.version === 0) {
@@ -554,7 +558,15 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
 }
 
 function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
-  return validateAuthConfig(route.auth, prefix);
+  const issues = validateAuthConfig(route.auth, prefix);
+  for (const [name, value] of Object.entries(route.auth.headers ?? {})) {
+    if (value.includes("${identity.")) {
+      issues.push(
+        `warning: ${prefix}.auth.headers.${name} contains \${identity. which is not resolved on proxy headers (only service env at start)`,
+      );
+    }
+  }
+  return issues;
 }
 
 function validateRouteInspect(route: RouteConfig, prefix: string, pluginsConfigured: boolean): string[] {

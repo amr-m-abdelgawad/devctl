@@ -52,12 +52,16 @@ export function addConfig(root: Command, runtime: ClientRuntime): void {
       try {
         const loaded = loadEffective(runtime, root, opts.overlay);
         const issues = runtime.validate(loaded);
+        const errors = issues.filter((issue) => !issue.startsWith("warning:"));
         if (opts.json) {
-          writeOut(JSON.stringify({ valid: issues.length === 0, issues }, null, 2) + "\n");
+          writeOut(JSON.stringify({ valid: errors.length === 0, issues }, null, 2) + "\n");
           return;
         }
-        if (issues.length > 0) {
+        if (errors.length > 0) {
           throw new Error(issues.join("\n"));
+        }
+        if (issues.length > 0) {
+          writeOut(issues.join("\n") + "\n");
         }
         writeOut("configuration is valid\n");
       } catch (err) {

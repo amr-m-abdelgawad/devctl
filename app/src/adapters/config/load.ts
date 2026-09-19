@@ -9,7 +9,7 @@ import { applyProxy, applyProxyCredentials, applyRoot, applyTemplates, mergeServ
 import { migrate } from "./migrate.ts";
 import { collectUnknownFields, formatUnknown } from "./strict.ts";
 import { defaultConfig, type DevctlConfig } from "../../domain/config/types.ts";
-import { validate } from "./validate.ts";
+import { isValidationWarning, validate } from "./validate.ts";
 
 // Buffer validation (the TUI's config screen `v` / `/buffer`) needs to check
 // unsaved edits against the *real* pipeline — modular services/profiles,
@@ -99,7 +99,7 @@ export function loadPath(repoRoot: string, configPath: string, opts?: LoadOpts):
   applyProxyCredentials(cfg);
   cfg.provenance = presence.provenance;
   const issues = validate(cfg);
-  if (issues.length > 0) {
+  if (issues.some((issue) => !isValidationWarning(issue))) {
     throw newError(KindConfiguration, issues.join("\n"));
   }
   return cfg;

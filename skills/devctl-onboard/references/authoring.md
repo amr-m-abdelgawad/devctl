@@ -136,6 +136,12 @@ exception: they also expand `${token}` (the token minted for that recipe's
 environment at fetch time. `${token}` requires `request.auth.type` `iap` or
 `service_account`. Service env still rejects `${env.NAME}` and `${token}`.
 
+Proxy route `auth.headers` (including service `proxy:` fragments merged into
+`proxy.routes`) are **not** run through `resolveEnvMap`. `${identity.user}`
+there stays literal. `${token}` is still substituted at request time on
+minting routes. `devctl config validate` warns if `${identity.` appears in
+those header values.
+
 ## Named service environments
 
 `services.<name>.environments` is a map of extra `EnvConfig` overlays (same

@@ -102,6 +102,29 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("identity.type is required"))).toBe(true);
   });
 
+  test("warns when a proxy auth header contains ${identity. and stays silent otherwise", () => {
+    const warned = withService("api");
+    warned.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ headers: { "X-User": "${identity.user}" } }),
+    });
+    expect(validate(warned)).toContain(
+      "warning: proxy.routes[0].auth.headers.X-User contains ${identity. which is not resolved on proxy headers (only service env at start)",
+    );
+
+    const clean = withService("api");
+    clean.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ headers: { "identity-token": "${token}", "x-custom": "literal" } }),
+    });
+    expect(validate(clean).some((issue) => issue.includes("${identity."))).toBe(false);
+    expect(validate(clean)).toEqual([]);
+  });
+
   test("accepts an IAP user route with client_id and an env-ref client_secret", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({

@@ -388,6 +388,36 @@ describe("devctl daemon logs", () => {
   });
 });
 
+describe("devctl config validate", () => {
+  test("prints a warning when proxy auth.headers contain ${identity. and still reports valid", async () => {
+    const dir = tmp();
+    writeFileSync(
+      configFile(dir),
+      `version: 1
+services:
+  app: { command: [app] }
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: api
+      match: { host: api.local }
+      upstream: { url: "http://127.0.0.1:8000" }
+      auth:
+        type: iap
+        audience: aud
+        identity: { type: user }
+        headers: { X-User: "\${identity.user}" }
+`,
+    );
+    const out = await run(["--config", configFile(dir), "config", "validate"]);
+    expect(out).toContain(
+      "warning: proxy.routes[0].auth.headers.X-User contains ${identity. which is not resolved on proxy headers (only service env at start)",
+    );
+    expect(out).toContain("configuration is valid");
+  });
+});
+
 describe("devctl start --env", () => {
   test("parseEnvPairs accepts VAL with = and rejects a missing =", () => {
     expect(parseEnvPairs(["FOO=bar", "BAZ=a=b"])).toEqual({ FOO: "bar", BAZ: "a=b" });

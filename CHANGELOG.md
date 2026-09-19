@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Status snapshots and MCP/web `list_services` expose `start_period_remaining_ms` / `start_period_total_ms` while a service is still inside `health.start_period_seconds`.
 - LLM inspector `type: proxy` sources can tag multiple proxy routes with `via.routes: [a, b]`; `via.route` remains singular sugar for one name. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
 - Proxy `auth.log_identity` on `auth: none` copies inbound `X-Goog-Authenticated-User-Email` onto the traffic record as `caller_email`; IAP routes with a credentials file report `credentials_valid` on `devctl status`. See [Proxy](docs/proxy.md).
+- `${identity.user}` in **service env** still resolves at process start; the same placeholder in proxy `auth.headers` (including service `proxy:` fragments) is not run through `resolveEnvMap` and stays literal. `devctl config validate` prints a `warning:` (load still succeeds). `${token}` on minting routes is unchanged. See [Environment](docs/environment.md) and [Proxy](docs/proxy.md).
 
 ### Changed
 
