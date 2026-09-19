@@ -54,6 +54,7 @@ export type ReloadHost = {
   refreshIdentity(): Promise<void>;
   startProxy(): Promise<void>;
   stopProxy(): Promise<void>;
+  applyProxyConfig(): Promise<void>;
   reload(): Promise<ReloadResult>;
   forgetService(name: string): void;
   syncServiceWatchers(): void;
@@ -329,12 +330,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
     await host.llm?.applyConfig();
   }
   if (proxyChanged) {
-    const wasRunning = host.proxy?.isRunning() ?? false;
-    await host.stopProxy();
-    if (wasRunning && host.cfg.proxy.enabled) {
-      await host.startProxy();
-    }
-    host.log("devctl", "INFO", "proxy configuration changed; proxy restarted");
+    await host.applyProxyConfig();
   }
   await host.syncWebListener();
   host.bus.publish(

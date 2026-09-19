@@ -1,6 +1,7 @@
 import * as http2 from "node:http2";
 import type { Http2Server, ServerHttp2Stream, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
 import type { RouteConfig } from "../config/index.ts";
+import { listenKey, sameListen } from "../../domain/proxy/listen.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { matchGrpcOk } from "../../domain/proxy/grpc-ok.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
@@ -36,7 +37,7 @@ export class GrpcProxyServer {
   private readonly requests = new RequestLog();
 
   constructor(
-    private readonly route: RouteConfig,
+    private route: RouteConfig,
     private readonly tokens?: TokenManager,
     private readonly logs?: Pick<LogStore, "append">,
     private readonly bus?: Bus,
@@ -55,6 +56,33 @@ export class GrpcProxyServer {
 
   stats(): ReturnType<RequestLog["stats"]> {
     return this.requests.stats();
+  }
+
+  routeName(): string {
+    return this.route.name;
+  }
+
+  listenKey(): string {
+    return listenKey(this.route.listen);
+  }
+
+  sameListen(route: RouteConfig): boolean {
+    return sameListen(this.route.listen, route.listen);
+  }
+
+  // Swap auth/upstream/inspect/log on the live h2c listener. In-flight
+  // streams already captured their route; new streams read this.route.
+  // An upstream URL change retires the pooled client (GOAWAY) so the next
+  // RPC dials the new target without closing this.server.
+  replaceRoute(route: RouteConfig): void {
+    const prevUrl = this.route.upstream.url;
+    this.route = route;
+    if (route.upstream.url === prevUrl) {
+      return;
+    }
+    const stale = this.client;
+    this.client = undefined;
+    stale?.close();
   }
 
   start(): Promise<void> {
@@ -108,11 +136,11 @@ export class GrpcProxyServer {
 
   // A single pooled upstream session; HTTP/2 multiplexes every stream over it.
   // Recreated lazily after it closes or a GOAWAY retires it.
-  private upstream(): ClientHttp2Session {
+  private upstream(url = this.route.upstream.url): ClientHttp2Session {
     if (this.client && !this.client.closed && !this.client.destroyed) {
       return this.client;
     }
-    const session = http2.connect(this.route.upstream.url);
+    const session = http2.connect(url);
     session.on("error", () => {
       if (this.client === session) this.client = undefined;
     });
@@ -134,10 +162,12 @@ export class GrpcProxyServer {
     });
     const requestID = ctx.requestId;
     const method = String(headers[":path"] ?? "/"); // the gRPC method path
-    const ident = fromRoute(this.route.auth);
+    // Capture at accept so a mid-stream replaceRoute cannot mix tables.
+    const route = this.route;
+    const ident = fromRoute(route.auth);
     const identityKey = tokenIdentityKey(ident);
     let recorded = false;
-    const recorder = this.beginCapture(method, headers, front);
+    const recorder = this.beginCapture(route.name, method, headers, front);
     const finish = (status: number, grpcStatus: string, error?: string): void => {
       if (recorded) return;
       recorded = true;
@@ -145,7 +175,7 @@ export class GrpcProxyServer {
       const recordedPath = this.detector ? this.detector.redactText(method) : method;
       // A listed log.grpc.ok status is not a proxy error (Temporal long-poll
       // 14 / workflow-task 3). Unlisted non-zero statuses stay failures.
-      const policy = error === undefined ? matchGrpcOk(this.route.log?.grpc?.ok, grpcStatus, method) : undefined;
+      const policy = error === undefined ? matchGrpcOk(route.log?.grpc?.ok, grpcStatus, method) : undefined;
       const treatedOk = grpcStatus === "0" || policy !== undefined;
       const failure = error ?? (treatedOk ? undefined : `grpc-status ${grpcStatus}`);
       const record: ProxyRequestRecord = {
@@ -153,7 +183,7 @@ export class GrpcProxyServer {
         requestId: requestID,
         method: "POST",
         path: recordedPath,
-        route: this.route.name,
+        route: route.name,
         identity: identityKey,
         status,
         durationMs: duration,
@@ -165,9 +195,9 @@ export class GrpcProxyServer {
       this.requests.record(record);
       this.spans?.append(proxyRecordToSpan(record));
       if (policy !== "silent") {
-        this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${this.route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
+        this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
       }
-      this.bus?.publish(newEvent(ProxyRequest, this.route.name, { status, request_id: requestID, duration, identity: identityKey }));
+      this.bus?.publish(newEvent(ProxyRequest, route.name, { status, request_id: requestID, duration, identity: identityKey }));
       void this.finishCapture(recorder, status, grpcStatus, started, requestID, ctx.traceId);
     };
     const fail = (grpcStatus: string, message: string): void => {
@@ -183,9 +213,9 @@ export class GrpcProxyServer {
 
     let out: Record<string, string>;
     try {
-      out = this.buildUpstreamHeaders(headers);
+      out = this.buildUpstreamHeaders(headers, route);
       applyTraceHeaders(out, ctx, REQUEST_ID_HEADER);
-      await injectIdentityHeaders(this.route, out, this.tokens);
+      await injectIdentityHeaders(route, out, this.tokens);
     } catch (err) {
       fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
       return;
@@ -193,7 +223,7 @@ export class GrpcProxyServer {
 
     let upReq;
     try {
-      upReq = this.upstream().request(out as OutgoingHttpHeaders);
+      upReq = this.upstream(route.upstream.url).request(out as OutgoingHttpHeaders);
     } catch (err) {
       fail(GRPC_UNAVAILABLE, err instanceof Error ? err.message : "upstream unavailable");
       return;
@@ -257,6 +287,7 @@ export class GrpcProxyServer {
   }
 
   private beginCapture(
+    routeName: string,
     path: string,
     headers: IncomingHttpHeaders,
     front: ServerHttp2Stream,
@@ -273,7 +304,7 @@ export class GrpcProxyServer {
         requestHeaders[key] = Array.isArray(value) ? value.join(", ") : String(value);
       }
       return this.traffic.begin({
-        routeName: this.route.name,
+        routeName,
         method: "POST",
         path,
         requestHeaders,
@@ -349,7 +380,7 @@ export class GrpcProxyServer {
   // headers, and the client's own Authorization; then re-point the pseudo
   // headers at the upstream. injectIdentityHeaders adds Authorization + any
   // configured auth.headers afterward.
-  private buildUpstreamHeaders(inHeaders: IncomingHttpHeaders): Record<string, string> {
+  private buildUpstreamHeaders(inHeaders: IncomingHttpHeaders, route: RouteConfig = this.route): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [key, value] of Object.entries(inHeaders)) {
       if (key.startsWith(":") || DROP_REQUEST_HEADERS.has(key.toLowerCase()) || value === undefined) {
@@ -357,7 +388,7 @@ export class GrpcProxyServer {
       }
       out[key] = Array.isArray(value) ? value.join(", ") : String(value);
     }
-    const target = new URL(this.route.upstream.url);
+    const target = new URL(route.upstream.url);
     out[":method"] = String(inHeaders[":method"] ?? "POST");
     out[":path"] = String(inHeaders[":path"] ?? "/");
     out[":scheme"] = target.protocol === "https:" ? "https" : "http";

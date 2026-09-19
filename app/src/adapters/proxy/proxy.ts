@@ -94,7 +94,7 @@ export type ProxyMiddlewareContext = {
 };
 
 export class ProxyServer {
-  private readonly cfg: ProxyConfig;
+  private cfg: ProxyConfig;
   private readonly tokens?: TokenManager;
   private readonly logs?: Pick<LogStore, "append">;
   private readonly spans?: SpanStore;
@@ -168,8 +168,22 @@ export class ProxyServer {
     return this.addr || listenAddress(this.cfg.listen);
   }
 
+  listenBind(): { host: string; port: number } {
+    return {
+      host: this.cfg.listen.host || "127.0.0.1",
+      port: this.cfg.listen.port,
+    };
+  }
+
   setMiddleware(middleware: ProxyMiddleware[]): void {
     this.middleware = middleware;
+  }
+
+  // Swap the live route table / token_endpoint / credentials without closing
+  // the HTTP listener. In-flight handlers already captured their matched
+  // route; new requests read this.cfg at match time.
+  replaceConfig(cfg: ProxyConfig): void {
+    this.cfg = cfg;
   }
 
   isRunning(): boolean {
@@ -1003,8 +1017,16 @@ export class TokenEndpoint {
     private readonly port: number,
     private readonly secret: string,
     private readonly tokens: TokenManager,
-    private readonly allowed: readonly TokenMint[] = [],
+    private allowed: readonly TokenMint[] = [],
   ) {}
+
+  isRunning(): boolean {
+    return this.server?.listening === true;
+  }
+
+  replaceAllowed(allowed: readonly TokenMint[]): void {
+    this.allowed = allowed;
+  }
 
   listenPort(): number {
     const addr = this.server?.address();
@@ -1012,6 +1034,10 @@ export class TokenEndpoint {
       return addr.port;
     }
     return this.port;
+  }
+
+  listenBind(): { host: string; port: number } {
+    return { host: this.host || "127.0.0.1", port: this.listenPort() };
   }
 
   start(): Promise<void> {

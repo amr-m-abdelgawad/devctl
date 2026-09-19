@@ -60,6 +60,14 @@ User vs service identity stay separate types. The proxy route decides which one 
 | `regex.ts` | Safe search compilation. |
 | `python-literal.ts`, `otlp-value.ts`, `any-value.ts` | Decode nested log payloads (Python literals, OTLP AnyValue). |
 
+## `domain/proxy/`
+
+| File | Role |
+|------|------|
+| `strip-prefix.ts` | Forward-path rewrite for `strip_prefix`. |
+| `grpc-ok.ts` | Listed non-zero gRPC statuses that are not proxy errors. |
+| `listen.ts` | Compare listener binds (`host`+`port`; empty host = `127.0.0.1`). |
+
 ## `domain/http/`
 
 Named outbound recipes (not the reverse proxy):

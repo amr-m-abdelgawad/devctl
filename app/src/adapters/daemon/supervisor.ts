@@ -395,6 +395,7 @@ export class Supervisor {
       refreshIdentity: () => self.refreshIdentity(),
       startProxy: () => self.startProxy(),
       stopProxy: () => self.stopProxy(),
+      applyProxyConfig: () => self.proxy.applyConfig(),
       reload: () => self.reload(),
       forgetService: (name) => self.forgetService(name),
       syncServiceWatchers: () => self.serviceWatchers.sync(self.cfg.services),
@@ -555,8 +556,9 @@ export class Supervisor {
         return this.queryTrafficCall(typeof rec.id === "string" ? rec.id : "");
       case "proxy_start":
         // Only an explicit proxy_start clears suppression — startProxy()
-        // itself is also called from start() and reload(), which must not
-        // have this side effect.
+        // itself is also called from start() (service-start auto-bind), which
+        // must not have this side effect. Config reload hot-swaps via
+        // applyConfig() and never starts a stopped proxy.
         this.proxy.setSuppressed(false);
         await this.commands.startProxy.execute();
         return null;

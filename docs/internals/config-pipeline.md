@@ -89,7 +89,7 @@ Settings default to the repo overlay. MCP listen always writes the repo file. `d
 
 ## Reload
 
-`adapters/daemon/reload.ts` re-runs load with the recorded session overlay, diffs with `domain/config/snapshot.ts`, records `restartRequired`, reapplies plugin registry, rebinds health/LLM factories. Live processes are not killed until the user restarts (or watch/reload policy says so). Failed reload publishes `ConfigurationReloadFailed` and keeps the last-known-good in-memory config.
+`adapters/daemon/reload.ts` re-runs load with the recorded session overlay, diffs with `domain/config/snapshot.ts`, records `restartRequired`, reapplies plugin registry, rebinds health/LLM factories. Live processes are not killed until the user restarts (or watch/reload policy says so). Failed reload publishes `ConfigurationReloadFailed` and keeps the last-known-good in-memory config. A running proxy hot-swaps routes when `listen` is unchanged (`ProxyCoordinator.applyConfig`); bind/enable changes still recreate that listener.
 
 ## Demo fixture
 

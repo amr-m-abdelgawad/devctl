@@ -22,6 +22,8 @@ WebSocket upgrades use the same route matching, identity injection, middleware, 
 
 If `proxy.enabled` is true, `devctl start` also starts the proxy.
 
+A configuration reload that only changes routes (match, upstream, inspect, auth, `strip_prefix`, log) **hot-swaps** the live table. The HTTP listener, token endpoint, and each gRPC h2c socket stay bound when their `listen` host/port (and the token endpoint's enabled flag) are unchanged. Listeners are recreated only when that bind changes, or the proxy is disabled while running. A stopped proxy stays stopped — `proxy stop` suppression is not cleared. In-flight requests keep the route they already matched; new requests see the new table.
+
 ## Routes
 
 ```yaml

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, emptyRouteAuth } from "../../domain/config/types.ts";
-import { checkPluginInspectDecoders, pluginMtimes, reapplyPlugins, registryForNextPlugins, type ReloadHost } from "./reload.ts";
+import { load } from "../config/index.ts";
+import { checkPluginInspectDecoders, pluginMtimes, reapplyPlugins, registryForNextPlugins, reloadSupervisor, type ReloadHost } from "./reload.ts";
 
 const PLUGIN = `export const sdkVersion = 1;
 export const tokenProviders = [];
@@ -48,6 +49,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     refreshIdentity: async () => undefined,
     startProxy: async () => undefined,
     stopProxy: async () => undefined,
+    applyProxyConfig: async () => undefined,
     reload: async () => ({ restart_required: [], changes: {} }),
     forgetService() {},
     syncServiceWatchers() {},
@@ -105,3 +107,83 @@ describe("plugin reload", () => {
     expect(restart).toContain("plugins");
   });
 });
+
+describe("proxy reload", () => {
+  test("a proxy route change calls applyProxyConfig instead of stop/start", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeFileSync(
+      configPath,
+      `version: 1
+project:
+  name: proxy-reload
+logs:
+  persistence:
+    enabled: false
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 18080
+  routes:
+    - name: api
+      match:
+        path: /v2
+      upstream:
+        url: http://127.0.0.1:9
+`,
+    );
+    const calls: string[] = [];
+    const host = stubHost(dir, []);
+    host.cfg = load(dir, configPath);
+    host.cfg.proxy.routes = [
+      {
+        ...host.cfg.proxy.routes[0]!,
+        match: { host: "", path: "/v1" },
+      },
+    ];
+    host.applyProxyConfig = async () => {
+      calls.push("apply");
+    };
+    host.startProxy = async () => {
+      calls.push("start");
+    };
+    host.stopProxy = async () => {
+      calls.push("stop");
+    };
+    await reloadSupervisor(host);
+    expect(calls).toEqual(["apply"]);
+  });
+
+  test("an unchanged proxy does not apply or restart", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeFileSync(
+      configPath,
+      `version: 1
+project:
+  name: proxy-unchanged
+logs:
+  persistence:
+    enabled: false
+`,
+    );
+    const calls: string[] = [];
+    const host = stubHost(dir, []);
+    host.cfg = load(dir, configPath);
+    host.applyProxyConfig = async () => {
+      calls.push("apply");
+    };
+    host.startProxy = async () => {
+      calls.push("start");
+    };
+    host.stopProxy = async () => {
+      calls.push("stop");
+    };
+    await reloadSupervisor(host);
+    expect(calls).toEqual([]);
+  });
+});
+

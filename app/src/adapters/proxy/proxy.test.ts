@@ -466,6 +466,31 @@ describe("proxy", () => {
     await server.stop();
   });
 
+  test("replaceConfig updates routes without closing the HTTP listen socket", async () => {
+    const { proxyPort, server, close } = await setupProxy((_req, res) => res.end("ok"));
+    try {
+      const first = await fetch(`http://127.0.0.1:${proxyPort}/v1`);
+      expect(first.status).toBe(200);
+      const next = defaultConfig().proxy;
+      next.listen = { host: "127.0.0.1", port: proxyPort };
+      next.routes.push({
+        name: "v2-only",
+        match: { host: "", path: "/v2" },
+        upstream: { url: `http://127.0.0.1:9` },
+        auth: NONE_AUTH,
+      });
+      server.replaceConfig(next);
+      expect(server.isRunning()).toBe(true);
+      expect(server.address()).toBe(`127.0.0.1:${proxyPort}`);
+      const miss = await fetch(`http://127.0.0.1:${proxyPort}/v1`);
+      expect(miss.status).toBe(404);
+      const hit = await fetch(`http://127.0.0.1:${proxyPort}/v2`);
+      expect(hit.status).toBe(502);
+    } finally {
+      await close();
+    }
+  });
+
   test("matchRoute uses host and path prefix", () => {
     const routes = defaultConfig().proxy.routes;
     routes.push({

@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proxy routes can **strip a matched path prefix** when forwarding (`strip_prefix`) and treat listed gRPC statuses as non-errors (`log.grpc.ok`), so Temporal long-poll 14 / workflow-task 3 no longer inflate `stats().errors`. Per-service `proxy:` fragments now keep the full `RouteConfig` (inspect, transport, response headers, and the new fields). See [Proxy](docs/proxy.md).
 - Traffic inspector decodes **gRPC request and response** bodies: split multi-message frames, inflate gzip in the capture adapter, pretty-print JSON (`application/grpc+json` or JSON-looking payloads) or proto3 `decode_raw` field numbers, and optionally a named `inspect.grpc.decoder` plugin (`trafficDecoders`). Captured `data` stays the original base64. See [Proxy](docs/proxy.md#inspect-bodies).
 
+### Changed
+
+- Config reload **hot-swaps proxy routes** when listen addresses are unchanged, so HTTP, token-endpoint, and gRPC sockets stay up; a listener restarts only on bind/enable change. See [Proxy](docs/proxy.md).
+
 ### Fixed
 
 - Process log severity now strips ANSI before classification, and stdout/stderr fold Python tracebacks, bare HTTP status continuations, and optional `logs.multiline` start/continuation regexes into one event.

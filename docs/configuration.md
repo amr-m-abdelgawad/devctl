@@ -143,7 +143,7 @@ The TUI Config screen `v` / `/buffer` overlay validates this text before writing
 
 ![The TUI Config screen — merged project, google, runtime, logs, proxy routes, services, and tasks in one view](assets/manual/tui-config.png)
 
-The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, identity, or `watch` changed.
+The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, identity, or `watch` changed. A running proxy hot-swaps routes when listen addresses are unchanged — see [Proxy](proxy.md).
 
 Changing the `plugins` **path list** hot-applies token providers, log parsers, and proxy middleware. Editing an already-imported plugin file (same path, newer mtime) still requires `devctl down && devctl start` — Bun’s module cache cannot unload it. A running service’s environment is unchanged until that service restarts.
 
