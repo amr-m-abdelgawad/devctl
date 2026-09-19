@@ -26,6 +26,7 @@ import {
   type RouteGrpcOkEntry,
   type RouteGrpcOkLog,
   type RouteInspectConfig,
+  type RouteInspectGrpcConfig,
   type RouteIdentity,
   type RouteLogConfig,
   type ServiceConfig,
@@ -402,10 +403,19 @@ export function decodeRouteInspect(value: unknown): RouteInspectConfig {
   if (value === false || value === undefined || !isRecord(value)) {
     return emptyRouteInspect();
   }
+  const grpc = decodeRouteInspectGrpc(value.grpc);
   return {
     enabled: asBoolean(value.enabled),
     max_bytes: asNumber(value.max_bytes),
+    ...(grpc ? { grpc } : {}),
   };
+}
+
+function decodeRouteInspectGrpc(value: unknown): RouteInspectGrpcConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return { decoder: asString(value.decoder) };
 }
 
 function decodeRouteGrpcOkLog(value: unknown): RouteGrpcOkLog | undefined {

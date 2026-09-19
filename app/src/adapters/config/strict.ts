@@ -26,6 +26,7 @@ import {
   knownRoute,
   knownRouteAuth,
   knownRouteInspect,
+  knownRouteInspectGrpc,
   knownRouteLog,
   knownRouteLogGrpc,
   knownRouteLogGrpcOk,
@@ -265,6 +266,9 @@ function serviceProxyPathKnown(parts: string[]): string[] {
     return knownListen;
   }
   if (kind === "inspect") {
+    if (rest[start + 1] === "grpc") {
+      return knownRouteInspectGrpc;
+    }
     return knownRouteInspect;
   }
   if (kind === "log") {
@@ -288,6 +292,9 @@ function routePathKnown(path: string): string[] {
   }
   if (path.endsWith(".listen")) {
     return knownListen;
+  }
+  if (path.endsWith(".inspect.grpc")) {
+    return knownRouteInspectGrpc;
   }
   if (path.endsWith(".inspect")) {
     return knownRouteInspect;

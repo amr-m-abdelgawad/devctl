@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emptyService, emptyRouteAuth, emptyProfile, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
-import { validate } from "./validate.ts";
+import { unresolvedInspectDecoders, validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
   const cfg = defaultConfig();
@@ -213,6 +213,22 @@ describe("config validate", () => {
       inspect: { enabled: true, max_bytes: -1 },
     });
     expect(validate(bad)).toContain("proxy.routes[0].inspect.max_bytes must be >= 0");
+  });
+
+  test("rejects an unknown inspect.grpc.decoder when plugins are empty", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      inspect: { enabled: true, max_bytes: 0, grpc: { decoder: "temporal" } },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].inspect.grpc.decoder must be a registered plugin traffic decoder");
+    expect(unresolvedInspectDecoders(cfg)).toEqual([{ route: "api", decoder: "temporal" }]);
+
+    cfg.plugins = [{ path: "./plugin.ts" }];
+    expect(validate(cfg).filter((issue) => issue.includes("inspect.grpc.decoder"))).toEqual([]);
   });
 
   test("rejects a mixed client_secret that is not a whole ${…} reference", () => {

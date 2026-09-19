@@ -221,6 +221,66 @@ proxy:
     expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0 });
   });
 
+  test("decodes inspect.grpc.decoder when a plugin path is present", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-grpc-${Date.now()}`;
+    writeFile(dir, "plugins/decoders.ts", "export const sdkVersion = 1;\n");
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+plugins:
+  - path: ./plugins/decoders.ts
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        grpc:
+          decoder: temporal
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.inspect).toEqual({
+      enabled: true,
+      max_bytes: 0,
+      grpc: { decoder: "temporal" },
+    });
+  });
+
+  test("rejects unknown inspect.grpc keys", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-grpc-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        grpc:
+          extra: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields: proxy\.routes\.0\.inspect\.grpc\.extra/);
+  });
+
   test("decodes optional IAP OAuth client fields", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-iap-oauth-${Date.now()}`;
     writeFile(

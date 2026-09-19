@@ -8,6 +8,7 @@ import {
   load,
   unresolvedHealthTypes,
   unresolvedIdentityTypes,
+  unresolvedInspectDecoders,
   unresolvedLlmSourceTypes,
 } from "../config/index.ts";
 import { ENV_SOURCE_ORDER } from "../environment/environment.ts";
@@ -156,6 +157,20 @@ export function checkPluginIdentityTypes(registry: Registry | undefined, cfg: De
   }
 }
 
+export function checkPluginInspectDecoders(registry: Registry | undefined, cfg: DevctlConfig): void {
+  const named = unresolvedInspectDecoders(cfg);
+  if (named.length === 0) {
+    return;
+  }
+  const registered = new Set((registry?.trafficDecoders ?? []).map((item) => item.name.toLowerCase()));
+  const missing = named.filter((item) => !registered.has(item.decoder.toLowerCase()));
+  if (missing.length === 0) {
+    return;
+  }
+  const detail = missing.map((item) => `${item.route}.inspect.grpc.decoder=${item.decoder}`).join(", ");
+  throw newError(KindConfiguration, `unknown inspect decoder(s): ${detail}`);
+}
+
 export function checkPluginLlmSourceTypes(registry: Registry | undefined, cfg: DevctlConfig): void {
   const unresolved = unresolvedLlmSourceTypes(cfg);
   if (unresolved.length === 0) {
@@ -247,6 +262,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
     checkPluginIdentityTypes(host.registry, next);
     checkPluginEnvironmentSources(host.registry, next);
     checkPluginLlmSourceTypes(host.registry, next);
+    checkPluginInspectDecoders(host.registry, next);
   } catch (err) {
     host.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
     host.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
