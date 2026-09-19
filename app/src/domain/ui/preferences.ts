@@ -214,6 +214,7 @@ export type SaveTuiPreferencesOpts = {
 export type LocalWebPatch = {
   web_enabled?: boolean;
   web_port?: number;
+  inspect_max_bytes?: number;
 };
 
 export type PreferenceWrite = TuiPreferencePatch & {
@@ -293,7 +294,10 @@ export function parsePreferenceWrite(args: Record<string, unknown>): PreferenceW
     if (typeof args.local.web_port === "number" && Number.isInteger(args.local.web_port)) {
       local.web_port = args.local.web_port;
     }
-    if (local.web_enabled !== undefined || local.web_port !== undefined) {
+    if (typeof args.local.inspect_max_bytes === "number" && Number.isInteger(args.local.inspect_max_bytes)) {
+      local.inspect_max_bytes = args.local.inspect_max_bytes;
+    }
+    if (local.web_enabled !== undefined || local.web_port !== undefined || local.inspect_max_bytes !== undefined) {
       out.local = local;
     }
   }
@@ -333,6 +337,7 @@ export type PreferenceSnapshot = {
   local: {
     web_enabled: boolean;
     web_port: number;
+    inspect_max_bytes: number;
   };
 };
 

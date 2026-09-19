@@ -1,3 +1,4 @@
+import { formatInspectCap, inspectCapBytes } from "../../domain/config/types.ts";
 import { VERSION, versionLine } from "../../version.ts";
 import { THEME_NAMES } from "./themes.ts";
 import {
@@ -33,6 +34,7 @@ export type SettingsId =
   | "mcp"
   | "web"
   | "web_port"
+  | "inspect_cap"
   | "user_file"
   | "repo_file"
   | "version"
@@ -63,6 +65,7 @@ export type SettingsState = {
   webAppearance: WebAppearance;
   webEnabled: boolean;
   webPort: number;
+  inspectMaxBytes: number;
   webRunning?: boolean;
   userPath: string;
   repoPath: string;
@@ -285,6 +288,15 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       value: String(state.webPort),
       hint: "← → preview    enter  save",
       detail: "Arrows preview web.listen.port. Enter writes .devctl/config.local.yaml (loopback host unchanged) and reloads. Other YAML keys are left alone.",
+    },
+    {
+      id: "inspect_cap",
+      group: "Listeners",
+      kind: "cycle",
+      name: "Inspect body cap",
+      value: formatInspectCap(inspectCapBytes(state.inspectMaxBytes)),
+      hint: "← → save",
+      detail: `Default capture size for traffic and LLM bodies. Writes proxy.inspect_max_bytes and llm.capture_max_bytes to ${state.localPath}, then reloads. Positive per-route max_bytes and LLM source capture.max_bytes values override the global values.`,
     },
     {
       id: "user_file",

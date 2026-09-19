@@ -222,6 +222,49 @@ proxy:
     expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0 });
   });
 
+  test("decodes proxy.inspect_max_bytes and llm.capture_max_bytes defaults", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-cap-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  inspect_max_bytes: 8388608
+llm:
+  enabled: false
+  capture_max_bytes: 4194304
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.inspect_max_bytes).toBe(8_388_608);
+    expect(cfg.llm.capture_max_bytes).toBe(4_194_304);
+  });
+
+  test("rejects a malformed global inspect or capture cap instead of defaulting to 1 MiB", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-cap-invalid-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  inspect_max_bytes: eight
+llm:
+  enabled: false
+  capture_max_bytes: Infinity
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/proxy\.inspect_max_bytes must be a finite number >= 0/);
+    expect(() => load(dir, "")).toThrow(/llm\.capture_max_bytes must be a finite number >= 0/);
+  });
+
   test("decodes inspect.capture_sse and rejects unknown inspect keys", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-sse-${Date.now()}`;
     writeFile(

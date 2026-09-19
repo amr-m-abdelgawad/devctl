@@ -82,7 +82,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
     route: RouteConfig,
     private readonly deps: TrafficCaptureSinkDeps,
   ) {
-    this.maxBytes = routeInspectMaxBytes(route);
+    this.maxBytes = routeInspectMaxBytes(route, deps.cfg().proxy.inspect_max_bytes);
     this.captureSse = routeInspectCaptureSse(route);
     this.decoderName = routeInspectDecoder(route);
     this.headerCaller = callerFromHeaders(begin.requestHeaders);

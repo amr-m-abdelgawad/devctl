@@ -659,7 +659,7 @@ A missing file fails start and \`devctl config validate\` with
 \`overlay "X" not found: .devctl/overlays/X.yaml\`. Operators may commit named
 overlays; they are not a second config language.
 
-TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in \`tui.json\` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch **only** \`web.enabled\` and \`web.listen.port\` into \`.devctl/config.local.yaml\` (created if missing; other keys are left alone).
+TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in \`tui.json\` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch \`web.enabled\`, \`web.listen.port\`, \`proxy.inspect_max_bytes\`, and \`llm.capture_max_bytes\` into \`.devctl/config.local.yaml\` (created if missing; other keys are left alone).
 
 ## Top-level keys
 
@@ -1873,7 +1873,7 @@ llm:
       via: { route: apigee-llm }  # singular sugar; or via.routes: [a, b]
       capture:
         prompts: true             # false → keep metadata, drop bodies
-        max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
+        max_bytes: 1048576        # per-direction cap (default llm.capture_max_bytes, then 1 MiB)
         paths:                    # optional; extra POST JSON paths to capture raw
           - /generations/v1alpha2
       cost_per_token:             # optional; proxy only
@@ -2101,7 +2101,7 @@ so agents must be given the new snippets.
 | \`get_service\` | inspect | One service plus command/cwd/ports (env redacted or left as \`\${…}\` refs) |
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_preferences\` | inspect | Resolved operator prefs, write paths, and layer provenance (\`user\` / \`repo\` / \`default\`). \`scope\` labels the save target |
-| \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`local.web_enabled\` / \`local.web_port\` patch \`.devctl/config.local.yaml\` then reload |
+| \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
 | \`get_logs\` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from the previous \`next_cursor\` to page forward with no duplicate or same-millisecond-lost lines; \`since\`/\`until\` are plain timestamp filters for a fresh query |
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
 | \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
@@ -2994,7 +2994,7 @@ proxy:
     - name: invoices-api
       inspect:
         enabled: true
-        max_bytes: 1048576   # default 1 MiB when omitted or 0
+        max_bytes: 1048576   # default proxy.inspect_max_bytes, then 1 MiB, when omitted or 0
         capture_sse: true    # optional; default false
     - name: temporal
       transport: grpc
@@ -3004,7 +3004,7 @@ proxy:
           decoder: temporal   # optional plugin trafficDecoders name
 \`\`\`
 
-\`inspect: true\` is the same as \`enabled: true\` with the default cap (no \`grpc\` block, no \`capture_sse\`). Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs. \`inspect.grpc.decoder\` names a plugin \`trafficDecoders\` entry; omit it to pretty-print JSON frames (\`application/grpc+json\` or JSON-looking payloads) and otherwise proto3 \`decode_raw\` field numbers (fixed-width wire values as \`0x\` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails \`config validate\` when \`plugins:\` is empty.
+\`inspect: true\` is the same as \`enabled: true\` with the default cap (no \`grpc\` block, no \`capture_sse\`). Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Set \`proxy.inspect_max_bytes\` (or Settings → Inspect body cap) when most routes should keep more than 1 MiB; a route that sets \`max_bytes > 0\` still wins. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs. \`inspect.grpc.decoder\` names a plugin \`trafficDecoders\` entry; omit it to pretty-print JSON frames (\`application/grpc+json\` or JSON-looking payloads) and otherwise proto3 \`decode_raw\` field numbers (fixed-width wire values as \`0x\` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails \`config validate\` when \`plugins:\` is empty.
 
 \`inspect.capture_sse\` (default **false**) changes only how a teed **response** is stored when \`Content-Type\` is exactly \`text/event-stream\` (parameters such as charset are ignored). The proxy still forwards the stream immediately; the inspector copy is parsed after the hop. Generic SSE is stored as a **JSON array of blank-line-delimited event strings** (one frame per array element) so the inspector is readable. OpenAI-shaped chat/completion streams (\`data:\` JSON with a \`choices\` array) are reassembled into pretty \`chat.completion\` JSON. Flag false or omitted keeps the raw event-stream text. Non-SSE content-types and request bodies ignore the flag. \`max_bytes\` / \`truncated\` still apply to the teed bytes. Redaction runs on the decoded \`text\`.
 
@@ -3797,7 +3797,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
 - **Profiles** — members; \`enter\` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
-- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only; layer badges then show \`override\` or \`default\`, not an ignored overlay.
+- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port, inspect body cap (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only; layer badges then show \`override\` or \`default\`, not an ignored overlay.
 - **MCP** — Listen \`[ ON ]\` / \`[ OFF ]\`, port stepper \`‹ N ›\`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked \`read\` or \`write\`; \`space\` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
 \`/reveal\` toggles secret env values for this session only. The header shows \`secrets shown\`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.
@@ -4075,7 +4075,7 @@ devctl web stop
 
 Stopping the web listener leaves your services running. Use \`devctl down\` when you want to shut down the session.
 
-**Settings** (\`#/settings\`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write \`tui.json\` layers. **Web console on/off and port** write only \`web.enabled\` / \`web.listen.port\` into gitignored \`.devctl/config.local.yaml\` (created if missing) and reload so the listener starts, stops, or rebinds. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
+**Settings** (\`#/settings\`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write \`tui.json\` layers. **Web console on/off and port** write \`web.enabled\` / \`web.listen.port\` into gitignored \`.devctl/config.local.yaml\` (created if missing) and reload so the listener starts, stops, or rebinds. **Inspect body cap** writes \`proxy.inspect_max_bytes\` and \`llm.capture_max_bytes\` (1 / 4 / 8 / 16 MiB) so large request/response bodies are kept; a route or source that sets \`max_bytes\` still wins. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
 
 \`\`\`yaml
 web:

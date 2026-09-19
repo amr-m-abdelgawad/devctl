@@ -87,7 +87,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Resolved TUI/web prefs and write paths",
     category: "inspect",
     description:
-      "Return resolved operator preferences (theme, input, log columns, web appearance, MCP listen) with layer provenance (default/team/user/repo/override) and write paths. Pass scope=user or scope=repo (default repo) to label the current save target. Stack overlay fields web.enabled and web.listen.port are included as local.",
+      "Return resolved operator preferences (theme, input, log columns, web appearance, MCP listen) with layer provenance (default/team/user/repo/override) and write paths. Pass scope=user or scope=repo (default repo) to label the current save target. Stack overlay fields web.enabled, web.listen.port, and local.inspect_max_bytes are included as local. Writing local.inspect_max_bytes persists proxy.inspect_max_bytes and llm.capture_max_bytes.",
     inputSchema: {
       type: "object",
       properties: {
@@ -369,7 +369,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     category: "control",
     mutates: true,
     description:
-      "Write operator preferences. scope=repo (default) writes this checkout's overlay; scope=user writes ~/.devctl/tui.json. MCP listen, port, and tool lists always write to the repo overlay. reset=true restores advertised defaults in that scope (MCP listen is left as-is). local.web_enabled / local.web_port patch .devctl/config.local.yaml (creating it if missing) then reload so the web listener starts, stops, or rebinds. Other YAML keys are preserved. dismissed_notifications stay user-global.",
+      "Write operator preferences. scope=repo (default) writes this checkout's overlay; scope=user writes ~/.devctl/tui.json. MCP listen, port, and tool lists always write to the repo overlay. reset=true restores advertised defaults in that scope (MCP listen is left as-is). local.web_enabled / local.web_port / local.inspect_max_bytes patch .devctl/config.local.yaml (creating it if missing) then reload so the web listener starts, stops, or rebinds and inspect/LLM capture caps update. Other YAML keys are preserved. dismissed_notifications stay user-global.",
     inputSchema: {
       type: "object",
       properties: {
@@ -391,6 +391,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
           properties: {
             web_enabled: { type: "boolean" },
             web_port: { type: "integer" },
+            inspect_max_bytes: { type: "integer", minimum: 0 },
           },
         },
       },

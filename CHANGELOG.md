@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Log ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same gRPC method or HTTP method+path (50ms window), so `--dedupe-request-id` can collapse the proxy+SDK pair. See [Logs](docs/logs.md).
+- Settings can raise the default inspect/LLM body cap (`1` / `4` / `8` / `16` MiB). That writes `proxy.inspect_max_bytes` and `llm.capture_max_bytes` into `.devctl/config.local.yaml` and reloads; a route or source that sets `max_bytes` still wins. See [Web console](docs/web.md) and [Proxy](docs/proxy.md#inspect-bodies).
 - Query-time `devctl logs --dedupe-request-id` / MCP `get_logs.dedupe_request_id` collapses nearby events that share `devctl.request_id` (keeps proxy attributes and the richest body), and optional `services.<name>.logs.dedupe_access_line` drops a plain uvicorn access line that duplicates the previous structured event from the same pid. See [Logs](docs/logs.md).
 - `devctl start --overlay <name>` applies `.devctl/overlays/<name>.yaml` as a sticky session config layer after `config.local.yaml` (recorded in `state.json`, shown in provenance), and `--env KEY=VAL` (repeatable) sets ephemeral process env for targeted services only.
 - Proxy routes can set optional `timeout.idle_ms` / `timeout.total_ms` (0 or omitted = unlimited) so a stalled hop returns HTTP 504 or gRPC `DEADLINE_EXCEEDED` without hanging the client. See [Proxy](docs/proxy.md#route-timeouts).
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Web Logs keeps every service and level chip after a filter is applied (configured services plus names already seen). The TUI **all** chip keeps the unscoped service total instead of the currently selected service's count.
+- Web JSON tree nodes collapse and expand when you click the row (same as the TUI), and collapse state stays put while the same record is polled. See [Web console](docs/web.md).
 - TUI and web consoles **format JSON everywhere it is shown**: syntax-colored pretty text in compact TUI inspectors, a click-to-expand tree in TUI overlays, and a navigable web viewer (tree / pretty, path breadcrumb, find, copy path or value) on Traffic, LLM, Logs, and span attributes. See [Web console](docs/web.md) and [TUI](docs/tui.md).
 - Config reload **hot-swaps proxy routes** when listen addresses are unchanged, so HTTP, token-endpoint, and gRPC sockets stay up; a listener restarts only on bind/enable change. See [Proxy](docs/proxy.md).
 
@@ -37,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Review follow-ups for the platform-audit Phase 2 surface: malformed or non-finite route timeouts stay invalid instead of decoding to unlimited `0`; a config-disabled proxy starts again on reload when `proxy.enabled` becomes true (unless suppressed); gRPC sessions are keyed by upstream URL and do not open after a deadline; HTTP timeouts disconnect a started response; request-body forwarding preserves backpressure; SSE capture matches `text/event-stream` exactly, keeps frame whitespace, and joins split `data:` fields; listen-key compare canonicalizes equivalent IPv6 literals; `--env KEY=VAL` stays off the stored client environment.
 - Request-id log dedupe keeps the earlier sequence/time when a later richer record survives, `--dedupe-request-id` exports apply the same collapse, and `via.route` validation uses the trimmed name.
 - Proxy-hop request-id tagging re-emits and persists a reverse-order update, keeps every candidate ingested in the last 50ms of arrival time (matching requires both the 50ms event-time window and the pair's ingest arrivals; folded process lines keep the first line's arrival), and ignores HTTP hop text whose target is not `/…`, an absolute URI, `host:port`, or `*`. TUI live append replaces a repeated positive `seq` inside the same batch.
+- Malformed `proxy.inspect_max_bytes` / `llm.capture_max_bytes` values stay invalid instead of decoding to the 1 MiB default.
 
 ## [0.15.0] - 2026-09-19
 

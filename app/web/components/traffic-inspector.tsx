@@ -102,8 +102,8 @@ export function TrafficInspector(props: {
           <Empty>{loading ? "Loading payload…" : "No request/response body."}</Empty>
         ) : (
           <div className="grid gap-3 lg:grid-cols-2">
-            <JsonViewer title="Request" input={request} wrap={wrapJson} needle={needle} parseStrings={bodyMode !== "raw"} />
-            <JsonViewer title="Response" input={response} wrap={wrapJson} needle={needle} parseStrings={bodyMode !== "raw"} />
+            <JsonViewer title="Request" input={request} wrap={wrapJson} needle={needle} parseStrings={bodyMode !== "raw"} resetKey={`${call.id}:req:${bodyMode}`} />
+            <JsonViewer title="Response" input={response} wrap={wrapJson} needle={needle} parseStrings={bodyMode !== "raw"} resetKey={`${call.id}:res:${bodyMode}`} />
           </div>
         )}
       </div>

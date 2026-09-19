@@ -82,7 +82,7 @@ so agents must be given the new snippets.
 | `get_service` | inspect | One service plus command/cwd/ports (env redacted or left as `${…}` refs) |
 | `get_status` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | `get_preferences` | inspect | Resolved operator prefs, write paths, and layer provenance (`user` / `repo` / `default`). `scope` labels the save target |
-| `set_preferences` | control | Write TUI/web prefs (`scope` repo or user). MCP listen always hits the repo overlay. `local.web_enabled` / `local.web_port` patch `.devctl/config.local.yaml` then reload |
+| `set_preferences` | control | Write TUI/web prefs (`scope` repo or user). MCP listen always hits the repo overlay. `local.web_enabled` / `local.web_port` / `local.inspect_max_bytes` patch `.devctl/config.local.yaml` then reload |
 | `get_logs` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
 | `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |
 | `trace_request` | logs | Resolve a proxy `X-Devctl-Request-ID` to its trace, then return the span tree and correlated logs |

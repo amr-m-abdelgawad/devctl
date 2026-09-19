@@ -118,7 +118,7 @@ function stubHost(): McpHost {
       locked: false,
       paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
       layers: { theme: "default" as const },
-      local: { web_enabled: false, web_port: 18900 },
+      local: { web_enabled: false, web_port: 18900, inspect_max_bytes: 0 },
     }),
     setPreferences: async (patch) => ({
       values: {
@@ -136,7 +136,7 @@ function stubHost(): McpHost {
       locked: false,
       paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
       layers: { theme: "repo" as const },
-      local: { web_enabled: patch.local?.web_enabled === true, web_port: patch.local?.web_port ?? 18900 },
+      local: { web_enabled: patch.local?.web_enabled === true, web_port: patch.local?.web_port ?? 18900, inspect_max_bytes: patch.local?.inspect_max_bytes ?? 0 },
     }),
   };
 }

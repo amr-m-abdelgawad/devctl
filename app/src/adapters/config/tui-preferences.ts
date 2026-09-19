@@ -274,6 +274,7 @@ export function getPreferenceSnapshot(
     scope?: PreferenceScope;
     webEnabled?: boolean;
     webPort?: number;
+    inspectMaxBytes?: number;
   },
 ): PreferenceSnapshot {
   const loaded = loadTuiConfig(repoRoot, opts?.yamlKeymap);
@@ -321,6 +322,7 @@ export function getPreferenceSnapshot(
     local: {
       web_enabled: opts?.webEnabled === true,
       web_port: opts?.webPort ?? 0,
+      inspect_max_bytes: opts?.inspectMaxBytes ?? 0,
     },
   };
 }

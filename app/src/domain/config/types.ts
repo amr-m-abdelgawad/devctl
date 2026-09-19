@@ -308,9 +308,36 @@ export function routeInspectEnabled(route: RouteConfig): boolean {
   return route.inspect?.enabled === true;
 }
 
-export function routeInspectMaxBytes(route: RouteConfig): number {
-  const cap = route.inspect?.max_bytes ?? 0;
-  return cap > 0 ? cap : DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
+export const INSPECT_CAP_PRESETS = [
+  DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES,
+  4 * DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES,
+  8 * DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES,
+  16 * DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES,
+] as const;
+
+export function inspectCapBytes(explicit: number, fallback = 0): number {
+  if (explicit > 0) {
+    return explicit;
+  }
+  if (fallback > 0) {
+    return fallback;
+  }
+  return DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
+}
+
+export function routeInspectMaxBytes(route: RouteConfig, fallback = 0): number {
+  return inspectCapBytes(route.inspect?.max_bytes ?? 0, fallback);
+}
+
+export function formatInspectCap(bytes: number): string {
+  return `${bytes / DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES} MiB`;
+}
+
+export function cycleInspectCap(current: number, dir: 1 | -1): number {
+  const presets = [...INSPECT_CAP_PRESETS];
+  const found = presets.indexOf(current as (typeof INSPECT_CAP_PRESETS)[number]);
+  const start = found < 0 ? 0 : found;
+  return presets[(start + dir + presets.length) % presets.length] ?? DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
 }
 
 export function routeInspectCaptureSse(route: RouteConfig): boolean {
@@ -379,6 +406,9 @@ export function isGrpcRoute(route: RouteConfig): boolean {
 
 export type ProxyConfig = {
   enabled: boolean;
+  // Default body cap for inspect-enabled routes whose inspect.max_bytes is 0.
+  // 0 means the 1 MiB product default. A route that sets max_bytes > 0 wins.
+  inspect_max_bytes: number;
   // When true, every HTTP-capable service (one with a port named "http") is
   // exposed through the proxy as if it declared `expose: true`, unless a
   // hand-written route already claims its name. Sugar over per-service
@@ -601,6 +631,8 @@ export type LlmSourceConfig = {
 
 export type LlmConfig = {
   enabled: boolean;
+  // Default body cap for sources whose capture.max_bytes is 0. 0 means 1 MiB.
+  capture_max_bytes: number;
   sources: LlmSourceConfig[];
 };
 
@@ -656,7 +688,7 @@ export function emptyLlmSource(): LlmSourceConfig {
 }
 
 export function emptyLlm(): LlmConfig {
-  return { enabled: false, sources: [] };
+  return { enabled: false, capture_max_bytes: 0, sources: [] };
 }
 
 export function llmAuthHeader(auth: LlmAuthConfig): string {
@@ -671,8 +703,8 @@ export function llmManagementPort(source: LlmSourceConfig): string {
   return source.management_port.trim() === "" ? DEFAULT_LLM_PORT_NAME : source.management_port.trim();
 }
 
-export function llmCaptureMaxBytes(capture: LlmCaptureConfig): number {
-  return capture.max_bytes > 0 ? capture.max_bytes : DEFAULT_LLM_CAPTURE_MAX_BYTES;
+export function llmCaptureMaxBytes(capture: LlmCaptureConfig, fallback = 0): number {
+  return inspectCapBytes(capture.max_bytes, fallback);
 }
 
 export type ConfigOrigin = {
@@ -773,6 +805,7 @@ export function defaultConfig(): DevctlConfig {
     http: {},
     proxy: {
       enabled: false,
+      inspect_max_bytes: 0,
       gateway: false,
       credentials: "",
       listen: { host: LOCALHOST, port: 0 },

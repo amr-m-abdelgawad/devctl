@@ -378,6 +378,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean" },
+        "inspect_max_bytes": { "type": "integer", "minimum": 0, "description": "Default body cap for inspect-enabled routes whose inspect.max_bytes is 0 or omitted. 0 means 1 MiB. A route that sets max_bytes > 0 wins." },
         "gateway": { "type": "boolean", "description": "Expose every HTTP-capable service (one with a port named http) through the proxy, as if each declared expose: true. Sugar over per-service expose." },
         "credentials": { "type": "string", "description": "Default authorized_user credentials file for IAP routes that omit auth.credentials (see route.auth.credentials)." },
         "listen": {
@@ -702,6 +703,7 @@
       "description": "Opt-in LLM traffic inspector. Off by default. LiteLLM is the first source type; a custom proxy in front of it is reachability, not a new type.",
       "properties": {
         "enabled": { "type": "boolean" },
+        "capture_max_bytes": { "type": "integer", "minimum": 0, "description": "Default body cap for sources whose capture.max_bytes is 0 or omitted. 0 means 1 MiB. A source that sets max_bytes > 0 wins." },
         "sources": {
           "type": "array",
           "items": { "$ref": "#/$defs/llmSource" }

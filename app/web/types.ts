@@ -106,7 +106,7 @@ export type ControlArgs = {
   mcp_enabled?: boolean;
   mcp_port?: number | null;
   reset?: boolean;
-  local?: { web_enabled?: boolean; web_port?: number };
+  local?: { web_enabled?: boolean; web_port?: number; inspect_max_bytes?: number };
 };
 
 export type PreferenceLayer = "default" | "team" | "user" | "repo" | "override";
@@ -138,6 +138,7 @@ export type PreferenceSnapshot = {
   local: {
     web_enabled: boolean;
     web_port: number;
+    inspect_max_bytes: number;
   };
 };
 

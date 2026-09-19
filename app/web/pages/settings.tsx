@@ -6,6 +6,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.
 import { cn } from "../lib/utils.ts";
 import type { ControlArgs, PreferenceLayer, PreferenceSnapshot, StatusSummary } from "../types.ts";
 
+const INSPECT_CAP_1_MIB = 1_048_576;
+const INSPECT_CAP_OPTIONS = [
+  { id: String(INSPECT_CAP_1_MIB), label: "1 MiB" },
+  { id: String(4 * INSPECT_CAP_1_MIB), label: "4 MiB" },
+  { id: String(8 * INSPECT_CAP_1_MIB), label: "8 MiB" },
+  { id: String(16 * INSPECT_CAP_1_MIB), label: "16 MiB" },
+];
+
 function applyAppearance(value: "dark" | "light"): void {
   document.documentElement.dataset.appearance = value;
 }
@@ -284,6 +292,15 @@ export function SettingsPage(props: {
                 }}
               />
             )}
+          </PrefRow>
+          <PrefRow label="Inspect body cap" hint="Default capture size for traffic and LLM bodies. A route or source that sets max_bytes still wins. Writes proxy.inspect_max_bytes and llm.capture_max_bytes, then reloads. New hops use the new cap.">
+            <Segmented
+              ariaLabel="Inspect body cap"
+              value={String(prefs.local.inspect_max_bytes > 0 ? prefs.local.inspect_max_bytes : INSPECT_CAP_1_MIB)}
+              disabled={busy}
+              options={INSPECT_CAP_OPTIONS}
+              onChange={(value) => void save({ scope, local: { inspect_max_bytes: Number(value) } }, "Saving inspect cap…")}
+            />
           </PrefRow>
           <PrefRow label="Web port" hint="Reloads the listener after save.">
             <form

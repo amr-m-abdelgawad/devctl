@@ -8,8 +8,12 @@ import { repoLocalConfigPath } from "./tui-preferences.ts";
 
 export { repoLocalConfigPath };
 
+export function hasLocalConfigPatch(patch: LocalWebPatch): boolean {
+  return patch.web_enabled !== undefined || patch.web_port !== undefined || patch.inspect_max_bytes !== undefined;
+}
+
 export function patchRepoLocalConfig(repoRoot: string, patch: LocalWebPatch): string {
-  if (patch.web_enabled === undefined && patch.web_port === undefined) {
+  if (!hasLocalConfigPatch(patch)) {
     return repoLocalConfigPath(repoRoot);
   }
   const path = repoLocalConfigPath(repoRoot);
@@ -23,6 +27,13 @@ export function patchRepoLocalConfig(repoRoot: string, patch: LocalWebPatch): st
       throw newError(KindConfiguration, `web.listen.port ${patch.web_port} is invalid`);
     }
     doc.setIn(["web", "listen", "port"], port);
+  }
+  if (patch.inspect_max_bytes !== undefined) {
+    if (patch.inspect_max_bytes < 0) {
+      throw newError(KindConfiguration, `inspect_max_bytes ${patch.inspect_max_bytes} must be >= 0`);
+    }
+    doc.setIn(["proxy", "inspect_max_bytes"], patch.inspect_max_bytes);
+    doc.setIn(["llm", "capture_max_bytes"], patch.inspect_max_bytes);
   }
   const text = String(doc).trimEnd();
   writeFileSecure(path, `${text}\n`);
