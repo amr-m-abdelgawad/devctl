@@ -109,7 +109,7 @@ export const knownLlmSource = [
   "poll_seconds",
 ];
 export const knownLlmAuth = ["type", "token_env", "header"];
-export const knownLlmVia = ["route"];
+export const knownLlmVia = ["route", "routes"];
 export const knownLlmCapture = ["prompts", "max_bytes", "paths"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];

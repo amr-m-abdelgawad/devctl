@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Traffic inspector decodes **gRPC request and response** bodies: split multi-message frames, inflate gzip in the capture adapter, pretty-print JSON (`application/grpc+json` or JSON-looking payloads) or proto3 `decode_raw` field numbers, and optionally a named `inspect.grpc.decoder` plugin (`trafficDecoders`). Captured `data` stays the original base64. See [Proxy](docs/proxy.md#inspect-bodies).
 - Traffic inspector `inspect.capture_sse` (default false) stores `text/event-stream` responses as a JSON array of blank-line-delimited frames, or pretty OpenAI `chat.completion` JSON when the stream is chat/completion-shaped. The forwarded stream is still teed with no extra delay; `max_bytes` / `truncated` still apply. See [Proxy](docs/proxy.md#inspect-bodies).
 - Status snapshots and MCP/web `list_services` expose `start_period_remaining_ms` / `start_period_total_ms` while a service is still inside `health.start_period_seconds`.
+- LLM inspector `type: proxy` sources can tag multiple proxy routes with `via.routes: [a, b]`; `via.route` remains singular sugar for one name. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
 
 ### Changed
 

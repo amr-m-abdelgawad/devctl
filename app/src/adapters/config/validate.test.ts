@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, emptyRouteAuth, emptyProfile, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyRouteAuth, emptyProfile, emptyLlmSource, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { decodeRoute } from "./decode.ts";
 import { unresolvedInspectDecoders, validate } from "./validate.ts";
 
@@ -584,7 +584,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "" },
+      via: { route: "", routes: [] },
       management_endpoint: "",
       management_service: "",
       management_port: "",
@@ -615,7 +615,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "apigee-llm" },
+      via: { route: "apigee-llm", routes: [] },
       management_endpoint: "",
       management_service: "",
       management_port: "",
@@ -638,7 +638,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "" },
+      via: { route: "", routes: [] },
       management_endpoint: "http://127.0.0.1:4000",
       management_service: "",
       management_port: "",
@@ -669,7 +669,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "/llm",
       headers: {},
-      via: { route: "llm-apps" },
+      via: { route: "llm-apps", routes: [] },
       management_endpoint: "http://127.0.0.1:4000",
       management_service: "",
       management_port: "",
@@ -697,7 +697,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "apigee-llm" },
+      via: { route: "apigee-llm", routes: [] },
       management_endpoint: "",
       management_service: "",
       management_port: "",
@@ -714,6 +714,65 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must start with /"))).toBe(true);
     source.capture.paths = ["/"];
     expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must name a path, not /"))).toBe(true);
+  });
+
+  test("accepts a proxy source that lists existing via.routes without via.route", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push(
+      { name: "alpha", match: { host: "", path: "/a" }, upstream: { url: "https://gateway.example/a" }, auth: emptyRouteAuth() },
+      { name: "beta", match: { host: "", path: "/b" }, upstream: { url: "https://gateway.example/b" }, auth: emptyRouteAuth() },
+    );
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "multi";
+    source.type = "proxy";
+    source.via.routes = ["alpha", "beta"];
+    cfg.llm.sources = [source];
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a proxy source with neither via.route nor via.routes", () => {
+    const cfg = withService("litellm");
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    cfg.llm.sources = [source];
+    expect(validate(cfg).some((issue) => issue.includes("type proxy requires via.route or via.routes"))).toBe(true);
+  });
+
+  test("rejects unknown and empty via.routes names on a proxy source", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.routes = ["ghost"];
+    cfg.llm.sources = [source];
+    expect(validate(cfg).some((issue) => issue.includes("via.routes[0] references unknown proxy route ghost"))).toBe(true);
+
+    source.via.routes = [""];
+    expect(validate(cfg).some((issue) => issue.includes("via.routes[0] must be a non-empty name"))).toBe(true);
+  });
+
+  test("rejects via.routes on a litellm source", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "platform";
+    source.type = "litellm";
+    source.service = "litellm";
+    source.via.routes = ["llm-apps"];
+    source.auth = { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "" };
+    cfg.llm.sources = [source];
+    expect(validate(cfg).some((issue) => issue.includes("via.routes is only valid on type: proxy"))).toBe(true);
   });
 
   test("named environments require a known default_environment and reject empty names", () => {

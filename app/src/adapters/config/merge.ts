@@ -297,7 +297,7 @@ function decodeLlmSource(raw: Record<string, unknown>): LlmSourceConfig {
     endpoint: asString(raw.endpoint),
     path_prefix: asString(raw.path_prefix),
     headers: asStringMap(raw.headers),
-    via: { route: asString(via.route) },
+    via: { route: asString(via.route), routes: asStringArray(via.routes) },
     management_endpoint: asString(raw.management_endpoint),
     management_service: asString(raw.management_service),
     management_port: asString(raw.management_port),

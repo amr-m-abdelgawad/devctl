@@ -707,7 +707,7 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
-        "type": { "type": "string", "description": "Source driver. Built-in: litellm (polls /spend/logs) or proxy (captures OpenAI-compatible bodies off a devctl proxy route named by via.route)." },
+        "type": { "type": "string", "description": "Source driver. Built-in: litellm (polls /spend/logs) or proxy (captures OpenAI-compatible bodies off devctl proxy routes named by via.route / via.routes)." },
         "service": { "type": "string", "description": "Managed service whose assigned port is the management hop." },
         "port": { "type": "string", "description": "Named service port (default http)." },
         "endpoint": { "type": "string", "description": "Literal management URL when the source is not a managed service." },
@@ -738,7 +738,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "route": { "type": "string", "description": "Existing proxy.routes[].name. For litellm, mints the route's identity headers; for the proxy source type, the route whose completion traffic is captured." }
+        "route": { "type": "string", "description": "Existing proxy.routes[].name. For litellm, the optional management hop that mints the route's identity headers. For type: proxy, singular sugar for one capture route (unioned with via.routes)." },
+        "routes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "proxy source only: extra proxy.routes[].name values to capture. Unioned with via.route (singular sugar). Invalid on litellm and plugin sources."
+        }
       }
     },
     "llmCapture": {

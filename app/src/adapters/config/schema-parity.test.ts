@@ -143,6 +143,15 @@ describe("config allowlist/schema parity", () => {
     for (const [name, known, node] of cases) expectParity(name, known, node);
   });
 
+  test("unknown via.foo is rejected; via.routes is known", () => {
+    expect(collectUnknownFields({
+      sources: [{ name: "x", type: "proxy", via: { route: "a", routes: ["b"], foo: true } }],
+    }, "llm")).toContain("llm.sources.0.via.foo");
+    expect(collectUnknownFields({
+      sources: [{ name: "x", type: "proxy", via: { route: "a", routes: ["b"] } }],
+    }, "llm")).toEqual([]);
+  });
+
   test("unknown logs.multiline.foo is rejected", () => {
     expect(collectUnknownFields({
       logs: { stdout: true, multiline: { start: "^", foo: true } },

@@ -40,6 +40,7 @@ import {
   LLM_SOURCE_TYPE_PROXY,
   llmManagementPort,
   llmSourcePort,
+  llmViaRoutes,
   namedPort,
   isReservedHttpOutput,
 } from "../../domain/config/types.ts";
@@ -792,10 +793,9 @@ function validateLlmCapture(source: LlmSourceConfig, prefix: string): string[] {
 
 function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
   const issues: string[] = [];
-  if (source.via.route.trim() === "") {
-    issues.push(`${prefix}: type ${LLM_SOURCE_TYPE_PROXY} requires via.route naming the proxy route to capture`);
-  } else if (!cfg.proxy.routes.some((route) => route.name === source.via.route)) {
-    issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+  issues.push(...validateLlmViaRouteNames(cfg, source, prefix));
+  if (llmViaRoutes(source.via).length === 0) {
+    issues.push(`${prefix}: type ${LLM_SOURCE_TYPE_PROXY} requires via.route or via.routes naming the proxy route to capture`);
   }
   // A proxy source never talks to a management API — reject fields that would
   // imply one, so a misconfigured source fails loudly instead of silently
@@ -811,8 +811,28 @@ function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, pref
   return issues;
 }
 
+function validateLlmViaRouteNames(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  if (source.via.route.trim() !== "" && !cfg.proxy.routes.some((route) => route.name === source.via.route)) {
+    issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+  }
+  for (const [index, entry] of (source.via.routes ?? []).entries()) {
+    const trimmed = entry.trim();
+    const loc = `${prefix}.via.routes[${index}]`;
+    if (trimmed === "") {
+      issues.push(`${loc} must be a non-empty name`);
+    } else if (!cfg.proxy.routes.some((route) => route.name === trimmed)) {
+      issues.push(`${loc} references unknown proxy route ${trimmed}`);
+    }
+  }
+  return issues;
+}
+
 function validateLlmManagementHop(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
   const issues: string[] = [];
+  if ((source.via.routes ?? []).length > 0) {
+    issues.push(`${prefix}.via.routes is only valid on type: ${LLM_SOURCE_TYPE_PROXY}`);
+  }
   const hasManagementEndpoint = source.management_endpoint.trim() !== "";
   const hasManagementService = source.management_service.trim() !== "";
   if (hasManagementEndpoint && hasManagementService) {

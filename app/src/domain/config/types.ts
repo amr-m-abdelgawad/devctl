@@ -556,6 +556,7 @@ export type LlmAuthConfig = {
 
 export type LlmViaConfig = {
   route: string;
+  routes: string[];
 };
 
 export type LlmCaptureConfig = {
@@ -591,7 +592,27 @@ export function emptyLlmAuth(): LlmAuthConfig {
 }
 
 export function emptyLlmVia(): LlmViaConfig {
-  return { route: "" };
+  return { route: "", routes: [] };
+}
+
+// Union of trimmed via.route (singular sugar) then via.routes, skipping
+// empties and keeping first-seen order so capture matching is a list.
+export function llmViaRoutes(via: LlmViaConfig): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: string) => {
+    const name = value.trim();
+    if (name === "" || seen.has(name)) {
+      return;
+    }
+    seen.add(name);
+    names.push(name);
+  };
+  push(via.route);
+  for (const name of via.routes ?? []) {
+    push(name);
+  }
+  return names;
 }
 
 export function emptyLlmCapture(): LlmCaptureConfig {
