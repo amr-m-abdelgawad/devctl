@@ -593,10 +593,8 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigPr
     fragments.forEach((frag, i) => {
       const routeName = fragments.length === 1 ? name : `${name}-${i + 1}`;
       const route = {
+        ...frag,
         name: routeName,
-        match: frag.match,
-        upstream: frag.upstream,
-        auth: frag.auth,
       };
       const index = cfg.proxy.routes.length;
       cfg.proxy.routes.push(route);

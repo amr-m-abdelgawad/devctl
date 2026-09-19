@@ -5,6 +5,7 @@ import { PassThrough } from "node:stream";
 import { GrpcProxyServer, writeWithBackpressure } from "./grpc-proxy.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 import { defaultConfig, emptyRouteAuth, type RouteConfig } from "../../domain/config/types.ts";
+import type { LogStore } from "../../ports/log-store.ts";
 import { TrafficCallRing } from "../traffic/store.ts";
 import { ProxyTrafficSink } from "../traffic/capture.ts";
 import { type CredentialRecord, type CredentialStore } from "../storage/credentials.ts";
@@ -52,6 +53,31 @@ async function startUpstream(): Promise<{ url: string; close: () => Promise<void
         stream.end(Buffer.concat(chunks));
       }
     });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
+  const port = (server.address() as { port: number }).port;
+  return { url: `http://127.0.0.1:${port}`, close: () => new Promise<void>((r) => server.close(() => r())) };
+}
+
+function memoryLogs(): { logs: Pick<LogStore, "append">; events: Array<{ level: string; message: string }> } {
+  const events: Array<{ level: string; message: string }> = [];
+  return {
+    events,
+    logs: {
+      append: (event) => {
+        events.push({ level: event.level ?? "", message: event.message ?? "" });
+      },
+    },
+  };
+}
+
+async function startStatusUpstream(statusFor: (path: string) => string): Promise<{ url: string; close: () => Promise<void> }> {
+  const server = http2.createServer();
+  server.on("stream", (raw, headers) => {
+    const stream = raw as ServerHttp2Stream;
+    const path = String(headers[":path"] ?? "");
+    const status = statusFor(path);
+    stream.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": status, "grpc-message": status === "0" ? "ok" : "err" }, { endStream: true });
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   const port = (server.address() as { port: number }).port;
@@ -191,6 +217,50 @@ describe("GrpcProxyServer", () => {
       expect(res.grpcStatus).toBe("14");
     } finally {
       await server.stop();
+    }
+  });
+
+  test("log.grpc.ok treats listed Poll* status 14 as INFO without incrementing errors", async () => {
+    const up = await startStatusUpstream((path) => (path.endsWith("PollWorkflowTaskQueue") || path.endsWith("PollActivityTaskQueue") ? "14" : "7"));
+    const port = await reservePort();
+    const route = grpcRoute(up.url, port);
+    route.log = { grpc: { ok: [{ status: 14, methods: ["PollWorkflowTaskQueue", "PollActivityTaskQueue"] }] } };
+    const { logs, events } = memoryLogs();
+    const server = new GrpcProxyServer(route, tokens(), logs);
+    await server.start();
+    try {
+      const poll = "/temporal.api.workflowservice.v1.WorkflowService/PollWorkflowTaskQueue";
+      await call(port, poll, "x");
+      await call(port, "/temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue", "x");
+      await call(port, "/temporal.api.workflowservice.v1.WorkflowService/TerminateWorkflowExecution", "x");
+      const s = server.stats();
+      expect(s.total).toBe(3);
+      expect(s.errors).toBe(1);
+      const hop = (method: string) => events.filter((e) => e.message.includes(method));
+      expect(hop("PollWorkflowTaskQueue").some((e) => e.level === "INFO" && e.message.includes("grpc-status=14"))).toBe(true);
+      expect(hop("PollActivityTaskQueue").some((e) => e.level === "INFO" && e.message.includes("grpc-status=14"))).toBe(true);
+      expect(hop("TerminateWorkflowExecution").some((e) => e.level === "WARN" && e.message.includes("grpc-status 7"))).toBe(true);
+    } finally {
+      await server.stop();
+      await up.close();
+    }
+  });
+
+  test("log.grpc.ok silent omits the hop log; omit methods applies to every method", async () => {
+    const up = await startStatusUpstream(() => "14");
+    const port = await reservePort();
+    const route = grpcRoute(up.url, port);
+    route.log = { grpc: { ok: [{ status: 14, log: "silent" }] } };
+    const { logs, events } = memoryLogs();
+    const server = new GrpcProxyServer(route, tokens(), logs);
+    await server.start();
+    try {
+      await call(port, "/temporal.api.workflowservice.v1.WorkflowService/Whatever", "x");
+      expect(server.stats().errors).toBe(0);
+      expect(events.filter((e) => e.message.includes("/Whatever"))).toEqual([]);
+    } finally {
+      await server.stop();
+      await up.close();
     }
   });
 

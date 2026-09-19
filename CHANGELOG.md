@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Proxy routes can **strip a matched path prefix** when forwarding (`strip_prefix`) and treat listed gRPC statuses as non-errors (`log.grpc.ok`), so Temporal long-poll 14 / workflow-task 3 no longer inflate `stats().errors`. Per-service `proxy:` fragments now keep the full `RouteConfig` (inspect, transport, response headers, and the new fields). See [Proxy](docs/proxy.md).
+
 ## [0.15.0] - 2026-09-19
 
 ### Added

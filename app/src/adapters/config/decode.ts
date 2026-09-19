@@ -23,8 +23,11 @@ import {
   type RestartConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type RouteGrpcOkEntry,
+  type RouteGrpcOkLog,
   type RouteInspectConfig,
   type RouteIdentity,
+  type RouteLogConfig,
   type ServiceConfig,
   type StartupConfig,
   type TaskConfig,
@@ -366,6 +369,33 @@ export function decodeRouteInspect(value: unknown): RouteInspectConfig {
   };
 }
 
+function decodeRouteGrpcOkLog(value: unknown): RouteGrpcOkLog | undefined {
+  const text = asString(value);
+  return text === "" ? undefined : (text as RouteGrpcOkLog);
+}
+
+function decodeRouteGrpcOkEntry(value: Record<string, unknown>): RouteGrpcOkEntry {
+  const entry: RouteGrpcOkEntry = { status: asNumber(value.status) };
+  if (value.methods !== undefined) {
+    entry.methods = asStringArray(value.methods);
+  }
+  if (value.log !== undefined) {
+    entry.log = decodeRouteGrpcOkLog(value.log);
+  }
+  return entry;
+}
+
+export function decodeRouteLog(value: unknown): RouteLogConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (!isRecord(value.grpc)) {
+    return {};
+  }
+  const ok = Array.isArray(value.grpc.ok) ? value.grpc.ok.filter(isRecord).map(decodeRouteGrpcOkEntry) : [];
+  return { grpc: { ok } };
+}
+
 export function decodeRoute(value: unknown): RouteConfig {
   if (!isRecord(value)) {
     return {
@@ -387,6 +417,8 @@ export function decodeRoute(value: unknown): RouteConfig {
     response_headers: asStringMap(value.response_headers),
     listen: isRecord(value.listen) ? { host: asString(value.listen.host), port: asNumber(value.listen.port) } : undefined,
     inspect: decodeRouteInspect(value.inspect),
+    strip_prefix: asBoolean(value.strip_prefix),
+    log: decodeRouteLog(value.log),
   };
 }
 

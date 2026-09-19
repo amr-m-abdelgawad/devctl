@@ -18,7 +18,7 @@ import { KindProxy } from "../../shared/errors.ts";
 import { Bus, TokenRefreshFailed, TokenRefreshed } from "../../shared/events.ts";
 import { formatBodySummary } from "../../domain/logs/logs.ts";
 import { LogManager } from "../storage/logs.ts";
-import { injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, RequestLog, resolveProxyTarget, TokenEndpoint, type ProxyRequestRecord } from "./proxy.ts";
+import { forwardedRequestUrl, injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, RequestLog, resolveProxyTarget, TokenEndpoint, type ProxyRequestRecord } from "./proxy.ts";
 import { Detector } from "../secrets/detector.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
@@ -417,6 +417,23 @@ describe("proxy", () => {
     expect(resolveProxyTarget(base, "http://evil.example/steal").href).toBe("http://127.0.0.1:8000/steal");
     expect(resolveProxyTarget(base, "//evil.example/steal").href).toBe("http://127.0.0.1:8000/steal");
     expect(resolveProxyTarget(base, "///evil.example").href).toBe("http://127.0.0.1:8000/");
+  });
+
+  test("strip_prefix rewrites the forwarded path and preserves the query", () => {
+    const route: RouteConfig = {
+      name: "svc",
+      match: { host: "", path: "/my-service" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: NONE_AUTH,
+      strip_prefix: true,
+    };
+    expect(forwardedRequestUrl(route, "/my-service")).toBe("/");
+    expect(forwardedRequestUrl(route, "/my-service/foo")).toBe("/foo");
+    expect(forwardedRequestUrl(route, "/my-service/foo?q=1")).toBe("/foo?q=1");
+    expect(forwardedRequestUrl(route, "/my-service?q=1")).toBe("/?q=1");
+    expect(resolveProxyTarget("http://127.0.0.1:8000", forwardedRequestUrl(route, "/my-service")).href).toBe("http://127.0.0.1:8000/");
+    expect(resolveProxyTarget("http://127.0.0.1:8000", forwardedRequestUrl(route, "/my-service/foo?q=1")).href).toBe("http://127.0.0.1:8000/foo?q=1");
+    expect(forwardedRequestUrl({ ...route, strip_prefix: false }, "/my-service/foo")).toBe("/my-service/foo");
   });
 
   test("proxyUpgradeRequest uses https.request for https upstreams", () => {
@@ -1440,6 +1457,53 @@ describe("proxy traffic inspect", () => {
       expect(call?.response?.text).toContain('"ok"');
     } finally {
       await close();
+    }
+  });
+
+  test("strip_prefix forwards the rewritten path while inspect keeps the inbound path", async () => {
+    const seen: string[] = [];
+    const upstream = createServer((req, res) => {
+      seen.push(req.url ?? "");
+      res.end("ok");
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+    const proxyPort = await reservePort();
+    const dc = defaultConfig();
+    dc.proxy.enabled = true;
+    dc.proxy.listen = { host: "127.0.0.1", port: proxyPort };
+    dc.proxy.routes.push({
+      name: "svc",
+      match: { host: "", path: "/my-service" },
+      upstream: { url: `http://127.0.0.1:${upPort}` },
+      auth: NONE_AUTH,
+      strip_prefix: true,
+      inspect: { enabled: true, max_bytes: 0 },
+    });
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({ cfg: () => dc, store });
+    const server = new ProxyServer(dc.proxy, undefined, undefined, undefined, undefined, [], undefined, undefined, undefined, undefined, sink);
+    await server.start();
+    try {
+      const matrix: Array<[string, string]> = [
+        ["/my-service", "/"],
+        ["/my-service/foo", "/foo"],
+        ["/my-service/foo?q=1", "/foo?q=1"],
+      ];
+      for (const [inbound, forwarded] of matrix) {
+        seen.length = 0;
+        const resp = await fetch(`http://127.0.0.1:${proxyPort}${inbound}`);
+        expect(await resp.text()).toBe("ok");
+        expect(seen).toEqual([forwarded]);
+        expect(server.stats().recent[0]?.path).toBe(inbound);
+        const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+        await waitUntil(() => store.get(requestId) !== undefined);
+        expect(store.get(requestId)?.path).toBe(inbound);
+      }
+    } finally {
+      await server.stop();
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
   });
 
