@@ -113,10 +113,22 @@ async function grpcCall(port: number, path: string): Promise<{ status: number; g
   const client = http2.connect(`http://127.0.0.1:${port}`);
   try {
     return await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err?: Error, value?: { status: number; grpcStatus?: string }): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(value ?? { status: 0 });
+      };
       // Windows surfaces a closed listen port as a session `error` (ECONNREFUSED)
-      // rather than a request rejection, so attach it here or the test fails
-      // as an unhandled exception instead of `expect(...).rejects`.
-      client.once("error", reject);
+      // rather than a request rejection. Close() can emit the same event after a
+      // successful hop, so ignore it once the call has settled.
+      client.once("error", (err) => finish(err));
       const req = client.request({ ":method": "POST", ":path": path, "content-type": "application/grpc" });
       let status = 0;
       let grpcStatus: string | undefined;
@@ -131,11 +143,12 @@ async function grpcCall(port: number, path: string): Promise<{ status: number; g
           grpcStatus = String(trailers["grpc-status"]);
         }
       });
-      req.on("error", reject);
-      req.on("close", () => resolve({ status, grpcStatus }));
+      req.on("error", (err) => finish(err));
+      req.on("close", () => finish(undefined, { status, grpcStatus }));
       req.end();
     });
   } finally {
+    client.removeAllListeners("error");
     client.close();
   }
 }
@@ -260,7 +273,8 @@ describe("ProxyCoordinator.applyConfig", () => {
     const coord = coordinator(() => cfg, logs);
     await coord.start();
     const grpcBefore = coord.grpcServers[0];
-    const client = http2.connect(`http://127.0.0.1:${grpcPort}`);
+    const session = http2.connect(`http://127.0.0.1:${grpcPort}`);
+    session.on("error", () => undefined);
     try {
       const first = await grpcCall(grpcPort, "/before");
       expect(first.grpcStatus).toBe("0");
@@ -269,7 +283,7 @@ describe("ProxyCoordinator.applyConfig", () => {
       cfg.proxy.routes = [next];
       await coord.applyConfig();
       expect(coord.grpcServers[0]).toBe(grpcBefore);
-      const req = client.request({ ":method": "POST", ":path": "/after", "content-type": "application/grpc" });
+      const req = session.request({ ":method": "POST", ":path": "/after", "content-type": "application/grpc" });
       let grpcStatus: string | undefined;
       req.on("trailers", (trailers) => {
         if (trailers["grpc-status"] !== undefined) {
@@ -290,7 +304,7 @@ describe("ProxyCoordinator.applyConfig", () => {
       expect(events.some((event) => event.message === "proxy routes reloaded")).toBe(true);
       expect(events.some((event) => event.message === "proxy restarting — config reload")).toBe(false);
     } finally {
-      client.close();
+      session.close();
       await coord.stop();
       await grpcUp.close();
       await otherUp.close();
