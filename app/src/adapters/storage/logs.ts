@@ -6,6 +6,7 @@ import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { ensureDir, exportsDir, logsDir, resolveUserPath } from "./storage.ts";
 
+import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import {
   buildLogRecord,
   clampLogPageSize,
@@ -13,11 +14,15 @@ import {
   createSearchMatcher,
   isErrorSeverity,
   isPlainObject,
+  isProcessLogSource,
   matchesLogDimensions,
+  MultilineAssembler,
   parseJSONLogLine,
   parseLogLine,
   redactLogRecord,
+  SeverityUnspecified,
   truncateLogLine,
+  type FoldedLog,
   type LogFacets,
   type LogFilter,
   type LogIngest,
@@ -79,6 +84,10 @@ export class LogManager {
   private readonly streams = new Map<string, WriteStream>();
   private readonly lastWrite = new Map<string, Promise<void>>();
   private parsers: LogParser[] = [];
+  private readonly assembler = new MultilineAssembler();
+  private serviceLogs = new Map<string, ServiceLogConfig>();
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private onRecord?: (event: LogRecord) => void;
 
   constructor(
     max: number,
@@ -112,39 +121,29 @@ export class LogManager {
     this.parsers = parsers;
   }
 
-  append(ev: LogIngest): LogRecord {
-    const skipParse = ev.body !== undefined || ev.source === "otlp";
-    const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
-    const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
-    const built = buildLogRecord(ev, parsed, this.nextSeq);
-    this.nextSeq += 1;
-    const next = this.detector ? redactLogRecord(this.detector, built) : built;
-    this.recorded += 1;
-    if (isErrorSeverity(next.severityNumber)) {
-      this.errorCount += 1;
+  setServiceLogs(logs: Record<string, ServiceLogConfig>): void {
+    this.serviceLogs = new Map(Object.entries(logs));
+  }
+
+  setOnRecord(handler: ((event: LogRecord) => void) | undefined): void {
+    this.onRecord = handler;
+  }
+
+  append(ev: LogIngest): LogRecord | undefined {
+    if (!shouldFoldProcessLine(ev)) {
+      this.flushPending();
+      return this.commitIngest(ev);
     }
-    if (this.events.length < this.max) {
-      this.events.push(next);
-    } else {
-      this.events[this.eventStart] = next;
-      this.eventStart = (this.eventStart + 1) % this.max;
+    let last: LogRecord | undefined;
+    for (const folded of this.assembler.push(ev, Date.now(), this.serviceLogs.get(ev.service)?.multiline)) {
+      last = this.commitFolded(folded);
     }
-    this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.severityText }));
-    if (this.persist) {
-      const text = `${JSON.stringify(next)}\n`;
-      const key = safeServiceFile(next.service);
-      const stream = this.streamFor(key);
-      this.lastWrite.set(
-        key,
-        new Promise((resolve) => {
-          stream.write(text, () => resolve());
-        }),
-      );
-    }
-    return next;
+    this.scheduleIdleFlush();
+    return last;
   }
 
   async flush(): Promise<void> {
+    this.flushPending();
     await Promise.all([...this.lastWrite.values()]);
   }
 
@@ -190,6 +189,7 @@ export class LogManager {
   }
 
   query(filter: LogFilter): LogRecord[] {
+    this.flushPending();
     const matches = createLogMatcher(filter);
     const out: LogRecord[] = [];
     this.forEachEvent((event) => {
@@ -201,6 +201,7 @@ export class LogManager {
   }
 
   queryPage(filter: LogFilter, page: LogPageRequest = {}): LogPage {
+    this.flushPending();
     const limit = clampLogPageSize(page.limit);
     const requested = page.cursor ? decodeLogCursor(page.cursor) : undefined;
     const sessionChanged = requested !== undefined && requested.session !== this.sessionID;
@@ -241,6 +242,7 @@ export class LogManager {
   }
 
   queryFacets(filter: LogFilter): LogFacets {
+    this.flushPending();
     const withoutServices = withoutFilterDimension(filter, "services");
     const withoutLevel = withoutFilterDimension(filter, "level");
     const withoutSource = withoutFilterDimension(filter, "source");
@@ -270,6 +272,7 @@ export class LogManager {
   }
 
   snapshot(): LogSnapshot {
+    this.flushPending();
     const counts: Record<string, number> = {};
     let errors = 0;
     this.forEachEvent((ev) => {
@@ -300,6 +303,81 @@ export class LogManager {
   exportTo(path: string, filter: LogFilter): void {
     writeLogExport(path, this.query(filter));
   }
+
+  private commitFolded(folded: FoldedLog): LogRecord {
+    const ev: LogIngest = { ...folded.ingest };
+    if (folded.severityNumber !== SeverityUnspecified && ev.severityNumber === undefined) {
+      ev.severityNumber = folded.severityNumber;
+    }
+    return this.commitIngest(ev);
+  }
+
+  private commitIngest(ev: LogIngest): LogRecord {
+    const skipParse = ev.body !== undefined || ev.source === "otlp";
+    const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
+    const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
+    const built = buildLogRecord(ev, parsed, this.nextSeq);
+    this.nextSeq += 1;
+    const next = this.detector ? redactLogRecord(this.detector, built) : built;
+    this.recorded += 1;
+    if (isErrorSeverity(next.severityNumber)) {
+      this.errorCount += 1;
+    }
+    if (this.events.length < this.max) {
+      this.events.push(next);
+    } else {
+      this.events[this.eventStart] = next;
+      this.eventStart = (this.eventStart + 1) % this.max;
+    }
+    this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.severityText }));
+    this.onRecord?.(next);
+    if (this.persist) {
+      const text = `${JSON.stringify(next)}\n`;
+      const key = safeServiceFile(next.service);
+      const stream = this.streamFor(key);
+      this.lastWrite.set(
+        key,
+        new Promise((resolve) => {
+          stream.write(text, () => resolve());
+        }),
+      );
+    }
+    return next;
+  }
+
+  private flushPending(): void {
+    for (const folded of this.assembler.flushAll()) {
+      this.commitFolded(folded);
+    }
+    this.clearIdleTimer();
+  }
+
+  private scheduleIdleFlush(): void {
+    this.clearIdleTimer();
+    const deadline = this.assembler.nextDeadlineMs();
+    if (deadline === undefined) {
+      return;
+    }
+    const delay = Math.max(0, deadline - Date.now());
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      for (const folded of this.assembler.flushDue(Date.now())) {
+        this.commitFolded(folded);
+      }
+      this.scheduleIdleFlush();
+    }, delay);
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer !== undefined) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+  }
+}
+
+function shouldFoldProcessLine(ev: LogIngest): boolean {
+  return isProcessLogSource(ev.source) && ev.body === undefined;
 }
 
 function ingestAsParsed(ev: LogIngest): ParsedLog {
@@ -335,6 +413,9 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
     },
     setParsers: (parsers) => {
       mgr.setParsers(parsers);
+    },
+    setServiceLogs: (logs) => {
+      mgr.setServiceLogs(logs);
     },
     setSecrets: (_extraMarkers, _extraPatterns) => {
       // The supervisor updates the same Detector instance this manager holds.

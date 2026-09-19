@@ -42,7 +42,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     orchestrator: { serviceIsActive: () => false } as unknown as ReloadHost["orchestrator"],
     runtimes: new Map(),
     tokens: { replaceProviders() {} } as unknown as ReloadHost["tokens"],
-    logs: { setParsers() {}, setSecrets() {} } as unknown as ReloadHost["logs"],
+    logs: { setParsers() {}, setServiceLogs() {}, setSecrets() {} } as unknown as ReloadHost["logs"],
     persistState() {},
     log() {},
     refreshIdentity: async () => undefined,

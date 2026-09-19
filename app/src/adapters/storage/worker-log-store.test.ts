@@ -57,6 +57,52 @@ describe("WorkerLogStore", () => {
     }
   });
 
+  test("process stdout folds; proxy does not", async () => {
+    const store = new WorkerLogStore(config());
+    try {
+      await store.waitUntilReady();
+      store.append({
+        timestamp: "2026-09-19T00:00:00.000Z",
+        service: "api",
+        source: "stdout",
+        level: "",
+        message: "INFO GET /api/health",
+        pid: 1,
+      });
+      store.append({
+        timestamp: "2026-09-19T00:00:00.010Z",
+        service: "api",
+        source: "stdout",
+        level: "",
+        message: "             200",
+        pid: 1,
+      });
+      store.append({
+        timestamp: "2026-09-19T00:00:00.020Z",
+        service: "edge",
+        source: "proxy",
+        level: "",
+        message: "INFO GET /api/health",
+        pid: 0,
+      });
+      store.append({
+        timestamp: "2026-09-19T00:00:00.030Z",
+        service: "edge",
+        source: "proxy",
+        level: "",
+        message: "             200",
+        pid: 0,
+      });
+      const page = await store.queryPage({}, { limit: 10 });
+      const bodies = page.events.map((event) => logMessage(event));
+      expect(bodies).toContain("INFO GET /api/health\n             200");
+      expect(bodies.filter((body) => body === "INFO GET /api/health")).toEqual(["INFO GET /api/health"]);
+      expect(bodies.filter((body) => body.trim() === "200")).toEqual(["             200"]);
+    } finally {
+      await store.close();
+    }
+  });
+
   test("query fails fast after close", async () => {
     const store = new WorkerLogStore(config());
     await store.waitUntilReady();

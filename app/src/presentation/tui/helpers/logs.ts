@@ -1,6 +1,8 @@
-import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
+import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
 import { clipText } from "./format.ts";
 import { SERVICE_NAME_MAX } from "./services.ts";
+
+export { stripAnsi };
 
 export const LOG_META_COL = 8;
 
@@ -65,12 +67,6 @@ function logSpanKind(token: string): LogSpanKind {
     return "number";
   }
   return "keyword";
-}
-
-const ANSI_CSI = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-Z\\-_]/g;
-
-export function stripAnsi(value: string): string {
-  return value.replace(ANSI_CSI, "");
 }
 
 // event.raw holds the original line for a structured (JSON) log event; render it indented for the details overlay.

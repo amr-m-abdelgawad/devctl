@@ -47,9 +47,17 @@ export type IdentityConfig = {
   config?: Record<string, unknown>;
 };
 
+export type ServiceLogMultilineConfig = {
+  start?: string;
+  continuation?: string;
+  max_wait_ms?: number;
+  max_lines?: number;
+};
+
 export type ServiceLogConfig = {
   stdout: boolean;
   stderr: boolean;
+  multiline?: ServiceLogMultilineConfig;
 };
 
 export type RestartConfig = {

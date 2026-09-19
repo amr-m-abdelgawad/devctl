@@ -111,6 +111,15 @@ describe("structured log parse table", () => {
     expect(parsed.attributes).toEqual({});
   });
 
+  test("ANSI-wrapped ERROR classifies as ERROR after strip", () => {
+    const line = "\x1b[31mERROR\x1b[0m ready";
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe("ERROR ready");
+    expect(parsed.raw).toBe(line);
+    expect(parsed.severityNumber).toBe(SeverityError);
+    expect(parsed.severityText).toBe("ERROR");
+  });
+
   test("Python str(dict) stdout is structured, not raw braces", () => {
     const line =
       "{'email': 'unknown', 'referer_url': 'unknown', 'api_url': 'http://127.0.0.1:17490/v1/health', 'start_time': '2026-09-13 11:39:46', 'end_time': '2026-09-13 11:39:46', 'duration_seconds': 0.0005826950073242188, 'response_status': 200}";

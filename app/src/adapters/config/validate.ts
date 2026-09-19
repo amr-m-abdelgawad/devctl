@@ -30,6 +30,7 @@ import {
   type IdentityConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type ServiceLogConfig,
   type LlmSourceConfig,
   dependencyName,
   dependencyCondition,
@@ -186,6 +187,7 @@ function validateServices(cfg: DevctlConfig): string[] {
         issues.push(...validateEnvRefs(`${prefix}.environments.${envName}`, named, cfg));
       }
     }
+    issues.push(...validateServiceLogs(prefix, svc.logs));
     if (svc.container) {
       if (svc.container.image === "") issues.push(`${prefix}.container.image is required`);
       if (svc.container.runtime !== "" && svc.container.runtime !== "docker" && svc.container.runtime !== "podman") {
@@ -199,6 +201,35 @@ function validateServices(cfg: DevctlConfig): string[] {
     }
   }
   return issues;
+}
+
+function validateServiceLogs(prefix: string, logs: ServiceLogConfig): string[] {
+  const issues: string[] = [];
+  const multiline = logs.multiline;
+  if (!multiline) {
+    return issues;
+  }
+  issues.push(...validateLogPattern(`${prefix}.logs.multiline.start`, multiline.start));
+  issues.push(...validateLogPattern(`${prefix}.logs.multiline.continuation`, multiline.continuation));
+  if (multiline.max_wait_ms !== undefined && multiline.max_wait_ms < 0) {
+    issues.push(`${prefix}.logs.multiline.max_wait_ms must be >= 0`);
+  }
+  if (multiline.max_lines !== undefined && multiline.max_lines < 0) {
+    issues.push(`${prefix}.logs.multiline.max_lines must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLogPattern(path: string, pattern: string | undefined): string[] {
+  if (pattern === undefined || pattern === "") {
+    return [];
+  }
+  try {
+    new RegExp(pattern);
+    return [];
+  } catch {
+    return [`${path} is not a valid regular expression`];
+  }
 }
 
 function validateHealth(

@@ -32,11 +32,18 @@ async function handle(message: WorkerRequest): Promise<void> {
       message.config.maxSessionLogs,
     );
     manager.setParsers([defaultLogParser()]);
+    manager.setOnRecord((event) => {
+      reply({ type: "appended", event, stats: manager!.snapshot() });
+    });
     reply({ type: "ready" });
     return;
   }
   if (message.type === "setSecrets") {
     detector?.update(message.extraMarkers, message.extraPatterns);
+    return;
+  }
+  if (message.type === "setServiceLogs") {
+    manager?.setServiceLogs(message.logs);
     return;
   }
   if (message.type === "setPluginPaths") {
@@ -51,8 +58,7 @@ async function handle(message: WorkerRequest): Promise<void> {
     return;
   }
   if (message.type === "append") {
-    const event = manager.append(message.event);
-    reply({ type: "appended", event, stats: manager.snapshot() });
+    manager.append(message.event);
     return;
   }
   if (message.type === "query") {

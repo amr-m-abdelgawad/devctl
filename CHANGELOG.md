@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Built-in `health.type: grpc` probes `grpc.health.v1.Health/Check` over HTTP/2 (h2c, with TLS fallback), and gitignored `.devctl/secrets.env` (plus weaker `~/.devctl/secrets.env`) is always loaded for `${env.NAME}` interpolation and as a service-env layer after dotenv. Process environment still wins. There is no `${secret:}` template syntax.
 
+### Fixed
+
+- Process log severity now strips ANSI before classification, and stdout/stderr fold Python tracebacks, bare HTTP status continuations, and optional `logs.multiline` start/continuation regexes into one event.
+
 ## [0.15.0] - 2026-09-19
 
 ### Added
