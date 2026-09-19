@@ -858,8 +858,9 @@ function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, pref
 
 function validateLlmViaRouteNames(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
   const issues: string[] = [];
-  if (source.via.route.trim() !== "" && !cfg.proxy.routes.some((route) => route.name === source.via.route)) {
-    issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+  const routeName = source.via.route.trim();
+  if (routeName !== "" && !cfg.proxy.routes.some((route) => route.name === routeName)) {
+    issues.push(`${prefix}.via.route references unknown proxy route ${routeName}`);
   }
   for (const [index, entry] of (source.via.routes ?? []).entries()) {
     const trimmed = entry.trim();
@@ -889,10 +890,11 @@ function validateLlmManagementHop(cfg: DevctlConfig, source: LlmSourceConfig, pr
   if (source.service.trim() !== "") {
     issues.push(...validateLlmServiceRef(cfg, source.service, llmSourcePort(source), `${prefix}.service`));
   }
-  if (source.via.route.trim() !== "") {
-    const route = cfg.proxy.routes.find((item) => item.name === source.via.route);
+  const viaRoute = source.via.route.trim();
+  if (viaRoute !== "") {
+    const route = cfg.proxy.routes.find((item) => item.name === viaRoute);
     if (!route) {
-      issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+      issues.push(`${prefix}.via.route references unknown proxy route ${viaRoute}`);
     }
   }
   if (!hasManagementEndpoint && !hasManagementService) {

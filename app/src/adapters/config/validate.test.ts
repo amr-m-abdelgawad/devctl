@@ -684,6 +684,8 @@ describe("config validate", () => {
       poll_seconds: 0,
     }];
     expect(validate(cfg)).toEqual([]);
+    cfg.llm.sources[0]!.via.route = "  apigee-llm  ";
+    expect(validate(cfg)).toEqual([]);
   });
 
   test("rejects a proxy source with no via.route and with management/service fields", () => {

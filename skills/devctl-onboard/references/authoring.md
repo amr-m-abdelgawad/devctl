@@ -46,7 +46,7 @@ complete allowlists.
 | `route.timeout` | `idle_ms` `total_ms` |
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` `service` `port` `recipe` |
-| `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
+| `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` `log_identity` |
 | `route.inspect` | `enabled` `max_bytes` `grpc` `capture_sse` |
 | `route.inspect.grpc` | `decoder` |
 | `route.log` | `grpc` |
@@ -54,7 +54,7 @@ complete allowlists.
 | `route.log.grpc.ok[]` | `status` `methods` `log` |
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` `service` `port` `recipe` |
-| `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
+| `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` `log_identity` |
 | `http.<name>` | `request` `outputs` `cache` `expose` |
 | `http.<name>.request` | `method` `url` `headers` `body` `form` `auth` `timeout_seconds` |
 | `http.<name>.cache` | `jwt` `expires_in` |

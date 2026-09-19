@@ -42,7 +42,14 @@ function mergeRequestIdPair<T extends LogRecord>(left: T, right: T): T {
   const survivorBody = stringBody(survivor.body);
   const otherBody = stringBody(other.body);
   const body = otherBody.length > survivorBody.length ? other.body : survivor.body;
-  return { ...survivor, body };
+  return {
+    ...survivor,
+    body,
+    seq: left.seq,
+    timestamp: left.timestamp,
+    timeUnixNano: left.timeUnixNano,
+    observedTimeUnixNano: left.observedTimeUnixNano,
+  };
 }
 
 function stringBody(body: AnyValue): string {

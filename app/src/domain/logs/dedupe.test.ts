@@ -76,6 +76,24 @@ describe("dedupeLogsByRequestId", () => {
     expect(out[0]?.source).toBe("proxy");
   });
 
+  test("keeps the earlier sequence and timestamp when the later record survives", () => {
+    const stdout = ev({ seq: 1, requestId: "req-1", body: "short" });
+    const proxy = ev({
+      seq: 2,
+      requestId: "req-1",
+      offsetMs: 5,
+      body: "GET /health 200",
+      attributes: { method: "GET", path: "/health", status: 200 },
+    });
+    const between = ev({ seq: 3, offsetMs: 8, body: "unrelated" });
+    const out = dedupeLogsByRequestId([stdout, proxy, between]);
+    expect(out.map((item) => item.seq)).toEqual([1, 3]);
+    expect(out[0]?.source).toBe("proxy");
+    expect(out[0]?.body).toBe("GET /health 200");
+    expect(out[0]?.timeUnixNano).toBe(stdout.timeUnixNano);
+    expect(out[1]?.body).toBe("unrelated");
+  });
+
   test("exactly 20ms still collapses", () => {
     const first = ev({ seq: 1, requestId: "req-1", body: "a" });
     const second = ev({ seq: 2, requestId: "req-1", offsetMs: 20, body: "bb" });

@@ -572,6 +572,35 @@ describe("log export paths", () => {
     expect(readFileSync(nested, "utf8")).toContain("late");
   });
 
+  test("exportTo applies request-id dedupe when the filter asks for it", () => {
+    const dest = join(tmp(), "dedupe", "out.jsonl");
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "exportdedupe", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "api",
+      source: "proxy",
+      level: "INFO",
+      message: "GET /health 200",
+      body: "GET /health 200",
+      pid: 0,
+      attributes: { [REQUEST_ID_ATTR]: "req-1", method: "GET", path: "/health", status: 200 },
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "api",
+      source: "stdout",
+      level: "INFO",
+      message: "handler ok",
+      body: "handler ok",
+      pid: 1,
+      attributes: { [REQUEST_ID_ATTR]: "req-1" },
+    });
+    mgr.exportTo(dest, { dedupeRequestId: true });
+    const lines = readFileSync(dest, "utf8").trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("GET /health 200");
+  });
+
   test("JSONL session round-trips attributes and ids; legacy dirs still load", async () => {
     const dir = tmp();
     const mgr = new LogManager(100, undefined, new Detector([], []), true, dir, "round", 0, 0);

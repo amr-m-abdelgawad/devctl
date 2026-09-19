@@ -12,6 +12,7 @@ import {
   clampLogPageSize,
   createLogMatcher,
   createSearchMatcher,
+  dedupeLogsByRequestId,
   isErrorSeverity,
   isPlainObject,
   isProcessLogSource,
@@ -302,7 +303,8 @@ export class LogManager {
   }
 
   exportTo(path: string, filter: LogFilter): void {
-    writeLogExport(path, this.query(filter));
+    const events = this.query(filter);
+    writeLogExport(path, filter.dedupeRequestId === true ? dedupeLogsByRequestId(events) : events);
   }
 
   private commitFolded(folded: FoldedLog): LogRecord | undefined {
