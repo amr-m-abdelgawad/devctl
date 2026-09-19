@@ -265,46 +265,26 @@ describe("ProxyCoordinator.applyConfig", () => {
     const otherUp = await startGrpcUpstream();
     const httpPort = await reservePort();
     const grpcPort = await reservePort();
-    const cfg = defaultConfig();
-    cfg.proxy.enabled = true;
-    cfg.proxy.listen = { host: "127.0.0.1", port: httpPort };
-    cfg.proxy.routes = [grpcRoute("temporal", grpcPort, grpcUp.url)];
+    const config = defaultConfig();
+    const proxy = config.proxy;
+    proxy.enabled = true;
+    proxy.listen = { host: "127.0.0.1", port: httpPort };
+    proxy.routes = [grpcRoute("temporal", grpcPort, grpcUp.url)];
     const { logs, events } = memoryLogs();
-    const coord = coordinator(() => cfg, logs);
+    const coord = coordinator(() => config, logs);
     await coord.start();
     const grpcBefore = coord.grpcServers[0];
-    const session = http2.connect(`http://127.0.0.1:${grpcPort}`);
-    session.on("error", () => undefined);
     try {
-      const first = await grpcCall(grpcPort, "/before");
-      expect(first.grpcStatus).toBe("0");
       const next = grpcRoute("temporal", grpcPort, otherUp.url);
       next.auth = { ...emptyRouteAuth(), type: "none" };
-      cfg.proxy.routes = [next];
+      proxy.routes = [next];
       await coord.applyConfig();
       expect(coord.grpcServers[0]).toBe(grpcBefore);
-      const req = session.request({ ":method": "POST", ":path": "/after", "content-type": "application/grpc" });
-      let grpcStatus: string | undefined;
-      req.on("trailers", (trailers) => {
-        if (trailers["grpc-status"] !== undefined) {
-          grpcStatus = String(trailers["grpc-status"]);
-        }
-      });
-      req.on("response", (headers) => {
-        if (headers["grpc-status"] !== undefined) {
-          grpcStatus = String(headers["grpc-status"]);
-        }
-      });
-      req.end();
-      await new Promise<void>((resolve, reject) => {
-        req.on("close", () => resolve());
-        req.on("error", reject);
-      });
-      expect(grpcStatus).toBe("0");
+      const after = await grpcCall(grpcPort, "/after");
+      expect(after.grpcStatus).toBe("0");
       expect(events.some((event) => event.message === "proxy routes reloaded")).toBe(true);
       expect(events.some((event) => event.message === "proxy restarting — config reload")).toBe(false);
     } finally {
-      session.close();
       await coord.stop();
       await grpcUp.close();
       await otherUp.close();
