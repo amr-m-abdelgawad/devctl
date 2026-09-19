@@ -266,15 +266,7 @@ function firstEnv(...keys: string[]): string {
 }
 
 export async function hasCommand(name: string): Promise<boolean> {
-  try {
-    const result = await spawnTimed(
-      process.platform === "win32" ? ["where", name] : ["which", name],
-      COMMAND_PROBE_MS,
-    );
-    return result.code === 0;
-  } catch {
-    return false;
-  }
+  return Bun.which(name) !== null;
 }
 
 export function hasLocalAdcMaterial(): boolean {
