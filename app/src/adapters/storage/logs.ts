@@ -14,7 +14,6 @@ import {
   createSearchMatcher,
   dedupeLogsByRequestId,
   isErrorSeverity,
-  NANOS_PER_MS,
   PROXY_HOP_CORRELATE_WINDOW_MS,
   requestIdAttribute,
   shouldTagServiceLogWithProxyHop,
@@ -48,6 +47,11 @@ const SESSION_FORMAT_FILE = "FORMAT";
 const SESSION_FORMAT_JSONL = "jsonl";
 
 type LogCursor = { session: string; seq: number };
+
+type CorrelateCandidate = {
+  readonly event: LogRecord;
+  readonly arrivedMs: number;
+};
 
 function encodeLogCursor(c: LogCursor): string {
   return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
@@ -98,8 +102,7 @@ export class LogManager {
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
   private lastByServicePid = new Map<string, LogRecord>();
-  private recentCorrelate: LogRecord[] = [];
-  private correlateHorizonNano = 0;
+  private recentCorrelate: CorrelateCandidate[] = [];
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -332,6 +335,7 @@ export class LogManager {
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
     const built = buildLogRecord(ev, parsed, this.nextSeq);
     const redacted = this.detector ? redactLogRecord(this.detector, built) : built;
+    this.expireCorrelate(Date.now());
     const next = this.attachProxyRequestId(redacted);
     if (this.shouldDropAccessDuplicate(ev, next)) {
       return undefined;
@@ -361,8 +365,8 @@ export class LogManager {
       return event;
     }
     for (const prev of this.recentCorrelate) {
-      if (shouldTagServiceLogWithProxyHop(prev, event)) {
-        return withRequestId(event, requestIdAttribute(prev));
+      if (shouldTagServiceLogWithProxyHop(prev.event, event)) {
+        return withRequestId(event, requestIdAttribute(prev.event));
       }
     }
     return event;
@@ -374,8 +378,8 @@ export class LogManager {
       return;
     }
     for (const prev of this.recentCorrelate) {
-      if (shouldTagServiceLogWithProxyHop(event, prev)) {
-        this.replaceRecord(prev.seq, withRequestId(prev, requestId));
+      if (shouldTagServiceLogWithProxyHop(event, prev.event)) {
+        this.replaceRecord(prev.event.seq, withRequestId(prev.event, requestId));
       }
     }
   }
@@ -389,15 +393,19 @@ export class LogManager {
         break;
       }
     }
-    this.recentCorrelate = this.recentCorrelate.map((row) => (row.seq === seq ? updated : row));
+    this.recentCorrelate = this.recentCorrelate.map((row) =>
+      row.event.seq === seq ? { event: updated, arrivedMs: row.arrivedMs } : row,
+    );
     this.publishRecord(updated);
   }
 
+  private expireCorrelate(nowMs: number): void {
+    const cutoff = nowMs - PROXY_HOP_CORRELATE_WINDOW_MS;
+    this.recentCorrelate = this.recentCorrelate.filter((row) => row.arrivedMs >= cutoff);
+  }
+
   private rememberCorrelate(event: LogRecord): void {
-    this.correlateHorizonNano = Math.max(this.correlateHorizonNano, event.timeUnixNano);
-    const cutoff = this.correlateHorizonNano - PROXY_HOP_CORRELATE_WINDOW_MS * NANOS_PER_MS;
-    this.recentCorrelate.push(event);
-    this.recentCorrelate = this.recentCorrelate.filter((row) => row.timeUnixNano >= cutoff);
+    this.recentCorrelate.push({ event, arrivedMs: Date.now() });
   }
 
   private publishRecord(event: LogRecord): void {
