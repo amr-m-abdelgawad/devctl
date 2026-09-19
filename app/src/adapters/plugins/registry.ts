@@ -8,6 +8,17 @@ import type { LlmSourceDriver } from "../../ports/llm-source.ts";
 import { type TokenProvider, googleTokenProviders } from "../google/token.ts";
 import { userIdentityProvider, serviceAccountIdentityProvider } from "../../domain/identity/identity.ts";
 
+export type TrafficDecoderInput = {
+  path: string;
+  side: "request" | "response";
+  messages: Uint8Array[];
+};
+
+export type TrafficDecoder = {
+  name: string;
+  decode: (input: TrafficDecoderInput) => unknown | undefined;
+};
+
 export type PluginModule = {
   sdkVersion?: number;
   tokenProviders?: TokenProvider[];
@@ -17,6 +28,7 @@ export type PluginModule = {
   logParsers?: LogParser[];
   proxyMiddleware?: ProxyMiddleware[];
   llmSources?: LlmSourceDriver[];
+  trafficDecoders?: TrafficDecoder[];
 };
 
 export const PLUGIN_SDK_VERSION = 1;
@@ -36,6 +48,7 @@ export class Registry {
   readonly logParsers: LogParser[] = [];
   readonly proxyMiddleware: ProxyMiddleware[] = [];
   readonly llmSources: LlmSourceDriver[] = [];
+  readonly trafficDecoders: TrafficDecoder[] = [];
   readonly loadErrors: PluginLoadError[] = [];
   readonly pluginPaths: string[] = [];
 
@@ -56,6 +69,7 @@ export class Registry {
     pushAll(this.logParsers, mod.logParsers);
     pushAll(this.proxyMiddleware, mod.proxyMiddleware);
     pushAll(this.llmSources, mod.llmSources);
+    pushAll(this.trafficDecoders, mod.trafficDecoders);
   }
 }
 
@@ -92,6 +106,7 @@ function validatePluginModule(mod: PluginModule): void {
   validateExtensions("logParsers", mod.logParsers, ["parse"]);
   validateExtensions("proxyMiddleware", mod.proxyMiddleware, ["apply"]);
   validateExtensions("llmSources", mod.llmSources, ["capabilities", "fetch"]);
+  validateExtensions("trafficDecoders", mod.trafficDecoders, ["decode"]);
 }
 
 function validateExtensions(name: string, entries: unknown, methods: string[]): void {

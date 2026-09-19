@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Traffic inspector decodes **gRPC request and response** bodies: split multi-message frames, inflate gzip in the capture adapter, pretty-print JSON (`application/grpc+json` or JSON-looking payloads) or proto3 `decode_raw` field numbers, and optionally a named `inspect.grpc.decoder` plugin (`trafficDecoders`). Captured `data` stays the original base64. See [Proxy](docs/proxy.md#inspect-bodies).
+
 ## [0.15.0] - 2026-09-19
 
 ### Added

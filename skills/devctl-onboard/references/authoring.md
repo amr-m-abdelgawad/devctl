@@ -45,7 +45,8 @@ complete allowlists.
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` `service` `port` `recipe` |
 | `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
-| `route.inspect` | `enabled` `max_bytes` |
+| `route.inspect` | `enabled` `max_bytes` `grpc` |
+| `route.inspect.grpc` | `decoder` |
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` `service` `port` `recipe` |
 | `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
@@ -261,7 +262,7 @@ Anything else is rejected.
 - `telemetry.otlp` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` / `OTEL_SERVICE_NAME` only when those variables are unset. JSON only — no protobuf or gRPC.
 - `web` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected). Default listen port is **18900**. It must not collide with `proxy.listen`, `proxy.token_endpoint`, `telemetry.otlp`, or a gRPC route listen port. The listener serves the local telemetry UI (`GET /api/*`) and loopback lifecycle control (`POST /api/control`, same mutating MCP tools except `exec_service`). Request `Host` must be a loopback name; the port in `Host` may differ from the listen port (WSL / Dev Container forwarding).
 - `llm` is **off by default**. When `enabled: true`, `sources` must be non-empty. Each source needs a unique `name` and a known `type` (`litellm`, `proxy`, or a plugin `llmSources` name). `type: proxy` requires `via.route` naming an existing proxy route and must not set `service`, `endpoint`, or `management_*`. Pull types (`litellm` and plugins) need a unique management hop: `management_endpoint` XOR `management_service`, otherwise exactly one of `service` / `endpoint` / `via.route`. `via.route` may exist alongside `management_*`. Bearer `auth` requires `token_env` (never an inline key). `auth.header` defaults to `Authorization`. `capture.prompts` defaults to true. `capture.max_bytes` (proxy) defaults to 1 MiB when omitted or `0`. `capture.paths` (proxy) is an optional list of extra path substrings to capture as raw POST JSON pairs; each must start with `/` and must not be `/` alone. `via.route` must name an existing proxy route. See [LLM inspector](../../../docs/llm.md).
-- `proxy.routes[].inspect` is **off by default**. `inspect: true` or `inspect.enabled: true` captures HTTP or gRPC request/response bodies on that hop for the traffic inspector (TUI proxy screen, web `#/traffic`, MCP `get_traffic_call`, CLI `devctl traffic`). `inspect.max_bytes` defaults to 1 MiB when omitted or `0`; negative values fail validate. Inspect is ignored when the proxy is off. Recipe `expose` routes are never captured as live RPCs. Direct sockets that never hit the proxy are invisible — callers should use `${services.<name>.url}` or the gRPC listen port. See [Proxy](../../../docs/proxy.md#inspect-bodies).
+- `proxy.routes[].inspect` is **off by default**. `inspect: true` or `inspect.enabled: true` captures HTTP or gRPC request/response bodies on that hop for the traffic inspector (TUI proxy screen, web `#/traffic`, MCP `get_traffic_call`, CLI `devctl traffic`). `inspect.max_bytes` defaults to 1 MiB when omitted or `0`; negative values fail validate. `inspect.grpc.decoder` is an optional plugin `trafficDecoders` name; omit it to pretty-print JSON frames then proto3 `decode_raw`. A named decoder with no `plugins:` fails validate the same way an unknown `health.type` does. Inspect is ignored when the proxy is off. Recipe `expose` routes are never captured as live RPCs. Direct sockets that never hit the proxy are invisible — callers should use `${services.<name>.url}` or the gRPC listen port. See [Proxy](../../../docs/proxy.md#inspect-bodies).
 - Every route needs a `name` and exactly one of `upstream.url`,
   `upstream.service`, or `upstream.recipe`. A service reference must name a
   real service and an existing port (default port name is `http`).
@@ -465,6 +466,7 @@ Every message names its path. Fix the path it names.
 | `proxy.routes[i].auth.client_secret is required when client_id is set` | client_id needs a secret |
 | `proxy.routes[i].auth.client_id is only valid with identity.type user` | SA IAP uses generateIdToken, not a user OAuth client |
 | `proxy.routes[i].inspect.max_bytes must be >= 0` | negative capture cap |
+| `proxy.routes[i].inspect.grpc.decoder must be a registered plugin traffic decoder` | named decoder with `plugins:` empty |
 | `proxy.listen.port is required when proxy.enabled is true` | pin a port |
 | `unsupported config version N (expected 1)` | `version:` must be `1` |
 | `unknown fields: services.a.depends_on` | not in the allowlists at the top of this file — usually a compose or k8s spelling |

@@ -108,4 +108,36 @@ describe("traffic domain", () => {
     expect(prettyGrpcMessage(frames)).toContain("world");
     expect(prettyGrpcMessage(Buffer.from([0, 0, 0, 0, 1, 0xff]))).toBeUndefined();
   });
+
+  test("decodes gRPC request and response JSON and protobuf on both sides", () => {
+    const jsonReq = grpcFrame('{"id":1}');
+    const jsonRes = grpcFrame('{"ok":true}');
+    const proto = Buffer.concat([
+      Buffer.from([0, 0, 0, 0, 2, 0x08, 0x2a]),
+    ]);
+    const request = grpcTrafficPayload(jsonReq, {});
+    const response = grpcTrafficPayload(jsonRes, { contentType: "application/grpc+json" });
+    const protoPayload = grpcTrafficPayload(proto, {});
+    expect(request.text).toContain('"id"');
+    expect(response.text).toContain('"ok"');
+    expect(protoPayload.text).toContain('"1"');
+    expect(JSON.parse(protoPayload.text ?? "")).toEqual({ "1": 42 });
+    expect(request.data).toBe(jsonReq.toString("base64"));
+    expect(response.data).toBe(jsonRes.toString("base64"));
+  });
+
+  test("pretty-prints multi-frame gRPC streams as a JSON array and marks a dropped trailer truncated", () => {
+    const multi = Buffer.concat([grpcFrame('{"a":1}'), grpcFrame('{"b":2}')]);
+    const payload = grpcTrafficPayload(multi, {});
+    expect(JSON.parse(payload.text ?? "")).toEqual([{ a: 1 }, { b: 2 }]);
+    expect(payload.truncated).toBe(false);
+
+    const incomplete = Buffer.concat([multi, Buffer.from([0, 0, 0])]);
+    const truncated = grpcTrafficPayload(incomplete, {});
+    expect(JSON.parse(truncated.text ?? "")).toEqual([{ a: 1 }, { b: 2 }]);
+    expect(truncated.truncated).toBe(true);
+
+    const already = grpcTrafficPayload(multi, { truncated: true });
+    expect(already.truncated).toBe(true);
+  });
 });

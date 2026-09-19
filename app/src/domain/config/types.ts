@@ -263,13 +263,22 @@ export function emptyRouteAuth(): RouteAuthConfig {
 // routes stay metadata-only. max_bytes 0 means the 1 MiB default.
 export const DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES = 1_048_576;
 
+export type RouteInspectGrpcConfig = {
+  decoder?: string;
+};
+
 export type RouteInspectConfig = {
   enabled: boolean;
   max_bytes: number;
+  grpc?: RouteInspectGrpcConfig;
 };
 
 export function emptyRouteInspect(): RouteInspectConfig {
   return { enabled: false, max_bytes: 0 };
+}
+
+export function routeInspectDecoder(route: RouteConfig): string {
+  return (route.inspect?.grpc?.decoder ?? "").trim();
 }
 
 export function routeInspectEnabled(route: RouteConfig): boolean {

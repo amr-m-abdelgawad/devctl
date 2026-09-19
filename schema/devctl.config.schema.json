@@ -464,7 +464,18 @@
       "description": "Opt-in capture of request/response bodies on this proxy hop for the traffic inspector. Default off. Ignored when the proxy is off. Direct sockets that never hit this route are not captured.",
       "properties": {
         "enabled": { "type": "boolean" },
-        "max_bytes": { "type": "number", "minimum": 0, "description": "Per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." }
+        "max_bytes": { "type": "number", "minimum": 0, "description": "Per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." },
+        "grpc": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional gRPC body decode options. Omit decoder to use JSON then proto3 decode_raw.",
+          "properties": {
+            "decoder": {
+              "type": "string",
+              "description": "Named plugin trafficDecoders entry. When omitted, inspect pretty-prints JSON frames or proto3 decode_raw field numbers. Unknown names fail config validate when plugins is empty."
+            }
+          }
+        }
       }
     },
     "httpRecipe": {

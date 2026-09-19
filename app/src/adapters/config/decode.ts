@@ -24,6 +24,7 @@ import {
   type RouteAuthConfig,
   type RouteConfig,
   type RouteInspectConfig,
+  type RouteInspectGrpcConfig,
   type RouteIdentity,
   type ServiceConfig,
   type StartupConfig,
@@ -360,10 +361,19 @@ export function decodeRouteInspect(value: unknown): RouteInspectConfig {
   if (value === false || value === undefined || !isRecord(value)) {
     return emptyRouteInspect();
   }
+  const grpc = decodeRouteInspectGrpc(value.grpc);
   return {
     enabled: asBoolean(value.enabled),
     max_bytes: asNumber(value.max_bytes),
+    ...(grpc ? { grpc } : {}),
   };
+}
+
+function decodeRouteInspectGrpc(value: unknown): RouteInspectGrpcConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return { decoder: asString(value.decoder) };
 }
 
 export function decodeRoute(value: unknown): RouteConfig {

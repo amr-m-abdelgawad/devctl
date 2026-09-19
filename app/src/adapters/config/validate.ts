@@ -420,7 +420,7 @@ function validateProxy(cfg: DevctlConfig): string[] {
     }
     issues.push(...validateRouteUpstream(route, prefix, cfg));
     issues.push(...validateRouteAuth(route, prefix));
-    issues.push(...validateRouteInspect(route, prefix));
+    issues.push(...validateRouteInspect(route, prefix, cfg.plugins.length > 0));
     if (isGrpcRoute(route)) {
       issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
     }
@@ -514,14 +514,30 @@ function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
   return validateAuthConfig(route.auth, prefix);
 }
 
-function validateRouteInspect(route: RouteConfig, prefix: string): string[] {
+function validateRouteInspect(route: RouteConfig, prefix: string, pluginsConfigured: boolean): string[] {
   if (route.inspect === undefined) {
     return [];
   }
+  const issues: string[] = [];
   if (route.inspect.max_bytes < 0) {
-    return [`${prefix}.inspect.max_bytes must be >= 0`];
+    issues.push(`${prefix}.inspect.max_bytes must be >= 0`);
   }
-  return [];
+  const decoder = (route.inspect.grpc?.decoder ?? "").trim();
+  if (decoder !== "" && !pluginsConfigured) {
+    issues.push(`${prefix}.inspect.grpc.decoder must be a registered plugin traffic decoder`);
+  }
+  return issues;
+}
+
+export function unresolvedInspectDecoders(cfg: DevctlConfig): Array<{ route: string; decoder: string }> {
+  const unresolved: Array<{ route: string; decoder: string }> = [];
+  for (const route of cfg.proxy.routes) {
+    const decoder = (route.inspect?.grpc?.decoder ?? "").trim();
+    if (decoder !== "") {
+      unresolved.push({ route: route.name || `unnamed`, decoder });
+    }
+  }
+  return unresolved;
 }
 
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
