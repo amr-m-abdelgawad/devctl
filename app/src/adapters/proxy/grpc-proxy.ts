@@ -12,7 +12,7 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
 import { injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
-import { startRouteTimeout, timeoutMessage } from "./route-timeout.ts";
+import { startRouteTimeout, timeoutMessage, type TimeoutKind } from "./route-timeout.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 
@@ -170,6 +170,7 @@ export class GrpcProxyServer {
     const identityKey = tokenIdentityKey(ident);
     let recorded = false;
     let responded = false;
+    let timeoutKind: TimeoutKind | undefined;
     let upReq: ReturnType<ClientHttp2Session["request"]> | undefined;
     let upTrailers: OutgoingHttpHeaders = {};
     const recorder = this.beginCapture(route.name, method, headers, front);
@@ -177,6 +178,9 @@ export class GrpcProxyServer {
       if (recorded) return;
       recorded = true;
       timeouts.stop();
+      if (timeoutKind) {
+        error = error ?? timeoutMessage(timeoutKind);
+      }
       const duration = Date.now() - started;
       const recordedPath = this.detector ? this.detector.redactText(method) : method;
       // A listed log.grpc.ok status is not a proxy error (Temporal long-poll
@@ -217,6 +221,7 @@ export class GrpcProxyServer {
       finish(200, grpcStatus, message);
     };
     const timeouts = startRouteTimeout(this.route.timeout, (kind) => {
+      timeoutKind = kind;
       const message = timeoutMessage(kind);
       if (!responded) {
         fail(GRPC_DEADLINE_EXCEEDED, message);

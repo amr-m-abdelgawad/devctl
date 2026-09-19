@@ -1,6 +1,6 @@
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { type Duplex, Readable } from "node:stream";
+import { type Duplex, PassThrough, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "../config/index.ts";
 import { stripMatchPrefix } from "../../domain/proxy/strip-prefix.ts";
 import { isLoopbackBindHost, isLoopbackPeer } from "../../domain/net/hosts.ts";
@@ -19,6 +19,7 @@ import type { LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture
 import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 import { isLlmCallerHeader } from "../../domain/llm/caller.ts";
 import { startRouteTimeout, timeoutMessage, type TimeoutKind } from "./route-timeout.ts";
+import { timeoutMs } from "../../domain/proxy/timeout.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
@@ -482,13 +483,14 @@ export class ProxyServer {
     let timeoutKind: TimeoutKind | undefined;
     const timeouts = startRouteTimeout(route.timeout, (kind) => {
       timeoutKind = kind;
-      abort.abort();
-      req.destroy();
-      if (res.headersSent && !res.writableEnded) {
-        res.destroy();
+      if (!res.headersSent) {
+        this.applyResponseHeaders(res, route);
+        writePlain(res, 504, "gateway timeout");
+      } else if (!res.writableEnded) {
+        res.end();
       }
+      abort.abort();
     });
-    req.on("data", () => timeouts.touch());
     try {
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
@@ -530,8 +532,8 @@ export class ProxyServer {
       // stripped, identity injected) and must not rewrite the captured request.
       recorder = this.beginCapture(route.name, method, path, headers, req);
       stripLlmCallerHeaders(headers);
-      const prepared = await this.prepareRequestBody(req, method, recorder, timeouts.touch);
-      const resp = await fetch(upstream, {
+      const prepared = await this.prepareRequestBody(req, method, recorder, timeoutMs(route.timeout?.idle_ms) ? timeouts.touch : undefined);
+      const resp = await fetchOrAbort(upstream, {
         method,
         headers,
         body: prepared.body,
@@ -539,7 +541,10 @@ export class ProxyServer {
         signal: abort.signal,
         // @ts-expect-error Bun/undici duplex for streamed request bodies
         duplex: prepared.duplex,
-      });
+      }, () => new Error(timeoutMessage(timeoutKind ?? "total")));
+      if (timeoutKind) {
+        throw new Error(timeoutMessage(timeoutKind));
+      }
       timeouts.touch();
       res.statusCode = resp.status;
       status = resp.status;
@@ -608,8 +613,6 @@ export class ProxyServer {
         if (!res.headersSent) {
           this.applyResponseHeaders(res, route);
           writePlain(res, 504, "gateway timeout");
-        } else if (!res.writableEnded) {
-          res.destroy();
         }
       } else {
         const detail = err instanceof Error ? err.message : "proxy error";
@@ -785,6 +788,9 @@ export class ProxyServer {
       }
       recorder.setRequestBody(Buffer.alloc(0), { omitted: true });
     }
+    if (onActivity) {
+      return { body: tapRequestBody(req, onActivity) as unknown as BodyInit, duplex: "half" };
+    }
     return { body: req as unknown as BodyInit, duplex: "half" };
   }
 
@@ -850,7 +856,14 @@ async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chun
         resolve();
       }
     };
-    readable.on("error", done);
+    readable.on("error", () => {
+      try {
+        readable.unpipe(res);
+      } catch {
+        // already detached
+      }
+      done();
+    });
     res.on("error", done);
     res.on("finish", () => done());
     // A client that disconnects mid-response makes res emit "close" without
@@ -878,6 +891,35 @@ async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chun
     }
     readable.pipe(res);
   });
+}
+
+// Bun/undici fetch can keep a streamed body pending after AbortSignal fires.
+// Reject as soon as we abort so serve() can record the 504 and not hang.
+function fetchOrAbort(upstream: URL, init: RequestInit, onAbort: () => Error): Promise<Response> {
+  const signal = init.signal;
+  if (!signal) {
+    return fetch(upstream, init);
+  }
+  return new Promise((resolve, reject) => {
+    const fail = (): void => reject(onAbort());
+    if (signal.aborted) {
+      fail();
+      return;
+    }
+    signal.addEventListener("abort", fail, { once: true });
+    fetch(upstream, init).then(resolve, reject).finally(() => signal.removeEventListener("abort", fail));
+  });
+}
+
+function tapRequestBody(req: IncomingMessage, onActivity: () => void): PassThrough {
+  const tap = new PassThrough();
+  req.on("data", (chunk: Buffer | string) => {
+    onActivity();
+    tap.write(chunk);
+  });
+  req.on("end", () => tap.end());
+  req.on("error", (err) => tap.destroy(err instanceof Error ? err : new Error(String(err))));
+  return tap;
 }
 
 function contentLengthOf(req: IncomingMessage): number | undefined {

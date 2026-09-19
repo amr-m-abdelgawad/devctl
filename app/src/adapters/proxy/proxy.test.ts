@@ -500,8 +500,29 @@ describe("proxy", () => {
       const resp = await fetch(`http://127.0.0.1:${proxyPort}/slow`);
       expect(resp.status).toBe(504);
       expect(await resp.text()).toBe("gateway timeout");
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
       expect(server.stats().errors).toBe(1);
       expect(server.stats().recent[0]?.error).toBe("proxy total timeout");
+    } finally {
+      await close();
+    }
+  });
+
+  test("idle_ms aborts when the upstream never sends a chunk", async () => {
+    const { proxyPort, server, close } = await setupProxy((_req, _res) => {
+      /* hang — no headers, no body */
+    }, { timeout: { idle_ms: 50 } });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/idle`);
+      expect(resp.status).toBe(504);
+      expect(await resp.text()).toBe("gateway timeout");
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(server.stats().errors).toBe(1);
+      expect(server.stats().recent[0]?.error).toBe("proxy idle timeout");
     } finally {
       await close();
     }
@@ -527,8 +548,9 @@ describe("proxy", () => {
   });
 
   test("idle_ms aborts a stalled request body upload with 504", async () => {
-    const { proxyPort, server, close } = await setupProxy((_req, res) => {
-      res.end("should-not-run");
+    const { proxyPort, server, close } = await setupProxy((req, res) => {
+      req.on("data", () => {});
+      req.on("end", () => res.end("late"));
     }, { timeout: { idle_ms: 50 } });
     try {
       const stream = new ReadableStream<Uint8Array>({
@@ -540,6 +562,9 @@ describe("proxy", () => {
       const resp = await fetch(`http://127.0.0.1:${proxyPort}/upload`, init);
       expect(resp.status).toBe(504);
       expect(await resp.text()).toBe("gateway timeout");
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
       expect(server.stats().recent[0]?.error).toBe("proxy idle timeout");
     } finally {
       await close();
