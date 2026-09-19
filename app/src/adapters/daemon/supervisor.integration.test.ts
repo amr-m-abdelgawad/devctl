@@ -1,12 +1,15 @@
 import { mkdirSync } from "node:fs";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { load } from "../config/index.ts";
 import { Supervisor } from "../../bootstrap/test-supervisor.ts";
 
 describe("demo-platform integration", () => {
-  test("starts and stops the Python identity service without Google", async () => {
-    const home = `${process.env.TMPDIR ?? "/tmp"}/devctl-int-${Date.now()}`;
+  // Bun 1.4.2 on Windows can segfault while spawning this demo service
+  // (main CI after #95). The same hop is covered on Linux.
+  test.skipIf(process.platform === "win32")("starts and stops the Python identity service without Google", async () => {
+    const home = join(tmpdir(), `devctl-int-${Date.now()}`);
     mkdirSync(home, { recursive: true });
     process.env.DEVCTL_HOME = home;
     const root = resolve(import.meta.dir, "../../../../examples/demo-platform");
