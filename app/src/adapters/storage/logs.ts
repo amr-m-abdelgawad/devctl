@@ -14,6 +14,8 @@ import {
   createSearchMatcher,
   dedupeLogsByRequestId,
   isErrorSeverity,
+  NANOS_PER_MS,
+  PROXY_HOP_CORRELATE_WINDOW_MS,
   requestIdAttribute,
   shouldTagServiceLogWithProxyHop,
   withRequestId,
@@ -41,7 +43,6 @@ import {
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
-const CORRELATE_RECENT_MAX = 64;
 const SESSION_PREFIX = "session-";
 const SESSION_FORMAT_FILE = "FORMAT";
 const SESSION_FORMAT_JSONL = "jsonl";
@@ -350,19 +351,7 @@ export class LogManager {
     }
     this.tagRecentServiceLogs(next);
     this.rememberCorrelate(next);
-    this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.severityText }));
-    this.onRecord?.(next);
-    if (this.persist) {
-      const text = `${JSON.stringify(next)}\n`;
-      const key = safeServiceFile(next.service);
-      const stream = this.streamFor(key);
-      this.lastWrite.set(
-        key,
-        new Promise((resolve) => {
-          stream.write(text, () => resolve());
-        }),
-      );
-    }
+    this.publishRecord(next);
     return next;
   }
 
@@ -400,13 +389,30 @@ export class LogManager {
       }
     }
     this.recentCorrelate = this.recentCorrelate.map((row) => (row.seq === seq ? updated : row));
+    this.publishRecord(updated);
   }
 
   private rememberCorrelate(event: LogRecord): void {
+    const cutoff = event.timeUnixNano - PROXY_HOP_CORRELATE_WINDOW_MS * NANOS_PER_MS;
     this.recentCorrelate.push(event);
-    if (this.recentCorrelate.length > CORRELATE_RECENT_MAX) {
-      this.recentCorrelate = this.recentCorrelate.slice(-CORRELATE_RECENT_MAX);
+    this.recentCorrelate = this.recentCorrelate.filter((row) => row.timeUnixNano >= cutoff);
+  }
+
+  private publishRecord(event: LogRecord): void {
+    this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
+    this.onRecord?.(event);
+    if (!this.persist) {
+      return;
     }
+    const text = `${JSON.stringify(event)}\n`;
+    const key = safeServiceFile(event.service);
+    const stream = this.streamFor(key);
+    this.lastWrite.set(
+      key,
+      new Promise((resolve) => {
+        stream.write(text, () => resolve());
+      }),
+    );
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {
@@ -571,7 +577,7 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogRec
 }
 
 function loadJsonlSession(dir: string): LogRecord[] {
-  const events: LogRecord[] = [];
+  const bySeq = new Map<number, LogRecord>();
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".jsonl")) {
       continue;
@@ -583,11 +589,11 @@ function loadJsonlSession(dir: string): LogRecord[] {
       }
       const record = parseStoredLogRecord(line);
       if (record) {
-        events.push(record);
+        bySeq.set(record.seq, record);
       }
     }
   }
-  return events.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
 }
 
 function loadLegacySession(dir: string): LogRecord[] {

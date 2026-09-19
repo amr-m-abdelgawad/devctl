@@ -380,12 +380,26 @@ export function appendVisibleLogs(current: LogRecord[], incoming: LogRecord[], s
   if (accepted.length === 0) {
     return current;
   }
-  const limit = Math.max(1, cap);
-  if (accepted.length >= limit) {
-    return accepted.slice(-limit);
+  const known = new Set(current.map((row) => row.seq));
+  const replacements = new Map<number, LogRecord>();
+  const fresh: LogRecord[] = [];
+  for (const event of accepted) {
+    if (event.seq > 0 && known.has(event.seq)) {
+      replacements.set(event.seq, event);
+    } else {
+      fresh.push(event);
+    }
   }
-  const drop = Math.max(0, current.length + accepted.length - limit);
-  return current.slice(drop).concat(accepted);
+  const merged = replacements.size === 0 ? current : current.map((row) => replacements.get(row.seq) ?? row);
+  if (fresh.length === 0) {
+    return merged;
+  }
+  const limit = Math.max(1, cap);
+  if (fresh.length >= limit) {
+    return fresh.slice(-limit);
+  }
+  const drop = Math.max(0, merged.length + fresh.length - limit);
+  return merged.slice(drop).concat(fresh);
 }
 
 // Reconciles a freshly loaded bounded page with whatever was already held

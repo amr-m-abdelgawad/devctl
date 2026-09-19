@@ -40,6 +40,10 @@ describe("proxy hop request-id correlation", () => {
   test("extracts the gRPC method leaf and HTTP method+path", () => {
     expect(proxyHopNeedle("grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc")).toBe("PollActivityTaskQueue");
     expect(proxyHopNeedle("GET /assistant/chat route=agent")).toBe("GET /assistant/chat");
+    expect(proxyHopNeedle("GET http://llm.local/v1/chat/completions")).toBe("GET http://llm.local/v1/chat/completions");
+    expect(proxyHopNeedle("CONNECT invoices-api.local:443")).toBe("CONNECT invoices-api.local:443");
+    expect(proxyHopNeedle("OPTIONS *")).toBe("OPTIONS *");
+    expect(proxyHopNeedle("ERROR upstream")).toBe("");
     expect(proxyHopNeedle("not a hop")).toBe("");
   });
 
@@ -58,6 +62,11 @@ describe("proxy hop request-id correlation", () => {
     });
     expect(shouldTagServiceLogWithProxyHop(proxy, worker)).toBe(true);
     expect(withRequestId(worker, "req-1").attributes[REQUEST_ID_ATTR]).toBe("req-1");
+  });
+
+  test("does not treat ERROR upstream as an HTTP hop", () => {
+    const proxy = proxyHop({ message: "ERROR upstream" });
+    expect(shouldTagServiceLogWithProxyHop(proxy, serviceLine({ message: "ERROR upstream timed out" }))).toBe(false);
   });
 
   test("does not tag a different method, a late line, or a mismatched caller", () => {

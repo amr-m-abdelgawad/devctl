@@ -22,10 +22,17 @@ export function proxyHopNeedle(message: string): string {
     return slash >= 0 ? grpcPath.slice(slash + 1) : grpcPath;
   }
   const http = HTTP_HOP_RE.exec(message);
-  if (http?.[1] !== undefined && http[2] !== undefined) {
+  if (http?.[1] !== undefined && http[2] !== undefined && isHttpRequestTarget(http[2])) {
     return `${http[1]} ${http[2]}`;
   }
   return "";
+}
+
+function isHttpRequestTarget(target: string): boolean {
+  return target === "*"
+    || target.startsWith("/")
+    || /^[A-Za-z][A-Za-z0-9+.-]*:/.test(target)
+    || /^[^/\s]+:\d*$/.test(target);
 }
 
 export function mentionsProxyHop(text: string, needle: string): boolean {
