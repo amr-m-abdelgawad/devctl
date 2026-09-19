@@ -29,6 +29,7 @@ import {
   type RouteInspectGrpcConfig,
   type RouteIdentity,
   type RouteLogConfig,
+  type RouteTimeoutConfig,
   type ServiceConfig,
   type ServiceLogConfig,
   type ServiceLogMultilineConfig,
@@ -461,6 +462,20 @@ export function decodeRouteLog(value: unknown): RouteLogConfig | undefined {
   return { grpc: { ok } };
 }
 
+function decodeRouteTimeout(value: unknown): RouteTimeoutConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const timeout: RouteTimeoutConfig = {};
+  if (value.idle_ms !== undefined) {
+    timeout.idle_ms = asNumber(value.idle_ms);
+  }
+  if (value.total_ms !== undefined) {
+    timeout.total_ms = asNumber(value.total_ms);
+  }
+  return timeout;
+}
+
 export function decodeRoute(value: unknown): RouteConfig {
   if (!isRecord(value)) {
     return {
@@ -484,6 +499,7 @@ export function decodeRoute(value: unknown): RouteConfig {
     inspect: decodeRouteInspect(value.inspect),
     strip_prefix: asBoolean(value.strip_prefix),
     log: decodeRouteLog(value.log),
+    timeout: decodeRouteTimeout(value.timeout),
   };
 }
 

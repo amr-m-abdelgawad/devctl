@@ -18,6 +18,7 @@ import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
 import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 import { isLlmCallerHeader } from "../../domain/llm/caller.ts";
+import { startRouteTimeout, timeoutMessage, type TimeoutKind } from "./route-timeout.ts";
 
 export const REQUEST_ID_HEADER = "x-devctl-request-id";
 export const INTERNAL_TOKEN_HEADER = "x-devctl-internal-token";
@@ -283,10 +284,14 @@ export class ProxyServer {
     const ident = fromRoute(route.auth);
     const identityKey = tokenIdentityKey(ident);
     let upstreamSocket: Duplex | undefined;
+    let upgradeReq: ReturnType<ReturnType<typeof proxyUpgradeRequest>> | undefined;
     let recorded = false;
     const finish = (status: number, error?: string): void => {
       if (recorded) return;
       recorded = true;
+      if (status >= 400 || error) {
+        timeouts.stop();
+      }
       const duration = Date.now() - started;
       this.recordRequest({
         timestamp: new Date().toISOString(), requestId: requestID, method, path: recordedPath,
@@ -304,7 +309,26 @@ export class ProxyServer {
     const closeBoth = (): void => {
       socket.destroy();
       upstreamSocket?.destroy();
+      upgradeReq?.destroy();
     };
+    // WebSocket: total_ms aborts/destroys both sockets. idle_ms also applies
+    // and resets on each data chunk either direction (including the upgrade
+    // handshake completing). Same policy as HTTP fetch/pipe.
+    let timeoutKind: TimeoutKind | undefined;
+    const timeouts = startRouteTimeout(route.timeout, (kind) => {
+      timeoutKind = kind;
+      const detail = timeoutMessage(kind);
+      finish(504, detail);
+      if (!upstreamSocket) {
+        try {
+          socket.end("HTTP/1.1 504 Gateway Timeout\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+        } catch {
+          socket.destroy();
+        }
+      }
+      closeBoth();
+    });
+    socket.on("data", () => timeouts.touch());
 
     try {
       if ((route.upstream.recipe ?? "") !== "") {
@@ -334,11 +358,15 @@ export class ProxyServer {
 
       const upstream = resolveProxyTarget(this.upstreamBase(route), forwardedRequestUrl(route, path));
       const upstreamReq = proxyUpgradeRequest(upstream)(upstream, { method, headers });
+      upgradeReq = upstreamReq;
       upstreamReq.on("upgrade", (upstreamRes, connectedSocket, upstreamHead) => {
         upstreamSocket = connectedSocket;
         this.upgradedSockets.add(socket);
         this.upgradedSockets.add(connectedSocket);
+        timeouts.touch();
+        connectedSocket.on("data", () => timeouts.touch());
         const cleanup = (): void => {
+          timeouts.stop();
           this.upgradedSockets.delete(socket);
           this.upgradedSockets.delete(connectedSocket);
         };
@@ -361,18 +389,32 @@ export class ProxyServer {
         finish(upstreamRes.statusCode ?? 101);
       });
       upstreamReq.on("response", (upstreamRes) => {
+        timeouts.stop();
         upstreamRes.resume();
         const status = upstreamRes.statusCode ?? 502;
         socket.end(`HTTP/1.1 ${status} ${upstreamRes.statusMessage ?? "Bad Gateway"}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
         finish(status, "upstream refused protocol upgrade");
       });
       upstreamReq.on("error", (err) => {
+        if (timeoutKind) {
+          return;
+        }
+        timeouts.stop();
         finish(502, err.message);
         socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
       });
       socket.once("error", () => upstreamReq.destroy());
+      socket.once("close", () => {
+        if (!upstreamSocket) {
+          timeouts.stop();
+        }
+      });
       upstreamReq.end();
     } catch (err) {
+      timeouts.stop();
+      if (timeoutKind) {
+        return;
+      }
       const detail = err instanceof Error ? err.message : "proxy upgrade error";
       finish(502, detail);
       socket.end("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
@@ -436,6 +478,17 @@ export class ProxyServer {
     // Declared outside the try so the finally can close the capture even when
     // the upstream errors or the client disconnects mid-response.
     let recorder: HttpCaptureTee | undefined;
+    const abort = new AbortController();
+    let timeoutKind: TimeoutKind | undefined;
+    const timeouts = startRouteTimeout(route.timeout, (kind) => {
+      timeoutKind = kind;
+      abort.abort();
+      req.destroy();
+      if (res.headersSent && !res.writableEnded) {
+        res.destroy();
+      }
+    });
+    req.on("data", () => timeouts.touch());
     try {
       const headers: Record<string, string> = {};
       for (const [key, value] of Object.entries(req.headers)) {
@@ -477,15 +530,17 @@ export class ProxyServer {
       // stripped, identity injected) and must not rewrite the captured request.
       recorder = this.beginCapture(route.name, method, path, headers, req);
       stripLlmCallerHeaders(headers);
-      const prepared = await this.prepareRequestBody(req, method, recorder);
+      const prepared = await this.prepareRequestBody(req, method, recorder, timeouts.touch);
       const resp = await fetch(upstream, {
         method,
         headers,
         body: prepared.body,
         redirect: "manual",
+        signal: abort.signal,
         // @ts-expect-error Bun/undici duplex for streamed request bodies
         duplex: prepared.duplex,
       });
+      timeouts.touch();
       res.statusCode = resp.status;
       status = resp.status;
       // fetch() already decompressed the body if its content-encoding is
@@ -525,9 +580,12 @@ export class ProxyServer {
       const teeable = responseEncodings.length === 0 || decompressedByFetch;
       if (recorder && teeable) {
         const rec = recorder;
-        await pipeResponse(resp, res, (chunk) => rec.appendResponse(chunk));
+        await pipeResponse(resp, res, (chunk) => rec.appendResponse(chunk), timeouts.touch);
       } else {
-        await pipeResponse(resp, res);
+        await pipeResponse(resp, res, undefined, timeouts.touch);
+      }
+      if (timeoutKind) {
+        throw new Error(timeoutMessage(timeoutKind));
       }
       const duration = Date.now() - started;
       this.logs?.append({
@@ -542,14 +600,28 @@ export class ProxyServer {
       });
       this.bus?.publish(newEvent(ProxyRequest, route.name, { status: resp.status, request_id: requestID, duration, identity: identityKey }));
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "proxy error";
-      errorDetail = detail;
-      status = 502;
-      this.logProxyFailure(method, path, route.name, requestID, detail, "", identityKey);
-      // Apply CORS/response headers to the error too, so the browser can read it.
-      this.applyResponseHeaders(res, route);
-      writePlain(res, 502, "proxy error");
+      if (timeoutKind) {
+        const detail = timeoutMessage(timeoutKind);
+        errorDetail = detail;
+        status = 504;
+        this.logProxyFailure(method, path, route.name, requestID, detail, "", identityKey);
+        if (!res.headersSent) {
+          this.applyResponseHeaders(res, route);
+          writePlain(res, 504, "gateway timeout");
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
+      } else {
+        const detail = err instanceof Error ? err.message : "proxy error";
+        errorDetail = detail;
+        status = 502;
+        this.logProxyFailure(method, path, route.name, requestID, detail, "", identityKey);
+        // Apply CORS/response headers to the error too, so the browser can read it.
+        this.applyResponseHeaders(res, route);
+        writePlain(res, 502, "proxy error");
+      }
     } finally {
+      timeouts.stop();
       this.recordProxyHit(method, recordedPath, route.name, requestID, started, status, identityKey, errorDetail, ctx);
       await this.finishCapture(recorder, status, started, requestID, ctx);
     }
@@ -693,6 +765,7 @@ export class ProxyServer {
     req: IncomingMessage,
     method: string,
     recorder: HttpCaptureTee | undefined,
+    onActivity?: () => void,
   ): Promise<{ body: BodyInit | undefined; duplex: "half" | undefined }> {
     if (method === "GET" || method === "HEAD") {
       return { body: undefined, duplex: undefined };
@@ -706,7 +779,7 @@ export class ProxyServer {
         // ceiling does not depend on this guard's condition staying correct.
         // (node:http already frames the body to Content-Length, so this backs
         // up the guard rather than closing a reachable overflow today.)
-        const buffered = await readRequestBody(req, recorder.maxBytes);
+        const buffered = await readRequestBody(req, recorder.maxBytes, onActivity);
         recorder.setRequestBody(buffered);
         return { body: buffered as unknown as BodyInit, duplex: undefined };
       }
@@ -758,7 +831,7 @@ export async function injectIdentityHeaders(
 // copying (forwarding continues); a throw in it disables capture but never the
 // pipe. The response is always streamed, never buffered-then-forwarded, so SSE
 // keeps flowing.
-async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chunk: Buffer) => boolean): Promise<void> {
+async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chunk: Buffer) => boolean, onActivity?: () => void): Promise<void> {
   if (!resp.body) {
     res.end();
     return;
@@ -789,10 +862,11 @@ async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chun
       }
       done();
     });
-    if (onChunk) {
-      let capturing = true;
+    if (onChunk || onActivity) {
+      let capturing = Boolean(onChunk);
       readable.on("data", (chunk: Buffer | string) => {
-        if (!capturing) {
+        onActivity?.();
+        if (!capturing || !onChunk) {
           return;
         }
         try {
@@ -830,7 +904,7 @@ function requestIsEncoded(req: IncomingMessage): boolean {
 // time. node:http frames the body to Content-Length, so the ceiling is a
 // defensive invariant local to the read (independent of the caller's guard)
 // rather than a fix for a reachable overflow.
-function readRequestBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+function readRequestBody(req: IncomingMessage, maxBytes: number, onActivity?: () => void): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     let chunks: Buffer[] = [];
     let size = 0;
@@ -848,6 +922,7 @@ function readRequestBody(req: IncomingMessage, maxBytes: number): Promise<Buffer
       if (settled) {
         return;
       }
+      onActivity?.();
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       size += buf.length;
       if (size > maxBytes) {

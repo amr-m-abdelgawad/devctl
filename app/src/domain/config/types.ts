@@ -318,6 +318,13 @@ export type RouteLogConfig = {
   grpc?: RouteLogGrpcConfig;
 };
 
+// Opt-in per-route hop deadlines. Omitted, missing keys, or 0 = unlimited
+// (today's behavior). A global default would kill 47–65s CopilotKit streams.
+export type RouteTimeoutConfig = {
+  idle_ms?: number;
+  total_ms?: number;
+};
+
 export type RouteConfig = {
   name: string;
   // "" / "http" (default) → the shared HTTP/1.1 listener, matched by host/path.
@@ -345,6 +352,8 @@ export type RouteConfig = {
   // Per-route log policy. log.grpc.ok lists non-zero gRPC statuses that are
   // not proxy errors (no stats().errors increment; INFO or silent).
   log?: RouteLogConfig;
+  // Opt-in idle/total deadlines. 0 or omitted = unlimited.
+  timeout?: RouteTimeoutConfig;
 };
 
 export function isGrpcRoute(route: RouteConfig): boolean {

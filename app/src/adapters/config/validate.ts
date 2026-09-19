@@ -457,6 +457,7 @@ function validateProxy(cfg: DevctlConfig): string[] {
     issues.push(...validateRouteAuth(route, prefix));
     issues.push(...validateRouteInspect(route, prefix, cfg.plugins.length > 0));
     issues.push(...validateRouteLog(route, prefix));
+    issues.push(...validateRouteTimeout(route, prefix));
     if (isGrpcRoute(route)) {
       issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
     }
@@ -574,6 +575,20 @@ export function unresolvedInspectDecoders(cfg: DevctlConfig): Array<{ route: str
     }
   }
   return unresolved;
+}
+
+function validateRouteTimeout(route: RouteConfig, prefix: string): string[] {
+  if (route.timeout === undefined) {
+    return [];
+  }
+  const issues: string[] = [];
+  if (route.timeout.idle_ms !== undefined && route.timeout.idle_ms < 0) {
+    issues.push(`${prefix}.timeout.idle_ms must be >= 0`);
+  }
+  if (route.timeout.total_ms !== undefined && route.timeout.total_ms < 0) {
+    issues.push(`${prefix}.timeout.total_ms must be >= 0`);
+  }
+  return issues;
 }
 
 function validateRouteLog(route: RouteConfig, prefix: string): string[] {

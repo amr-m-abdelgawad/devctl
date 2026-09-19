@@ -427,7 +427,7 @@ services:
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
   });
 
-  test("a service proxy fragment keeps inspect, strip_prefix, log, transport, and response_headers", () => {
+  test("a service proxy fragment keeps inspect, strip_prefix, log, transport, timeout, and response_headers", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-svc-proxy-full-${Date.now()}`;
     writeFile(
       dir,
@@ -444,6 +444,7 @@ services:
       strip_prefix: true
       inspect: { enabled: true, max_bytes: 4096 }
       response_headers: { Access-Control-Allow-Origin: "*" }
+      timeout: { idle_ms: 120000, total_ms: 300000 }
       log:
         grpc:
           ok:
@@ -458,6 +459,7 @@ services:
     expect(route?.strip_prefix).toBe(true);
     expect(route?.inspect).toEqual({ enabled: true, max_bytes: 4096 });
     expect(route?.response_headers).toEqual({ "Access-Control-Allow-Origin": "*" });
+    expect(route?.timeout).toEqual({ idle_ms: 120000, total_ms: 300000 });
     expect(route?.log).toEqual({ grpc: { ok: [{ status: 14, methods: ["PollWorkflowTaskQueue"], log: "silent" }] } });
   });
 
@@ -508,6 +510,31 @@ proxy:
       upstream: { url: http://127.0.0.1:8000 }
       log:
         extra: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields/);
+  });
+
+  test("rejects an unknown key under route.timeout", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-timeout-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:8000 }
+      timeout:
+        idle_ms: 1000
+        foo: true
 `,
     );
     expect(() => load(dir, "")).toThrow(/unknown fields/);

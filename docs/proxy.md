@@ -62,6 +62,25 @@ Match is host + optional path prefix.
         url: http://127.0.0.1:18000
 ```
 
+### Route timeouts
+
+Timeouts are **opt-in per route**. There is no global default — a 47–65s CopilotKit / SSE stream that works today must keep working. `0`, omitted keys, or a missing `timeout` block are unlimited.
+
+```yaml
+    - name: invoices-api
+      timeout:
+        idle_ms: 120000    # abort if no request/response chunk for 2 minutes
+        total_ms: 300000   # abort if the hop lasts longer than 5 minutes
+```
+
+HTTP `fetch` / pipe uses an `AbortController` for `total_ms` and an idle timer reset on each request-body or response-body chunk. On timeout the proxy aborts the upstream, returns **504** (`gateway timeout`) when headers have not been sent, increments `stats().errors`, and writes a proxy error log (`proxy idle timeout` / `proxy total timeout`). A client that already received headers is disconnected rather than left hanging.
+
+WebSocket upgrades apply the same `total_ms` and `idle_ms`. Idle resets on each data chunk either direction (and when the upgrade handshake completes). Timeout destroys both sockets; if the handshake has not finished, the client gets `HTTP/1.1 504 Gateway Timeout`.
+
+gRPC applies `total_ms` as a stream deadline and resets idle on DATA frames either direction. Timeout produces gRPC status **4 DEADLINE_EXCEEDED**. If the upstream response has not started, the client receives a trailers-only response.
+
+Negative `idle_ms` / `total_ms` fail `devctl config validate`. Per-service `proxy:` fragments keep `timeout` with the rest of `RouteConfig`.
+
 ### Custom OAuth client credentials (separate from ADC)
 
 A route can mint IAP tokens with a **custom OAuth client** via `auth.client_id` /
@@ -137,7 +156,7 @@ A CORS **preflight** (an `OPTIONS` carrying `Access-Control-Request-Method`) is 
 
 ### Per-service routes
 
-Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`), copying the full route (including `inspect`, `strip_prefix`, `log`, `transport`, and `response_headers`). Duplicate names fail validation. Runtime stays one listener.
+Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`), copying the full route (including `inspect`, `strip_prefix`, `log`, `transport`, `timeout`, and `response_headers`). Duplicate names fail validation. Runtime stays one listener.
 
 ```yaml
 services:

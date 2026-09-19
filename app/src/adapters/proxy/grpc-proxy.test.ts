@@ -302,6 +302,78 @@ describe("GrpcProxyServer", () => {
     }
   });
 
+  test("total_ms aborts a hanging stream with grpc-status 4", async () => {
+    const hang = http2.createServer();
+    hang.on("stream", () => {
+      /* never responds */
+    });
+    await new Promise<void>((r) => hang.listen(0, "127.0.0.1", () => r()));
+    const hangPort = (hang.address() as { port: number }).port;
+    const port = await reservePort();
+    const route = grpcRoute(`http://127.0.0.1:${hangPort}`, port);
+    route.timeout = { total_ms: 50 };
+    const server = new GrpcProxyServer(route, tokens());
+    await server.start();
+    try {
+      const res = await call(port, "/hang", "x");
+      expect(res.grpcStatus).toBe("4");
+      expect(res.status).toBe(200);
+      expect(server.stats().errors).toBeGreaterThanOrEqual(1);
+      expect(server.stats().recent[0]?.error).toBe("proxy total timeout");
+    } finally {
+      await server.stop();
+      await new Promise<void>((r) => hang.close(() => r()));
+    }
+  });
+
+  test("idle_ms aborts when DATA frames stall", async () => {
+    const hang = http2.createServer();
+    hang.on("stream", (raw) => {
+      const stream = raw as ServerHttp2Stream;
+      stream.respond({ ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
+      stream.write("ping");
+    });
+    await new Promise<void>((r) => hang.listen(0, "127.0.0.1", () => r()));
+    const hangPort = (hang.address() as { port: number }).port;
+    const port = await reservePort();
+    const route = grpcRoute(`http://127.0.0.1:${hangPort}`, port);
+    route.timeout = { idle_ms: 50 };
+    const server = new GrpcProxyServer(route, tokens());
+    await server.start();
+    try {
+      const res = await call(port, "/stall", "x");
+      expect(res.body.includes("ping")).toBe(true);
+      expect(res.grpcStatus).toBe("4");
+      expect(server.stats().recent.some((row) => row.error === "proxy idle timeout")).toBe(true);
+    } finally {
+      await server.stop();
+      await new Promise<void>((r) => hang.close(() => r()));
+    }
+  });
+
+  test("missing timeout still allows a long stream", async () => {
+    const delayed = http2.createServer();
+    delayed.on("stream", (raw) => {
+      const stream = raw as ServerHttp2Stream;
+      setTimeout(() => {
+        stream.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": "0" }, { endStream: true });
+      }, 200);
+    });
+    await new Promise<void>((r) => delayed.listen(0, "127.0.0.1", () => r()));
+    const delayedPort = (delayed.address() as { port: number }).port;
+    const port = await reservePort();
+    const server = new GrpcProxyServer(grpcRoute(`http://127.0.0.1:${delayedPort}`, port), tokens());
+    await server.start();
+    try {
+      const res = await call(port, "/slow-ok", "x");
+      expect(res.grpcStatus).toBe("0");
+      expect(server.stats().errors).toBe(0);
+    } finally {
+      await server.stop();
+      await new Promise<void>((r) => delayed.close(() => r()));
+    }
+  });
+
   test("records a cancelled RPC when the client goes away mid-flight", async () => {
     const hang = http2.createServer();
     hang.on("stream", () => {

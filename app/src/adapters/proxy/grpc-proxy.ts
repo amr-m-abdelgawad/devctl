@@ -12,6 +12,7 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
 import { injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
+import { startRouteTimeout, timeoutMessage } from "./route-timeout.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
 
@@ -20,6 +21,7 @@ import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/tra
 const GRPC_UNAVAILABLE = "14";
 const GRPC_UNAUTHENTICATED = "16";
 const GRPC_CANCELLED = "1";
+const GRPC_DEADLINE_EXCEEDED = "4";
 // Request headers we never forward: HTTP/2-illegal connection headers, the
 // hop's own host, and the client's Authorization (the proxy injects its own).
 const DROP_REQUEST_HEADERS = new Set(["host", "connection", "keep-alive", "transfer-encoding", "upgrade", "proxy-connection", "authorization"]);
@@ -167,10 +169,14 @@ export class GrpcProxyServer {
     const ident = fromRoute(route.auth);
     const identityKey = tokenIdentityKey(ident);
     let recorded = false;
+    let responded = false;
+    let upReq: ReturnType<ClientHttp2Session["request"]> | undefined;
+    let upTrailers: OutgoingHttpHeaders = {};
     const recorder = this.beginCapture(route.name, method, headers, front);
     const finish = (status: number, grpcStatus: string, error?: string): void => {
       if (recorded) return;
       recorded = true;
+      timeouts.stop();
       const duration = Date.now() - started;
       const recordedPath = this.detector ? this.detector.redactText(method) : method;
       // A listed log.grpc.ok status is not a proxy error (Temporal long-poll
@@ -210,6 +216,25 @@ export class GrpcProxyServer {
       }
       finish(200, grpcStatus, message);
     };
+    const timeouts = startRouteTimeout(this.route.timeout, (kind) => {
+      const message = timeoutMessage(kind);
+      if (!responded) {
+        fail(GRPC_DEADLINE_EXCEEDED, message);
+      } else {
+        upTrailers = { "grpc-status": GRPC_DEADLINE_EXCEEDED, "grpc-message": message };
+        try {
+          front.end();
+        } catch {
+          // already closed
+        }
+        finish(200, GRPC_DEADLINE_EXCEEDED, message);
+      }
+      try {
+        upReq?.close(http2.constants.NGHTTP2_CANCEL);
+      } catch {
+        upReq?.destroy();
+      }
+    });
 
     let out: Record<string, string>;
     try {
@@ -221,7 +246,6 @@ export class GrpcProxyServer {
       return;
     }
 
-    let upReq;
     try {
       upReq = this.upstream(route.upstream.url).request(out as OutgoingHttpHeaders);
     } catch (err) {
@@ -229,8 +253,6 @@ export class GrpcProxyServer {
       return;
     }
 
-    let responded = false;
-    let upTrailers: OutgoingHttpHeaders = {};
     upReq.on("response", (uh) => {
       if (responded) return;
       responded = true;
@@ -252,7 +274,7 @@ export class GrpcProxyServer {
         }
         finish(Number(uh[":status"] ?? 200), String(upTrailers["grpc-status"] ?? "0"));
       });
-      this.pipeWithCapture(upReq, front, recorder, "response");
+      this.pipeWithCapture(upReq, front, recorder, "response", timeouts.touch);
       upReq.on("end", () => {
         try {
           front.end();
@@ -265,6 +287,9 @@ export class GrpcProxyServer {
       upTrailers = t;
     });
     upReq.on("error", (err) => {
+      if (recorded) {
+        return;
+      }
       if (!responded) {
         fail(GRPC_UNAVAILABLE, err.message);
       } else {
@@ -283,7 +308,7 @@ export class GrpcProxyServer {
         upReq.destroy();
       }
     });
-    this.pipeWithCapture(front, upReq, recorder, "request");
+    this.pipeWithCapture(front, upReq, recorder, "request", timeouts.touch);
   }
 
   private beginCapture(
@@ -346,6 +371,7 @@ export class GrpcProxyServer {
     dest: NodeJS.WritableStream,
     recorder: TrafficCaptureRecorder | undefined,
     side: "request" | "response",
+    onActivity?: () => void,
   ): void {
     dest.on("drain", () => {
       if (!writableDestroyed(dest) && typeof src.resume === "function") {
@@ -353,6 +379,7 @@ export class GrpcProxyServer {
       }
     });
     src.on("data", (chunk: Buffer | string) => {
+      onActivity?.();
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       if (recorder) {
         try {
