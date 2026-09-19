@@ -14,6 +14,8 @@ function sampleSnap(): StatusSnapshot {
   api.health = HealthHealthy;
   api.pid = 42;
   api.ports = { http: 9000 };
+  api.start_period_remaining_ms = 7_500;
+  api.start_period_total_ms = 10_000;
   return {
     session_id: "sess",
     repo_root: "/repo",
@@ -241,9 +243,20 @@ describe("mcp tools", () => {
       ports: Record<string, number>;
       pid: number;
       last_error: string;
+      start_period_remaining_ms?: number;
+      start_period_total_ms?: number;
     }>;
     expect(listed).toEqual([
-      { name: "api", state: StateRunning, health: HealthHealthy, ports: { http: 9000 }, pid: 42, last_error: "" },
+      {
+        name: "api",
+        state: StateRunning,
+        health: HealthHealthy,
+        ports: { http: 9000 },
+        pid: 42,
+        last_error: "",
+        start_period_remaining_ms: 7_500,
+        start_period_total_ms: 10_000,
+      },
     ]);
   });
 
@@ -286,10 +299,14 @@ describe("mcp tools", () => {
     const svc = (await callMcpTool(stubHost(), "get_service", { name: "api" })) as {
       environment: Record<string, string>;
       command: string[];
+      start_period_remaining_ms?: number;
+      start_period_total_ms?: number;
     };
     expect(svc.command).toEqual(["bun", "run", "dev"]);
     expect(svc.environment.API_TOKEN).toBe(REDACTED_VALUE);
     expect(svc.environment.NAME).toBe("ok");
+    expect(svc.start_period_remaining_ms).toBe(7_500);
+    expect(svc.start_period_total_ms).toBe(10_000);
   });
 
   test("get_status omits session token", async () => {

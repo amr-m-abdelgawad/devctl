@@ -561,6 +561,8 @@ export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown 
       env?: string;
       started_env?: string;
       environments?: string[];
+      start_period_remaining_ms?: number;
+      start_period_total_ms?: number;
     } = {
       name: rt.name,
       state: rt.state,
@@ -577,6 +579,12 @@ export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown 
     }
     if (overlayNames.length > 0) {
       row.environments = overlayNames;
+    }
+    if (rt.start_period_remaining_ms !== undefined) {
+      row.start_period_remaining_ms = rt.start_period_remaining_ms;
+    }
+    if (rt.start_period_total_ms !== undefined) {
+      row.start_period_total_ms = rt.start_period_total_ms;
     }
     return row;
   });
@@ -610,6 +618,8 @@ export function getService(host: McpHost, name: string): unknown {
     environments: serviceHasNamedEnvironments(svc) ? named : undefined,
     environment: detector.redactMap({ ...effective.defaults, ...effective.vars }),
     container: svc.container ? { ...svc.container, env: detector.redactMap(svc.container.env) } : undefined,
+    start_period_remaining_ms: rt?.start_period_remaining_ms,
+    start_period_total_ms: rt?.start_period_total_ms,
   };
 }
 

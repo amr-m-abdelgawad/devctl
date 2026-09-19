@@ -43,6 +43,10 @@ export type Runtime = {
   startTime?: string;
   cpuPercent?: number;
   memoryKB?: number;
+  // Present only while `now - startTime` is still inside health.start_period_seconds.
+  // Computed at snapshot time — never stored as a stale countdown on the live runtime.
+  start_period_remaining_ms?: number;
+  start_period_total_ms?: number;
   // Non-secret launch context: the profile in effect (empty if never
   // explicitly started under one) and whether its environment's "process"
   // layer came from a real client or the daemon's own fallback — never the
@@ -61,6 +65,34 @@ export type Runtime = {
   // restarted — devctl has nothing left to relaunch it with.
   orphaned: boolean;
 };
+
+export type StartPeriodWindow = {
+  remainingMs?: number;
+  totalMs?: number;
+};
+
+// Pure countdown for the health start-period grace window. Both fields are
+// omitted when there is no startTime, start_period_seconds is 0, or the
+// window has already elapsed (`now - startTime >= start_period_seconds`).
+export function startPeriodWindow(
+  startTimeIso: string | undefined,
+  startPeriodSeconds: number,
+  nowMs: number,
+): StartPeriodWindow {
+  if (!startTimeIso || !(startPeriodSeconds > 0)) {
+    return {};
+  }
+  const startMs = Date.parse(startTimeIso);
+  if (!Number.isFinite(startMs)) {
+    return {};
+  }
+  const totalMs = startPeriodSeconds * 1000;
+  const remainingMs = totalMs - (nowMs - startMs);
+  if (remainingMs <= 0) {
+    return {};
+  }
+  return { remainingMs, totalMs };
+}
 
 export function displayState(rt: Runtime): string {
   if (rt.state === StateRunning && rt.health === HealthHealthy) {

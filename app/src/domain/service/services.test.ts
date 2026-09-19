@@ -1,7 +1,7 @@
 import { profileId } from "../ids.ts";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyExpose, emptyProfile, emptyWatch, type DevctlConfig } from "../config/types.ts";
-import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startupPlan, supervisorRestartAdvice } from "./services.ts";
+import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startPeriodWindow, startupPlan, supervisorRestartAdvice } from "./services.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -173,6 +173,32 @@ describe("emptyRuntime", () => {
     expect(rt.state).toBe("STOPPED");
     expect(rt.restarts).toBe(0);
     expect(rt.startTime).toBeUndefined();
+    expect(rt.start_period_remaining_ms).toBeUndefined();
+    expect(rt.start_period_total_ms).toBeUndefined();
+  });
+});
+
+describe("startPeriodWindow", () => {
+  const start = "2026-09-19T00:00:00.000Z";
+  const startMs = Date.parse(start);
+
+  test("omits both fields when start_period is 0", () => {
+    expect(startPeriodWindow(start, 0, startMs + 100)).toEqual({});
+  });
+
+  test("remaining decreases as now advances inside the window", () => {
+    expect(startPeriodWindow(start, 10, startMs + 2_000)).toEqual({ remainingMs: 8_000, totalMs: 10_000 });
+    expect(startPeriodWindow(start, 10, startMs + 7_500)).toEqual({ remainingMs: 2_500, totalMs: 10_000 });
+  });
+
+  test("omits both fields after the window has elapsed", () => {
+    expect(startPeriodWindow(start, 10, startMs + 10_000)).toEqual({});
+    expect(startPeriodWindow(start, 10, startMs + 12_000)).toEqual({});
+  });
+
+  test("omits both fields without startTime", () => {
+    expect(startPeriodWindow(undefined, 10, startMs)).toEqual({});
+    expect(startPeriodWindow("", 10, startMs)).toEqual({});
   });
 });
 

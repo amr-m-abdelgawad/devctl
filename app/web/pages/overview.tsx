@@ -1,7 +1,7 @@
 import { GaugeIcon, LightningIcon, StackIcon, TimerIcon, WarningIcon } from "../icons.ts";
 import { useMemo, useState } from "react";
 import { isLiveState, type RunControl } from "../control.ts";
-import { relative } from "../format.ts";
+import { durationMs, relative } from "../format.ts";
 import { serviceColor } from "../palette.ts";
 import { RequestTable } from "../components/tables.tsx";
 import { ActionButtons, EnvSelect, FleetBar } from "../components/controls.tsx";
@@ -165,7 +165,16 @@ export function OverviewPage(props: {
                       <TableCell>
                         <EnvSelect row={row} busy={busy} onControl={onControl} />
                       </TableCell>
-                      <TableCell><StatusBadge value={row.health || "unknown"} /></TableCell>
+                      <TableCell>
+                        {row.start_period_remaining_ms !== undefined ? (
+                          <div className="flex flex-col gap-0.5" title={row.start_period_total_ms !== undefined ? `${durationMs(row.start_period_remaining_ms)} of ${durationMs(row.start_period_total_ms)} start period remaining` : `${durationMs(row.start_period_remaining_ms)} start period remaining`}>
+                            <StatusBadge value={row.health || "unknown"} />
+                            <span className="text-[10px] text-muted-foreground">{durationMs(row.start_period_remaining_ms)} start left</span>
+                          </div>
+                        ) : (
+                          <StatusBadge value={row.health || "unknown"} />
+                        )}
+                      </TableCell>
                       <TableCell className="font-mono tabular-nums text-muted-foreground">{row.pid || "—"}</TableCell>
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {Object.entries(row.ports ?? {}).map(([name, port]) => `${name}:${port}`).join("  ") || "—"}

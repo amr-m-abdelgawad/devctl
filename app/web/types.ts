@@ -33,6 +33,8 @@ export type ServiceRow = {
   env?: string;
   started_env?: string;
   environments?: string[];
+  start_period_remaining_ms?: number;
+  start_period_total_ms?: number;
 };
 
 export type RequestRow = {
