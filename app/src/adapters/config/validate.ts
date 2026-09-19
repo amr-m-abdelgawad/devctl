@@ -1,7 +1,8 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
 import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { resolvePluginPath } from "../../shared/plugin-paths.ts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
 import { findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
@@ -21,6 +22,7 @@ import {
   identityKind,
   isServiceAccountIdentity,
   LOCALHOST,
+  routeAuthIsNone,
   RestartAlways,
   RestartNever,
   RestartOnFailure,
@@ -618,6 +620,9 @@ function validateRouteLog(route: RouteConfig, prefix: string): string[] {
 
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
   const issues: string[] = [];
+  if (auth.log_identity !== undefined && !routeAuthIsNone(auth)) {
+    issues.push(`${prefix}.auth.log_identity is only valid when auth.type is none`);
+  }
   if (auth.type.toLowerCase() === "iap") {
     if (auth.audience.trim() === "") {
       issues.push(`${prefix}.auth.audience is required when auth.type is iap`);
@@ -672,7 +677,44 @@ function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[]
   if (identType === "service" || identType === "service_account") {
     issues.push(`${prefix}.auth.client_id is only valid with identity.type user`);
   }
+  issues.push(...validateIapCredentialsFile(auth, prefix));
   return issues;
+}
+
+function validateIapCredentialsFile(auth: RouteAuthConfig, prefix: string): string[] {
+  const path = (auth.credentials ?? "").trim();
+  const clientId = (auth.client_id ?? "").trim();
+  if (auth.type.toLowerCase() !== "iap" || path === "" || clientId === "") {
+    return [];
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return [`${prefix}.auth.credentials file not found: ${path}`];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [`${prefix}.auth.credentials is not valid JSON: ${path}`];
+  }
+  const result = inspectIapOAuthClientFile(parsed, clientId);
+  if (result.ok) {
+    return [];
+  }
+  switch (result.issue) {
+    case "malformed":
+      return [`${prefix}.auth.credentials is malformed: ${path}`];
+    case "wrong_type":
+      return [`${prefix}.auth.credentials type must be authorized_user`];
+    case "missing_refresh_token":
+      return [`${prefix}.auth.credentials has no refresh_token`];
+    case "missing_client_id":
+      return [`${prefix}.auth.credentials has no client_id`];
+    case "client_id_mismatch":
+      return [`${prefix}.auth.credentials client_id does not match auth.client_id`];
+  }
 }
 
 function validateTelemetry(cfg: DevctlConfig): string[] {

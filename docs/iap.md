@@ -37,6 +37,8 @@ Omit `client_id` to keep the default ADC client. `client_id` is only valid on `a
 
 The ADC refresh token must have been issued to that OAuth client. `gcloud auth application-default login` uses the Cloud SDK client by default; a mismatch fails as `unauthorized_client`. Login with a client secret file that matches `client_id`, or omit `client_id`.
 
+When a route (or `proxy.credentials`) points at a separate authorized_user file, `devctl config validate` checks that the file exists, is JSON with `refresh_token` and `client_id`, and that the file's `client_id` matches the route. `devctl status` reports that result as `credentials_valid` on the route snapshot (`true` / `false` when a file is configured; omitted otherwise).
+
 ```mermaid
 flowchart LR
   client["Local client"] --> proxy["devctl proxy"]

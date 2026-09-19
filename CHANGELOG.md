@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Traffic inspector `inspect.capture_sse` (default false) stores `text/event-stream` responses as a JSON array of blank-line-delimited frames, or pretty OpenAI `chat.completion` JSON when the stream is chat/completion-shaped. The forwarded stream is still teed with no extra delay; `max_bytes` / `truncated` still apply. See [Proxy](docs/proxy.md#inspect-bodies).
 - Status snapshots and MCP/web `list_services` expose `start_period_remaining_ms` / `start_period_total_ms` while a service is still inside `health.start_period_seconds`.
 - LLM inspector `type: proxy` sources can tag multiple proxy routes with `via.routes: [a, b]`; `via.route` remains singular sugar for one name. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
+- Proxy `auth.log_identity` on `auth: none` copies inbound `X-Goog-Authenticated-User-Email` onto the traffic record as `caller_email`; IAP routes with a credentials file report `credentials_valid` on `devctl status`. See [Proxy](docs/proxy.md).
 
 ### Changed
 

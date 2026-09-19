@@ -394,6 +394,7 @@ export function decodeRouteAuth(value: unknown): RouteAuthConfig {
     client_secret: asString(value.client_secret),
     credentials: asString(value.credentials),
     headers: asStringMap(value.headers),
+    ...(value.log_identity !== undefined ? { log_identity: asBoolean(value.log_identity) } : {}),
   };
 }
 

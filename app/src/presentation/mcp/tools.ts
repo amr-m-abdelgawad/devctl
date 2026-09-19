@@ -874,6 +874,7 @@ export function mcpTrafficCall(detector: Detector, call: TrafficCall, bodies: bo
     route: shown.route,
     transport: shown.transport,
     caller: shown.caller,
+    caller_email: shown.callerEmail,
     status: shown.status,
     grpc_status: shown.grpcStatus,
     duration_ms: shown.durationMs,

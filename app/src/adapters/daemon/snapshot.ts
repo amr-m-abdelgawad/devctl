@@ -1,5 +1,8 @@
+import { readFileSync } from "node:fs";
 import { cpus, loadavg, platform, uptime } from "node:os";
 import type { DevctlConfig } from "../config/index.ts";
+import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
+import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, startPeriodWindow, type Runtime } from "../../domain/service/services.ts";
 import { defaultEnvironmentName, resolveEnvironmentName } from "../../domain/service/environments.ts";
@@ -127,6 +130,7 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
           auth: r.auth.type,
           match,
           client_id: r.auth.client_id.trim() || undefined,
+          credentials_valid: routeIapCredentialsValid(r.auth),
         };
       }),
       ...proxyStats,
@@ -163,6 +167,29 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
     // unavailable series from an empty service set (matches the type contract).
     service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
   };
+}
+
+export function routeIapCredentialsValid(auth: RouteAuthConfig): boolean | undefined {
+  if (auth.type.toLowerCase() !== "iap") {
+    return undefined;
+  }
+  const path = (auth.credentials ?? "").trim();
+  if (path === "") {
+    return undefined;
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  return inspectIapOAuthClientFile(parsed, auth.client_id).ok;
 }
 
 function selectedEnvName(host: SnapshotHost, name: string): string {

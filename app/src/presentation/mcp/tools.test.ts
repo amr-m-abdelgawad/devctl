@@ -517,6 +517,7 @@ describe("mcp tools", () => {
       path: "/invoices",
       route: "invoices-api",
       transport: "http" as const,
+      callerEmail: "accounts.google.com:dev@example.com",
       status: 200,
       request: { text: '{"token":"super-secret"}', encoding: "utf8" as const },
       response: { text: '{"ok":true}', encoding: "utf8" as const },
@@ -529,10 +530,11 @@ describe("mcp tools", () => {
     });
     host.getTrafficCall = (id) => (id === call.id ? call : undefined);
     const page = (await callMcpTool(host, "get_traffic_calls", {})) as {
-      calls: Array<{ id: string; request?: unknown; attributes: Record<string, unknown> }>;
+      calls: Array<{ id: string; caller_email?: string; request?: unknown; attributes: Record<string, unknown> }>;
     };
     expect(page.calls).toHaveLength(1);
     expect(page.calls[0]?.id).toBe(call.id);
+    expect(page.calls[0]?.caller_email).toBe("accounts.google.com:dev@example.com");
     expect(page.calls[0]?.request).toBeUndefined();
     expect(JSON.stringify(page.calls)).not.toContain("super-secret");
     const detail = (await callMcpTool(host, "get_traffic_call", { id: call.id })) as {

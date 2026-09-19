@@ -301,6 +301,14 @@ Anything else is rejected.
   either `auth.identity.service_account` or the route's `auth.service_account`.
 - `auth.type: none` means no auth at all — any identity left on such a route is
   ignored entirely, and will not be probed at start or by doctor.
+- Optional `auth.log_identity: true` is valid only on `auth.type: none` (or an
+  empty type). It copies inbound `X-Goog-Authenticated-User-Email` onto the
+  traffic record as `caller_email`. Rejected on `iap`, `service_account`, and
+  other minting types. It does not mint tokens.
+- An IAP route with `auth.credentials` (or the folded `proxy.credentials`) is
+  checked at validate: the file must exist, be JSON, have `type` `authorized_user`
+  when set, and include `refresh_token` plus a `client_id` that matches the
+  route. `devctl status` reports `credentials_valid` on that route snapshot.
 
 ### Per-service route fragments
 
@@ -488,6 +496,11 @@ Every message names its path. Fix the path it names.
 | `proxy.routes[i].auth.client_id is required when client_secret is set` | secret without client_id |
 | `proxy.routes[i].auth.client_secret is required when client_id is set` | client_id needs a secret |
 | `proxy.routes[i].auth.client_id is only valid with identity.type user` | SA IAP uses generateIdToken, not a user OAuth client |
+| `proxy.routes[i].auth.log_identity is only valid when auth.type is none` | `log_identity` is opt-in IAP-email copy on `none` routes only |
+| `proxy.routes[i].auth.credentials file not found: PATH` | IAP credentials file is missing |
+| `proxy.routes[i].auth.credentials is not valid JSON: PATH` | credentials file is not JSON |
+| `proxy.routes[i].auth.credentials has no refresh_token` | authorized_user file needs a refresh token |
+| `proxy.routes[i].auth.credentials client_id does not match auth.client_id` | file belongs to a different OAuth client |
 | `proxy.routes[i].inspect.max_bytes must be >= 0` | negative capture cap |
 | `proxy.routes[i].timeout.idle_ms must be a finite number >= 0` | negative or non-finite idle hop deadline |
 | `proxy.routes[i].timeout.total_ms must be a finite number >= 0` | negative or non-finite total hop deadline |

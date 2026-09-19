@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { buildSnapshot, emptyIdentitySnapshot, formatStatusFromSnapshot, type SnapshotHost } from "./snapshot.ts";
+import { buildSnapshot, emptyIdentitySnapshot, formatStatusFromSnapshot, routeIapCredentialsValid, type SnapshotHost } from "./snapshot.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -90,5 +92,67 @@ describe("formatStatusFromSnapshot", () => {
     const text = formatStatusFromSnapshot(sampleSnap());
     expect(text).toContain("SERVICE\tSTATUS\tHEALTH\tENV\tPID");
     expect(text).toContain("api\tHEALTHY\tHEALTHY\tdeployed\t42");
+  });
+});
+
+function hostFromConfig(cfg: ReturnType<typeof defaultConfig>): SnapshotHost {
+  return {
+    sessionID: "sess",
+    cfg,
+    profile: "",
+    runtimes: new Map(),
+    ports: new Map(),
+    serviceProfile: new Map(),
+    serviceEnv: new Map(),
+    serviceStartedEnv: new Map(),
+    clientEnv: new Map(),
+    mcpToken: "",
+    mcpDisabledTools: [],
+    identityCache: emptyIdentitySnapshot(cfg),
+    serviceAccountStatus: new Map(),
+    credentialEntries: [],
+    detached: false,
+    setupMode: false,
+    restartRequired: [],
+    logs: { snapshot: () => ({ total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 }) },
+    tokens: { storeBackend: () => "memory" },
+  };
+}
+
+describe("route credentials_valid", () => {
+  test("is undefined without an IAP credentials file and true/false when checked", () => {
+    expect(routeIapCredentialsValid(emptyRouteAuth())).toBeUndefined();
+    expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap" })).toBeUndefined();
+    expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap", credentials: "/no/such/devctl-iap.json" })).toBe(false);
+
+    const path = join(process.env.TMPDIR ?? "/tmp", `devctl-snap-iap-${Date.now()}.json`);
+    writeFileSync(path, JSON.stringify({ type: "authorized_user", client_id: "cid", refresh_token: "rt" }));
+    expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap", client_id: "cid", credentials: path })).toBe(true);
+    expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap", client_id: "other", credentials: path })).toBe(false);
+  });
+
+  test("buildSnapshot copies credentials_valid onto IAP routes with a credentials file", () => {
+    const path = join(process.env.TMPDIR ?? "/tmp", `devctl-snap-route-${Date.now()}.json`);
+    writeFileSync(path, JSON.stringify({ type: "authorized_user", client_id: "cid", refresh_token: "rt" }));
+    const cfg = defaultConfig();
+    cfg.services.api = emptyService();
+    cfg.proxy.routes = [
+      {
+        name: "none",
+        match: { host: "none.local", path: "" },
+        upstream: { url: "http://127.0.0.1:1" },
+        auth: { ...emptyRouteAuth(), type: "none" },
+      },
+      {
+        name: "iap",
+        match: { host: "iap.local", path: "" },
+        upstream: { url: "https://example.com" },
+        auth: { ...emptyRouteAuth(), type: "iap", client_id: "cid", credentials: path },
+      },
+    ];
+    const snap = buildSnapshot(hostFromConfig(cfg));
+    expect(snap.proxy.routes?.[0]?.credentials_valid).toBeUndefined();
+    expect(snap.proxy.routes?.[1]?.credentials_valid).toBe(true);
+    expect(snap.proxy.routes?.[1]?.client_id).toBe("cid");
   });
 });

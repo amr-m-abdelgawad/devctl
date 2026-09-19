@@ -85,6 +85,81 @@ describe("ProxyTrafficSink recorder", () => {
     expect(call?.traceId).toBe("trace-1");
     expect(call?.request?.text).toContain('"id"');
     expect(call?.response?.text).toContain('"ok"');
+    expect(call?.callerEmail).toBeUndefined();
+  });
+
+  test("copies X-Goog-Authenticated-User-Email when auth.none has log_identity", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({
+          auth: { ...emptyRouteAuth(), type: "none", log_identity: true },
+        });
+      }),
+      store,
+    });
+    const rec = sink.begin({
+      ...begin,
+      requestHeaders: {
+        ...begin.requestHeaders,
+        "X-Goog-Authenticated-User-Email": "accounts.google.com:dev@example.com",
+      },
+    });
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    await rec.finish({
+      status: 200,
+      durationMs: 1,
+      requestId: "email-1",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    expect(store.get("email-1")?.caller).toBe("worker");
+    expect(store.get("email-1")?.callerEmail).toBe("accounts.google.com:dev@example.com");
+  });
+
+  test("does not copy the IAP email header without log_identity, including on IAP routes", async () => {
+    const emailBegin = {
+      ...begin,
+      requestHeaders: {
+        ...begin.requestHeaders,
+        "x-goog-authenticated-user-email": "accounts.google.com:dev@example.com",
+      },
+    };
+    const without = new TrafficCallRing();
+    const withoutSink = new ProxyTrafficSink({ cfg: () => cfgWithInspect(), store: without });
+    const withoutRec = withoutSink.begin(emailBegin);
+    if (!withoutRec) {
+      throw new Error("expected a recorder");
+    }
+    await withoutRec.finish({
+      status: 200,
+      durationMs: 1,
+      requestId: "email-off",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    expect(without.get("email-off")?.callerEmail).toBeUndefined();
+
+    const iap = new TrafficCallRing();
+    const iapSink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({
+          auth: { ...emptyRouteAuth(), type: "iap", audience: "/projects/1/iap", log_identity: true },
+        });
+      }),
+      store: iap,
+    });
+    const iapRec = iapSink.begin(emailBegin);
+    if (!iapRec) {
+      throw new Error("expected a recorder");
+    }
+    await iapRec.finish({
+      status: 200,
+      durationMs: 1,
+      requestId: "email-iap",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    expect(iap.get("email-iap")?.callerEmail).toBeUndefined();
   });
 
   test("truncates gRPC DATA past max_bytes while still finishing", async () => {

@@ -25,6 +25,7 @@ export type TrafficCall = {
   route: string;
   transport: TrafficTransport;
   caller?: string;
+  callerEmail?: string;
   status: number;
   grpcStatus?: string;
   durationMs?: number;

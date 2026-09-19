@@ -254,6 +254,10 @@ export type RouteAuthConfig = {
   // replaced with the same token used for the Authorization bearer. Applied
   // only on a token-minting route (iap / service_account).
   headers?: Record<string, string>;
+  // On auth.type none (or empty) only: copy inbound X-Goog-Authenticated-User-Email
+  // onto the traffic record as callerEmail. Does not mint tokens. Invalid on
+  // iap / service_account / other minting types.
+  log_identity?: boolean;
 };
 
 export function emptyRouteAuth(): RouteAuthConfig {
@@ -267,6 +271,11 @@ export function emptyRouteAuth(): RouteAuthConfig {
     credentials: "",
     headers: {},
   };
+}
+
+export function routeAuthIsNone(auth: Pick<RouteAuthConfig, "type">): boolean {
+  const t = auth.type.trim().toLowerCase();
+  return t === "" || t === "none";
 }
 
 // Per-route body capture for the traffic inspector. Default off so existing

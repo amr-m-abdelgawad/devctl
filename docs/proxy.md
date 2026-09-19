@@ -45,7 +45,11 @@ proxy:
         # IAP only: audience is required. Optional client_id + client_secret
         # mint the ID token with that OAuth client instead of ADC's default.
         # client_secret may be a literal or ${NAME} / ${env.NAME}.
+        # On auth.type none only: log_identity: true copies inbound
+        # X-Goog-Authenticated-User-Email onto the traffic record as caller_email.
 ```
+
+On `auth.type: none` (or an omitted type, which means none), optional `auth.log_identity: true` copies the inbound `X-Goog-Authenticated-User-Email` header onto the traffic record as `callerEmail` / `caller_email` when that header is present. This does not mint tokens. It is an opt-in label for routes that already sit behind an IAP-style edge and receive that header. The flag is rejected on `iap`, `service_account`, and other minting types. Service attribution via `X-Devctl-Service` (`caller`) is separate and always recorded when present.
 
 Match is host + optional path prefix.
 
@@ -125,6 +129,11 @@ custom path (not the default ADC location). Notes:
   usable for GCS/Firestore and everything else.
 - The file is read locally at mint time; its contents are never logged. It holds
   a long-lived refresh token and client secret — keep it private (`chmod 600`).
+- `devctl status` (and the status snapshot) sets `credentials_valid` on each IAP
+  route that has a credentials file: `true` when the file exists, is
+  `authorized_user` JSON with `refresh_token` and a `client_id` that matches the
+  route, otherwise `false`. Routes that are not IAP or have no credentials file
+  omit the field.
 
 ### Extra token headers
 

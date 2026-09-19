@@ -114,14 +114,74 @@ describe("config validate", () => {
   });
 
   test("accepts an IAP route with client_id + credentials file and no inline client_secret", () => {
+    const path = join(process.env.TMPDIR ?? "/tmp", `devctl-iap-ok-${Date.now()}.json`);
+    writeFileSync(path, JSON.stringify({
+      type: "authorized_user",
+      client_id: "desktop.apps.googleusercontent.com",
+      client_secret: "file-secret",
+      refresh_token: "rt-1",
+    }));
     const cfg = withService("api");
     cfg.proxy.routes.push({
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { ...iapUserAuth(), client_id: "desktop.apps.googleusercontent.com", credentials: "/abs/iap.json" },
+      auth: { ...iapUserAuth(), client_id: "desktop.apps.googleusercontent.com", credentials: path },
     });
     expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a missing IAP credentials file, a file without refresh_token, and a client_id mismatch", () => {
+    const missing = withService("api");
+    missing.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "cid", credentials: "/no/such/devctl-iap.json" },
+    });
+    expect(validate(missing)).toContain("proxy.routes[0].auth.credentials file not found: /no/such/devctl-iap.json");
+
+    const noToken = join(process.env.TMPDIR ?? "/tmp", `devctl-iap-notoken-${Date.now()}.json`);
+    writeFileSync(noToken, JSON.stringify({ type: "authorized_user", client_id: "cid", client_secret: "s" }));
+    const noRefresh = withService("api");
+    noRefresh.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "cid", credentials: noToken },
+    });
+    expect(validate(noRefresh)).toContain("proxy.routes[0].auth.credentials has no refresh_token");
+
+    const mismatch = join(process.env.TMPDIR ?? "/tmp", `devctl-iap-mismatch-${Date.now()}.json`);
+    writeFileSync(mismatch, JSON.stringify({ type: "authorized_user", client_id: "other", refresh_token: "rt" }));
+    const wrongClient = withService("api");
+    wrongClient.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "cid", credentials: mismatch },
+    });
+    expect(validate(wrongClient)).toContain("proxy.routes[0].auth.credentials client_id does not match auth.client_id");
+  });
+
+  test("accepts log_identity on auth none and rejects it on IAP", () => {
+    const none = withService("api");
+    none.proxy.routes.push({
+      name: "local",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: { ...emptyRouteAuth(), type: "none", log_identity: true },
+    });
+    expect(validate(none)).toEqual([]);
+
+    const iap = withService("api");
+    iap.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), log_identity: true },
+    });
+    expect(validate(iap)).toContain("proxy.routes[0].auth.log_identity is only valid when auth.type is none");
   });
 
   test("rejects auth.credentials without a client_id", () => {
