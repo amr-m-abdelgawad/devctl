@@ -382,7 +382,7 @@ complete allowlists.
 | \`service.identity\` | \`type\` \`mode\` \`service_account\` \`config\` |
 | \`service.restart\` | \`enabled\` \`policy\` \`max_retries\` \`backoff_seconds\` |
 | \`service.startup\` | \`wait_for_healthy\` \`timeout_seconds\` |
-| \`service.logs\` | \`stdout\` \`stderr\` \`multiline\` |
+| \`service.logs\` | \`stdout\` \`stderr\` \`multiline\` \`dedupe_access_line\` |
 | \`service.logs.multiline\` | \`start\` \`continuation\` \`max_wait_ms\` \`max_lines\` |
 | \`service.environment\` | \`required\` \`defaults\` + arbitrary \`KEY: value\` pairs |
 | \`service.environments.<name>\` | same shape as \`service.environment\` |
@@ -415,7 +415,7 @@ complete allowlists.
 | \`llm\` | \`enabled\` \`sources\` |
 | \`llm.sources[]\` | \`name\` \`type\` \`service\` \`port\` \`endpoint\` \`path_prefix\` \`headers\` \`via\` \`management_endpoint\` \`management_service\` \`management_port\` \`auth\` \`capture\` \`poll_seconds\` |
 | \`llm.sources[].auth\` | \`type\` \`token_env\` \`header\` |
-| \`llm.sources[].via\` | \`route\` |
+| \`llm.sources[].via\` | \`route\` \`routes\` |
 | \`llm.sources[].capture\` | \`prompts\` \`max_bytes\` \`paths\` |
 | \`auth\` | \`refresh_threshold_seconds\` |
 | \`shutdown\` | \`stop_services_on_exit\` \`grace_seconds\` |
@@ -623,7 +623,7 @@ Anything else is rejected.
 - \`proxy.token_endpoint.host\` must be loopback; \`0.0.0.0\` and \`::\` are rejected.
 - \`telemetry.otlp\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get \`OTEL_EXPORTER_OTLP_ENDPOINT\` / \`OTEL_EXPORTER_OTLP_PROTOCOL=http/json\` / \`OTEL_SERVICE_NAME\` only when those variables are unset. JSON only — no protobuf or gRPC.
 - \`web\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected). Default listen port is **18900**. It must not collide with \`proxy.listen\`, \`proxy.token_endpoint\`, \`telemetry.otlp\`, or a gRPC route listen port. The listener serves the local telemetry UI (\`GET /api/*\`) and loopback lifecycle control (\`POST /api/control\`, same mutating MCP tools except \`exec_service\`). Request \`Host\` must be a loopback name; the port in \`Host\` may differ from the listen port (WSL / Dev Container forwarding).
-- \`llm\` is **off by default**. When \`enabled: true\`, \`sources\` must be non-empty. Each source needs a unique \`name\` and a known \`type\` (\`litellm\`, \`proxy\`, or a plugin \`llmSources\` name). \`type: proxy\` requires \`via.route\` naming an existing proxy route and must not set \`service\`, \`endpoint\`, or \`management_*\`. Pull types (\`litellm\` and plugins) need a unique management hop: \`management_endpoint\` XOR \`management_service\`, otherwise exactly one of \`service\` / \`endpoint\` / \`via.route\`. \`via.route\` may exist alongside \`management_*\`. Bearer \`auth\` requires \`token_env\` (never an inline key). \`auth.header\` defaults to \`Authorization\`. \`capture.prompts\` defaults to true. \`capture.max_bytes\` (proxy) defaults to 1 MiB when omitted or \`0\`. \`capture.paths\` (proxy) is an optional list of extra path substrings to capture as raw POST JSON pairs; each must start with \`/\` and must not be \`/\` alone. \`via.route\` must name an existing proxy route. See [LLM inspector](../../../docs/llm.md).
+- \`llm\` is **off by default**. When \`enabled: true\`, \`sources\` must be non-empty. Each source needs a unique \`name\` and a known \`type\` (\`litellm\`, \`proxy\`, or a plugin \`llmSources\` name). \`type: proxy\` requires at least one of \`via.route\` or \`via.routes\` naming existing proxy routes and must not set \`service\`, \`endpoint\`, or \`management_*\`. Empty \`via.routes\` entries fail validate. \`via.routes\` is only valid on \`type: proxy\`. Pull types (\`litellm\` and plugins) need a unique management hop: \`management_endpoint\` XOR \`management_service\`, otherwise exactly one of \`service\` / \`endpoint\` / \`via.route\`. \`via.route\` may exist alongside \`management_*\`. Bearer \`auth\` requires \`token_env\` (never an inline key). \`auth.header\` defaults to \`Authorization\`. \`capture.prompts\` defaults to true. \`capture.max_bytes\` (proxy) defaults to 1 MiB when omitted or \`0\`. \`capture.paths\` (proxy) is an optional list of extra path substrings to capture as raw POST JSON pairs; each must start with \`/\` and must not be \`/\` alone. Each \`via.route\` / \`via.routes\` name must exist on \`proxy.routes\`. See [LLM inspector](../../../docs/llm.md).
 - \`proxy.routes[].inspect\` is **off by default**. \`inspect: true\` or \`inspect.enabled: true\` captures HTTP or gRPC request/response bodies on that hop for the traffic inspector (TUI proxy screen, web \`#/traffic\`, MCP \`get_traffic_call\`, CLI \`devctl traffic\`). \`inspect: true\` is \`{ enabled: true, max_bytes: 0 }\` with no \`capture_sse\`. \`inspect.max_bytes\` defaults to 1 MiB when omitted or \`0\`; negative values fail validate. \`inspect.grpc.decoder\` is an optional plugin \`trafficDecoders\` name; omit it to pretty-print JSON frames then proto3 \`decode_raw\`. A named decoder with no \`plugins:\` fails validate the same way an unknown \`health.type\` does. \`inspect.capture_sse\` (default false) stores \`text/event-stream\` responses as a JSON array of blank-line-delimited event frames, or pretty OpenAI \`chat.completion\` JSON when the stream is that shape. Non-SSE responses and request bodies ignore the flag; the forwarded stream is still teed with no extra delay. Inspect is ignored when the proxy is off. Recipe \`expose\` routes are never captured as live RPCs. Direct sockets that never hit the proxy are invisible — callers should use \`\${services.<name>.url}\` or the gRPC listen port. See [Proxy](../../../docs/proxy.md#inspect-bodies).
 - \`proxy.routes[].strip_prefix: true\` strips \`match.path\` from the pathname **when forwarding only**. Inspector and proxy logs keep the inbound path. No-op when \`match.path\` is empty (host-based \`expose\` routes). \`/my-service\` → \`/\`, \`/my-service/foo\` → \`/foo\`; the query string is preserved. See [Proxy](../../../docs/proxy.md#strip-a-path-prefix).
 - \`proxy.routes[].log.grpc.ok\` lists non-zero gRPC statuses that are **not** proxy errors. Each entry is \`{ status, methods?, log? }\`. \`status\` is an integer from 1 to 16. Omit \`methods\` to apply to every method on that route; otherwise a listed name matches as an exact \`:path\` or a suffix that starts with \`/\` (e.g. \`PollWorkflowTaskQueue\` matches \`…/PollWorkflowTaskQueue\`, not \`…/NotPollWorkflowTaskQueue\`). \`log\` is \`info\` (default) or \`silent\`. Unlisted non-zero statuses stay WARN and increment \`stats().errors\`. See [Proxy](../../../docs/proxy.md#grpc-status-policy).
@@ -649,6 +649,14 @@ Anything else is rejected.
   either \`auth.identity.service_account\` or the route's \`auth.service_account\`.
 - \`auth.type: none\` means no auth at all — any identity left on such a route is
   ignored entirely, and will not be probed at start or by doctor.
+- Optional \`auth.log_identity: true\` is valid only on \`auth.type: none\` (or an
+  empty type). It copies inbound \`X-Goog-Authenticated-User-Email\` onto the
+  traffic record as \`caller_email\`. Rejected on \`iap\`, \`service_account\`, and
+  other minting types. It does not mint tokens.
+- An IAP route with \`auth.credentials\` (or the folded \`proxy.credentials\`) is
+  checked at validate: the file must exist, be JSON, have \`type\` \`authorized_user\`
+  when set, and include \`refresh_token\` plus a \`client_id\` that matches the
+  route. \`devctl status\` reports \`credentials_valid\` on that route snapshot.
 
 ### Per-service route fragments
 
@@ -836,12 +844,18 @@ Every message names its path. Fix the path it names.
 | \`proxy.routes[i].auth.client_id is required when client_secret is set\` | secret without client_id |
 | \`proxy.routes[i].auth.client_secret is required when client_id is set\` | client_id needs a secret |
 | \`proxy.routes[i].auth.client_id is only valid with identity.type user\` | SA IAP uses generateIdToken, not a user OAuth client |
+| \`proxy.routes[i].auth.log_identity is only valid when auth.type is none\` | \`log_identity\` is opt-in IAP-email copy on \`none\` routes only |
+| \`proxy.routes[i].auth.credentials file not found: PATH\` | IAP credentials file is missing |
+| \`proxy.routes[i].auth.credentials is not valid JSON: PATH\` | credentials file is not JSON |
+| \`proxy.routes[i].auth.credentials has no refresh_token\` | authorized_user file needs a refresh token |
+| \`proxy.routes[i].auth.credentials client_id does not match auth.client_id\` | file belongs to a different OAuth client |
 | \`proxy.routes[i].inspect.max_bytes must be >= 0\` | negative capture cap |
 | \`proxy.routes[i].timeout.idle_ms must be a finite number >= 0\` | negative or non-finite idle hop deadline |
 | \`proxy.routes[i].timeout.total_ms must be a finite number >= 0\` | negative or non-finite total hop deadline |
 | \`services.X.logs.multiline.start is not a valid regular expression\` | \`start\` / \`continuation\` must compile as a JS regex |
 | \`services.X.logs.multiline.max_wait_ms must be >= 0\` | negative idle fold timeout |
 | \`services.X.logs.multiline.max_lines must be >= 0\` | negative fold cap |
+| \`services.X.logs.dedupe_access_line must be a boolean\` | present value is not \`true\`/\`false\` |
 | \`proxy.routes[i].log.grpc.ok[j].status must be a number\` | each ok entry needs a numeric gRPC status |
 | \`proxy.routes[i].log.grpc.ok[j].status must be an integer from 1 to 16\` | listed statuses are the non-zero gRPC codes |
 | \`proxy.routes[i].log.grpc.ok[j].log must be "info" or "silent"\` | omit \`log\` for the info default |
