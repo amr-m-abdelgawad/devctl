@@ -254,6 +254,9 @@ export function decodeServiceLogs(value: unknown): ServiceLogConfig {
     stdout: asBoolean(value.stdout),
     stderr: asBoolean(value.stderr),
   };
+  if (value.dedupe_access_line !== undefined) {
+    logs.dedupe_access_line = value.dedupe_access_line as boolean;
+  }
   if (value.multiline !== undefined) {
     const multiline = decodeServiceLogMultiline(value.multiline);
     if (multiline) {
@@ -394,6 +397,7 @@ export function decodeRouteAuth(value: unknown): RouteAuthConfig {
     client_secret: asString(value.client_secret),
     credentials: asString(value.credentials),
     headers: asStringMap(value.headers),
+    ...(value.log_identity !== undefined ? { log_identity: asBoolean(value.log_identity) } : {}),
   };
 }
 

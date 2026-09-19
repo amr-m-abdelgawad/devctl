@@ -865,6 +865,74 @@ logs:
     expect(cfg.services.api?.logs.stderr).toBe(false);
   });
 
+  test("decodes optional logs.dedupe_access_line and leaves it omitted by default", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      dedupe_access_line: true
+  worker:
+    command: echo hi
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.logs.dedupe_access_line).toBe(true);
+    expect(cfg.services.worker?.logs.dedupe_access_line).toBeUndefined();
+  });
+
+  test("a modular service file can set logs.dedupe_access_line without clobbering stdout", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-presence-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      stderr: true
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/services/api.yaml",
+      `
+logs:
+  dedupe_access_line: true
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.logs.stdout).toBe(true);
+    expect(cfg.services.api?.logs.stderr).toBe(true);
+    expect(cfg.services.api?.logs.dedupe_access_line).toBe(true);
+  });
+
+  test("rejects logs.dedupe_access_line when the YAML value is not a boolean", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-bad-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      dedupe_access_line: "yes-please"
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/logs\.dedupe_access_line must be a boolean/);
+  });
+
   test("a template lets a service explicitly clear an inherited required-env list", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-required-${Date.now()}`;
     writeFile(
@@ -981,13 +1049,18 @@ services:
 
   test("resolves and folds proxy.credentials into custom-client IAP routes", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-cred-${Date.now()}`;
+    const homeName = `iap-p4-${Date.now()}.json`;
+    const homeCred = join(homedir(), ".devctl", homeName);
+    mkdirSync(join(homedir(), ".devctl"), { recursive: true });
+    writeFileSync(homeCred, JSON.stringify({ type: "authorized_user", client_id: "cid", refresh_token: "rt", client_secret: "s" }));
+    writeFile(dir, "local-iap.json", JSON.stringify({ type: "authorized_user", client_id: "cid2", refresh_token: "rt", client_secret: "s" }));
     writeFile(dir, ".devctl/config.yaml", `
 version: 1
 services:
   app: { command: [app] }
 proxy:
   enabled: true
-  credentials: ~/.devctl/iap.json
+  credentials: ~/.devctl/${homeName}
   listen: { host: 127.0.0.1, port: 18080 }
   routes:
     - name: api
@@ -1006,7 +1079,7 @@ proxy:
     const cfg = load(dir, "");
     const route = (name: string) => cfg.proxy.routes.find((r) => r.name === name);
     // proxy default folded in and ~ expanded to an absolute path
-    expect(route("api")?.auth.credentials).toBe(join(homedir(), ".devctl/iap.json"));
+    expect(route("api")?.auth.credentials).toBe(homeCred);
     // a route's own path wins and resolves relative to the repo root. Use
     // resolve (not join) to match resolveUserPath, so the expectation carries
     // the drive letter that path.resolve adds on Windows.
@@ -1017,6 +1090,10 @@ proxy:
 
   test("modular proxy/routes.yaml carries proxy.credentials (and enabled/gateway) into IAP routes", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-modcred-${Date.now()}`;
+    const homeName = `iap-credentials-p4-${Date.now()}.json`;
+    const homeCred = join(homedir(), ".devctl", homeName);
+    mkdirSync(join(homedir(), ".devctl"), { recursive: true });
+    writeFileSync(homeCred, JSON.stringify({ type: "authorized_user", client_id: "cid", refresh_token: "rt", client_secret: "s" }));
     writeFile(dir, ".devctl/config.yaml", `
 version: 1
 services:
@@ -1026,7 +1103,7 @@ services:
 proxy:
   enabled: true
   listen: { host: 127.0.0.1, port: 17400 }
-  credentials: ~/.devctl/iap-credentials.json
+  credentials: ~/.devctl/${homeName}
   routes:
     - name: api
       match: { path: /v1 }
@@ -1041,10 +1118,29 @@ proxy:
     const cfg = load(dir, "");
     // Previously these modular-file fields were silently dropped.
     expect(cfg.proxy.enabled).toBe(true);
-    expect(cfg.proxy.credentials).toBe(join(homedir(), ".devctl/iap-credentials.json"));
+    expect(cfg.proxy.credentials).toBe(homeCred);
     // The proxy default is folded into the custom-client route so mint reads
     // the file instead of ADC.
-    expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.credentials).toBe(join(homedir(), ".devctl/iap-credentials.json"));
+    expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.credentials).toBe(homeCred);
+  });
+
+  test("decodes auth.log_identity on an auth.none route", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-logid-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  app: { command: [app] }
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: api
+      match: { host: api.local }
+      upstream: { url: "http://127.0.0.1:8000" }
+      auth: { type: none, log_identity: true }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.log_identity).toBe(true);
   });
 
   test("route auth.headers with arbitrary header names passes strict validation and decodes", () => {

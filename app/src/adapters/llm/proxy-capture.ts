@@ -1,6 +1,7 @@
 import {
   LLM_SOURCE_TYPE_PROXY,
   llmCaptureMaxBytes,
+  llmViaRoutes,
   type DevctlConfig,
   type LlmSourceConfig,
 } from "../../domain/config/types.ts";
@@ -71,7 +72,7 @@ export class ProxyCaptureSink implements LlmCaptureSink {
       return undefined;
     }
     return cfg.llm.sources.find(
-      (source) => source.type.trim().toLowerCase() === LLM_SOURCE_TYPE_PROXY && source.via.route === routeName,
+      (source) => source.type.trim().toLowerCase() === LLM_SOURCE_TYPE_PROXY && llmViaRoutes(source.via).includes(routeName),
     );
   }
 }

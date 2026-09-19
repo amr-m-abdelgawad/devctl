@@ -55,11 +55,13 @@ describe("traffic domain", () => {
   });
 
   test("redacts secrets in bodies and can drop them", () => {
-    const detector = new Detector(["api_key"], []);
+    const detector = new Detector(["api_key"], ["secret-email@example.com"]);
     const redacted = redactTrafficCall(detector, call({
+      callerEmail: "accounts.google.com:secret-email@example.com",
       request: { text: '{"api_key":"sk-live","ok":true}', encoding: "utf8" },
       attributes: { authorization: "Bearer hunter2" },
     }));
+    expect(redacted.callerEmail).toBe(`accounts.google.com:${REDACTED_VALUE}`);
     expect(JSON.stringify(redacted)).not.toContain("sk-live");
     expect(JSON.stringify(redacted)).not.toContain("hunter2");
     expect(redacted.attributes.authorization).toBe(REDACTED_VALUE);

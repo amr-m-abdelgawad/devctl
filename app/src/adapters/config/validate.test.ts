@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, emptyRouteAuth, emptyProfile, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyRouteAuth, emptyProfile, emptyLlmSource, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { decodeRoute } from "./decode.ts";
 import { unresolvedInspectDecoders, validate } from "./validate.ts";
 
@@ -114,14 +114,74 @@ describe("config validate", () => {
   });
 
   test("accepts an IAP route with client_id + credentials file and no inline client_secret", () => {
+    const path = join(process.env.TMPDIR ?? "/tmp", `devctl-iap-ok-${Date.now()}.json`);
+    writeFileSync(path, JSON.stringify({
+      type: "authorized_user",
+      client_id: "desktop.apps.googleusercontent.com",
+      client_secret: "file-secret",
+      refresh_token: "rt-1",
+    }));
     const cfg = withService("api");
     cfg.proxy.routes.push({
       name: "billing",
       match: { host: "billing.local", path: "" },
       upstream: { url: "https://example.com" },
-      auth: { ...iapUserAuth(), client_id: "desktop.apps.googleusercontent.com", credentials: "/abs/iap.json" },
+      auth: { ...iapUserAuth(), client_id: "desktop.apps.googleusercontent.com", credentials: path },
     });
     expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a missing IAP credentials file, a file without refresh_token, and a client_id mismatch", () => {
+    const missing = withService("api");
+    missing.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "cid", credentials: "/no/such/devctl-iap.json" },
+    });
+    expect(validate(missing)).toContain("proxy.routes[0].auth.credentials file not found: /no/such/devctl-iap.json");
+
+    const noToken = join(process.env.TMPDIR ?? "/tmp", `devctl-iap-notoken-${Date.now()}.json`);
+    writeFileSync(noToken, JSON.stringify({ type: "authorized_user", client_id: "cid", client_secret: "s" }));
+    const noRefresh = withService("api");
+    noRefresh.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "cid", credentials: noToken },
+    });
+    expect(validate(noRefresh)).toContain("proxy.routes[0].auth.credentials has no refresh_token");
+
+    const mismatch = join(process.env.TMPDIR ?? "/tmp", `devctl-iap-mismatch-${Date.now()}.json`);
+    writeFileSync(mismatch, JSON.stringify({ type: "authorized_user", client_id: "other", refresh_token: "rt" }));
+    const wrongClient = withService("api");
+    wrongClient.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), client_id: "cid", credentials: mismatch },
+    });
+    expect(validate(wrongClient)).toContain("proxy.routes[0].auth.credentials client_id does not match auth.client_id");
+  });
+
+  test("accepts log_identity on auth none and rejects it on IAP", () => {
+    const none = withService("api");
+    none.proxy.routes.push({
+      name: "local",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: { ...emptyRouteAuth(), type: "none", log_identity: true },
+    });
+    expect(validate(none)).toEqual([]);
+
+    const iap = withService("api");
+    iap.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: { ...iapUserAuth(), log_identity: true },
+    });
+    expect(validate(iap)).toContain("proxy.routes[0].auth.log_identity is only valid when auth.type is none");
   });
 
   test("rejects auth.credentials without a client_id", () => {
@@ -584,7 +644,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "" },
+      via: { route: "", routes: [] },
       management_endpoint: "",
       management_service: "",
       management_port: "",
@@ -615,7 +675,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "apigee-llm" },
+      via: { route: "apigee-llm", routes: [] },
       management_endpoint: "",
       management_service: "",
       management_port: "",
@@ -623,6 +683,8 @@ describe("config validate", () => {
       capture: { prompts: true, max_bytes: 0, paths: [] },
       poll_seconds: 0,
     }];
+    expect(validate(cfg)).toEqual([]);
+    cfg.llm.sources[0]!.via.route = "  apigee-llm  ";
     expect(validate(cfg)).toEqual([]);
   });
 
@@ -638,7 +700,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "" },
+      via: { route: "", routes: [] },
       management_endpoint: "http://127.0.0.1:4000",
       management_service: "",
       management_port: "",
@@ -669,7 +731,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "/llm",
       headers: {},
-      via: { route: "llm-apps" },
+      via: { route: "llm-apps", routes: [] },
       management_endpoint: "http://127.0.0.1:4000",
       management_service: "",
       management_port: "",
@@ -697,7 +759,7 @@ describe("config validate", () => {
       endpoint: "",
       path_prefix: "",
       headers: {},
-      via: { route: "apigee-llm" },
+      via: { route: "apigee-llm", routes: [] },
       management_endpoint: "",
       management_service: "",
       management_port: "",
@@ -714,6 +776,65 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must start with /"))).toBe(true);
     source.capture.paths = ["/"];
     expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must name a path, not /"))).toBe(true);
+  });
+
+  test("accepts a proxy source that lists existing via.routes without via.route", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push(
+      { name: "alpha", match: { host: "", path: "/a" }, upstream: { url: "https://gateway.example/a" }, auth: emptyRouteAuth() },
+      { name: "beta", match: { host: "", path: "/b" }, upstream: { url: "https://gateway.example/b" }, auth: emptyRouteAuth() },
+    );
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "multi";
+    source.type = "proxy";
+    source.via.routes = ["alpha", "beta"];
+    cfg.llm.sources = [source];
+    expect(validate(cfg)).toEqual([]);
+  });
+
+  test("rejects a proxy source with neither via.route nor via.routes", () => {
+    const cfg = withService("litellm");
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    cfg.llm.sources = [source];
+    expect(validate(cfg).some((issue) => issue.includes("type proxy requires via.route or via.routes"))).toBe(true);
+  });
+
+  test("rejects unknown and empty via.routes names on a proxy source", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.routes = ["ghost"];
+    cfg.llm.sources = [source];
+    expect(validate(cfg).some((issue) => issue.includes("via.routes[0] references unknown proxy route ghost"))).toBe(true);
+
+    source.via.routes = [""];
+    expect(validate(cfg).some((issue) => issue.includes("via.routes[0] must be a non-empty name"))).toBe(true);
+  });
+
+  test("rejects via.routes on a litellm source", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "platform";
+    source.type = "litellm";
+    source.service = "litellm";
+    source.via.routes = ["llm-apps"];
+    source.auth = { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "" };
+    cfg.llm.sources = [source];
+    expect(validate(cfg).some((issue) => issue.includes("via.routes is only valid on type: proxy"))).toBe(true);
   });
 
   test("named environments require a known default_environment and reject empty names", () => {
@@ -781,5 +902,13 @@ describe("config validate", () => {
     expect(issues.some((issue) => issue.includes("logs.multiline.start is not a valid regular expression"))).toBe(true);
     expect(issues).toContain("services.api.logs.multiline.max_wait_ms must be >= 0");
     expect(issues).toContain("services.api.logs.multiline.max_lines must be >= 0");
+  });
+
+  test("rejects logs.dedupe_access_line when it is not a boolean", () => {
+    const cfg = withService("api");
+    cfg.services.api!.logs.dedupe_access_line = "yes" as unknown as boolean;
+    expect(validate(cfg)).toContain("services.api.logs.dedupe_access_line must be a boolean");
+    cfg.services.api!.logs.dedupe_access_line = true;
+    expect(validate(cfg)).not.toContain("services.api.logs.dedupe_access_line must be a boolean");
   });
 });

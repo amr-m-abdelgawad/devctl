@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import { cpus, loadavg, platform, uptime } from "node:os";
 import type { DevctlConfig } from "../config/index.ts";
+import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
+import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
-import { displayState, type Runtime } from "../../domain/service/services.ts";
+import { displayState, startPeriodWindow, type Runtime } from "../../domain/service/services.ts";
 import { defaultEnvironmentName, resolveEnvironmentName } from "../../domain/service/environments.ts";
 import type { IdentitySnapshot, LogSnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
@@ -84,9 +87,10 @@ export function serviceAccountSnapshot(
   return { service_accounts, service_account_status };
 }
 
-export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
+export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSnapshot {
   const services: Record<string, Runtime> = {};
   for (const [name, rt] of host.runtimes) {
+    const window = startPeriodWindow(rt.startTime, host.cfg.services[name]?.health.start_period_seconds ?? 0, nowMs);
     services[name] = {
       ...rt,
       ports: host.ports.get(name) ?? rt.ports,
@@ -94,6 +98,8 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
       env_source: host.clientEnv.has(name) ? "client" : "daemon",
       env: selectedEnvName(host, name),
       started_env: host.serviceStartedEnv.get(name) ?? rt.started_env,
+      start_period_remaining_ms: window.remainingMs,
+      start_period_total_ms: window.totalMs,
     };
   }
   const proxyStatsRaw = host.proxy?.stats();
@@ -124,6 +130,7 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
           auth: r.auth.type,
           match,
           client_id: r.auth.client_id.trim() || undefined,
+          credentials_valid: routeIapCredentialsValid(r.auth),
         };
       }),
       ...proxyStats,
@@ -160,6 +167,29 @@ export function buildSnapshot(host: SnapshotHost): StatusSnapshot {
     // unavailable series from an empty service set (matches the type contract).
     service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
   };
+}
+
+export function routeIapCredentialsValid(auth: RouteAuthConfig): boolean | undefined {
+  if (auth.type.toLowerCase() !== "iap") {
+    return undefined;
+  }
+  const path = (auth.credentials ?? "").trim();
+  if (path === "") {
+    return undefined;
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return false;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+  return inspectIapOAuthClientFile(parsed, auth.client_id).ok;
 }
 
 function selectedEnvName(host: SnapshotHost, name: string): string {

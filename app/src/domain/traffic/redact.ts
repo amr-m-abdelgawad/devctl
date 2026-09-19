@@ -8,6 +8,7 @@ export function redactTrafficCall(detector: Detector, call: TrafficCall): Traffi
     ...call,
     path: detector.redactText(call.path),
     caller: call.caller === undefined ? undefined : detector.redactText(call.caller),
+    callerEmail: call.callerEmail === undefined ? undefined : detector.redactText(call.callerEmail),
     request: call.request === undefined ? undefined : redactPayload(detector, call.request),
     response: call.response === undefined ? undefined : redactPayload(detector, call.response),
     attributes: redactAttributes(detector, coerceRecord(call.attributes)),

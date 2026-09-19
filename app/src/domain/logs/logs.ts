@@ -12,3 +12,5 @@ export * from "./multiline.ts";
 export * from "./filter.ts";
 export * from "./regex.ts";
 export * from "./pagination.ts";
+export * from "./dedupe.ts";
+export * from "./access-line.ts";

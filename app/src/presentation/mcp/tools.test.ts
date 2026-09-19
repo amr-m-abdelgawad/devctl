@@ -14,6 +14,8 @@ function sampleSnap(): StatusSnapshot {
   api.health = HealthHealthy;
   api.pid = 42;
   api.ports = { http: 9000 };
+  api.start_period_remaining_ms = 7_500;
+  api.start_period_total_ms = 10_000;
   return {
     session_id: "sess",
     repo_root: "/repo",
@@ -241,9 +243,20 @@ describe("mcp tools", () => {
       ports: Record<string, number>;
       pid: number;
       last_error: string;
+      start_period_remaining_ms?: number;
+      start_period_total_ms?: number;
     }>;
     expect(listed).toEqual([
-      { name: "api", state: StateRunning, health: HealthHealthy, ports: { http: 9000 }, pid: 42, last_error: "" },
+      {
+        name: "api",
+        state: StateRunning,
+        health: HealthHealthy,
+        ports: { http: 9000 },
+        pid: 42,
+        last_error: "",
+        start_period_remaining_ms: 7_500,
+        start_period_total_ms: 10_000,
+      },
     ]);
   });
 
@@ -286,10 +299,14 @@ describe("mcp tools", () => {
     const svc = (await callMcpTool(stubHost(), "get_service", { name: "api" })) as {
       environment: Record<string, string>;
       command: string[];
+      start_period_remaining_ms?: number;
+      start_period_total_ms?: number;
     };
     expect(svc.command).toEqual(["bun", "run", "dev"]);
     expect(svc.environment.API_TOKEN).toBe(REDACTED_VALUE);
     expect(svc.environment.NAME).toBe("ok");
+    expect(svc.start_period_remaining_ms).toBe(7_500);
+    expect(svc.start_period_total_ms).toBe(10_000);
   });
 
   test("get_status omits session token", async () => {
@@ -301,6 +318,19 @@ describe("mcp tools", () => {
     expect(status.mcp.running).toBe(true);
     expect(status.mcp.token).toBeUndefined();
     expect((status.mcp as { token_age_ms?: number }).token_age_ms).toBeUndefined();
+  });
+
+  test("get_logs parses dedupe_request_id", async () => {
+    const host = stubHost();
+    let seen: LogFilter | undefined;
+    host.logsPage = (req) => {
+      seen = req;
+      return fakeLogsPage([], req);
+    };
+    await callMcpTool(host, "get_logs", { dedupe_request_id: true });
+    expect(seen?.dedupeRequestId).toBe(true);
+    await callMcpTool(host, "get_logs", {});
+    expect(seen?.dedupeRequestId).toBe(false);
   });
 
   test("get_logs filters by service and redacts", async () => {
@@ -500,6 +530,7 @@ describe("mcp tools", () => {
       path: "/invoices",
       route: "invoices-api",
       transport: "http" as const,
+      callerEmail: "accounts.google.com:dev@example.com",
       status: 200,
       request: { text: '{"token":"super-secret"}', encoding: "utf8" as const },
       response: { text: '{"ok":true}', encoding: "utf8" as const },
@@ -512,10 +543,11 @@ describe("mcp tools", () => {
     });
     host.getTrafficCall = (id) => (id === call.id ? call : undefined);
     const page = (await callMcpTool(host, "get_traffic_calls", {})) as {
-      calls: Array<{ id: string; request?: unknown; attributes: Record<string, unknown> }>;
+      calls: Array<{ id: string; caller_email?: string; request?: unknown; attributes: Record<string, unknown> }>;
     };
     expect(page.calls).toHaveLength(1);
     expect(page.calls[0]?.id).toBe(call.id);
+    expect(page.calls[0]?.caller_email).toBe("accounts.google.com:dev@example.com");
     expect(page.calls[0]?.request).toBeUndefined();
     expect(JSON.stringify(page.calls)).not.toContain("super-secret");
     const detail = (await callMcpTool(host, "get_traffic_call", { id: call.id })) as {

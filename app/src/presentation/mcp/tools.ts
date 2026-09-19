@@ -117,6 +117,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         trace_id: { type: "string", description: "Filter by W3C trace id" },
         attribute_key: { type: "string", description: "Attribute key to match (with attribute_value)" },
         attribute_value: { type: "string", description: "Attribute value to match (with attribute_key)" },
+        dedupe_request_id: { type: "boolean", description: "Collapse nearby events that share devctl.request_id (query-time; paging is unchanged)" },
       },
       additionalProperties: false,
     },
@@ -561,6 +562,8 @@ export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown 
       env?: string;
       started_env?: string;
       environments?: string[];
+      start_period_remaining_ms?: number;
+      start_period_total_ms?: number;
     } = {
       name: rt.name,
       state: rt.state,
@@ -577,6 +580,12 @@ export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown 
     }
     if (overlayNames.length > 0) {
       row.environments = overlayNames;
+    }
+    if (rt.start_period_remaining_ms !== undefined) {
+      row.start_period_remaining_ms = rt.start_period_remaining_ms;
+    }
+    if (rt.start_period_total_ms !== undefined) {
+      row.start_period_total_ms = rt.start_period_total_ms;
     }
     return row;
   });
@@ -610,6 +619,8 @@ export function getService(host: McpHost, name: string): unknown {
     environments: serviceHasNamedEnvironments(svc) ? named : undefined,
     environment: detector.redactMap({ ...effective.defaults, ...effective.vars }),
     container: svc.container ? { ...svc.container, env: detector.redactMap(svc.container.env) } : undefined,
+    start_period_remaining_ms: rt?.start_period_remaining_ms,
+    start_period_total_ms: rt?.start_period_total_ms,
   };
 }
 
@@ -681,6 +692,7 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
     requestId: typeof args.request_id === "string" ? args.request_id : undefined,
     traceId: typeof args.trace_id === "string" ? args.trace_id : undefined,
     attribute: attributeKey !== "" && attributeValue !== "" ? { key: attributeKey, value: attributeValue } : undefined,
+    dedupeRequestId: args.dedupe_request_id === true,
     cursor,
     direction: cursor ? "forward" : undefined,
     limit: MCP_LOG_CAP,
@@ -864,6 +876,7 @@ export function mcpTrafficCall(detector: Detector, call: TrafficCall, bodies: bo
     route: shown.route,
     transport: shown.transport,
     caller: shown.caller,
+    caller_email: shown.callerEmail,
     status: shown.status,
     grpc_status: shown.grpcStatus,
     duration_ms: shown.durationMs,

@@ -12,6 +12,7 @@ import {
   clampLogPageSize,
   createLogMatcher,
   createSearchMatcher,
+  dedupeLogsByRequestId,
   isErrorSeverity,
   isPlainObject,
   isProcessLogSource,
@@ -20,6 +21,7 @@ import {
   parseJSONLogLine,
   parseLogLine,
   redactLogRecord,
+  shouldDropAccessLine,
   SeverityUnspecified,
   truncateLogLine,
   type FoldedLog,
@@ -63,6 +65,10 @@ function decodeLogCursor(raw: string): LogCursor | undefined {
   return undefined;
 }
 
+function accessLineKey(service: string, pid: number): string {
+  return `${service}\0${pid}`;
+}
+
 function withoutFilterDimension(filter: LogFilter, dimension: "services" | "level" | "source"): LogFilter {
   const copy = { ...filter };
   copy[dimension] = undefined;
@@ -86,6 +92,7 @@ export class LogManager {
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
+  private lastByServicePid = new Map<string, LogRecord>();
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -300,10 +307,11 @@ export class LogManager {
   }
 
   exportTo(path: string, filter: LogFilter): void {
-    writeLogExport(path, this.query(filter));
+    const events = this.query(filter);
+    writeLogExport(path, filter.dedupeRequestId === true ? dedupeLogsByRequestId(events) : events);
   }
 
-  private commitFolded(folded: FoldedLog): LogRecord {
+  private commitFolded(folded: FoldedLog): LogRecord | undefined {
     const ev: LogIngest = { ...folded.ingest };
     if (folded.severityNumber !== SeverityUnspecified && ev.severityNumber === undefined) {
       ev.severityNumber = folded.severityNumber;
@@ -311,13 +319,19 @@ export class LogManager {
     return this.commitIngest(ev);
   }
 
-  private commitIngest(ev: LogIngest): LogRecord {
+  private commitIngest(ev: LogIngest): LogRecord | undefined {
     const skipParse = ev.body !== undefined || ev.source === "otlp";
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
     const built = buildLogRecord(ev, parsed, this.nextSeq);
-    this.nextSeq += 1;
     const next = this.detector ? redactLogRecord(this.detector, built) : built;
+    if (this.shouldDropAccessDuplicate(ev, next)) {
+      return undefined;
+    }
+    if (this.serviceLogs.get(ev.service)?.dedupe_access_line === true) {
+      this.rememberAccessLine(ev.service, ev.pid, next);
+    }
+    this.nextSeq += 1;
     this.recorded += 1;
     if (isErrorSeverity(next.severityNumber)) {
       this.errorCount += 1;
@@ -342,6 +356,23 @@ export class LogManager {
       );
     }
     return next;
+  }
+
+  private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {
+    if (this.serviceLogs.get(ev.service)?.dedupe_access_line !== true) {
+      return false;
+    }
+    if (!(ev.pid > 0)) {
+      return false;
+    }
+    const prev = this.lastByServicePid.get(accessLineKey(ev.service, ev.pid));
+    return prev !== undefined && shouldDropAccessLine(prev, next);
+  }
+
+  private rememberAccessLine(service: string, pid: number, event: LogRecord): void {
+    if (pid > 0) {
+      this.lastByServicePid.set(accessLineKey(service, pid), event);
+    }
   }
 
   private flushPending(): void {

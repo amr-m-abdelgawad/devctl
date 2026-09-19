@@ -49,8 +49,7 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
 import type { TrafficCallStore } from "../../ports/traffic-call-store.ts";
 import type { LlmSourceFactory } from "../../ports/llm-source.ts";
-import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../domain/logs/logs.ts";
-import { isTraceId } from "../../domain/logs/ids.ts";
+import { dedupeLogsByRequestId, isTraceId, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { LlmCallManager } from "../llm/store.ts";
@@ -974,7 +973,7 @@ export class Supervisor {
     if (req.export) {
       await this.logs.exportTo(req.export, filter);
     }
-    return { events };
+    return { events: applyRequestIdDedupe(filter, events) };
   }
 
   // Bounded, cursor-paged counterpart to queryLogs() — added alongside it
@@ -982,7 +981,9 @@ export class Supervisor {
   // one at a time; queryLogs()/the plain "logs" RPC still returns everything
   // matching, unbounded, until every consumer has moved off it.
   async queryLogsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
-    return this.logs.queryPage(this.logFilter(req), { cursor: req.cursor, direction: req.direction, limit: req.limit });
+    const filter = this.logFilter(req);
+    const page = await this.logs.queryPage(filter, { cursor: req.cursor, direction: req.direction, limit: req.limit });
+    return { ...page, events: applyRequestIdDedupe(filter, page.events) };
   }
 
   async queryLogsFacets(req: LogFilter): Promise<LogFacets> {
@@ -1030,6 +1031,7 @@ export class Supervisor {
       traceId: req.traceId,
       requestId: req.requestId,
       attribute: req.attribute,
+      dedupeRequestId: req.dedupeRequestId,
     };
   }
 
@@ -1230,6 +1232,10 @@ function tuiPatchFromWrite(patch: PreferenceWrite): TuiPreferencePatch {
     partial.mcp_enabled_tools = patch.mcp_enabled_tools;
   }
   return partial;
+}
+
+function applyRequestIdDedupe<T extends LogEvent>(filter: LogFilter, events: T[]): T[] {
+  return filter.dedupeRequestId === true ? dedupeLogsByRequestId(events) : events;
 }
 
 export function diffReload(prev: DevctlConfig, next: DevctlConfig): ReloadResult {

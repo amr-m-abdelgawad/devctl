@@ -102,6 +102,20 @@ describe("ProxyCaptureSink.begin", () => {
     })).toBeDefined();
   });
 
+  test("captures every route listed in via.routes and ignores unlisted routes", () => {
+    const sink = new ProxyCaptureSink({
+      cfg: () => cfgWithProxySource((source) => {
+        source.via.route = "";
+        source.via.routes = ["alpha", "beta"];
+      }),
+      store: new LlmCallManager(),
+    });
+    const chat = "/v1/chat/completions";
+    expect(sink.begin({ routeName: "alpha", method: "POST", path: chat, requestHeaders: jsonHeaders })).toBeDefined();
+    expect(sink.begin({ routeName: "beta", method: "POST", path: chat, requestHeaders: jsonHeaders })).toBeDefined();
+    expect(sink.begin({ routeName: "gamma", method: "POST", path: chat, requestHeaders: jsonHeaders })).toBeUndefined();
+  });
+
   test("does not treat /completions in the query string as a completion path", () => {
     const sink = new ProxyCaptureSink({ cfg: () => cfgWithProxySource(), store: new LlmCallManager() });
     expect(sink.begin({
@@ -133,6 +147,25 @@ describe("ProxyCaptureSink recorder", () => {
     })));
     await rec.finish({ status: 200, durationMs: 10, requestId: "req-9", traceId: "t-9", timestamp: "2026-01-01T00:00:00.000Z" });
   }
+
+  test("records both listed via.routes on finish", async () => {
+    const store = new LlmCallManager();
+    const cfg = cfgWithProxySource((source) => {
+      source.via.route = "";
+      source.via.routes = ["alpha", "beta"];
+    });
+    await drive(cfg, store, { routeName: "alpha", method: "POST", path: "/v1/chat/completions", requestHeaders: jsonHeaders });
+    const sink = new ProxyCaptureSink({ cfg: () => cfg, store });
+    const rec = sink.begin({ routeName: "beta", method: "POST", path: "/v1/chat/completions", requestHeaders: jsonHeaders });
+    if (!rec) throw new Error("expected a recorder for beta");
+    rec.setRequestBody(Buffer.from(JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from("{}"));
+    await rec.finish({ status: 200, durationMs: 4, requestId: "req-beta", timestamp: "2026-01-01T00:00:00.000Z" });
+    expect(store.get("req-9")?.source).toBe("apigee-llm");
+    expect(store.get("req-beta")?.source).toBe("apigee-llm");
+    expect(sink.begin({ routeName: "gamma", method: "POST", path: "/v1/chat/completions", requestHeaders: jsonHeaders })).toBeUndefined();
+  });
 
   test("upserts a mapped call on finish", async () => {
     const store = new LlmCallManager();

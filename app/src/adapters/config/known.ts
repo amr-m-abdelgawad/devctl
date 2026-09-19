@@ -62,7 +62,7 @@ export const knownRouteLogGrpc = ["ok"];
 export const knownRouteLogGrpcOk = ["status", "methods", "log"];
 export const knownMatch = ["host", "path"];
 export const knownUpstream = ["url", "service", "port", "recipe"];
-export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers"];
+export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers", "log_identity"];
 export const knownLogs = ["max_memory_events", "persistence"];
 export const knownPersistence = ["enabled", "directory", "retention_days", "max_session_logs"];
 export const knownAuth = ["refresh_threshold_seconds"];
@@ -72,7 +72,7 @@ export const knownProject = ["name"];
 export const knownGoogle = ["project_id", "region"];
 export const knownProfile = ["services", "environment", "environments", "service_environment"];
 export const knownEnvStructured = ["required", "defaults"];
-export const knownServiceLogs = ["stdout", "stderr", "multiline"];
+export const knownServiceLogs = ["stdout", "stderr", "multiline", "dedupe_access_line"];
 export const knownServiceLogMultiline = ["start", "continuation", "max_wait_ms", "max_lines"];
 export const knownSecrets = ["extra_markers", "extra_patterns"];
 export const knownDoctor = ["tools"];
@@ -109,7 +109,7 @@ export const knownLlmSource = [
   "poll_seconds",
 ];
 export const knownLlmAuth = ["type", "token_env", "header"];
-export const knownLlmVia = ["route"];
+export const knownLlmVia = ["route", "routes"];
 export const knownLlmCapture = ["prompts", "max_bytes", "paths"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];

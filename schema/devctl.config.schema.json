@@ -266,6 +266,10 @@
           "properties": {
             "stdout": { "type": "boolean" },
             "stderr": { "type": "boolean" },
+            "dedupe_access_line": {
+              "type": "boolean",
+              "description": "Drop a plain uvicorn-style access line when the previous event from the same pid already has the same method, path, and status (off by default)"
+            },
             "multiline": {
               "type": "object",
               "additionalProperties": false,
@@ -443,6 +447,7 @@
             "client_secret": { "type": "string", "description": "Optional OAuth client secret. Use ${NAME} or ${env.NAME} to read from the environment at mint time." },
             "credentials": { "type": "string", "description": "Path to a gcloud authorized_user JSON (client_id/client_secret/refresh_token) used to mint IAP tokens for client_id, instead of default ADC. Keeps ADC intact for GCS/Firestore. ~, absolute, or repo-relative. Falls back to proxy.credentials." },
             "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Extra request headers injected alongside Authorization. ${token} in a value is replaced with the minted token (e.g. identity-token: ${token}). Applied only on iap/service_account routes." },
+            "log_identity": { "type": "boolean", "description": "On auth.type none only: copy inbound X-Goog-Authenticated-User-Email onto the traffic record as caller_email. Does not mint tokens. Invalid on iap/service_account." },
             "identity": {
               "oneOf": [
                 { "type": "string" },
@@ -584,6 +589,7 @@
                 "client_secret": { "type": "string" },
                 "credentials": { "type": "string" },
                 "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+                "log_identity": { "type": "boolean", "description": "On auth.type none only: copy inbound X-Goog-Authenticated-User-Email onto the traffic record as caller_email. Does not mint tokens. Invalid on iap/service_account." },
                 "identity": {
                   "oneOf": [
                     { "type": "string" },
@@ -707,7 +713,7 @@
       "additionalProperties": false,
       "properties": {
         "name": { "type": "string" },
-        "type": { "type": "string", "description": "Source driver. Built-in: litellm (polls /spend/logs) or proxy (captures OpenAI-compatible bodies off a devctl proxy route named by via.route)." },
+        "type": { "type": "string", "description": "Source driver. Built-in: litellm (polls /spend/logs) or proxy (captures OpenAI-compatible bodies off devctl proxy routes named by via.route / via.routes)." },
         "service": { "type": "string", "description": "Managed service whose assigned port is the management hop." },
         "port": { "type": "string", "description": "Named service port (default http)." },
         "endpoint": { "type": "string", "description": "Literal management URL when the source is not a managed service." },
@@ -738,7 +744,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "route": { "type": "string", "description": "Existing proxy.routes[].name. For litellm, mints the route's identity headers; for the proxy source type, the route whose completion traffic is captured." }
+        "route": { "type": "string", "description": "Existing proxy.routes[].name. For litellm, the optional management hop that mints the route's identity headers. For type: proxy, singular sugar for one capture route (unioned with via.routes)." },
+        "routes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "proxy source only: extra proxy.routes[].name values to capture. Unioned with via.route (singular sugar). Invalid on litellm and plugin sources."
+        }
       }
     },
     "llmCapture": {

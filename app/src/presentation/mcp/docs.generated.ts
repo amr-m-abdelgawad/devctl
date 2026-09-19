@@ -473,7 +473,7 @@ devctl env [service] [name] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl llm [--source] [--caller] [--model] [--status] [--search] [--since] [--until] [--json] [-f|--follow]
 devctl llm show <id> [--json]
@@ -518,7 +518,7 @@ devctl update [--json] [--check]
 - \`status\` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - \`status\` also prints proxy, MCP, and WEB listen lines when a supervisor is up. Each service row includes \`ENV\` (the selected named overlay, empty when the service has none).
 - \`status --watch\` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (\`ctrl+c\`).
-- \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. \`--request-id\` filters by \`X-Devctl-Request-ID\`; \`--trace\` prints the span tree plus correlated logs.
+- \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. \`--request-id\` filters by \`X-Devctl-Request-ID\`; \`--dedupe-request-id\` collapses nearby events that share that id after the page is fetched; \`--trace\` prints the span tree plus correlated logs.
 - \`devctl llm\` lists recent LLM calls from configured \`llm.sources\` (LiteLLM spend logs first). \`--caller\` filters by originating service. \`--follow\` polls until interrupted. \`devctl llm show <id>\` prints one call including redacted bodies. See [LLM inspector](llm.md).
 - \`devctl traffic\` lists recent HTTP and gRPC hops captured on \`inspect.enabled\` proxy routes. \`--follow\` polls until interrupted. \`devctl traffic show <id>\` prints one hop including redacted bodies. Direct sockets that never hit the proxy are not listed. See [Proxy](proxy.md#inspect-bodies).
 - \`devctl daemon logs [-f]\` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when \`start\`/\`attach\` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. \`-f\` follows it live the same way \`logs -f\` does. The TUI equivalent is \`/daemon\`.
@@ -1298,6 +1298,8 @@ Omit \`client_id\` to keep the default ADC client. \`client_id\` is only valid o
 
 The ADC refresh token must have been issued to that OAuth client. \`gcloud auth application-default login\` uses the Cloud SDK client by default; a mismatch fails as \`unauthorized_client\`. Login with a client secret file that matches \`client_id\`, or omit \`client_id\`.
 
+When a route (or \`proxy.credentials\`) points at a separate authorized_user file, \`devctl config validate\` checks that the file exists, is JSON with \`refresh_token\` and \`client_id\`, and that the file's \`client_id\` matches the route. \`devctl status\` reports that result as \`credentials_valid\` on the route snapshot (\`true\` / \`false\` when a file is configured; omitted otherwise).
+
 \`\`\`mermaid
 flowchart LR
   client["Local client"] --> proxy["devctl proxy"]
@@ -1792,7 +1794,7 @@ llm:
       poll_seconds: 5
 \`\`\`
 
-\`type\` must be a builtin (\`litellm\`, \`proxy\`) or a plugin \`llmSources\` name. When \`llm.enabled\` is true, \`sources\` must be non-empty and each source needs a unique \`name\`. A \`litellm\` source needs exactly one **management hop**: \`management_endpoint\` / \`management_service\`, or else exactly one of \`service\`, \`endpoint\`, or \`via.route\`. \`via.route\` may exist alongside \`management_*\` so apps can keep using a traffic proxy while the inspector talks to LiteLLM directly. A \`proxy\` source instead names the route to capture with \`via.route\` and has no management hop — see [Proxy-capture source](#proxy-capture-source-type-proxy).
+\`type\` must be a builtin (\`litellm\`, \`proxy\`) or a plugin \`llmSources\` name. When \`llm.enabled\` is true, \`sources\` must be non-empty and each source needs a unique \`name\`. A \`litellm\` source needs exactly one **management hop**: \`management_endpoint\` / \`management_service\`, or else exactly one of \`service\`, \`endpoint\`, or \`via.route\`. \`via.route\` may exist alongside \`management_*\` so apps can keep using a traffic proxy while the inspector talks to LiteLLM directly. A \`proxy\` source instead tags the route(s) to capture with \`via.routes\` (\`via.route\` is singular sugar) and has no management hop — see [Proxy-capture source](#proxy-capture-source-type-proxy).
 
 \`path_prefix\` is stripped of slashes; the LiteLLM driver always appends \`/spend/logs\`. Do not put that leaf in config.
 
@@ -1867,7 +1869,7 @@ llm:
   sources:
     - name: apigee-llm
       type: proxy
-      via: { route: apigee-llm }  # the route to capture; no management hop
+      via: { route: apigee-llm }  # singular sugar; or via.routes: [a, b]
       capture:
         prompts: true             # false → keep metadata, drop bodies
         max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
@@ -1877,10 +1879,10 @@ llm:
 
 Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completions\`) and every OpenAI-compatible completion, chat, embedding, or streamed (\`text/event-stream\`) call is parsed and fed into the same store as any other source. All surfaces below then work unchanged.
 
-- **Only tagged routes are buffered.** \`via.route\` names the one route to capture; all other proxy traffic still streams untouched. The request is buffered only when its \`content-length\` is within \`max_bytes\`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing.
+- **Only tagged routes are buffered.** \`via.routes: [a, b]\` tags multiple proxy routes on one source; \`via.route\` is singular sugar for one name (unioned with the list, first-seen order). All other proxy traffic still streams untouched. The request is buffered only when its \`content-length\` is within \`max_bytes\`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing. \`capture.paths\` on that source apply to every tagged route.
 - **OpenAI-compatible completions are captured by default.** Capture engages on a \`POST\` with a JSON request content-type on a completion-shaped path (\`/chat/completions\`, \`/completions\`, \`/embeddings\`); \`GET /models\`, \`/model/info\`, health checks, and CORS preflights are ignored. Anthropic-native \`/messages\` and the OpenAI Responses API (\`/responses\`) use different request/stream shapes and are not captured unless listed in \`capture.paths\`.
 - **\`capture.paths\` adds proprietary endpoints.** Each entry is a path substring (must start with \`/\`, not \`/\` alone) matched case-insensitively against the inbound request pathname, so a route mount prefix does not need repeating — \`/generations/v1alpha2\` matches \`/llm/generations/v1alpha2\`. Matching POST JSON is stored as a raw HTTP pair: parsed JSON bodies, or raw SSE text (not reassembled into a \`chat.completion\`). Model, token usage, and finish reason are copied when those standard JSON fields are present (\`model\`, \`usage.prompt_tokens\` / \`input_tokens\`, \`choices[0].finish_reason\`); otherwise they are omitted and \`model\` shows \`unknown\`. Built-in OpenAI paths on the same source still use the OpenAI mapper.
-- **\`proxy\` has no management hop.** It captures from \`via.route\` and must not set \`service\`, \`endpoint\`, or \`management_*\`; config validation rejects those.
+- **\`proxy\` has no management hop.** It captures from \`via.route\` / \`via.routes\` and must not set \`service\`, \`endpoint\`, or \`management_*\`; config validation rejects those. \`via.routes\` is only valid on \`type: proxy\`.
 - **Redaction is unchanged** — the same \`secrets\` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`) are counts, not credentials, so they stay visible. Cost is unavailable from a \`proxy\` source, and a streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
 
 ## Caller (which service made the call)
@@ -1944,6 +1946,10 @@ services:
 
 The folded body is a single string with newlines. Severity is taken from the first line that classifies after ANSI strip, otherwise from the assembled body. Proxy, health, and OTLP records stay one line each. Pending folds flush on the idle timeout or when the log store is flushed.
 
+Optional \`services.<name>.logs.dedupe_access_line: true\` (off by default) drops a plain uvicorn-style access line when the previous event from the same pid already has the same method, path, and status in attributes within 1ms. Always-on HTTP-status folding (\`             200\`) is unchanged.
+
+\`--dedupe-request-id\` (MCP \`dedupe_request_id\`) is query-time only: after a filter/page fetch it collapses nearby events that share \`devctl.request_id\`, keeping the structured proxy attributes and the richer body. Service stdout still will not get that id unless the process logged it.
+
 ## Buffer and persistence
 
 - In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status \`logs.total\` / \`logs.errors\` are how many of those lines are still in the ring; \`logs.seen\` / \`logs.seenErrors\` are lifetime ingest counts so dashboards do not freeze at the cap.
@@ -1989,13 +1995,14 @@ Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on 
 ## CLI
 
 \`\`\`bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
 devctl logs export --output FILE   # explicit export subcommand
 devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
+devctl logs --dedupe-request-id    # collapse nearby events that share a request id
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 \`\`\`
 
@@ -2709,7 +2716,11 @@ proxy:
         # IAP only: audience is required. Optional client_id + client_secret
         # mint the ID token with that OAuth client instead of ADC's default.
         # client_secret may be a literal or \${NAME} / \${env.NAME}.
+        # On auth.type none only: log_identity: true copies inbound
+        # X-Goog-Authenticated-User-Email onto the traffic record as caller_email.
 \`\`\`
+
+On \`auth.type: none\` (or an omitted type, which means none), optional \`auth.log_identity: true\` copies the inbound \`X-Goog-Authenticated-User-Email\` header onto the traffic record as \`callerEmail\` / \`caller_email\` when that header is present. This does not mint tokens. It is an opt-in label for routes that already sit behind an IAP-style edge and receive that header. The flag is rejected on \`iap\`, \`service_account\`, and other minting types. Service attribution via \`X-Devctl-Service\` (\`caller\`) is separate and always recorded when present.
 
 Match is host + optional path prefix.
 
@@ -2789,6 +2800,11 @@ custom path (not the default ADC location). Notes:
   usable for GCS/Firestore and everything else.
 - The file is read locally at mint time; its contents are never logged. It holds
   a long-lived refresh token and client secret — keep it private (\`chmod 600\`).
+- \`devctl status\` (and the status snapshot) sets \`credentials_valid\` on each IAP
+  route that has a credentials file: \`true\` when the file exists, is
+  \`authorized_user\` JSON with \`refresh_token\` and a \`client_id\` that matches the
+  route, otherwise \`false\`. Routes that are not IAP or have no credentials file
+  omit the field.
 
 ### Extra token headers
 
@@ -3465,7 +3481,7 @@ health:
   interval_seconds: 30
 \`\`\`
 
-During \`health.start_period_seconds\`, failing probes leave the service in its startup state and do not contribute to restart streaks. Afterward, \`health.unhealthy_threshold\` consecutive failures trigger the configured restart policy (default 3). \`health.healthy_reset_threshold\` consecutive successes forgive prior restart attempts (default 10).
+During \`health.start_period_seconds\`, failing probes leave the service in its startup state and do not contribute to restart streaks. Status snapshots expose \`start_period_remaining_ms\` and \`start_period_total_ms\` on a service while that window is still open. Afterward, \`health.unhealthy_threshold\` consecutive failures trigger the configured restart policy (default 3). \`health.healthy_reset_threshold\` consecutive successes forgive prior restart attempts (default 10).
 
 \`devctl\` watches \`.devctl/\` and offers reload. Source-file restart is **opt-in** per service — off by default so a noisy tree cannot bounce the fleet:
 

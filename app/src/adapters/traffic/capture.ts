@@ -1,4 +1,5 @@
 import {
+  routeAuthIsNone,
   routeInspectCaptureSse,
   routeInspectDecoder,
   routeInspectEnabled,
@@ -6,7 +7,7 @@ import {
   type DevctlConfig,
   type RouteConfig,
 } from "../../domain/config/types.ts";
-import { callerFromHeaders, normalizeLlmCaller } from "../../domain/llm/caller.ts";
+import { callerFromHeaders, headerValueIgnoreCase, normalizeLlmCaller } from "../../domain/llm/caller.ts";
 import { isLoopbackPeer } from "../../domain/net/hosts.ts";
 import {
   grpcTrafficPayload,
@@ -71,6 +72,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
   private responseTruncated = false;
   private done = false;
   private readonly headerCaller: string | undefined;
+  private readonly callerEmail: string | undefined;
   private readonly peerCaller: Promise<string | undefined>;
 
   private readonly decoderName: string;
@@ -84,6 +86,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
     this.captureSse = routeInspectCaptureSse(route);
     this.decoderName = routeInspectDecoder(route);
     this.headerCaller = callerFromHeaders(begin.requestHeaders);
+    this.callerEmail = callerEmailFromHeaders(route, begin.requestHeaders);
     this.peerCaller = this.headerCaller === undefined ? lookupPeerCaller(begin, deps) : Promise.resolve(undefined);
   }
 
@@ -163,6 +166,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
         route: this.begin.routeName,
         transport: grpc ? TRAFFIC_TRANSPORT_GRPC : TRAFFIC_TRANSPORT_HTTP,
         caller: await this.resolveCaller(),
+        callerEmail: this.callerEmail,
         status: meta.status,
         grpcStatus: meta.grpcStatus,
         durationMs: meta.durationMs,
@@ -316,6 +320,16 @@ async function lookupPeerCaller(begin: TrafficCaptureBegin, deps: TrafficCapture
     deps.log?.(`traffic caller lookup: ${err instanceof Error ? err.message : String(err)}`);
     return undefined;
   }
+}
+
+const IAP_EMAIL_HEADER = "x-goog-authenticated-user-email";
+
+function callerEmailFromHeaders(route: RouteConfig, headers: Record<string, string>): string | undefined {
+  if (route.auth.log_identity !== true || !routeAuthIsNone(route.auth)) {
+    return undefined;
+  }
+  const value = headerValueIgnoreCase(headers, IAP_EMAIL_HEADER).trim();
+  return value === "" ? undefined : value;
 }
 
 function contentTypeOf(headers: Record<string, string>): string {

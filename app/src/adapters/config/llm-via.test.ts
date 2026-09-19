@@ -1,0 +1,46 @@
+import { describe, expect, test } from "bun:test";
+import { emptyLlm, emptyLlmVia, llmViaRoutes } from "../../domain/config/types.ts";
+import { applyLlm } from "./merge.ts";
+
+describe("llm via.route / via.routes", () => {
+  test("decodes via.route sugar with an empty routes list", () => {
+    const llm = emptyLlm();
+    applyLlm(llm, {
+      enabled: true,
+      sources: [{ name: "one", type: "proxy", via: { route: "foo" } }],
+    });
+    expect(llm.sources[0]?.via).toEqual({ route: "foo", routes: [] });
+    expect(llmViaRoutes(llm.sources[0]!.via)).toEqual(["foo"]);
+  });
+
+  test("decodes via.routes and unions them with via.route", () => {
+    const llm = emptyLlm();
+    applyLlm(llm, {
+      sources: [{
+        name: "multi",
+        type: "proxy",
+        via: { route: "foo", routes: ["bar", "foo", " baz ", ""] },
+      }],
+    });
+    expect(llm.sources[0]?.via.route).toBe("foo");
+    expect(llm.sources[0]?.via.routes).toEqual(["bar", "foo", " baz ", ""]);
+    expect(llmViaRoutes(llm.sources[0]!.via)).toEqual(["foo", "bar", "baz"]);
+  });
+
+  test("replaces via.routes when an overlay sets the list", () => {
+    const llm = emptyLlm();
+    applyLlm(llm, {
+      sources: [{ name: "multi", type: "proxy", via: { route: "foo", routes: ["old"] } }],
+    });
+    applyLlm(llm, {
+      sources: [{ name: "multi", type: "proxy", via: { routes: ["alpha", "beta"] } }],
+    });
+    expect(llm.sources[0]?.via).toEqual({ route: "", routes: ["alpha", "beta"] });
+    expect(llmViaRoutes(llm.sources[0]!.via)).toEqual(["alpha", "beta"]);
+  });
+
+  test("llmViaRoutes keeps route first and skips empties", () => {
+    expect(llmViaRoutes(emptyLlmVia())).toEqual([]);
+    expect(llmViaRoutes({ route: "  ", routes: ["", " a ", "a"] })).toEqual(["a"]);
+  });
+});

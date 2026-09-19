@@ -24,6 +24,10 @@ services:
 
 The folded body is a single string with newlines. Severity is taken from the first line that classifies after ANSI strip, otherwise from the assembled body. Proxy, health, and OTLP records stay one line each. Pending folds flush on the idle timeout or when the log store is flushed.
 
+Optional `services.<name>.logs.dedupe_access_line: true` (off by default) drops a plain uvicorn-style access line when the previous event from the same pid already has the same method, path, and status in attributes within 1ms. Always-on HTTP-status folding (`             200`) is unchanged.
+
+`--dedupe-request-id` (MCP `dedupe_request_id`) is query-time only: after a filter/page fetch it collapses nearby events that share `devctl.request_id`, keeping the structured proxy attributes and the richer body. Service stdout still will not get that id unless the process logged it.
+
 ## Buffer and persistence
 
 - In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status `logs.total` / `logs.errors` are how many of those lines are still in the ring; `logs.seen` / `logs.seenErrors` are lifetime ingest counts so dashboards do not freeze at the cap.
@@ -69,13 +73,14 @@ Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on th
 ## CLI
 
 ```bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
 devctl logs export --output FILE   # explicit export subcommand
 devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
+devctl logs --dedupe-request-id    # collapse nearby events that share a request id
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 ```
 

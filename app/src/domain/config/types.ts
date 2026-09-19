@@ -58,6 +58,7 @@ export type ServiceLogConfig = {
   stdout: boolean;
   stderr: boolean;
   multiline?: ServiceLogMultilineConfig;
+  dedupe_access_line?: boolean;
 };
 
 export type RestartConfig = {
@@ -254,6 +255,10 @@ export type RouteAuthConfig = {
   // replaced with the same token used for the Authorization bearer. Applied
   // only on a token-minting route (iap / service_account).
   headers?: Record<string, string>;
+  // On auth.type none (or empty) only: copy inbound X-Goog-Authenticated-User-Email
+  // onto the traffic record as callerEmail. Does not mint tokens. Invalid on
+  // iap / service_account / other minting types.
+  log_identity?: boolean;
 };
 
 export function emptyRouteAuth(): RouteAuthConfig {
@@ -267,6 +272,11 @@ export function emptyRouteAuth(): RouteAuthConfig {
     credentials: "",
     headers: {},
   };
+}
+
+export function routeAuthIsNone(auth: Pick<RouteAuthConfig, "type">): boolean {
+  const t = auth.type.trim().toLowerCase();
+  return t === "" || t === "none";
 }
 
 // Per-route body capture for the traffic inspector. Default off so existing
@@ -556,6 +566,7 @@ export type LlmAuthConfig = {
 
 export type LlmViaConfig = {
   route: string;
+  routes: string[];
 };
 
 export type LlmCaptureConfig = {
@@ -591,7 +602,27 @@ export function emptyLlmAuth(): LlmAuthConfig {
 }
 
 export function emptyLlmVia(): LlmViaConfig {
-  return { route: "" };
+  return { route: "", routes: [] };
+}
+
+// Union of trimmed via.route (singular sugar) then via.routes, skipping
+// empties and keeping first-seen order so capture matching is a list.
+export function llmViaRoutes(via: LlmViaConfig): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: string) => {
+    const name = value.trim();
+    if (name === "" || seen.has(name)) {
+      return;
+    }
+    seen.add(name);
+    names.push(name);
+  };
+  push(via.route);
+  for (const name of via.routes ?? []) {
+    push(name);
+  }
+  return names;
 }
 
 export function emptyLlmCapture(): LlmCaptureConfig {

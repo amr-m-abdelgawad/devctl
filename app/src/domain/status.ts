@@ -44,6 +44,7 @@ export type LogsRequest = {
   traceId?: string;
   requestId?: string;
   attribute?: { key: string; value: string };
+  dedupeRequestId?: boolean;
 };
 
 export type RouteSnapshot = {
@@ -53,6 +54,9 @@ export type RouteSnapshot = {
   auth: string;
   match?: string;
   client_id?: string;
+  // Set only for IAP routes that have a credentials file: true when the file
+  // exists, is authorized_user JSON, and its client_id matches the route.
+  credentials_valid?: boolean;
 };
 
 export type ProxyRequestSnapshot = {

@@ -1,7 +1,8 @@
 import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
 import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { resolvePluginPath } from "../../shared/plugin-paths.ts";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
 import { findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
@@ -21,6 +22,7 @@ import {
   identityKind,
   isServiceAccountIdentity,
   LOCALHOST,
+  routeAuthIsNone,
   RestartAlways,
   RestartNever,
   RestartOnFailure,
@@ -40,6 +42,7 @@ import {
   LLM_SOURCE_TYPE_PROXY,
   llmManagementPort,
   llmSourcePort,
+  llmViaRoutes,
   namedPort,
   isReservedHttpOutput,
 } from "../../domain/config/types.ts";
@@ -206,6 +209,9 @@ function validateServices(cfg: DevctlConfig): string[] {
 
 function validateServiceLogs(prefix: string, logs: ServiceLogConfig): string[] {
   const issues: string[] = [];
+  if (logs.dedupe_access_line !== undefined && typeof logs.dedupe_access_line !== "boolean") {
+    issues.push(`${prefix}.logs.dedupe_access_line must be a boolean`);
+  }
   const multiline = logs.multiline;
   if (!multiline) {
     return issues;
@@ -617,6 +623,9 @@ function validateRouteLog(route: RouteConfig, prefix: string): string[] {
 
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
   const issues: string[] = [];
+  if (auth.log_identity !== undefined && !routeAuthIsNone(auth)) {
+    issues.push(`${prefix}.auth.log_identity is only valid when auth.type is none`);
+  }
   if (auth.type.toLowerCase() === "iap") {
     if (auth.audience.trim() === "") {
       issues.push(`${prefix}.auth.audience is required when auth.type is iap`);
@@ -671,7 +680,44 @@ function validateIapOAuthClient(auth: RouteAuthConfig, prefix: string): string[]
   if (identType === "service" || identType === "service_account") {
     issues.push(`${prefix}.auth.client_id is only valid with identity.type user`);
   }
+  issues.push(...validateIapCredentialsFile(auth, prefix));
   return issues;
+}
+
+function validateIapCredentialsFile(auth: RouteAuthConfig, prefix: string): string[] {
+  const path = (auth.credentials ?? "").trim();
+  const clientId = (auth.client_id ?? "").trim();
+  if (auth.type.toLowerCase() !== "iap" || path === "" || clientId === "") {
+    return [];
+  }
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return [`${prefix}.auth.credentials file not found: ${path}`];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [`${prefix}.auth.credentials is not valid JSON: ${path}`];
+  }
+  const result = inspectIapOAuthClientFile(parsed, clientId);
+  if (result.ok) {
+    return [];
+  }
+  switch (result.issue) {
+    case "malformed":
+      return [`${prefix}.auth.credentials is malformed: ${path}`];
+    case "wrong_type":
+      return [`${prefix}.auth.credentials type must be authorized_user`];
+    case "missing_refresh_token":
+      return [`${prefix}.auth.credentials has no refresh_token`];
+    case "missing_client_id":
+      return [`${prefix}.auth.credentials has no client_id`];
+    case "client_id_mismatch":
+      return [`${prefix}.auth.credentials client_id does not match auth.client_id`];
+  }
 }
 
 function validateTelemetry(cfg: DevctlConfig): string[] {
@@ -792,10 +838,9 @@ function validateLlmCapture(source: LlmSourceConfig, prefix: string): string[] {
 
 function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
   const issues: string[] = [];
-  if (source.via.route.trim() === "") {
-    issues.push(`${prefix}: type ${LLM_SOURCE_TYPE_PROXY} requires via.route naming the proxy route to capture`);
-  } else if (!cfg.proxy.routes.some((route) => route.name === source.via.route)) {
-    issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+  issues.push(...validateLlmViaRouteNames(cfg, source, prefix));
+  if (llmViaRoutes(source.via).length === 0) {
+    issues.push(`${prefix}: type ${LLM_SOURCE_TYPE_PROXY} requires via.route or via.routes naming the proxy route to capture`);
   }
   // A proxy source never talks to a management API — reject fields that would
   // imply one, so a misconfigured source fails loudly instead of silently
@@ -811,8 +856,29 @@ function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, pref
   return issues;
 }
 
+function validateLlmViaRouteNames(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
+  const issues: string[] = [];
+  const routeName = source.via.route.trim();
+  if (routeName !== "" && !cfg.proxy.routes.some((route) => route.name === routeName)) {
+    issues.push(`${prefix}.via.route references unknown proxy route ${routeName}`);
+  }
+  for (const [index, entry] of (source.via.routes ?? []).entries()) {
+    const trimmed = entry.trim();
+    const loc = `${prefix}.via.routes[${index}]`;
+    if (trimmed === "") {
+      issues.push(`${loc} must be a non-empty name`);
+    } else if (!cfg.proxy.routes.some((route) => route.name === trimmed)) {
+      issues.push(`${loc} references unknown proxy route ${trimmed}`);
+    }
+  }
+  return issues;
+}
+
 function validateLlmManagementHop(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {
   const issues: string[] = [];
+  if ((source.via.routes ?? []).length > 0) {
+    issues.push(`${prefix}.via.routes is only valid on type: ${LLM_SOURCE_TYPE_PROXY}`);
+  }
   const hasManagementEndpoint = source.management_endpoint.trim() !== "";
   const hasManagementService = source.management_service.trim() !== "";
   if (hasManagementEndpoint && hasManagementService) {
@@ -824,10 +890,11 @@ function validateLlmManagementHop(cfg: DevctlConfig, source: LlmSourceConfig, pr
   if (source.service.trim() !== "") {
     issues.push(...validateLlmServiceRef(cfg, source.service, llmSourcePort(source), `${prefix}.service`));
   }
-  if (source.via.route.trim() !== "") {
-    const route = cfg.proxy.routes.find((item) => item.name === source.via.route);
+  const viaRoute = source.via.route.trim();
+  if (viaRoute !== "") {
+    const route = cfg.proxy.routes.find((item) => item.name === viaRoute);
     if (!route) {
-      issues.push(`${prefix}.via.route references unknown proxy route ${source.via.route}`);
+      issues.push(`${prefix}.via.route references unknown proxy route ${viaRoute}`);
     }
   }
   if (!hasManagementEndpoint && !hasManagementService) {
