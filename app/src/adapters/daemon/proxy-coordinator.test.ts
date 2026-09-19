@@ -126,9 +126,9 @@ async function grpcCall(port: number, path: string): Promise<{ status: number; g
         resolve(value ?? { status: 0 });
       };
       // Windows surfaces a closed listen port as a session `error` (ECONNREFUSED)
-      // rather than a request rejection. Close() can emit the same event after a
-      // successful hop, so ignore it once the call has settled.
-      client.once("error", (err) => finish(err));
+      // rather than a request rejection. Keep the listener through close() — a
+      // late session error with no listener can abort a later test in the file.
+      client.on("error", (err) => finish(err));
       const req = client.request({ ":method": "POST", ":path": path, "content-type": "application/grpc" });
       let status = 0;
       let grpcStatus: string | undefined;
@@ -144,11 +144,12 @@ async function grpcCall(port: number, path: string): Promise<{ status: number; g
         }
       });
       req.on("error", (err) => finish(err));
-      req.on("close", () => finish(undefined, { status, grpcStatus }));
+      req.on("close", () => {
+        queueMicrotask(() => finish(undefined, { status, grpcStatus }));
+      });
       req.end();
     });
   } finally {
-    client.removeAllListeners("error");
     client.close();
   }
 }
