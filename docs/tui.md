@@ -24,6 +24,8 @@ With no `.devctl` configuration the TUI opens **setup**: “No configuration fou
 
 If a `.devctl/config.yaml` exists but fails to parse or validate, the TUI shows **Configuration error** with the actual error instead — pressing Enter here does not run setup, since that would silently overwrite the file the error is about. Fix the file and restart devctl, or run `devctl config validate` for the same error from the CLI.
 
+If the configuration is valid but the supervisor never comes up (a listen port already in use, a crash during boot), the TUI shows **Supervisor failed to start** with the bootstrap-log line — not a YAML error. `devctl daemon logs` is the same file. A leftover process holding `proxy.listen`, `telemetry.otlp`, or `web.listen` is the usual cause; Doctor can name the holder. Do not kill the Cursor / IDE process if that is the holder — reload the window or stop that leftover session instead.
+
 When services exist but none are running, the dashboard empty state:
 
 - `enter` starts the default profile (first profile name alphabetically) after a plan overlay

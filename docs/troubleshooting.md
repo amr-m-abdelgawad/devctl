@@ -25,7 +25,8 @@
 | MCP tools work but nothing starts | `get_status` reports `setup_mode: true` — there is no `.devctl` yet. Have the agent call `get_setup_guide`, `search_docs`, and `validate_config`, write the files, then `reload_config` |
 | `devctl exec --print-env` hides values | Secret-like names are redacted unless you also pass `--reveal` (TUI: `/exec <svc> --print-env --reveal` or `/reveal`). MCP `exec_service` never reveals them |
 | TUI env pane looks incomplete | It now loads the same resolved map as `devctl exec --print-env`. If the chip says `config fallback`, the daemon `exec` call failed — check `/daemon` and that the supervisor is up |
-| Supervisor will not start | `devctl daemon logs` or TUI `/daemon` is the bootstrap stderr, not the service log bus |
+| TUI says **Configuration error** but `devctl config validate` is clean | The supervisor failed to start (often `EADDRINUSE`). The TUI now shows **Supervisor failed to start** with the bootstrap-log line. `devctl daemon logs` has the same text |
+| Supervisor will not start | `devctl daemon logs` or TUI `/daemon` is the bootstrap stderr, not the service log bus. `unable to listen … (EADDRINUSE)` means a leftover already holds that port — Doctor names the holder |
 | TUI stale / not updating | TUI follows the event bus (20–50ms batch). Quit and let a new supervisor start if an old one is still listening |
 | Reload needs a restart | `devctl reload` and `/reload` list services whose command, env, ports, or identity changed |
 | Configuration invalid | `devctl config validate` — unknown fields, cycles, and missing refs fail closed. TUI `v` / `/buffer` validates before write |

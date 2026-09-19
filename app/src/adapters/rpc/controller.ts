@@ -9,7 +9,7 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogPath, persistedConfigOverlay, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogHint, bootstrapLogPath, persistedConfigOverlay, readBootstrapLog, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -274,7 +274,7 @@ export async function ensureSupervisor(repoRoot: string, configPath: string): Pr
     return client;
   } catch {
     await reapSupervisorChild(child);
-    throw hintError(KindGeneral, "supervisor failed to start", `see ${bootstrapLog} for details`);
+    throw hintError(KindGeneral, "supervisor failed to start", bootstrapLogHint(bootstrapLog, readBootstrapLog(repoRoot)));
   }
 }
 

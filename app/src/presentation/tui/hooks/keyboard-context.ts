@@ -41,6 +41,7 @@ export type KeyboardUi = {
   submitSlash: () => void;
   advanceWizard?: () => void;
   bootErrorMissing: boolean;
+  bootErrorConfig: boolean;
   bootError?: string;
   createStarterConfig: (repo: string) => string;
   startWizard: () => void;

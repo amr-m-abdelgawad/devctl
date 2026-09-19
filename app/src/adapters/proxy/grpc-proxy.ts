@@ -5,6 +5,7 @@ import { listenKey, sameListen } from "../../domain/proxy/listen.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { matchGrpcOk } from "../../domain/proxy/grpc-ok.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
+import { withErrorCode } from "../../domain/net/error-code.ts";
 import { Bus, newEvent, ProxyRequest } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
@@ -109,7 +110,7 @@ export class GrpcProxyServer {
           this.log("ERROR", `grpc route ${this.route.name} listener error: ${err.message}`);
           return;
         }
-        reject(wrapError(KindProxy, `grpc route ${this.route.name} unable to listen on ${host}:${port}`, err));
+        reject(wrapError(KindProxy, withErrorCode(`grpc route ${this.route.name} unable to listen on ${host}:${port}`, err), err));
       });
       server.listen(port, host, () => {
         this.server = server;

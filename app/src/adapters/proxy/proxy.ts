@@ -5,6 +5,7 @@ import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "
 import { stripMatchPrefix } from "../../domain/proxy/strip-prefix.ts";
 import { isLoopbackBindHost, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
+import { withErrorCode } from "../../domain/net/error-code.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey, tokenMintAllowed, type TokenMint } from "../../domain/identity/identity.ts";
 import type { LogStore } from "../../ports/log-store.ts";
@@ -233,7 +234,7 @@ export class ProxyServer {
       this.server.on("upgrade", (req, socket, head) => {
         void this.serveUpgrade(req, socket, head);
       });
-      this.server.on("error", (err) => reject(wrapError(KindProxy, `unable to listen on ${host}:${port}`, err)));
+      this.server.on("error", (err) => reject(wrapError(KindProxy, withErrorCode(`unable to listen on ${host}:${port}`, err), err)));
       this.server.listen(port, host, () => {
         this.running = true;
         this.addr = `${host}:${port}`;

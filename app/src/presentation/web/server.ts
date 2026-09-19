@@ -6,6 +6,7 @@ import type { UpdateCheck } from "../../domain/update.ts";
 import { VERSION } from "../../version.ts";
 import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
+import { withErrorCode } from "../../domain/net/error-code.ts";
 import { headerValue } from "../../shared/headers.ts";
 import { LOCALHOST } from "../../domain/config/types.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
@@ -84,7 +85,7 @@ export class WebHttpServer {
       this.server = createServer((req, res) => {
         void this.serve(req, res);
       });
-      this.server.on("error", (err) => reject(wrapError(KindGeneral, `unable to listen on ${host}:${this.opts.port}`, err)));
+      this.server.on("error", (err) => reject(wrapError(KindGeneral, withErrorCode(`unable to listen on ${host}:${this.opts.port}`, err), err)));
       this.server.listen(this.opts.port, host, () => {
         const addr = this.server?.address();
         this.boundPort = typeof addr === "object" && addr ? addr.port : this.opts.port;

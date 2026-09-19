@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { describe, expect, test } from "bun:test";
 import { Detector } from "../secrets/detector.ts";
 import { LogManager } from "../storage/logs.ts";
@@ -79,5 +80,44 @@ describe("OTLP/HTTP+JSON receiver", () => {
     expect(tree.spans[0]?.name).toBe("GET /");
     expect(tree.spans[0]?.kind).toBe("server");
     await server.stop();
+  });
+
+  test("listen errors include EADDRINUSE when the port is taken", async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", () => resolve());
+    });
+    const addr = blocker.address();
+    if (!addr || typeof addr === "string") {
+      blocker.close();
+      throw new Error("expected a TCP listen address");
+    }
+    const logs = new LogManager(100, undefined, new Detector([], []), false, "/tmp", "otlp", 0, 0);
+    const spans = new SpanManager(100);
+    const server = new OtlpHttpServer({
+      host: "127.0.0.1",
+      port: addr.port,
+      logs: {
+        append: (event) => {
+          logs.append(event);
+        },
+        query: async (filter) => logs.query(filter),
+        queryPage: async (filter, page) => logs.queryPage(filter, page),
+        queryFacets: async (filter) => logs.queryFacets(filter),
+        snapshot: () => logs.snapshot(),
+        exportTo: async (path, filter) => logs.exportTo(path, filter),
+        setParsers: (parsers) => logs.setParsers(parsers),
+        setServiceLogs: () => undefined,
+        setSecrets: () => undefined,
+        close: () => logs.close(),
+      },
+      spans,
+    });
+    try {
+      await expect(server.start()).rejects.toThrow(/EADDRINUSE/);
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
+    }
   });
 });

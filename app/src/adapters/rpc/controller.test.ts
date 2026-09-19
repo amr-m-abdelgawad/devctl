@@ -135,11 +135,14 @@ describe("ensureSupervisor bootstrap failure", () => {
     const originalArgv1 = process.argv[1] ?? "";
     process.argv[1] = join(import.meta.dir, "../../bin.ts");
     try {
-      await expect(ensureSupervisor(dir, configPath)).rejects.toMatchObject({
-        kind: KindGeneral,
-        hint: `see ${bootstrapLogPath(dir)} for details`,
-      });
-      expect(readFileSync(bootstrapLogPath(dir), "utf8").length).toBeGreaterThan(0);
+      const err = await ensureSupervisor(dir, configPath).catch((caught: unknown) => caught) as { kind: string; hint: string };
+      expect(err.kind).toBe(KindGeneral);
+      const logPath = bootstrapLogPath(dir);
+      const contents = readFileSync(logPath, "utf8").trim();
+      expect(contents.length).toBeGreaterThan(0);
+      expect(err.hint).toContain(logPath);
+      const firstLine = contents.split("\n").find((line) => line.trim() !== "")?.trim() ?? contents;
+      expect(err.hint).toContain(firstLine);
     } finally {
       process.argv[1] = originalArgv1;
       killRepoSupervisor(dir);

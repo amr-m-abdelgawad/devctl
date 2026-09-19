@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { bearerMatches } from "../../shared/bearer.ts";
 import { KindGeneral, newError, wrapError } from "../../shared/errors.ts";
+import { withErrorCode } from "../../domain/net/error-code.ts";
 import { headerValue } from "../../shared/headers.ts";
 import { VERSION } from "../../version.ts";
 import {
@@ -89,7 +90,7 @@ export class McpHttpServer {
       this.server = createServer((req, res) => {
         void this.serve(req, res);
       });
-      this.server.on("error", (err) => reject(wrapError(KindGeneral, `unable to listen on ${this.opts.host}:${this.opts.port}`, err)));
+      this.server.on("error", (err) => reject(wrapError(KindGeneral, withErrorCode(`unable to listen on ${this.opts.host}:${this.opts.port}`, err), err)));
       this.server.listen(this.opts.port, this.opts.host, () => {
         const addr = this.server?.address();
         this.boundPort = typeof addr === "object" && addr ? addr.port : this.opts.port;

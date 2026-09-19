@@ -19,6 +19,41 @@ const STEPS = [
   "Validation",
 ] as const;
 
+export type SetupBootEmpty = {
+  title: string;
+  body: string;
+  hint: string;
+};
+
+export function setupBootEmptyState(opts: {
+  bootError?: string;
+  bootErrorMissing?: boolean;
+  bootErrorConfig?: boolean;
+}): SetupBootEmpty | undefined {
+  if (!opts.bootError) {
+    return undefined;
+  }
+  if (opts.bootErrorMissing) {
+    return {
+      title: "No configuration found",
+      body: "Would you like to run setup?",
+      hint: "[Enter] 9-step setup   [Esc] Exit",
+    };
+  }
+  if (opts.bootErrorConfig) {
+    return {
+      title: "Configuration error",
+      body: opts.bootError,
+      hint: "Fix .devctl/config.yaml, then restart devctl   [Esc] Exit",
+    };
+  }
+  return {
+    title: "Supervisor failed to start",
+    body: opts.bootError,
+    hint: "A listen port is already in use, or the daemon crashed. See `devctl daemon logs`, then restart.   [Esc] Exit",
+  };
+}
+
 export function SetupScreen(props: {
   palette: Palette;
   issues: string[];
@@ -26,29 +61,18 @@ export function SetupScreen(props: {
   google?: GoogleStatus;
   bootError?: string;
   bootErrorMissing?: boolean;
+  bootErrorConfig?: boolean;
   step?: number;
 }) {
-  const { palette, cfg, google, bootError, bootErrorMissing = false, step = 0 } = props;
+  const { palette, cfg, google, bootError, bootErrorMissing = false, bootErrorConfig = false, step = 0 } = props;
   const scale = useDensity();
   if (bootError && !cfg) {
     // A missing configuration is safe to offer setup for; an existing-but-
     // invalid one must show the real error instead — running setup here
-    // would silently overwrite it rather than help fix it.
-    return bootErrorMissing ? (
-      <EmptyState
-        palette={palette}
-        title="No configuration found"
-        body="Would you like to run setup?"
-        hint="[Enter] 9-step setup   [Esc] Exit"
-      />
-    ) : (
-      <EmptyState
-        palette={palette}
-        title="Configuration error"
-        body={bootError}
-        hint="Fix .devctl/config.yaml, then restart devctl   [Esc] Exit"
-      />
-    );
+    // would silently overwrite it rather than help fix it. A supervisor that
+    // died on bind (EADDRINUSE) is neither of those and must not blame YAML.
+    const empty = setupBootEmptyState({ bootError, bootErrorMissing, bootErrorConfig });
+    return empty ? <EmptyState palette={palette} title={empty.title} body={empty.body} hint={empty.hint} /> : null;
   }
   const issues = props.issues;
   const rows = setupRows(cfg, google, issues);

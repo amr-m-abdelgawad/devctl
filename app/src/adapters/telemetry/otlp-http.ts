@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { withErrorCode } from "../../domain/net/error-code.ts";
 import { mapOtlpLogs, mapOtlpTraces } from "../../domain/telemetry/otlp.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
@@ -57,7 +58,7 @@ export class OtlpHttpServer {
       this.server = createServer((req, res) => {
         void this.handle(req, res);
       });
-      this.server.on("error", (err) => reject(wrapError(KindGeneral, `unable to listen on ${host}:${this.opts.port}`, err)));
+      this.server.on("error", (err) => reject(wrapError(KindGeneral, withErrorCode(`unable to listen on ${host}:${this.opts.port}`, err), err)));
       this.server.listen(this.opts.port, host, () => {
         const addr = this.server?.address();
         const port = addr && typeof addr === "object" ? addr.port : this.opts.port;

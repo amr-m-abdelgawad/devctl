@@ -3679,7 +3679,8 @@ trace, and read the responsible service's span and logs — all redacted.
 | MCP tools work but nothing starts | \`get_status\` reports \`setup_mode: true\` — there is no \`.devctl\` yet. Have the agent call \`get_setup_guide\`, \`search_docs\`, and \`validate_config\`, write the files, then \`reload_config\` |
 | \`devctl exec --print-env\` hides values | Secret-like names are redacted unless you also pass \`--reveal\` (TUI: \`/exec <svc> --print-env --reveal\` or \`/reveal\`). MCP \`exec_service\` never reveals them |
 | TUI env pane looks incomplete | It now loads the same resolved map as \`devctl exec --print-env\`. If the chip says \`config fallback\`, the daemon \`exec\` call failed — check \`/daemon\` and that the supervisor is up |
-| Supervisor will not start | \`devctl daemon logs\` or TUI \`/daemon\` is the bootstrap stderr, not the service log bus |
+| TUI says **Configuration error** but \`devctl config validate\` is clean | The supervisor failed to start (often \`EADDRINUSE\`). The TUI now shows **Supervisor failed to start** with the bootstrap-log line. \`devctl daemon logs\` has the same text |
+| Supervisor will not start | \`devctl daemon logs\` or TUI \`/daemon\` is the bootstrap stderr, not the service log bus. \`unable to listen … (EADDRINUSE)\` means a leftover already holds that port — Doctor names the holder |
 | TUI stale / not updating | TUI follows the event bus (20–50ms batch). Quit and let a new supervisor start if an old one is still listening |
 | Reload needs a restart | \`devctl reload\` and \`/reload\` list services whose command, env, ports, or identity changed |
 | Configuration invalid | \`devctl config validate\` — unknown fields, cycles, and missing refs fail closed. TUI \`v\` / \`/buffer\` validates before write |
@@ -3724,6 +3725,8 @@ If a supervisor session already exists, the TUI attaches to it. Preferences: \`t
 With no \`.devctl\` configuration the TUI opens **setup**: “No configuration found. Would you like to run setup? **[Enter] Setup [Esc] Exit**”. Enter starts the same 9-step wizard as \`devctl setup\` (OpenTUI fields, then write and attach the daemon — no process restart). Invalid existing YAML still refuses overwrite.
 
 If a \`.devctl/config.yaml\` exists but fails to parse or validate, the TUI shows **Configuration error** with the actual error instead — pressing Enter here does not run setup, since that would silently overwrite the file the error is about. Fix the file and restart devctl, or run \`devctl config validate\` for the same error from the CLI.
+
+If the configuration is valid but the supervisor never comes up (a listen port already in use, a crash during boot), the TUI shows **Supervisor failed to start** with the bootstrap-log line — not a YAML error. \`devctl daemon logs\` is the same file. A leftover process holding \`proxy.listen\`, \`telemetry.otlp\`, or \`web.listen\` is the usual cause; Doctor can name the holder. Do not kill the Cursor / IDE process if that is the holder — reload the window or stop that leftover session instead.
 
 When services exist but none are running, the dashboard empty state:
 

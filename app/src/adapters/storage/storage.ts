@@ -95,6 +95,28 @@ export function bootstrapLogPath(repoRoot: string): string {
   return join(sessionDir(repoRoot), "bootstrap.log");
 }
 
+export function readBootstrapLog(repoRoot: string): string {
+  try {
+    return readFileSync(bootstrapLogPath(repoRoot), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+export function bootstrapLogHint(logPath: string, contents: string): string {
+  const line = firstNonemptyLine(contents);
+  if (line === "") {
+    return `see ${logPath} for details`;
+  }
+  return `${line} — see ${logPath}`;
+}
+
+function firstNonemptyLine(text: string): string {
+  const lines = text.split("\n");
+  const found = lines.find((line) => line.trim() !== "");
+  return found?.trim() ?? "";
+}
+
 export const BOOTSTRAP_LOG_HISTORY = 5;
 const BOOTSTRAP_LOG_PREFIX = "bootstrap-";
 

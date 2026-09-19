@@ -2,7 +2,7 @@ import { spawn } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readOrCreateWebToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, webTokenPath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readOrCreateWebToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, webTokenPath, writePersistedState } from "./storage.ts";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 
 describe("session storage", () => {
@@ -186,6 +186,13 @@ describe("session storage", () => {
     const rotated = readdirSync(sessionDir("/repo")).filter((name) => name.startsWith("bootstrap-"));
     expect(rotated).toHaveLength(1);
     expect(readFileSync(`${sessionDir("/repo")}/${rotated[0]}`, "utf8")).toBe("first boot attempt failed: EADDRINUSE");
+  });
+
+  test("bootstrapLogHint prefers the first stderr line over a bare path", () => {
+    expect(bootstrapLogHint("/tmp/bootstrap.log", "")).toBe("see /tmp/bootstrap.log for details");
+    expect(bootstrapLogHint("/tmp/bootstrap.log", "\n  unable to listen on 127.0.0.1:18418 (EADDRINUSE)\n")).toBe(
+      "unable to listen on 127.0.0.1:18418 (EADDRINUSE) — see /tmp/bootstrap.log",
+    );
   });
 
   test("rotateBootstrapLog keeps only the most recent BOOTSTRAP_LOG_HISTORY attempts", () => {

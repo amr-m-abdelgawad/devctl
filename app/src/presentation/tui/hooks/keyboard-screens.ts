@@ -28,7 +28,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   const name = (key.name ?? "").toLowerCase();
   const {
     screen, overlay, tui, cfg, controller, profile, listCursor, names, listCount, height,
-    checked, detailName, bootErrorMissing, bootError, logSearchFocused,
+    checked, detailName, bootErrorMissing, bootErrorConfig, bootError, logSearchFocused,
     logSources, logService, logShowTimestamps, logShowMeta, logWrap, showSystemLogs,
     logPinned, dashboardLogCursor, applyLogCursor, applyDashboardLogCursor, jumpToLatestLogs,
     toggleSystemLogs, clearLogs, setLogService, setPaused, setErrorOnly, setLogWrap, beginStart, beginStop, beginRestart,
@@ -316,7 +316,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   if (name === "return") {
     if (screen === "setup" && !controller) {
       if (!bootErrorMissing) {
-        setStatus(bootError || "Existing configuration is invalid — fix it and restart devctl.");
+        const fallback = bootErrorConfig
+          ? "Existing configuration is invalid — fix it and restart devctl."
+          : "Supervisor failed to start — see the bootstrap log, then restart.";
+        setStatus(bootError || fallback);
         return;
       }
       startWizard();

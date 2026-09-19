@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Request-id log dedupe keeps the earlier sequence/time when a later richer record survives, `--dedupe-request-id` exports apply the same collapse, and `via.route` validation uses the trimmed name.
 - Proxy-hop request-id tagging re-emits and persists a reverse-order update, keeps every candidate ingested in the last 50ms of arrival time (matching requires both the 50ms event-time window and the pair's ingest arrivals; folded process lines keep the first line's arrival), and ignores HTTP hop text whose target is not `/…`, an absolute URI, `host:port`, or `*`. TUI live append replaces a repeated positive `seq` inside the same batch.
 - Malformed `proxy.inspect_max_bytes` / `llm.capture_max_bytes` values stay invalid instead of decoding to the 1 MiB default.
+- A supervisor that dies on bind (for example `EADDRINUSE` on the demo OTLP port) no longer opens the TUI as **Configuration error / Fix .devctl/config.yaml**. The empty state is **Supervisor failed to start**, and the bootstrap log's first line (including the OS code) is in the message.
 
 ## [0.15.0] - 2026-09-19
 

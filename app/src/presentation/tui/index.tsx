@@ -2,7 +2,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import type { ClientRuntime, Controller } from "../../application/client-runtime.ts";
 import { createTuiWorkspace } from "./workspace.ts";
-import { humanMessage, isKind, KindConfigurationMissing } from "../../shared/errors.ts";
+import { humanMessage, isKind, KindConfiguration, KindConfigurationMissing } from "../../shared/errors.ts";
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
 import { installTerminalRestoreOnExit, restoreTerminalModes } from "../../shared/terminal-restore.ts";
@@ -16,14 +16,16 @@ export async function runTui(client: ClientRuntime, configPath: string): Promise
   let controller: Controller | undefined;
   let bootError: string | undefined;
   let bootErrorMissing = false;
+  let bootErrorConfig = false;
   try {
     controller = await client.openTui("", configPath);
   } catch (err) {
     bootError = humanMessage(err);
     bootErrorMissing = isKind(err, KindConfigurationMissing);
+    bootErrorConfig = isKind(err, KindConfiguration);
   }
   const tui = client.loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap);
-  await renderApp(client, controller, tui, bootError, bootErrorMissing);
+  await renderApp(client, controller, tui, bootError, bootErrorMissing, bootErrorConfig);
 }
 
 export async function renderApp(
@@ -32,6 +34,7 @@ export async function renderApp(
   tui = client.loadTuiConfig(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.ui.keymap),
   bootError?: string,
   bootErrorMissing = false,
+  bootErrorConfig = false,
 ): Promise<void> {
   silenceGcpMetadataWarnings();
   installTerminalRestoreOnExit();
@@ -95,6 +98,7 @@ export async function renderApp(
         }}
         bootError={bootError}
         bootErrorMissing={bootErrorMissing}
+        bootErrorConfig={bootErrorConfig}
         terminalBackground={terminalBackground}
       />,
     );

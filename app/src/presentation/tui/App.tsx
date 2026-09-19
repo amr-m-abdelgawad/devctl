@@ -80,11 +80,12 @@ type AppProps = {
   onAttached?: (controller: Controller) => void;
   bootError?: string;
   bootErrorMissing?: boolean;
+  bootErrorConfig?: boolean;
   terminalBackground?: string | null;
   workspace: TuiWorkspace;
 };
 
-export function App({ controller: initialController, tui, onQuit, onDown, onAttached, bootError: initialBootError, bootErrorMissing = false, terminalBackground, workspace }: AppProps) {
+export function App({ controller: initialController, tui, onQuit, onDown, onAttached, bootError: initialBootError, bootErrorMissing = false, bootErrorConfig = false, terminalBackground, workspace }: AppProps) {
   const {
     saveTuiPreferences,
     resolveTuiOverridePath,
@@ -638,6 +639,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       submitSlash,
       advanceWizard: () => void wizard.advanceWizard(),
       bootErrorMissing,
+      bootErrorConfig,
       bootError,
       createStarterConfig,
       startWizard: wizard.startWizard,
@@ -961,7 +963,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           <ProfilesScreen palette={palette} cfg={cfg} snap={snap} profile={profile} selected={listCursor} onPick={setSelected} />
         ) : null}
         {screen === "setup" ? (
-          <SetupScreen issues={cfg ? validate(cfg) : ["configuration not loaded"]} palette={palette} cfg={cfg} google={google} bootError={bootError} bootErrorMissing={bootErrorMissing} step={listCursor} />
+          <SetupScreen issues={cfg ? validate(cfg) : ["configuration not loaded"]} palette={palette} cfg={cfg} google={google} bootError={bootError} bootErrorMissing={bootErrorMissing} bootErrorConfig={bootErrorConfig} step={listCursor} />
         ) : null}
         {screen === "settings" ? (
           <SettingsScreen
