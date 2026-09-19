@@ -463,16 +463,29 @@ export function decodeRouteLog(value: unknown): RouteLogConfig | undefined {
   return { grpc: { ok } };
 }
 
+// Keep unusable values as NaN (and numeric Infinity as Infinity) so validate
+// can reject them. asNumber("bad") would become 0, which is unlimited.
+function decodeTimeoutMs(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  }
+  return Number.NaN;
+}
+
 function decodeRouteTimeout(value: unknown): RouteTimeoutConfig | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
   const timeout: RouteTimeoutConfig = {};
   if (value.idle_ms !== undefined) {
-    timeout.idle_ms = asNumber(value.idle_ms);
+    timeout.idle_ms = decodeTimeoutMs(value.idle_ms);
   }
   if (value.total_ms !== undefined) {
-    timeout.total_ms = asNumber(value.total_ms);
+    timeout.total_ms = decodeTimeoutMs(value.total_ms);
   }
   return timeout;
 }

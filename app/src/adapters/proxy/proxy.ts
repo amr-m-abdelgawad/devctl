@@ -487,7 +487,7 @@ export class ProxyServer {
         this.applyResponseHeaders(res, route);
         writePlain(res, 504, "gateway timeout");
       } else if (!res.writableEnded) {
-        res.end();
+        res.destroy();
       }
       abort.abort();
     });
@@ -619,9 +619,13 @@ export class ProxyServer {
         errorDetail = detail;
         status = 502;
         this.logProxyFailure(method, path, route.name, requestID, detail, "", identityKey);
-        // Apply CORS/response headers to the error too, so the browser can read it.
-        this.applyResponseHeaders(res, route);
-        writePlain(res, 502, "proxy error");
+        if (!res.headersSent) {
+          // Apply CORS/response headers to the error too, so the browser can read it.
+          this.applyResponseHeaders(res, route);
+          writePlain(res, 502, "proxy error");
+        } else if (!res.writableEnded) {
+          res.destroy();
+        }
       }
     } finally {
       timeouts.stop();
@@ -856,13 +860,13 @@ async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chun
         resolve();
       }
     };
-    readable.on("error", () => {
+    readable.on("error", (err) => {
       try {
         readable.unpipe(res);
       } catch {
         // already detached
       }
-      done();
+      done(err instanceof Error ? err : new Error(String(err)));
     });
     res.on("error", done);
     res.on("finish", () => done());
@@ -913,12 +917,9 @@ function fetchOrAbort(upstream: URL, init: RequestInit, onAbort: () => Error): P
 
 function tapRequestBody(req: IncomingMessage, onActivity: () => void): PassThrough {
   const tap = new PassThrough();
-  req.on("data", (chunk: Buffer | string) => {
-    onActivity();
-    tap.write(chunk);
-  });
-  req.on("end", () => tap.end());
+  req.on("data", onActivity);
   req.on("error", (err) => tap.destroy(err instanceof Error ? err : new Error(String(err))));
+  req.pipe(tap);
   return tap;
 }
 

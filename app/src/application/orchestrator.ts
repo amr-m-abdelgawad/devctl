@@ -100,7 +100,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
         s.clientEnv.set(name, req.client_env);
       }
     }
-    applyExtraEnv(s.clientEnv, req, resolved.services);
+    const extra = req.extra_env && Object.keys(req.extra_env).length > 0 ? req.extra_env : undefined;
+    const extraTargets = extra === undefined ? undefined : new Set(extraEnvTargets(req, resolved.services));
     // A real start request forgives past restarts for everything it names —
     // see resetRestartCount. `auto` marks a start restart() issued for its
     // own automatic (health-triggered) relaunch, which must preserve the
@@ -147,7 +148,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       const wave = plan.waves[i] ?? [];
       const launch = wave.filter((name) => pending.includes(name));
       if (launch.length > 0) {
-        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.profile, resolved.env, req.auto !== true)));
+        const results = await Promise.allSettled(launch.map((name) => this.startOne(name, resolved.profile, resolved.env, req.auto !== true, extra && extraTargets?.has(name) ? extra : undefined)));
         let waveFailed = false;
         for (const result of results) {
           if (result.status === "rejected") {
@@ -296,7 +297,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     return current.state === StateStarting || current.state === StateRunning;
   }
 
-  private async startOne(name: string, profile: string, profileEnv: Record<string, string>, runHooks = false): Promise<void> {
+  private async startOne(name: string, profile: string, profileEnv: Record<string, string>, runHooks = false, extraEnv?: Record<string, string>): Promise<void> {
     const s = this.host();
     if (this.serviceIsActive(name)) {
       return;
@@ -329,7 +330,9 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       if (needed.length > 0) {
         await s.ensureHttpRecipes(needed);
       }
-      const resolved = await s.resolveServiceExecution(name, launchService, launchProfile, launchEnv, s.clientEnv.get(name), !svc.container, envName);
+      const stored = s.clientEnv.get(name);
+      const launchClientEnv = extraEnv ? { ...(stored ?? {}), ...extraEnv } : stored;
+      const resolved = await s.resolveServiceExecution(name, launchService, launchProfile, launchEnv, launchClientEnv, !svc.container, envName);
       env = resolved.env;
       workDir = resolved.workDir;
       if (runHooks) {
@@ -503,17 +506,6 @@ function extraEnvTargets(req: StartRequest, resolved: string[]): string[] {
   }
   const allowed = new Set(resolved);
   return named.filter((name) => allowed.has(name));
-}
-
-function applyExtraEnv(clientEnv: Map<string, Record<string, string>>, req: StartRequest, resolved: string[]): void {
-  const extra = req.extra_env;
-  if (!extra || Object.keys(extra).length === 0) {
-    return;
-  }
-  for (const name of extraEnvTargets(req, resolved)) {
-    const base = clientEnv.get(name) ?? req.client_env ?? {};
-    clientEnv.set(name, { ...base, ...extra });
-  }
 }
 
 function sleep(ms: number): Promise<void> {

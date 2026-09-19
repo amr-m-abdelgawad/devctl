@@ -294,16 +294,42 @@ describe("ProxyCoordinator.applyConfig", () => {
     }
   });
 
-  test("applyConfig does not start a stopped proxy", async () => {
+  test("applyConfig does not start a suppressed proxy", async () => {
     const port = await reservePort();
     const cfg = defaultConfig();
     cfg.proxy.enabled = true;
     cfg.proxy.listen = { host: "127.0.0.1", port };
     const { logs } = memoryLogs();
     const coord = coordinator(() => cfg, logs);
+    coord.setSuppressed(true);
     await coord.applyConfig();
     expect(coord.isRunning()).toBe(false);
     expect(coord.instance).toBeUndefined();
+  });
+
+  test("applyConfig starts a config-disabled proxy when enabled again", async () => {
+    const up = await startHttpUpstream();
+    const port = await reservePort();
+    const cfg = defaultConfig();
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port };
+    cfg.proxy.routes = [httpRoute("api", "", up.url)];
+    const { logs } = memoryLogs();
+    const coord = coordinator(() => cfg, logs);
+    await coord.start();
+    try {
+      cfg.proxy.enabled = false;
+      await coord.applyConfig();
+      expect(coord.isRunning()).toBe(false);
+      cfg.proxy.enabled = true;
+      await coord.applyConfig();
+      expect(coord.isRunning()).toBe(true);
+      const res = await fetch(`http://127.0.0.1:${port}/`);
+      expect(res.status).toBe(200);
+    } finally {
+      await coord.stop();
+      await up.close();
+    }
   });
 
   test("a running proxy stops when proxy.enabled becomes false", async () => {

@@ -18,4 +18,11 @@ describe("listen bind compare", () => {
     expect(listenKey(undefined)).toBe("127.0.0.1:0");
     expect(sameListen(undefined, { host: "", port: 0 })).toBe(true);
   });
+
+  test("equivalent IPv6 literals share a listen key", () => {
+    expect(sameListen({ host: "::1", port: 8080 }, { host: "0:0:0:0:0:0:0:1", port: 8080 })).toBe(true);
+    expect(sameListen({ host: "[::1]", port: 8080 }, { host: "::1", port: 8080 })).toBe(true);
+    expect(sameListen({ host: "::1", port: 8080 }, { host: "::1", port: 8081 })).toBe(false);
+    expect(normalizeListenHost("::1")).toBe("0000:0000:0000:0000:0000:0000:0000:0001");
+  });
 });

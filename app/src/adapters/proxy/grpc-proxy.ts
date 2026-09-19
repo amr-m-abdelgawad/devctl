@@ -33,7 +33,7 @@ const DROP_REQUEST_HEADERS = new Set(["host", "connection", "keep-alive", "trans
 // the HTTP proxy uses, so `credentials` / `audience` / `auth.headers` all apply.
 export class GrpcProxyServer {
   private server?: Http2Server;
-  private client?: ClientHttp2Session;
+  private readonly clients = new Map<string, ClientHttp2Session>();
   private running = false;
   private addr = "";
   private readonly requests = new RequestLog();
@@ -82,8 +82,8 @@ export class GrpcProxyServer {
     if (route.upstream.url === prevUrl) {
       return;
     }
-    const stale = this.client;
-    this.client = undefined;
+    const stale = this.clients.get(prevUrl);
+    this.clients.delete(prevUrl);
     stale?.close();
   }
 
@@ -123,8 +123,10 @@ export class GrpcProxyServer {
 
   stop(): Promise<void> {
     const server = this.server;
-    this.client?.close();
-    this.client = undefined;
+    for (const session of this.clients.values()) {
+      session.close();
+    }
+    this.clients.clear();
     if (!server) {
       return Promise.resolve();
     }
@@ -136,23 +138,24 @@ export class GrpcProxyServer {
     });
   }
 
-  // A single pooled upstream session; HTTP/2 multiplexes every stream over it.
-  // Recreated lazily after it closes or a GOAWAY retires it.
+  // One pooled HTTP/2 session per upstream URL. Recreated lazily after it
+  // closes or a GOAWAY retires it. Keyed by URL so a mid-stream replaceRoute
+  // cannot send a token-injected request to a different origin.
   private upstream(url = this.route.upstream.url): ClientHttp2Session {
-    if (this.client && !this.client.closed && !this.client.destroyed) {
-      return this.client;
+    const existing = this.clients.get(url);
+    if (existing && !existing.closed && !existing.destroyed) {
+      return existing;
     }
     const session = http2.connect(url);
-    session.on("error", () => {
-      if (this.client === session) this.client = undefined;
-    });
-    session.on("goaway", () => {
-      if (this.client === session) this.client = undefined;
-    });
-    session.on("close", () => {
-      if (this.client === session) this.client = undefined;
-    });
-    this.client = session;
+    const drop = (): void => {
+      if (this.clients.get(url) === session) {
+        this.clients.delete(url);
+      }
+    };
+    session.on("error", drop);
+    session.on("goaway", drop);
+    session.on("close", drop);
+    this.clients.set(url, session);
     return session;
   }
 
@@ -252,6 +255,9 @@ export class GrpcProxyServer {
     }
 
     try {
+      if (timeoutKind || recorded) {
+        return;
+      }
       upReq = this.upstream(route.upstream.url).request(out as OutgoingHttpHeaders);
     } catch (err) {
       fail(GRPC_UNAVAILABLE, err instanceof Error ? err.message : "upstream unavailable");

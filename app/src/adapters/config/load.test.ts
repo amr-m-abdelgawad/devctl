@@ -564,6 +564,32 @@ proxy:
     expect(() => load(dir, "")).toThrow(/unknown fields/);
   });
 
+  test("rejects a non-finite route timeout instead of treating it as unlimited", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-timeout-invalid-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:8000 }
+      timeout:
+        idle_ms: bad
+        total_ms: Infinity
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/timeout\.idle_ms must be a finite number >= 0/);
+    expect(() => load(dir, "")).toThrow(/timeout\.total_ms must be a finite number >= 0/);
+  });
+
   test("rejects an unknown key under route.timeout", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-timeout-unknown-${Date.now()}`;
     writeFile(

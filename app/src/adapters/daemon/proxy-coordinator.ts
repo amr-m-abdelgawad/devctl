@@ -96,13 +96,17 @@ export class ProxyCoordinator {
     this.deps.persistState();
   }
 
-  // Reload entry: keep bound sockets when listen is unchanged. Does not start
-  // a stopped (or suppressed) proxy. Stops when the live proxy becomes disabled.
+  // Reload entry: keep bound sockets when listen is unchanged. Starts a
+  // stopped proxy when config re-enables it, unless the user suppressed it.
+  // Stops when the live proxy becomes disabled.
   async applyConfig(): Promise<void> {
     const cfg = this.deps.cfg();
     const proxy = cfg.proxy;
     const running = this.isRunning();
     if (!running) {
+      if (proxy.enabled && !this.suppressed) {
+        await this.start();
+      }
       return;
     }
     if (!proxy.enabled) {

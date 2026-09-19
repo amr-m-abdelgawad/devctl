@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isEventStreamContentType, splitSseFrames } from "./sse-frames.ts";
+import { isEventStreamContentType, splitSseFrames, sseEventData } from "./sse-frames.ts";
 
 describe("splitSseFrames", () => {
   test("splits blank-line event boundaries into frames", () => {
@@ -25,13 +25,26 @@ describe("splitSseFrames", () => {
     expect(splitSseFrames("")).toEqual([]);
     expect(splitSseFrames("\n\n")).toEqual([]);
   });
+
+  test("keeps trailing field whitespace", () => {
+    expect(splitSseFrames("data: hello \n\n")).toEqual(["data: hello "]);
+  });
+});
+
+describe("sseEventData", () => {
+  test("joins data fields with a newline and strips one leading space", () => {
+    expect(sseEventData("data: {\"id\":1}\ndata: {\"id\":2}")).toBe("{\"id\":1}\n{\"id\":2}");
+    expect(sseEventData("data:hello")).toBe("hello");
+    expect(sseEventData("event: ping")).toBe("");
+  });
 });
 
 describe("isEventStreamContentType", () => {
-  test("matches prefix and charset parameter, case-insensitive", () => {
+  test("matches the media type exactly, ignoring parameters", () => {
     expect(isEventStreamContentType("text/event-stream")).toBe(true);
     expect(isEventStreamContentType("text/event-stream; charset=utf-8")).toBe(true);
     expect(isEventStreamContentType("TEXT/EVENT-STREAM")).toBe(true);
     expect(isEventStreamContentType("application/json")).toBe(false);
+    expect(isEventStreamContentType("application/json; profile=text/event-stream")).toBe(false);
   });
 });

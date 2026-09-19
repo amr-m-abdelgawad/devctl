@@ -463,7 +463,7 @@ The CLI and the TUI share one supervisor. Global flag: \`--config <path>\` (file
 \`\`\`text
 devctl                         # TUI (attaches to a daemon, spawning one if none is running)
 devctl version
-devctl start [svc…] [--profile] [--overlay <name>] [--env KEY=VAL] [--detach] [--json]
+devctl start [svc…] [--profile <name>] [--overlay <name>] [--env KEY=VAL] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--cascade] [--json]
 devctl run <task> [--json]
@@ -503,7 +503,7 @@ devctl update [--json] [--check]
 
 - \`start\` with \`--profile\` starts **exactly** that profile’s members. Omitted dependencies are not spawned; point members at deployed backends with \`environments\` / \`service_environment\` (see [Profiles](profiles.md)).
 - \`start --overlay <name>\` merges \`.devctl/overlays/<name>.yaml\` after \`config.local.yaml\` (same keys, presence-aware). The name is sticky for the session like \`--profile\` — omit it on later starts to keep it. Recorded in \`state.json\` as \`config_overlay\`. A missing file fails with \`overlay "X" not found: .devctl/overlays/X.yaml\`.
-- \`start --env KEY=VAL\` (repeatable) overlays those keys on this start’s \`client_env\` for the services named on the command. A profile-only start with no names applies them to every service that start launches. Ephemeral: not written to YAML or \`state.json\`.
+- \`start --env KEY=VAL\` (repeatable) overlays those keys on this start’s launch environment for the services named on the command. A profile-only start with no names applies them to every service that start launches. Ephemeral: not written to YAML, \`state.json\`, or the stored client environment used for later automatic restarts.
 - \`start\` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
 - \`start\` always ensures a daemon and leaves it (and its services) running after the command exits — that is not conditional on any flag.
 - \`--detach\` is **deprecated**: it predates that always-on daemon and no longer changes behavior. Passing it prints a warning on stderr; it does nothing else.
@@ -891,7 +891,7 @@ flowchart LR
 
 The daemon remembers each service's \`client_env\` only in memory, per service, never on disk. A crash/health-triggered auto-restart or an MCP-initiated \`start\`/\`restart\` reuses the last one a real client supplied; a service that has never been started/restarted by a real client this daemon's lifetime — e.g. one adopted from a prior session by \`recoverSession()\` — has none, and falls back to the daemon's own (possibly stale) environment.
 
-\`devctl start --env KEY=VAL\` (repeatable) overlays those keys on \`client_env\` for this start only. Values may contain \`=\`. Missing \`=\` is an error. Named \`devctl start --env FOO=bar api\` applies \`FOO\` to \`api\` only — not to dependencies or other services that start in the same wave. A profile-only start with no service names applies \`--env\` to every service that start actually launches (the resolved start set). These overrides are ephemeral: in-memory \`client_env\` only, not YAML and not \`state.json\`. Process-env-sized \`client_env\` still comes from the calling client's OS environment; \`--env\` wins for the targeted keys.
+\`devctl start --env KEY=VAL\` (repeatable) overlays those keys on this start’s launch environment only. Values may contain \`=\`. Missing \`=\` is an error. Named \`devctl start --env FOO=bar api\` applies \`FOO\` to \`api\` only — not to dependencies or other services that start in the same wave. A profile-only start with no service names applies \`--env\` to every service that start actually launches (the resolved start set). These overrides are ephemeral: not stored in the supervisor \`client_env\` used for later automatic restarts, not YAML, and not \`state.json\`. Process-env-sized \`client_env\` still comes from the calling client's OS environment; \`--env\` wins for the targeted keys on this start.
 
 This memory does not survive the daemon process itself being replaced (upgrade, crash, \`devctl down\` then a fresh start): a new daemon starts with no client history at all, so anything it restarts before a client issues a fresh \`start\`/\`restart\` runs on whatever environment that new daemon process itself inherited at spawn. If a service depends on env that changed since the daemon last started, restart it explicitly (\`devctl restart <service>\` or the TUI) rather than relying on an automatic restart to pick it up.
 
@@ -2743,7 +2743,7 @@ WebSocket upgrades apply the same \`total_ms\` and \`idle_ms\`. Idle resets on e
 
 gRPC applies \`total_ms\` as a stream deadline and resets idle on DATA frames either direction. Timeout produces gRPC status **4 DEADLINE_EXCEEDED**. If the upstream response has not started, the client receives a trailers-only response.
 
-Negative \`idle_ms\` / \`total_ms\` fail \`devctl config validate\`. Per-service \`proxy:\` fragments keep \`timeout\` with the rest of \`RouteConfig\`.
+Negative or non-finite \`idle_ms\` / \`total_ms\` fail \`devctl config validate\`. Per-service \`proxy:\` fragments keep \`timeout\` with the rest of \`RouteConfig\`.
 
 ### Custom OAuth client credentials (separate from ADC)
 

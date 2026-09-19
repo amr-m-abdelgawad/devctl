@@ -79,7 +79,7 @@ WebSocket upgrades apply the same `total_ms` and `idle_ms`. Idle resets on each 
 
 gRPC applies `total_ms` as a stream deadline and resets idle on DATA frames either direction. Timeout produces gRPC status **4 DEADLINE_EXCEEDED**. If the upstream response has not started, the client receives a trailers-only response.
 
-Negative `idle_ms` / `total_ms` fail `devctl config validate`. Per-service `proxy:` fragments keep `timeout` with the rest of `RouteConfig`.
+Negative or non-finite `idle_ms` / `total_ms` fail `devctl config validate`. Per-service `proxy:` fragments keep `timeout` with the rest of `RouteConfig`.
 
 ### Custom OAuth client credentials (separate from ADC)
 

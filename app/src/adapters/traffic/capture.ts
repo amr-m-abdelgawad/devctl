@@ -14,6 +14,7 @@ import {
   isEventStreamContentType,
   splitGrpcFrames,
   splitSseFrames,
+  sseEventData,
   TRAFFIC_TRANSPORT_GRPC,
   TRAFFIC_TRANSPORT_HTTP,
   type GrpcCapturedFrame,
@@ -338,22 +339,17 @@ function openAiAssembledSse(raw: string): Record<string, unknown> | undefined {
 
 function sseLooksLikeOpenAi(raw: string): boolean {
   for (const event of splitSseFrames(raw)) {
-    for (const line of event.split("\n")) {
-      if (!line.startsWith("data:")) {
-        continue;
+    const payload = sseEventData(event);
+    if (payload === "" || payload === "[DONE]") {
+      continue;
+    }
+    try {
+      const chunk = JSON.parse(payload) as unknown;
+      if (chunk && typeof chunk === "object" && !Array.isArray(chunk) && Array.isArray((chunk as { choices?: unknown }).choices)) {
+        return true;
       }
-      const payload = line.slice("data:".length).trim();
-      if (payload === "" || payload === "[DONE]") {
-        continue;
-      }
-      try {
-        const chunk = JSON.parse(payload) as unknown;
-        if (chunk && typeof chunk === "object" && !Array.isArray(chunk) && Array.isArray((chunk as { choices?: unknown }).choices)) {
-          return true;
-        }
-      } catch {
-        continue;
-      }
+    } catch {
+      continue;
     }
   }
   return false;
