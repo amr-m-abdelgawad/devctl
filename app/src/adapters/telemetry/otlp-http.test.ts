@@ -19,6 +19,7 @@ describe("OTLP/HTTP+JSON receiver", () => {
       snapshot: () => logs.snapshot(),
       exportTo: async (path, filter) => logs.exportTo(path, filter),
       setParsers: (parsers) => logs.setParsers(parsers),
+      setServiceLogs: () => undefined,
       setSecrets: () => undefined,
       close: () => logs.close(),
     }, spans });

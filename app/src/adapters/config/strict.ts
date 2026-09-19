@@ -29,6 +29,7 @@ import {
   knownSecrets,
   knownService,
   knownServiceLogs,
+  knownServiceLogMultiline,
   knownShutdown,
   knownStartup,
   knownTokenEndpoint,
@@ -216,6 +217,9 @@ export function servicePathKnown(path: string): string[] {
       case "startup":
         return knownStartup;
       case "logs":
+        if (parts[3] === "multiline") {
+          return knownServiceLogMultiline;
+        }
         return knownServiceLogs;
       case "environment":
         return knownEnvStructured;

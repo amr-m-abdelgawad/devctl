@@ -261,7 +261,17 @@
           "additionalProperties": false,
           "properties": {
             "stdout": { "type": "boolean" },
-            "stderr": { "type": "boolean" }
+            "stderr": { "type": "boolean" },
+            "multiline": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "start": { "type": "string" },
+                "continuation": { "type": "string" },
+                "max_wait_ms": { "type": "integer", "minimum": 0 },
+                "max_lines": { "type": "integer", "minimum": 0 }
+              }
+            }
           }
         },
         "restart": {

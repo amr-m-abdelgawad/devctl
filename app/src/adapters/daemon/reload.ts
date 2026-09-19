@@ -4,6 +4,7 @@ import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import {
   type DevctlConfig,
   type ServiceConfig,
+  type ServiceLogConfig,
   load,
   unresolvedHealthTypes,
   unresolvedIdentityTypes,
@@ -64,7 +65,16 @@ export function applyRegistry(host: ReloadHost): void {
     host.tokens.replaceProviders(host.registry.tokenProviders);
   }
   host.logs.setParsers(host.registry.logParsers, host.registry.pluginPaths, host.cfg.repoRoot);
+  host.logs.setServiceLogs(serviceLogsFromConfig(host.cfg));
   host.proxy?.setMiddleware?.(host.registry.proxyMiddleware);
+}
+
+export function serviceLogsFromConfig(cfg: DevctlConfig): Record<string, ServiceLogConfig> {
+  const out: Record<string, ServiceLogConfig> = {};
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    out[name] = svc.logs;
+  }
+  return out;
 }
 
 export function pluginMtimes(paths: string[], repoRoot: string): Map<string, number> {
@@ -260,6 +270,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   const prevPluginPaths = host.cfg.plugins.map((plugin) => plugin.path);
   const prevServices = host.cfg.services;
   host.cfg = replaceSnapshot(host.cfg, next);
+  host.logs.setServiceLogs(serviceLogsFromConfig(host.cfg));
   host.recipes?.reset();
   reconcileServices(host, prevServices, next.services);
   const restartRequired = mergeRestartRequired(host.restartRequired, result.restart_required, Object.keys(next.services));

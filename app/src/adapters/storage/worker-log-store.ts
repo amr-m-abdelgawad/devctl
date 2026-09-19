@@ -1,3 +1,4 @@
+import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../../domain/logs/logs.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { LogReceived, newEvent, type Bus } from "../../shared/events.ts";
@@ -129,6 +130,13 @@ export class WorkerLogStore implements LogStore {
       return;
     }
     this.post({ type: "setPluginPaths", paths: [...(pluginPaths ?? [])], repoRoot });
+  }
+
+  setServiceLogs(logs: Record<string, ServiceLogConfig>): void {
+    if (this.dead) {
+      return;
+    }
+    this.post({ type: "setServiceLogs", logs });
   }
 
   setSecrets(extraMarkers: string[], extraPatterns: string[]): void {

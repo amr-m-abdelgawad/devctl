@@ -26,6 +26,8 @@ import {
   type RouteInspectConfig,
   type RouteIdentity,
   type ServiceConfig,
+  type ServiceLogConfig,
+  type ServiceLogMultilineConfig,
   type StartupConfig,
   type TaskConfig,
   type HttpRecipeConfig,
@@ -213,7 +215,6 @@ export function decodeService(value: unknown): ServiceConfig {
   if (!isRecord(value)) {
     return emptyService();
   }
-  const logs = isRecord(value.logs) ? value.logs : {};
   return {
     extends: asString(value.extends),
     description: asString(value.description),
@@ -227,7 +228,7 @@ export function decodeService(value: unknown): ServiceConfig {
     default_environment: asString(value.default_environment),
     health: decodeHealth(value.health),
     identity: decodeIdentity(value.identity),
-    logs: { stdout: asBoolean(logs.stdout), stderr: asBoolean(logs.stderr) },
+    logs: decodeServiceLogs(value.logs),
     restart: decodeRestart(value.restart),
     startup: decodeStartup(value.startup),
     capabilities: asStringArray(value.capabilities),
@@ -237,6 +238,43 @@ export function decodeService(value: unknown): ServiceConfig {
     watch: decodeWatch(value.watch),
     hooks: decodeHooks(value.hooks),
   };
+}
+
+export function decodeServiceLogs(value: unknown): ServiceLogConfig {
+  if (!isRecord(value)) {
+    return { stdout: false, stderr: false };
+  }
+  const logs: ServiceLogConfig = {
+    stdout: asBoolean(value.stdout),
+    stderr: asBoolean(value.stderr),
+  };
+  if (value.multiline !== undefined) {
+    const multiline = decodeServiceLogMultiline(value.multiline);
+    if (multiline) {
+      logs.multiline = multiline;
+    }
+  }
+  return logs;
+}
+
+export function decodeServiceLogMultiline(value: unknown): ServiceLogMultilineConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const out: ServiceLogMultilineConfig = {};
+  if (value.start !== undefined) {
+    out.start = asString(value.start);
+  }
+  if (value.continuation !== undefined) {
+    out.continuation = asString(value.continuation);
+  }
+  if (value.max_wait_ms !== undefined) {
+    out.max_wait_ms = asNumber(value.max_wait_ms);
+  }
+  if (value.max_lines !== undefined) {
+    out.max_lines = asNumber(value.max_lines);
+  }
+  return out;
 }
 
 export function decodeWatch(value: unknown): import("../../domain/config/types.ts").ServiceWatchConfig {

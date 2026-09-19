@@ -6,6 +6,24 @@ Sources you will see: `stdout`, `stderr`, `health`, `auth`, `devctl`, `proxy`, a
 
 Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional `traceId`/`spanId` — so structured JSON (and Python `{'key': 'value'}` dicts) keep their fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
+ANSI color codes are stripped before severity classification and structured parse (`\x1b[31mERROR\x1b[0m` is ERROR). The stored `raw` field keeps the original bytes.
+
+Process `stdout`/`stderr` can fold several physical lines into one event. Python tracebacks (`Traceback (most recent call last):` plus indented frames and the exception line) and a bare HTTP status continuation (`             200`) are always folded. Optional `services.<name>.logs.multiline` adds start/continuation regexes:
+
+```yaml
+services:
+  api:
+    logs:
+      stdout: true
+      multiline:
+        start: "^\\d{4}-\\d{2}-\\d{2}"
+        continuation: "^\\s+"
+        max_wait_ms: 80    # default
+        max_lines: 200     # default
+```
+
+The folded body is a single string with newlines. Severity is taken from the first line that classifies after ANSI strip, otherwise from the assembled body. Proxy, health, and OTLP records stay one line each. Pending folds flush on the idle timeout or when the log store is flushed.
+
 ## Buffer and persistence
 
 - In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status `logs.total` / `logs.errors` are how many of those lines are still in the ring; `logs.seen` / `logs.seenErrors` are lifetime ingest counts so dashboards do not freeze at the cap.

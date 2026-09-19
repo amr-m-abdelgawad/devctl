@@ -34,7 +34,8 @@ complete allowlists.
 | `service.identity` | `type` `mode` `service_account` `config` |
 | `service.restart` | `enabled` `policy` `max_retries` `backoff_seconds` |
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
-| `service.logs` | `stdout` `stderr` |
+| `service.logs` | `stdout` `stderr` `multiline` |
+| `service.logs.multiline` | `start` `continuation` `max_wait_ms` `max_lines` |
 | `service.environment` | `required` `defaults` + arbitrary `KEY: value` pairs |
 | `service.environments.<name>` | same shape as `service.environment` |
 | `service.expose` | `enabled` `host` `port` (or the `true` shorthand) |
@@ -465,6 +466,9 @@ Every message names its path. Fix the path it names.
 | `proxy.routes[i].auth.client_secret is required when client_id is set` | client_id needs a secret |
 | `proxy.routes[i].auth.client_id is only valid with identity.type user` | SA IAP uses generateIdToken, not a user OAuth client |
 | `proxy.routes[i].inspect.max_bytes must be >= 0` | negative capture cap |
+| `services.X.logs.multiline.start is not a valid regular expression` | `start` / `continuation` must compile as a JS regex |
+| `services.X.logs.multiline.max_wait_ms must be >= 0` | negative idle fold timeout |
+| `services.X.logs.multiline.max_lines must be >= 0` | negative fold cap |
 | `proxy.listen.port is required when proxy.enabled is true` | pin a port |
 | `unsupported config version N (expected 1)` | `version:` must be `1` |
 | `unknown fields: services.a.depends_on` | not in the allowlists at the top of this file — usually a compose or k8s spelling |

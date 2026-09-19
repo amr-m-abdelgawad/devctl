@@ -648,4 +648,13 @@ describe("config validate", () => {
     });
     expect(validate(cfg)).toEqual([]);
   });
+
+  test("rejects invalid logs.multiline regex and negative limits", () => {
+    const cfg = withService("api");
+    cfg.services.api!.logs.multiline = { start: "(", max_wait_ms: -1, max_lines: -2 };
+    const issues = validate(cfg);
+    expect(issues.some((issue) => issue.includes("logs.multiline.start is not a valid regular expression"))).toBe(true);
+    expect(issues).toContain("services.api.logs.multiline.max_wait_ms must be >= 0");
+    expect(issues).toContain("services.api.logs.multiline.max_lines must be >= 0");
+  });
 });

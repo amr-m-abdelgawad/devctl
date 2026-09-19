@@ -1,3 +1,4 @@
+import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogRecord } from "../../domain/logs/logs.ts";
 import type { LogSnapshot } from "../../ports/log-store.ts";
 
@@ -20,6 +21,7 @@ export type WorkerRequest =
   | { id: number; type: "queryFacets"; filter: LogFilter }
   | { id: number; type: "exportTo"; path: string; filter: LogFilter }
   | { type: "setPluginPaths"; paths: string[]; repoRoot?: string }
+  | { type: "setServiceLogs"; logs: Record<string, ServiceLogConfig> }
   | { type: "setSecrets"; extraMarkers: string[]; extraPatterns: string[] }
   | { id: number; type: "close" };
 

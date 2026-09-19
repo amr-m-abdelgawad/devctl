@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Process log severity now strips ANSI before classification, and stdout/stderr fold Python tracebacks, bare HTTP status continuations, and optional `logs.multiline` start/continuation regexes into one event.
+
 ## [0.15.0] - 2026-09-19
 
 ### Added
