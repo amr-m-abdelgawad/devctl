@@ -826,8 +826,28 @@ function validateLlmSource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: s
   }
   issues.push(...validateLlmAuth(source, prefix));
   issues.push(...validateLlmCapture(source, prefix));
+  issues.push(...validateLlmCostPerToken(source, prefix));
   if (source.poll_seconds < 0) {
     issues.push(`${prefix}.poll_seconds must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLlmCostPerToken(source: LlmSourceConfig, prefix: string): string[] {
+  if (source.cost_per_token === undefined) {
+    return [];
+  }
+  const issues: string[] = [];
+  const kind = source.type.trim().toLowerCase();
+  if (kind !== LLM_SOURCE_TYPE_PROXY) {
+    issues.push(`${prefix}.cost_per_token is only valid on type: ${LLM_SOURCE_TYPE_PROXY}`);
+  }
+  const { input, output } = source.cost_per_token;
+  if (typeof input !== "number" || !Number.isFinite(input) || input < 0) {
+    issues.push(`${prefix}.cost_per_token.input must be >= 0`);
+  }
+  if (typeof output !== "number" || !Number.isFinite(output) || output < 0) {
+    issues.push(`${prefix}.cost_per_token.output must be >= 0`);
   }
   return issues;
 }

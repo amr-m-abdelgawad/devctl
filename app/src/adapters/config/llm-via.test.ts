@@ -39,6 +39,18 @@ describe("llm via.route / via.routes", () => {
     expect(llmViaRoutes(llm.sources[0]!.via)).toEqual(["alpha", "beta"]);
   });
 
+  test("decodes cost_per_token when present and leaves it undefined otherwise", () => {
+    const llm = emptyLlm();
+    applyLlm(llm, {
+      sources: [{ name: "one", type: "proxy", via: { route: "foo" }, cost_per_token: { input: 0.001, output: 0.002 } }],
+    });
+    expect(llm.sources[0]?.cost_per_token).toEqual({ input: 0.001, output: 0.002 });
+    applyLlm(llm, {
+      sources: [{ name: "one", type: "proxy", via: { route: "foo" } }],
+    });
+    expect(llm.sources[0]?.cost_per_token).toBeUndefined();
+  });
+
   test("llmViaRoutes keeps route first and skips empties", () => {
     expect(llmViaRoutes(emptyLlmVia())).toEqual([]);
     expect(llmViaRoutes({ route: "  ", routes: ["", " a ", "a"] })).toEqual(["a"]);

@@ -846,6 +846,39 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("via.routes[0] must be a non-empty name"))).toBe(true);
   });
 
+  test("accepts cost_per_token on a proxy source and rejects it on litellm or with negative rates", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.route = "apigee-llm";
+    source.cost_per_token = { input: 0.000001, output: 0.000002 };
+    cfg.llm.sources = [source];
+    expect(validate(cfg)).toEqual([]);
+
+    source.cost_per_token = { input: -1, output: 0.000002 };
+    expect(validate(cfg).some((issue) => issue.includes("cost_per_token.input must be >= 0"))).toBe(true);
+    source.cost_per_token = { input: 0.000001, output: -2 };
+    expect(validate(cfg).some((issue) => issue.includes("cost_per_token.output must be >= 0"))).toBe(true);
+
+    const litellm = emptyLlmSource();
+    litellm.name = "platform";
+    litellm.type = "litellm";
+    litellm.service = "litellm";
+    litellm.auth = { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "" };
+    litellm.cost_per_token = { input: 0.000001, output: 0.000002 };
+    cfg.llm.sources = [litellm];
+    expect(validate(cfg).some((issue) => issue.includes("cost_per_token is only valid on type: proxy"))).toBe(true);
+  });
+
   test("rejects via.routes on a litellm source", () => {
     const cfg = withService("litellm");
     cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];

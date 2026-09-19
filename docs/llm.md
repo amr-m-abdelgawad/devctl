@@ -128,6 +128,9 @@ llm:
         max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
         paths:                    # optional; extra POST JSON paths to capture raw
           - /generations/v1alpha2
+      cost_per_token:             # optional; proxy only
+        input: 0.000001           # per prompt token
+        output: 0.000002          # per completion token
 ```
 
 Point workers at the route (e.g. `http://127.0.0.1:17400/llm/v1/chat/completions`) and every OpenAI-compatible completion, chat, embedding, or streamed (`text/event-stream`) call is parsed and fed into the same store as any other source. All surfaces below then work unchanged.
@@ -136,7 +139,8 @@ Point workers at the route (e.g. `http://127.0.0.1:17400/llm/v1/chat/completions
 - **OpenAI-compatible completions are captured by default.** Capture engages on a `POST` with a JSON request content-type on a completion-shaped path (`/chat/completions`, `/completions`, `/embeddings`); `GET /models`, `/model/info`, health checks, and CORS preflights are ignored. Anthropic-native `/messages` and the OpenAI Responses API (`/responses`) use different request/stream shapes and are not captured unless listed in `capture.paths`.
 - **`capture.paths` adds proprietary endpoints.** Each entry is a path substring (must start with `/`, not `/` alone) matched case-insensitively against the inbound request pathname, so a route mount prefix does not need repeating — `/generations/v1alpha2` matches `/llm/generations/v1alpha2`. Matching POST JSON is stored as a raw HTTP pair: parsed JSON bodies, or raw SSE text (not reassembled into a `chat.completion`). Model, token usage, and finish reason are copied when those standard JSON fields are present (`model`, `usage.prompt_tokens` / `input_tokens`, `choices[0].finish_reason`); otherwise they are omitted and `model` shows `unknown`. Built-in OpenAI paths on the same source still use the OpenAI mapper.
 - **`proxy` has no management hop.** It captures from `via.route` / `via.routes` and must not set `service`, `endpoint`, or `management_*`; config validation rejects those. `via.routes` is only valid on `type: proxy`.
-- **Redaction is unchanged** — the same `secrets` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (`prompt_tokens`, `completion_tokens`, `total_tokens`, `max_tokens`) are counts, not credentials, so they stay visible. Cost is unavailable from a `proxy` source, and a streamed response carries token usage only when the caller sets `stream_options.include_usage`. TUI `/reveal` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
+- **`cost_per_token` estimates spend.** Optional, `type: proxy` only (`litellm` and plugin sources already report spend and must not set it). Both `input` and `output` are required `>= 0` numbers when the block is present. A captured call gets `cost = promptTokens * input + completionTokens * output` when those usage fields exist; missing prompt or completion tokens leave `cost` unset (total-only usage is not enough). The inspector chip already shows `cost` when it is set.
+- **Redaction is unchanged** — the same `secrets` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (`prompt_tokens`, `completion_tokens`, `total_tokens`, `max_tokens`) are counts, not credentials, so they stay visible. A streamed response carries token usage only when the caller sets `stream_options.include_usage`. TUI `/reveal` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
 
 ## Caller (which service made the call)
 

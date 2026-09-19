@@ -18,7 +18,7 @@ export function proxyDriver(): LlmSourceDriver {
 function capabilitiesFor(cfg: LlmSourceConfig): LlmSourceCapabilities {
   return {
     hasBodies: cfg.capture.prompts,
-    hasCost: false,
+    hasCost: cfg.cost_per_token !== undefined,
     // LiteLLM omits usage on streamed responses unless the caller sets
     // stream_options.include_usage, so capture can't promise token counts.
     hasUsage: false,

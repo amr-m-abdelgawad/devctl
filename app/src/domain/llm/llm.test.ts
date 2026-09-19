@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Detector, REDACTED_VALUE } from "../../shared/redaction.ts";
 import { matchesLlmCall } from "./match.ts";
 import { redactLlmCall, stripLlmBodies } from "./redact.ts";
-import { LLM_OPERATION_CHAT, LLM_STATUS_ERROR, LLM_STATUS_OK, clampLlmPageSize, normalizeLlmPathPrefix, type LlmCall } from "./types.ts";
+import { LLM_OPERATION_CHAT, LLM_STATUS_ERROR, LLM_STATUS_OK, clampLlmPageSize, estimateLlmCost, normalizeLlmPathPrefix, type LlmCall } from "./types.ts";
 
 function call(overrides: Partial<LlmCall> = {}): LlmCall {
   return {
@@ -72,5 +72,19 @@ describe("llm domain", () => {
     expect(redacted.request).toEqual({ model: "gpt-4o", max_tokens: 256, messages: [{ role: "user", content: "hi" }] });
     expect(redacted.response).toEqual({ usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 } });
     expect(redacted.usage).toEqual({ promptTokens: 12, completionTokens: 4, totalTokens: 16 });
+  });
+
+  test("estimateLlmCost is undefined when usage or rates are missing", () => {
+    const rates = { input: 0.001, output: 0.002 };
+    expect(estimateLlmCost(undefined, rates)).toBeUndefined();
+    expect(estimateLlmCost({ totalTokens: 10 }, rates)).toBeUndefined();
+    expect(estimateLlmCost({ promptTokens: 3 }, rates)).toBeUndefined();
+    expect(estimateLlmCost({ completionTokens: 2 }, rates)).toBeUndefined();
+    expect(estimateLlmCost({ promptTokens: 3, completionTokens: 2 }, undefined)).toBeUndefined();
+  });
+
+  test("estimateLlmCost is the product sum when both token counts and rates are present", () => {
+    expect(estimateLlmCost({ promptTokens: 3, completionTokens: 2, totalTokens: 5 }, { input: 0.001, output: 0.002 })).toBe(0.007);
+    expect(estimateLlmCost({ promptTokens: 0, completionTokens: 0 }, { input: 1, output: 1 })).toBe(0);
   });
 });

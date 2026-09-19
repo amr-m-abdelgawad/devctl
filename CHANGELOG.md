@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Proxy `auth.log_identity` on `auth: none` copies inbound `X-Goog-Authenticated-User-Email` onto the traffic record as `caller_email`; IAP routes with a credentials file report `credentials_valid` on `devctl status`. See [Proxy](docs/proxy.md).
 - `${identity.user}` in **service env** still resolves at process start; the same placeholder in proxy `auth.headers` (including service `proxy:` fragments) is not run through `resolveEnvMap` and stays literal. `devctl config validate` prints a `warning:` (load still succeeds). `${token}` on minting routes is unchanged. See [Environment](docs/environment.md) and [Proxy](docs/proxy.md).
 - Doctor statically checks each IAP route's `auth.credentials` (or folded `proxy.credentials`) authorized_user file: exists, JSON, `refresh_token`, and `client_id` match. Failures hint `gcloud auth application-default login` with a client secret file that matches `client_id` (or omit `client_id`), plus TUI `/auth login` / `devctl auth login`. See [Doctor](docs/doctor.md) and [IAP](docs/iap.md).
+- LLM inspector `type: proxy` sources can set optional `cost_per_token.input` / `output` (both `>= 0`) so a captured call gets `cost` as `promptTokens * input + completionTokens * output` when that usage split is present; missing tokens leave `cost` unset. Invalid on `litellm` and plugin sources. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
 
 ### Changed
 

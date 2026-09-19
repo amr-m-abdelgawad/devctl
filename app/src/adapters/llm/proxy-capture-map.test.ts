@@ -45,6 +45,32 @@ describe("mapProxyCapture", () => {
     expect((call.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("hello");
   });
 
+  test("fills cost from cost_per_token when prompt and completion tokens are present", () => {
+    const call = mapProxyCapture(base({
+      costPerToken: { input: 0.001, output: 0.002 },
+      requestBody: JSON.stringify({ model: "gpt-4o", messages: [] }),
+      responseBody: JSON.stringify({
+        model: "gpt-4o",
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      }),
+    }));
+    expect(call.usage).toEqual({ promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+    expect(call.cost).toBe(0.009);
+  });
+
+  test("leaves cost undefined when usage tokens are missing even if rates are set", () => {
+    const withRates = { costPerToken: { input: 0.001, output: 0.002 } };
+    expect(mapProxyCapture(base(withRates)).cost).toBeUndefined();
+    expect(mapProxyCapture(base({
+      ...withRates,
+      responseBody: JSON.stringify({ usage: { total_tokens: 7 } }),
+    })).cost).toBeUndefined();
+    expect(mapProxyCapture(base({
+      ...withRates,
+      responseBody: JSON.stringify({ usage: { prompt_tokens: 5, total_tokens: 5 } }),
+    })).cost).toBeUndefined();
+  });
+
   test("copies an attributed caller onto the ingest", () => {
     expect(mapProxyCapture(base({ caller: "worker" })).caller).toBe("worker");
   });
