@@ -112,26 +112,29 @@ function coordinator(cfg: () => DevctlConfig, logs: LogStore): ProxyCoordinator 
 async function grpcCall(port: number, path: string): Promise<{ status: number; grpcStatus?: string }> {
   const client = http2.connect(`http://127.0.0.1:${port}`);
   try {
-    const req = client.request({ ":method": "POST", ":path": path, "content-type": "application/grpc" });
-    let status = 0;
-    let grpcStatus: string | undefined;
-    req.on("response", (headers) => {
-      status = Number(headers[":status"] ?? 0);
-      if (headers["grpc-status"] !== undefined) {
-        grpcStatus = String(headers["grpc-status"]);
-      }
-    });
-    req.on("trailers", (trailers) => {
-      if (trailers["grpc-status"] !== undefined) {
-        grpcStatus = String(trailers["grpc-status"]);
-      }
-    });
-    req.end();
-    await new Promise<void>((resolve, reject) => {
-      req.on("close", () => resolve());
+    return await new Promise((resolve, reject) => {
+      // Windows surfaces a closed listen port as a session `error` (ECONNREFUSED)
+      // rather than a request rejection, so attach it here or the test fails
+      // as an unhandled exception instead of `expect(...).rejects`.
+      client.once("error", reject);
+      const req = client.request({ ":method": "POST", ":path": path, "content-type": "application/grpc" });
+      let status = 0;
+      let grpcStatus: string | undefined;
+      req.on("response", (headers) => {
+        status = Number(headers[":status"] ?? 0);
+        if (headers["grpc-status"] !== undefined) {
+          grpcStatus = String(headers["grpc-status"]);
+        }
+      });
+      req.on("trailers", (trailers) => {
+        if (trailers["grpc-status"] !== undefined) {
+          grpcStatus = String(trailers["grpc-status"]);
+        }
+      });
       req.on("error", reject);
+      req.on("close", () => resolve({ status, grpcStatus }));
+      req.end();
     });
-    return { status, grpcStatus };
   } finally {
     client.close();
   }
