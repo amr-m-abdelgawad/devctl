@@ -528,15 +528,13 @@ describe("proxy", () => {
     }
   });
 
-  test("idle_ms aborts when response chunks stall", async () => {
+  test("idle_ms disconnects when response chunks stall after headers", async () => {
     const { proxyPort, server, close } = await setupProxy((_req, res) => {
       res.writeHead(200, { "content-type": "text/plain" });
       res.write("ping");
     }, { timeout: { idle_ms: 50 } });
     try {
-      const resp = await fetch(`http://127.0.0.1:${proxyPort}/stall`);
-      const text = await resp.text();
-      expect(text.startsWith("ping")).toBe(true);
+      await expect(fetch(`http://127.0.0.1:${proxyPort}/stall`).then((resp) => resp.text())).rejects.toThrow(/socket connection was closed|ECONNRESET/);
       for (let i = 0; i < 50 && server.stats().total === 0; i++) {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
