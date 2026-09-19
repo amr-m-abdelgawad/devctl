@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-09-19
+
 ### Added
 
 - Log ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same gRPC method or HTTP method+path (50ms window), so `--dedupe-request-id` can collapse the proxy+SDK pair. See [Logs](docs/logs.md).
@@ -598,7 +600,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.16.0...HEAD
+[0.16.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.14.0...v0.14.1
 [0.14.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.13.2...v0.14.0
