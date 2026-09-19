@@ -863,6 +863,9 @@ project:
 logs:
   persistence:
     enabled: false
+services:
+  api:
+    command: [echo, ok]
 proxy:
   enabled: true
   listen:
