@@ -227,7 +227,8 @@ function inflateGrpcMessages(frames: GrpcCapturedFrame[]): Uint8Array[] | undefi
       continue;
     }
     try {
-      messages.push(new Uint8Array(Bun.gunzipSync(frame.message)));
+      const packed = new Uint8Array(frame.message);
+      messages.push(new Uint8Array(Bun.gunzipSync(packed)));
     } catch {
       return undefined;
     }
