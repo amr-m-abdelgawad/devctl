@@ -9,14 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `devctl start --overlay <name>` applies `.devctl/overlays/<name>.yaml` as a sticky session config layer after `config.local.yaml` (recorded in `state.json`, shown in provenance), and `--env KEY=VAL` (repeatable) sets ephemeral process env for targeted services only.
+- Proxy routes can set optional `timeout.idle_ms` / `timeout.total_ms` (0 or omitted = unlimited) so a stalled hop returns HTTP 504 or gRPC `DEADLINE_EXCEEDED` without hanging the client. See [Proxy](docs/proxy.md#route-timeouts).
 - Built-in `health.type: grpc` probes `grpc.health.v1.Health/Check` over HTTP/2 (h2c, with TLS fallback), and gitignored `.devctl/secrets.env` (plus weaker `~/.devctl/secrets.env`) is always loaded for `${env.NAME}` interpolation and as a service-env layer after dotenv. Process environment still wins. There is no `${secret:}` template syntax.
 - Proxy routes can **strip a matched path prefix** when forwarding (`strip_prefix`) and treat listed gRPC statuses as non-errors (`log.grpc.ok`), so Temporal long-poll 14 / workflow-task 3 no longer inflate `stats().errors`. Per-service `proxy:` fragments now keep the full `RouteConfig` (inspect, transport, response headers, and the new fields). See [Proxy](docs/proxy.md).
 - Traffic inspector decodes **gRPC request and response** bodies: split multi-message frames, inflate gzip in the capture adapter, pretty-print JSON (`application/grpc+json` or JSON-looking payloads) or proto3 `decode_raw` field numbers, and optionally a named `inspect.grpc.decoder` plugin (`trafficDecoders`). Captured `data` stays the original base64. See [Proxy](docs/proxy.md#inspect-bodies).
+- Traffic inspector `inspect.capture_sse` (default false) stores `text/event-stream` responses as a JSON array of blank-line-delimited frames, or pretty OpenAI `chat.completion` JSON when the stream is chat/completion-shaped. The forwarded stream is still teed with no extra delay; `max_bytes` / `truncated` still apply. See [Proxy](docs/proxy.md#inspect-bodies).
+
+### Changed
+
+- Config reload **hot-swaps proxy routes** when listen addresses are unchanged, so HTTP, token-endpoint, and gRPC sockets stay up; a listener restarts only on bind/enable change. See [Proxy](docs/proxy.md).
 
 ### Fixed
 
 - Process log severity now strips ANSI before classification, and stdout/stderr fold Python tracebacks, bare HTTP status continuations, and optional `logs.multiline` start/continuation regexes into one event.
 - Review follow-ups for the platform-audit Phase 1 surface: `log.grpc.ok` decode keeps malformed entries so validate can reject them, `status` is an integer 1–16, and method names match on a `/` boundary; reload loads a candidate plugin registry before checking `inspect.grpc.decoder`; gRPC health origins bracket IPv6 hosts; gzip inflate honors `inspect.max_bytes`; `snapshot()` no longer flushes pending multiline buffers; multiline buffers are keyed by service/source/stream/pid/identity; `parseJSONLogLine` keeps the original `raw` line; schema-free `decode_raw` keeps fixed-width wire bits as hex.
+- Review follow-ups for the platform-audit Phase 2 surface: malformed or non-finite route timeouts stay invalid instead of decoding to unlimited `0`; a config-disabled proxy starts again on reload when `proxy.enabled` becomes true (unless suppressed); gRPC sessions are keyed by upstream URL and do not open after a deadline; HTTP timeouts disconnect a started response; request-body forwarding preserves backpressure; SSE capture matches `text/event-stream` exactly, keeps frame whitespace, and joins split `data:` fields; listen-key compare canonicalizes equivalent IPv6 literals; `--env KEY=VAL` stays off the stored client environment.
 
 ## [0.15.0] - 2026-09-19
 

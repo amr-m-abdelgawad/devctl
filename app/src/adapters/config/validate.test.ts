@@ -223,6 +223,49 @@ describe("config validate", () => {
     expect(issues).toContain("proxy.routes[0].log.grpc.ok[2].status must be an integer from 1 to 16");
   });
 
+  test("rejects negative or non-finite timeout idle_ms / total_ms and accepts omitted or 0", () => {
+    const ok = withService("api");
+    ok.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(ok).filter((issue) => issue.includes("timeout"))).toEqual([]);
+    ok.proxy.routes[0]!.timeout = { idle_ms: 0, total_ms: 0 };
+    expect(validate(ok).filter((issue) => issue.includes("timeout"))).toEqual([]);
+    ok.proxy.routes[0]!.timeout = { idle_ms: 120000, total_ms: 300000 };
+    expect(validate(ok).filter((issue) => issue.includes("timeout"))).toEqual([]);
+    const badIdle = withService("api");
+    badIdle.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      timeout: { idle_ms: -1 },
+    });
+    expect(validate(badIdle)).toContain("proxy.routes[0].timeout.idle_ms must be a finite number >= 0");
+    const badTotal = withService("api");
+    badTotal.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      timeout: { total_ms: -5 },
+    });
+    expect(validate(badTotal)).toContain("proxy.routes[0].timeout.total_ms must be a finite number >= 0");
+    const badString = withService("api");
+    badString.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      timeout: { idle_ms: Number.NaN, total_ms: Number.POSITIVE_INFINITY },
+    });
+    expect(validate(badString)).toContain("proxy.routes[0].timeout.idle_ms must be a finite number >= 0");
+    expect(validate(badString)).toContain("proxy.routes[0].timeout.total_ms must be a finite number >= 0");
+  });
+
   test("rejects negative inspect.max_bytes and accepts omitted inspect", () => {
     const ok = withService("api");
     ok.proxy.routes.push({

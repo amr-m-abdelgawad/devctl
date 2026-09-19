@@ -846,6 +846,68 @@ services:
     }
   });
 
+  test("reload that only changes a proxy route keeps the HTTP listen socket", async () => {
+    const upstream = createHttpServer((_req, res) => res.end("ok"));
+    await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
+    const upAddr = upstream.address();
+    const upPort = typeof upAddr === "object" && upAddr ? upAddr.port : 0;
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const proxyPort = await freePort();
+    const writeCfg = (path: string): void => {
+      writeFileSync(
+        join(dir, ".devctl", "config.yaml"),
+        `version: 1
+project:
+  name: proxy-hot
+logs:
+  persistence:
+    enabled: false
+services:
+  api:
+    command: [echo, ok]
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: ${proxyPort}
+  routes:
+    - name: stub
+      match:
+        path: ${path}
+      upstream:
+        url: http://127.0.0.1:${upPort}
+`,
+      );
+    };
+    writeCfg("/v1");
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      await sup.dispatch("proxy_start", null);
+      const addr = sup.snapshot().proxy.address ?? "";
+      expect(addr).toBe(`127.0.0.1:${proxyPort}`);
+      const before = await fetch(`http://${addr}/v1`);
+      expect(before.status).toBe(200);
+      writeCfg("/v2");
+      await sup.reload();
+      expect(sup.snapshot().proxy.running).toBe(true);
+      expect(sup.snapshot().proxy.address).toBe(addr);
+      const miss = await fetch(`http://${addr}/v1`);
+      expect(miss.status).toBe(404);
+      const hit = await fetch(`http://${addr}/v2`);
+      expect(hit.status).toBe(200);
+    } finally {
+      await sup.shutdown(false);
+      await new Promise<void>((resolve) => upstream.close(() => resolve()));
+    }
+  }, 15_000);
+
   test("a saved mcp_enabled preference starts MCP at daemon boot, independent of which client spawned it", async () => {
     const dir = tmp();
     const port = await freePort();
@@ -1632,6 +1694,110 @@ describe("reload reconciliation", () => {
   function writeConfig(configPath: string, yaml: string): void {
     writeFileSync(configPath, yaml);
   }
+
+  test("state.json round-trips config_overlay and reload applies it", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl", "overlays"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: main
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    writeFileSync(
+      join(dir, ".devctl", "overlays", "night.yaml"),
+      `project:
+  name: night
+proxy:
+  enabled: false
+`,
+    );
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    expect(cfg.proxy.enabled).toBe(true);
+    cfg.logs.persistence.enabled = false;
+    writePersistedState(dir, {
+      session_id: "2026-08-30T00-00-00Z-abc123",
+      repo_root: dir,
+      profile: "",
+      processes: [],
+      config_overlay: "night",
+    });
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.reload();
+      const snap = (await sup.dispatch("config_snapshot", null)) as { proxy: { enabled: boolean }; project: { name: string } };
+      expect(snap.proxy.enabled).toBe(false);
+      expect(snap.project.name).toBe("night");
+      expect(readPersistedState(dir)?.config_overlay).toBe("night");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
+
+  test("start overlay persists the name, reloads, and fails on a missing file", async () => {
+    const dir = tmp();
+    const overlayName = () => {
+      process.env.DEVCTL_HOME = dir;
+      return readPersistedState(dir)?.config_overlay;
+    };
+    mkdirSync(join(dir, ".devctl", "overlays"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: main
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: [echo, ok]
+`,
+    );
+    writeFileSync(
+      join(dir, ".devctl", "overlays", "night.yaml"),
+      `project:
+  name: night
+proxy:
+  enabled: false
+`,
+    );
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await expect(sup.start({ services: ["api"], overlay: "missing" })).rejects.toThrow(
+        'overlay "missing" not found: .devctl/overlays/missing.yaml',
+      );
+      expect(overlayName()).toBeUndefined();
+      await sup.start({ services: ["api"], overlay: "night" });
+      const snap = (await sup.dispatch("config_snapshot", null)) as { proxy: { enabled: boolean }; project: { name: string } };
+      expect(snap.proxy.enabled).toBe(false);
+      expect(snap.project.name).toBe("night");
+      expect(overlayName()).toBe("night");
+    } finally {
+      await sup.stop([]).catch(() => {});
+    }
+  });
 
   test("a service added by reload appears immediately, stopped", async () => {
     const dir = tmp();

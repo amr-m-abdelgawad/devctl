@@ -9,6 +9,7 @@ import {
   type LlmOperation,
   type LlmUsage,
 } from "../../domain/llm/llm.ts";
+import { splitSseFrames, sseEventData } from "../../domain/traffic/sse-frames.ts";
 import { asRecord, firstNumber, firstString, parseJsonish } from "./json.ts";
 
 const HTTP_ERROR_MIN = 400;
@@ -217,11 +218,8 @@ function finalizeToolCalls(byIndex?: Map<number, ToolCallAcc>): Array<Record<str
 
 function sseDataFrames(raw: string): string[] {
   const frames: string[] = [];
-  for (const line of raw.split(/\r?\n/)) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-    const payload = line.slice("data:".length).trim();
+  for (const event of splitSseFrames(raw)) {
+    const payload = sseEventData(event);
     if (payload === "" || payload === "[DONE]") {
       continue;
     }

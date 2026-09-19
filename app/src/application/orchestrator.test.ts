@@ -540,6 +540,52 @@ describe("ServiceOrchestrator", () => {
     expect(session.runtimes.get("api")?.health).toBe(HealthHealthy);
   });
 
+  test("extra_env applies only to named start targets, not an untargeted dependency", async () => {
+    const { orch, cfg, session } = harness();
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.services.worker.health.type = "";
+    cfg.services.api!.dependencies = ["worker"];
+    session.runtimes.set("worker", emptyRuntime("worker"));
+    const seen: Record<string, Record<string, string> | undefined> = {};
+    session.resolveServiceExecution = async (name, _svc, profile, env, clientEnv) => {
+      seen[name] = clientEnv;
+      return { env: { ...env, ...clientEnv, PROFILE: profile }, workDir: "/work" };
+    };
+    await orch.start({
+      services: ["api"],
+      client_env: { SHARED: "1" },
+      extra_env: { FOO: "bar" },
+    });
+    expect(seen.api).toEqual({ SHARED: "1", FOO: "bar" });
+    expect(session.clientEnv.get("api")).toEqual({ SHARED: "1" });
+    expect(session.clientEnv.get("worker")).toBeUndefined();
+  });
+
+  test("profile-only extra_env applies to the full resolved start set", async () => {
+    const { orch, cfg, session } = harness();
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.profiles.full = emptyProfile({ services: ["api", "worker"] });
+    session.runtimes.set("worker", emptyRuntime("worker"));
+    const seen: Record<string, Record<string, string> | undefined> = {};
+    session.resolveServiceExecution = async (name, _svc, profile, env, clientEnv) => {
+      seen[name] = clientEnv;
+      return { env: { ...env, ...clientEnv, PROFILE: profile }, workDir: "/work" };
+    };
+    await orch.start({
+      profile: "full",
+      client_env: { SHARED: "1" },
+      extra_env: { FOO: "bar" },
+    });
+    expect(seen.api).toEqual({ SHARED: "1", FOO: "bar" });
+    expect(seen.worker).toEqual({ SHARED: "1", FOO: "bar" });
+    expect(session.clientEnv.get("api")).toEqual({ SHARED: "1" });
+    expect(session.clientEnv.get("worker")).toEqual({ SHARED: "1" });
+  });
+
   test("disposing a detached monitor invalidates in-flight probes", async () => {
     let resolve!: (result: HealthCheckResult) => void;
     const { orch, svc, session, processes } = harness({ lookup: () => ({ check: () => new Promise((done) => { resolve = done; }) }) });

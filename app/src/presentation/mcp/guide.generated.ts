@@ -390,11 +390,12 @@ complete allowlists.
 | \`proxy\` | \`enabled\` \`gateway\` \`credentials\` \`listen\` \`token_endpoint\` \`routes\` |
 | \`proxy.listen\` | \`host\` \`port\` |
 | \`proxy.token_endpoint\` | \`enabled\` \`host\` \`port\` |
-| \`route\` | \`name\` \`transport\` \`listen\` \`match\` \`upstream\` \`auth\` \`response_headers\` \`inspect\` \`strip_prefix\` \`log\` |
+| \`route\` | \`name\` \`transport\` \`listen\` \`match\` \`upstream\` \`auth\` \`response_headers\` \`inspect\` \`strip_prefix\` \`log\` \`timeout\` |
+| \`route.timeout\` | \`idle_ms\` \`total_ms\` |
 | \`route.match\` | \`host\` \`path\` |
 | \`route.upstream\` | \`url\` \`service\` \`port\` \`recipe\` |
 | \`route.auth\` | \`type\` \`identity\` \`audience\` \`service_account\` \`client_id\` \`client_secret\` \`credentials\` \`headers\` |
-| \`route.inspect\` | \`enabled\` \`max_bytes\` \`grpc\` |
+| \`route.inspect\` | \`enabled\` \`max_bytes\` \`grpc\` \`capture_sse\` |
 | \`route.inspect.grpc\` | \`decoder\` |
 | \`route.log\` | \`grpc\` |
 | \`route.log.grpc\` | \`ok\` |
@@ -623,9 +624,10 @@ Anything else is rejected.
 - \`telemetry.otlp\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected, same as the proxy). Default listen port is **4318**. Host services (not containers) get \`OTEL_EXPORTER_OTLP_ENDPOINT\` / \`OTEL_EXPORTER_OTLP_PROTOCOL=http/json\` / \`OTEL_SERVICE_NAME\` only when those variables are unset. JSON only — no protobuf or gRPC.
 - \`web\` is **off by default**. When \`enabled: true\`, \`listen.host\` must be loopback (\`0.0.0.0\` / \`::\` rejected). Default listen port is **18900**. It must not collide with \`proxy.listen\`, \`proxy.token_endpoint\`, \`telemetry.otlp\`, or a gRPC route listen port. The listener serves the local telemetry UI (\`GET /api/*\`) and loopback lifecycle control (\`POST /api/control\`, same mutating MCP tools except \`exec_service\`). Request \`Host\` must be a loopback name; the port in \`Host\` may differ from the listen port (WSL / Dev Container forwarding).
 - \`llm\` is **off by default**. When \`enabled: true\`, \`sources\` must be non-empty. Each source needs a unique \`name\` and a known \`type\` (\`litellm\`, \`proxy\`, or a plugin \`llmSources\` name). \`type: proxy\` requires \`via.route\` naming an existing proxy route and must not set \`service\`, \`endpoint\`, or \`management_*\`. Pull types (\`litellm\` and plugins) need a unique management hop: \`management_endpoint\` XOR \`management_service\`, otherwise exactly one of \`service\` / \`endpoint\` / \`via.route\`. \`via.route\` may exist alongside \`management_*\`. Bearer \`auth\` requires \`token_env\` (never an inline key). \`auth.header\` defaults to \`Authorization\`. \`capture.prompts\` defaults to true. \`capture.max_bytes\` (proxy) defaults to 1 MiB when omitted or \`0\`. \`capture.paths\` (proxy) is an optional list of extra path substrings to capture as raw POST JSON pairs; each must start with \`/\` and must not be \`/\` alone. \`via.route\` must name an existing proxy route. See [LLM inspector](../../../docs/llm.md).
-- \`proxy.routes[].inspect\` is **off by default**. \`inspect: true\` or \`inspect.enabled: true\` captures HTTP or gRPC request/response bodies on that hop for the traffic inspector (TUI proxy screen, web \`#/traffic\`, MCP \`get_traffic_call\`, CLI \`devctl traffic\`). \`inspect.max_bytes\` defaults to 1 MiB when omitted or \`0\`; negative values fail validate. \`inspect.grpc.decoder\` is an optional plugin \`trafficDecoders\` name; omit it to pretty-print JSON frames then proto3 \`decode_raw\`. A named decoder with no \`plugins:\` fails validate the same way an unknown \`health.type\` does. Inspect is ignored when the proxy is off. Recipe \`expose\` routes are never captured as live RPCs. Direct sockets that never hit the proxy are invisible — callers should use \`\${services.<name>.url}\` or the gRPC listen port. See [Proxy](../../../docs/proxy.md#inspect-bodies).
+- \`proxy.routes[].inspect\` is **off by default**. \`inspect: true\` or \`inspect.enabled: true\` captures HTTP or gRPC request/response bodies on that hop for the traffic inspector (TUI proxy screen, web \`#/traffic\`, MCP \`get_traffic_call\`, CLI \`devctl traffic\`). \`inspect: true\` is \`{ enabled: true, max_bytes: 0 }\` with no \`capture_sse\`. \`inspect.max_bytes\` defaults to 1 MiB when omitted or \`0\`; negative values fail validate. \`inspect.grpc.decoder\` is an optional plugin \`trafficDecoders\` name; omit it to pretty-print JSON frames then proto3 \`decode_raw\`. A named decoder with no \`plugins:\` fails validate the same way an unknown \`health.type\` does. \`inspect.capture_sse\` (default false) stores \`text/event-stream\` responses as a JSON array of blank-line-delimited event frames, or pretty OpenAI \`chat.completion\` JSON when the stream is that shape. Non-SSE responses and request bodies ignore the flag; the forwarded stream is still teed with no extra delay. Inspect is ignored when the proxy is off. Recipe \`expose\` routes are never captured as live RPCs. Direct sockets that never hit the proxy are invisible — callers should use \`\${services.<name>.url}\` or the gRPC listen port. See [Proxy](../../../docs/proxy.md#inspect-bodies).
 - \`proxy.routes[].strip_prefix: true\` strips \`match.path\` from the pathname **when forwarding only**. Inspector and proxy logs keep the inbound path. No-op when \`match.path\` is empty (host-based \`expose\` routes). \`/my-service\` → \`/\`, \`/my-service/foo\` → \`/foo\`; the query string is preserved. See [Proxy](../../../docs/proxy.md#strip-a-path-prefix).
 - \`proxy.routes[].log.grpc.ok\` lists non-zero gRPC statuses that are **not** proxy errors. Each entry is \`{ status, methods?, log? }\`. \`status\` is an integer from 1 to 16. Omit \`methods\` to apply to every method on that route; otherwise a listed name matches as an exact \`:path\` or a suffix that starts with \`/\` (e.g. \`PollWorkflowTaskQueue\` matches \`…/PollWorkflowTaskQueue\`, not \`…/NotPollWorkflowTaskQueue\`). \`log\` is \`info\` (default) or \`silent\`. Unlisted non-zero statuses stay WARN and increment \`stats().errors\`. See [Proxy](../../../docs/proxy.md#grpc-status-policy).
+- \`proxy.routes[].timeout\` is **opt-in**. \`idle_ms\` and \`total_ms\` are milliseconds. \`0\`, omitted keys, or a missing \`timeout\` block are unlimited (current behavior — do not set a global default; a 47–65s CopilotKit stream must keep working). Negative or non-finite values fail validate. HTTP returns **504** and aborts the upstream; idle resets on each request or response chunk (including WebSocket data either direction). gRPC uses status **4 DEADLINE_EXCEEDED** (trailers-only if the response has not started); idle resets on DATA frames either direction. See [Proxy](../../../docs/proxy.md#route-timeouts).
 - Every route needs a \`name\` and exactly one of \`upstream.url\`,
   \`upstream.service\`, or \`upstream.recipe\`. A service reference must name a
   real service and an existing port (default port name is \`http\`).
@@ -733,11 +735,15 @@ duplicate-route-name check.
 
 Overlays merge after the repo config, later wins:
 built-in defaults → repo \`.devctl\` → \`~/.devctl/config.local.yaml\` →
-\`.devctl/config.local.yaml\` — the repo-local overlay wins over the home one.
-Overlays are presence-aware:
+\`.devctl/config.local.yaml\` → \`.devctl/overlays/<name>.yaml\` (session,
+\`devctl start --overlay <name>\`). The repo-local overlay wins over the home
+one; a session overlay wins over both locals. Session overlays use the **same
+keys** as \`config.local.yaml\` — they are not a second language. Presence-aware:
 \`false\`, \`0\` and
 empty collections in an overlay do override, so \`proxy.enabled: false\` in a
-local overlay genuinely turns the proxy off.
+local or session overlay genuinely turns the proxy off. A missing
+\`--overlay\` name fails with \`overlay "X" not found: .devctl/overlays/X.yaml\`.
+Named overlay files may be committed; do not gitignore all of \`overlays/\`.
 
 ---
 
@@ -831,6 +837,8 @@ Every message names its path. Fix the path it names.
 | \`proxy.routes[i].auth.client_secret is required when client_id is set\` | client_id needs a secret |
 | \`proxy.routes[i].auth.client_id is only valid with identity.type user\` | SA IAP uses generateIdToken, not a user OAuth client |
 | \`proxy.routes[i].inspect.max_bytes must be >= 0\` | negative capture cap |
+| \`proxy.routes[i].timeout.idle_ms must be a finite number >= 0\` | negative or non-finite idle hop deadline |
+| \`proxy.routes[i].timeout.total_ms must be a finite number >= 0\` | negative or non-finite total hop deadline |
 | \`services.X.logs.multiline.start is not a valid regular expression\` | \`start\` / \`continuation\` must compile as a JS regex |
 | \`services.X.logs.multiline.max_wait_ms must be >= 0\` | negative idle fold timeout |
 | \`services.X.logs.multiline.max_lines must be >= 0\` | negative fold cap |

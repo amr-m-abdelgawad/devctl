@@ -29,6 +29,7 @@ import {
   type RouteInspectGrpcConfig,
   type RouteIdentity,
   type RouteLogConfig,
+  type RouteTimeoutConfig,
   type ServiceConfig,
   type ServiceLogConfig,
   type ServiceLogMultilineConfig,
@@ -407,6 +408,7 @@ export function decodeRouteInspect(value: unknown): RouteInspectConfig {
   return {
     enabled: asBoolean(value.enabled),
     max_bytes: asNumber(value.max_bytes),
+    ...(value.capture_sse !== undefined ? { capture_sse: asBoolean(value.capture_sse) } : {}),
     ...(grpc ? { grpc } : {}),
   };
 }
@@ -461,6 +463,33 @@ export function decodeRouteLog(value: unknown): RouteLogConfig | undefined {
   return { grpc: { ok } };
 }
 
+// Keep unusable values as NaN (and numeric Infinity as Infinity) so validate
+// can reject them. asNumber("bad") would become 0, which is unlimited.
+function decodeTimeoutMs(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : Number.NaN;
+  }
+  return Number.NaN;
+}
+
+function decodeRouteTimeout(value: unknown): RouteTimeoutConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const timeout: RouteTimeoutConfig = {};
+  if (value.idle_ms !== undefined) {
+    timeout.idle_ms = decodeTimeoutMs(value.idle_ms);
+  }
+  if (value.total_ms !== undefined) {
+    timeout.total_ms = decodeTimeoutMs(value.total_ms);
+  }
+  return timeout;
+}
+
 export function decodeRoute(value: unknown): RouteConfig {
   if (!isRecord(value)) {
     return {
@@ -484,6 +513,7 @@ export function decodeRoute(value: unknown): RouteConfig {
     inspect: decodeRouteInspect(value.inspect),
     strip_prefix: asBoolean(value.strip_prefix),
     log: decodeRouteLog(value.log),
+    timeout: decodeRouteTimeout(value.timeout),
   };
 }
 

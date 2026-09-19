@@ -1,5 +1,6 @@
 import { splitGrpcFrames } from "./grpc-frames.ts";
 import { decodeProtobufRaw } from "./protobuf-raw.ts";
+import { isEventStreamContentType, splitSseFrames } from "./sse-frames.ts";
 import type { TrafficPayload } from "./types.ts";
 
 const JSON_PRETTY_SPACE = 2;
@@ -13,16 +14,42 @@ export type GrpcTrafficPayloadOpts = {
   decode?: boolean;
 };
 
+type HttpTrafficPayloadOpts = {
+  omitted?: boolean;
+  truncated?: boolean;
+  // Replace the decoded text view (OpenAI-assembled SSE JSON). The tee still
+  // supplied `body`; only the stored `text` changes.
+  text?: string;
+  // Generic text/event-stream: store a JSON array of blank-line-delimited frames.
+  sseFrames?: boolean;
+};
+
 export function httpTrafficPayload(
   body: Buffer | undefined,
   contentType: string,
-  opts: { omitted?: boolean; truncated?: boolean },
+  opts: HttpTrafficPayloadOpts,
 ): TrafficPayload {
   if (opts.omitted) {
     return { omitted: true, truncated: opts.truncated, contentType: nonempty(contentType) };
   }
   if (!body || body.length === 0) {
     return { contentType: nonempty(contentType), truncated: opts.truncated };
+  }
+  if (opts.text !== undefined) {
+    return {
+      contentType: nonempty(contentType),
+      encoding: "utf8",
+      text: opts.text,
+      truncated: opts.truncated,
+    };
+  }
+  if (opts.sseFrames && isEventStreamContentType(contentType)) {
+    return {
+      contentType: nonempty(contentType) ?? "text/event-stream",
+      encoding: "utf8",
+      text: JSON.stringify(splitSseFrames(body.toString("utf8")), null, JSON_PRETTY_SPACE),
+      truncated: opts.truncated,
+    };
   }
   if (looksLikeJsonBytes(body) || contentType.toLowerCase().includes("json")) {
     return {

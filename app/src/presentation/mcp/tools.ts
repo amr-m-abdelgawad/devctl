@@ -296,6 +296,8 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       properties: {
         services: { type: "array", items: { type: "string" } },
         profile: { type: "string", description: "Profile to start when services is omitted" },
+        overlay: { type: "string", description: "Session overlay stem (.devctl/overlays/<name>.yaml). Sticky like profile." },
+        extra_env: { type: "object", additionalProperties: { type: "string" }, description: "Ephemeral KEY=VAL overrides for named services, or the resolved start set when names are omitted" },
       },
       additionalProperties: false,
     },
@@ -1008,6 +1010,19 @@ function stringList(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (typeof val === "string") {
+      out[key] = val;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export async function callMcpTool(host: McpHost, name: string, args: Record<string, unknown>): Promise<unknown> {
   switch (name) {
     case "list_services":
@@ -1057,11 +1072,16 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return getConfigSources(host.config());
     case "run_doctor":
       return host.doctor();
-    case "start_services":
+    case "start_services": {
+      const overlay = typeof args.overlay === "string" && args.overlay !== "" ? args.overlay : undefined;
+      const extra_env = stringRecord(args.extra_env);
       return host.start({
         services: stringList(args.services),
         profile: typeof args.profile === "string" && args.profile !== "" ? args.profile : undefined,
+        ...(overlay ? { overlay } : {}),
+        ...(extra_env ? { extra_env } : {}),
       });
+    }
     case "stop_services":
       await host.stop(stringList(args.services));
       return { ok: true };

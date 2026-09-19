@@ -463,7 +463,7 @@ The CLI and the TUI share one supervisor. Global flag: \`--config <path>\` (file
 \`\`\`text
 devctl                         # TUI (attaches to a daemon, spawning one if none is running)
 devctl version
-devctl start [svc…] [--profile] [--detach] [--json]
+devctl start [svc…] [--profile <name>] [--overlay <name>] [--env KEY=VAL] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--cascade] [--json]
 devctl run <task> [--json]
@@ -487,7 +487,7 @@ devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--rotate] [--json]
 devctl web status|start|stop
-devctl config validate|show|diff [--json]
+devctl config validate|show|diff [--json] [--overlay <name>]
 devctl attach
 devctl completion zsh|bash|fish
 devctl update [--json] [--check]
@@ -502,6 +502,8 @@ devctl update [--json] [--check]
 ![devctl status — per-service state and health, plus the proxy, MCP, and web listener addresses](assets/manual/cli-status.png)
 
 - \`start\` with \`--profile\` starts **exactly** that profile’s members. Omitted dependencies are not spawned; point members at deployed backends with \`environments\` / \`service_environment\` (see [Profiles](profiles.md)).
+- \`start --overlay <name>\` merges \`.devctl/overlays/<name>.yaml\` after \`config.local.yaml\` (same keys, presence-aware). The name is sticky for the session like \`--profile\` — omit it on later starts to keep it. Recorded in \`state.json\` as \`config_overlay\`. A missing file fails with \`overlay "X" not found: .devctl/overlays/X.yaml\`.
+- \`start --env KEY=VAL\` (repeatable) overlays those keys on this start’s launch environment for the services named on the command. A profile-only start with no names applies them to every service that start launches. Ephemeral: not written to YAML, \`state.json\`, or the stored client environment used for later automatic restarts.
 - \`start\` with **no** profile and **no** names uses the active session profile, then the first configured profile (alphabetically). With no profiles it errors instead of starting every service.
 - \`start\` always ensures a daemon and leaves it (and its services) running after the command exits — that is not conditional on any flag.
 - \`--detach\` is **deprecated**: it predates that always-on daemon and no longer changes behavior. Passing it prints a warning on stderr; it does nothing else.
@@ -639,13 +641,23 @@ flowchart LR
   defaults["Built-in defaults"] --> repo["Repository .devctl"]
   repo --> homeLocal["~/.devctl/config.local.yaml"]
   homeLocal --> repoLocal[".devctl/config.local.yaml"]
-  repoLocal --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
+  repoLocal --> session[".devctl/overlays/<name>.yaml"]
+  session --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
   env --> flags["CLI --config"]
 \`\`\`
 
 The repository's own \`config.local.yaml\` overrides the one in your home
 directory, not the other way round: overlays are applied home-first so the
 repo-specific file gets the last word.
+
+\`devctl start --overlay <name>\` then applies \`.devctl/overlays/<name>.yaml\`
+(same keys as \`config.local.yaml\`, presence-aware) **after** both local files
+so the session layer wins. The name is sticky for the session — omit
+\`--overlay\` on later starts to keep it — and is recorded in \`state.json\`
+(\`config_overlay\`) so daemon replacement and \`devctl reload\` keep applying it.
+A missing file fails start and \`devctl config validate\` with
+\`overlay "X" not found: .devctl/overlays/X.yaml\`. Operators may commit named
+overlays; they are not a second config language.
 
 TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in \`tui.json\` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch **only** \`web.enabled\` and \`web.listen.port\` into \`.devctl/config.local.yaml\` (created if missing; other keys are left alone).
 
@@ -705,9 +717,10 @@ devctl reload
 
 \`config diff\` explains the resolved result instead of merely printing it. Each
 entry includes the winning source file and layer (\`main\`, \`modular_service\`,
-\`modular_profile\`, \`modular_proxy\`, \`home_local\`, \`repo_local\`, or
-\`synthesized\`) and the ordered sources it shadowed. Use \`--json\` for structured
-output.
+\`modular_profile\`, \`modular_proxy\`, \`home_local\`, \`repo_local\`,
+\`session_overlay\`, or \`synthesized\`) and the ordered sources it shadowed. Use
+\`--json\` for structured output. \`config validate|show|diff\` apply the sticky
+session overlay (or \`--overlay <name>\`).
 
 ![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
 
@@ -717,7 +730,7 @@ The TUI Config screen \`v\` / \`/buffer\` overlay validates this text before wri
 
 ![The TUI Config screen — merged project, google, runtime, logs, proxy routes, services, and tasks in one view](assets/manual/tui-config.png)
 
-The supervisor watches \`.devctl/\` (\`fs.watch\`, ~200ms debounce) and runs the same path as \`/reload\`. \`devctl reload\` and TUI \`/reload\` re-read configuration, publish \`ConfigurationChanged\`, and list services that must restart because command, environment, ports, identity, or \`watch\` changed.
+The supervisor watches \`.devctl/\` (\`fs.watch\`, ~200ms debounce) and runs the same path as \`/reload\`. \`devctl reload\` and TUI \`/reload\` re-read configuration, publish \`ConfigurationChanged\`, and list services that must restart because command, environment, ports, identity, or \`watch\` changed. A running proxy hot-swaps routes when listen addresses are unchanged — see [Proxy](proxy.md).
 
 Changing the \`plugins\` **path list** hot-applies token providers, log parsers, and proxy middleware. Editing an already-imported plugin file (same path, newer mtime) still requires \`devctl down && devctl start\` — Bun’s module cache cannot unload it. A running service’s environment is unchanged until that service restarts.
 
@@ -878,6 +891,8 @@ flowchart LR
 
 The daemon remembers each service's \`client_env\` only in memory, per service, never on disk. A crash/health-triggered auto-restart or an MCP-initiated \`start\`/\`restart\` reuses the last one a real client supplied; a service that has never been started/restarted by a real client this daemon's lifetime — e.g. one adopted from a prior session by \`recoverSession()\` — has none, and falls back to the daemon's own (possibly stale) environment.
 
+\`devctl start --env KEY=VAL\` (repeatable) overlays those keys on this start’s launch environment only. Values may contain \`=\`. Missing \`=\` is an error. Named \`devctl start --env FOO=bar api\` applies \`FOO\` to \`api\` only — not to dependencies or other services that start in the same wave. A profile-only start with no service names applies \`--env\` to every service that start actually launches (the resolved start set). These overrides are ephemeral: not stored in the supervisor \`client_env\` used for later automatic restarts, not YAML, and not \`state.json\`. Process-env-sized \`client_env\` still comes from the calling client's OS environment; \`--env\` wins for the targeted keys on this start.
+
 This memory does not survive the daemon process itself being replaced (upgrade, crash, \`devctl down\` then a fresh start): a new daemon starts with no client history at all, so anything it restarts before a client issues a fresh \`start\`/\`restart\` runs on whatever environment that new daemon process itself inherited at spawn. If a service depends on env that changed since the daemon last started, restart it explicitly (\`devctl restart <service>\` or the TUI) rather than relying on an automatic restart to pick it up.
 
 ## Runtime-generated variables
@@ -923,7 +938,7 @@ services:
 
 Each overlay is an \`EnvConfig\` (\`vars\` / \`defaults\` / \`required\`) merged onto the service's base \`environment\` — named keys win, \`required\` is the union (including when a template and a service both declare \`required\` on the same named overlay). \`default_environment\` is the YAML default when nothing is selected for this session; if omitted, the first name alphabetically wins.
 
-Selection is **session state** (\`~/.devctl/state/<repo>/state.json\` \`service_environments\`), not YAML. Switch one service at a time:
+Selection is **session state** (\`~/.devctl/state/<repo>/state.json\` \`service_environments\`), not YAML. This is separate from \`devctl start --overlay\`, which selects a whole-config file under \`.devctl/overlays/\`. Switch one service at a time:
 
 - TUI: \`e\` or \`/env\` on the dashboard, services, or detail screens. Switching a running service asks: Enter = switch only, \`r\` = switch and restart.
 - CLI: \`devctl env invoices-api deployed\`
@@ -2405,6 +2420,7 @@ An opt-in loopback console on the same supervisor (services, traces, logs, LLM i
 |------|--------|
 | Services, profiles, HTTP recipes, proxy, Google project | \`.devctl/config.yaml\` and modular YAML |
 | Machine overlay (gitignored) | \`.devctl/config.local.yaml\` and \`~/.devctl/config.local.yaml\` |
+| Session overlay (optional, committable) | \`.devctl/overlays/<name>.yaml\` via \`devctl start --overlay\` |
 | TUI theme, keys, MCP listen, web appearance | \`~/.devctl/tui.json\` plus per-checkout \`~/.devctl/state/<repoID>/tui.json\` (or \`DEVCTL_TUI_CONFIG\`) |
 | Session / lock / socket | \`~/.devctl/state/<repoID>/\` |
 | Persisted logs | \`~/.devctl/logs/\` |
@@ -2670,6 +2686,8 @@ WebSocket upgrades use the same route matching, identity injection, middleware, 
 
 If \`proxy.enabled\` is true, \`devctl start\` also starts the proxy.
 
+A configuration reload that only changes routes (match, upstream, inspect, auth, \`strip_prefix\`, log) **hot-swaps** the live table. The HTTP listener, token endpoint, and each gRPC h2c socket stay bound when their \`listen\` host/port (and the token endpoint's enabled flag) are unchanged. Listeners are recreated only when that bind changes, or the proxy is disabled while running. A stopped proxy stays stopped — \`proxy stop\` suppression is not cleared. In-flight requests keep the route they already matched; new requests see the new table.
+
 ## Routes
 
 \`\`\`yaml
@@ -2707,6 +2725,25 @@ Match is host + optional path prefix.
       upstream:
         url: http://127.0.0.1:18000
 \`\`\`
+
+### Route timeouts
+
+Timeouts are **opt-in per route**. There is no global default — a 47–65s CopilotKit / SSE stream that works today must keep working. \`0\`, omitted keys, or a missing \`timeout\` block are unlimited.
+
+\`\`\`yaml
+    - name: invoices-api
+      timeout:
+        idle_ms: 120000    # abort if no request/response chunk for 2 minutes
+        total_ms: 300000   # abort if the hop lasts longer than 5 minutes
+\`\`\`
+
+HTTP \`fetch\` / pipe uses an \`AbortController\` for \`total_ms\` and an idle timer reset on each request-body or response-body chunk. On timeout the proxy aborts the upstream, returns **504** (\`gateway timeout\`) when headers have not been sent, increments \`stats().errors\`, and writes a proxy error log (\`proxy idle timeout\` / \`proxy total timeout\`). A client that already received headers is disconnected rather than left hanging.
+
+WebSocket upgrades apply the same \`total_ms\` and \`idle_ms\`. Idle resets on each data chunk either direction (and when the upgrade handshake completes). Timeout destroys both sockets; if the handshake has not finished, the client gets \`HTTP/1.1 504 Gateway Timeout\`.
+
+gRPC applies \`total_ms\` as a stream deadline and resets idle on DATA frames either direction. Timeout produces gRPC status **4 DEADLINE_EXCEEDED**. If the upstream response has not started, the client receives a trailers-only response.
+
+Negative or non-finite \`idle_ms\` / \`total_ms\` fail \`devctl config validate\`. Per-service \`proxy:\` fragments keep \`timeout\` with the rest of \`RouteConfig\`.
 
 ### Custom OAuth client credentials (separate from ADC)
 
@@ -2783,7 +2820,7 @@ A CORS **preflight** (an \`OPTIONS\` carrying \`Access-Control-Request-Method\`)
 
 ### Per-service routes
 
-Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`), copying the full route (including \`inspect\`, \`strip_prefix\`, \`log\`, \`transport\`, and \`response_headers\`). Duplicate names fail validation. Runtime stays one listener.
+Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`), copying the full route (including \`inspect\`, \`strip_prefix\`, \`log\`, \`transport\`, \`timeout\`, and \`response_headers\`). Duplicate names fail validation. Runtime stays one listener.
 
 \`\`\`yaml
 services:
@@ -2934,6 +2971,7 @@ proxy:
       inspect:
         enabled: true
         max_bytes: 1048576   # default 1 MiB when omitted or 0
+        capture_sse: true    # optional; default false
     - name: temporal
       transport: grpc
       inspect:
@@ -2942,7 +2980,9 @@ proxy:
           decoder: temporal   # optional plugin trafficDecoders name
 \`\`\`
 
-\`inspect: true\` is the same as \`enabled: true\` with the default cap (no \`grpc\` block). Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs. \`inspect.grpc.decoder\` names a plugin \`trafficDecoders\` entry; omit it to pretty-print JSON frames (\`application/grpc+json\` or JSON-looking payloads) and otherwise proto3 \`decode_raw\` field numbers (fixed-width wire values as \`0x\` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails \`config validate\` when \`plugins:\` is empty.
+\`inspect: true\` is the same as \`enabled: true\` with the default cap (no \`grpc\` block, no \`capture_sse\`). Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs. \`inspect.grpc.decoder\` names a plugin \`trafficDecoders\` entry; omit it to pretty-print JSON frames (\`application/grpc+json\` or JSON-looking payloads) and otherwise proto3 \`decode_raw\` field numbers (fixed-width wire values as \`0x\` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails \`config validate\` when \`plugins:\` is empty.
+
+\`inspect.capture_sse\` (default **false**) changes only how a teed **response** is stored when \`Content-Type\` is exactly \`text/event-stream\` (parameters such as charset are ignored). The proxy still forwards the stream immediately; the inspector copy is parsed after the hop. Generic SSE is stored as a **JSON array of blank-line-delimited event strings** (one frame per array element) so the inspector is readable. OpenAI-shaped chat/completion streams (\`data:\` JSON with a \`choices\` array) are reassembled into pretty \`chat.completion\` JSON. Flag false or omitted keeps the raw event-stream text. Non-SSE content-types and request bodies ignore the flag. \`max_bytes\` / \`truncated\` still apply to the teed bytes. Redaction runs on the decoded \`text\`.
 
 Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP \`get_traffic_calls\`, web \`/api/traffic\`) strip bodies; one-id fetch (\`get_traffic_call\`, \`devctl traffic show\`, TUI overlay, web \`#/traffic/:id\`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; \`/reveal\` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA is stored as \`application/grpc\` base64 of the captured bytes (length prefixes kept). Request and response frames are split, gzip-compressed messages inflated in the capture adapter, then decoded to pretty \`text\` (JSON, plugin, or \`decode_raw\`). A failed gunzip leaves \`data\` only. Redaction runs on decoded bytes and on that \`text\`, not on the base64 alphabet, so the raw \`data\` view cannot recover a secret the \`text\` view already masked.
 

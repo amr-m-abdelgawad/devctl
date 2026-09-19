@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_WATCH_DEBOUNCE_MS, emptyService } from "../../domain/config/types.ts";
-import { load } from "./load.ts";
+import { load, loadPath } from "./load.ts";
 import { mergeService } from "./merge.ts";
 import { configDiff } from "./provenance.ts";
 
@@ -221,6 +221,55 @@ proxy:
     expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0 });
   });
 
+  test("decodes inspect.capture_sse and rejects unknown inspect keys", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-sse-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        capture_sse: true
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0, capture_sse: true });
+
+    const unknown = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-sse-unknown-${Date.now()}`;
+    writeFile(
+      unknown,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        capture_frames: true
+`,
+    );
+    expect(() => load(unknown, "")).toThrow(/unknown fields: proxy\.routes\.0\.inspect\.capture_frames/);
+  });
+
   test("decodes inspect.grpc.decoder when a plugin path is present", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-grpc-${Date.now()}`;
     writeFile(dir, "plugins/decoders.ts", "export const sdkVersion = 1;\n");
@@ -427,7 +476,7 @@ services:
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
   });
 
-  test("a service proxy fragment keeps inspect, strip_prefix, log, transport, and response_headers", () => {
+  test("a service proxy fragment keeps inspect, strip_prefix, log, transport, timeout, and response_headers", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-svc-proxy-full-${Date.now()}`;
     writeFile(
       dir,
@@ -444,6 +493,7 @@ services:
       strip_prefix: true
       inspect: { enabled: true, max_bytes: 4096 }
       response_headers: { Access-Control-Allow-Origin: "*" }
+      timeout: { idle_ms: 120000, total_ms: 300000 }
       log:
         grpc:
           ok:
@@ -458,6 +508,7 @@ services:
     expect(route?.strip_prefix).toBe(true);
     expect(route?.inspect).toEqual({ enabled: true, max_bytes: 4096 });
     expect(route?.response_headers).toEqual({ "Access-Control-Allow-Origin": "*" });
+    expect(route?.timeout).toEqual({ idle_ms: 120000, total_ms: 300000 });
     expect(route?.log).toEqual({ grpc: { ok: [{ status: 14, methods: ["PollWorkflowTaskQueue"], log: "silent" }] } });
   });
 
@@ -508,6 +559,57 @@ proxy:
       upstream: { url: http://127.0.0.1:8000 }
       log:
         extra: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields/);
+  });
+
+  test("rejects a non-finite route timeout instead of treating it as unlimited", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-timeout-invalid-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:8000 }
+      timeout:
+        idle_ms: bad
+        total_ms: Infinity
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/timeout\.idle_ms must be a finite number >= 0/);
+    expect(() => load(dir, "")).toThrow(/timeout\.total_ms must be a finite number >= 0/);
+  });
+
+  test("rejects an unknown key under route.timeout", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-timeout-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:8000 }
+      timeout:
+        idle_ms: 1000
+        foo: true
 `,
     );
     expect(() => load(dir, "")).toThrow(/unknown fields/);
@@ -1023,5 +1125,71 @@ services:
 `);
     const cfg = load(dir, "");
     expect(cfg.proxy.routes).toEqual([]);
+  });
+});
+
+describe("session overlay", () => {
+  test("loadPath merges a session overlay presence-aware after config.local.yaml", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-session-overlay-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+project:
+  name: main
+proxy:
+  enabled: true
+  listen:
+    host: 127.0.0.1
+    port: 9000
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      stderr: true
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/config.local.yaml",
+      `
+project:
+  name: repo-local
+proxy:
+  listen:
+    port: 9001
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/overlays/night.yaml",
+      `
+project:
+  name: night
+proxy:
+  enabled: false
+`,
+    );
+    const cfg = loadPath(dir, join(dir, ".devctl", "config.yaml"), { overlay: "night" });
+    expect(cfg.proxy.enabled).toBe(false);
+    expect(cfg.proxy.listen.port).toBe(9001);
+    expect(cfg.proxy.listen.host).toBe("127.0.0.1");
+    expect(cfg.project.name).toBe("night");
+    expect(cfg.services.api?.logs.stdout).toBe(true);
+    const entry = configDiff(cfg).find((item) => item.path === "proxy.enabled");
+    expect(entry?.value).toBe(false);
+    expect(entry?.layer).toBe("session_overlay");
+    expect(entry?.source).toBe(join(dir, ".devctl", "overlays", "night.yaml"));
+    expect(entry?.shadowed.map((item) => item.layer)).toContain("main");
+  });
+
+  test("a missing session overlay file fails with a clear error", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-session-overlay-missing-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", "version: 1\nservices:\n  api:\n    command: echo hi\n");
+    expect(() => loadPath(dir, join(dir, ".devctl", "config.yaml"), { overlay: "missing" })).toThrow(
+      'overlay "missing" not found: .devctl/overlays/missing.yaml',
+    );
   });
 });

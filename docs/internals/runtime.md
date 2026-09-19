@@ -57,7 +57,7 @@ Unhealthy probes increment a streak; after `HEALTH_RESTART_STREAK` consecutive f
 
 ## Config watch
 
-`watchConfig` on the `.devctl` directory (and plugin files’ mtimes). Debounced `reloadSupervisor`. Plugin load errors are logged; missing configured plugin **types** fail validation.
+`watchConfig` on the `.devctl` directory (and plugin files’ mtimes). Debounced `reloadSupervisor`. Plugin load errors are logged; missing configured plugin **types** fail validation. A running proxy applies the new route table in place when listen binds are unchanged.
 
 ## Tasks and exec
 

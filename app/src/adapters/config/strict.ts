@@ -30,6 +30,7 @@ import {
   knownRouteLog,
   knownRouteLogGrpc,
   knownRouteLogGrpcOk,
+  knownRouteTimeout,
   knownSecrets,
   knownService,
   knownServiceLogs,
@@ -274,6 +275,9 @@ function serviceProxyPathKnown(parts: string[]): string[] {
   if (kind === "log") {
     return routeLogPathKnown(rest.slice(start + 1));
   }
+  if (kind === "timeout") {
+    return knownRouteTimeout;
+  }
   return knownRoute;
 }
 
@@ -298,6 +302,9 @@ function routePathKnown(path: string): string[] {
   }
   if (path.endsWith(".inspect")) {
     return knownRouteInspect;
+  }
+  if (path.endsWith(".timeout")) {
+    return knownRouteTimeout;
   }
   if (/\.log(\.|$)/.test(path) && path.includes("proxy.routes")) {
     const afterLog = path.split(".log")[1] ?? "";

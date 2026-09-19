@@ -34,7 +34,7 @@ Waves: `startupPlan` returns `Plan { profile, steps, waves, blockers? }`. A conf
 
 Wire/UI snapshots: `StartRequest`, `StatusSnapshot`, `IdentitySnapshot`, `ProxySnapshot`, `McpSnapshot`, `ReloadResult`, `TraceResponse`, `CredentialEntrySnapshot`, log/LLM page aliases used across RPC. Keep this module free of adapter classes.
 
-`StartRequest.auto` is **internal**. Only health-triggered restarts set it so the restart counter is not reset.
+`StartRequest.auto` is **internal**. Only health-triggered restarts set it so the restart counter is not reset. `overlay` is the sticky session config layer; `extra_env` is ephemeral process-env for targeted services.
 
 ## `domain/identity/`
 
@@ -59,6 +59,14 @@ User vs service identity stay separate types. The proxy route decides which one 
 | `severity.ts` | Level ordering (`INFO+`). |
 | `regex.ts` | Safe search compilation. |
 | `python-literal.ts`, `otlp-value.ts`, `any-value.ts` | Decode nested log payloads (Python literals, OTLP AnyValue). |
+
+## `domain/proxy/`
+
+| File | Role |
+|------|------|
+| `strip-prefix.ts` | Forward-path rewrite for `strip_prefix`. |
+| `grpc-ok.ts` | Listed non-zero gRPC statuses that are not proxy errors. |
+| `listen.ts` | Compare listener binds (`host`+`port`; empty host = `127.0.0.1`). |
 
 ## `domain/http/`
 
@@ -89,6 +97,7 @@ Named outbound recipes (not the reverse proxy):
 | `match.ts` | Filter matching including body search. |
 | `redact.ts` | `redactTrafficCall` / `stripTrafficBodies`. |
 | `payload.ts` | HTTP/gRPC body views (pretty JSON, gRPC base64 + optional JSON text). |
+| `sse-frames.ts` | Blank-line SSE event split; `text/event-stream` content-type check. |
 
 ## `domain/telemetry/`
 

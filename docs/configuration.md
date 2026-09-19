@@ -54,13 +54,23 @@ flowchart LR
   defaults["Built-in defaults"] --> repo["Repository .devctl"]
   repo --> homeLocal["~/.devctl/config.local.yaml"]
   homeLocal --> repoLocal[".devctl/config.local.yaml"]
-  repoLocal --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
+  repoLocal --> session[".devctl/overlays/<name>.yaml"]
+  session --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
   env --> flags["CLI --config"]
 ```
 
 The repository's own `config.local.yaml` overrides the one in your home
 directory, not the other way round: overlays are applied home-first so the
 repo-specific file gets the last word.
+
+`devctl start --overlay <name>` then applies `.devctl/overlays/<name>.yaml`
+(same keys as `config.local.yaml`, presence-aware) **after** both local files
+so the session layer wins. The name is sticky for the session — omit
+`--overlay` on later starts to keep it — and is recorded in `state.json`
+(`config_overlay`) so daemon replacement and `devctl reload` keep applying it.
+A missing file fails start and `devctl config validate` with
+`overlay "X" not found: .devctl/overlays/X.yaml`. Operators may commit named
+overlays; they are not a second config language.
 
 TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in `tui.json` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch **only** `web.enabled` and `web.listen.port` into `.devctl/config.local.yaml` (created if missing; other keys are left alone).
 
@@ -120,9 +130,10 @@ devctl reload
 
 `config diff` explains the resolved result instead of merely printing it. Each
 entry includes the winning source file and layer (`main`, `modular_service`,
-`modular_profile`, `modular_proxy`, `home_local`, `repo_local`, or
-`synthesized`) and the ordered sources it shadowed. Use `--json` for structured
-output.
+`modular_profile`, `modular_proxy`, `home_local`, `repo_local`,
+`session_overlay`, or `synthesized`) and the ordered sources it shadowed. Use
+`--json` for structured output. `config validate|show|diff` apply the sticky
+session overlay (or `--overlay <name>`).
 
 ![devctl config diff — each effective value with the file and layer that won](assets/manual/cli-config-diff.png)
 
@@ -132,7 +143,7 @@ The TUI Config screen `v` / `/buffer` overlay validates this text before writing
 
 ![The TUI Config screen — merged project, google, runtime, logs, proxy routes, services, and tasks in one view](assets/manual/tui-config.png)
 
-The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, identity, or `watch` changed.
+The supervisor watches `.devctl/` (`fs.watch`, ~200ms debounce) and runs the same path as `/reload`. `devctl reload` and TUI `/reload` re-read configuration, publish `ConfigurationChanged`, and list services that must restart because command, environment, ports, identity, or `watch` changed. A running proxy hot-swaps routes when listen addresses are unchanged — see [Proxy](proxy.md).
 
 Changing the `plugins` **path list** hot-applies token providers, log parsers, and proxy middleware. Editing an already-imported plugin file (same path, newer mtime) still requires `devctl down && devctl start` — Bun’s module cache cannot unload it. A running service’s environment is unchanged until that service restarts.
 

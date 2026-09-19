@@ -17,7 +17,7 @@ The daemon is split so `supervisor.ts` coordinates rather than implementing ever
 | `service-watch.ts` | Per-service file watchers → restart |
 | `environment-bridge.ts` | Builds `EnvRequest` (ports, proxy URL, token endpoint, OTLP, recipes) for `resolveEnvironment` |
 | `identity-coordinator.ts` | Identity cache, credential list, SA probes, `refreshIdentity` |
-| `proxy-coordinator.ts` | HTTP/gRPC proxy + token endpoint bind; suppression flag |
+| `proxy-coordinator.ts` | HTTP/gRPC proxy + token endpoint bind; suppression flag; `applyConfig` hot-swaps routes when listen is unchanged |
 | `mcp-coordinator.ts` | MCP listen, token rotate, deny-list persistence |
 | `web-coordinator.ts` | Loopback web UI listen |
 | `telemetry-coordinator.ts` | Optional OTLP HTTP receiver |

@@ -22,6 +22,8 @@ WebSocket upgrades use the same route matching, identity injection, middleware, 
 
 If `proxy.enabled` is true, `devctl start` also starts the proxy.
 
+A configuration reload that only changes routes (match, upstream, inspect, auth, `strip_prefix`, log) **hot-swaps** the live table. The HTTP listener, token endpoint, and each gRPC h2c socket stay bound when their `listen` host/port (and the token endpoint's enabled flag) are unchanged. Listeners are recreated only when that bind changes, or the proxy is disabled while running. A stopped proxy stays stopped — `proxy stop` suppression is not cleared. In-flight requests keep the route they already matched; new requests see the new table.
+
 ## Routes
 
 ```yaml
@@ -59,6 +61,25 @@ Match is host + optional path prefix.
       upstream:
         url: http://127.0.0.1:18000
 ```
+
+### Route timeouts
+
+Timeouts are **opt-in per route**. There is no global default — a 47–65s CopilotKit / SSE stream that works today must keep working. `0`, omitted keys, or a missing `timeout` block are unlimited.
+
+```yaml
+    - name: invoices-api
+      timeout:
+        idle_ms: 120000    # abort if no request/response chunk for 2 minutes
+        total_ms: 300000   # abort if the hop lasts longer than 5 minutes
+```
+
+HTTP `fetch` / pipe uses an `AbortController` for `total_ms` and an idle timer reset on each request-body or response-body chunk. On timeout the proxy aborts the upstream, returns **504** (`gateway timeout`) when headers have not been sent, increments `stats().errors`, and writes a proxy error log (`proxy idle timeout` / `proxy total timeout`). A client that already received headers is disconnected rather than left hanging.
+
+WebSocket upgrades apply the same `total_ms` and `idle_ms`. Idle resets on each data chunk either direction (and when the upgrade handshake completes). Timeout destroys both sockets; if the handshake has not finished, the client gets `HTTP/1.1 504 Gateway Timeout`.
+
+gRPC applies `total_ms` as a stream deadline and resets idle on DATA frames either direction. Timeout produces gRPC status **4 DEADLINE_EXCEEDED**. If the upstream response has not started, the client receives a trailers-only response.
+
+Negative or non-finite `idle_ms` / `total_ms` fail `devctl config validate`. Per-service `proxy:` fragments keep `timeout` with the rest of `RouteConfig`.
 
 ### Custom OAuth client credentials (separate from ADC)
 
@@ -135,7 +156,7 @@ A CORS **preflight** (an `OPTIONS` carrying `Access-Control-Request-Method`) is 
 
 ### Per-service routes
 
-Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`), copying the full route (including `inspect`, `strip_prefix`, `log`, `transport`, and `response_headers`). Duplicate names fail validation. Runtime stays one listener.
+Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`), copying the full route (including `inspect`, `strip_prefix`, `log`, `transport`, `timeout`, and `response_headers`). Duplicate names fail validation. Runtime stays one listener.
 
 ```yaml
 services:
@@ -286,6 +307,7 @@ proxy:
       inspect:
         enabled: true
         max_bytes: 1048576   # default 1 MiB when omitted or 0
+        capture_sse: true    # optional; default false
     - name: temporal
       transport: grpc
       inspect:
@@ -294,7 +316,9 @@ proxy:
           decoder: temporal   # optional plugin trafficDecoders name
 ```
 
-`inspect: true` is the same as `enabled: true` with the default cap (no `grpc` block). Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs. `inspect.grpc.decoder` names a plugin `trafficDecoders` entry; omit it to pretty-print JSON frames (`application/grpc+json` or JSON-looking payloads) and otherwise proto3 `decode_raw` field numbers (fixed-width wire values as `0x` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails `config validate` when `plugins:` is empty.
+`inspect: true` is the same as `enabled: true` with the default cap (no `grpc` block, no `capture_sse`). Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs. `inspect.grpc.decoder` names a plugin `trafficDecoders` entry; omit it to pretty-print JSON frames (`application/grpc+json` or JSON-looking payloads) and otherwise proto3 `decode_raw` field numbers (fixed-width wire values as `0x` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails `config validate` when `plugins:` is empty.
+
+`inspect.capture_sse` (default **false**) changes only how a teed **response** is stored when `Content-Type` is exactly `text/event-stream` (parameters such as charset are ignored). The proxy still forwards the stream immediately; the inspector copy is parsed after the hop. Generic SSE is stored as a **JSON array of blank-line-delimited event strings** (one frame per array element) so the inspector is readable. OpenAI-shaped chat/completion streams (`data:` JSON with a `choices` array) are reassembled into pretty `chat.completion` JSON. Flag false or omitted keeps the raw event-stream text. Non-SSE content-types and request bodies ignore the flag. `max_bytes` / `truncated` still apply to the teed bytes. Redaction runs on the decoded `text`.
 
 Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP `get_traffic_calls`, web `/api/traffic`) strip bodies; one-id fetch (`get_traffic_call`, `devctl traffic show`, TUI overlay, web `#/traffic/:id`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; `/reveal` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA is stored as `application/grpc` base64 of the captured bytes (length prefixes kept). Request and response frames are split, gzip-compressed messages inflated in the capture adapter, then decoded to pretty `text` (JSON, plugin, or `decode_raw`). A failed gunzip leaves `data` only. Redaction runs on decoded bytes and on that `text`, not on the base64 alphabet, so the raw `data` view cannot recover a secret the `text` view already masked.
 

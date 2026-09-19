@@ -67,7 +67,7 @@ const NONE_AUTH: RouteAuthConfig = { type: "none", identity: { type: "user", ser
 
 async function setupProxy(
   handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
-  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus; responseHeaders?: Record<string, string> } = {},
+  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus; responseHeaders?: Record<string, string>; timeout?: RouteConfig["timeout"] } = {},
 ) {
   const upstream = createServer(handler);
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
@@ -86,6 +86,7 @@ async function setupProxy(
     upstream: { url: `http://127.0.0.1:${upPort}` },
     auth: opts.auth ?? NONE_AUTH,
     response_headers: opts.responseHeaders,
+    timeout: opts.timeout,
   });
   const server = new ProxyServer(cfg, opts.tokens, opts.logs, opts.bus);
   await server.start();
@@ -464,6 +465,121 @@ describe("proxy", () => {
     expect(resp.headers.get("content-type")).toContain("text/plain");
     expect(await resp.text()).toBe("proxy error");
     await server.stop();
+  });
+
+  test("replaceConfig updates routes without closing the HTTP listen socket", async () => {
+    const { proxyPort, server, close } = await setupProxy((_req, res) => res.end("ok"));
+    try {
+      const first = await fetch(`http://127.0.0.1:${proxyPort}/v1`);
+      expect(first.status).toBe(200);
+      const next = defaultConfig().proxy;
+      next.listen = { host: "127.0.0.1", port: proxyPort };
+      next.routes.push({
+        name: "v2-only",
+        match: { host: "", path: "/v2" },
+        upstream: { url: `http://127.0.0.1:9` },
+        auth: NONE_AUTH,
+      });
+      server.replaceConfig(next);
+      expect(server.isRunning()).toBe(true);
+      expect(server.address()).toBe(`127.0.0.1:${proxyPort}`);
+      const miss = await fetch(`http://127.0.0.1:${proxyPort}/v1`);
+      expect(miss.status).toBe(404);
+      const hit = await fetch(`http://127.0.0.1:${proxyPort}/v2`);
+      expect(hit.status).toBe(502);
+    } finally {
+      await close();
+    }
+  });
+
+  test("total_ms aborts a slow upstream with 504 and increments errors", async () => {
+    const { proxyPort, server, close } = await setupProxy((_req, _res) => {
+      /* hang until the proxy aborts */
+    }, { timeout: { total_ms: 50 } });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/slow`);
+      expect(resp.status).toBe(504);
+      expect(await resp.text()).toBe("gateway timeout");
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(server.stats().errors).toBe(1);
+      expect(server.stats().recent[0]?.error).toBe("proxy total timeout");
+    } finally {
+      await close();
+    }
+  });
+
+  test("idle_ms aborts when the upstream never sends a chunk", async () => {
+    const { proxyPort, server, close } = await setupProxy((_req, _res) => {
+      /* hang — no headers, no body */
+    }, { timeout: { idle_ms: 50 } });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/idle`);
+      expect(resp.status).toBe(504);
+      expect(await resp.text()).toBe("gateway timeout");
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(server.stats().errors).toBe(1);
+      expect(server.stats().recent[0]?.error).toBe("proxy idle timeout");
+    } finally {
+      await close();
+    }
+  });
+
+  test("idle_ms disconnects when response chunks stall after headers", async () => {
+    const { proxyPort, server, close } = await setupProxy((_req, res) => {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.write("ping");
+    }, { timeout: { idle_ms: 50 } });
+    try {
+      await expect(fetch(`http://127.0.0.1:${proxyPort}/stall`).then((resp) => resp.text())).rejects.toThrow(/socket connection was closed|ECONNRESET/);
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(server.stats().errors).toBeGreaterThanOrEqual(1);
+      expect(server.stats().recent.some((row) => row.error === "proxy idle timeout")).toBe(true);
+    } finally {
+      await close();
+    }
+  });
+
+  test("idle_ms aborts a stalled request body upload with 504", async () => {
+    const { proxyPort, server, close } = await setupProxy((req, res) => {
+      req.on("data", () => {});
+      req.on("end", () => res.end("late"));
+    }, { timeout: { idle_ms: 50 } });
+    try {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("partial"));
+        },
+      });
+      const init = { method: "POST", headers: { "content-type": "text/plain" }, body: stream, duplex: "half" } as unknown as RequestInit;
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/upload`, init);
+      expect(resp.status).toBe(504);
+      expect(await resp.text()).toBe("gateway timeout");
+      for (let i = 0; i < 50 && server.stats().total === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(server.stats().recent[0]?.error).toBe("proxy idle timeout");
+    } finally {
+      await close();
+    }
+  });
+
+  test("missing timeout still allows a long stream", async () => {
+    const { proxyPort, close } = await setupProxy((_req, res) => {
+      setTimeout(() => res.end("ok"), 200);
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/slow-ok`);
+      expect(resp.status).toBe(200);
+      expect(await resp.text()).toBe("ok");
+    } finally {
+      await close();
+    }
   });
 
   test("matchRoute uses host and path prefix", () => {

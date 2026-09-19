@@ -10,6 +10,7 @@ discover(startDir, --config)
         decodeFile(main YAML)          // decode.ts + merge.applyRoot
         loadModular(.devctl/{services,profiles,http,proxy/routes.yaml})
         applyLocalOverlays             // ~/.devctl/config.local.yaml then .devctl/config.local.yaml
+        applySessionOverlay            // .devctl/overlays/<name>.yaml when load({ overlay }) / state.json config_overlay
         migrate()
         applyTemplates()
         mergeServiceProxyRoutes()
@@ -68,7 +69,9 @@ Unknown fields are checked with a prefix (`services.api.…`) so errors name the
 
 ## Provenance
 
-`merge.ts` records `{ source, layer }` per path. Layers include `main`, `modular_service`, `home_local`, `repo_local`, …. `configDiff` / MCP `get_config_sources` expose this. Overlays are gitignored; they still show up in provenance.
+`merge.ts` records `{ source, layer }` per path. Layers include `main`, `modular_service`, `home_local`, `repo_local`, `session_overlay`, …. `configDiff` / MCP `get_config_sources` expose this. `config.local.yaml` overlays are gitignored; named `.devctl/overlays/<name>.yaml` files may be committed. They still show up in provenance.
+
+`load` / `loadPath` / `loadOrEmpty` take `opts.overlay` (the stem). Reload reads the recorded name from `ReloadHost.configOverlay` (persisted as `state.json` `config_overlay`, sticky like profile). Missing file: `overlay "X" not found: .devctl/overlays/X.yaml`.
 
 ## Environment references
 
@@ -86,7 +89,7 @@ Settings default to the repo overlay. MCP listen always writes the repo file. `d
 
 ## Reload
 
-`adapters/daemon/reload.ts` re-runs load, diffs with `domain/config/snapshot.ts`, records `restartRequired`, reapplies plugin registry, rebinds health/LLM factories. Live processes are not killed until the user restarts (or watch/reload policy says so). Failed reload publishes `ConfigurationReloadFailed` and keeps the last-known-good in-memory config.
+`adapters/daemon/reload.ts` re-runs load with the recorded session overlay, diffs with `domain/config/snapshot.ts`, records `restartRequired`, reapplies plugin registry, rebinds health/LLM factories. Live processes are not killed until the user restarts (or watch/reload policy says so). Failed reload publishes `ConfigurationReloadFailed` and keeps the last-known-good in-memory config. `ProxyCoordinator.applyConfig` hot-swaps routes when `listen` is unchanged; a bind change recreates that listener; `proxy.enabled: false` stops a running proxy; `proxy.enabled: true` starts a stopped proxy unless the user has suppressed it.
 
 ## Demo fixture
 

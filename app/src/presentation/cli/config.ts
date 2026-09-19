@@ -28,14 +28,29 @@ export function addReload(root: Command, runtime: ClientRuntime): void {
   });
 }
 
+function loadEffective(runtime: ClientRuntime, root: Command, overlayFlag?: string) {
+  const explicit = configFlag(root);
+  const overlay = overlayFlag && overlayFlag !== "" ? overlayFlag : overlayFromSession(runtime, explicit);
+  return overlay ? runtime.load("", explicit, { overlay }) : runtime.load("", explicit);
+}
+
+function overlayFromSession(runtime: ClientRuntime, explicit: string): string | undefined {
+  try {
+    return runtime.readPersistedState(runtime.discover("", explicit).repoRoot)?.config_overlay;
+  } catch {
+    return undefined;
+  }
+}
+
 export function addConfig(root: Command, runtime: ClientRuntime): void {
   const cfg = root.command("config");
   cfg
     .command("validate")
     .option("--json")
-    .action((opts: { json?: boolean }) => {
+    .option("--overlay <name>", "apply .devctl/overlays/<name>.yaml (defaults to the sticky session overlay)")
+    .action((opts: { json?: boolean; overlay?: string }) => {
       try {
-        const loaded = runtime.load("", configFlag(root));
+        const loaded = loadEffective(runtime, root, opts.overlay);
         const issues = runtime.validate(loaded);
         if (opts.json) {
           writeOut(JSON.stringify({ valid: issues.length === 0, issues }, null, 2) + "\n");
@@ -57,8 +72,9 @@ export function addConfig(root: Command, runtime: ClientRuntime): void {
     .command("diff")
     .description("show where effective configuration values came from")
     .option("--json")
-    .action((opts: { json?: boolean }) => {
-      const loaded = runtime.load("", configFlag(root));
+    .option("--overlay <name>", "apply .devctl/overlays/<name>.yaml (defaults to the sticky session overlay)")
+    .action((opts: { json?: boolean; overlay?: string }) => {
+      const loaded = loadEffective(runtime, root, opts.overlay);
       const entries = runtime.configDiff(loaded);
       if (opts.json) {
         writeOut(JSON.stringify({ entries }, null, 2) + "\n");
@@ -73,8 +89,9 @@ export function addConfig(root: Command, runtime: ClientRuntime): void {
   cfg
     .command("show")
     .option("--json")
-    .action((opts: { json?: boolean }) => {
-      const loaded = runtime.load("", configFlag(root));
+    .option("--overlay <name>", "apply .devctl/overlays/<name>.yaml (defaults to the sticky session overlay)")
+    .action((opts: { json?: boolean; overlay?: string }) => {
+      const loaded = loadEffective(runtime, root, opts.overlay);
       if (opts.json) {
         writeOut(JSON.stringify(loaded, null, 2) + "\n");
         return;

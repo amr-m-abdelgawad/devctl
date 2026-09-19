@@ -31,6 +31,7 @@ import {
   knownRouteLog,
   knownRouteLogGrpc,
   knownRouteLogGrpcOk,
+  knownRouteTimeout,
   knownSecrets,
   knownService,
   knownServiceLogs,
@@ -118,6 +119,7 @@ describe("config allowlist/schema parity", () => {
       ["knownRouteLog", knownRouteLog, defs.routeLog ?? {}],
       ["knownRouteLogGrpc", knownRouteLogGrpc, defs.routeLogGrpc ?? {}],
       ["knownRouteLogGrpcOk", knownRouteLogGrpcOk, defs.routeLogGrpcOk ?? {}],
+      ["knownRouteTimeout", knownRouteTimeout, defs.routeTimeout ?? {}],
       ["knownLogs", knownLogs, logs],
       ["knownPersistence", knownPersistence, logs.properties?.persistence ?? {}],
       ["knownAuth", knownAuth, at("auth")],
@@ -145,6 +147,16 @@ describe("config allowlist/schema parity", () => {
     expect(collectUnknownFields({
       logs: { stdout: true, multiline: { start: "^", foo: true } },
     }, "services.api")).toContain("services.api.logs.multiline.foo");
+  });
+
+  test("unknown timeout.foo is rejected on a route and a service proxy fragment", () => {
+    expect(collectUnknownFields({
+      routes: [{ name: "api", timeout: { idle_ms: 1, foo: true } }],
+    }, "proxy")).toContain("proxy.routes.0.timeout.foo");
+    expect(collectUnknownFields({
+      match: { path: "/api" },
+      timeout: { total_ms: 1, foo: true },
+    }, "services.api.proxy")).toContain("services.api.proxy.timeout.foo");
   });
 
   test("every nested service object has an explicit strict-path case", () => {

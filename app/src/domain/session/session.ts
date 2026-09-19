@@ -33,5 +33,8 @@ export type PersistedState = {
   // Per-service selected named environment. Survives daemon replacement so
   // a TUI/CLI switch is not lost the way client_env is.
   service_environments?: Record<string, string>;
+  // Session-selected config overlay (`.devctl/overlays/<name>.yaml`). Sticky
+  // like `profile` — omitting `--overlay` on a later start keeps this name.
+  config_overlay?: string;
 };
 

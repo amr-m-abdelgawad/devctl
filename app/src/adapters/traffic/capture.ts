@@ -1,4 +1,5 @@
 import {
+  routeInspectCaptureSse,
   routeInspectDecoder,
   routeInspectEnabled,
   routeInspectMaxBytes,
@@ -10,7 +11,10 @@ import { isLoopbackPeer } from "../../domain/net/hosts.ts";
 import {
   grpcTrafficPayload,
   httpTrafficPayload,
+  isEventStreamContentType,
   splitGrpcFrames,
+  splitSseFrames,
+  sseEventData,
   TRAFFIC_TRANSPORT_GRPC,
   TRAFFIC_TRANSPORT_HTTP,
   type GrpcCapturedFrame,
@@ -24,6 +28,7 @@ import type {
   TrafficCaptureRecorder,
   TrafficCaptureSink,
 } from "../../ports/traffic-capture.ts";
+import { assembleSseCompletion } from "../llm/proxy-capture-map.ts";
 import type { TrafficDecoder } from "../plugins/registry.ts";
 import { gunzipSync } from "node:zlib";
 
@@ -55,6 +60,7 @@ export class ProxyTrafficSink implements TrafficCaptureSink {
 
 class TrafficRecorder implements TrafficCaptureRecorder {
   readonly maxBytes: number;
+  private readonly captureSse: boolean;
   private requestBody?: Buffer;
   private requestOmitted = false;
   private requestTruncated = false;
@@ -75,6 +81,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
     private readonly deps: TrafficCaptureSinkDeps,
   ) {
     this.maxBytes = routeInspectMaxBytes(route);
+    this.captureSse = routeInspectCaptureSse(route);
     this.decoderName = routeInspectDecoder(route);
     this.headerCaller = callerFromHeaders(begin.requestHeaders);
     this.peerCaller = this.headerCaller === undefined ? lookupPeerCaller(begin, deps) : Promise.resolve(undefined);
@@ -176,7 +183,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
               side: "response",
               contentType: this.responseContentType,
             })
-          : httpTrafficPayload(responseBuf, this.responseContentType, { truncated: this.responseTruncated }),
+          : this.httpResponsePayload(responseBuf),
         attributes: {
           capture: "proxy",
           route: this.begin.routeName,
@@ -196,6 +203,27 @@ class TrafficRecorder implements TrafficCaptureRecorder {
       return this.headerCaller;
     }
     return this.peerCaller;
+  }
+
+  private httpResponsePayload(body: Buffer | undefined): TrafficPayload {
+    const truncated = this.responseTruncated;
+    if (
+      this.captureSse &&
+      isEventStreamContentType(this.responseContentType) &&
+      body &&
+      body.length > 0
+    ) {
+      const raw = body.toString("utf8");
+      const assembled = openAiAssembledSse(raw);
+      if (assembled !== undefined) {
+        return httpTrafficPayload(body, this.responseContentType, {
+          truncated,
+          text: JSON.stringify(assembled, null, 2),
+        });
+      }
+      return httpTrafficPayload(body, this.responseContentType, { truncated, sseFrames: true });
+    }
+    return httpTrafficPayload(body, this.responseContentType, { truncated });
   }
 
   private grpcPayload(
@@ -297,4 +325,32 @@ function contentTypeOf(headers: Record<string, string>): string {
     }
   }
   return "";
+}
+
+// assembleSseCompletion yields a chat.completion whenever any `data:` line
+// exists, including generic SSE. Only keep that object when a frame is
+// OpenAI-shaped (JSON with a `choices` array).
+function openAiAssembledSse(raw: string): Record<string, unknown> | undefined {
+  if (!sseLooksLikeOpenAi(raw)) {
+    return undefined;
+  }
+  return assembleSseCompletion(raw);
+}
+
+function sseLooksLikeOpenAi(raw: string): boolean {
+  for (const event of splitSseFrames(raw)) {
+    const payload = sseEventData(event);
+    if (payload === "" || payload === "[DONE]") {
+      continue;
+    }
+    try {
+      const chunk = JSON.parse(payload) as unknown;
+      if (chunk && typeof chunk === "object" && !Array.isArray(chunk) && Array.isArray((chunk as { choices?: unknown }).choices)) {
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return false;
 }

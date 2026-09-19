@@ -97,6 +97,20 @@ describe("traffic domain", () => {
     expect(httpTrafficPayload(undefined, "application/json", { omitted: true, truncated: true }).omitted).toBe(true);
   });
 
+  test("stores generic SSE as a JSON array of frames when asked", () => {
+    const payload = httpTrafficPayload(
+      Buffer.from("data: hello\n\ndata: world\n\n"),
+      "text/event-stream",
+      { sseFrames: true },
+    );
+    expect(payload.encoding).toBe("utf8");
+    expect(JSON.parse(payload.text ?? "")).toEqual(["data: hello", "data: world"]);
+    const raw = httpTrafficPayload(Buffer.from("data: hello\n\ndata: world\n\n"), "text/event-stream", {});
+    expect(raw.text).toBe("data: hello\n\ndata: world\n\n");
+    const json = httpTrafficPayload(Buffer.from('{"ok":true}'), "application/json", { sseFrames: true });
+    expect(json.text).toContain('"ok"');
+  });
+
   test("keeps the gRPC length prefix as base64 and pretty-prints a JSON message", () => {
     const frames = grpcFrame('{"hello":"world"}');
     const payload = grpcTrafficPayload(frames, { truncated: true });

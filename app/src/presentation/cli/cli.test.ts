@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { followLogs } from "./cli.ts";
+import { parseEnvPairs } from "./lifecycle.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
 import { formatBodySummary, logRecord, type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
 import { killRepoSupervisor, processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
@@ -384,5 +385,19 @@ describe("devctl daemon logs", () => {
     writeFileSync(configFile(dir), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
     const out = await run(["--config", configFile(dir), "daemon", "logs"]);
     expect(out).toContain("no daemon bootstrap log yet");
+  });
+});
+
+describe("devctl start --env", () => {
+  test("parseEnvPairs accepts VAL with = and rejects a missing =", () => {
+    expect(parseEnvPairs(["FOO=bar", "BAZ=a=b"])).toEqual({ FOO: "bar", BAZ: "a=b" });
+    expect(() => parseEnvPairs(["FOO"])).toThrow(/KEY=VAL/);
+    expect(() => parseEnvPairs(["=bar"])).toThrow(/KEY=VAL/);
+  });
+
+  test("rejects --env without = before starting the daemon", async () => {
+    const dir = tmp();
+    writeFileSync(configFile(dir), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    await expect(run(["--config", configFile(dir), "start", "--env", "FOO", "api"])).rejects.toThrow(/KEY=VAL/);
   });
 });

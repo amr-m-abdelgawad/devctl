@@ -281,6 +281,9 @@ export type RouteInspectConfig = {
   enabled: boolean;
   max_bytes: number;
   grpc?: RouteInspectGrpcConfig;
+  // When true, text/event-stream responses are stored as SSE frames (or a
+  // reassembled OpenAI chat.completion). Default false: raw teed text.
+  capture_sse?: boolean;
 };
 
 export function emptyRouteInspect(): RouteInspectConfig {
@@ -300,6 +303,10 @@ export function routeInspectMaxBytes(route: RouteConfig): number {
   return cap > 0 ? cap : DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
 }
 
+export function routeInspectCaptureSse(route: RouteConfig): boolean {
+  return route.inspect?.capture_sse === true;
+}
+
 export const ROUTE_GRPC_OK_LOG_INFO = "info";
 export const ROUTE_GRPC_OK_LOG_SILENT = "silent";
 export type RouteGrpcOkLog = typeof ROUTE_GRPC_OK_LOG_INFO | typeof ROUTE_GRPC_OK_LOG_SILENT;
@@ -316,6 +323,13 @@ export type RouteLogGrpcConfig = {
 
 export type RouteLogConfig = {
   grpc?: RouteLogGrpcConfig;
+};
+
+// Opt-in per-route hop deadlines. Omitted, missing keys, or 0 = unlimited
+// (today's behavior). A global default would kill 47–65s CopilotKit streams.
+export type RouteTimeoutConfig = {
+  idle_ms?: number;
+  total_ms?: number;
 };
 
 export type RouteConfig = {
@@ -345,6 +359,8 @@ export type RouteConfig = {
   // Per-route log policy. log.grpc.ok lists non-zero gRPC statuses that are
   // not proxy errors (no stats().errors increment; INFO or silent).
   log?: RouteLogConfig;
+  // Opt-in idle/total deadlines. 0 or omitted = unlimited.
+  timeout?: RouteTimeoutConfig;
 };
 
 export function isGrpcRoute(route: RouteConfig): boolean {
