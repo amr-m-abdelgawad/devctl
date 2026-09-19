@@ -81,7 +81,7 @@ export function LogsPage(props: {
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <LogTable events={events} selected={selected} onSelect={setSelected} />
           {selectedEvent ? (
-            <JsonViewer title="Log record" input={selectedEvent} />
+            <JsonViewer title="Log record" input={selectedEvent} resetKey={typeof selectedEvent.seq === "number" ? `seq:${selectedEvent.seq}` : selectedEvent.timestamp} />
           ) : (
             <p className="px-2 py-6 text-center text-xs text-muted-foreground">Select a log row to inspect its JSON.</p>
           )}

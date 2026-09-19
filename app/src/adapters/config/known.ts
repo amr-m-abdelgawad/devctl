@@ -51,7 +51,7 @@ export const knownIdentity = ["type", "mode", "service_account", "config"];
 export const knownRestart = ["enabled", "policy", "max_retries", "backoff_seconds"];
 export const knownStartup = ["wait_for_healthy", "timeout_seconds"];
 export const knownExpose = ["enabled", "host", "port"];
-export const knownProxy = ["enabled", "gateway", "credentials", "listen", "token_endpoint", "routes"];
+export const knownProxy = ["enabled", "gateway", "credentials", "listen", "token_endpoint", "routes", "inspect_max_bytes"];
 export const knownListen = ["host", "port"];
 export const knownRoute = ["name", "transport", "listen", "match", "upstream", "auth", "response_headers", "inspect", "strip_prefix", "log", "timeout"];
 export const knownRouteTimeout = ["idle_ms", "total_ms"];
@@ -91,7 +91,7 @@ export const knownHttpExpose = ["enabled", "host", "response_headers", "allow_to
 export const knownTelemetry = ["otlp"];
 export const knownTelemetryOtlp = ["enabled", "listen"];
 export const knownWeb = ["enabled", "listen"];
-export const knownLlm = ["enabled", "sources"];
+export const knownLlm = ["enabled", "sources", "capture_max_bytes"];
 export const knownLlmSource = [
   "name",
   "type",

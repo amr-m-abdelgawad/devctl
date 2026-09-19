@@ -45,10 +45,11 @@ export function JsonViewer(props: {
   wrap?: boolean;
   className?: string;
   parseStrings?: boolean;
+  resetKey?: string;
 }) {
-  const { title, input, needle = "", wrap = true, className, parseStrings = true } = props;
+  const { title, input, needle = "", wrap = true, className, parseStrings = true, resetKey } = props;
   const coerced = useMemo(() => coerceJsonInput(input, parseStrings), [input, parseStrings]);
-  const signature = coerced.pretty;
+  const signature = resetKey ?? coerced.pretty;
   const [view, setView] = useState<ViewMode>(readViewMode);
   const [collapsed, setCollapsed] = useState(() => initialCollapsedIds(input));
   const [selected, setSelected] = useState<readonly JsonPathSegment[]>([]);
@@ -253,18 +254,24 @@ function TreeRow(props: {
         selected ? "bg-primary/12" : "hover:bg-accent/50",
         row.matched ? "json-row-match" : "",
       )}
-      onClick={onSelect}
+      onClick={() => {
+        onSelect();
+        if (row.expandable) {
+          onToggle();
+        }
+      }}
     >
       {row.expandable ? (
         <button
           type="button"
           tabIndex={-1}
-          className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
           onClick={(event) => {
             event.stopPropagation();
+            onSelect();
             onToggle();
           }}
-          aria-label="Toggle node"
+          aria-label={collapsed ? "Expand node" : "Collapse node"}
         >
           {collapsed ? <CaretRightIcon className="size-3" /> : <CaretDownIcon className="size-3" />}
         </button>

@@ -148,11 +148,11 @@ export function LlmInspector(props: {
         {effective === "conversation" ? (
           <Transcript turns={shownTurns} total={turns.length} needle={needle} />
         ) : (
-          <JsonPanes request={call.request} response={call.response} wrap={wrapJson} needle={needle} />
+          <JsonPanes request={call.request} response={call.response} wrap={wrapJson} needle={needle} resetKey={call.id} />
         )}
         {attrs.length === 0 ? null : (
           <div className="mt-4">
-            <JsonViewer title="Attributes" input={Object.fromEntries(attrs)} needle={needle} wrap={wrapJson} />
+            <JsonViewer title="Attributes" input={Object.fromEntries(attrs)} needle={needle} wrap={wrapJson} resetKey={`${call.id}:attrs`} />
           </div>
         )}
       </div>
@@ -202,15 +202,15 @@ function Transcript(props: { turns: LlmTurn[]; total: number; needle: string }) 
   );
 }
 
-function JsonPanes(props: { request: unknown; response: unknown; wrap: boolean; needle: string }) {
-  const { request, response, wrap, needle } = props;
+function JsonPanes(props: { request: unknown; response: unknown; wrap: boolean; needle: string; resetKey: string }) {
+  const { request, response, wrap, needle, resetKey } = props;
   if (request === undefined && response === undefined) {
     return <Empty>No request/response body.</Empty>;
   }
   return (
     <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-      {request === undefined ? null : <JsonViewer title="Request" input={request} wrap={wrap} needle={needle} />}
-      {response === undefined ? null : <JsonViewer title="Response" input={response} wrap={wrap} needle={needle} />}
+      {request === undefined ? null : <JsonViewer title="Request" input={request} wrap={wrap} needle={needle} resetKey={`${resetKey}:req`} />}
+      {response === undefined ? null : <JsonViewer title="Response" input={response} wrap={wrap} needle={needle} resetKey={`${resetKey}:res`} />}
     </div>
   );
 }

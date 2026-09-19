@@ -368,6 +368,27 @@ describe("config validate", () => {
       inspect: { enabled: true, max_bytes: -1 },
     });
     expect(validate(bad)).toContain("proxy.routes[0].inspect.max_bytes must be >= 0");
+    const negDefault = withService("api");
+    negDefault.proxy.inspect_max_bytes = -1;
+    expect(validate(negDefault)).toContain("proxy.inspect_max_bytes must be >= 0");
+    const negLlm = withService("api");
+    negLlm.llm.capture_max_bytes = -1;
+    expect(validate(negLlm)).toContain("llm.capture_max_bytes must be >= 0");
+    const negSource = withService("api");
+    negSource.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "llm";
+    source.type = "proxy";
+    source.via.route = "api";
+    source.capture.max_bytes = -1;
+    negSource.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+    });
+    negSource.llm.sources = [source];
+    expect(validate(negSource)).toContain("llm.sources[0].capture.max_bytes must be >= 0");
   });
 
   test("rejects an unknown inspect.grpc.decoder when plugins are empty", () => {

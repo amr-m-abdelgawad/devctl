@@ -318,7 +318,7 @@ proxy:
     - name: invoices-api
       inspect:
         enabled: true
-        max_bytes: 1048576   # default 1 MiB when omitted or 0
+        max_bytes: 1048576   # default proxy.inspect_max_bytes, then 1 MiB, when omitted or 0
         capture_sse: true    # optional; default false
     - name: temporal
       transport: grpc
@@ -328,7 +328,7 @@ proxy:
           decoder: temporal   # optional plugin trafficDecoders name
 ```
 
-`inspect: true` is the same as `enabled: true` with the default cap (no `grpc` block, no `capture_sse`). Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs. `inspect.grpc.decoder` names a plugin `trafficDecoders` entry; omit it to pretty-print JSON frames (`application/grpc+json` or JSON-looking payloads) and otherwise proto3 `decode_raw` field numbers (fixed-width wire values as `0x` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails `config validate` when `plugins:` is empty.
+`inspect: true` is the same as `enabled: true` with the default cap (no `grpc` block, no `capture_sse`). Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Set `proxy.inspect_max_bytes` (or Settings → Inspect body cap) when most routes should keep more than 1 MiB; a route that sets `max_bytes > 0` still wins. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs. `inspect.grpc.decoder` names a plugin `trafficDecoders` entry; omit it to pretty-print JSON frames (`application/grpc+json` or JSON-looking payloads) and otherwise proto3 `decode_raw` field numbers (fixed-width wire values as `0x` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails `config validate` when `plugins:` is empty.
 
 `inspect.capture_sse` (default **false**) changes only how a teed **response** is stored when `Content-Type` is exactly `text/event-stream` (parameters such as charset are ignored). The proxy still forwards the stream immediately; the inspector copy is parsed after the hop. Generic SSE is stored as a **JSON array of blank-line-delimited event strings** (one frame per array element) so the inspector is readable. OpenAI-shaped chat/completion streams (`data:` JSON with a `choices` array) are reassembled into pretty `chat.completion` JSON. Flag false or omitted keeps the raw event-stream text. Non-SSE content-types and request bodies ignore the flag. `max_bytes` / `truncated` still apply to the teed bytes. Redaction runs on the decoded `text`.
 

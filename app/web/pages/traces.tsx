@@ -80,7 +80,7 @@ function SpanDetail(props: { span?: SpanRow }) {
         <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">{span.status.message}</p>
       ) : null}
       {attrs.length > 0 ? (
-        <JsonViewer title="Attributes" input={span.attributes} />
+        <JsonViewer title="Attributes" input={span.attributes} resetKey={span.spanId} />
       ) : <p className="text-xs text-muted-foreground">No attributes.</p>}
     </div>
   );

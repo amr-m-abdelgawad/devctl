@@ -72,7 +72,7 @@ A missing file fails start and `devctl config validate` with
 `overlay "X" not found: .devctl/overlays/X.yaml`. Operators may commit named
 overlays; they are not a second config language.
 
-TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in `tui.json` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch **only** `web.enabled` and `web.listen.port` into `.devctl/config.local.yaml` (created if missing; other keys are left alone).
+TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in `tui.json` layers — see [Building from source](typescript.md) and [TUI](tui.md). Settings can patch `web.enabled`, `web.listen.port`, `proxy.inspect_max_bytes`, and `llm.capture_max_bytes` into `.devctl/config.local.yaml` (created if missing; other keys are left alone).
 
 ## Top-level keys
 

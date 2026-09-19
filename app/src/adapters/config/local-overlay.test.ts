@@ -13,6 +13,7 @@ describe("local overlay patch", () => {
     expect(text).toContain("enabled: true");
     expect(text).toContain("port: 18911");
     expect(text).not.toContain("host:");
+    expect(text).not.toContain("inspect_max_bytes");
   });
 
   test("keeps hand-edited sibling keys when patching web.listen.port", () => {
@@ -28,6 +29,21 @@ describe("local overlay patch", () => {
     expect(text).toContain("enabled: true");
     expect(text).toContain("host: 127.0.0.1");
     expect(text).toContain("port: 18912");
+  });
+
+  test("writes inspect caps without dropping sibling keys", () => {
+    const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-local-overlay-cap-${Date.now()}`);
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(
+      join(dir, ".devctl", "config.local.yaml"),
+      "proxy:\n  enabled: true\nweb:\n  enabled: true\n",
+    );
+    patchRepoLocalConfig(dir, { inspect_max_bytes: 8_388_608 });
+    const text = readFileSync(join(dir, ".devctl", "config.local.yaml"), "utf8");
+    expect(text).toContain("inspect_max_bytes: 8388608");
+    expect(text).toContain("capture_max_bytes: 8388608");
+    expect(text).toContain("proxy:");
+    expect(text).toContain("enabled: true");
   });
 
   test("rejects a port outside the user range", () => {

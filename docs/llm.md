@@ -125,7 +125,7 @@ llm:
       via: { route: apigee-llm }  # singular sugar; or via.routes: [a, b]
       capture:
         prompts: true             # false → keep metadata, drop bodies
-        max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
+        max_bytes: 1048576        # per-direction cap (default llm.capture_max_bytes, then 1 MiB)
         paths:                    # optional; extra POST JSON paths to capture raw
           - /generations/v1alpha2
       cost_per_token:             # optional; proxy only

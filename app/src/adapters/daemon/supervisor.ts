@@ -6,6 +6,7 @@ import {
   emptyService,
   commandEmpty,
   graceSeconds,
+  inspectCapBytes,
   validateConfigText,
   stopOnExit,
   dependencyName,
@@ -63,7 +64,7 @@ import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
 import { callerServiceForPeer } from "../process/peer-caller.ts";
 import { getPreferenceSnapshot, loadTuiConfig, resetTuiPreferences, saveTuiPreferences } from "../config/tui-preferences.ts";
-import { patchRepoLocalConfig } from "../config/local-overlay.ts";
+import { hasLocalConfigPatch, patchRepoLocalConfig } from "../config/local-overlay.ts";
 import { isPreferenceScope, type PreferenceScope, type PreferenceWrite, type TuiPreferencePatch } from "../../domain/ui/preferences.ts";
 import { Detector } from "../secrets/detector.ts";
 import {
@@ -898,6 +899,7 @@ export class Supervisor {
       scope: isPreferenceScope(scope) ? scope : "repo",
       webEnabled: this.cfg.web.enabled,
       webPort: this.cfg.web.listen.port,
+      inspectMaxBytes: inspectCapBytes(this.cfg.proxy.inspect_max_bytes, this.cfg.llm.capture_max_bytes),
     });
   }
 
@@ -912,7 +914,7 @@ export class Supervisor {
         saveTuiPreferences(partial, opts);
       }
     }
-    if (patch.local && (patch.local.web_enabled !== undefined || patch.local.web_port !== undefined)) {
+    if (patch.local && hasLocalConfigPatch(patch.local)) {
       patchRepoLocalConfig(this.cfg.repoRoot, patch.local);
       await this.reload();
     }

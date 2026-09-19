@@ -97,7 +97,7 @@ function host(): McpHost & { calls: ControlCall[] } {
       locked: false,
       paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
       layers: {},
-      local: { web_enabled: true, web_port: 18900 },
+      local: { web_enabled: true, web_port: 18900, inspect_max_bytes: 0 },
     }),
     setPreferences: async (patch) => {
       calls.push({ tool: "set_preferences", args: patch });
@@ -117,7 +117,7 @@ function host(): McpHost & { calls: ControlCall[] } {
         locked: false,
         paths: { user: "/u", repo: "/r", write: "/r", local: "/l" },
         layers: {},
-        local: { web_enabled: patch.local?.web_enabled === true, web_port: patch.local?.web_port ?? 18900 },
+        local: { web_enabled: patch.local?.web_enabled === true, web_port: patch.local?.web_port ?? 18900, inspect_max_bytes: patch.local?.inspect_max_bytes ?? 0 },
       };
     },
     getTrace: async (id) => ({ ...tree, traceId: id }),

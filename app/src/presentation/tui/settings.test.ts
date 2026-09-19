@@ -38,6 +38,7 @@ function sampleState(partial: Partial<SettingsState> = {}): SettingsState {
     webAppearance: "dark",
     webEnabled: false,
     webPort: 18900,
+    inspectMaxBytes: 1_048_576,
     userPath: "/tmp/home/tui.json",
     repoPath: "/tmp/state/repo/tui.json",
     localPath: "/tmp/repo/.devctl/config.local.yaml",
@@ -78,6 +79,8 @@ describe("settings", () => {
     expect(sample.find((item) => item.id === "web")?.kind).toBe("toggle");
     expect(sample.find((item) => item.id === "web_port")?.value).toBe("18900");
     expect(sample.find((item) => item.id === "web_port")?.hint).toContain("preview");
+    expect(sample.find((item) => item.id === "inspect_cap")?.value).toBe("1 MiB");
+    expect(sample.find((item) => item.id === "inspect_cap")?.kind).toBe("cycle");
     expect(formatScope("repo")).toBe("this repo");
     expect(cyclePreferenceScope("repo", 1)).toBe("user");
     expect(cycleScrollSpeed(3, 1)).toBe(4);

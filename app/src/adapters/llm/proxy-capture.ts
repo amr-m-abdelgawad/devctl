@@ -95,7 +95,7 @@ class Recorder implements LlmCaptureRecorder {
     private readonly deps: ProxyCaptureSinkDeps,
     private readonly raw: boolean,
   ) {
-    this.maxBytes = llmCaptureMaxBytes(source.capture);
+    this.maxBytes = llmCaptureMaxBytes(source.capture, deps.cfg().llm.capture_max_bytes);
     // Resolve the peer while the inbound socket is still ESTABLISHED. Waiting
     // until finish() races the client close and leaves caller empty so the UI
     // only has the proxy source name (apigee-llm).

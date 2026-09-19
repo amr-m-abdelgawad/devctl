@@ -279,6 +279,9 @@ export function applyLlm(llm: LlmConfig, raw: Record<string, unknown>): void {
   if (raw.enabled !== undefined) {
     llm.enabled = asBoolean(raw.enabled);
   }
+  if (raw.capture_max_bytes !== undefined) {
+    llm.capture_max_bytes = asNumber(raw.capture_max_bytes);
+  }
   if (!Array.isArray(raw.sources)) {
     return;
   }
@@ -348,6 +351,9 @@ function decodeLlmCostPerToken(raw: unknown): LlmSourceConfig["cost_per_token"] 
 export function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): void {
   if (raw.enabled !== undefined) {
     proxy.enabled = asBoolean(raw.enabled);
+  }
+  if (raw.inspect_max_bytes !== undefined) {
+    proxy.inspect_max_bytes = asNumber(raw.inspect_max_bytes);
   }
   if (raw.gateway !== undefined) {
     proxy.gateway = asBoolean(raw.gateway);

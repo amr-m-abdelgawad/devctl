@@ -2,7 +2,7 @@ import { RGBA } from "@opentui/core";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
-import { DEFAULT_WEB_PORT } from "../../../domain/config/types.ts";
+import { cycleInspectCap, DEFAULT_WEB_PORT, inspectCapBytes } from "../../../domain/config/types.ts";
 import { clampMcpPort } from "../../../domain/net/mcp-port.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
@@ -97,6 +97,9 @@ export function usePreferences({
   const [webEnabled, setWebEnabled] = useState(controller?.cfg.web.enabled === true);
   const [webPort, setWebPort] = useState(() => controller?.cfg.web.listen.port || DEFAULT_WEB_PORT);
   const committedWebPort = useRef(webPort);
+  const [inspectMaxBytes, setInspectMaxBytes] = useState(() =>
+    inspectCapBytes(controller?.cfg.proxy.inspect_max_bytes ?? 0, controller?.cfg.llm.capture_max_bytes ?? 0),
+  );
   const prefsLocked = tuiPrefsLocked(resolveTuiOverridePath());
   const userPath = userTuiConfigPath();
   const repoPath = repoTuiConfigPath(repoRoot || process.cwd());
@@ -141,6 +144,7 @@ export function usePreferences({
         webAppearance,
         webEnabled,
         webPort,
+        inspectMaxBytes,
         webRunning: snap?.web?.running === true,
         userPath,
         repoPath,
@@ -164,6 +168,7 @@ export function usePreferences({
       webAppearance,
       webEnabled,
       webPort,
+      inspectMaxBytes,
       writePath,
     ],
   );
@@ -176,7 +181,10 @@ export function usePreferences({
       setWebPort(controller.cfg.web.listen.port);
       committedWebPort.current = controller.cfg.web.listen.port;
     }
-  }, [controller?.cfg.web.enabled, controller?.cfg.web.listen.port]);
+    if (controller) {
+      setInspectMaxBytes(inspectCapBytes(controller.cfg.proxy.inspect_max_bytes, controller.cfg.llm.capture_max_bytes));
+    }
+  }, [controller, controller?.cfg.web.enabled, controller?.cfg.web.listen.port, controller?.cfg.proxy.inspect_max_bytes, controller?.cfg.llm.capture_max_bytes]);
 
   const persistPrefs = useCallback((partial: TuiPreferencePatch, message: string, persistScope: PreferenceScope = scope) => {
     if (prefsLocked) {
@@ -266,6 +274,12 @@ export function usePreferences({
     persistLocalWeb({ web_port: next }, `web port ${next}`);
   }, [persistLocalWeb]);
 
+  const applyInspectCap = useCallback((bytes: number) => {
+    const next = inspectCapBytes(bytes);
+    setInspectMaxBytes(next);
+    persistLocalWeb({ inspect_max_bytes: next }, `inspect cap ${next}`);
+  }, [persistLocalWeb]);
+
   const previewWebPort = useCallback((port: number) => {
     setWebPort(clampMcpPort(port));
   }, []);
@@ -340,6 +354,10 @@ export function usePreferences({
         applyWebPort(webPort);
         return;
       }
+      if (item.id === "inspect_cap") {
+        applyInspectCap(cycleInspectCap(inspectMaxBytes, 1));
+        return;
+      }
       if (item.id === "reset") {
         setConfirmKind("reset-prefs");
         setOverlay("confirm");
@@ -359,8 +377,10 @@ export function usePreferences({
       applyLogTimestamps,
       applyScroll,
       applyWebAppearance,
+      applyInspectCap,
       applyWebPort,
       fontSize,
+      inspectMaxBytes,
       leaderMs,
       logMetadata,
       logTimestamps,
@@ -414,6 +434,10 @@ export function usePreferences({
         previewWebPort(webPort + dir);
         return;
       }
+      if (item.id === "inspect_cap") {
+        applyInspectCap(cycleInspectCap(inspectMaxBytes, dir));
+        return;
+      }
       if (item.id === "mouse") {
         toggleMouse();
         return;
@@ -436,9 +460,11 @@ export function usePreferences({
       applyLogMetadata,
       applyLogTimestamps,
       applyScroll,
+      applyInspectCap,
       applyWebAppearance,
       previewWebPort,
       fontSize,
+      inspectMaxBytes,
       leaderMs,
       logMetadata,
       logTimestamps,
