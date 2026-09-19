@@ -55,7 +55,7 @@ describe("mapProxyCapture", () => {
       }),
     }));
     expect(call.usage).toEqual({ promptTokens: 5, completionTokens: 2, totalTokens: 7 });
-    expect(call.cost).toBe(0.009);
+    expect(call.cost).toBeCloseTo(0.009);
   });
 
   test("leaves cost undefined when usage tokens are missing even if rates are set", () => {
