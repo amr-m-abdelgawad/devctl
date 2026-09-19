@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emptyService, emptyRouteAuth, emptyProfile, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { decodeRoute } from "./decode.ts";
 import { unresolvedInspectDecoders, validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
@@ -192,6 +193,34 @@ describe("config validate", () => {
       log: { grpc: { ok: [{ status: 14, log: "debug" as "info" }] } },
     });
     expect(validate(bad)).toContain('proxy.routes[0].log.grpc.ok[0].log must be "info" or "silent"');
+  });
+
+  test("keeps malformed log.grpc.ok entries so validate can reject them", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push(decodeRoute({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      log: { grpc: { ok: [14, { methods: ["PollWorkflowTaskQueue"] }] } },
+    }));
+    const issues = validate(cfg);
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[0].status must be a number");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be a number");
+  });
+
+  test("rejects log.grpc.ok status outside the non-zero gRPC range", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      log: { grpc: { ok: [{ status: 0 }, { status: 17 }, { status: 14.5 }] } },
+    });
+    const issues = validate(cfg);
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[0].status must be an integer from 1 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be an integer from 1 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[2].status must be an integer from 1 to 16");
   });
 
   test("rejects negative inspect.max_bytes and accepts omitted inspect", () => {

@@ -132,6 +132,13 @@ describe("structured log parse table", () => {
     expect(structuredBodyLooksLikeBraces(summary(line))).toBe(false);
   });
 
+  test("parseJSONLogLine keeps the original raw line including ANSI", () => {
+    const raw = "\x1b[32m{\"level\":\"info\",\"msg\":\"ready\"}\x1b[0m";
+    const parsed = parseJSONLogLine(raw);
+    expect(parsed?.body).toBe("ready");
+    expect(parsed?.raw).toBe(raw);
+  });
+
   test("a logger prefix before a Python dict is stripped and retried", () => {
     const parsed = parseJSONLogLine("INFO:workflows {'event': 'user_login', 'user_id': 'u-9'}");
     expect(parsed?.body).toBe("user_login");

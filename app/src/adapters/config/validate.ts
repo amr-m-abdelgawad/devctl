@@ -43,6 +43,7 @@ import {
   namedPort,
   isReservedHttpOutput,
 } from "../../domain/config/types.ts";
+import { GRPC_OK_STATUS_MAX, GRPC_OK_STATUS_MIN } from "../../domain/proxy/grpc-ok.ts";
 
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
@@ -585,6 +586,8 @@ function validateRouteLog(route: RouteConfig, prefix: string): string[] {
     const entryPrefix = `${prefix}.log.grpc.ok[${i}]`;
     if (typeof entry.status !== "number" || !Number.isFinite(entry.status)) {
       issues.push(`${entryPrefix}.status must be a number`);
+    } else if (!Number.isInteger(entry.status) || entry.status < GRPC_OK_STATUS_MIN || entry.status > GRPC_OK_STATUS_MAX) {
+      issues.push(`${entryPrefix}.status must be an integer from ${GRPC_OK_STATUS_MIN} to ${GRPC_OK_STATUS_MAX}`);
     }
     if (entry.log !== undefined && entry.log !== "info" && entry.log !== "silent") {
       issues.push(`${entryPrefix}.log must be "info" or "silent"`);

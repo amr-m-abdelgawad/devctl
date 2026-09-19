@@ -55,6 +55,37 @@ function floatField(field: number, value: number): Uint8Array {
   return joinBytes(key(field, 5), buf);
 }
 
+function hexOf(bytes: Uint8Array): string {
+  return `0x${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function floatHex(value: number): string {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setFloat32(0, value, true);
+  return hexOf(buf);
+}
+
+function doubleHex(value: number): string {
+  const buf = new Uint8Array(8);
+  new DataView(buf.buffer).setFloat64(0, value, true);
+  return hexOf(buf);
+}
+
+function fixed32Field(field: number, value: number): Uint8Array {
+  const buf = new Uint8Array(4);
+  new DataView(buf.buffer).setUint32(0, value, true);
+  return joinBytes(key(field, 5), buf);
+}
+
+function packedFixed32(field: number, values: number[]): Uint8Array {
+  const payload = new Uint8Array(values.length * 4);
+  const view = new DataView(payload.buffer);
+  values.forEach((value, i) => {
+    view.setUint32(i * 4, value, true);
+  });
+  return bytesField(field, payload);
+}
+
 describe("decodeProtobufRaw", () => {
   test("round-trips scalars, nested messages, packed repeated, and leftover bytes", () => {
     const leftover = new Uint8Array([0x80]);
@@ -71,11 +102,19 @@ describe("decodeProtobufRaw", () => {
     expect(decodeProtobufRaw(encoded)).toEqual({
       "1": [42, 43],
       "2": "hello",
-      "3": 1.5,
-      "4": 2.5,
+      "3": doubleHex(1.5),
+      "4": floatHex(2.5),
       "5": { "1": 7 },
       "6": [1, 2, 3],
       "7": Buffer.from(leftover).toString("base64"),
+    });
+  });
+
+  test("keeps fixed-width wire values as little-endian hex", () => {
+    const encoded = joinBytes(fixed32Field(1, 1), packedFixed32(2, [0xffffffff]));
+    expect(decodeProtobufRaw(encoded)).toEqual({
+      "1": "0x01000000",
+      "2": ["0xffffffff"],
     });
   });
 

@@ -72,7 +72,7 @@ export class MultilineAssembler {
     const emitted = this.flushDue(nowMs);
     const resolved = resolveMultilineOptions(options);
     const line = ingest.message ?? (typeof ingest.body === "string" ? ingest.body : "");
-    const key = ingest.service;
+    const key = JSON.stringify([ingest.service, ingest.source, ingest.stream ?? "", ingest.pid, ingest.identity ?? ""]);
     const current = this.buffers.get(key);
     if (!current) {
       this.buffers.set(key, this.newBuffer(ingest, line, nowMs, resolved));

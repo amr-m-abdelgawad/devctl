@@ -177,7 +177,7 @@ async function checkGRPC(address: string, service: string, timeout: number): Pro
   if (!target) {
     return { status: HealthUnhealthy, message: address === "" ? "no grpc address" : `invalid grpc address ${address}` };
   }
-  const h2c = `http://${target.host}:${target.port}`;
+  const h2c = grpcHealthOrigin("http", target.host, target.port);
   try {
     return await grpcHealthCheck(h2c, service, timeout);
   } catch (h2cErr) {
@@ -186,7 +186,7 @@ async function checkGRPC(address: string, service: string, timeout: number): Pro
       return { status: HealthUnhealthy, message: h2cMessage };
     }
     try {
-      return await grpcHealthCheck(`https://${target.host}:${target.port}`, service, timeout);
+      return await grpcHealthCheck(grpcHealthOrigin("https", target.host, target.port), service, timeout);
     } catch (h2Err) {
       return { status: HealthUnhealthy, message: h2Err instanceof Error ? h2Err.message : String(h2Err) };
     }
@@ -196,6 +196,11 @@ async function checkGRPC(address: string, service: string, timeout: number): Pro
 function isTlsRetryable(message: string): boolean {
   const lower = message.toLowerCase();
   return lower.includes("http2") || lower.includes("ssl") || lower.includes("tls") || lower.includes("eproto") || lower.includes("protocol");
+}
+
+export function grpcHealthOrigin(scheme: "http" | "https", host: string, port: number): string {
+  const authority = host.includes(":") ? `[${host}]` : host;
+  return `${scheme}://${authority}:${port}`;
 }
 
 function parseHostPort(address: string): { host: string; port: number } | undefined {

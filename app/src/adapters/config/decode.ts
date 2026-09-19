@@ -423,8 +423,24 @@ function decodeRouteGrpcOkLog(value: unknown): RouteGrpcOkLog | undefined {
   return text === "" ? undefined : (text as RouteGrpcOkLog);
 }
 
-function decodeRouteGrpcOkEntry(value: Record<string, unknown>): RouteGrpcOkEntry {
-  const entry: RouteGrpcOkEntry = { status: asNumber(value.status) };
+function decodeRouteGrpcOkStatus(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return Number.NaN;
+}
+
+function decodeRouteGrpcOkEntry(value: unknown): RouteGrpcOkEntry {
+  if (!isRecord(value)) {
+    return { status: Number.NaN };
+  }
+  const entry: RouteGrpcOkEntry = { status: decodeRouteGrpcOkStatus(value.status) };
   if (value.methods !== undefined) {
     entry.methods = asStringArray(value.methods);
   }
@@ -441,7 +457,7 @@ export function decodeRouteLog(value: unknown): RouteLogConfig | undefined {
   if (!isRecord(value.grpc)) {
     return {};
   }
-  const ok = Array.isArray(value.grpc.ok) ? value.grpc.ok.filter(isRecord).map(decodeRouteGrpcOkEntry) : [];
+  const ok = Array.isArray(value.grpc.ok) ? value.grpc.ok.map(decodeRouteGrpcOkEntry) : [];
   return { grpc: { ok } };
 }
 

@@ -145,6 +145,39 @@ describe("ProxyTrafficSink recorder", () => {
     expect(call?.response?.text).toContain("gzip");
   });
 
+  test("rejects a gzip gRPC frame that inflates past inspect.max_bytes", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({ inspect: { enabled: true, max_bytes: 32 } });
+      }),
+      store,
+    });
+    const rec = sink.begin({ ...begin, transport: "grpc", path: "/pkg.Svc/Bomb" });
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const raw = Buffer.alloc(256, 0x61);
+    const gz = Buffer.from(Bun.gzipSync(raw));
+    const prefix = Buffer.alloc(5);
+    prefix[0] = 1;
+    prefix.writeUInt32BE(gz.length, 1);
+    const frame = Buffer.concat([prefix, gz]);
+    rec.setRequestBody(frame);
+    rec.appendResponse(frame);
+    await rec.finish({
+      status: 200,
+      grpcStatus: "0",
+      durationMs: 1,
+      requestId: "grpc-gz-max",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("grpc-gz-max");
+    expect(call?.request?.data).toBe(frame.toString("base64"));
+    expect(call?.request?.text).toBeUndefined();
+    expect(call?.response?.text).toBeUndefined();
+  });
+
   test("keeps base64 only when a compressed gRPC frame fails to gunzip", async () => {
     const store = new TrafficCallRing();
     const sink = new ProxyTrafficSink({ cfg: () => cfgWithInspect(), store });

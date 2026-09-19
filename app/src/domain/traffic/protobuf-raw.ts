@@ -6,6 +6,7 @@ const MAX_FIELD = 536_870_911;
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 // Schema-free proto3 decode_raw. Keys are field numbers as strings.
+// Fixed-width wire values (types 1 and 5) stay little-endian 0x-prefixed hex.
 // Length-delimited values prefer printable UTF-8, then a nested message,
 // then packed repeated scalars, then base64 for leftover bytes.
 export function decodeProtobufRaw(bytes: Uint8Array): Record<string, unknown> | undefined {
@@ -56,13 +57,13 @@ function readField(
     if (offset + 8 > bytes.length) {
       return undefined;
     }
-    return { value: readFloat64(bytes, offset), next: offset + 8 };
+    return { value: bytesToHex(bytes.subarray(offset, offset + 8)), next: offset + 8 };
   }
   if (wire === WIRE_I32) {
     if (offset + 4 > bytes.length) {
       return undefined;
     }
-    return { value: readFloat32(bytes, offset), next: offset + 4 };
+    return { value: bytesToHex(bytes.subarray(offset, offset + 4)), next: offset + 4 };
   }
   if (wire !== WIRE_LEN) {
     return undefined;
@@ -92,11 +93,11 @@ function decodeLengthDelimited(payload: Uint8Array): unknown {
   if (packedVarints !== undefined) {
     return packedVarints;
   }
-  const packedI64 = readPackedFixed(payload, 8, readFloat64);
+  const packedI64 = readPackedFixedHex(payload, 8);
   if (packedI64 !== undefined) {
     return packedI64;
   }
-  const packedI32 = readPackedFixed(payload, 4, readFloat32);
+  const packedI32 = readPackedFixedHex(payload, 4);
   if (packedI32 !== undefined) {
     return packedI32;
   }
@@ -120,17 +121,13 @@ function readPackedVarints(bytes: Uint8Array): Array<number | string> | undefine
   return values.length > 0 ? values : undefined;
 }
 
-function readPackedFixed(
-  bytes: Uint8Array,
-  width: number,
-  read: (buf: Uint8Array, offset: number) => number,
-): number[] | undefined {
+function readPackedFixedHex(bytes: Uint8Array, width: number): string[] | undefined {
   if (bytes.length === 0 || bytes.length % width !== 0) {
     return undefined;
   }
-  const values: number[] = [];
+  const values: string[] = [];
   for (let offset = 0; offset < bytes.length; offset += width) {
-    values.push(read(bytes, offset));
+    values.push(bytesToHex(bytes.subarray(offset, offset + width)));
   }
   return values;
 }
@@ -158,14 +155,6 @@ function varintToJson(value: bigint): number | string {
     return Number(value);
   }
   return value.toString();
-}
-
-function readFloat64(bytes: Uint8Array, offset: number): number {
-  return new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getFloat64(0, true);
-}
-
-function readFloat32(bytes: Uint8Array, offset: number): number {
-  return new DataView(bytes.buffer, bytes.byteOffset + offset, 4).getFloat32(0, true);
 }
 
 function mergeField(existing: unknown, value: unknown): unknown {
@@ -196,6 +185,14 @@ function isPrintableUtf8(bytes: Uint8Array): boolean {
   } catch {
     return false;
   }
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  let out = "0x";
+  for (let i = 0; i < bytes.length; i += 1) {
+    out += (bytes[i] ?? 0).toString(16).padStart(2, "0");
+  }
+  return out;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

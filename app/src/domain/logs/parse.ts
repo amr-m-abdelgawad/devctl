@@ -51,7 +51,15 @@ export function parseJSONLogLine(line: string): ParsedLog | undefined {
   if (!extracted) {
     return undefined;
   }
-  return parseOtlpLog(extracted.value, extracted.raw) ?? parseMetricLog(extracted.value, extracted.raw) ?? parseAccessLog(extracted.value, extracted.raw) ?? parseApplicationJsonLog(extracted.value, extracted.raw);
+  const parsed =
+    parseOtlpLog(extracted.value, extracted.raw) ??
+    parseMetricLog(extracted.value, extracted.raw) ??
+    parseAccessLog(extracted.value, extracted.raw) ??
+    parseApplicationJsonLog(extracted.value, extracted.raw);
+  if (!parsed) {
+    return undefined;
+  }
+  return { ...parsed, raw: line };
 }
 
 function extractStructuredObject(line: string): { value: Record<string, unknown>; raw: string } | undefined {

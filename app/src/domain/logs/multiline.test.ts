@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { MultilineAssembler } from "./multiline.ts";
 import { SeverityError, SeverityInfo, SeverityUnspecified } from "./severity.ts";
 
-function ingest(message: string, service = "api") {
-  return { service, source: "stdout", pid: 1, message };
+function ingest(message: string, service = "api", source = "stdout") {
+  return { service, source, stream: source, pid: 1, message };
 }
 
 function pythonTraceback(frames = 28): string[] {
@@ -76,6 +76,15 @@ describe("MultilineAssembler", () => {
     const folded = assembler.flushAll();
     expect(folded[0]?.severityNumber).toBe(SeverityError);
     expect(folded[0]?.body.startsWith("ERROR request failed")).toBe(true);
+  });
+
+  test("stdout and stderr of the same service do not share a buffer", () => {
+    const assembler = new MultilineAssembler();
+    expect(assembler.push(ingest("Traceback (most recent call last):"), 1_000)).toEqual([]);
+    expect(assembler.push(ingest("unrelated stderr line", "api", "stderr"), 1_001)).toEqual([]);
+    const folded = assembler.flushAll();
+    expect(folded).toHaveLength(2);
+    expect(folded.map((item) => item.body)).toEqual(["Traceback (most recent call last):", "unrelated stderr line"]);
   });
 
   test("unknown text stays unspecified until a later line classifies", () => {

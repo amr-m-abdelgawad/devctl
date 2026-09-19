@@ -150,7 +150,7 @@ keys — never to copy values:
 
 ```yaml
 environment:
-  sources: [dotenv]          # repo root then working_dir: .env, .env.development, .env.local, .env.<profile>
+  sources: [dotenv, secret_manager]  # dotenv files, then Secret Manager names below
   secrets:
     DB_PASSWORD: projects/my-project/secrets/db-password   # a resource NAME
 ```

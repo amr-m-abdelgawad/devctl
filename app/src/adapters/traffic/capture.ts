@@ -25,6 +25,7 @@ import type {
   TrafficCaptureSink,
 } from "../../ports/traffic-capture.ts";
 import type { TrafficDecoder } from "../plugins/registry.ts";
+import { gunzipSync } from "node:zlib";
 
 export type TrafficCallerLookup = (peer: { address: string; port: number }) => Promise<string | undefined>;
 
@@ -206,7 +207,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
     }
     const split = splitGrpcFrames(body);
     const truncated = opts.truncated || split.truncated;
-    const messages = inflateGrpcMessages(split.frames);
+    const messages = inflateGrpcMessages(split.frames, this.maxBytes);
     if (messages === undefined) {
       return grpcTrafficPayload(body, { truncated, decode: false });
     }
@@ -219,7 +220,7 @@ class TrafficRecorder implements TrafficCaptureRecorder {
   }
 }
 
-function inflateGrpcMessages(frames: GrpcCapturedFrame[]): Uint8Array[] | undefined {
+function inflateGrpcMessages(frames: GrpcCapturedFrame[], maxBytes: number): Uint8Array[] | undefined {
   const messages: Uint8Array[] = [];
   for (const frame of frames) {
     if (!frame.compressed) {
@@ -227,8 +228,11 @@ function inflateGrpcMessages(frames: GrpcCapturedFrame[]): Uint8Array[] | undefi
       continue;
     }
     try {
-      const packed = new Uint8Array(frame.message);
-      messages.push(new Uint8Array(Bun.gunzipSync(packed)));
+      const inflated = gunzipSync(Buffer.from(frame.message), { maxOutputLength: maxBytes });
+      if (inflated.byteLength > maxBytes) {
+        return undefined;
+      }
+      messages.push(new Uint8Array(inflated));
     } catch {
       return undefined;
     }

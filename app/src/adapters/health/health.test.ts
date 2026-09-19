@@ -3,7 +3,7 @@ import * as http2 from "node:http2";
 import type { ServerHttp2Stream } from "node:http2";
 import { describe, expect, test } from "bun:test";
 import { emptyHealth } from "../../domain/config/types.ts";
-import { checkHealth, healthCheckerFactory, type HealthPlugin } from "./health.ts";
+import { checkHealth, grpcHealthOrigin, healthCheckerFactory, type HealthPlugin } from "./health.ts";
 
 describe("health checks", () => {
   test("process type is healthy when pid is alive", async () => {
@@ -170,6 +170,11 @@ describe("grpc health", () => {
     const cfg = { ...emptyHealth(), type: "grpc", address: "127.0.0.1:1" };
     const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
     expect(result.status).toBe("UNHEALTHY");
+  });
+
+  test("health origins bracket IPv6 hosts", () => {
+    expect(grpcHealthOrigin("http", "::1", 50051)).toBe("http://[::1]:50051");
+    expect(grpcHealthOrigin("https", "127.0.0.1", 50051)).toBe("https://127.0.0.1:50051");
   });
 
   test("missing address is unhealthy", async () => {

@@ -272,7 +272,6 @@ export class LogManager {
   }
 
   snapshot(): LogSnapshot {
-    this.flushPending();
     const counts: Record<string, number> = {};
     let errors = 0;
     this.forEachEvent((ev) => {

@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Process log severity now strips ANSI before classification, and stdout/stderr fold Python tracebacks, bare HTTP status continuations, and optional `logs.multiline` start/continuation regexes into one event.
+- Review follow-ups for the platform-audit Phase 1 surface: `log.grpc.ok` decode keeps malformed entries so validate can reject them, `status` is an integer 1–16, and method names match on a `/` boundary; reload loads a candidate plugin registry before checking `inspect.grpc.decoder`; gRPC health origins bracket IPv6 hosts; gzip inflate honors `inspect.max_bytes`; `snapshot()` no longer flushes pending multiline buffers; multiline buffers are keyed by service/source/stream/pid/identity; `parseJSONLogLine` keeps the original `raw` line; schema-free `decode_raw` keeps fixed-width wire bits as hex.
 
 ## [0.15.0] - 2026-09-19
 

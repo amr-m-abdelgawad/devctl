@@ -15,6 +15,8 @@ describe("matchGrpcOk", () => {
   test("matches a listed status as a :path suffix", () => {
     expect(matchGrpcOk([{ status: 14, methods: ["PollWorkflowTaskQueue", "PollActivityTaskQueue"] }], 14, pollPath)).toBe("info");
     expect(matchGrpcOk([{ status: 14, methods: ["PollWorkflowTaskQueue"] }], "14", pollPath)).toBe("info");
+    expect(matchGrpcOk([{ status: 14, methods: ["/PollWorkflowTaskQueue"] }], 14, pollPath)).toBe("info");
+    expect(matchGrpcOk([{ status: 14, methods: ["PollWorkflowTaskQueue"] }], 14, "/svc/NotPollWorkflowTaskQueue")).toBeUndefined();
   });
 
   test("omit methods applies to every method on the route", () => {

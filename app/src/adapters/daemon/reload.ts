@@ -94,7 +94,21 @@ export function pluginMtimes(paths: string[], repoRoot: string): Map<string, num
   return out;
 }
 
-export async function reapplyPlugins(host: ReloadHost, next: DevctlConfig, prevPaths: string[]): Promise<string[]> {
+export async function registryForNextPlugins(host: ReloadHost, next: DevctlConfig): Promise<Registry | undefined> {
+  const nextPaths = next.plugins.map((plugin) => plugin.path);
+  const prevPaths = host.cfg.plugins.map((plugin) => plugin.path);
+  if (JSON.stringify(prevPaths) === JSON.stringify(nextPaths)) {
+    return host.registry;
+  }
+  return loadPluginPaths(nextPaths, next.repoRoot);
+}
+
+export async function reapplyPlugins(
+  host: ReloadHost,
+  next: DevctlConfig,
+  prevPaths: string[],
+  preloaded?: Registry,
+): Promise<string[]> {
   const nextPaths = next.plugins.map((plugin) => plugin.path);
   const listChanged = JSON.stringify(prevPaths) !== JSON.stringify(nextPaths);
   const current = pluginMtimes(nextPaths, next.repoRoot);
@@ -107,7 +121,7 @@ export async function reapplyPlugins(host: ReloadHost, next: DevctlConfig, prevP
     }
   }
   if (listChanged) {
-    const registry = await loadPluginPaths(nextPaths, next.repoRoot);
+    const registry = preloaded ?? (await loadPluginPaths(nextPaths, next.repoRoot));
     host.registry = registry;
     for (const failure of registry.loadErrors) {
       host.log("devctl", "ERROR", `plugin ${failure.path} skipped: ${failure.message}`);
@@ -252,17 +266,17 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
     host.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
     throw err;
   }
+  const pluginRegistry = await registryForNextPlugins(host, next);
   try {
-    // Revalidate against the candidate config, not this.cfg — a newly
-    // added service (or one whose health/identity type just changed)
-    // referencing a plugin type nothing provides should reject the
-    // reload the same way an unparseable config file does, rather than
-    // silently taking effect and only surfacing once someone starts it.
-    checkPluginHealthTypes(host.registry, next);
-    checkPluginIdentityTypes(host.registry, next);
-    checkPluginEnvironmentSources(host.registry, next);
-    checkPluginLlmSourceTypes(host.registry, next);
-    checkPluginInspectDecoders(host.registry, next);
+    // Revalidate against the candidate config and the plugin registry that
+    // reload would activate. Loading newly listed plugin paths first lets a
+    // decoder (or health/identity/env/llm type) land in the same reload as
+    // the route or service that names it.
+    checkPluginHealthTypes(pluginRegistry, next);
+    checkPluginIdentityTypes(pluginRegistry, next);
+    checkPluginEnvironmentSources(pluginRegistry, next);
+    checkPluginLlmSourceTypes(pluginRegistry, next);
+    checkPluginInspectDecoders(pluginRegistry, next);
   } catch (err) {
     host.bus.publish(newEvent(ConfigurationReloadFailed, "", { error: humanMessage(err) }));
     host.log("devctl", "ERROR", `configuration reload failed: ${humanMessage(err)}`);
@@ -299,7 +313,7 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   // log ring buffer and start a new persistence session out from under
   // the TUI. Plugin *path list* changes hot-apply; same-path mtime still
   // advises a supervisor restart (Bun module cache).
-  const pluginRestart = await reapplyPlugins(host, next, prevPluginPaths);
+  const pluginRestart = await reapplyPlugins(host, next, prevPluginPaths, pluginRegistry);
   if (pluginRestart.length > 0) {
     result.supervisor_restart_required = [...(result.supervisor_restart_required ?? []), ...pluginRestart];
   }
