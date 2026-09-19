@@ -27,6 +27,8 @@ export type HealthCheckConfig = {
   type: string;
   url: string;
   address: string;
+  // Health protocol service name for type: grpc. Empty (the default) is overall status.
+  grpc_service?: string;
   command: Command;
   interval_seconds: number;
   timeout_seconds: number;
@@ -626,7 +628,7 @@ export function emptyEnv(): EnvConfig {
 }
 
 export function emptyHealth(): HealthCheckConfig {
-  return { type: "", url: "", address: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
+  return { type: "", url: "", address: "", grpc_service: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
 }
 
 export function dependencyName(dep: Dependency): string { return typeof dep === "string" ? dep : dep.service; }

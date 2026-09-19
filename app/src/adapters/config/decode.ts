@@ -177,6 +177,7 @@ export function decodeHealth(value: unknown): HealthCheckConfig {
     type: asString(value.type),
     url: asString(value.url),
     address: asString(value.address),
+    grpc_service: asString(value.grpc_service),
     command: decodeCommand(value.command),
     interval_seconds: asNumber(value.interval_seconds),
     timeout_seconds: asNumber(value.timeout_seconds),

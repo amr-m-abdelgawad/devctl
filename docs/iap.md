@@ -21,7 +21,7 @@ auth:
     service_account: backend-dev@company-dev.iam.gserviceaccount.com
 ```
 
-User identity mints an ID token with ADC's default OAuth client. To mint with a **specific** OAuth client instead (a Desktop client, or the IAP client's own ID), set `client_id` and `client_secret`. Put `${NAME}` or `${env.NAME}` in `client_secret` so the value is read from the environment at mint time — that is not the same as service-env `${services…}` interpolation, which does not run on route auth:
+User identity mints an ID token with ADC's default OAuth client. To mint with a **specific** OAuth client instead (a Desktop client, or the IAP client's own ID), set `client_id` and `client_secret`. Put `${NAME}` or `${env.NAME}` in `client_secret` so the value is read from the process environment **or** gitignored `.devctl/secrets.env` (weaker: `~/.devctl/secrets.env`) at mint time — that is not the same as service-env `${services…}` interpolation, which does not run on route auth. Process env still wins. There is no `${secret:}` syntax:
 
 ```yaml
 auth:

@@ -46,7 +46,7 @@ import {
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
 
-export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command"];
+export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command", "grpc"];
 export const BUILTIN_LLM_SOURCE_TYPES = [LLM_SOURCE_TYPE_LITELLM, LLM_SOURCE_TYPE_PROXY];
 
 // Health types outside BUILTIN_HEALTH_TYPES are only valid if a plugin
@@ -216,13 +216,16 @@ function validateHealth(
   // final say to the supervisor (see Supervisor.run), which re-checks any
   // non-builtin type against the loaded plugin registry once it's ready.
   if (!BUILTIN_HEALTH_TYPES.includes(kind) && !pluginsConfigured) {
-    issues.push(`${prefix}.health.type must be http, tcp, process, or command`);
+    issues.push(`${prefix}.health.type must be http, tcp, process, command, or grpc`);
   }
   if (kind === "http" && svc.health.url === "") {
     issues.push(`${prefix}.health.url is required for http health checks`);
   }
   if (kind === "tcp" && svc.health.address === "" && svc.ports.length === 0) {
     issues.push(`${prefix}.health.address is required for tcp health checks without ports`);
+  }
+  if (kind === "grpc" && svc.health.address === "") {
+    issues.push(`${prefix}.health.address is required for grpc health checks`);
   }
   if (kind === "command" && commandEmpty({ args: svc.health.command.args, shell: false })) {
     issues.push(`${prefix}.health.command is required for command health checks`);

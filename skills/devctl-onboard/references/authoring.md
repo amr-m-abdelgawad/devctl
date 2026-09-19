@@ -26,7 +26,7 @@ complete allowlists.
 | `project` | `name` |
 | `google` | `project_id` `region` |
 | `profiles.<name>` | `services` `environment` `environments` `service_environment` |
-| `service.health` | `type` `url` `address` `command` `interval_seconds` `timeout_seconds` `start_period_seconds` `unhealthy_threshold` `healthy_reset_threshold` |
+| `service.health` | `type` `url` `address` `grpc_service` `command` `interval_seconds` `timeout_seconds` `start_period_seconds` `unhealthy_threshold` `healthy_reset_threshold` |
 | `service.hooks` | `pre_start` `post_start` |
 | `service.container` | `image` `runtime` `ports` `env` `volumes` `user` `memory` `cpus` `read_only` `cap_drop` `pids_limit` |
 | `service.watch` | `enabled` `paths` `debounce_ms` `ignore` |
@@ -207,11 +207,20 @@ the process cwd, and not the `.devctl` directory itself.
 |---|---|
 | `http` | `url` — omit it and you get *health.url is required for http health checks* |
 | `tcp` | `address`, **or** at least one port defined on the service |
+| `grpc` | `address` (required; no ports fallback). Optional `grpc_service` is the Health protocol service name; empty (the default) is overall status |
 | `command` | `health.command` (non-empty) |
 | `process` or omitted | nothing; only checks the pid is alive |
 
-Any other `type` is rejected — *health.type must be http, tcp, process, or
-command* — **unless** `plugins` is non-empty. That exemption is not approval:
+`type: grpc` calls `grpc.health.v1.Health/Check` over h2c (TLS/h2 if cleartext
+is refused). SERVING is healthy; NOT_SERVING, SERVICE_UNKNOWN, and RPC
+failure are not. This only proves **some** process answered Health/Check
+(or a Temporal frontend if `address` points at the proxy). A Temporal
+**worker** that does not expose Health stays `process`-healthy while
+disconnected — use `type: command` or a plugin `healthChecks` for that
+case. Do not invent Temporal-specific poll-success health in core.
+
+Any other `type` is rejected — *health.type must be http, tcp, process, command, or
+grpc* — **unless** `plugins` is non-empty. That exemption is not approval:
 plugins load after validation, so the supervisor re-checks the type at boot and
 at reload. A custom type no plugin provides fails as a *reload rejection*, not
 a config error, which is much harder to diagnose. Only use a custom type when

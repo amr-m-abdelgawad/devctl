@@ -1,8 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyService } from "../../domain/config/types.ts";
-import { resolveEnvironment, runtimeForService } from "./environment.ts";
+import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
+import { resolveIapOAuthClient } from "../google/token.ts";
+import { resolveEnvironment, runtimeForService, sourceOrder } from "./environment.ts";
 
 describe("environment precedence", () => {
   test("can omit the implicit process layer while retaining declared layers", async () => {
@@ -184,6 +185,87 @@ describe("environment precedence", () => {
     });
     expect(env.LOCAL_USER_EMAIL).toBe("dev@example.com");
     expect(env.DEVCTL_USER_EMAIL).toBe("dev@example.com");
+  });
+
+  test("secrets.env interpolates at IAP mint without a shell export", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-mint-${Date.now()}`;
+    const home = join(dir, "home");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(dir, ".devctl", "secrets.env"), "IAP_OAUTH_CLIENT_SECRET=from-secrets-file\n");
+    const previous = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = home;
+    try {
+      const auth = { ...emptyRouteAuth(), client_id: "cid.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" };
+      expect(resolveIapOAuthClient(auth, {}, dir)?.clientSecret).toBe("from-secrets-file");
+      expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-process" }, dir)?.clientSecret).toBe("from-process");
+    } finally {
+      if (previous === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previous;
+    }
+  });
+
+  test("secrets.env beats repo .env and loses to process env", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-merge-${Date.now()}`;
+    const home = join(dir, "home");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(dir, ".env"), "SHARED=dotenv\nONLY_DOTENV=dotenv\n");
+    writeFileSync(join(dir, ".devctl", "secrets.env"), "SHARED=secrets\nONLY_SECRETS=secrets\nPROC_SHARED=secrets\n");
+    const previous = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = home;
+    try {
+      const env = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: emptyService(),
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        clientEnv: { PROC_SHARED: "process" },
+      });
+      expect(env.SHARED).toBe("secrets");
+      expect(env.ONLY_DOTENV).toBe("dotenv");
+      expect(env.ONLY_SECRETS).toBe("secrets");
+      expect(env.PROC_SHARED).toBe("process");
+    } finally {
+      if (previous === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previous;
+    }
+  });
+
+  test("user ~/.devctl/secrets.env is weaker than repo .devctl/secrets.env", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-user-${Date.now()}`;
+    const home = join(dir, "home");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "secrets.env"), "SHARED=user\nONLY_USER=user\n");
+    writeFileSync(join(dir, ".devctl", "secrets.env"), "SHARED=repo\n");
+    const previous = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = home;
+    try {
+      const env = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: emptyService(),
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        clientEnv: {},
+      });
+      expect(env.SHARED).toBe("repo");
+      expect(env.ONLY_USER).toBe("user");
+    } finally {
+      if (previous === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previous;
+    }
+  });
+
+  test("secrets_env is always-on even when environment.sources omits it", () => {
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv"];
+    expect(sourceOrder(cfg)).toContain("secrets_env");
+    expect(sourceOrder(cfg).indexOf("secrets_env")).toBeGreaterThan(sourceOrder(cfg).indexOf("dotenv"));
   });
 
   test("profile_service overrides service vars and loses to runtime", async () => {

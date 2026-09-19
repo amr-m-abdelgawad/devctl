@@ -8,16 +8,17 @@ Default source order (`ENV_SOURCE_ORDER` / `environment.sources`):
 
 ```mermaid
 flowchart LR
-  process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
+  process --> profile --> dotenv --> secrets_env --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
 ```
 
-`process`, `defaults`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
+`process`, `secrets_env`, `defaults`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
 
 | Source | What it loads |
 |--------|----------------|
 | `process` | The env of whichever CLI/TUI client most recently started or restarted this service (forwarded over the RPC as `client_env`), falling back to the supervisor's own environment if no client has done so yet — see below |
 | `profile` | `profiles.<name>.environment` (fleet-wide; loses to service vars) |
 | `dotenv` | Repo-root then service working-dir: `.env`, `.env.development`, `.env.local`, `.env.<profile>` |
+| `secrets_env` | Always-on dotenv file: gitignored `.devctl/secrets.env`, then weaker `~/.devctl/secrets.env`. Wins over repo `.env`; process and profile keys still win. No schema key — it is not listed in `environment.sources` |
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API |
@@ -47,7 +48,9 @@ Injected when applicable:
 - `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 - `DEVCTL_HTTP_<NAME>_URL` for each exposed `http` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
 
-References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). `${http.<name>.<output>}` resolves from a recipe snapshot after the daemon has fetched that recipe; `${http.name.url}` is the local expose URL. `${env.NAME}` is rejected in service env. Recipe `url` / `headers` / `form` / `body` are the exception: `${NAME}` and `${env.NAME}` expand from the supervisor process environment at fetch time. IAP route `auth.client_secret` is the other exception: `${NAME}` and `${env.NAME}` are expanded from the process environment when the token is minted, not at config load.
+References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). `${http.<name>.<output>}` resolves from a recipe snapshot after the daemon has fetched that recipe; `${http.name.url}` is the local expose URL. `${env.NAME}` is rejected in service env YAML (existing design). Recipe `url` / `headers` / `form` / `body` are the exception: `${NAME}` and `${env.NAME}` expand from the supervisor process environment **plus** `.devctl/secrets.env` at fetch time. IAP route `auth.client_secret` is the other exception: `${NAME}` and `${env.NAME}` expand from process env plus those secrets files when the token is minted, not at config load. Process environment still wins over the files.
+
+There is no `${secret:keychain:…}` or `${secret:gcp:…}` template syntax. OS keychain and Secret Manager stay `environment.sources: [keychain, secret_manager]` plus `environment.secrets` for `projects/*/secrets/*`.
 
 `environment.required` on a service fails start if those keys are still empty after the merge.
 

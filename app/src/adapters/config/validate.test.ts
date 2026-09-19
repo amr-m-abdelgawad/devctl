@@ -648,4 +648,20 @@ describe("config validate", () => {
     });
     expect(validate(cfg)).toEqual([]);
   });
+
+  test("unknown health type is rejected when plugins are empty; grpc is accepted", () => {
+    const unknown = withService("api");
+    unknown.services.api!.health.type = "laser";
+    expect(validate(unknown)).toContain("services.api.health.type must be http, tcp, process, command, or grpc");
+
+    const grpc = withService("api");
+    grpc.services.api!.health.type = "grpc";
+    grpc.services.api!.health.address = "127.0.0.1:9090";
+    expect(validate(grpc)).toEqual([]);
+
+    const missing = withService("api");
+    missing.services.api!.health.type = "grpc";
+    missing.services.api!.ports = [{ name: "grpc", value: 9090, auto: false }];
+    expect(validate(missing)).toContain("services.api.health.address is required for grpc health checks");
+  });
 });
