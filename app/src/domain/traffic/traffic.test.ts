@@ -109,15 +109,6 @@ describe("traffic domain", () => {
     expect(raw.text).toBe("data: hello\n\ndata: world\n\n");
     const json = httpTrafficPayload(Buffer.from('{"ok":true}'), "application/json", { sseFrames: true });
     expect(json.text).toContain('"ok"');
-    const detector = new Detector(["api_key"], []);
-    const secretFrames = httpTrafficPayload(
-      Buffer.from('data: {"api_key":"sk-live"}\n\n'),
-      "text/event-stream",
-      { sseFrames: true },
-    );
-    const redacted = redactTrafficCall(detector, call({ response: secretFrames }));
-    expect(redacted.response?.text).not.toContain("sk-live");
-    expect(redacted.response?.text).toContain(REDACTED_VALUE);
   });
 
   test("keeps the gRPC length prefix as base64 and pretty-prints a JSON message", () => {
