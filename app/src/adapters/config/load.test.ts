@@ -1187,6 +1187,33 @@ proxy:
     expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.log_identity).toBe(true);
   });
 
+  test("decodes auth.suppress_authorization on an IAP route", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-suppress-auth-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  app: { command: [app] }
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: api
+      match: { host: api.local }
+      upstream: { url: "http://127.0.0.1:8000" }
+      auth:
+        type: iap
+        audience: "/projects/1/iap"
+        identity: { type: user }
+        suppress_authorization: true
+        headers:
+          Proxy-Authorization: "Bearer \${token}"
+`);
+    const cfg = load(dir, "");
+    const auth = cfg.proxy.routes.find((r) => r.name === "api")?.auth;
+    expect(auth?.suppress_authorization).toBe(true);
+    expect(auth?.headers).toEqual({ "Proxy-Authorization": "Bearer ${token}" });
+  });
+
   test("route auth.headers with arbitrary header names passes strict validation and decodes", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-authhdr-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `

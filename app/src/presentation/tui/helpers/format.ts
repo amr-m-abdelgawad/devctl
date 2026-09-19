@@ -1,4 +1,11 @@
+import { LLM_CALLER_NONE } from "../../../domain/llm/caller.ts";
 
+export function callerFilterLabel(caller: string): string {
+  if (caller === "") {
+    return "";
+  }
+  return caller === LLM_CALLER_NONE ? "caller: none" : `caller: ${caller}`;
+}
 
 export function clipText(value: string, max: number): string {
   if (max <= 0) {

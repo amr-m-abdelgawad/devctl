@@ -4,7 +4,7 @@ import type { TrafficCall, TrafficCallPage } from "../../../domain/traffic/traff
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { EmptyState } from "../chrome.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
-import { padClip } from "../helpers/format.ts";
+import { clipText, padClip, callerFilterLabel } from "../helpers/format.ts";
 import {
   TRAFFIC_CALLER_COL,
   TRAFFIC_CURSOR_COL,
@@ -159,6 +159,7 @@ export function ProxyScreen(props: {
   snap?: StatusSnapshot;
   page: TrafficCallPage;
   error: string;
+  caller?: string;
   selected: number;
   width: number;
   bodyMode: TrafficBodyMode;
@@ -167,7 +168,7 @@ export function ProxyScreen(props: {
   onOpen: (call: TrafficCall) => void;
   onSelectRoute?: (route: RouteDetailInfo) => void;
 }) {
-  const { palette, cfg, snap, page, error, selected, width, bodyMode, onToggleBody, onPick, onOpen, onSelectRoute } = props;
+  const { palette, cfg, snap, page, error, caller = "", selected, width, bodyMode, onToggleBody, onPick, onOpen, onSelectRoute } = props;
   const routes = snap?.proxy.routes ?? [];
   const listenConfigured = hasListenPort(cfg?.proxy.listen);
   const routeCfgByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r]));
@@ -184,6 +185,7 @@ export function ProxyScreen(props: {
   const { scrollRef, visibleCalls, visibleStart } = useCallListScroll(selected, ROW_PREFIX, calls, selectedCall?.id);
   const preview = selectedCall ? trafficPreview(selectedCall) : "";
   const showInspector = calls.length > 0;
+  const filterLabel = callerFilterLabel(caller);
 
   const trafficList = (
     <box
@@ -206,17 +208,20 @@ export function ProxyScreen(props: {
           { text: snap?.proxy.running ? "RUNNING" : "STOPPED", tone: snap?.proxy.running ? "success" : "idle" },
           { text: `${calls.length} hop${calls.length === 1 ? "" : "s"}`, tone: "info" },
           { text: `${inspectCount} inspect`, tone: inspectCount > 0 ? "accent" : "idle" },
+          ...(filterLabel !== "" ? [{ text: filterLabel, tone: "accent" as const }] : []),
         ]}
-        hints={[{ key: "enter", label: "detail" }, { key: "r", label: "raw" }, { key: "n", label: "start" }, { key: "x", label: "stop" }]}
+        hints={[{ key: "enter", label: "detail" }, { key: "r", label: "raw" }, { key: "/caller", label: "filter" }, { key: "n", label: "start" }, { key: "x", label: "stop" }]}
       />
       {error ? <text fg={palette.error} wrapMode="word">{error}</text> : null}
       {calls.length === 0 ? (
         <EmptyState
           palette={palette}
-          title={inspectCount === 0 ? "Traffic inspector is off" : "No captured hops yet"}
-          body={inspectCount === 0
-            ? "Set inspect.enabled: true on a proxy.routes hop (HTTP listen or gRPC listen). Direct 127.0.0.1 sockets that never hit the proxy are invisible. Callers should use ${services.<name>.url} or the gRPC listen port."
-            : "Send a request through an inspect-enabled proxy route. Unproxied service-to-service sockets are not captured."}
+          title={filterLabel !== "" ? "No hops match this filter" : inspectCount === 0 ? "Traffic inspector is off" : "No captured hops yet"}
+          body={filterLabel !== ""
+            ? `No proxy hops with ${filterLabel}. Clear with /caller.`
+            : inspectCount === 0
+              ? "Set inspect.enabled: true on a proxy.routes hop (HTTP listen or gRPC listen). Direct 127.0.0.1 sockets that never hit the proxy are invisible. Callers should use ${services.<name>.url} or the gRPC listen port."
+              : "Send a request through an inspect-enabled proxy route. Unproxied service-to-service sockets are not captured."}
         />
       ) : (
         <box flexGrow={1} flexDirection="column" overflow="hidden">
@@ -247,6 +252,8 @@ export function ProxyScreen(props: {
       {trafficList}
       <box
         flexGrow={2}
+        flexShrink={1}
+        flexBasis={0}
         minWidth={stacked ? undefined : TRAFFIC_DETAIL_MIN}
         minHeight={stacked ? STACK_INSPECTOR_MIN : undefined}
         border
@@ -260,10 +267,10 @@ export function ProxyScreen(props: {
       >
         {preview !== "" ? (
           <box height={1} overflow="hidden" paddingLeft={1} paddingRight={1}>
-            <text fg={palette.muted} wrapMode="none">{preview}</text>
+            <text fg={palette.muted} wrapMode="none">{clipText(preview, Math.max(8, inspectorWidth - 2))}</text>
           </box>
         ) : null}
-        <TrafficInspector palette={palette} call={selectedCall} width={inspectorWidth} bodyMode={bodyMode} onToggleBody={onToggleBody} />
+        <TrafficInspector palette={palette} call={selectedCall} bodyMode={bodyMode} onToggleBody={onToggleBody} />
       </box>
     </box>
   ) : trafficList;
@@ -363,6 +370,7 @@ export function ProxyScreen(props: {
             { key: "n", label: "start proxy" },
             { key: "x", label: "stop proxy" },
             { key: "r", label: "raw" },
+            { key: "/caller", label: "filter" },
             { key: "enter", label: "detail" },
           ]}
         />

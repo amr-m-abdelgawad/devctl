@@ -24,7 +24,8 @@ const GRPC_UNAUTHENTICATED = "16";
 const GRPC_CANCELLED = "1";
 const GRPC_DEADLINE_EXCEEDED = "4";
 // Request headers we never forward: HTTP/2-illegal connection headers, the
-// hop's own host, and the client's Authorization (the proxy injects its own).
+// hop's own host, and (unless suppress_authorization) the client's
+// Authorization — the proxy injects its own unless that flag is set.
 const DROP_REQUEST_HEADERS = new Set(["host", "connection", "keep-alive", "transfer-encoding", "upgrade", "proxy-connection", "authorization"]);
 
 // A dedicated loopback HTTP/2 (h2c) listener that forwards every gRPC stream to
@@ -416,13 +417,19 @@ export class GrpcProxyServer {
   }
 
   // Copy client request headers minus pseudo-headers, HTTP/2-illegal connection
-  // headers, and the client's own Authorization; then re-point the pseudo
-  // headers at the upstream. injectIdentityHeaders adds Authorization + any
-  // configured auth.headers afterward.
+  // headers, and (unless suppress_authorization) the client's own Authorization;
+  // then re-point the pseudo headers at the upstream. injectIdentityHeaders
+  // adds Authorization unless suppressed, plus any configured auth.headers.
   private buildUpstreamHeaders(inHeaders: IncomingHttpHeaders, route: RouteConfig = this.route): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [key, value] of Object.entries(inHeaders)) {
-      if (key.startsWith(":") || DROP_REQUEST_HEADERS.has(key.toLowerCase()) || value === undefined) {
+      const lower = key.toLowerCase();
+      if (key.startsWith(":") || value === undefined) {
+        continue;
+      }
+      const dropHop = DROP_REQUEST_HEADERS.has(lower);
+      const keepCallerAuth = lower === "authorization" && route.auth.suppress_authorization;
+      if (dropHop && !keepCallerAuth) {
         continue;
       }
       out[key] = Array.isArray(value) ? value.join(", ") : String(value);

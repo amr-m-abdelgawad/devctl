@@ -48,6 +48,7 @@ import {
   type WebConfig,
   type LlmConfig,
   type LlmSourceConfig,
+  type LlmCaptureFieldMap,
   type HttpRecipeConfig,
 } from "../../domain/config/types.ts";
 
@@ -314,6 +315,7 @@ function decodeLlmSource(raw: Record<string, unknown>): LlmSourceConfig {
       prompts: capture.prompts === undefined ? true : asBoolean(capture.prompts),
       max_bytes: asNumber(capture.max_bytes),
       paths: asStringArray(capture.paths),
+      field_map: decodeLlmCaptureFieldMap(capture.field_map),
     },
     poll_seconds: asNumber(raw.poll_seconds),
     cost_per_token: decodeLlmCostPerToken(raw.cost_per_token),
@@ -334,6 +336,19 @@ function decodeCostRate(value: unknown): number {
     }
   }
   return Number.NaN;
+}
+
+function decodeLlmCaptureFieldMap(raw: unknown): LlmCaptureFieldMap | undefined {
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+  const map: LlmCaptureFieldMap = {};
+  if (raw.model !== undefined) map.model = asString(raw.model);
+  if (raw.prompt_tokens !== undefined) map.prompt_tokens = asString(raw.prompt_tokens);
+  if (raw.completion_tokens !== undefined) map.completion_tokens = asString(raw.completion_tokens);
+  if (raw.cost !== undefined) map.cost = asString(raw.cost);
+  if (raw.finish_reason !== undefined) map.finish_reason = asString(raw.finish_reason);
+  return map;
 }
 
 function decodeLlmCostPerToken(raw: unknown): LlmSourceConfig["cost_per_token"] {

@@ -16,6 +16,8 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
   const [page, setPage] = useState<TrafficCallPage>(EMPTY_PAGE);
   const [detail, setDetail] = useState<TrafficCall | undefined>(undefined);
   const [error, setError] = useState("");
+  // Active caller filter: "" = all, "-" = hops with no caller, else a service.
+  const [caller, setCaller] = useState("");
   const [bodyMode, setBodyMode] = useState<TrafficBodyMode>("json");
   const toggleBodyMode = useCallback(() => {
     setBodyMode(toggleTrafficBodyMode);
@@ -27,7 +29,7 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
       return;
     }
     try {
-      const next = await controller.trafficCallsPage({ limit: PAGE_LIMIT });
+      const next = await controller.trafficCallsPage({ limit: PAGE_LIMIT, caller: caller === "" ? undefined : caller });
       setPage({
         calls: next?.calls ?? [],
         nextCursor: next?.nextCursor ?? "",
@@ -37,7 +39,7 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
     } catch (err) {
       setError(humanMessage(err));
     }
-  }, [controller]);
+  }, [controller, caller]);
 
   useEffect(() => {
     if (screen !== "proxy" || !controller) {
@@ -66,6 +68,8 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
     setDetail,
     error,
     refresh,
+    caller,
+    setCaller,
     bodyMode,
     toggleBodyMode,
     selectedIndex: selection.selectedIndex,

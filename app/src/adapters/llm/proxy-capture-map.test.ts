@@ -203,6 +203,46 @@ describe("mapProxyCapture", () => {
     }));
     expect(call.attributes.schema).toBeUndefined();
   });
+
+  test("overlays capture.field_map onto proprietary bodies and keeps OpenAI defaults when a path misses", () => {
+    const fieldMap = {
+      model: "$.request.model_name",
+      prompt_tokens: "$.response.metadata.input_tokens",
+      completion_tokens: "$.response.metadata.output_tokens",
+      cost: "$.response.metadata.price",
+      finish_reason: "$.response.choices[0].finish_reason",
+    };
+    const proprietary = mapProxyCapture(base({
+      path: "/generations/v1alpha2",
+      raw: true,
+      fieldMap,
+      costPerToken: { input: 1, output: 1 },
+      requestBody: JSON.stringify({ model_name: "claude-sonnet-5" }),
+      responseBody: JSON.stringify({
+        metadata: { input_tokens: 1514, output_tokens: 2953, price: 0.048 },
+        choices: [{ finish_reason: "stop" }],
+      }),
+    }));
+    expect(proprietary.model).toBe("claude-sonnet-5");
+    expect(proprietary.usage).toEqual({ promptTokens: 1514, completionTokens: 2953, totalTokens: undefined });
+    expect(proprietary.cost).toBeCloseTo(0.048);
+    expect(proprietary.attributes.finish_reason).toBe("stop");
+
+    const openai = mapProxyCapture(base({
+      fieldMap,
+      costPerToken: { input: 0.001, output: 0.002 },
+      requestBody: JSON.stringify({ model: "gpt-4o", messages: [] }),
+      responseBody: JSON.stringify({
+        model: "gpt-4o",
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+        choices: [{ finish_reason: "length" }],
+      }),
+    }));
+    expect(openai.model).toBe("gpt-4o");
+    expect(openai.usage).toEqual({ promptTokens: 5, completionTokens: 2, totalTokens: 7 });
+    expect(openai.cost).toBeCloseTo(0.009);
+    expect(openai.attributes.finish_reason).toBe("length");
+  });
 });
 
 describe("assembleSseCompletion", () => {

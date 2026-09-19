@@ -153,6 +153,22 @@ Some IAP-protected upstreams want the minted token under an additional header, n
 
 Applied only on `iap` / `service_account` routes (there is no token on a `none` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
 
+When the backend **also** needs the caller's `Authorization` (Google Workspace OAuth, a user-level API token) and IAP must see the ID token in `Proxy-Authorization` instead, set `suppress_authorization: true`. The route still mints (`audience`, `identity`, `client_id` / `client_secret`, `credentials` unchanged) and still applies `auth.headers`; it does **not** write `Authorization: Bearer`. `${token}` is the raw JWT — include the `Bearer ` prefix in the header value when the upstream expects it. `auth.headers` is required so the minted token is sent somewhere. Invalid on `auth.type: none`.
+
+```yaml
+      auth:
+        type: iap
+        audience: "IAP_CLIENT_ID.apps.googleusercontent.com"
+        identity: { type: user }
+        client_id: "DESKTOP_CLIENT_ID.apps.googleusercontent.com"
+        client_secret: "${IAP_OAUTH_CLIENT_SECRET}"
+        suppress_authorization: true
+        headers:
+          Proxy-Authorization: "Bearer ${token}"
+```
+
+Inbound `Proxy-Authorization` is still stripped as hop-by-hop (callers cannot spoof IAP). The proxy injects it after that strip. The caller's `Authorization` is forwarded unmodified.
+
 ### Response headers and CORS
 
 `route.response_headers` adds headers to every response on the route, overriding whatever the upstream sent — most often CORS headers for a browser that loads a micro-frontend, Module Federation remote, or iframe from another origin and then calls back through the proxy:
@@ -256,7 +272,7 @@ The client connects plaintext to the local port and does nothing else — no tok
 client = await Client.connect("127.0.0.1:7233", namespace="prod", tls=False)
 ```
 
-devctl adds `Authorization: Bearer <fresh id-token>` (plus any `auth.headers`) to each RPC's HTTP/2 headers, mints and refreshes it with the same machinery as HTTP routes (`audience` / `client_id` / `credentials`), and relays the response and gRPC trailers. Because every RPC carries the current token, expiry is handled with no timer in the app.
+devctl adds `Authorization: Bearer <fresh id-token>` (plus any `auth.headers`) to each RPC's HTTP/2 headers, mints and refreshes it with the same machinery as HTTP routes (`audience` / `client_id` / `credentials`), and relays the response and gRPC trailers. `suppress_authorization: true` skips that Bearer write and keeps the caller's `Authorization`, same as HTTP. Because every RPC carries the current token, expiry is handled with no timer in the app.
 
 Notes:
 
@@ -334,14 +350,14 @@ proxy:
 
 Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP `get_traffic_calls`, web `/api/traffic`) strip bodies; one-id fetch (`get_traffic_call`, `devctl traffic show`, TUI overlay, web `#/traffic/:id`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; `/reveal` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA is stored as `application/grpc` base64 of the captured bytes (length prefixes kept). Request and response frames are split, gzip-compressed messages inflated in the capture adapter, then decoded to pretty `text` (JSON, plugin, or `decode_raw`). A failed gunzip leaves `data` only. Redaction runs on decoded bytes and on that `text`, not on the base64 alphabet, so the raw `data` view cannot recover a secret the `text` view already masked.
 
-Caller attribution reuses the LLM path: `X-Devctl-Service` or a loopback peer lookup, so the inspector can label which service issued the call.
+Caller attribution reuses the LLM path: `X-Devctl-Service` or a loopback peer lookup, so the inspector can label which service issued the call. Filter that label everywhere: TUI `/caller worker` on the proxy screen, CLI `devctl traffic --caller worker`, the web console caller dropdown, and MCP `get_traffic_calls`'s `caller`. Pass `-` (CLI also accepts `none`) to show only hops with **no** known caller. On the LLM screen the same `/caller` command still filters LLM calls.
 
 | Surface | What you get |
 |---------|----------------|
-| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). `r` toggles. Enter opens the overlay tree; enter again jumps to a trace when `traceId` is present. |
-| Web | `#/traffic` and `#/traffic/:id`. Overview request paths link here when a captured body exists. |
+| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). `r` toggles. `/caller` filters by originating service. Enter opens the overlay tree; enter again jumps to a trace when `traceId` is present. |
+| Web | `#/traffic` and `#/traffic/:id`. Caller dropdown plus search. Overview request paths link here when a captured body exists. |
 | MCP | `get_traffic_calls` (inspect, bodies omitted) and `get_traffic_call` (bodies included). |
-| CLI | `devctl traffic` / `devctl traffic show <id>`. `--follow` polls. |
+| CLI | `devctl traffic` / `devctl traffic show <id>`. `--caller` filters by originating service. `--follow` polls. |
 
 ## Tracing
 

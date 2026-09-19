@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-20
+
+### Changed
+
+- Web console and docs site browser tabs name the page (and the console, the project) instead of the bare product name `devctl`.
+
+### Fixed
+
+- TUI traffic inspector request/response bodies (pretty JSON and raw, including the overlay tree) wrap to the pane and scroll vertically instead of overflowing into neighboring panes.
+
+### Added
+
+- Traffic inspector **caller filter** on the TUI proxy screen and web console, matching CLI `devctl traffic --caller` and MCP `get_traffic_calls`. TUI `/caller <service>` on the proxy tab keeps one originating service (or `-` for hops with no caller); the same command on the LLM screen still filters LLM calls. See [Proxy](docs/proxy.md#inspect-bodies).
+
+- Proxy `auth.suppress_authorization` on `iap` / `service_account` routes mints as usual (`audience`, `identity`, `client_id` / `client_secret`, `credentials`) and still applies `auth.headers` with `${token}`, but does not write `Authorization: Bearer`. Use it when the caller already owns `Authorization` (Workspace OAuth) and IAP must go in `Proxy-Authorization: "Bearer ${token}"`. Requires `auth.headers`. Invalid on `auth.type: none`. See [Proxy](docs/proxy.md#extra-token-headers) and [IAP](docs/iap.md).
+- LLM inspector `type: proxy` sources can set `capture.field_map` so proprietary JSON (`model_name`, `metadata.input_tokens`, a gateway `price`, …) fills inspector model / tokens / cost / finish reason. Paths are a JSONPath subset against `{request, response}` (`$.request.` / `$.response.`, dotted keys, `[n]`). A present mapped value wins over the OpenAI parser; `cost_per_token` remains the fallback when `field_map.cost` is unset or misses. Invalid on `litellm` and plugin sources. See [LLM inspector](docs/llm.md#proxy-capture-source-type-proxy).
+
 ## [0.16.0] - 2026-09-19
 
 ### Added
@@ -600,7 +617,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.16.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.14.1...v0.15.0
 [0.14.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.14.0...v0.14.1

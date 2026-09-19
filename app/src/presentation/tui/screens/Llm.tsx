@@ -3,7 +3,7 @@ import type { LlmCall, LlmCallPage } from "../../../domain/llm/llm.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
-import { clipText, padClip } from "../helpers/format.ts";
+import { clipText, padClip, callerFilterLabel } from "../helpers/format.ts";
 import {
   LLM_CALLER_COL,
   LLM_CURSOR_COL,
@@ -36,13 +36,6 @@ const STACK_INSPECTOR_MIN = 12;
 
 function statusColor(palette: Palette, status: LlmCall["status"]): string {
   return status === "error" ? palette.error : palette.success;
-}
-
-function callerFilterLabel(caller: string): string {
-  if (caller === "") {
-    return "";
-  }
-  return caller === "-" ? "caller: none" : `caller: ${caller}`;
 }
 
 function CallHeader(props: { palette: Palette; width: number }) {

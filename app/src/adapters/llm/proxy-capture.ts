@@ -162,6 +162,7 @@ class Recorder implements LlmCaptureRecorder {
         caller: await this.resolveCaller(requestBody),
         raw: this.raw,
         costPerToken: this.source.cost_per_token,
+        fieldMap: this.source.capture.field_map,
       });
       this.deps.store.upsert([this.source.capture.prompts ? ingest : stripLlmBodies(ingest)]);
     } catch (err) {

@@ -53,6 +53,7 @@ import {
   knownLlmAuth,
   knownLlmVia,
   knownLlmCapture,
+  knownLlmCaptureFieldMap,
   knownLlmCostPerToken,
 } from "./known.ts";
 import { collectUnknownFields, servicePathKnown } from "./strict.ts";
@@ -140,6 +141,7 @@ describe("config allowlist/schema parity", () => {
       ["knownLlmAuth", knownLlmAuth, defs.llmAuth ?? {}],
       ["knownLlmVia", knownLlmVia, defs.llmVia ?? {}],
       ["knownLlmCapture", knownLlmCapture, defs.llmCapture ?? {}],
+      ["knownLlmCaptureFieldMap", knownLlmCaptureFieldMap, defs.llmCaptureFieldMap ?? {}],
       ["knownLlmCostPerToken", knownLlmCostPerToken, defs.llmCostPerToken ?? {}],
     ];
     for (const [name, known, node] of cases) expectParity(name, known, node);
@@ -160,6 +162,15 @@ describe("config allowlist/schema parity", () => {
     }, "llm")).toContain("llm.sources.0.via.foo");
     expect(collectUnknownFields({
       sources: [{ name: "x", type: "proxy", via: { route: "a", routes: ["b"] } }],
+    }, "llm")).toEqual([]);
+  });
+
+  test("unknown capture.field_map.foo is rejected; model is known", () => {
+    expect(collectUnknownFields({
+      sources: [{ name: "x", type: "proxy", capture: { field_map: { model: "$.request.model_name", foo: true } } }],
+    }, "llm")).toContain("llm.sources.0.capture.field_map.foo");
+    expect(collectUnknownFields({
+      sources: [{ name: "x", type: "proxy", capture: { field_map: { model: "$.request.model_name" } } }],
     }, "llm")).toEqual([]);
   });
 

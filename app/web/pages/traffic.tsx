@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table.tsx";
 import type { TrafficCallRow, TrafficCallsPayload } from "../types.ts";
 
+const CALLER_NONE = "-";
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function TrafficPage(props: {
@@ -18,10 +19,13 @@ export function TrafficPage(props: {
   detail?: TrafficCallRow;
   trafficId?: string;
   error: string;
+  caller: string;
+  callers: string[];
   search: string;
+  onCaller: (value: string) => void;
   onSearch: (value: string) => void;
 }) {
-  const { payload, detail, trafficId, error, search, onSearch } = props;
+  const { payload, detail, trafficId, error, caller, callers, search, onCaller, onSearch } = props;
   const [draft, setDraft] = useState(search);
   const [status, setStatus] = useState("");
   const [bodyMode, setBodyMode] = useTrafficBodyMode();
@@ -88,7 +92,10 @@ export function TrafficPage(props: {
       <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
         <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0">
           <CardTitle>Traffic</CardTitle>
-          <Badge variant="muted">{calls.length}</Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="muted">{calls.length}</Badge>
+            <CallerFilter caller={caller} callers={callers} onCaller={onCaller} />
+          </div>
         </CardHeader>
         <CardContent className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden pt-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -118,7 +125,7 @@ export function TrafficPage(props: {
           </div>
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
           <div className="min-h-0 flex-1 overflow-auto">
-            <TrafficList calls={calls} selectedId={selectedId} />
+            <TrafficList calls={calls} caller={caller} search={search} selectedId={selectedId} />
           </div>
         </CardContent>
       </Card>
@@ -134,9 +141,18 @@ export function TrafficPage(props: {
   );
 }
 
-function TrafficList(props: { calls: TrafficCallRow[]; selectedId?: string }) {
-  const { calls, selectedId } = props;
+function TrafficList(props: { calls: TrafficCallRow[]; caller: string; search: string; selectedId?: string }) {
+  const { calls, caller, search, selectedId } = props;
   if (calls.length === 0) {
+    if (search !== "") {
+      return <Empty>No hops match “{search}”.</Empty>;
+    }
+    if (caller === CALLER_NONE) {
+      return <Empty>No hops without a caller.</Empty>;
+    }
+    if (caller !== "") {
+      return <Empty>No hops from caller “{caller}”.</Empty>;
+    }
     return (
       <Empty>
         Set inspect.enabled on a proxy route. Direct sockets that never hit the proxy are not captured.
@@ -186,5 +202,25 @@ function TrafficList(props: { calls: TrafficCallRow[]; selectedId?: string }) {
         })}
       </TableBody>
     </Table>
+  );
+}
+
+function CallerFilter(props: { caller: string; callers: string[]; onCaller: (value: string) => void }) {
+  const { caller, callers, onCaller } = props;
+  return (
+    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+      caller
+      <select
+        value={caller}
+        onChange={(event) => onCaller(event.currentTarget.value)}
+        className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground"
+      >
+        <option value="">All callers</option>
+        {callers.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+        <option value={CALLER_NONE}>No caller</option>
+      </select>
+    </label>
   );
 }

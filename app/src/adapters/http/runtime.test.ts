@@ -183,6 +183,46 @@ describe("RecipeRuntime", () => {
     expect(authorization).toBe("Bearer google-id-token");
   });
 
+  test("suppress_authorization skips Bearer and still substitutes ${token} in auth.headers", async () => {
+    const nowMs = { value: 1_000_000 };
+    let authorization = "";
+    let proxyAuthorization = "";
+    const { cfg, runtime } = recipeRuntime({
+      nowMs,
+      fetch: async (_url, init) => {
+        const headers = new Headers(init.headers);
+        authorization = headers.get("authorization") ?? "";
+        proxyAuthorization = headers.get("proxy-authorization") ?? "";
+        return new Response("{}", { status: 200 });
+      },
+    });
+    cfg.http.workspace = {
+      ...emptyHttpRecipe(),
+      request: {
+        method: "GET",
+        url: "https://iap.example/mcp",
+        headers: { Authorization: "Bearer workspace-oauth" },
+        body: "",
+        form: {},
+        auth: {
+          ...emptyRouteAuth(),
+          type: "iap",
+          audience: "aud",
+          identity: { type: "user", service_account: "" },
+          suppress_authorization: true,
+          headers: { "Proxy-Authorization": "Bearer ${token}" },
+        },
+        timeout_seconds: 10,
+      },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    await runtime.ensure("workspace");
+    expect(authorization).toBe("Bearer workspace-oauth");
+    expect(proxyAuthorization).toBe("Bearer google-id-token");
+  });
+
   test("caches from JWT exp and coalesces in-flight fetches", async () => {
     const nowMs = { value: 1_700_000_000_000 };
     let calls = 0;

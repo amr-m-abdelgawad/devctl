@@ -449,6 +449,7 @@
             "credentials": { "type": "string", "description": "Path to a gcloud authorized_user JSON (client_id/client_secret/refresh_token) used to mint IAP tokens for client_id, instead of default ADC. Keeps ADC intact for GCS/Firestore. ~, absolute, or repo-relative. Falls back to proxy.credentials." },
             "headers": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Extra request headers injected alongside Authorization. ${token} in a value is replaced with the minted token (e.g. identity-token: ${token}). Applied only on iap/service_account routes." },
             "log_identity": { "type": "boolean", "description": "On auth.type none only: copy inbound X-Goog-Authenticated-User-Email onto the traffic record as caller_email. Does not mint tokens. Invalid on iap/service_account." },
+            "suppress_authorization": { "type": "boolean", "description": "On iap/service_account only: mint the token and apply auth.headers without writing Authorization: Bearer. Requires auth.headers. Invalid on auth.type none." },
             "identity": {
               "oneOf": [
                 { "type": "string" },
@@ -591,6 +592,7 @@
                 "credentials": { "type": "string" },
                 "headers": { "type": "object", "additionalProperties": { "type": "string" } },
                 "log_identity": { "type": "boolean", "description": "On auth.type none only: copy inbound X-Goog-Authenticated-User-Email onto the traffic record as caller_email. Does not mint tokens. Invalid on iap/service_account." },
+                "suppress_authorization": { "type": "boolean", "description": "On iap/service_account only: mint the token and apply auth.headers without writing Authorization: Bearer. Requires auth.headers. Invalid on auth.type none." },
                 "identity": {
                   "oneOf": [
                     { "type": "string" },
@@ -775,7 +777,20 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "proxy source only: extra inbound path substrings to capture as raw HTTP pairs, in addition to the built-in OpenAI completion paths. Matched case-insensitively as substrings of the request pathname so a route mount prefix does not need repeating. Token usage, model, and finish reason are extracted when present in standard JSON fields; otherwise omitted."
-        }
+        },
+        "field_map": { "$ref": "#/$defs/llmCaptureFieldMap" }
+      }
+    },
+    "llmCaptureFieldMap": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "proxy source only: JSONPath subset ($.request./$.response., dotted keys, [n] indexes) mapping proprietary bodies onto inspector summary fields. A present mapped value wins over the OpenAI parser; missing/null leaves the default.",
+      "properties": {
+        "model": { "type": "string", "description": "JSONPath into {request,response}, e.g. $.request.model_name" },
+        "prompt_tokens": { "type": "string" },
+        "completion_tokens": { "type": "string" },
+        "cost": { "type": "string", "description": "Gateway cost field. When unset or missing, cost_per_token remains the fallback." },
+        "finish_reason": { "type": "string" }
       }
     }
   }

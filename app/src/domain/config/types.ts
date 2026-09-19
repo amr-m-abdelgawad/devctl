@@ -259,6 +259,12 @@ export type RouteAuthConfig = {
   // onto the traffic record as callerEmail. Does not mint tokens. Invalid on
   // iap / service_account / other minting types.
   log_identity?: boolean;
+  // On iap / service_account only: mint the token and apply auth.headers, but
+  // do not write Authorization: Bearer. Lets a caller keep its own
+  // Authorization (e.g. a Workspace OAuth token) while IAP goes in
+  // Proxy-Authorization via auth.headers. Requires auth.headers so the minted
+  // token is sent somewhere. Invalid on auth.type none.
+  suppress_authorization?: boolean;
 };
 
 export function emptyRouteAuth(): RouteAuthConfig {
@@ -599,10 +605,19 @@ export type LlmViaConfig = {
   routes: string[];
 };
 
+export type LlmCaptureFieldMap = {
+  model?: string;
+  prompt_tokens?: string;
+  completion_tokens?: string;
+  cost?: string;
+  finish_reason?: string;
+};
+
 export type LlmCaptureConfig = {
   prompts: boolean;
   max_bytes: number;
   paths: string[];
+  field_map?: LlmCaptureFieldMap;
 };
 
 export type LlmCostPerTokenConfig = {

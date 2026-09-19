@@ -60,6 +60,7 @@ import {
   writeIdList,
 } from "./notifications.ts";
 import { mergeChipNames } from "./chips.ts";
+import { consoleDocumentTitle, repoDisplayName } from "./title.ts";
 
 const POLL_MS = 2000;
 const WINDOW = 60;
@@ -128,6 +129,8 @@ export function App() {
   const [trafficDetail, setTrafficDetail] = useState<TrafficCallRow | undefined>(undefined);
   const [trafficError, setTrafficError] = useState("");
   const [trafficSearch, setTrafficSearch] = useState("");
+  const [trafficCaller, setTrafficCaller] = useState("");
+  const [trafficCallers, setTrafficCallers] = useState<string[]>([]);
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
@@ -169,6 +172,10 @@ export function App() {
   useEffect(() => {
     traceMsRef.current = traceMsById;
   }, [traceMsById]);
+  useEffect(() => {
+    const page = NAV.find((item) => item.name === route.name)?.label ?? "Console";
+    document.title = consoleDocumentTitle(page, repoDisplayName(config?.project, status?.repo_root));
+  }, [route.name, config?.project, status?.repo_root]);
 
   const poll = useCallback(async () => {
     const gen = pollGenRef.current + 1;
@@ -402,6 +409,9 @@ export function App() {
     let cancelled = false;
     const run = (): void => {
       const params: Record<string, string> = {};
+      if (trafficCaller) {
+        params.caller = trafficCaller;
+      }
       if (trafficSearch) {
         params.search = trafficSearch;
       }
@@ -410,6 +420,12 @@ export function App() {
           setTrafficCalls(payload);
           if (!route.trafficId) {
             setTrafficError("");
+          }
+          if (trafficCaller === "" && trafficSearch === "") {
+            const names = Array.from(
+              new Set(payload.calls.map((call) => (call.caller ?? "").trim()).filter((name) => name !== "")),
+            ).sort((a, b) => a.localeCompare(b));
+            setTrafficCallers(names);
           }
         }
       }).catch((err: unknown) => {
@@ -424,7 +440,7 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [route.name, route.trafficId, trafficSearch]);
+  }, [route.name, route.trafficId, trafficCaller, trafficSearch]);
 
   useEffect(() => {
     if (route.name !== "traffic") {
@@ -551,6 +567,7 @@ export function App() {
     reqPerSec: last?.reqs ?? 0,
   };
   const showUpdate = updateCheck !== undefined && isUpdateNoticeVisible(updateCheck, dismissedNotices, sessionHiddenNotices);
+  const projectName = repoDisplayName(config?.project, status?.repo_root);
 
   return (
     <IconContext.Provider value={{ weight: "regular", color: "currentColor", size: 16 }}>
@@ -563,7 +580,9 @@ export function App() {
               <DevctlLogo className="size-7 shrink-0" />
               <div className="flex items-baseline gap-2">
                 <span className="text-[15px] font-semibold tracking-tight text-primary">devctl</span>
-                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">console</span>
+                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  {projectName === "" ? "console" : projectName}
+                </span>
               </div>
             </div>
 
@@ -715,7 +734,10 @@ export function App() {
               detail={trafficDetail}
               trafficId={route.trafficId}
               error={trafficError}
+              caller={trafficCaller}
+              callers={trafficCallers}
               search={trafficSearch}
+              onCaller={setTrafficCaller}
               onSearch={setTrafficSearch}
             />
           ) : null}

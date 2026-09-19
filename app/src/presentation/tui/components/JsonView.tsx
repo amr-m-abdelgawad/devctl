@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
   coerceJsonInput,
   initialCollapsedIds,
@@ -15,38 +15,44 @@ export function JsonView(props: {
   palette: Palette;
   input: unknown;
   compact?: boolean;
-  wide?: boolean;
   maxChars?: number;
   parseStrings?: boolean;
 }) {
-  const { palette, input, compact = false, wide = true, maxChars, parseStrings = true } = props;
+  const { palette, input, compact = false, maxChars, parseStrings = true } = props;
   const coerced = coerceJsonInput(input, parseStrings);
   if (coerced.pretty === "") {
     return <text fg={palette.muted}>{"empty"}</text>;
   }
   if (coerced.kind !== "json") {
-    return (
-      <text fg={palette.text} wrapMode={wide ? "word" : "none"}>
-        {clipPretty(coerced.pretty, compact ? maxChars : undefined)}
-      </text>
-    );
+    return <WrappedText palette={palette}>{clipPretty(coerced.pretty, compact ? maxChars : undefined)}</WrappedText>;
   }
   if (compact) {
-    return <JsonPretty palette={palette} pretty={clipPretty(coerced.pretty, maxChars)} wide={wide} />;
+    return <JsonPretty palette={palette} pretty={clipPretty(coerced.pretty, maxChars)} />;
   }
   return <JsonTree palette={palette} input={coerced.value} signature={coerced.pretty} />;
 }
 
-function JsonPretty(props: { palette: Palette; pretty: string; wide: boolean }) {
-  const { palette, pretty, wide } = props;
+function WrappedText(props: { palette: Palette; children: ReactNode; onMouseDown?: () => void }) {
+  const { palette, children, onMouseDown } = props;
   return (
-    <text fg={palette.text} wrapMode={wide ? "word" : "none"}>
+    <box minWidth={0} width="100%" overflow="hidden">
+      <text fg={palette.text} wrapMode="char" flexShrink={0} width="100%" onMouseDown={onMouseDown}>
+        {children}
+      </text>
+    </box>
+  );
+}
+
+function JsonPretty(props: { palette: Palette; pretty: string }) {
+  const { palette, pretty } = props;
+  return (
+    <WrappedText palette={palette}>
       {tokenizeJson(pretty).map((token, index) => (
         <span key={`${token.kind}-${index}`} fg={jsonTokenColor(palette, token.kind)}>
           {token.text}
         </span>
       ))}
-    </text>
+    </WrappedText>
   );
 }
 
@@ -58,7 +64,7 @@ function JsonTree(props: { palette: Palette; input: unknown; signature: string }
   }, [signature]);
   const rows = visibleJsonTree(input, { collapsed });
   return (
-    <box flexDirection="column" overflow="hidden">
+    <box flexDirection="column" minWidth={0} width="100%" overflow="hidden">
       {rows.map((row) => (
         <JsonTreeRow
           key={row.id}
@@ -82,7 +88,7 @@ function JsonTreeRow(props: {
   const indent = "  ".repeat(row.depth);
   const caret = row.expandable ? (collapsed ? "▸ " : "▾ ") : "  ";
   return (
-    <text fg={palette.text} wrapMode="none" onMouseDown={row.expandable ? onToggle : undefined}>
+    <WrappedText palette={palette} onMouseDown={row.expandable ? onToggle : undefined}>
       <span fg={palette.muted}>{indent + caret}</span>
       {row.depth === 0 ? null : (
         <>
@@ -95,7 +101,7 @@ function JsonTreeRow(props: {
       ) : (
         <span fg={jsonTypeColor(palette, row.type)}>{row.preview}</span>
       )}
-    </text>
+    </WrappedText>
   );
 }
 

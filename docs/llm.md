@@ -128,6 +128,12 @@ llm:
         max_bytes: 1048576        # per-direction cap (default llm.capture_max_bytes, then 1 MiB)
         paths:                    # optional; extra POST JSON paths to capture raw
           - /generations/v1alpha2
+        field_map:                # optional; proprietary JSON → inspector fields
+          model: "$.request.model_name"
+          prompt_tokens: "$.response.metadata.input_tokens"
+          completion_tokens: "$.response.metadata.output_tokens"
+          cost: "$.response.metadata.price"
+          finish_reason: "$.response.choices[0].finish_reason"
       cost_per_token:             # optional; proxy only
         input: 0.000001           # per prompt token
         output: 0.000002          # per completion token
@@ -138,6 +144,7 @@ Point workers at the route (e.g. `http://127.0.0.1:17400/llm/v1/chat/completions
 - **Only tagged routes are buffered.** `via.routes: [a, b]` tags multiple proxy routes on one source; `via.route` is singular sugar for one name (unioned with the list, first-seen order). All other proxy traffic still streams untouched. The request is buffered only when its `content-length` is within `max_bytes`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing. `capture.paths` on that source apply to every tagged route.
 - **OpenAI-compatible completions are captured by default.** Capture engages on a `POST` with a JSON request content-type on a completion-shaped path (`/chat/completions`, `/completions`, `/embeddings`); `GET /models`, `/model/info`, health checks, and CORS preflights are ignored. Anthropic-native `/messages` and the OpenAI Responses API (`/responses`) use different request/stream shapes and are not captured unless listed in `capture.paths`.
 - **`capture.paths` adds proprietary endpoints.** Each entry is a path substring (must start with `/`, not `/` alone) matched case-insensitively against the inbound request pathname, so a route mount prefix does not need repeating — `/generations/v1alpha2` matches `/llm/generations/v1alpha2`. Matching POST JSON is stored as a raw HTTP pair: parsed JSON bodies, or raw SSE text (not reassembled into a `chat.completion`). Model, token usage, and finish reason are copied when those standard JSON fields are present (`model`, `usage.prompt_tokens` / `input_tokens`, `choices[0].finish_reason`); otherwise they are omitted and `model` shows `unknown`. Built-in OpenAI paths on the same source still use the OpenAI mapper.
+- **`capture.field_map` fills inspector summary fields from non-OpenAI JSON.** Optional, `type: proxy` only. Each value is a JSONPath subset evaluated against `{ request, response }` — `$` / `$.` prefix, dotted keys, and `[n]` indexes (no `$..` or filters). Allowed keys: `model`, `prompt_tokens`, `completion_tokens`, `cost`, `finish_reason`. Paths must start with `$.request.` or `$.response.`. A present mapped value wins over the automatic parser; a missing or null path leaves the default, so a source can mix OpenAI completions with proprietary `capture.paths`. Raw SSE stored as text cannot be walked. Mapped `cost` wins over `cost_per_token`; if `cost` is unset or misses, `cost_per_token` still estimates from the final token counts.
 - **`proxy` has no management hop.** It captures from `via.route` / `via.routes` and must not set `service`, `endpoint`, or `management_*`; config validation rejects those. `via.routes` is only valid on `type: proxy`.
 - **`cost_per_token` estimates spend.** Optional, `type: proxy` only (`litellm` and plugin sources already report spend and must not set it). Both `input` and `output` are required `>= 0` numbers when the block is present. A captured call gets `cost = promptTokens * input + completionTokens * output` when those usage fields exist; missing prompt or completion tokens leave `cost` unset (total-only usage is not enough). The inspector chip already shows `cost` when it is set.
 - **Redaction is unchanged** — the same `secrets` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (`prompt_tokens`, `completion_tokens`, `total_tokens`, `max_tokens`) are counts, not credentials, so they stay visible. A streamed response carries token usage only when the caller sets `stream_options.include_usage`. TUI `/reveal` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
@@ -152,7 +159,7 @@ Each stored call has an optional `caller` — the **service that issued the requ
 4. **Completion body** `metadata.service` / `metadata.service_name` / `metadata.devctl_service` (LiteLLM extra body), else a non-email OpenAI `user`.
 5. **LiteLLM spend logs:** `metadata.service` / `metadata.service_name` / `metadata.devctl_service`, else `user` / `end_user` when it is not an email.
 
-TUI list shows caller next to status; detail has `caller` then `via` (proxy) or `source` (LiteLLM). Filter by caller everywhere: CLI `devctl llm --caller worker`, the TUI `/caller worker` command, the web console caller dropdown, and MCP `get_llm_calls`'s `caller`. Pass `-` (CLI also accepts `none`) to show only calls with **no** known caller.
+TUI list shows caller next to status; detail has `caller` then `via` (proxy) or `source` (LiteLLM). Filter by caller everywhere: CLI `devctl llm --caller worker`, the TUI `/caller worker` command (LLM screen filters calls; proxy screen filters traffic hops), the web console caller dropdown, and MCP `get_llm_calls`'s `caller`. Pass `-` (CLI also accepts `none`) to show only calls with **no** known caller.
 
 ## Surfaces
 

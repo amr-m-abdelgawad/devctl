@@ -833,7 +833,9 @@ export async function injectIdentityHeaders(
   if (!token) {
     return;
   }
-  headers.authorization = `Bearer ${token}`;
+  if (!route.auth.suppress_authorization) {
+    headers.authorization = `Bearer ${token}`;
+  }
   applyExtraAuthHeaders(headers, route.auth.headers, token);
 }
 

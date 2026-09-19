@@ -64,6 +64,26 @@ describe("llm via.route / via.routes", () => {
     expect(llm.sources[0]?.cost_per_token).toEqual({ input: 0.001, output: 0.002 });
   });
 
+  test("decodes capture.field_map when present and leaves it undefined otherwise", () => {
+    const llm = emptyLlm();
+    applyLlm(llm, {
+      sources: [{
+        name: "one",
+        type: "proxy",
+        via: { route: "foo" },
+        capture: { field_map: { model: "$.request.model_name", cost: "$.response.metadata.price" } },
+      }],
+    });
+    expect(llm.sources[0]?.capture.field_map).toEqual({
+      model: "$.request.model_name",
+      cost: "$.response.metadata.price",
+    });
+    applyLlm(llm, {
+      sources: [{ name: "one", type: "proxy", via: { route: "foo" } }],
+    });
+    expect(llm.sources[0]?.capture.field_map).toBeUndefined();
+  });
+
   test("llmViaRoutes keeps route first and skips empties", () => {
     expect(llmViaRoutes(emptyLlmVia())).toEqual([]);
     expect(llmViaRoutes({ route: "  ", routes: ["", " a ", "a"] })).toEqual(["a"]);

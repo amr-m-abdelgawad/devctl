@@ -10,6 +10,8 @@ import {
   type LlmUsage,
   estimateLlmCost,
 } from "../../domain/llm/llm.ts";
+import type { LlmCaptureFieldMap } from "../../domain/config/types.ts";
+import { getJsonPath } from "../../domain/http/json-path.ts";
 import { splitSseFrames, sseEventData } from "../../domain/traffic/sse-frames.ts";
 import { asRecord, firstNumber, firstString, parseJsonish } from "./json.ts";
 
@@ -42,6 +44,9 @@ export type ProxyCaptureInput = {
   // Optional per-token rates from the source's cost_per_token. Cost is filled
   // only when both prompt and completion token counts are present.
   costPerToken?: { input: number; output: number };
+  // Optional capture.field_map. Present values overlay the OpenAI/raw defaults;
+  // missing/null paths leave those defaults.
+  fieldMap?: LlmCaptureFieldMap;
 };
 
 // Map a captured OpenAI-compatible completion (JSON or reassembled SSE) into the
@@ -62,7 +67,7 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
   const finishReason = capturedFinishReason(respRec, input.raw === true);
   const usage = usageOf(respRec);
 
-  return {
+  const ingest: LlmCallIngest = {
     id: input.requestId,
     source: input.source,
     sourceType: "proxy",
@@ -96,6 +101,72 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
     requestId: input.requestId,
     traceId: input.traceId,
   };
+  applyCaptureFieldMap(ingest, request, response, input.fieldMap, input.costPerToken);
+  return ingest;
+}
+
+function applyCaptureFieldMap(
+  ingest: LlmCallIngest,
+  request: unknown,
+  response: unknown,
+  fieldMap: LlmCaptureFieldMap | undefined,
+  costPerToken?: { input: number; output: number },
+): void {
+  if (fieldMap === undefined) {
+    return;
+  }
+  const root = { request, response };
+  const model = mappedString(root, fieldMap.model);
+  if (model !== undefined) {
+    ingest.model = model;
+  }
+  const promptTokens = mappedNumber(root, fieldMap.prompt_tokens);
+  const completionTokens = mappedNumber(root, fieldMap.completion_tokens);
+  if (promptTokens !== undefined || completionTokens !== undefined) {
+    ingest.usage = {
+      promptTokens: promptTokens ?? ingest.usage?.promptTokens,
+      completionTokens: completionTokens ?? ingest.usage?.completionTokens,
+      totalTokens: ingest.usage?.totalTokens,
+    };
+  }
+  const finishReason = mappedString(root, fieldMap.finish_reason);
+  if (finishReason !== undefined) {
+    ingest.attributes.finish_reason = finishReason;
+  }
+  const mappedCost = mappedNumber(root, fieldMap.cost);
+  ingest.cost = mappedCost ?? estimateLlmCost(ingest.usage, costPerToken);
+}
+
+function mappedString(root: unknown, path: string | undefined): string | undefined {
+  if (path === undefined) {
+    return undefined;
+  }
+  const value = getJsonPath(root, path);
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? undefined : trimmed;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
+}
+
+function mappedNumber(root: unknown, path: string | undefined): number | undefined {
+  if (path === undefined) {
+    return undefined;
+  }
+  const value = getJsonPath(root, path);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return undefined;
 }
 
 function capturedResponse(input: ProxyCaptureInput, isSse: boolean): unknown {

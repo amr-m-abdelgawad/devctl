@@ -180,6 +180,28 @@ describe("proxy", () => {
     expect(headers["x-static"]).toBe("literal");
   });
 
+  test("suppress_authorization skips Authorization and still substitutes ${token} in auth.headers", async () => {
+    const provider: TokenProvider = { name: "stub", fetch: async () => token({ accessToken: "ID-TOKEN" }) };
+    const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());
+    const route: RouteConfig = {
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:1" },
+      auth: {
+        ...NONE_AUTH,
+        type: "iap",
+        audience: "/projects/1/iap",
+        suppress_authorization: true,
+        headers: { "Proxy-Authorization": "Bearer ${token}", "x-static": "literal" },
+      },
+    };
+    const headers: Record<string, string> = { authorization: "Bearer workspace-oauth" };
+    await injectIdentityHeaders(route, headers, tokens);
+    expect(headers.authorization).toBe("Bearer workspace-oauth");
+    expect(headers["Proxy-Authorization"]).toBe("Bearer ID-TOKEN");
+    expect(headers["x-static"]).toBe("literal");
+  });
+
   test("injects configured response_headers, overriding the upstream's", async () => {
     const { proxyPort, close } = await setupProxy(
       (_req, res) => {
@@ -792,6 +814,34 @@ describe("proxy", () => {
     expect(seenAuth).toBe("Bearer tok-user");
     await server.stop();
     await new Promise<void>((resolve) => upstream.close(() => resolve()));
+  });
+
+  test("forwards caller Authorization and injects Proxy-Authorization when suppress_authorization is set", async () => {
+    const provider: TokenProvider = { name: "stub", fetch: async () => token({ accessToken: "IAP-TOKEN" }) };
+    const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());
+    const { proxyPort, close, seen } = await setupHeaderCapture(
+      {
+        type: "iap",
+        identity: { type: "user", service_account: "" },
+        audience: "/projects/1/iap",
+        service_account: "",
+        client_id: "",
+        client_secret: "",
+        suppress_authorization: true,
+        headers: { "Proxy-Authorization": "Bearer ${token}" },
+      },
+      tokens,
+    );
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/mcp`, {
+        headers: { Authorization: "Bearer workspace-oauth" },
+      });
+      expect(resp.status).toBe(200);
+      expect(seen.headers.authorization).toBe("Bearer workspace-oauth");
+      expect(seen.headers["proxy-authorization"]).toBe("Bearer IAP-TOKEN");
+    } finally {
+      await close();
+    }
   });
 
   test("mock IAP upstream accepts the injected identity token", async () => {

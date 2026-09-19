@@ -12,6 +12,7 @@ const blob = `${repo}/blob/main`
 // https://vitepress.dev/reference/site-config
 const siteConfig = withMermaid({
   title: 'devctl',
+  titleTemplate: ':title | devctl',
   description:
     'One terminal for your local stack. Start services, watch logs, check identity, and drive the proxy — from a keyboard-first TUI, the CLI, or an agent over MCP.',
 
@@ -83,7 +84,7 @@ const siteConfig = withMermaid({
       },
       { text: 'GitHub', link: repo },
       {
-        text: 'v0.16.0',
+        text: 'v0.17.0',
         items: [
           { text: 'Changelog', link: '/changelog' },
           { text: 'npm package', link: 'https://www.npmjs.com/package/@amr-m-abdelgawad/devctl' },

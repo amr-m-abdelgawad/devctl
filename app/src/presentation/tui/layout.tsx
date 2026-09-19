@@ -334,8 +334,8 @@ export function FieldRow(props: { palette: Palette; label: string; value: string
       <box width={14} flexShrink={0} overflow="hidden">
         <text fg={palette.muted}>{padClip(label, 14)}</text>
       </box>
-      <box flexGrow={1} overflow="hidden">
-        <text fg={valueFg} wrapMode="none">
+      <box flexGrow={1} minWidth={0} overflow="hidden">
+        <text fg={valueFg} wrapMode="none" truncate={true}>
           {value}
         </text>
       </box>

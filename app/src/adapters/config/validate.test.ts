@@ -207,6 +207,35 @@ describe("config validate", () => {
     expect(validate(iap)).toContain("proxy.routes[0].auth.log_identity is only valid when auth.type is none");
   });
 
+  test("accepts suppress_authorization on IAP with headers and rejects it on none or without headers", () => {
+    const ok = withService("api");
+    ok.proxy.routes.push({
+      name: "workspace",
+      match: { host: "", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ suppress_authorization: true, headers: { "Proxy-Authorization": "Bearer ${token}" } }),
+    });
+    expect(validate(ok)).toEqual([]);
+
+    const none = withService("api");
+    none.proxy.routes.push({
+      name: "local",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: { ...emptyRouteAuth(), type: "none", suppress_authorization: true, headers: { "Proxy-Authorization": "Bearer ${token}" } },
+    });
+    expect(validate(none)).toContain("proxy.routes[0].auth.suppress_authorization is only valid when auth.type is iap or service_account");
+
+    const noHeaders = withService("api");
+    noHeaders.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ suppress_authorization: true }),
+    });
+    expect(validate(noHeaders)).toContain("proxy.routes[0].auth.suppress_authorization requires auth.headers");
+  });
+
   test("rejects auth.credentials without a client_id", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({
@@ -829,6 +858,40 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must start with /"))).toBe(true);
     source.capture.paths = ["/"];
     expect(validate(cfg).some((issue) => issue.includes("capture.paths[0] must name a path, not /"))).toBe(true);
+  });
+
+  test("accepts capture.field_map on a proxy source and rejects it on litellm or with a bad path", () => {
+    const cfg = withService("litellm");
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.route = "apigee-llm";
+    source.capture.field_map = { model: "$.request.model_name", cost: "$.response.metadata.price" };
+    cfg.llm.sources = [source];
+    expect(validate(cfg)).toEqual([]);
+
+    source.capture.field_map = { model: "$.metadata.model" };
+    expect(validate(cfg).some((issue) => issue.includes("capture.field_map.model must start with $.request. or $.response."))).toBe(true);
+
+    source.capture.field_map = { model: "" };
+    expect(validate(cfg).some((issue) => issue.includes("capture.field_map.model must be a non-empty JSON path"))).toBe(true);
+
+    const litellm = emptyLlmSource();
+    litellm.name = "spend";
+    litellm.type = "litellm";
+    litellm.service = "litellm";
+    litellm.auth = { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "" };
+    litellm.capture.field_map = { model: "$.request.model_name" };
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.llm.sources = [litellm];
+    expect(validate(cfg).some((issue) => issue.includes("capture.field_map is only valid on type: proxy"))).toBe(true);
   });
 
   test("accepts a proxy source that lists existing via.routes without via.route", () => {

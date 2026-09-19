@@ -38,7 +38,9 @@ export function TrafficDetailsOverlay(props: {
       gap={1}
     >
       <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-        <TrafficInspector palette={palette} call={call} width={Math.max(40, termW - 8)} compact={false} bodyMode={bodyMode} onToggleBody={onToggleBody} onViewTrace={onViewTrace} />
+        <box minWidth={0} width="100%">
+          <TrafficInspector palette={palette} call={call} compact={false} bodyMode={bodyMode} onToggleBody={onToggleBody} onViewTrace={onViewTrace} />
+        </box>
       </scrollbox>
     </OverlayShell>
   );

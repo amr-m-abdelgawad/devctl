@@ -72,7 +72,7 @@ services:
 
 `${token}` in the recipe `url` / `headers` / `form` / `body` is the token minted for **that recipe’s** `auth` block. Recipes with `auth.type: none` cannot use `${token}`.
 
-`auth.type: iap` / `service_account` still mint a token for `${token}`, but do **not** set `Authorization: Bearer …` when the recipe already sets `request.headers.Authorization` (Apigee wants `Basic client_id:secret` on the token endpoint, with the Google ID token in `subject_token`). If `Authorization` is unset, Bearer injection matches today’s proxy behavior.
+`auth.type: iap` / `service_account` still mint a token for `${token}`, but do **not** set `Authorization: Bearer …` when the recipe already sets `request.headers.Authorization` (Apigee wants `Basic client_id:secret` on the token endpoint, with the Google ID token in `subject_token`). If `Authorization` is unset, Bearer injection matches today’s proxy behavior. `suppress_authorization: true` skips Bearer even when `Authorization` is unset, and still applies `auth.headers` — same flag as a proxy route.
 
 **Allowed refs inside a recipe request** (resolved at fetch time): `${services.*}`, `${identity.user}`, `${token}`, `${http.<other>.<output>}`. Recipe `url` / `headers` / `form` / `body` also expand `${NAME}` / `${env.NAME}` from the **supervisor process environment** so secrets like `client_secret` can live in the shell or keychain overlay, not in git. Service env still rejects `${env.NAME}`.
 

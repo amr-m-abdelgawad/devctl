@@ -520,7 +520,7 @@ devctl update [--json] [--check]
 - \`status --watch\` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (\`ctrl+c\`).
 - \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. \`--request-id\` filters by \`X-Devctl-Request-ID\`; \`--dedupe-request-id\` collapses nearby events that share that id after the page is fetched; \`--trace\` prints the span tree plus correlated logs.
 - \`devctl llm\` lists recent LLM calls from configured \`llm.sources\` (LiteLLM spend logs first). \`--caller\` filters by originating service. \`--follow\` polls until interrupted. \`devctl llm show <id>\` prints one call including redacted bodies. See [LLM inspector](llm.md).
-- \`devctl traffic\` lists recent HTTP and gRPC hops captured on \`inspect.enabled\` proxy routes. \`--follow\` polls until interrupted. \`devctl traffic show <id>\` prints one hop including redacted bodies. Direct sockets that never hit the proxy are not listed. See [Proxy](proxy.md#inspect-bodies).
+- \`devctl traffic\` lists recent HTTP and gRPC hops captured on \`inspect.enabled\` proxy routes. \`--caller\` filters by originating service (\`-\` or \`none\` for hops with no caller). \`--follow\` polls until interrupted. \`devctl traffic show <id>\` prints one hop including redacted bodies. Direct sockets that never hit the proxy are not listed. See [Proxy](proxy.md#inspect-bodies).
 - \`devctl daemon logs [-f]\` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when \`start\`/\`attach\` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. \`-f\` follows it live the same way \`logs -f\` does. The TUI equivalent is \`/daemon\`.
 
 \`devctl attach\` dials an existing supervisor only. It does not start one. If nothing is listening, it errors with a hint to run \`devctl start\` first.
@@ -1166,7 +1166,7 @@ services:
 
 \`\${token}\` in the recipe \`url\` / \`headers\` / \`form\` / \`body\` is the token minted for **that recipe’s** \`auth\` block. Recipes with \`auth.type: none\` cannot use \`\${token}\`.
 
-\`auth.type: iap\` / \`service_account\` still mint a token for \`\${token}\`, but do **not** set \`Authorization: Bearer …\` when the recipe already sets \`request.headers.Authorization\` (Apigee wants \`Basic client_id:secret\` on the token endpoint, with the Google ID token in \`subject_token\`). If \`Authorization\` is unset, Bearer injection matches today’s proxy behavior.
+\`auth.type: iap\` / \`service_account\` still mint a token for \`\${token}\`, but do **not** set \`Authorization: Bearer …\` when the recipe already sets \`request.headers.Authorization\` (Apigee wants \`Basic client_id:secret\` on the token endpoint, with the Google ID token in \`subject_token\`). If \`Authorization\` is unset, Bearer injection matches today’s proxy behavior. \`suppress_authorization: true\` skips Bearer even when \`Authorization\` is unset, and still applies \`auth.headers\` — same flag as a proxy route.
 
 **Allowed refs inside a recipe request** (resolved at fetch time): \`\${services.*}\`, \`\${identity.user}\`, \`\${token}\`, \`\${http.<other>.<output>}\`. Recipe \`url\` / \`headers\` / \`form\` / \`body\` also expand \`\${NAME}\` / \`\${env.NAME}\` from the **supervisor process environment** so secrets like \`client_secret\` can live in the shell or keychain overlay, not in git. Service env still rejects \`\${env.NAME}\`.
 
@@ -1314,7 +1314,7 @@ flowchart LR
   iap --> up["Upstream"]
 \`\`\`
 
-The local proxy mints the token and injects \`Authorization: Bearer …\`. Services do not implement IAP themselves.
+The local proxy mints the token and injects \`Authorization: Bearer …\` by default. Set \`suppress_authorization: true\` with \`auth.headers\` (for example \`Proxy-Authorization: "Bearer \${token}"\`) when the caller already owns \`Authorization\`. Services do not implement IAP themselves. Minting (\`audience\`, \`identity\`, \`client_id\` / \`client_secret\`, \`credentials\`) is unchanged.
 
 Tokens refresh when \`expires_at - now < auth.refresh_threshold_seconds\` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request. Google minting is also capped at 10 refreshes per identity and audience per minute.
 
@@ -1364,6 +1364,7 @@ Probing a configured SA is lazy and cached, never automatic: it happens the firs
 ` },
   { path: "docs/index.md", title: "index", body: `---
 layout: home
+title: One terminal for your local stack
 ---
 
 <script setup>
@@ -1876,6 +1877,12 @@ llm:
         max_bytes: 1048576        # per-direction cap (default llm.capture_max_bytes, then 1 MiB)
         paths:                    # optional; extra POST JSON paths to capture raw
           - /generations/v1alpha2
+        field_map:                # optional; proprietary JSON → inspector fields
+          model: "$.request.model_name"
+          prompt_tokens: "$.response.metadata.input_tokens"
+          completion_tokens: "$.response.metadata.output_tokens"
+          cost: "$.response.metadata.price"
+          finish_reason: "$.response.choices[0].finish_reason"
       cost_per_token:             # optional; proxy only
         input: 0.000001           # per prompt token
         output: 0.000002          # per completion token
@@ -1886,6 +1893,7 @@ Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completion
 - **Only tagged routes are buffered.** \`via.routes: [a, b]\` tags multiple proxy routes on one source; \`via.route\` is singular sugar for one name (unioned with the list, first-seen order). All other proxy traffic still streams untouched. The request is buffered only when its \`content-length\` is within \`max_bytes\`; otherwise it is streamed and its stored body marked omitted. The response is always streamed to the caller — never buffered-then-forwarded — so SSE keeps flowing. \`capture.paths\` on that source apply to every tagged route.
 - **OpenAI-compatible completions are captured by default.** Capture engages on a \`POST\` with a JSON request content-type on a completion-shaped path (\`/chat/completions\`, \`/completions\`, \`/embeddings\`); \`GET /models\`, \`/model/info\`, health checks, and CORS preflights are ignored. Anthropic-native \`/messages\` and the OpenAI Responses API (\`/responses\`) use different request/stream shapes and are not captured unless listed in \`capture.paths\`.
 - **\`capture.paths\` adds proprietary endpoints.** Each entry is a path substring (must start with \`/\`, not \`/\` alone) matched case-insensitively against the inbound request pathname, so a route mount prefix does not need repeating — \`/generations/v1alpha2\` matches \`/llm/generations/v1alpha2\`. Matching POST JSON is stored as a raw HTTP pair: parsed JSON bodies, or raw SSE text (not reassembled into a \`chat.completion\`). Model, token usage, and finish reason are copied when those standard JSON fields are present (\`model\`, \`usage.prompt_tokens\` / \`input_tokens\`, \`choices[0].finish_reason\`); otherwise they are omitted and \`model\` shows \`unknown\`. Built-in OpenAI paths on the same source still use the OpenAI mapper.
+- **\`capture.field_map\` fills inspector summary fields from non-OpenAI JSON.** Optional, \`type: proxy\` only. Each value is a JSONPath subset evaluated against \`{ request, response }\` — \`$\` / \`$.\` prefix, dotted keys, and \`[n]\` indexes (no \`$..\` or filters). Allowed keys: \`model\`, \`prompt_tokens\`, \`completion_tokens\`, \`cost\`, \`finish_reason\`. Paths must start with \`$.request.\` or \`$.response.\`. A present mapped value wins over the automatic parser; a missing or null path leaves the default, so a source can mix OpenAI completions with proprietary \`capture.paths\`. Raw SSE stored as text cannot be walked. Mapped \`cost\` wins over \`cost_per_token\`; if \`cost\` is unset or misses, \`cost_per_token\` still estimates from the final token counts.
 - **\`proxy\` has no management hop.** It captures from \`via.route\` / \`via.routes\` and must not set \`service\`, \`endpoint\`, or \`management_*\`; config validation rejects those. \`via.routes\` is only valid on \`type: proxy\`.
 - **\`cost_per_token\` estimates spend.** Optional, \`type: proxy\` only (\`litellm\` and plugin sources already report spend and must not set it). Both \`input\` and \`output\` are required \`>= 0\` numbers when the block is present. A captured call gets \`cost = promptTokens * input + completionTokens * output\` when those usage fields exist; missing prompt or completion tokens leave \`cost\` unset (total-only usage is not enough). The inspector chip already shows \`cost\` when it is set.
 - **Redaction is unchanged** — the same \`secrets\` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`) are counts, not credentials, so they stay visible. A streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
@@ -1900,7 +1908,7 @@ Each stored call has an optional \`caller\` — the **service that issued the re
 4. **Completion body** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\` (LiteLLM extra body), else a non-email OpenAI \`user\`.
 5. **LiteLLM spend logs:** \`metadata.service\` / \`metadata.service_name\` / \`metadata.devctl_service\`, else \`user\` / \`end_user\` when it is not an email.
 
-TUI list shows caller next to status; detail has \`caller\` then \`via\` (proxy) or \`source\` (LiteLLM). Filter by caller everywhere: CLI \`devctl llm --caller worker\`, the TUI \`/caller worker\` command, the web console caller dropdown, and MCP \`get_llm_calls\`'s \`caller\`. Pass \`-\` (CLI also accepts \`none\`) to show only calls with **no** known caller.
+TUI list shows caller next to status; detail has \`caller\` then \`via\` (proxy) or \`source\` (LiteLLM). Filter by caller everywhere: CLI \`devctl llm --caller worker\`, the TUI \`/caller worker\` command (LLM screen filters calls; proxy screen filters traffic hops), the web console caller dropdown, and MCP \`get_llm_calls\`'s \`caller\`. Pass \`-\` (CLI also accepts \`none\`) to show only calls with **no** known caller.
 
 ## Surfaces
 
@@ -2829,6 +2837,22 @@ Some IAP-protected upstreams want the minted token under an additional header, n
 
 Applied only on \`iap\` / \`service_account\` routes (there is no token on a \`none\` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
 
+When the backend **also** needs the caller's \`Authorization\` (Google Workspace OAuth, a user-level API token) and IAP must see the ID token in \`Proxy-Authorization\` instead, set \`suppress_authorization: true\`. The route still mints (\`audience\`, \`identity\`, \`client_id\` / \`client_secret\`, \`credentials\` unchanged) and still applies \`auth.headers\`; it does **not** write \`Authorization: Bearer\`. \`\${token}\` is the raw JWT — include the \`Bearer \` prefix in the header value when the upstream expects it. \`auth.headers\` is required so the minted token is sent somewhere. Invalid on \`auth.type: none\`.
+
+\`\`\`yaml
+      auth:
+        type: iap
+        audience: "IAP_CLIENT_ID.apps.googleusercontent.com"
+        identity: { type: user }
+        client_id: "DESKTOP_CLIENT_ID.apps.googleusercontent.com"
+        client_secret: "\${IAP_OAUTH_CLIENT_SECRET}"
+        suppress_authorization: true
+        headers:
+          Proxy-Authorization: "Bearer \${token}"
+\`\`\`
+
+Inbound \`Proxy-Authorization\` is still stripped as hop-by-hop (callers cannot spoof IAP). The proxy injects it after that strip. The caller's \`Authorization\` is forwarded unmodified.
+
 ### Response headers and CORS
 
 \`route.response_headers\` adds headers to every response on the route, overriding whatever the upstream sent — most often CORS headers for a browser that loads a micro-frontend, Module Federation remote, or iframe from another origin and then calls back through the proxy:
@@ -2932,7 +2956,7 @@ The client connects plaintext to the local port and does nothing else — no tok
 client = await Client.connect("127.0.0.1:7233", namespace="prod", tls=False)
 \`\`\`
 
-devctl adds \`Authorization: Bearer <fresh id-token>\` (plus any \`auth.headers\`) to each RPC's HTTP/2 headers, mints and refreshes it with the same machinery as HTTP routes (\`audience\` / \`client_id\` / \`credentials\`), and relays the response and gRPC trailers. Because every RPC carries the current token, expiry is handled with no timer in the app.
+devctl adds \`Authorization: Bearer <fresh id-token>\` (plus any \`auth.headers\`) to each RPC's HTTP/2 headers, mints and refreshes it with the same machinery as HTTP routes (\`audience\` / \`client_id\` / \`credentials\`), and relays the response and gRPC trailers. \`suppress_authorization: true\` skips that Bearer write and keeps the caller's \`Authorization\`, same as HTTP. Because every RPC carries the current token, expiry is handled with no timer in the app.
 
 Notes:
 
@@ -3010,14 +3034,14 @@ proxy:
 
 Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP \`get_traffic_calls\`, web \`/api/traffic\`) strip bodies; one-id fetch (\`get_traffic_call\`, \`devctl traffic show\`, TUI overlay, web \`#/traffic/:id\`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; \`/reveal\` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA is stored as \`application/grpc\` base64 of the captured bytes (length prefixes kept). Request and response frames are split, gzip-compressed messages inflated in the capture adapter, then decoded to pretty \`text\` (JSON, plugin, or \`decode_raw\`). A failed gunzip leaves \`data\` only. Redaction runs on decoded bytes and on that \`text\`, not on the base64 alphabet, so the raw \`data\` view cannot recover a secret the \`text\` view already masked.
 
-Caller attribution reuses the LLM path: \`X-Devctl-Service\` or a loopback peer lookup, so the inspector can label which service issued the call.
+Caller attribution reuses the LLM path: \`X-Devctl-Service\` or a loopback peer lookup, so the inspector can label which service issued the call. Filter that label everywhere: TUI \`/caller worker\` on the proxy screen, CLI \`devctl traffic --caller worker\`, the web console caller dropdown, and MCP \`get_traffic_calls\`'s \`caller\`. Pass \`-\` (CLI also accepts \`none\`) to show only hops with **no** known caller. On the LLM screen the same \`/caller\` command still filters LLM calls.
 
 | Surface | What you get |
 |---------|----------------|
-| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). \`r\` toggles. Enter opens the overlay tree; enter again jumps to a trace when \`traceId\` is present. |
-| Web | \`#/traffic\` and \`#/traffic/:id\`. Overview request paths link here when a captured body exists. |
+| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). \`r\` toggles. \`/caller\` filters by originating service. Enter opens the overlay tree; enter again jumps to a trace when \`traceId\` is present. |
+| Web | \`#/traffic\` and \`#/traffic/:id\`. Caller dropdown plus search. Overview request paths link here when a captured body exists. |
 | MCP | \`get_traffic_calls\` (inspect, bodies omitted) and \`get_traffic_call\` (bodies included). |
-| CLI | \`devctl traffic\` / \`devctl traffic show <id>\`. \`--follow\` polls. |
+| CLI | \`devctl traffic\` / \`devctl traffic show <id>\`. \`--caller\` filters by originating service. \`--follow\` polls. |
 
 ## Tracing
 
@@ -3794,7 +3818,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. The **all** chip keeps the total across services; picking one service does not rewrite that count. \`w\` cycles wrap all / clip / wrap selected. \`\\\\\` / \`/split\` opens a second pane on the same live stream (independent service filter, shared search). \`/trace <id>\` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). \`/auth login\` suspends the TUI, runs \`gcloud auth application-default login\` on the real terminal, then restores the TUI. \`/auth logout\` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or \`~/.devctl/credentials\`
-- **Proxy** — status + routes (inspect chip when \`inspect.enabled\`); list of captured hops plus a live inspector (syntax-colored pretty JSON / raw). \`r\` toggles body mode. Click a hop or \`enter\` opens the overlay with a collapsible JSON tree (\`enter\` again jumps to a trace when one is present). Click \`▸\`/\`▾\` to expand or collapse a node. The highlighted hop stays selected when newer hops arrive, without scrolling the list back to it; \`j\`/\`k\` moves and keeps the cursor on screen. Empty state explains \`inspect.enabled\` and that unproxied \`127.0.0.1\` sockets are invisible. \`n\` start / \`x\` stop. If \`proxy.listen.port\` is missing, the screen says so and \`n\` reports the bind error in the status bar instead of crashing. See [Proxy](proxy.md#inspect-bodies)
+- **Proxy** — status + routes (inspect chip when \`inspect.enabled\`); list of captured hops plus a live inspector (syntax-colored pretty JSON / raw). Request and response bodies wrap to the pane and scroll vertically. \`r\` toggles body mode. \`/caller <service>\` filters hops by originating service (\`-\` for none, empty clears) so a noisy neighbor does not bury the service you are debugging. Click a hop or \`enter\` opens the overlay with a collapsible JSON tree (\`enter\` again jumps to a trace when one is present). Click \`▸\`/\`▾\` to expand or collapse a node. The highlighted hop stays selected when newer hops arrive, without scrolling the list back to it; \`j\`/\`k\` moves and keeps the cursor on screen. Empty state explains \`inspect.enabled\` and that unproxied \`127.0.0.1\` sockets are invisible. \`n\` start / \`x\` stop. If \`proxy.listen.port\` is missing, the screen says so and \`n\` reports the bind error in the status bar instead of crashing. See [Proxy](proxy.md#inspect-bodies)
 - **LLM** — list of recent calls (time, status, caller, model, latency, tokens) with a live inspector for the selected row: status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise syntax-colored JSON). \`r\` (or the conversation/json chip) switches the inspector and overlay between the transcript and the request/response JSON tree. Click selects; click again or \`enter\` opens the full overlay (payload, attributes; \`enter\` again jumps to a trace when one is present). Click \`▸\`/\`▾\` to expand or collapse a node. The highlighted call stays selected when newer calls arrive, without scrolling the list back to it. \`/caller\` filters. Usage counts are not secrets. \`/reveal\` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. \`enter\` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. \`r\` reruns
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
@@ -3836,7 +3860,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/credentials\` | \`/creds\` | Open credential store status |
 | \`/proxy\` | \`/p\` | Open the proxy screen |
 | \`/llm\` | | Open the LLM inspector |
-| \`/caller <service>\` | | Filter LLM calls by originating service (- for none, empty clears) |
+| \`/caller <service>\` | | Filter LLM or proxy traffic by originating service (- for none, empty clears) |
 | \`/mcp\` | \`/agent\` | Open the MCP server screen for coding agents |
 | \`/doctor\` | \`/d\` | Run environment diagnostics |
 | \`/stats\` | \`/metrics\` | View system and service statistics |
@@ -4127,7 +4151,7 @@ The LLM view is a list plus live inspector. Select a call to read the conversati
 
 ## Inspect proxied HTTP and gRPC bodies
 
-The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspector for hops captured on \`inspect.enabled\` proxy routes. Click a row to inspect JSON as a navigable tree or syntax-colored pretty text (copy path/value, find, wrap), or switch to raw. Logs and span attributes use the same viewer. The selected hop stays open when newer hops arrive. \`j\`/\`k\` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
+The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspector for hops captured on \`inspect.enabled\` proxy routes. The caller dropdown keeps one originating service (or hops with no caller) so a noisy neighbor does not bury the service you are debugging. Click a row to inspect JSON as a navigable tree or syntax-colored pretty text (copy path/value, find, wrap), or switch to raw. Logs and span attributes use the same viewer. The selected hop stays open when newer hops arrive. \`j\`/\`k\` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
 
 ## If something is missing
 

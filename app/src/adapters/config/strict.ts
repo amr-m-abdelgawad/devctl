@@ -50,6 +50,7 @@ import {
   knownLlmAuth,
   knownLlmVia,
   knownLlmCapture,
+  knownLlmCaptureFieldMap,
   knownLlmCostPerToken,
   knownUpstream,
   knownWatch,
@@ -202,6 +203,9 @@ function llmSourcePathKnown(path: string): string[] {
     return knownLlmVia;
   }
   if (parts[3] === "capture") {
+    if (parts[4] === "field_map") {
+      return knownLlmCaptureFieldMap;
+    }
     return knownLlmCapture;
   }
   if (parts[3] === "cost_per_token") {

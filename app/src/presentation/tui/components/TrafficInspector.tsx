@@ -15,20 +15,18 @@ import { JsonView } from "./JsonView.tsx";
 import { Chip, FieldRow, KeyHints, MetaBar, scrollboxStyle, type KeyHintItem, type MetaChip } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
-const TWO_COL_MIN = 56;
 const ERROR_PREVIEW = 96;
 const ERROR_FULL = 256;
 
 export function TrafficInspector(props: {
   palette: Palette;
   call?: TrafficCall;
-  width: number;
   compact?: boolean;
   bodyMode?: TrafficBodyMode;
   onToggleBody?: () => void;
   onViewTrace?: (traceId: string) => void;
 }) {
-  const { palette, call, width, compact = true, bodyMode = "json", onToggleBody, onViewTrace } = props;
+  const { palette, call, compact = true, bodyMode = "json", onToggleBody, onViewTrace } = props;
   const scale = useDensity();
   if (!call) {
     return <EmptyState palette={palette} title="No hop selected" body="j/k moves the list. enter opens the full payload. r switches pretty JSON and raw." />;
@@ -37,9 +35,9 @@ export function TrafficInspector(props: {
   const errorText = call.grpcStatus && call.grpcStatus !== "0"
     ? clipText(`grpc-status ${call.grpcStatus}`, compact ? ERROR_PREVIEW : ERROR_FULL)
     : "";
-  const body = <JsonBody palette={palette} call={call} compact={compact} bodyMode={bodyMode} wide={width >= TWO_COL_MIN} />;
+  const body = <JsonBody palette={palette} call={call} compact={compact} bodyMode={bodyMode} />;
   return (
-    <box padding={scale.pad} flexGrow={1} flexDirection="column" overflow="hidden">
+    <box padding={scale.pad} flexGrow={1} flexShrink={1} minWidth={0} minHeight={0} flexDirection="column" overflow="hidden">
       <MetaBar palette={palette} items={inspectorChips(call, bodyMode, onToggleBody)} />
       {errorText !== "" ? (
         <box height={1} overflow="hidden">
@@ -54,9 +52,11 @@ export function TrafficInspector(props: {
       {compact ? null : <FieldRow palette={palette} label="id" value={call.id} tone="muted" />}
       {compact ? null : <FieldRow palette={palette} label="trace" value={traceId || "—"} tone="muted" />}
       {compact ? (
-        <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-          <box flexDirection="column" overflow="hidden">{body}</box>
-        </scrollbox>
+        <box flexGrow={1} flexShrink={1} minHeight={0} minWidth={0} overflow="hidden">
+          <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
+            <box flexDirection="column" minWidth={0} width="100%">{body}</box>
+          </scrollbox>
+        </box>
       ) : body}
       {compact ? (
         <KeyHints palette={palette} hints={compactHints(bodyMode)} />
@@ -95,32 +95,32 @@ function compactHints(bodyMode: TrafficBodyMode): KeyHintItem[] {
   ];
 }
 
-function JsonBody(props: { palette: Palette; call: TrafficCall; compact: boolean; bodyMode: TrafficBodyMode; wide: boolean }) {
-  const { palette, call, compact, bodyMode, wide } = props;
+function JsonBody(props: { palette: Palette; call: TrafficCall; compact: boolean; bodyMode: TrafficBodyMode }) {
+  const { palette, call, compact, bodyMode } = props;
   const request = trafficPayloadView(call.request, bodyMode);
   const response = trafficPayloadView(call.response, bodyMode);
   if (request === "" && response === "") {
     return (
-      <box flexGrow={1} overflow="hidden">
+      <box flexShrink={0} minWidth={0} width="100%" overflow="hidden">
         <text fg={palette.muted}>{"no request/response body"}</text>
       </box>
     );
   }
   return (
-    <box flexGrow={1} flexDirection="column" overflow="hidden">
+    <box flexShrink={0} flexDirection="column" minWidth={0} width="100%">
       <box height={1} flexShrink={0} overflow="hidden">
         <text fg={palette.muted}>{bodyMode === "raw" ? "raw" : "json"}</text>
       </box>
       {request === "" ? null : (
         <>
           <text fg={palette.muted}>{"request"}</text>
-          <JsonView palette={palette} input={request} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
+          <JsonView palette={palette} input={request} compact={compact} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
         </>
       )}
       {response === "" ? null : (
         <>
           <text fg={palette.muted}>{"response"}</text>
-          <JsonView palette={palette} input={response} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
+          <JsonView palette={palette} input={response} compact={compact} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
         </>
       )}
     </box>

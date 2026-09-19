@@ -50,7 +50,7 @@ Containers omit token URL/internal token (they cannot reach host loopback). Pref
 - HTTP/1.1 listener matches `host` + `path`
 - `transport: grpc` → dedicated h2c listener (`grpc-proxy.ts`)
 - Auth types: none, IAP, service_account impersonation, plugin/OIDC
-- Inject `Authorization` (and optional `auth.headers` with `${token}`)
+- Inject `Authorization` unless `suppress_authorization` (and optional `auth.headers` with `${token}`)
 - CORS: `response_headers`; OPTIONS preflight answered locally
 - Logs: method, path, route, identity, status, duration, request id — never the bearer
 - `X-Devctl-Request-ID` generated or propagated; traces via `adapters/proxy/tracing.ts`

@@ -62,7 +62,7 @@ export function LlmInspector(props: {
     </>
   );
   return (
-    <box padding={scale.pad} flexGrow={1} flexDirection="column" overflow="hidden">
+    <box padding={scale.pad} flexGrow={1} flexShrink={1} minWidth={0} minHeight={0} flexDirection="column" overflow="hidden">
       <MetaBar palette={palette} items={inspectorChips(call, canToggle, effective, onToggleBody)} />
       {errorText !== "" ? (
         <box height={1} overflow="hidden">
@@ -78,9 +78,11 @@ export function LlmInspector(props: {
       {compact ? null : <FieldRow palette={palette} label="id" value={call.id} tone="muted" />}
       {compact ? null : <FieldRow palette={palette} label="trace" value={traceId || "—"} tone="muted" />}
       {compact ? (
-        <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-          <box flexDirection="column" overflow="hidden">{body}</box>
-        </scrollbox>
+        <box flexGrow={1} flexShrink={1} minHeight={0} minWidth={0} overflow="hidden">
+          <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
+            <box flexDirection="column" minWidth={0} width="100%">{body}</box>
+          </scrollbox>
+        </box>
       ) : body}
       {compact ? (
         <KeyHints palette={palette} hints={compactHints(canToggle, effective)} />
@@ -161,13 +163,13 @@ function JsonBody(props: { palette: Palette; call: LlmCall; compact: boolean }) 
   const hasResponse = call.response !== undefined;
   if (!hasRequest && !hasResponse) {
     return (
-      <box flexGrow={1} overflow="hidden">
+      <box flexShrink={0} minWidth={0} width="100%" overflow="hidden">
         <text fg={palette.muted}>{"no request/response body"}</text>
       </box>
     );
   }
   return (
-    <box flexGrow={1} flexDirection="column" overflow="hidden">
+    <box flexShrink={0} flexDirection="column" minWidth={0} width="100%">
       <box height={1} flexShrink={0} overflow="hidden">
         <text fg={palette.muted}>{"json"}</text>
       </box>

@@ -62,7 +62,7 @@ export const knownRouteLogGrpc = ["ok"];
 export const knownRouteLogGrpcOk = ["status", "methods", "log"];
 export const knownMatch = ["host", "path"];
 export const knownUpstream = ["url", "service", "port", "recipe"];
-export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers", "log_identity"];
+export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers", "log_identity", "suppress_authorization"];
 export const knownLogs = ["max_memory_events", "persistence"];
 export const knownPersistence = ["enabled", "directory", "retention_days", "max_session_logs"];
 export const knownAuth = ["refresh_threshold_seconds"];
@@ -111,7 +111,8 @@ export const knownLlmSource = [
 ];
 export const knownLlmAuth = ["type", "token_env", "header"];
 export const knownLlmVia = ["route", "routes"];
-export const knownLlmCapture = ["prompts", "max_bytes", "paths"];
+export const knownLlmCapture = ["prompts", "max_bytes", "paths", "field_map"];
+export const knownLlmCaptureFieldMap = ["model", "prompt_tokens", "completion_tokens", "cost", "finish_reason"];
 export const knownLlmCostPerToken = ["input", "output"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];

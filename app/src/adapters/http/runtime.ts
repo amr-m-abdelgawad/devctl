@@ -143,7 +143,7 @@ export class RecipeRuntime implements HttpRecipeRuntime {
       headers[key] = interpolate(value);
     }
     if (token !== undefined) {
-      if (!headerHasAuthorization(headers)) {
+      if (!recipe.request.auth.suppress_authorization && !headerHasAuthorization(headers)) {
         headers.authorization = `Bearer ${token}`;
       }
       applyExtraAuthHeaders(headers, recipe.request.auth.headers, token);

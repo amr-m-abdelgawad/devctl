@@ -566,6 +566,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     workspace,
     logView,
     llmView,
+    trafficView,
     diagnostics,
     lifecycleActions,
   });
@@ -890,6 +891,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             snap={snap}
             page={trafficView.page}
             error={trafficView.error}
+            caller={trafficView.caller}
             selected={listCursor}
             width={width}
             bodyMode={trafficView.bodyMode}

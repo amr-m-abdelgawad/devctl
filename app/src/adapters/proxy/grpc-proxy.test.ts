@@ -36,6 +36,7 @@ async function startUpstream(): Promise<{ url: string; close: () => Promise<void
     const path = String(headers[":path"] ?? "");
     const seenAuth = String(headers["authorization"] ?? "(none)");
     const seenIdToken = String(headers["identity-token"] ?? "(none)");
+    const seenProxyAuth = String(headers["proxy-authorization"] ?? "(none)");
     if (path === "/deny") {
       stream.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": "7", "grpc-message": "denied" }, { endStream: true });
       return;
@@ -44,7 +45,7 @@ async function startUpstream(): Promise<{ url: string; close: () => Promise<void
     stream.on("data", (c) => chunks.push(c as Buffer));
     stream.on("end", () => {
       stream.respond({ ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
-      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0", "x-seen-auth": seenAuth, "x-seen-id-token": seenIdToken }));
+      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": "0", "x-seen-auth": seenAuth, "x-seen-id-token": seenIdToken, "x-seen-proxy-auth": seenProxyAuth }));
       if (path === "/stream") {
         stream.write("chunk-1");
         stream.write("chunk-2");
@@ -193,6 +194,26 @@ describe("GrpcProxyServer", () => {
     try {
       const res = await call(port, "/say.Hello", "x");
       expect(res.trailers["x-seen-id-token"]).toBe("ID-TOKEN");
+    } finally {
+      await server.stop();
+      await up.close();
+    }
+  });
+
+  test("suppress_authorization keeps caller Authorization and injects Proxy-Authorization", async () => {
+    const up = await startUpstream();
+    const port = await reservePort();
+    const route = grpcRoute(up.url, port, {
+      suppress_authorization: true,
+      headers: { "Proxy-Authorization": "Bearer ${token}" },
+    });
+    const server = new GrpcProxyServer(route, tokens("ID-TOKEN"));
+    await server.start();
+    try {
+      const res = await call(port, "/say.Hello", "x", { authorization: "Bearer workspace-oauth" });
+      expect(res.trailers["grpc-status"]).toBe("0");
+      expect(res.trailers["x-seen-auth"]).toBe("Bearer workspace-oauth");
+      expect(res.trailers["x-seen-proxy-auth"]).toBe("Bearer ID-TOKEN");
     } finally {
       await server.stop();
       await up.close();

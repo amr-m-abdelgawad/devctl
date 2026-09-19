@@ -72,7 +72,7 @@ The LLM view is a list plus live inspector. Select a call to read the conversati
 
 ## Inspect proxied HTTP and gRPC bodies
 
-The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector for hops captured on `inspect.enabled` proxy routes. Click a row to inspect JSON as a navigable tree or syntax-colored pretty text (copy path/value, find, wrap), or switch to raw. Logs and span attributes use the same viewer. The selected hop stays open when newer hops arrive. `j`/`k` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
+The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector for hops captured on `inspect.enabled` proxy routes. The caller dropdown keeps one originating service (or hops with no caller) so a noisy neighbor does not bury the service you are debugging. Click a row to inspect JSON as a navigable tree or syntax-colored pretty text (copy path/value, find, wrap), or switch to raw. Logs and span attributes use the same viewer. The selected hop stays open when newer hops arrive. `j`/`k` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
 
 ## If something is missing
 

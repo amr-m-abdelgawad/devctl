@@ -636,10 +636,20 @@ function validateRouteLog(route: RouteConfig, prefix: string): string[] {
   return issues;
 }
 
+function authTypeMintsToken(type: string): boolean {
+  const t = type.toLowerCase();
+  return t === "iap" || t === "service_account";
+}
+
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
   const issues: string[] = [];
   if (auth.log_identity !== undefined && !routeAuthIsNone(auth)) {
     issues.push(`${prefix}.auth.log_identity is only valid when auth.type is none`);
+  }
+  if (auth.suppress_authorization !== undefined && !authTypeMintsToken(auth.type)) {
+    issues.push(`${prefix}.auth.suppress_authorization is only valid when auth.type is iap or service_account`);
+  } else if (auth.suppress_authorization && Object.keys(auth.headers ?? {}).length === 0) {
+    issues.push(`${prefix}.auth.suppress_authorization requires auth.headers`);
   }
   if (auth.type.toLowerCase() === "iap") {
     if (auth.audience.trim() === "") {
@@ -874,7 +884,39 @@ function validateLlmCapture(source: LlmSourceConfig, prefix: string): string[] {
       issues.push(`${loc} must name a path, not /`);
     }
   }
+  issues.push(...validateLlmCaptureFieldMap(source, prefix));
   return issues;
+}
+
+function validateLlmCaptureFieldMap(source: LlmSourceConfig, prefix: string): string[] {
+  const map = source.capture.field_map;
+  if (map === undefined) {
+    return [];
+  }
+  const issues: string[] = [];
+  if (source.type.trim().toLowerCase() !== LLM_SOURCE_TYPE_PROXY) {
+    issues.push(`${prefix}.capture.field_map is only valid on type: ${LLM_SOURCE_TYPE_PROXY}`);
+  }
+  issues.push(...validateMappedFieldPath(map.model, `${prefix}.capture.field_map.model`));
+  issues.push(...validateMappedFieldPath(map.prompt_tokens, `${prefix}.capture.field_map.prompt_tokens`));
+  issues.push(...validateMappedFieldPath(map.completion_tokens, `${prefix}.capture.field_map.completion_tokens`));
+  issues.push(...validateMappedFieldPath(map.cost, `${prefix}.capture.field_map.cost`));
+  issues.push(...validateMappedFieldPath(map.finish_reason, `${prefix}.capture.field_map.finish_reason`));
+  return issues;
+}
+
+function validateMappedFieldPath(path: string | undefined, loc: string): string[] {
+  if (path === undefined) {
+    return [];
+  }
+  const trimmed = path.trim();
+  if (trimmed === "") {
+    return [`${loc} must be a non-empty JSON path`];
+  }
+  if (!trimmed.startsWith("$.request.") && !trimmed.startsWith("$.response.")) {
+    return [`${loc} must start with $.request. or $.response.`];
+  }
+  return [];
 }
 
 function validateLlmProxySource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: string): string[] {

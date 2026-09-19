@@ -1,5 +1,6 @@
 ---
 layout: home
+title: One terminal for your local stack
 ---
 
 <script setup>
