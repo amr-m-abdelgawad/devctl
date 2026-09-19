@@ -22,11 +22,14 @@ test("plugin loading negotiates SDK versions and isolates bad modules", async ()
   writeFileSync(join(dir, "old.ts"), "export const sdkVersion=0;");
   writeFileSync(join(dir, "throwing.ts"), "throw new Error('boom');");
   writeFileSync(join(dir, "malformed.ts"), "export const sdkVersion=1; export const healthChecks=[{name:'bad'}];");
-  const registry = await loadPluginPaths(["good.ts", "old.ts", "throwing.ts", "malformed.ts"], dir);
+  writeFileSync(join(dir, "decoder.ts"), "export const sdkVersion=1; export const trafficDecoders=[{name:'temporal',decode:()=>({ok:true})}];");
+  writeFileSync(join(dir, "bad-decoder.ts"), "export const sdkVersion=1; export const trafficDecoders=[{name:'temporal'}];");
+  const registry = await loadPluginPaths(["good.ts", "old.ts", "throwing.ts", "malformed.ts", "decoder.ts", "bad-decoder.ts"], dir);
   expect(registry.environmentSources.some((source) => source.name === "custom")).toBe(true);
-  expect(registry.pluginPaths).toEqual([resolve(dir, "good.ts")]);
-  expect(registry.loadErrors).toHaveLength(3);
-  expect(registry.loadErrors.map((error) => error.message).join(" ")).toMatch(/incompatible.*boom.*check must be a function/);
+  expect(registry.trafficDecoders.some((decoder) => decoder.name === "temporal")).toBe(true);
+  expect(registry.pluginPaths).toEqual([resolve(dir, "good.ts"), resolve(dir, "decoder.ts")]);
+  expect(registry.loadErrors).toHaveLength(4);
+  expect(registry.loadErrors.map((error) => error.message).join(" ")).toMatch(/incompatible.*boom.*check must be a function.*decode must be a function/);
 });
 
 test("refuses plugin paths outside the repository root", async () => {

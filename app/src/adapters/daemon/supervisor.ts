@@ -11,9 +11,10 @@ import {
   dependencyName,
 } from "../config/index.ts";
 import { claimIfAlreadyUp as claimAdoptedService, recoverSession as recoverPersistedSession, type RecoverHost } from "./recover.ts";
-import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, checkPluginLlmSourceTypes as assertPluginLlmSourceTypes, pluginMtimes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
+import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as assertPluginEnvironmentSources, checkPluginHealthTypes as assertPluginHealthTypes, checkPluginIdentityTypes as assertPluginIdentityTypes, checkPluginInspectDecoders as assertPluginInspectDecoders, checkPluginLlmSourceTypes as assertPluginLlmSourceTypes, pluginMtimes, reloadSupervisor, watchConfig as watchConfigDir, type ReloadHost } from "./reload.ts";
 import { ServiceWatchers } from "./service-watch.ts";
 import { EnvironmentBridge } from "./environment-bridge.ts";
+import { envWithSecrets } from "../environment/environment.ts";
 import { IdentityCoordinator } from "./identity-coordinator.ts";
 import { McpCoordinator } from "./mcp-coordinator.ts";
 import { WebCoordinator } from "./web-coordinator.ts";
@@ -196,6 +197,7 @@ export class Supervisor {
       store: this.trafficStore,
       log: (message) => this.log("devctl", "WARN", message),
       lookupCaller: (peer) => callerServiceForPeer(peer, () => this.procs.all()),
+      decoders: () => this.registry?.trafficDecoders ?? [],
     });
     this.procs = deps.procs;
     this.orchestrator = deps.orchestrator;
@@ -206,7 +208,7 @@ export class Supervisor {
       clock: this.clock,
       userEmail: () => this.identity.identityCache.user,
       ports: () => this.ports,
-      processEnv: () => process.env,
+      processEnv: () => envWithSecrets(process.env, this.cfg.repoRoot),
       log: (message) => this.log("devctl", "INFO", message),
     });
     this.llm = new LlmCoordinator({
@@ -451,6 +453,7 @@ export class Supervisor {
     assertPluginEnvironmentSources(this.registry, this.cfg);
     this.llmFactory = llmSourceFactory(this.registry?.llmSources ?? []);
     assertPluginLlmSourceTypes(this.registry, this.cfg);
+    assertPluginInspectDecoders(this.registry, this.cfg);
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());

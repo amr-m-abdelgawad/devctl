@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Built-in `health.type: grpc` probes `grpc.health.v1.Health/Check` over HTTP/2 (h2c, with TLS fallback), and gitignored `.devctl/secrets.env` (plus weaker `~/.devctl/secrets.env`) is always loaded for `${env.NAME}` interpolation and as a service-env layer after dotenv. Process environment still wins. There is no `${secret:}` template syntax.
+- Proxy routes can **strip a matched path prefix** when forwarding (`strip_prefix`) and treat listed gRPC statuses as non-errors (`log.grpc.ok`), so Temporal long-poll 14 / workflow-task 3 no longer inflate `stats().errors`. Per-service `proxy:` fragments now keep the full `RouteConfig` (inspect, transport, response headers, and the new fields). See [Proxy](docs/proxy.md).
+- Traffic inspector decodes **gRPC request and response** bodies: split multi-message frames, inflate gzip in the capture adapter, pretty-print JSON (`application/grpc+json` or JSON-looking payloads) or proto3 `decode_raw` field numbers, and optionally a named `inspect.grpc.decoder` plugin (`trafficDecoders`). Captured `data` stays the original base64. See [Proxy](docs/proxy.md#inspect-bodies).
+
+### Fixed
+
+- Process log severity now strips ANSI before classification, and stdout/stderr fold Python tracebacks, bare HTTP status continuations, and optional `logs.multiline` start/continuation regexes into one event.
+- Review follow-ups for the platform-audit Phase 1 surface: `log.grpc.ok` decode keeps malformed entries so validate can reject them, `status` is an integer 1–16, and method names match on a `/` boundary; reload loads a candidate plugin registry before checking `inspect.grpc.decoder`; gRPC health origins bracket IPv6 hosts; gzip inflate honors `inspect.max_bytes`; `snapshot()` no longer flushes pending multiline buffers; multiline buffers are keyed by service/source/stream/pid/identity; `parseJSONLogLine` keeps the original `raw` line; schema-free `decode_raw` keeps fixed-width wire bits as hex.
+
 ## [0.15.0] - 2026-09-19
 
 ### Added

@@ -12,6 +12,7 @@ import {
   decodeRoute,
   decodeEnv,
   decodeService,
+  decodeServiceLogMultiline,
   decodeTask,
   decodeServiceProxy,
   decodeExpose,
@@ -39,6 +40,7 @@ import {
   type RouteConfig,
   type ServiceConfig,
   type ServiceLogConfig,
+  type ServiceLogMultilineConfig,
   type StartupConfig,
   type TaskConfig,
   type TelemetryConfig,
@@ -92,6 +94,12 @@ export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown
       if (isRecord(nested)) {
         for (const key of Object.keys(nested)) {
           keys.add(`${field}.${key}`);
+          const deeper = nested[key];
+          if (field === "logs" && key === "multiline" && isRecord(deeper)) {
+            for (const inner of Object.keys(deeper)) {
+              keys.add(`${field}.${key}.${inner}`);
+            }
+          }
         }
       }
     }
@@ -511,6 +519,7 @@ function mergeHealth(base: HealthCheckConfig, raw: unknown): HealthCheckConfig {
     type: raw.type !== undefined ? asString(raw.type) : base.type,
     url: raw.url !== undefined ? asString(raw.url) : base.url,
     address: raw.address !== undefined ? asString(raw.address) : base.address,
+    grpc_service: raw.grpc_service !== undefined ? asString(raw.grpc_service) : base.grpc_service,
     command: raw.command !== undefined ? decodeCommand(raw.command) : base.command,
     interval_seconds: raw.interval_seconds !== undefined ? asNumber(raw.interval_seconds) : base.interval_seconds,
     timeout_seconds: raw.timeout_seconds !== undefined ? asNumber(raw.timeout_seconds) : base.timeout_seconds,
@@ -539,6 +548,26 @@ function mergeServiceLogs(base: ServiceLogConfig, raw: unknown): ServiceLogConfi
   return {
     stdout: raw.stdout !== undefined ? asBoolean(raw.stdout) : base.stdout,
     stderr: raw.stderr !== undefined ? asBoolean(raw.stderr) : base.stderr,
+    multiline: mergeServiceLogMultiline(base.multiline, raw.multiline),
+  };
+}
+
+function mergeServiceLogMultiline(base: ServiceLogMultilineConfig | undefined, raw: unknown): ServiceLogMultilineConfig | undefined {
+  if (raw === undefined) {
+    return base;
+  }
+  const decoded = decodeServiceLogMultiline(raw);
+  if (!decoded) {
+    return base;
+  }
+  if (!base) {
+    return decoded;
+  }
+  return {
+    start: decoded.start !== undefined ? decoded.start : base.start,
+    continuation: decoded.continuation !== undefined ? decoded.continuation : base.continuation,
+    max_wait_ms: decoded.max_wait_ms !== undefined ? decoded.max_wait_ms : base.max_wait_ms,
+    max_lines: decoded.max_lines !== undefined ? decoded.max_lines : base.max_lines,
   };
 }
 
@@ -593,10 +622,8 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigPr
     fragments.forEach((frag, i) => {
       const routeName = fragments.length === 1 ? name : `${name}-${i + 1}`;
       const route = {
+        ...frag,
         name: routeName,
-        match: frag.match,
-        upstream: frag.upstream,
-        auth: frag.auth,
       };
       const index = cfg.proxy.routes.length;
       cfg.proxy.routes.push(route);
@@ -797,6 +824,7 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     type: present.has("health.type") ? svc.health.type : base.health.type,
     url: present.has("health.url") ? svc.health.url : base.health.url,
     address: present.has("health.address") ? svc.health.address : base.health.address,
+    grpc_service: present.has("health.grpc_service") ? svc.health.grpc_service : base.health.grpc_service,
     command: present.has("health.command") ? svc.health.command : base.health.command,
     interval_seconds: present.has("health.interval_seconds") ? svc.health.interval_seconds : base.health.interval_seconds,
     timeout_seconds: present.has("health.timeout_seconds") ? svc.health.timeout_seconds : base.health.timeout_seconds,
@@ -813,6 +841,7 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
   out.logs = {
     stdout: present.has("logs.stdout") ? svc.logs.stdout : base.logs.stdout,
     stderr: present.has("logs.stderr") ? svc.logs.stderr : base.logs.stderr,
+    multiline: mergeMultilineOverPresence(base.logs.multiline, svc.logs.multiline, present),
   };
   out.restart = {
     enabled: present.has("restart.enabled") ? svc.restart.enabled : base.restart.enabled,
@@ -834,6 +863,29 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     out.default_environment = svc.default_environment;
   }
   return out;
+}
+
+function mergeMultilineOverPresence(
+  base: ServiceLogMultilineConfig | undefined,
+  overlay: ServiceLogMultilineConfig | undefined,
+  present: Set<string>,
+): ServiceLogMultilineConfig | undefined {
+  const sectionPresent = present.has("logs.multiline") || [...present].some((key) => key.startsWith("logs.multiline."));
+  if (!sectionPresent) {
+    return base;
+  }
+  if (!overlay) {
+    return base;
+  }
+  if (!base) {
+    return overlay;
+  }
+  return {
+    start: overlay.start !== undefined || present.has("logs.multiline.start") ? overlay.start : base.start,
+    continuation: overlay.continuation !== undefined || present.has("logs.multiline.continuation") ? overlay.continuation : base.continuation,
+    max_wait_ms: overlay.max_wait_ms !== undefined || present.has("logs.multiline.max_wait_ms") ? overlay.max_wait_ms : base.max_wait_ms,
+    max_lines: overlay.max_lines !== undefined || present.has("logs.multiline.max_lines") ? overlay.max_lines : base.max_lines,
+  };
 }
 
 function mergeDecodedEnvironments(base: Record<string, EnvConfig>, overlay: Record<string, EnvConfig>): Record<string, EnvConfig> {

@@ -1,4 +1,5 @@
 import {
+  routeInspectDecoder,
   routeInspectEnabled,
   routeInspectMaxBytes,
   type DevctlConfig,
@@ -9,9 +10,12 @@ import { isLoopbackPeer } from "../../domain/net/hosts.ts";
 import {
   grpcTrafficPayload,
   httpTrafficPayload,
+  splitGrpcFrames,
   TRAFFIC_TRANSPORT_GRPC,
   TRAFFIC_TRANSPORT_HTTP,
+  type GrpcCapturedFrame,
   type TrafficCallIngest,
+  type TrafficPayload,
 } from "../../domain/traffic/traffic.ts";
 import type { TrafficCallStore } from "../../ports/traffic-call-store.ts";
 import type {
@@ -20,6 +24,8 @@ import type {
   TrafficCaptureRecorder,
   TrafficCaptureSink,
 } from "../../ports/traffic-capture.ts";
+import type { TrafficDecoder } from "../plugins/registry.ts";
+import { gunzipSync } from "node:zlib";
 
 export type TrafficCallerLookup = (peer: { address: string; port: number }) => Promise<string | undefined>;
 
@@ -28,6 +34,7 @@ export type TrafficCaptureSinkDeps = {
   store: TrafficCallStore;
   log?: (message: string) => void;
   lookupCaller?: TrafficCallerLookup;
+  decoders?: () => readonly TrafficDecoder[];
 };
 
 export class ProxyTrafficSink implements TrafficCaptureSink {
@@ -60,12 +67,15 @@ class TrafficRecorder implements TrafficCaptureRecorder {
   private readonly headerCaller: string | undefined;
   private readonly peerCaller: Promise<string | undefined>;
 
+  private readonly decoderName: string;
+
   constructor(
     private readonly begin: TrafficCaptureBegin,
     route: RouteConfig,
     private readonly deps: TrafficCaptureSinkDeps,
   ) {
     this.maxBytes = routeInspectMaxBytes(route);
+    this.decoderName = routeInspectDecoder(route);
     this.headerCaller = callerFromHeaders(begin.requestHeaders);
     this.peerCaller = this.headerCaller === undefined ? lookupPeerCaller(begin, deps) : Promise.resolve(undefined);
   }
@@ -150,13 +160,22 @@ class TrafficRecorder implements TrafficCaptureRecorder {
         grpcStatus: meta.grpcStatus,
         durationMs: meta.durationMs,
         request: grpc
-          ? grpcTrafficPayload(requestBuf, { omitted: this.requestOmitted, truncated: this.requestTruncated })
+          ? this.grpcPayload(requestBuf, {
+              omitted: this.requestOmitted,
+              truncated: this.requestTruncated,
+              side: "request",
+              contentType: contentTypeOf(this.begin.requestHeaders),
+            })
           : httpTrafficPayload(requestBuf, contentTypeOf(this.begin.requestHeaders), {
               omitted: this.requestOmitted,
               truncated: this.requestTruncated,
             }),
         response: grpc
-          ? grpcTrafficPayload(responseBuf, { truncated: this.responseTruncated })
+          ? this.grpcPayload(responseBuf, {
+              truncated: this.responseTruncated,
+              side: "response",
+              contentType: this.responseContentType,
+            })
           : httpTrafficPayload(responseBuf, this.responseContentType, { truncated: this.responseTruncated }),
         attributes: {
           capture: "proxy",
@@ -177,6 +196,68 @@ class TrafficRecorder implements TrafficCaptureRecorder {
       return this.headerCaller;
     }
     return this.peerCaller;
+  }
+
+  private grpcPayload(
+    body: Buffer | undefined,
+    opts: { omitted?: boolean; truncated: boolean; side: "request" | "response"; contentType: string },
+  ): TrafficPayload {
+    if (opts.omitted || !body || body.length === 0) {
+      return grpcTrafficPayload(body, { omitted: opts.omitted, truncated: opts.truncated });
+    }
+    const split = splitGrpcFrames(body);
+    const truncated = opts.truncated || split.truncated;
+    const messages = inflateGrpcMessages(split.frames, this.maxBytes);
+    if (messages === undefined) {
+      return grpcTrafficPayload(body, { truncated, decode: false });
+    }
+    return grpcTrafficPayload(body, {
+      truncated,
+      contentType: opts.contentType,
+      messages,
+      decoded: invokeTrafficDecoder(this.deps.decoders?.() ?? [], this.decoderName, this.begin.path, opts.side, messages),
+    });
+  }
+}
+
+function inflateGrpcMessages(frames: GrpcCapturedFrame[], maxBytes: number): Uint8Array[] | undefined {
+  const messages: Uint8Array[] = [];
+  for (const frame of frames) {
+    if (!frame.compressed) {
+      messages.push(frame.message);
+      continue;
+    }
+    try {
+      const inflated = gunzipSync(Buffer.from(frame.message), { maxOutputLength: maxBytes });
+      if (inflated.byteLength > maxBytes) {
+        return undefined;
+      }
+      messages.push(new Uint8Array(inflated));
+    } catch {
+      return undefined;
+    }
+  }
+  return messages;
+}
+
+function invokeTrafficDecoder(
+  decoders: readonly TrafficDecoder[],
+  name: string,
+  path: string,
+  side: "request" | "response",
+  messages: Uint8Array[],
+): unknown | undefined {
+  if (name === "") {
+    return undefined;
+  }
+  const decoder = decoders.find((entry) => entry.name.toLowerCase() === name.toLowerCase());
+  if (!decoder) {
+    return undefined;
+  }
+  try {
+    return decoder.decode({ path, side, messages });
+  } catch {
+    return undefined;
   }
 }
 

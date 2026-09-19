@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, utimesSync, writeFileSync } from "
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { Bus, LogReceived } from "../../shared/events.ts";
 import { Detector } from "../secrets/detector.ts";
 import {
   clampLogPageSize,
@@ -55,9 +56,9 @@ describe("LogManager persistence", () => {
 
   test("snapshot seen/seenErrors keep growing after the ring fills", () => {
     const mgr = new LogManager(2, undefined, new Detector([], []), false, tmp(), "cap", 0, 0);
-    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message: "ok", pid: 1 });
-    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", source: "stdout", level: "ERROR", message: "nope", pid: 1 });
-    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", source: "stdout", level: "ERROR", message: "still", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "proxy", level: "INFO", message: "ok", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", source: "proxy", level: "ERROR", message: "nope", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", source: "proxy", level: "ERROR", message: "still", pid: 1 });
     const snap = mgr.snapshot();
     expect(snap.total).toBe(2);
     expect(snap.errors).toBe(2);
@@ -598,5 +599,106 @@ describe("log export paths", () => {
     expect(isJsonlSessionDir(legacy)).toBe(false);
     expect(logMessage(old[0]!)).toBe("leftover message");
     expect(old[0]?.source).toBe("history");
+  });
+});
+
+function pythonTraceback(frames = 14): string[] {
+  const lines = ["Traceback (most recent call last):"];
+  for (let i = 0; i < frames; i += 1) {
+    lines.push(`  File "app.py", line ${i + 1}, in frame_${i}`);
+    lines.push(`    call_${i}()`);
+  }
+  lines.push("ValueError: boom");
+  return lines;
+}
+
+describe("LogManager process multiline folding", () => {
+  test("stdout traceback of ~30 lines is one event", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "tb", 0, 0);
+    const lines = pythonTraceback(14);
+    expect(lines.length).toBeGreaterThanOrEqual(30);
+    for (const message of lines) {
+      mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", level: "", message, pid: 1 });
+    }
+    const events = mgr.query({});
+    expect(events).toHaveLength(1);
+    expect(logMessage(events[0]!)).toContain("Traceback (most recent call last):");
+    expect(logMessage(events[0]!)).toContain("ValueError: boom");
+    expect(logMessage(events[0]!).split("\n")).toHaveLength(lines.length);
+  });
+
+  test("stderr folds a bare HTTP status into the previous INFO access line", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "status", 0, 0);
+    mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stderr", level: "", message: "INFO GET /api/health", pid: 1 });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.010Z", service: "api", source: "stderr", level: "", message: "             200", pid: 1 });
+    const events = mgr.query({});
+    expect(events).toHaveLength(1);
+    expect(logMessage(events[0]!)).toBe("INFO GET /api/health\n             200");
+    expect(events[0]?.severityText).toBe("INFO");
+  });
+
+  test("proxy and otlp lines stay one-shot even when they look foldable", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "oneshot", 0, 0);
+    mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "proxy", level: "", message: "INFO GET /api/health", pid: 0 });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.010Z", service: "api", source: "proxy", level: "", message: "             200", pid: 0 });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.020Z",
+      service: "api",
+      source: "otlp",
+      level: "",
+      message: "Traceback (most recent call last):",
+      body: "Traceback (most recent call last):",
+      pid: 0,
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.030Z",
+      service: "api",
+      source: "otlp",
+      level: "",
+      message: "  File \"app.py\", line 1",
+      body: "  File \"app.py\", line 1",
+      pid: 0,
+    });
+    const events = mgr.query({});
+    expect(events).toHaveLength(4);
+    expect(logMessage(events[0]!)).toBe("INFO GET /api/health");
+    expect(logMessage(events[1]!)).toBe("             200");
+  });
+
+  test("opt-in logs.multiline start/continuation and flush emit the pending buffer", async () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "optin", 0, 0);
+    mgr.setServiceLogs({
+      api: { stdout: true, stderr: true, multiline: { start: "^\\d{4}-\\d{2}-\\d{2}", continuation: "^\\s+", max_lines: 50 } },
+    });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", level: "", message: "2026-09-19 first", pid: 1 });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.010Z", service: "api", source: "stdout", level: "", message: "  continued", pid: 1 });
+    await mgr.flush();
+    const events = mgr.query({});
+    expect(events).toHaveLength(1);
+    expect(logMessage(events[0]!)).toBe("2026-09-19 first\n  continued");
+  });
+
+  test("snapshot does not flush a pending multiline buffer", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "snap", 0, 0);
+    mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", level: "", message: "Traceback (most recent call last):", pid: 1 });
+    expect(mgr.snapshot().total).toBe(0);
+    expect(mgr.query({}).map((event) => logMessage(event))).toEqual(["Traceback (most recent call last):"]);
+  });
+
+  test("idle timeout publishes a pending process line without a query", async () => {
+    const bus = new Bus(8);
+    const received: string[] = [];
+    bus.subscribe((event) => {
+      if (event.type === LogReceived) {
+        received.push(logMessage(event.payload?.event as Parameters<typeof logMessage>[0]));
+      }
+    });
+    const mgr = new LogManager(100, bus, new Detector([], []), false, tmp(), "idle", 0, 0);
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, multiline: { max_wait_ms: 15 } } });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", level: "", message: "hold me", pid: 1 });
+    expect(received).toEqual([]);
+    await Bun.sleep(40);
+    expect(received).toContain("hold me");
+    await mgr.close();
   });
 });

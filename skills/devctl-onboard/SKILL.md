@@ -139,12 +139,18 @@ Guidance that shapes a good first config:
 
 ## Secrets: name-only, always
 
-devctl already reads dotenv files itself. The correct wiring is to declare the
-source and name the keys — never to copy values:
+devctl already reads dotenv files itself. Gitignored `.devctl/secrets.env` (and
+weaker `~/.devctl/secrets.env`) is always loaded — add that path to `.gitignore`
+and ship `.devctl/secrets.env.example` with **keys only**. Process env still
+wins. There is no `${secret:keychain:…}` / `${secret:gcp:…}` syntax; keep
+`environment.sources: [keychain, secret_manager]` plus `environment.secrets`
+for OS keychain and `projects/*/secrets/*`. `${env.NAME}` stays rejected in
+service env YAML. The correct wiring is to declare the source and name the
+keys — never to copy values:
 
 ```yaml
 environment:
-  sources: [dotenv]          # repo root then working_dir: .env, .env.development, .env.local, .env.<profile>
+  sources: [dotenv, secret_manager]  # dotenv files, then Secret Manager names below
   secrets:
     DB_PASSWORD: projects/my-project/secrets/db-password   # a resource NAME
 ```

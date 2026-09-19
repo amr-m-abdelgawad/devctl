@@ -1,3 +1,4 @@
+import type { ServiceLogConfig } from "../domain/config/types.ts";
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../domain/logs/logs.ts";
 import type { LogSnapshot } from "../domain/status.ts";
 
@@ -11,6 +12,7 @@ export type LogStore = {
   snapshot(): LogSnapshot;
   exportTo(path: string, filter: LogFilter): Promise<void>;
   setParsers(parsers: LogParser[], pluginPaths?: readonly string[], repoRoot?: string): void;
+  setServiceLogs(logs: Record<string, ServiceLogConfig>): void;
   setSecrets(extraMarkers: string[], extraPatterns: string[]): void;
   close(): Promise<void>;
 };

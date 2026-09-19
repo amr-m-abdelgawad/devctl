@@ -27,9 +27,14 @@ import {
   knownRoute,
   knownRouteAuth,
   knownRouteInspect,
+  knownRouteInspectGrpc,
+  knownRouteLog,
+  knownRouteLogGrpc,
+  knownRouteLogGrpcOk,
   knownSecrets,
   knownService,
   knownServiceLogs,
+  knownServiceLogMultiline,
   knownShutdown,
   knownStartup,
   knownTokenEndpoint,
@@ -48,7 +53,7 @@ import {
   knownLlmVia,
   knownLlmCapture,
 } from "./known.ts";
-import { servicePathKnown } from "./strict.ts";
+import { collectUnknownFields, servicePathKnown } from "./strict.ts";
 
 type SchemaNode = { properties?: Record<string, SchemaNode>; items?: SchemaNode; oneOf?: SchemaNode[]; $ref?: string; $defs?: Record<string, SchemaNode> };
 const schema = (await Bun.file(new URL("../../../../schema/devctl.config.schema.json", import.meta.url)).json()) as SchemaNode;
@@ -89,6 +94,7 @@ describe("config allowlist/schema parity", () => {
       ["knownRestart", knownRestart, service.properties?.restart ?? {}],
       ["knownStartup", knownStartup, service.properties?.startup ?? {}],
       ["knownServiceLogs", knownServiceLogs, service.properties?.logs ?? {}],
+      ["knownServiceLogMultiline", knownServiceLogMultiline, service.properties?.logs?.properties?.multiline ?? {}],
       ["knownContainer", knownContainer, service.properties?.container ?? {}],
       ["knownWatch", knownWatch, service.properties?.watch ?? {}],
       ["knownDependency", knownDependency, defs.dependency ?? {}],
@@ -108,6 +114,10 @@ describe("config allowlist/schema parity", () => {
       ["knownUpstream", knownUpstream, route.properties?.upstream ?? {}],
       ["knownRouteAuth", knownRouteAuth, route.properties?.auth ?? {}],
       ["knownRouteInspect", knownRouteInspect, defs.routeInspect ?? {}],
+      ["knownRouteInspectGrpc", knownRouteInspectGrpc, defs.routeInspect?.properties?.grpc ?? {}],
+      ["knownRouteLog", knownRouteLog, defs.routeLog ?? {}],
+      ["knownRouteLogGrpc", knownRouteLogGrpc, defs.routeLogGrpc ?? {}],
+      ["knownRouteLogGrpcOk", knownRouteLogGrpcOk, defs.routeLogGrpcOk ?? {}],
       ["knownLogs", knownLogs, logs],
       ["knownPersistence", knownPersistence, logs.properties?.persistence ?? {}],
       ["knownAuth", knownAuth, at("auth")],
@@ -129,6 +139,12 @@ describe("config allowlist/schema parity", () => {
       ["knownLlmCapture", knownLlmCapture, defs.llmCapture ?? {}],
     ];
     for (const [name, known, node] of cases) expectParity(name, known, node);
+  });
+
+  test("unknown logs.multiline.foo is rejected", () => {
+    expect(collectUnknownFields({
+      logs: { stdout: true, multiline: { start: "^", foo: true } },
+    }, "services.api")).toContain("services.api.logs.multiline.foo");
   });
 
   test("every nested service object has an explicit strict-path case", () => {

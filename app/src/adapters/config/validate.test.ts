@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emptyService, emptyRouteAuth, emptyProfile, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
-import { validate } from "./validate.ts";
+import { decodeRoute } from "./decode.ts";
+import { unresolvedInspectDecoders, validate } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
   const cfg = defaultConfig();
@@ -173,6 +174,55 @@ describe("config validate", () => {
     expect(validate(respHeaders)).toContain("proxy.routes[0].response_headers is not supported on a grpc route");
   });
 
+  test("rejects invalid log.grpc.ok log levels and accepts info|silent", () => {
+    const ok = withService("api");
+    ok.proxy.routes.push({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      log: { grpc: { ok: [{ status: 14, methods: ["PollWorkflowTaskQueue"], log: "silent" }, { status: 3, log: "info" }] } },
+    });
+    expect(validate(ok).filter((issue) => issue.includes("log.grpc"))).toEqual([]);
+    const bad = withService("api");
+    bad.proxy.routes.push({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      log: { grpc: { ok: [{ status: 14, log: "debug" as "info" }] } },
+    });
+    expect(validate(bad)).toContain('proxy.routes[0].log.grpc.ok[0].log must be "info" or "silent"');
+  });
+
+  test("keeps malformed log.grpc.ok entries so validate can reject them", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push(decodeRoute({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      log: { grpc: { ok: [14, { methods: ["PollWorkflowTaskQueue"] }] } },
+    }));
+    const issues = validate(cfg);
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[0].status must be a number");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be a number");
+  });
+
+  test("rejects log.grpc.ok status outside the non-zero gRPC range", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      log: { grpc: { ok: [{ status: 0 }, { status: 17 }, { status: 14.5 }] } },
+    });
+    const issues = validate(cfg);
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[0].status must be an integer from 1 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be an integer from 1 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[2].status must be an integer from 1 to 16");
+  });
+
   test("rejects negative inspect.max_bytes and accepts omitted inspect", () => {
     const ok = withService("api");
     ok.proxy.routes.push({
@@ -192,6 +242,22 @@ describe("config validate", () => {
       inspect: { enabled: true, max_bytes: -1 },
     });
     expect(validate(bad)).toContain("proxy.routes[0].inspect.max_bytes must be >= 0");
+  });
+
+  test("rejects an unknown inspect.grpc.decoder when plugins are empty", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      inspect: { enabled: true, max_bytes: 0, grpc: { decoder: "temporal" } },
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].inspect.grpc.decoder must be a registered plugin traffic decoder");
+    expect(unresolvedInspectDecoders(cfg)).toEqual([{ route: "api", decoder: "temporal" }]);
+
+    cfg.plugins = [{ path: "./plugin.ts" }];
+    expect(validate(cfg).filter((issue) => issue.includes("inspect.grpc.decoder"))).toEqual([]);
   });
 
   test("rejects a mixed client_secret that is not a whole ${…} reference", () => {
@@ -647,5 +713,30 @@ describe("config validate", () => {
       service_environment: { api: { vars: { FLAG: "1" }, required: [], defaults: {} } },
     });
     expect(validate(cfg)).toEqual([]);
+  });
+
+  test("unknown health type is rejected when plugins are empty; grpc is accepted", () => {
+    const unknown = withService("api");
+    unknown.services.api!.health.type = "laser";
+    expect(validate(unknown)).toContain("services.api.health.type must be http, tcp, process, command, or grpc");
+
+    const grpc = withService("api");
+    grpc.services.api!.health.type = "grpc";
+    grpc.services.api!.health.address = "127.0.0.1:9090";
+    expect(validate(grpc)).toEqual([]);
+
+    const missing = withService("api");
+    missing.services.api!.health.type = "grpc";
+    missing.services.api!.ports = [{ name: "grpc", value: 9090, auto: false }];
+    expect(validate(missing)).toContain("services.api.health.address is required for grpc health checks");
+  });
+
+  test("rejects invalid logs.multiline regex and negative limits", () => {
+    const cfg = withService("api");
+    cfg.services.api!.logs.multiline = { start: "(", max_wait_ms: -1, max_lines: -2 };
+    const issues = validate(cfg);
+    expect(issues.some((issue) => issue.includes("logs.multiline.start is not a valid regular expression"))).toBe(true);
+    expect(issues).toContain("services.api.logs.multiline.max_wait_ms must be >= 0");
+    expect(issues).toContain("services.api.logs.multiline.max_lines must be >= 0");
   });
 });

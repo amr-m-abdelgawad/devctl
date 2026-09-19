@@ -31,7 +31,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0`, `::`, and other non-loopback binds. Managed containers publish ports on `127.0.0.1` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless `shell: true` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
-| **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
+| **Config is not a secret store** | Working dirs join the repo root. Put secrets in `.devctl/secrets.env` (gitignored), overlays, keychain, or Secret Manager. There is no `${secret:}` template syntax |
 
 Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. Free-text log lines also strip `Bearer` tokens, JWT-shaped strings (`eyJ…`), Google access tokens (`ya29.`), and `id_token=` / `access_token=` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic `data` is decoded before redaction so a base64/raw view cannot recover a secret the pretty `text` already masked. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config. `X-Devctl-Service` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
@@ -118,6 +118,7 @@ Two checkouts do not share a lock. `repoID` is `sha256(canonical repo root)` (16
 | Stale lock from a dead PID | Replaced |
 | `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | `.devctl/config.local.yaml` | Gitignore-friendly overlay — still do not commit secrets |
+| `.devctl/secrets.env` | Always-on dotenv file (gitignored). Weaker layer: `~/.devctl/secrets.env`. Process env still wins. Used for `${env.NAME}` at IAP mint / HTTP recipes and as a service-env source after `.env`. `devctl setup` writes `secrets.env.example` (keys only) and a `.gitignore` entry |
 
 On Unix, the owner-only state directory restricts access to the supervisor RPC socket. On Windows the named pipe `\\.\pipe\devctl-<repoID>` cannot take a current-user DACL (Bun does not expose that API), so every RPC frame also carries a token from `~/.devctl/state/<repoID>/rpc-token` (mode `0600`, inside the user's profile). Connecting without that token is unauthorized. The file is never printed in status, logs, or MCP output.
 

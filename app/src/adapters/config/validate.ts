@@ -30,6 +30,7 @@ import {
   type IdentityConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type ServiceLogConfig,
   type LlmSourceConfig,
   dependencyName,
   dependencyCondition,
@@ -42,11 +43,12 @@ import {
   namedPort,
   isReservedHttpOutput,
 } from "../../domain/config/types.ts";
+import { GRPC_OK_STATUS_MAX, GRPC_OK_STATUS_MIN } from "../../domain/proxy/grpc-ok.ts";
 
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
 
-export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command"];
+export const BUILTIN_HEALTH_TYPES = ["http", "tcp", "process", "command", "grpc"];
 export const BUILTIN_LLM_SOURCE_TYPES = [LLM_SOURCE_TYPE_LITELLM, LLM_SOURCE_TYPE_PROXY];
 
 // Health types outside BUILTIN_HEALTH_TYPES are only valid if a plugin
@@ -186,6 +188,7 @@ function validateServices(cfg: DevctlConfig): string[] {
         issues.push(...validateEnvRefs(`${prefix}.environments.${envName}`, named, cfg));
       }
     }
+    issues.push(...validateServiceLogs(prefix, svc.logs));
     if (svc.container) {
       if (svc.container.image === "") issues.push(`${prefix}.container.image is required`);
       if (svc.container.runtime !== "" && svc.container.runtime !== "docker" && svc.container.runtime !== "podman") {
@@ -199,6 +202,35 @@ function validateServices(cfg: DevctlConfig): string[] {
     }
   }
   return issues;
+}
+
+function validateServiceLogs(prefix: string, logs: ServiceLogConfig): string[] {
+  const issues: string[] = [];
+  const multiline = logs.multiline;
+  if (!multiline) {
+    return issues;
+  }
+  issues.push(...validateLogPattern(`${prefix}.logs.multiline.start`, multiline.start));
+  issues.push(...validateLogPattern(`${prefix}.logs.multiline.continuation`, multiline.continuation));
+  if (multiline.max_wait_ms !== undefined && multiline.max_wait_ms < 0) {
+    issues.push(`${prefix}.logs.multiline.max_wait_ms must be >= 0`);
+  }
+  if (multiline.max_lines !== undefined && multiline.max_lines < 0) {
+    issues.push(`${prefix}.logs.multiline.max_lines must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLogPattern(path: string, pattern: string | undefined): string[] {
+  if (pattern === undefined || pattern === "") {
+    return [];
+  }
+  try {
+    new RegExp(pattern);
+    return [];
+  } catch {
+    return [`${path} is not a valid regular expression`];
+  }
 }
 
 function validateHealth(
@@ -216,13 +248,16 @@ function validateHealth(
   // final say to the supervisor (see Supervisor.run), which re-checks any
   // non-builtin type against the loaded plugin registry once it's ready.
   if (!BUILTIN_HEALTH_TYPES.includes(kind) && !pluginsConfigured) {
-    issues.push(`${prefix}.health.type must be http, tcp, process, or command`);
+    issues.push(`${prefix}.health.type must be http, tcp, process, command, or grpc`);
   }
   if (kind === "http" && svc.health.url === "") {
     issues.push(`${prefix}.health.url is required for http health checks`);
   }
   if (kind === "tcp" && svc.health.address === "" && svc.ports.length === 0) {
     issues.push(`${prefix}.health.address is required for tcp health checks without ports`);
+  }
+  if (kind === "grpc" && svc.health.address === "") {
+    issues.push(`${prefix}.health.address is required for grpc health checks`);
   }
   if (kind === "command" && commandEmpty({ args: svc.health.command.args, shell: false })) {
     issues.push(`${prefix}.health.command is required for command health checks`);
@@ -420,7 +455,8 @@ function validateProxy(cfg: DevctlConfig): string[] {
     }
     issues.push(...validateRouteUpstream(route, prefix, cfg));
     issues.push(...validateRouteAuth(route, prefix));
-    issues.push(...validateRouteInspect(route, prefix));
+    issues.push(...validateRouteInspect(route, prefix, cfg.plugins.length > 0));
+    issues.push(...validateRouteLog(route, prefix));
     if (isGrpcRoute(route)) {
       issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
     }
@@ -514,14 +550,50 @@ function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
   return validateAuthConfig(route.auth, prefix);
 }
 
-function validateRouteInspect(route: RouteConfig, prefix: string): string[] {
+function validateRouteInspect(route: RouteConfig, prefix: string, pluginsConfigured: boolean): string[] {
   if (route.inspect === undefined) {
     return [];
   }
+  const issues: string[] = [];
   if (route.inspect.max_bytes < 0) {
-    return [`${prefix}.inspect.max_bytes must be >= 0`];
+    issues.push(`${prefix}.inspect.max_bytes must be >= 0`);
   }
-  return [];
+  const decoder = (route.inspect.grpc?.decoder ?? "").trim();
+  if (decoder !== "" && !pluginsConfigured) {
+    issues.push(`${prefix}.inspect.grpc.decoder must be a registered plugin traffic decoder`);
+  }
+  return issues;
+}
+
+export function unresolvedInspectDecoders(cfg: DevctlConfig): Array<{ route: string; decoder: string }> {
+  const unresolved: Array<{ route: string; decoder: string }> = [];
+  for (const route of cfg.proxy.routes) {
+    const decoder = (route.inspect?.grpc?.decoder ?? "").trim();
+    if (decoder !== "") {
+      unresolved.push({ route: route.name || `unnamed`, decoder });
+    }
+  }
+  return unresolved;
+}
+
+function validateRouteLog(route: RouteConfig, prefix: string): string[] {
+  const ok = route.log?.grpc?.ok;
+  if (!ok) {
+    return [];
+  }
+  const issues: string[] = [];
+  ok.forEach((entry, i) => {
+    const entryPrefix = `${prefix}.log.grpc.ok[${i}]`;
+    if (typeof entry.status !== "number" || !Number.isFinite(entry.status)) {
+      issues.push(`${entryPrefix}.status must be a number`);
+    } else if (!Number.isInteger(entry.status) || entry.status < GRPC_OK_STATUS_MIN || entry.status > GRPC_OK_STATUS_MAX) {
+      issues.push(`${entryPrefix}.status must be an integer from ${GRPC_OK_STATUS_MIN} to ${GRPC_OK_STATUS_MAX}`);
+    }
+    if (entry.log !== undefined && entry.log !== "info" && entry.log !== "silent") {
+      issues.push(`${entryPrefix}.log must be "info" or "silent"`);
+    }
+  });
+  return issues;
 }
 
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {

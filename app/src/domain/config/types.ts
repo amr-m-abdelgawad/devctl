@@ -27,6 +27,8 @@ export type HealthCheckConfig = {
   type: string;
   url: string;
   address: string;
+  // Health protocol service name for type: grpc. Empty (the default) is overall status.
+  grpc_service?: string;
   command: Command;
   interval_seconds: number;
   timeout_seconds: number;
@@ -45,9 +47,17 @@ export type IdentityConfig = {
   config?: Record<string, unknown>;
 };
 
+export type ServiceLogMultilineConfig = {
+  start?: string;
+  continuation?: string;
+  max_wait_ms?: number;
+  max_lines?: number;
+};
+
 export type ServiceLogConfig = {
   stdout: boolean;
   stderr: boolean;
+  multiline?: ServiceLogMultilineConfig;
 };
 
 export type RestartConfig = {
@@ -263,13 +273,22 @@ export function emptyRouteAuth(): RouteAuthConfig {
 // routes stay metadata-only. max_bytes 0 means the 1 MiB default.
 export const DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES = 1_048_576;
 
+export type RouteInspectGrpcConfig = {
+  decoder?: string;
+};
+
 export type RouteInspectConfig = {
   enabled: boolean;
   max_bytes: number;
+  grpc?: RouteInspectGrpcConfig;
 };
 
 export function emptyRouteInspect(): RouteInspectConfig {
   return { enabled: false, max_bytes: 0 };
+}
+
+export function routeInspectDecoder(route: RouteConfig): string {
+  return (route.inspect?.grpc?.decoder ?? "").trim();
 }
 
 export function routeInspectEnabled(route: RouteConfig): boolean {
@@ -280,6 +299,24 @@ export function routeInspectMaxBytes(route: RouteConfig): number {
   const cap = route.inspect?.max_bytes ?? 0;
   return cap > 0 ? cap : DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
 }
+
+export const ROUTE_GRPC_OK_LOG_INFO = "info";
+export const ROUTE_GRPC_OK_LOG_SILENT = "silent";
+export type RouteGrpcOkLog = typeof ROUTE_GRPC_OK_LOG_INFO | typeof ROUTE_GRPC_OK_LOG_SILENT;
+
+export type RouteGrpcOkEntry = {
+  status: number;
+  methods?: string[];
+  log?: RouteGrpcOkLog;
+};
+
+export type RouteLogGrpcConfig = {
+  ok?: RouteGrpcOkEntry[];
+};
+
+export type RouteLogConfig = {
+  grpc?: RouteLogGrpcConfig;
+};
 
 export type RouteConfig = {
   name: string;
@@ -301,6 +338,13 @@ export type RouteConfig = {
   // Opt-in HTTP/gRPC body capture for the traffic inspector. Ignored when the
   // proxy is off. Recipe `expose` routes are never captured as live RPCs.
   inspect?: RouteInspectConfig;
+  // When forwarding, strip match.path from the inbound pathname. No-op if
+  // match.path is empty (host-based expose routes). Inspector and proxy logs
+  // keep the inbound path.
+  strip_prefix?: boolean;
+  // Per-route log policy. log.grpc.ok lists non-zero gRPC statuses that are
+  // not proxy errors (no stats().errors increment; INFO or silent).
+  log?: RouteLogConfig;
 };
 
 export function isGrpcRoute(route: RouteConfig): boolean {
@@ -626,7 +670,7 @@ export function emptyEnv(): EnvConfig {
 }
 
 export function emptyHealth(): HealthCheckConfig {
-  return { type: "", url: "", address: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
+  return { type: "", url: "", address: "", grpc_service: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
 }
 
 export function dependencyName(dep: Dependency): string { return typeof dep === "string" ? dep : dep.service; }

@@ -53,6 +53,10 @@ describe("setup", () => {
     const dir = tmp();
     const path = createStarterConfig(dir, "demo");
     expect(existsSync(path)).toBe(true);
+    expect(existsSync(join(dir, ".devctl", "secrets.env.example"))).toBe(true);
+    expect(readFileSync(join(dir, ".devctl", "secrets.env.example"), "utf8")).toContain("IAP_OAUTH_CLIENT_SECRET=");
+    expect(readFileSync(join(dir, ".devctl", "secrets.env.example"), "utf8")).not.toMatch(/IAP_OAUTH_CLIENT_SECRET=.+/);
+    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toContain(".devctl/secrets.env");
   });
 
   test("resolveSetupTarget honors an explicit --config directory that does not exist yet", () => {

@@ -47,6 +47,19 @@ proxy:
 
 Match is host + optional path prefix.
 
+### Strip a path prefix
+
+`strip_prefix: true` removes `match.path` from the pathname **when forwarding**. Traffic inspector hops and proxy request logs keep the inbound path. Empty `match.path` is a no-op — host-based `expose` / `gateway` routes do not need this.
+
+```yaml
+    - name: my-service
+      match:
+        path: /my-service
+      strip_prefix: true     # /my-service → / ; /my-service/foo → /foo ; query string kept
+      upstream:
+        url: http://127.0.0.1:18000
+```
+
 ### Custom OAuth client credentials (separate from ADC)
 
 A route can mint IAP tokens with a **custom OAuth client** via `auth.client_id` /
@@ -122,7 +135,7 @@ A CORS **preflight** (an `OPTIONS` carrying `Access-Control-Request-Method`) is 
 
 ### Per-service routes
 
-Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`). Duplicate names fail validation. Runtime stays one listener.
+Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`), copying the full route (including `inspect`, `strip_prefix`, `log`, `transport`, and `response_headers`). Duplicate names fail validation. Runtime stays one listener.
 
 ```yaml
 services:
@@ -218,6 +231,25 @@ Notes:
 - Injection only happens on an `iap` / `service_account` route; a `none` grpc route is a plain forwarder.
 - This targets a **self-hosted Temporal behind a GCP IAP HTTPS load balancer**. Temporal Cloud (mTLS + API key) is not covered by this route type.
 
+### gRPC status policy
+
+A non-zero `grpc-status` is a proxy error by default (WARN log and `stats().errors`). Temporal long-poll (`14`) and `RespondWorkflowTaskCompleted` (`3`) are expected on a healthy worker and should not count. List them on `log.grpc.ok`:
+
+```yaml
+    - name: temporal-grpc
+      transport: grpc
+      log:
+        grpc:
+          ok:
+            - status: 14
+              methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+            - status: 3
+              methods: [RespondWorkflowTaskCompleted]
+              log: info          # info (default) | silent
+```
+
+Omit `methods` to apply the status to every method on that route. `status` is an integer from 1 to 16. A listed name matches the exact `:path` or a suffix that starts with `/` (so `PollWorkflowTaskQueue` matches `/temporal.api…/PollWorkflowTaskQueue`, not `…/NotPollWorkflowTaskQueue`). A matching hop is not a proxy error: no `requestErrors++`, and the log is INFO — or omitted when `log: silent`. Unlisted non-zero statuses stay WARN.
+
 ## Token endpoint
 
 Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0` or `::`), requires `X-Devctl-Internal-Token`, and only accepts loopback peers. Query `identity` and `audience` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting. Google mints are capped at 10 per identity/audience per minute; over the cap, a still-valid cached token is reused, otherwise the endpoint returns 429.
@@ -254,11 +286,17 @@ proxy:
       inspect:
         enabled: true
         max_bytes: 1048576   # default 1 MiB when omitted or 0
+    - name: temporal
+      transport: grpc
+      inspect:
+        enabled: true
+        grpc:
+          decoder: temporal   # optional plugin trafficDecoders name
 ```
 
-`inspect: true` is the same as `enabled: true` with the default cap. Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs.
+`inspect: true` is the same as `enabled: true` with the default cap (no `grpc` block). Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs. `inspect.grpc.decoder` names a plugin `trafficDecoders` entry; omit it to pretty-print JSON frames (`application/grpc+json` or JSON-looking payloads) and otherwise proto3 `decode_raw` field numbers (fixed-width wire values as `0x` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails `config validate` when `plugins:` is empty.
 
-Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP `get_traffic_calls`, web `/api/traffic`) strip bodies; one-id fetch (`get_traffic_call`, `devctl traffic show`, TUI overlay, web `#/traffic/:id`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; `/reveal` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA frames are stored as `application/grpc` base64 (5-byte length prefix kept); if the first message looks like JSON, a pretty-printed `text` view is also kept. Redaction runs on decoded bytes (and on that JSON text), not on the base64 alphabet, so the raw `data` view cannot recover a secret the `text` view already masked.
+Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP `get_traffic_calls`, web `/api/traffic`) strip bodies; one-id fetch (`get_traffic_call`, `devctl traffic show`, TUI overlay, web `#/traffic/:id`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; `/reveal` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA is stored as `application/grpc` base64 of the captured bytes (length prefixes kept). Request and response frames are split, gzip-compressed messages inflated in the capture adapter, then decoded to pretty `text` (JSON, plugin, or `decode_raw`). A failed gunzip leaves `data` only. Redaction runs on decoded bytes and on that `text`, not on the base64 alphabet, so the raw `data` view cannot recover a secret the `text` view already masked.
 
 Caller attribution reuses the LLM path: `X-Devctl-Service` or a loopback peer lookup, so the inspector can label which service issued the call.
 

@@ -1,3 +1,4 @@
+import { stripAnsi } from "./ansi.ts";
 import { coerceAnyValue, coerceAttributes, isPlainObject, type AnyValue, type Attributes } from "./any-value.ts";
 import { REQUEST_ID_ATTR, SPAN_ID_HEX_LENGTH, TRACE_ID_HEX_LENGTH, isSpanId, isTraceId, parseTraceparent } from "./ids.ts";
 import { decodeOtlpAnyValue, flattenOtlpAttributes, isOtlpAttributeList, unixNanoFromUnknown } from "./otlp-value.ts";
@@ -29,26 +30,36 @@ export function truncateLogLine(line: string): string {
 }
 
 export function parseLogLine(line: string): ParsedLog {
-  const structured = parseJSONLogLine(line);
+  const stripped = stripAnsi(line);
+  const structured = parseJSONLogLine(stripped);
   if (structured) {
-    return structured;
+    return { ...structured, raw: line };
   }
+  const severityNumber = severityFromPlainText(stripped);
   return {
-    body: line,
+    body: stripped,
     attributes: {},
-    severityNumber: severityFromPlainText(line),
-    severityText: severityTextFromNumber(severityFromPlainText(line)),
-    request_id: parseRequestID(line) || undefined,
+    severityNumber,
+    severityText: severityTextFromNumber(severityNumber),
+    request_id: parseRequestID(stripped) || undefined,
     raw: line,
   };
 }
 
 export function parseJSONLogLine(line: string): ParsedLog | undefined {
-  const extracted = extractStructuredObject(line);
+  const extracted = extractStructuredObject(stripAnsi(line));
   if (!extracted) {
     return undefined;
   }
-  return parseOtlpLog(extracted.value, extracted.raw) ?? parseMetricLog(extracted.value, extracted.raw) ?? parseAccessLog(extracted.value, extracted.raw) ?? parseApplicationJsonLog(extracted.value, extracted.raw);
+  const parsed =
+    parseOtlpLog(extracted.value, extracted.raw) ??
+    parseMetricLog(extracted.value, extracted.raw) ??
+    parseAccessLog(extracted.value, extracted.raw) ??
+    parseApplicationJsonLog(extracted.value, extracted.raw);
+  if (!parsed) {
+    return undefined;
+  }
+  return { ...parsed, raw: line };
 }
 
 function extractStructuredObject(line: string): { value: Record<string, unknown>; raw: string } | undefined {
@@ -383,8 +394,9 @@ export function parseRequestID(line: string): string {
   return match?.[1] ?? "";
 }
 
-function severityFromPlainText(line: string): number {
-  const found = LEVEL_PATTERNS.find((p) => p.re.test(line));
+export function severityFromPlainText(line: string): number {
+  const plain = stripAnsi(line);
+  const found = LEVEL_PATTERNS.find((p) => p.re.test(plain));
   return found?.level ?? SeverityUnspecified;
 }
 

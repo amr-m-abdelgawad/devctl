@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { basename, dirname, join, resolve } from "node:path";
@@ -108,12 +108,34 @@ export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "log
   }
 }
 
+const SECRETS_ENV_GITIGNORE = ".devctl/secrets.env";
+const SECRETS_ENV_EXAMPLE = `# Copy to secrets.env and fill in values. Do not commit secrets.env.
+# Loaded automatically (repo file wins over ~/.devctl/secrets.env; process env still wins).
+# There is no \${secret:} template syntax — keep using \${NAME} / \${env.NAME} at IAP mint.
+IAP_OAUTH_CLIENT_SECRET=
+`;
+
+export function ensureGitignoreHas(repo: string, entry = SECRETS_ENV_GITIGNORE): void {
+  const path = join(repo, ".gitignore");
+  if (existsSync(path)) {
+    const text = readFileSync(path, "utf8");
+    if (text.split(/\r?\n/).some((line) => line.trim() === entry)) {
+      return;
+    }
+    writeFileSync(path, text.endsWith("\n") ? `${text}${entry}\n` : `${text}\n${entry}\n`);
+    return;
+  }
+  writeFileSync(path, `${entry}\n`);
+}
+
 export function writeStarter(repo: string, answers: StarterAnswers): void {
   const dir = join(repo, ".devctl");
   mkdirSync(join(dir, "services"), { recursive: true });
   mkdirSync(join(dir, "profiles"), { recursive: true });
   mkdirSync(join(dir, "proxy"), { recursive: true });
   writeFileSync(join(dir, "config.yaml"), starterConfigYaml(answers));
+  writeFileSync(join(dir, "secrets.env.example"), SECRETS_ENV_EXAMPLE);
+  ensureGitignoreHas(repo);
 }
 
 function writeLine(line: string): void {

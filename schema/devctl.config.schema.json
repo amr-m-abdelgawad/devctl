@@ -234,10 +234,14 @@
           "properties": {
             "type": {
               "type": "string",
-              "description": "http | tcp | process | command (plugins may add more)"
+              "description": "http | tcp | process | command | grpc (plugins may add more)"
             },
             "url": { "type": "string" },
             "address": { "type": "string" },
+            "grpc_service": {
+              "type": "string",
+              "description": "Health protocol service name for type grpc; empty is overall status"
+            },
             "command": { "$ref": "#/$defs/command" },
             "interval_seconds": { "type": "number", "minimum": 0 },
             "timeout_seconds": { "type": "number", "minimum": 0 },
@@ -261,7 +265,17 @@
           "additionalProperties": false,
           "properties": {
             "stdout": { "type": "boolean" },
-            "stderr": { "type": "boolean" }
+            "stderr": { "type": "boolean" },
+            "multiline": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "start": { "type": "string" },
+                "continuation": { "type": "string" },
+                "max_wait_ms": { "type": "integer", "minimum": 0 },
+                "max_lines": { "type": "integer", "minimum": 0 }
+              }
+            }
           }
         },
         "restart": {
@@ -455,6 +469,53 @@
             { "type": "boolean" },
             { "$ref": "#/$defs/routeInspect" }
           ]
+        },
+        "strip_prefix": {
+          "type": "boolean",
+          "description": "When forwarding, strip match.path from the inbound pathname. No-op if match.path is empty. Traffic inspector and proxy logs keep the inbound path. `/my-service` → `/`, `/my-service/foo` → `/foo`; query string is preserved."
+        },
+        "log": { "$ref": "#/$defs/routeLog" }
+      }
+    },
+    "routeLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-route log policy.",
+      "properties": {
+        "grpc": { "$ref": "#/$defs/routeLogGrpc" }
+      }
+    },
+    "routeLogGrpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "type": "array",
+          "description": "Non-zero gRPC statuses that are not proxy errors. Matching hops log INFO (or are omitted when log is silent) and do not increment stats().errors.",
+          "items": { "$ref": "#/$defs/routeLogGrpcOk" }
+        }
+      }
+    },
+    "routeLogGrpcOk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "Non-zero gRPC status code treated as a non-error on this route (1-16, e.g. 14 for Temporal long-poll)."
+        },
+        "methods": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional method-name suffixes of :path that match on a / boundary (e.g. PollWorkflowTaskQueue). Omitted = all methods on the route."
+        },
+        "log": {
+          "type": "string",
+          "enum": ["info", "silent"],
+          "description": "info (default): log the hop at INFO. silent: omit the proxy log line."
         }
       }
     },
@@ -464,7 +525,18 @@
       "description": "Opt-in capture of request/response bodies on this proxy hop for the traffic inspector. Default off. Ignored when the proxy is off. Direct sockets that never hit this route are not captured.",
       "properties": {
         "enabled": { "type": "boolean" },
-        "max_bytes": { "type": "number", "minimum": 0, "description": "Per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." }
+        "max_bytes": { "type": "number", "minimum": 0, "description": "Per-direction cap on bytes retained for a captured body. 0 uses the default (1 MiB). The full body is always forwarded; only the stored copy is bounded." },
+        "grpc": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional gRPC body decode options. Omit decoder to use JSON then proto3 decode_raw.",
+          "properties": {
+            "decoder": {
+              "type": "string",
+              "description": "Named plugin trafficDecoders entry. When omitted, inspect pretty-prints JSON frames or proto3 decode_raw field numbers. Unknown names fail config validate when plugins is empty."
+            }
+          }
+        }
       }
     },
     "httpRecipe": {

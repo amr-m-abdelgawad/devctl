@@ -57,11 +57,11 @@ Docker/Podman: `startContainer`, `adoptContainer`, port publishes, env (no full 
 
 ## `adapters/environment/`
 
-`resolveEnvironment`, `ENV_SOURCE_ORDER`, dotenv family, keychain/secret-manager fetch, `${}` resolution via `config/refs.ts`. Plugin `EnvironmentSource` spliced before `defaults`. Documented for users in `docs/environment.md`; this adapter is the implementation.
+`resolveEnvironment`, `ENV_SOURCE_ORDER`, dotenv family, always-on `secrets_env` (`.devctl/secrets.env` then `~/.devctl/secrets.env`), keychain/secret-manager fetch, `${}` resolution via `config/refs.ts`. Plugin `EnvironmentSource` spliced before `defaults`. Documented for users in `docs/environment.md`; this adapter is the implementation.
 
 ## `adapters/health/`
 
-Built-in checkers: `http`, `tcp`, `process`, `command`. `healthCheckerFactory(plugins)` looks up type. Unknown types fail validation after plugins load.
+Built-in checkers: `http`, `tcp`, `process`, `command`, `grpc` (`grpc.health.v1.Health/Check` over h2c/h2). `healthCheckerFactory(plugins)` looks up type. Unknown types fail validation after plugins load.
 
 ## `adapters/google/`
 

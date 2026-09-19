@@ -31,6 +31,7 @@ A module may export any combination of these named arrays:
 | `logParsers` | `{ name, parse(line) }` | Parse service log lines |
 | `proxyMiddleware` | `{ name, apply(ctx) }` | Participate in proxy request handling |
 | `llmSources` | `{ name, capabilities(cfg), fetch(cfg, ctx) }` | Pull LLM calls into the inspector (`llm.sources[].type`) |
+| `trafficDecoders` | `{ name, decode({ path, side, messages }) }` | Named gRPC body decode for `inspect.grpc.decoder`. `messages` are already split and gunzipped. Return JSON-serializable value, or `undefined` to try the next decoder / JSON / `decode_raw`. |
 
 The TypeScript contracts and SDK constant are exported by [`app/src/plugin-sdk.ts`](../app/src/plugin-sdk.ts). A plugin must export arrays, each entry must have a non-empty `name`, and the methods shown above must be functions. Keep plugin startup code small: top-level exceptions cause the whole module to be skipped.
 

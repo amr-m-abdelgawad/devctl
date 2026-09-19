@@ -23,9 +23,15 @@ import {
   type RestartConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type RouteGrpcOkEntry,
+  type RouteGrpcOkLog,
   type RouteInspectConfig,
+  type RouteInspectGrpcConfig,
   type RouteIdentity,
+  type RouteLogConfig,
   type ServiceConfig,
+  type ServiceLogConfig,
+  type ServiceLogMultilineConfig,
   type StartupConfig,
   type TaskConfig,
   type HttpRecipeConfig,
@@ -177,6 +183,7 @@ export function decodeHealth(value: unknown): HealthCheckConfig {
     type: asString(value.type),
     url: asString(value.url),
     address: asString(value.address),
+    grpc_service: asString(value.grpc_service),
     command: decodeCommand(value.command),
     interval_seconds: asNumber(value.interval_seconds),
     timeout_seconds: asNumber(value.timeout_seconds),
@@ -213,7 +220,6 @@ export function decodeService(value: unknown): ServiceConfig {
   if (!isRecord(value)) {
     return emptyService();
   }
-  const logs = isRecord(value.logs) ? value.logs : {};
   return {
     extends: asString(value.extends),
     description: asString(value.description),
@@ -227,7 +233,7 @@ export function decodeService(value: unknown): ServiceConfig {
     default_environment: asString(value.default_environment),
     health: decodeHealth(value.health),
     identity: decodeIdentity(value.identity),
-    logs: { stdout: asBoolean(logs.stdout), stderr: asBoolean(logs.stderr) },
+    logs: decodeServiceLogs(value.logs),
     restart: decodeRestart(value.restart),
     startup: decodeStartup(value.startup),
     capabilities: asStringArray(value.capabilities),
@@ -237,6 +243,43 @@ export function decodeService(value: unknown): ServiceConfig {
     watch: decodeWatch(value.watch),
     hooks: decodeHooks(value.hooks),
   };
+}
+
+export function decodeServiceLogs(value: unknown): ServiceLogConfig {
+  if (!isRecord(value)) {
+    return { stdout: false, stderr: false };
+  }
+  const logs: ServiceLogConfig = {
+    stdout: asBoolean(value.stdout),
+    stderr: asBoolean(value.stderr),
+  };
+  if (value.multiline !== undefined) {
+    const multiline = decodeServiceLogMultiline(value.multiline);
+    if (multiline) {
+      logs.multiline = multiline;
+    }
+  }
+  return logs;
+}
+
+export function decodeServiceLogMultiline(value: unknown): ServiceLogMultilineConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const out: ServiceLogMultilineConfig = {};
+  if (value.start !== undefined) {
+    out.start = asString(value.start);
+  }
+  if (value.continuation !== undefined) {
+    out.continuation = asString(value.continuation);
+  }
+  if (value.max_wait_ms !== undefined) {
+    out.max_wait_ms = asNumber(value.max_wait_ms);
+  }
+  if (value.max_lines !== undefined) {
+    out.max_lines = asNumber(value.max_lines);
+  }
+  return out;
 }
 
 export function decodeWatch(value: unknown): import("../../domain/config/types.ts").ServiceWatchConfig {
@@ -360,10 +403,62 @@ export function decodeRouteInspect(value: unknown): RouteInspectConfig {
   if (value === false || value === undefined || !isRecord(value)) {
     return emptyRouteInspect();
   }
+  const grpc = decodeRouteInspectGrpc(value.grpc);
   return {
     enabled: asBoolean(value.enabled),
     max_bytes: asNumber(value.max_bytes),
+    ...(grpc ? { grpc } : {}),
   };
+}
+
+function decodeRouteInspectGrpc(value: unknown): RouteInspectGrpcConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return { decoder: asString(value.decoder) };
+}
+
+function decodeRouteGrpcOkLog(value: unknown): RouteGrpcOkLog | undefined {
+  const text = asString(value);
+  return text === "" ? undefined : (text as RouteGrpcOkLog);
+}
+
+function decodeRouteGrpcOkStatus(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return Number.NaN;
+}
+
+function decodeRouteGrpcOkEntry(value: unknown): RouteGrpcOkEntry {
+  if (!isRecord(value)) {
+    return { status: Number.NaN };
+  }
+  const entry: RouteGrpcOkEntry = { status: decodeRouteGrpcOkStatus(value.status) };
+  if (value.methods !== undefined) {
+    entry.methods = asStringArray(value.methods);
+  }
+  if (value.log !== undefined) {
+    entry.log = decodeRouteGrpcOkLog(value.log);
+  }
+  return entry;
+}
+
+export function decodeRouteLog(value: unknown): RouteLogConfig | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (!isRecord(value.grpc)) {
+    return {};
+  }
+  const ok = Array.isArray(value.grpc.ok) ? value.grpc.ok.map(decodeRouteGrpcOkEntry) : [];
+  return { grpc: { ok } };
 }
 
 export function decodeRoute(value: unknown): RouteConfig {
@@ -387,6 +482,8 @@ export function decodeRoute(value: unknown): RouteConfig {
     response_headers: asStringMap(value.response_headers),
     listen: isRecord(value.listen) ? { host: asString(value.listen.host), port: asNumber(value.listen.port) } : undefined,
     inspect: decodeRouteInspect(value.inspect),
+    strip_prefix: asBoolean(value.strip_prefix),
+    log: decodeRouteLog(value.log),
   };
 }
 

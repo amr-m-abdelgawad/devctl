@@ -26,9 +26,14 @@ import {
   knownRoute,
   knownRouteAuth,
   knownRouteInspect,
+  knownRouteInspectGrpc,
+  knownRouteLog,
+  knownRouteLogGrpc,
+  knownRouteLogGrpcOk,
   knownSecrets,
   knownService,
   knownServiceLogs,
+  knownServiceLogMultiline,
   knownShutdown,
   knownStartup,
   knownTokenEndpoint,
@@ -216,6 +221,9 @@ export function servicePathKnown(path: string): string[] {
       case "startup":
         return knownStartup;
       case "logs":
+        if (parts[3] === "multiline") {
+          return knownServiceLogMultiline;
+        }
         return knownServiceLogs;
       case "environment":
         return knownEnvStructured;
@@ -258,7 +266,13 @@ function serviceProxyPathKnown(parts: string[]): string[] {
     return knownListen;
   }
   if (kind === "inspect") {
+    if (rest[start + 1] === "grpc") {
+      return knownRouteInspectGrpc;
+    }
     return knownRouteInspect;
+  }
+  if (kind === "log") {
+    return routeLogPathKnown(rest.slice(start + 1));
   }
   return knownRoute;
 }
@@ -279,11 +293,36 @@ function routePathKnown(path: string): string[] {
   if (path.endsWith(".listen")) {
     return knownListen;
   }
+  if (path.endsWith(".inspect.grpc")) {
+    return knownRouteInspectGrpc;
+  }
   if (path.endsWith(".inspect")) {
     return knownRouteInspect;
   }
+  if (/\.log(\.|$)/.test(path) && path.includes("proxy.routes")) {
+    const afterLog = path.split(".log")[1] ?? "";
+    return routeLogPathKnown(afterLog === "" ? [] : afterLog.slice(1).split("."));
+  }
   if (path.includes("proxy.routes") && path.split(".").length === ROUTE_DOT_COUNT + 1) {
     return knownRoute;
+  }
+  return [];
+}
+
+function routeLogPathKnown(afterLog: string[]): string[] {
+  if (afterLog.length === 0) {
+    return knownRouteLog;
+  }
+  if (afterLog[0] === "grpc" && afterLog.length === 1) {
+    return knownRouteLogGrpc;
+  }
+  if (afterLog[0] === "grpc" && afterLog[1] === "ok") {
+    if (afterLog.length === 2) {
+      return [];
+    }
+    if (afterLog.length === 3 && /^\d+$/.test(afterLog[2] ?? "")) {
+      return knownRouteLogGrpcOk;
+    }
   }
   return [];
 }

@@ -1,7 +1,9 @@
 import { createServer } from "node:http";
+import * as http2 from "node:http2";
+import type { ServerHttp2Stream } from "node:http2";
 import { describe, expect, test } from "bun:test";
 import { emptyHealth } from "../../domain/config/types.ts";
-import { checkHealth, healthCheckerFactory, type HealthPlugin } from "./health.ts";
+import { checkHealth, grpcHealthOrigin, healthCheckerFactory, type HealthPlugin } from "./health.ts";
 
 describe("health checks", () => {
   test("process type is healthy when pid is alive", async () => {
@@ -92,9 +94,93 @@ describe("health checks", () => {
 
 test("health checker factory supplies builtins and case-insensitive plugin overrides", async () => {
   const factory = healthCheckerFactory([]);
-  for (const kind of ["HTTP", "tcp", "command", "process"]) expect(factory.lookup(kind)).toBeDefined();
+  for (const kind of ["HTTP", "tcp", "command", "process", "grpc"]) expect(factory.lookup(kind)).toBeDefined();
   const overriding = healthCheckerFactory([{ name: "PROCESS", check: async () => ({ status: "HEALTHY", message: "plugin override" }) }]);
   const cfg = { ...emptyHealth(), type: "process" };
   const result = await overriding.lookup("Process")!.check(cfg, { pid: 0, ports: {}, workDir: "", env: {} });
   expect(result).toEqual({ status: "HEALTHY", message: "plugin override" });
+});
+
+const GRPC_SERVING = 1;
+const GRPC_NOT_SERVING = 2;
+const GRPC_SERVICE_UNKNOWN = 3;
+
+function grpcFrame(payload: Buffer): Buffer {
+  const header = Buffer.alloc(5);
+  header.writeUInt32BE(payload.length, 1);
+  return Buffer.concat([header, payload]);
+}
+
+async function startHealthServer(status: number, grpcStatus = "0"): Promise<{ address: string; close: () => Promise<void> }> {
+  const server = http2.createServer();
+  server.on("stream", (raw) => {
+    const stream = raw as ServerHttp2Stream;
+    const chunks: Buffer[] = [];
+    stream.on("data", (chunk) => chunks.push(chunk as Buffer));
+    stream.on("end", () => {
+      stream.respond({ ":status": 200, "content-type": "application/grpc" }, { waitForTrailers: true });
+      stream.on("wantTrailers", () => stream.sendTrailers({ "grpc-status": grpcStatus }));
+      stream.end(grpcFrame(Buffer.from([0x08, status])));
+    });
+  });
+  await new Promise<void>((resolve) => {
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const port = (server.address() as { port: number }).port;
+  return { address: `127.0.0.1:${port}`, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
+describe("grpc health", () => {
+  test("SERVING is healthy", async () => {
+    const server = await startHealthServer(GRPC_SERVING);
+    const cfg = { ...emptyHealth(), type: "grpc", address: server.address };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
+    expect(result).toEqual({ status: "HEALTHY", message: "SERVING" });
+    await server.close();
+  });
+
+  test("NOT_SERVING is unhealthy", async () => {
+    const server = await startHealthServer(GRPC_NOT_SERVING);
+    const cfg = { ...emptyHealth(), type: "grpc", address: server.address };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
+    expect(result.status).toBe("UNHEALTHY");
+    expect(result.message).toBe("NOT_SERVING");
+    await server.close();
+  });
+
+  test("SERVICE_UNKNOWN is unhealthy", async () => {
+    const server = await startHealthServer(GRPC_SERVICE_UNKNOWN);
+    const cfg = { ...emptyHealth(), type: "grpc", address: server.address, grpc_service: "temporal.api.workflowservice.v1.WorkflowService" };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
+    expect(result.status).toBe("UNHEALTHY");
+    expect(result.message).toBe("SERVICE_UNKNOWN");
+    await server.close();
+  });
+
+  test("RPC failure is unhealthy", async () => {
+    const server = await startHealthServer(GRPC_SERVING, "14");
+    const cfg = { ...emptyHealth(), type: "grpc", address: server.address };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
+    expect(result.status).toBe("UNHEALTHY");
+    expect(result.message).toContain("grpc-status");
+    await server.close();
+  });
+
+  test("connection failure is unhealthy", async () => {
+    const cfg = { ...emptyHealth(), type: "grpc", address: "127.0.0.1:1" };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
+    expect(result.status).toBe("UNHEALTHY");
+  });
+
+  test("health origins bracket IPv6 hosts", () => {
+    expect(grpcHealthOrigin("http", "::1", 50051)).toBe("http://[::1]:50051");
+    expect(grpcHealthOrigin("https", "127.0.0.1", 50051)).toBe("https://127.0.0.1:50051");
+  });
+
+  test("missing address is unhealthy", async () => {
+    const cfg = { ...emptyHealth(), type: "grpc", address: "" };
+    const result = await checkHealth(cfg, 0, {}, process.cwd(), {});
+    expect(result.status).toBe("UNHEALTHY");
+    expect(result.message).toContain("no grpc address");
+  });
 });

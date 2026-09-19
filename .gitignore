@@ -35,6 +35,7 @@ docs/.vitepress/cache/
 
 # Local runtime (never commit credentials or session state)
 .devctl-user/
+.devctl/secrets.env
 *.log
 .env.local
 

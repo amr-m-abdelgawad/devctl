@@ -15,6 +15,7 @@ import type { OAuthClientCredentials } from "../../ports/credential-provider.ts"
 import { systemClock } from "../system/clock.ts";
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { interpolateEnvRefs } from "../../domain/config/env-ref.ts";
+import { envWithSecrets } from "../environment/environment.ts";
 import { jwtExpiry } from "../../domain/http/jwt.ts";
 
 const DEFAULT_THRESHOLD_MS = 5 * 60 * 1000;
@@ -99,13 +100,13 @@ function loadAuthorizedUserFile(path: string): AuthorizedUserFile {
   };
 }
 
-export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env): OAuthClientCredentials | undefined {
+export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env, repoRoot?: string): OAuthClientCredentials | undefined {
   const clientId = (auth.client_id ?? "").trim();
   if (clientId === "") {
     return undefined;
   }
   const raw = (auth.client_secret ?? "").trim();
-  const { value: envSecret, missing } = interpolateEnvRefs(raw, env);
+  const { value: envSecret, missing } = interpolateEnvRefs(raw, envWithSecrets(env, repoRoot));
 
   const credPath = (auth.credentials ?? "").trim();
   if (credPath !== "") {
@@ -141,7 +142,7 @@ export type OAuthClientRef = {
   resolve: () => OAuthClientCredentials;
 };
 
-export function iapOAuthClientRef(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env): OAuthClientRef | undefined {
+export function iapOAuthClientRef(auth: RouteAuthConfig, env: NodeJS.ProcessEnv = process.env, repoRoot?: string): OAuthClientRef | undefined {
   const clientId = (auth.client_id ?? "").trim();
   if (clientId === "") {
     return undefined;
@@ -149,7 +150,7 @@ export function iapOAuthClientRef(auth: RouteAuthConfig, env: NodeJS.ProcessEnv 
   return {
     clientId,
     resolve: () => {
-      const creds = resolveIapOAuthClient(auth, env);
+      const creds = resolveIapOAuthClient(auth, env, repoRoot);
       if (!creds) {
         throw newError(KindConfiguration, `IAP client_id ${clientId} requires client_secret`);
       }

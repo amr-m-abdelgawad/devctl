@@ -45,7 +45,7 @@ export const knownService = [
   "hooks",
 ];
 
-export const knownHealth = ["type", "url", "address", "command", "interval_seconds", "timeout_seconds", "start_period_seconds", "unhealthy_threshold", "healthy_reset_threshold"];
+export const knownHealth = ["type", "url", "address", "grpc_service", "command", "interval_seconds", "timeout_seconds", "start_period_seconds", "unhealthy_threshold", "healthy_reset_threshold"];
 export const knownDependency = ["service", "condition"];
 export const knownIdentity = ["type", "mode", "service_account", "config"];
 export const knownRestart = ["enabled", "policy", "max_retries", "backoff_seconds"];
@@ -53,8 +53,12 @@ export const knownStartup = ["wait_for_healthy", "timeout_seconds"];
 export const knownExpose = ["enabled", "host", "port"];
 export const knownProxy = ["enabled", "gateway", "credentials", "listen", "token_endpoint", "routes"];
 export const knownListen = ["host", "port"];
-export const knownRoute = ["name", "transport", "listen", "match", "upstream", "auth", "response_headers", "inspect"];
-export const knownRouteInspect = ["enabled", "max_bytes"];
+export const knownRoute = ["name", "transport", "listen", "match", "upstream", "auth", "response_headers", "inspect", "strip_prefix", "log"];
+export const knownRouteInspect = ["enabled", "max_bytes", "grpc"];
+export const knownRouteInspectGrpc = ["decoder"];
+export const knownRouteLog = ["grpc"];
+export const knownRouteLogGrpc = ["ok"];
+export const knownRouteLogGrpcOk = ["status", "methods", "log"];
 export const knownMatch = ["host", "path"];
 export const knownUpstream = ["url", "service", "port", "recipe"];
 export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers"];
@@ -67,7 +71,8 @@ export const knownProject = ["name"];
 export const knownGoogle = ["project_id", "region"];
 export const knownProfile = ["services", "environment", "environments", "service_environment"];
 export const knownEnvStructured = ["required", "defaults"];
-export const knownServiceLogs = ["stdout", "stderr"];
+export const knownServiceLogs = ["stdout", "stderr", "multiline"];
+export const knownServiceLogMultiline = ["start", "continuation", "max_wait_ms", "max_lines"];
 export const knownSecrets = ["extra_markers", "extra_patterns"];
 export const knownDoctor = ["tools"];
 export const knownTool = ["name", "command"];

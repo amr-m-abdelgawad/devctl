@@ -18,7 +18,7 @@ services:
       defaults:
         LOG_LEVEL: INFO
     health:
-      type: http                 # http | tcp | process | command
+      type: http                 # http | tcp | process | command | grpc
       url: http://127.0.0.1:8000/health
       interval_seconds: 2
       timeout_seconds: 1
@@ -131,9 +131,9 @@ applies `--memory 1g`, `--cpus 1`, and `--pids-limit 256` unless you set
 `container.memory`, `container.cpus`, or `container.pids_limit`. Optional
 `container.user`, `container.read_only`, and `container.cap_drop` harden
 further; Doctor warns when the image USER is root. Containers do not
-inherit the caller's entire shell environment; profile, dotenv, keychain,
-secret-manager, defaults, explicit service/container variables, plugin sources,
-and non-secret runtime metadata still apply. `devctl down` stops and removes
+inherit the caller's entire shell environment; profile, dotenv, secrets.env,
+keychain, secret-manager, defaults, explicit service/container variables, plugin
+sources, and non-secret runtime metadata still apply. `devctl down` stops and removes
 managed containers; container exit codes feed the normal restart policy.
 
 ## Lifecycle
@@ -198,9 +198,20 @@ Default TUI profile (empty dashboard `enter`) is the first profile name **alphab
 | `type` | Probe |
 |--------|--------|
 | `http` | GET `url`; 2xx is healthy (default interval 2s, timeout 2s) |
-| `tcp` | Connect to `address` or a named port |
+| `tcp` | Connect to `address` or a named port — “is this port accepting connections” |
+| `grpc` | `grpc.health.v1.Health/Check` on `address` (`host:port`) over h2c, with TLS/h2 if cleartext is refused. Optional `grpc_service` is the Health protocol service name (empty = overall). SERVING is healthy; NOT_SERVING, SERVICE_UNKNOWN, and RPC failure are not |
 | `command` | Run `health.command`; exit 0 is healthy |
 | `process` or empty | PID still alive |
+
+`type: grpc` only proves that **some** process answered Health/Check (or a Temporal frontend if `address` points at the proxy). A Temporal **worker** that does not expose Health is still `process`-healthy while disconnected — use `type: command` or a plugin `healthChecks` for that case. Do not invent Temporal-specific poll-success health in core.
+
+```yaml
+health:
+  type: grpc
+  address: "127.0.0.1:9090"
+  grpc_service: ""
+  interval_seconds: 30
+```
 
 During `health.start_period_seconds`, failing probes leave the service in its startup state and do not contribute to restart streaks. Afterward, `health.unhealthy_threshold` consecutive failures trigger the configured restart policy (default 3). `health.healthy_reset_threshold` consecutive successes forgive prior restart attempts (default 10).
 

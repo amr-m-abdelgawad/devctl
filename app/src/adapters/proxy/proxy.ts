@@ -2,6 +2,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { request as httpsRequest } from "node:https";
 import { type Duplex, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "../config/index.ts";
+import { stripMatchPrefix } from "../../domain/proxy/strip-prefix.ts";
 import { isLoopbackBindHost, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest, ProxyStarted, ProxyStopped } from "../../shared/events.ts";
@@ -311,7 +312,7 @@ export class ProxyServer {
         await hook.apply({ route, headers, tokens: this.tokens, req, method, path, upgrade: true });
       }
 
-      const upstream = resolveProxyTarget(this.upstreamBase(route), path);
+      const upstream = resolveProxyTarget(this.upstreamBase(route), forwardedRequestUrl(route, path));
       const upstreamReq = proxyUpgradeRequest(upstream)(upstream, { method, headers });
       upstreamReq.on("upgrade", (upstreamRes, connectedSocket, upstreamHead) => {
         upstreamSocket = connectedSocket;
@@ -449,7 +450,7 @@ export class ProxyServer {
       for (const hook of this.middleware) {
         await hook.apply({ route, headers, tokens: this.tokens });
       }
-      const upstream = resolveProxyTarget(this.upstreamBase(route), path);
+      const upstream = resolveProxyTarget(this.upstreamBase(route), forwardedRequestUrl(route, path));
       // Best-effort: undefined for untagged traffic, which keeps the original
       // streamed request body / non-teed response path byte-for-byte.
       // Snapshot headers: the forwarded map is mutated below (caller header
@@ -949,6 +950,10 @@ function safeHttpTee(inner: LlmCaptureRecorder | TrafficCaptureRecorder): HttpCa
 
 export function proxyUpgradeRequest(upstream: URL): typeof httpRequest {
   return (upstream.protocol === "https:" ? httpsRequest : httpRequest) as typeof httpRequest;
+}
+
+export function forwardedRequestUrl(route: RouteConfig, inboundUrl: string): string {
+  return route.strip_prefix ? stripMatchPrefix(inboundUrl, route.match.path) : inboundUrl;
 }
 
 export function resolveProxyTarget(upstreamUrl: string, requestUrl: string): URL {

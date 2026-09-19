@@ -221,6 +221,66 @@ proxy:
     expect(cfg.proxy.routes[0]?.inspect).toEqual({ enabled: true, max_bytes: 0 });
   });
 
+  test("decodes inspect.grpc.decoder when a plugin path is present", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-grpc-${Date.now()}`;
+    writeFile(dir, "plugins/decoders.ts", "export const sdkVersion = 1;\n");
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+plugins:
+  - path: ./plugins/decoders.ts
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        grpc:
+          decoder: temporal
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes[0]?.inspect).toEqual({
+      enabled: true,
+      max_bytes: 0,
+      grpc: { decoder: "temporal" },
+    });
+  });
+
+  test("rejects unknown inspect.grpc keys", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-grpc-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:9000 }
+      inspect:
+        enabled: true
+        grpc:
+          extra: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields: proxy\.routes\.0\.inspect\.grpc\.extra/);
+  });
+
   test("decodes optional IAP OAuth client fields", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-iap-oauth-${Date.now()}`;
     writeFile(
@@ -269,6 +329,45 @@ services:
 `,
     );
     expect(() => load(dir, "")).toThrow(/unknown fields/);
+  });
+
+  test("accepts health.grpc_service and rejects an unknown health key", () => {
+    const ok = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-grpc-health-${Date.now()}`;
+    writeFile(
+      ok,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  worker:
+    command: [echo, ok]
+    health:
+      type: grpc
+      address: 127.0.0.1:9090
+      grpc_service: ""
+`,
+    );
+    const cfg = load(ok, "");
+    expect(cfg.services.worker?.health.type).toBe("grpc");
+    expect(cfg.services.worker?.health.address).toBe("127.0.0.1:9090");
+    expect(cfg.services.worker?.health.grpc_service).toBe("");
+
+    const bad = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-grpc-unknown-${Date.now()}`;
+    writeFile(
+      bad,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  worker:
+    command: [echo, ok]
+    health:
+      type: grpc
+      address: 127.0.0.1:9090
+      grpc_target: nope
+`,
+    );
+    expect(() => load(bad, "")).toThrow(/unknown fields/);
   });
 
   test("rejects unknown fields in modular profiles", () => {
@@ -326,6 +425,92 @@ services:
     expect(cfg.proxy.routes.map((route) => route.name)).toEqual(["api-1", "api-2", "worker"]);
     expect(cfg.proxy.routes[0]?.upstream.url).toBe("http://127.0.0.1:8000");
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
+  });
+
+  test("a service proxy fragment keeps inspect, strip_prefix, log, transport, and response_headers", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-svc-proxy-full-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    proxy:
+      match: { path: /api }
+      upstream: { url: http://127.0.0.1:8000 }
+      transport: http
+      strip_prefix: true
+      inspect: { enabled: true, max_bytes: 4096 }
+      response_headers: { Access-Control-Allow-Origin: "*" }
+      log:
+        grpc:
+          ok:
+            - status: 14
+              methods: [PollWorkflowTaskQueue]
+              log: silent
+`,
+    );
+    const cfg = load(dir, "");
+    const route = cfg.proxy.routes.find((r) => r.name === "api");
+    expect(route?.transport).toBe("http");
+    expect(route?.strip_prefix).toBe(true);
+    expect(route?.inspect).toEqual({ enabled: true, max_bytes: 4096 });
+    expect(route?.response_headers).toEqual({ "Access-Control-Allow-Origin": "*" });
+    expect(route?.log).toEqual({ grpc: { ok: [{ status: 14, methods: ["PollWorkflowTaskQueue"], log: "silent" }] } });
+  });
+
+  test("rejects unknown keys on route strip_prefix and log", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: /api }
+      upstream: { url: http://127.0.0.1:8000 }
+      strip_prefix: true
+      log:
+        grpc:
+          ok:
+            - status: 14
+              mystery: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields/);
+  });
+
+  test("rejects an unknown key under route.log", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-log-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:8000 }
+      log:
+        extra: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields/);
   });
 
   test("loads modular YAML in deterministic filename order", () => {

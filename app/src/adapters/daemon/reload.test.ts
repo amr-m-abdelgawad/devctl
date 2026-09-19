@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultConfig } from "../../domain/config/types.ts";
-import { pluginMtimes, reapplyPlugins, type ReloadHost } from "./reload.ts";
+import { defaultConfig, emptyRouteAuth } from "../../domain/config/types.ts";
+import { checkPluginInspectDecoders, pluginMtimes, reapplyPlugins, registryForNextPlugins, type ReloadHost } from "./reload.ts";
 
 const PLUGIN = `export const sdkVersion = 1;
 export const tokenProviders = [];
@@ -42,7 +42,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     orchestrator: { serviceIsActive: () => false } as unknown as ReloadHost["orchestrator"],
     runtimes: new Map(),
     tokens: { replaceProviders() {} } as unknown as ReloadHost["tokens"],
-    logs: { setParsers() {}, setSecrets() {} } as unknown as ReloadHost["logs"],
+    logs: { setParsers() {}, setServiceLogs() {}, setSecrets() {} } as unknown as ReloadHost["logs"],
     persistState() {},
     log() {},
     refreshIdentity: async () => undefined,
@@ -67,6 +67,28 @@ describe("plugin reload", () => {
     const restart = await reapplyPlugins(host, next, [first]);
     expect(restart).toEqual([]);
     expect(host.registry?.pluginPaths.length).toBeGreaterThan(0);
+  });
+
+  test("candidate registry includes newly listed inspect decoders", async () => {
+    const dir = tempDir();
+    const path = join(dir, "decoder.ts");
+    writeFileSync(path, "export const sdkVersion=1; export const trafficDecoders=[{name:'temporal',decode:()=>({ok:true})}];");
+    const host = stubHost(dir, []);
+    host.cfg.repoRoot = dir;
+    const next = defaultConfig();
+    next.repoRoot = dir;
+    next.plugins = [{ path }];
+    next.proxy.routes.push({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      inspect: { enabled: true, max_bytes: 0, grpc: { decoder: "temporal" } },
+    });
+    const registry = await registryForNextPlugins(host, next);
+    expect(registry?.trafficDecoders.some((decoder) => decoder.name === "temporal")).toBe(true);
+    expect(() => checkPluginInspectDecoders(host.registry, next)).toThrow(/unknown inspect decoder/);
+    expect(() => checkPluginInspectDecoders(registry, next)).not.toThrow();
   });
 
   test("same path with a newer mtime advises supervisor restart", async () => {

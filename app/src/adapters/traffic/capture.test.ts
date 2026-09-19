@@ -111,4 +111,168 @@ describe("ProxyTrafficSink recorder", () => {
     expect(call?.request?.encoding).toBe("base64");
     expect(Buffer.from(call?.request?.data ?? "", "base64").length).toBe(32);
   });
+
+  test("inflates gzip-compressed gRPC frames before JSON decode", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({ inspect: { enabled: true, max_bytes: 1024 } });
+      }),
+      store,
+    });
+    const rec = sink.begin({ ...begin, transport: "grpc", path: "/pkg.Svc/Json" });
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const raw = Buffer.from('{"hello":"gzip"}');
+    const gz = Buffer.from(Bun.gzipSync(raw));
+    const prefix = Buffer.alloc(5);
+    prefix[0] = 1;
+    prefix.writeUInt32BE(gz.length, 1);
+    const frame = Buffer.concat([prefix, gz]);
+    rec.setRequestBody(frame);
+    rec.appendResponse(frame);
+    await rec.finish({
+      status: 200,
+      grpcStatus: "0",
+      durationMs: 1,
+      requestId: "grpc-gz",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("grpc-gz");
+    expect(call?.request?.data).toBe(frame.toString("base64"));
+    expect(call?.request?.text).toContain("gzip");
+    expect(call?.response?.text).toContain("gzip");
+  });
+
+  test("rejects a gzip gRPC frame that inflates past inspect.max_bytes", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfgWithInspect((item) => {
+        item.proxy.routes[0] = inspectRoute({ inspect: { enabled: true, max_bytes: 32 } });
+      }),
+      store,
+    });
+    const rec = sink.begin({ ...begin, transport: "grpc", path: "/pkg.Svc/Bomb" });
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const raw = Buffer.alloc(256, 0x61);
+    const gz = Buffer.from(Bun.gzipSync(raw));
+    const prefix = Buffer.alloc(5);
+    prefix[0] = 1;
+    prefix.writeUInt32BE(gz.length, 1);
+    const frame = Buffer.concat([prefix, gz]);
+    rec.setRequestBody(frame);
+    rec.appendResponse(frame);
+    await rec.finish({
+      status: 200,
+      grpcStatus: "0",
+      durationMs: 1,
+      requestId: "grpc-gz-max",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("grpc-gz-max");
+    expect(call?.request?.data).toBe(frame.toString("base64"));
+    expect(call?.request?.text).toBeUndefined();
+    expect(call?.response?.text).toBeUndefined();
+  });
+
+  test("keeps base64 only when a compressed gRPC frame fails to gunzip", async () => {
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({ cfg: () => cfgWithInspect(), store });
+    const rec = sink.begin({ ...begin, transport: "grpc", path: "/pkg.Svc/Bad" });
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const prefix = Buffer.alloc(5);
+    prefix[0] = 1;
+    prefix.writeUInt32BE(3, 1);
+    const frame = Buffer.concat([prefix, Buffer.from([0x00, 0x01, 0x02])]);
+    rec.setRequestBody(frame);
+    rec.appendResponse(frame);
+    await rec.finish({
+      status: 200,
+      grpcStatus: "0",
+      durationMs: 1,
+      requestId: "grpc-badgz",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const call = store.get("grpc-badgz");
+    expect(call?.request?.data).toBe(frame.toString("base64"));
+    expect(call?.request?.text).toBeUndefined();
+    expect(call?.response?.text).toBeUndefined();
+  });
+
+  test("uses a named plugin traffic decoder on both sides and falls back when it returns undefined", async () => {
+    const store = new TrafficCallRing();
+    const cfg = cfgWithInspect((item) => {
+      item.proxy.routes[0] = inspectRoute({
+        inspect: { enabled: true, max_bytes: 1024, grpc: { decoder: "temporal" } },
+      });
+    });
+    let fallback = false;
+    const sink = new ProxyTrafficSink({
+      cfg: () => cfg,
+      store,
+      decoders: () => [
+        {
+          name: "temporal",
+          decode: ({ path, side, messages }) => {
+            if (fallback) {
+              return undefined;
+            }
+            return { plugin: true, path, side, n: messages.length };
+          },
+        },
+      ],
+    });
+    const rec = sink.begin({ ...begin, transport: "grpc", path: "/temporal.Workflow/Start" });
+    if (!rec) {
+      throw new Error("expected a recorder");
+    }
+    const frame = Buffer.concat([
+      Buffer.from([0, 0, 0, 0, 2, 0x08, 0x2a]),
+    ]);
+    rec.setRequestBody(frame);
+    rec.appendResponse(frame);
+    await rec.finish({
+      status: 200,
+      grpcStatus: "0",
+      durationMs: 1,
+      requestId: "grpc-plugin",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const used = store.get("grpc-plugin");
+    expect(JSON.parse(used?.request?.text ?? "")).toEqual({
+      plugin: true,
+      path: "/temporal.Workflow/Start",
+      side: "request",
+      n: 1,
+    });
+    expect(JSON.parse(used?.response?.text ?? "")).toEqual({
+      plugin: true,
+      path: "/temporal.Workflow/Start",
+      side: "response",
+      n: 1,
+    });
+
+    fallback = true;
+    const rec2 = sink.begin({ ...begin, transport: "grpc", path: "/temporal.Workflow/Start" });
+    if (!rec2) {
+      throw new Error("expected a recorder");
+    }
+    rec2.setRequestBody(frame);
+    rec2.appendResponse(frame);
+    await rec2.finish({
+      status: 200,
+      grpcStatus: "0",
+      durationMs: 1,
+      requestId: "grpc-fallback",
+      timestamp: "2026-01-01T00:00:00.000Z",
+    });
+    const fell = store.get("grpc-fallback");
+    expect(JSON.parse(fell?.request?.text ?? "")).toEqual({ "1": 42 });
+    expect(JSON.parse(fell?.response?.text ?? "")).toEqual({ "1": 42 });
+  });
 });
