@@ -2,6 +2,7 @@ import * as http2 from "node:http2";
 import type { Http2Server, ServerHttp2Stream, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
 import type { RouteConfig } from "../config/index.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { matchGrpcOk } from "../../domain/proxy/grpc-ok.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { Bus, newEvent, ProxyRequest } from "../../shared/events.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
@@ -142,9 +143,11 @@ export class GrpcProxyServer {
       recorded = true;
       const duration = Date.now() - started;
       const recordedPath = this.detector ? this.detector.redactText(method) : method;
-      // A non-OK grpc-status is a failure even though the HTTP status is 200;
-      // surface it as the record's error so stats().errors counts it.
-      const failure = error ?? (grpcStatus !== "0" ? `grpc-status ${grpcStatus}` : undefined);
+      // A listed log.grpc.ok status is not a proxy error (Temporal long-poll
+      // 14 / workflow-task 3). Unlisted non-zero statuses stay failures.
+      const policy = error === undefined ? matchGrpcOk(this.route.log?.grpc?.ok, grpcStatus, method) : undefined;
+      const treatedOk = grpcStatus === "0" || policy !== undefined;
+      const failure = error ?? (treatedOk ? undefined : `grpc-status ${grpcStatus}`);
       const record: ProxyRequestRecord = {
         timestamp: new Date().toISOString(),
         requestId: requestID,
@@ -161,7 +164,9 @@ export class GrpcProxyServer {
       };
       this.requests.record(record);
       this.spans?.append(proxyRecordToSpan(record));
-      this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${this.route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
+      if (policy !== "silent") {
+        this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${this.route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
+      }
       this.bus?.publish(newEvent(ProxyRequest, this.route.name, { status, request_id: requestID, duration, identity: identityKey }));
       void this.finishCapture(recorder, status, grpcStatus, started, requestID, ctx.traceId);
     };

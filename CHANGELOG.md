@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Built-in `health.type: grpc` probes `grpc.health.v1.Health/Check` over HTTP/2 (h2c, with TLS fallback), and gitignored `.devctl/secrets.env` (plus weaker `~/.devctl/secrets.env`) is always loaded for `${env.NAME}` interpolation and as a service-env layer after dotenv. Process environment still wins. There is no `${secret:}` template syntax.
+- Proxy routes can **strip a matched path prefix** when forwarding (`strip_prefix`) and treat listed gRPC statuses as non-errors (`log.grpc.ok`), so Temporal long-poll 14 / workflow-task 3 no longer inflate `stats().errors`. Per-service `proxy:` fragments now keep the full `RouteConfig` (inspect, transport, response headers, and the new fields). See [Proxy](docs/proxy.md).
 
 ### Fixed
 

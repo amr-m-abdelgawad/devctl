@@ -47,6 +47,19 @@ proxy:
 
 Match is host + optional path prefix.
 
+### Strip a path prefix
+
+`strip_prefix: true` removes `match.path` from the pathname **when forwarding**. Traffic inspector hops and proxy request logs keep the inbound path. Empty `match.path` is a no-op — host-based `expose` / `gateway` routes do not need this.
+
+```yaml
+    - name: my-service
+      match:
+        path: /my-service
+      strip_prefix: true     # /my-service → / ; /my-service/foo → /foo ; query string kept
+      upstream:
+        url: http://127.0.0.1:18000
+```
+
 ### Custom OAuth client credentials (separate from ADC)
 
 A route can mint IAP tokens with a **custom OAuth client** via `auth.client_id` /
@@ -122,7 +135,7 @@ A CORS **preflight** (an `OPTIONS` carrying `Access-Control-Request-Method`) is 
 
 ### Per-service routes
 
-Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`). Duplicate names fail validation. Runtime stays one listener.
+Optional `proxy` on a service is one route fragment or a list. At load they append to the **same** global `proxy.routes` list with stable names (`<service>` or `<service>-<n>`), copying the full route (including `inspect`, `strip_prefix`, `log`, `transport`, and `response_headers`). Duplicate names fail validation. Runtime stays one listener.
 
 ```yaml
 services:
@@ -217,6 +230,25 @@ Notes:
 - Each grpc route needs its own loopback `listen.port`, distinct from the HTTP proxy and every other grpc route, and an `https://` upstream (the IAP leg is TLS).
 - Injection only happens on an `iap` / `service_account` route; a `none` grpc route is a plain forwarder.
 - This targets a **self-hosted Temporal behind a GCP IAP HTTPS load balancer**. Temporal Cloud (mTLS + API key) is not covered by this route type.
+
+### gRPC status policy
+
+A non-zero `grpc-status` is a proxy error by default (WARN log and `stats().errors`). Temporal long-poll (`14`) and `RespondWorkflowTaskCompleted` (`3`) are expected on a healthy worker and should not count. List them on `log.grpc.ok`:
+
+```yaml
+    - name: temporal-grpc
+      transport: grpc
+      log:
+        grpc:
+          ok:
+            - status: 14
+              methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+            - status: 3
+              methods: [RespondWorkflowTaskCompleted]
+              log: info          # info (default) | silent
+```
+
+Omit `methods` to apply the status to every method on that route. A listed name matches as a suffix of `:path` (so `PollWorkflowTaskQueue` matches `/temporal.api…/PollWorkflowTaskQueue`). A matching hop is not a proxy error: no `requestErrors++`, and the log is INFO — or omitted when `log: silent`. Unlisted non-zero statuses stay WARN.
 
 ## Token endpoint
 

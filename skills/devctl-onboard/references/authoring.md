@@ -42,11 +42,14 @@ complete allowlists.
 | `proxy` | `enabled` `gateway` `credentials` `listen` `token_endpoint` `routes` |
 | `proxy.listen` | `host` `port` |
 | `proxy.token_endpoint` | `enabled` `host` `port` |
-| `route` | `name` `transport` `listen` `match` `upstream` `auth` `response_headers` `inspect` |
+| `route` | `name` `transport` `listen` `match` `upstream` `auth` `response_headers` `inspect` `strip_prefix` `log` |
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` `service` `port` `recipe` |
 | `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
 | `route.inspect` | `enabled` `max_bytes` |
+| `route.log` | `grpc` |
+| `route.log.grpc` | `ok` |
+| `route.log.grpc.ok[]` | `status` `methods` `log` |
 | `route.match` | `host` `path` |
 | `route.upstream` | `url` `service` `port` `recipe` |
 | `route.auth` | `type` `identity` `audience` `service_account` `client_id` `client_secret` `credentials` `headers` |
@@ -272,6 +275,8 @@ Anything else is rejected.
 - `web` is **off by default**. When `enabled: true`, `listen.host` must be loopback (`0.0.0.0` / `::` rejected). Default listen port is **18900**. It must not collide with `proxy.listen`, `proxy.token_endpoint`, `telemetry.otlp`, or a gRPC route listen port. The listener serves the local telemetry UI (`GET /api/*`) and loopback lifecycle control (`POST /api/control`, same mutating MCP tools except `exec_service`). Request `Host` must be a loopback name; the port in `Host` may differ from the listen port (WSL / Dev Container forwarding).
 - `llm` is **off by default**. When `enabled: true`, `sources` must be non-empty. Each source needs a unique `name` and a known `type` (`litellm`, `proxy`, or a plugin `llmSources` name). `type: proxy` requires `via.route` naming an existing proxy route and must not set `service`, `endpoint`, or `management_*`. Pull types (`litellm` and plugins) need a unique management hop: `management_endpoint` XOR `management_service`, otherwise exactly one of `service` / `endpoint` / `via.route`. `via.route` may exist alongside `management_*`. Bearer `auth` requires `token_env` (never an inline key). `auth.header` defaults to `Authorization`. `capture.prompts` defaults to true. `capture.max_bytes` (proxy) defaults to 1 MiB when omitted or `0`. `capture.paths` (proxy) is an optional list of extra path substrings to capture as raw POST JSON pairs; each must start with `/` and must not be `/` alone. `via.route` must name an existing proxy route. See [LLM inspector](../../../docs/llm.md).
 - `proxy.routes[].inspect` is **off by default**. `inspect: true` or `inspect.enabled: true` captures HTTP or gRPC request/response bodies on that hop for the traffic inspector (TUI proxy screen, web `#/traffic`, MCP `get_traffic_call`, CLI `devctl traffic`). `inspect.max_bytes` defaults to 1 MiB when omitted or `0`; negative values fail validate. Inspect is ignored when the proxy is off. Recipe `expose` routes are never captured as live RPCs. Direct sockets that never hit the proxy are invisible — callers should use `${services.<name>.url}` or the gRPC listen port. See [Proxy](../../../docs/proxy.md#inspect-bodies).
+- `proxy.routes[].strip_prefix: true` strips `match.path` from the pathname **when forwarding only**. Inspector and proxy logs keep the inbound path. No-op when `match.path` is empty (host-based `expose` routes). `/my-service` → `/`, `/my-service/foo` → `/foo`; the query string is preserved. See [Proxy](../../../docs/proxy.md#strip-a-path-prefix).
+- `proxy.routes[].log.grpc.ok` lists non-zero gRPC statuses that are **not** proxy errors. Each entry is `{ status, methods?, log? }`. Omit `methods` to apply to every method on that route; otherwise a listed name matches as a suffix of `:path` (e.g. `PollWorkflowTaskQueue`). `log` is `info` (default) or `silent`. Unlisted non-zero statuses stay WARN and increment `stats().errors`. See [Proxy](../../../docs/proxy.md#grpc-status-policy).
 - Every route needs a `name` and exactly one of `upstream.url`,
   `upstream.service`, or `upstream.recipe`. A service reference must name a
   real service and an existing port (default port name is `http`).
@@ -312,8 +317,10 @@ That generates a route named `api`. So a service named `api` **and** a global
 route named `api` collide — *duplicate route name api*. Watch for this when
 mixing both styles.
 
-Matching is host + optional path prefix. There is no path rewriting or
-stripping: the matched path is forwarded to the upstream as-is.
+Matching is host + optional path prefix. Set `strip_prefix: true` on the
+fragment (or a global route) to strip `match.path` when **forwarding**;
+inspector and proxy logs still show the inbound path. Host-based `expose`
+routes have an empty `match.path`, so strip is a no-op there.
 
 ---
 
@@ -478,6 +485,8 @@ Every message names its path. Fix the path it names.
 | `services.X.logs.multiline.start is not a valid regular expression` | `start` / `continuation` must compile as a JS regex |
 | `services.X.logs.multiline.max_wait_ms must be >= 0` | negative idle fold timeout |
 | `services.X.logs.multiline.max_lines must be >= 0` | negative fold cap |
+| `proxy.routes[i].log.grpc.ok[j].status must be a number` | each ok entry needs a numeric gRPC status |
+| `proxy.routes[i].log.grpc.ok[j].log must be "info" or "silent"` | omit `log` for the info default |
 | `proxy.listen.port is required when proxy.enabled is true` | pin a port |
 | `unsupported config version N (expected 1)` | `version:` must be `1` |
 | `unknown fields: services.a.depends_on` | not in the allowlists at the top of this file — usually a compose or k8s spelling |

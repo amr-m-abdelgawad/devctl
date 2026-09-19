@@ -26,6 +26,9 @@ import {
   knownRoute,
   knownRouteAuth,
   knownRouteInspect,
+  knownRouteLog,
+  knownRouteLogGrpc,
+  knownRouteLogGrpcOk,
   knownSecrets,
   knownService,
   knownServiceLogs,
@@ -264,6 +267,9 @@ function serviceProxyPathKnown(parts: string[]): string[] {
   if (kind === "inspect") {
     return knownRouteInspect;
   }
+  if (kind === "log") {
+    return routeLogPathKnown(rest.slice(start + 1));
+  }
   return knownRoute;
 }
 
@@ -286,8 +292,30 @@ function routePathKnown(path: string): string[] {
   if (path.endsWith(".inspect")) {
     return knownRouteInspect;
   }
+  if (/\.log(\.|$)/.test(path) && path.includes("proxy.routes")) {
+    const afterLog = path.split(".log")[1] ?? "";
+    return routeLogPathKnown(afterLog === "" ? [] : afterLog.slice(1).split("."));
+  }
   if (path.includes("proxy.routes") && path.split(".").length === ROUTE_DOT_COUNT + 1) {
     return knownRoute;
+  }
+  return [];
+}
+
+function routeLogPathKnown(afterLog: string[]): string[] {
+  if (afterLog.length === 0) {
+    return knownRouteLog;
+  }
+  if (afterLog[0] === "grpc" && afterLog.length === 1) {
+    return knownRouteLogGrpc;
+  }
+  if (afterLog[0] === "grpc" && afterLog[1] === "ok") {
+    if (afterLog.length === 2) {
+      return [];
+    }
+    if (afterLog.length === 3 && /^\d+$/.test(afterLog[2] ?? "")) {
+      return knownRouteLogGrpcOk;
+    }
   }
   return [];
 }

@@ -291,6 +291,24 @@ export function routeInspectMaxBytes(route: RouteConfig): number {
   return cap > 0 ? cap : DEFAULT_TRAFFIC_CAPTURE_MAX_BYTES;
 }
 
+export const ROUTE_GRPC_OK_LOG_INFO = "info";
+export const ROUTE_GRPC_OK_LOG_SILENT = "silent";
+export type RouteGrpcOkLog = typeof ROUTE_GRPC_OK_LOG_INFO | typeof ROUTE_GRPC_OK_LOG_SILENT;
+
+export type RouteGrpcOkEntry = {
+  status: number;
+  methods?: string[];
+  log?: RouteGrpcOkLog;
+};
+
+export type RouteLogGrpcConfig = {
+  ok?: RouteGrpcOkEntry[];
+};
+
+export type RouteLogConfig = {
+  grpc?: RouteLogGrpcConfig;
+};
+
 export type RouteConfig = {
   name: string;
   // "" / "http" (default) → the shared HTTP/1.1 listener, matched by host/path.
@@ -311,6 +329,13 @@ export type RouteConfig = {
   // Opt-in HTTP/gRPC body capture for the traffic inspector. Ignored when the
   // proxy is off. Recipe `expose` routes are never captured as live RPCs.
   inspect?: RouteInspectConfig;
+  // When forwarding, strip match.path from the inbound pathname. No-op if
+  // match.path is empty (host-based expose routes). Inspector and proxy logs
+  // keep the inbound path.
+  strip_prefix?: boolean;
+  // Per-route log policy. log.grpc.ok lists non-zero gRPC statuses that are
+  // not proxy errors (no stats().errors increment; INFO or silent).
+  log?: RouteLogConfig;
 };
 
 export function isGrpcRoute(route: RouteConfig): boolean {

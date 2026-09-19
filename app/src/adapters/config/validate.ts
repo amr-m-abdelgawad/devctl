@@ -455,6 +455,7 @@ function validateProxy(cfg: DevctlConfig): string[] {
     issues.push(...validateRouteUpstream(route, prefix, cfg));
     issues.push(...validateRouteAuth(route, prefix));
     issues.push(...validateRouteInspect(route, prefix));
+    issues.push(...validateRouteLog(route, prefix));
     if (isGrpcRoute(route)) {
       issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
     }
@@ -556,6 +557,24 @@ function validateRouteInspect(route: RouteConfig, prefix: string): string[] {
     return [`${prefix}.inspect.max_bytes must be >= 0`];
   }
   return [];
+}
+
+function validateRouteLog(route: RouteConfig, prefix: string): string[] {
+  const ok = route.log?.grpc?.ok;
+  if (!ok) {
+    return [];
+  }
+  const issues: string[] = [];
+  ok.forEach((entry, i) => {
+    const entryPrefix = `${prefix}.log.grpc.ok[${i}]`;
+    if (typeof entry.status !== "number" || !Number.isFinite(entry.status)) {
+      issues.push(`${entryPrefix}.status must be a number`);
+    }
+    if (entry.log !== undefined && entry.log !== "info" && entry.log !== "silent") {
+      issues.push(`${entryPrefix}.log must be "info" or "silent"`);
+    }
+  });
+  return issues;
 }
 
 function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {

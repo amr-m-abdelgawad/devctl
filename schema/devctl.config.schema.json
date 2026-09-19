@@ -469,6 +469,51 @@
             { "type": "boolean" },
             { "$ref": "#/$defs/routeInspect" }
           ]
+        },
+        "strip_prefix": {
+          "type": "boolean",
+          "description": "When forwarding, strip match.path from the inbound pathname. No-op if match.path is empty. Traffic inspector and proxy logs keep the inbound path. `/my-service` → `/`, `/my-service/foo` → `/foo`; query string is preserved."
+        },
+        "log": { "$ref": "#/$defs/routeLog" }
+      }
+    },
+    "routeLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Per-route log policy.",
+      "properties": {
+        "grpc": { "$ref": "#/$defs/routeLogGrpc" }
+      }
+    },
+    "routeLogGrpc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ok": {
+          "type": "array",
+          "description": "Non-zero gRPC statuses that are not proxy errors. Matching hops log INFO (or are omitted when log is silent) and do not increment stats().errors.",
+          "items": { "$ref": "#/$defs/routeLogGrpcOk" }
+        }
+      }
+    },
+    "routeLogGrpcOk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "type": "number",
+          "description": "gRPC status code treated as a non-error on this route (e.g. 14 for Temporal long-poll)."
+        },
+        "methods": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Optional method-name suffixes of :path (e.g. PollWorkflowTaskQueue). Omitted = all methods on the route."
+        },
+        "log": {
+          "type": "string",
+          "enum": ["info", "silent"],
+          "description": "info (default): log the hop at INFO. silent: omit the proxy log line."
         }
       }
     },

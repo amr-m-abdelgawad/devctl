@@ -367,6 +367,92 @@ services:
     expect(cfg.proxy.routes[2]?.match.path).toBe("/jobs");
   });
 
+  test("a service proxy fragment keeps inspect, strip_prefix, log, transport, and response_headers", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-svc-proxy-full-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    proxy:
+      match: { path: /api }
+      upstream: { url: http://127.0.0.1:8000 }
+      transport: http
+      strip_prefix: true
+      inspect: { enabled: true, max_bytes: 4096 }
+      response_headers: { Access-Control-Allow-Origin: "*" }
+      log:
+        grpc:
+          ok:
+            - status: 14
+              methods: [PollWorkflowTaskQueue]
+              log: silent
+`,
+    );
+    const cfg = load(dir, "");
+    const route = cfg.proxy.routes.find((r) => r.name === "api");
+    expect(route?.transport).toBe("http");
+    expect(route?.strip_prefix).toBe(true);
+    expect(route?.inspect).toEqual({ enabled: true, max_bytes: 4096 });
+    expect(route?.response_headers).toEqual({ "Access-Control-Allow-Origin": "*" });
+    expect(route?.log).toEqual({ grpc: { ok: [{ status: 14, methods: ["PollWorkflowTaskQueue"], log: "silent" }] } });
+  });
+
+  test("rejects unknown keys on route strip_prefix and log", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: /api }
+      upstream: { url: http://127.0.0.1:8000 }
+      strip_prefix: true
+      log:
+        grpc:
+          ok:
+            - status: 14
+              mystery: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields/);
+  });
+
+  test("rejects an unknown key under route.log", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-route-log-unknown-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 8080 }
+  routes:
+    - name: api
+      match: { path: / }
+      upstream: { url: http://127.0.0.1:8000 }
+      log:
+        extra: true
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/unknown fields/);
+  });
+
   test("loads modular YAML in deterministic filename order", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-order-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", "version: 1\n");
