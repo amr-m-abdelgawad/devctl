@@ -853,16 +853,17 @@ Default source order (\`ENV_SOURCE_ORDER\` / \`environment.sources\`):
 
 \`\`\`mermaid
 flowchart LR
-  process --> profile --> dotenv --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
+  process --> profile --> dotenv --> secrets_env --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
 \`\`\`
 
-\`process\`, \`defaults\`, \`vars\`, \`profile_service\`, and \`runtime\` always run for host services. Container services deliberately omit \`process\` so the caller's whole shell is not stored in inspectable container metadata. If you set \`environment.sources\`, the listed optional sources (\`profile\`, \`dotenv\`, \`generated\`, \`keychain\`, \`secret_manager\`) are added to the always-on set.
+\`process\`, \`secrets_env\`, \`defaults\`, \`vars\`, \`profile_service\`, and \`runtime\` always run for host services. Container services deliberately omit \`process\` so the caller's whole shell is not stored in inspectable container metadata. If you set \`environment.sources\`, the listed optional sources (\`profile\`, \`dotenv\`, \`generated\`, \`keychain\`, \`secret_manager\`) are added to the always-on set.
 
 | Source | What it loads |
 |--------|----------------|
 | \`process\` | The env of whichever CLI/TUI client most recently started or restarted this service (forwarded over the RPC as \`client_env\`), falling back to the supervisor's own environment if no client has done so yet — see below |
 | \`profile\` | \`profiles.<name>.environment\` (fleet-wide; loses to service vars) |
 | \`dotenv\` | Repo-root then service working-dir: \`.env\`, \`.env.development\`, \`.env.local\`, \`.env.<profile>\` |
+| \`secrets_env\` | Always-on dotenv file: gitignored \`.devctl/secrets.env\`, then weaker \`~/.devctl/secrets.env\`. Wins over repo \`.env\`; process and profile keys still win. No schema key — it is not listed in \`environment.sources\` |
 | \`generated\` | Built-in hook that always returns \`{}\`. A plugin may register \`environmentSources\` if you need generated values |
 | \`keychain\` | Named secrets from \`environment.secrets\` / the credential store |
 | \`secret_manager\` | Values that look like \`projects/*/secrets/*\` via the Google REST API |
@@ -892,7 +893,9 @@ Injected when applicable:
 - \`DEVCTL_TOKEN_URL\` and \`DEVCTL_INTERNAL_TOKEN\` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 - \`DEVCTL_HTTP_<NAME>_URL\` for each exposed \`http\` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
 
-References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${env.NAME}\` is rejected in service env. Recipe \`url\` / \`headers\` / \`form\` / \`body\` are the exception: \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment at fetch time. IAP route \`auth.client_secret\` is the other exception: \`\${NAME}\` and \`\${env.NAME}\` are expanded from the process environment when the token is minted, not at config load.
+References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${env.NAME}\` is rejected in service env YAML (existing design). Recipe \`url\` / \`headers\` / \`form\` / \`body\` are the exception: \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment **plus** \`.devctl/secrets.env\` at fetch time. IAP route \`auth.client_secret\` is the other exception: \`\${NAME}\` and \`\${env.NAME}\` expand from process env plus those secrets files when the token is minted, not at config load. Process environment still wins over the files.
+
+There is no \`\${secret:keychain:…}\` or \`\${secret:gcp:…}\` template syntax. OS keychain and Secret Manager stay \`environment.sources: [keychain, secret_manager]\` plus \`environment.secrets\` for \`projects/*/secrets/*\`.
 
 \`environment.required\` on a service fails start if those keys are still empty after the merge.
 
@@ -1264,7 +1267,7 @@ auth:
     service_account: backend-dev@company-dev.iam.gserviceaccount.com
 \`\`\`
 
-User identity mints an ID token with ADC's default OAuth client. To mint with a **specific** OAuth client instead (a Desktop client, or the IAP client's own ID), set \`client_id\` and \`client_secret\`. Put \`\${NAME}\` or \`\${env.NAME}\` in \`client_secret\` so the value is read from the environment at mint time — that is not the same as service-env \`\${services…}\` interpolation, which does not run on route auth:
+User identity mints an ID token with ADC's default OAuth client. To mint with a **specific** OAuth client instead (a Desktop client, or the IAP client's own ID), set \`client_id\` and \`client_secret\`. Put \`\${NAME}\` or \`\${env.NAME}\` in \`client_secret\` so the value is read from the process environment **or** gitignored \`.devctl/secrets.env\` (weaker: \`~/.devctl/secrets.env\`) at mint time — that is not the same as service-env \`\${services…}\` interpolation, which does not run on route auth. Process env still wins. There is no \`\${secret:}\` syntax:
 
 \`\`\`yaml
 auth:
@@ -1908,6 +1911,24 @@ Sources you will see: \`stdout\`, \`stderr\`, \`health\`, \`auth\`, \`devctl\`, 
 
 Each line is stored as an OpenTelemetry-style record — body, attributes, severity, and optional \`traceId\`/\`spanId\` — so structured JSON (and Python \`{'key': 'value'}\` dicts) keep their fields and a line joins its trace. Enabling the OTLP receiver and viewing traces are covered in [Telemetry](telemetry.md).
 
+ANSI color codes are stripped before severity classification and structured parse (\`\\x1b[31mERROR\\x1b[0m\` is ERROR). The stored \`raw\` field keeps the original bytes.
+
+Process \`stdout\`/\`stderr\` can fold several physical lines into one event. Python tracebacks (\`Traceback (most recent call last):\` plus indented frames and the exception line) and a bare HTTP status continuation (\`             200\`) are always folded. Optional \`services.<name>.logs.multiline\` adds start/continuation regexes:
+
+\`\`\`yaml
+services:
+  api:
+    logs:
+      stdout: true
+      multiline:
+        start: "^\\\\d{4}-\\\\d{2}-\\\\d{2}"
+        continuation: "^\\\\s+"
+        max_wait_ms: 80    # default
+        max_lines: 200     # default
+\`\`\`
+
+The folded body is a single string with newlines. Severity is taken from the first line that classifies after ANSI strip, otherwise from the assembled body. Proxy, health, and OTLP records stay one line each. Pending folds flush on the idle timeout or when the log store is flushed.
+
 ## Buffer and persistence
 
 - In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status \`logs.total\` / \`logs.errors\` are how many of those lines are still in the ring; \`logs.seen\` / \`logs.seenErrors\` are lifetime ingest counts so dashboards do not freeze at the cap.
@@ -2474,6 +2495,7 @@ A module may export any combination of these named arrays:
 | \`logParsers\` | \`{ name, parse(line) }\` | Parse service log lines |
 | \`proxyMiddleware\` | \`{ name, apply(ctx) }\` | Participate in proxy request handling |
 | \`llmSources\` | \`{ name, capabilities(cfg), fetch(cfg, ctx) }\` | Pull LLM calls into the inspector (\`llm.sources[].type\`) |
+| \`trafficDecoders\` | \`{ name, decode({ path, side, messages }) }\` | Named gRPC body decode for \`inspect.grpc.decoder\`. \`messages\` are already split and gunzipped. Return JSON-serializable value, or \`undefined\` to try the next decoder / JSON / \`decode_raw\`. |
 
 The TypeScript contracts and SDK constant are exported by [\`app/src/plugin-sdk.ts\`](../app/src/plugin-sdk.ts). A plugin must export arrays, each entry must have a non-empty \`name\`, and the methods shown above must be functions. Keep plugin startup code small: top-level exceptions cause the whole module to be skipped.
 
@@ -2673,6 +2695,19 @@ proxy:
 
 Match is host + optional path prefix.
 
+### Strip a path prefix
+
+\`strip_prefix: true\` removes \`match.path\` from the pathname **when forwarding**. Traffic inspector hops and proxy request logs keep the inbound path. Empty \`match.path\` is a no-op — host-based \`expose\` / \`gateway\` routes do not need this.
+
+\`\`\`yaml
+    - name: my-service
+      match:
+        path: /my-service
+      strip_prefix: true     # /my-service → / ; /my-service/foo → /foo ; query string kept
+      upstream:
+        url: http://127.0.0.1:18000
+\`\`\`
+
 ### Custom OAuth client credentials (separate from ADC)
 
 A route can mint IAP tokens with a **custom OAuth client** via \`auth.client_id\` /
@@ -2748,7 +2783,7 @@ A CORS **preflight** (an \`OPTIONS\` carrying \`Access-Control-Request-Method\`)
 
 ### Per-service routes
 
-Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`). Duplicate names fail validation. Runtime stays one listener.
+Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`), copying the full route (including \`inspect\`, \`strip_prefix\`, \`log\`, \`transport\`, and \`response_headers\`). Duplicate names fail validation. Runtime stays one listener.
 
 \`\`\`yaml
 services:
@@ -2844,6 +2879,25 @@ Notes:
 - Injection only happens on an \`iap\` / \`service_account\` route; a \`none\` grpc route is a plain forwarder.
 - This targets a **self-hosted Temporal behind a GCP IAP HTTPS load balancer**. Temporal Cloud (mTLS + API key) is not covered by this route type.
 
+### gRPC status policy
+
+A non-zero \`grpc-status\` is a proxy error by default (WARN log and \`stats().errors\`). Temporal long-poll (\`14\`) and \`RespondWorkflowTaskCompleted\` (\`3\`) are expected on a healthy worker and should not count. List them on \`log.grpc.ok\`:
+
+\`\`\`yaml
+    - name: temporal-grpc
+      transport: grpc
+      log:
+        grpc:
+          ok:
+            - status: 14
+              methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+            - status: 3
+              methods: [RespondWorkflowTaskCompleted]
+              log: info          # info (default) | silent
+\`\`\`
+
+Omit \`methods\` to apply the status to every method on that route. A listed name matches as a suffix of \`:path\` (so \`PollWorkflowTaskQueue\` matches \`/temporal.api…/PollWorkflowTaskQueue\`). A matching hop is not a proxy error: no \`requestErrors++\`, and the log is INFO — or omitted when \`log: silent\`. Unlisted non-zero statuses stay WARN.
+
 ## Token endpoint
 
 Optional \`GET /token\` (\`proxy.token_endpoint\`) binds to loopback (never \`0.0.0.0\` or \`::\`), requires \`X-Devctl-Internal-Token\`, and only accepts loopback peers. Query \`identity\` and \`audience\` must match a pair declared on a proxy route or a service identity — unknown values return 403 without minting. Google mints are capped at 10 per identity/audience per minute; over the cap, a still-valid cached token is reused, otherwise the endpoint returns 429.
@@ -2880,11 +2934,17 @@ proxy:
       inspect:
         enabled: true
         max_bytes: 1048576   # default 1 MiB when omitted or 0
+    - name: temporal
+      transport: grpc
+      inspect:
+        enabled: true
+        grpc:
+          decoder: temporal   # optional plugin trafficDecoders name
 \`\`\`
 
-\`inspect: true\` is the same as \`enabled: true\` with the default cap. Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs.
+\`inspect: true\` is the same as \`enabled: true\` with the default cap (no \`grpc\` block). Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs. \`inspect.grpc.decoder\` names a plugin \`trafficDecoders\` entry; omit it to pretty-print JSON frames (\`application/grpc+json\` or JSON-looking payloads) and otherwise proto3 \`decode_raw\` field numbers. Multi-message streams become a JSON array. A named decoder that no plugin registers fails \`config validate\` when \`plugins:\` is empty.
 
-Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP \`get_traffic_calls\`, web \`/api/traffic\`) strip bodies; one-id fetch (\`get_traffic_call\`, \`devctl traffic show\`, TUI overlay, web \`#/traffic/:id\`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; \`/reveal\` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA frames are stored as \`application/grpc\` base64 (5-byte length prefix kept); if the first message looks like JSON, a pretty-printed \`text\` view is also kept. Redaction runs on decoded bytes (and on that JSON text), not on the base64 alphabet, so the raw \`data\` view cannot recover a secret the \`text\` view already masked.
+Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List pages (MCP \`get_traffic_calls\`, web \`/api/traffic\`) strip bodies; one-id fetch (\`get_traffic_call\`, \`devctl traffic show\`, TUI overlay, web \`#/traffic/:id\`) returns redacted payloads. Secrets are redacted at ingest with the same detector as logs/LLM; \`/reveal\` cannot unmask them. Capture is best-effort and never fails the proxied hop. Content-encoded requests and bodies over the cap are marked omitted/truncated while the stream still forwards. WebSocket upgrades are not captured. gRPC DATA is stored as \`application/grpc\` base64 of the captured bytes (length prefixes kept). Request and response frames are split, gzip-compressed messages inflated in the capture adapter, then decoded to pretty \`text\` (JSON, plugin, or \`decode_raw\`). A failed gunzip leaves \`data\` only. Redaction runs on decoded bytes and on that \`text\`, not on the base64 alphabet, so the raw \`data\` view cannot recover a secret the \`text\` view already masked.
 
 Caller attribution reuses the LLM path: \`X-Devctl-Service\` or a loopback peer lookup, so the inspector can label which service issued the call.
 
@@ -3030,7 +3090,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **Loopback only** | Proxy, token endpoint, and MCP refuse \`0.0.0.0\`, \`::\`, and other non-loopback binds. Managed containers publish ports on \`127.0.0.1\` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless \`shell: true\` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
-| **Config is not a secret store** | Working dirs join the repo root. Put secrets in overlays, keychain, or Secret Manager |
+| **Config is not a secret store** | Working dirs join the repo root. Put secrets in \`.devctl/secrets.env\` (gitignored), overlays, keychain, or Secret Manager. There is no \`\${secret:}\` template syntax |
 
 Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. Free-text log lines also strip \`Bearer\` tokens, JWT-shaped strings (\`eyJ…\`), Google access tokens (\`ya29.\`), and \`id_token=\` / \`access_token=\` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic \`data\` is decoded before redaction so a base64/raw view cannot recover a secret the pretty \`text\` already masked. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config. \`X-Devctl-Service\` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
@@ -3117,6 +3177,7 @@ Two checkouts do not share a lock. \`repoID\` is \`sha256(canonical repo root)\`
 | Stale lock from a dead PID | Replaced |
 | \`~/.devctl/credentials/\` | Directory \`0700\`, files \`0600\` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | \`.devctl/config.local.yaml\` | Gitignore-friendly overlay — still do not commit secrets |
+| \`.devctl/secrets.env\` | Always-on dotenv file (gitignored). Weaker layer: \`~/.devctl/secrets.env\`. Process env still wins. Used for \`\${env.NAME}\` at IAP mint / HTTP recipes and as a service-env source after \`.env\`. \`devctl setup\` writes \`secrets.env.example\` (keys only) and a \`.gitignore\` entry |
 
 On Unix, the owner-only state directory restricts access to the supervisor RPC socket. On Windows the named pipe \`\\\\.\\pipe\\devctl-<repoID>\` cannot take a current-user DACL (Bun does not expose that API), so every RPC frame also carries a token from \`~/.devctl/state/<repoID>/rpc-token\` (mode \`0600\`, inside the user's profile). Connecting without that token is unauthorized. The file is never printed in status, logs, or MCP output.
 
@@ -3169,7 +3230,7 @@ services:
       defaults:
         LOG_LEVEL: INFO
     health:
-      type: http                 # http | tcp | process | command
+      type: http                 # http | tcp | process | command | grpc
       url: http://127.0.0.1:8000/health
       interval_seconds: 2
       timeout_seconds: 1
@@ -3282,9 +3343,9 @@ applies \`--memory 1g\`, \`--cpus 1\`, and \`--pids-limit 256\` unless you set
 \`container.memory\`, \`container.cpus\`, or \`container.pids_limit\`. Optional
 \`container.user\`, \`container.read_only\`, and \`container.cap_drop\` harden
 further; Doctor warns when the image USER is root. Containers do not
-inherit the caller's entire shell environment; profile, dotenv, keychain,
-secret-manager, defaults, explicit service/container variables, plugin sources,
-and non-secret runtime metadata still apply. \`devctl down\` stops and removes
+inherit the caller's entire shell environment; profile, dotenv, secrets.env,
+keychain, secret-manager, defaults, explicit service/container variables, plugin
+sources, and non-secret runtime metadata still apply. \`devctl down\` stops and removes
 managed containers; container exit codes feed the normal restart policy.
 
 ## Lifecycle
@@ -3349,9 +3410,20 @@ Default TUI profile (empty dashboard \`enter\`) is the first profile name **alph
 | \`type\` | Probe |
 |--------|--------|
 | \`http\` | GET \`url\`; 2xx is healthy (default interval 2s, timeout 2s) |
-| \`tcp\` | Connect to \`address\` or a named port |
+| \`tcp\` | Connect to \`address\` or a named port — “is this port accepting connections” |
+| \`grpc\` | \`grpc.health.v1.Health/Check\` on \`address\` (\`host:port\`) over h2c, with TLS/h2 if cleartext is refused. Optional \`grpc_service\` is the Health protocol service name (empty = overall). SERVING is healthy; NOT_SERVING, SERVICE_UNKNOWN, and RPC failure are not |
 | \`command\` | Run \`health.command\`; exit 0 is healthy |
 | \`process\` or empty | PID still alive |
+
+\`type: grpc\` only proves that **some** process answered Health/Check (or a Temporal frontend if \`address\` points at the proxy). A Temporal **worker** that does not expose Health is still \`process\`-healthy while disconnected — use \`type: command\` or a plugin \`healthChecks\` for that case. Do not invent Temporal-specific poll-success health in core.
+
+\`\`\`yaml
+health:
+  type: grpc
+  address: "127.0.0.1:9090"
+  grpc_service: ""
+  interval_seconds: 30
+\`\`\`
 
 During \`health.start_period_seconds\`, failing probes leave the service in its startup state and do not contribute to restart streaks. Afterward, \`health.unhealthy_threshold\` consecutive failures trigger the configured restart policy (default 3). \`health.healthy_reset_threshold\` consecutive successes forgive prior restart attempts (default 10).
 
@@ -3528,7 +3600,7 @@ trace, and read the responsible service's span and logs — all redacted.
 | IAP authentication failure | Confirm audience, IAP client, and that the identity matches the route. If \`client_id\` is set, the ADC refresh token must belong to that OAuth client |
 | Port already in use | Doctor lists the holder. Stop a leftover, or change config. Running your own services will also show as “in use” |
 | Service crashes | Open Logs, filter \`ERROR\` (\`e\`), restart with \`R\` |
-| Health check failure | Confirm the health URL/port; \`process\` checks only PID liveness |
+| Health check failure | Confirm the health URL/port; \`tcp\` is connect-only; \`grpc\` is Health/Check (SERVING); \`process\` checks only PID liveness |
 | Proxy unavailable / missing listen port | Pin \`proxy.listen.port\` (required when \`proxy.enabled\` is true — validate exits **2**). Then \`devctl proxy start\` or TUI \`n\`. Starting with port \`0\` exits **7**. Bind is loopback only |
 | Token expired | Automatic refresh uses \`auth.refresh_threshold_seconds\`; run \`devctl auth refresh\`. Open Doctor if ADC itself expired |
 | Token audience incorrect | Set \`auth.audience\` on the IAP route; Doctor flags missing audiences |
