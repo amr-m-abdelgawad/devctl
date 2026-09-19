@@ -825,6 +825,7 @@ The TUI **Doctor** screen (\`/doctor\` or \`d\`) re-runs on every visit (\`r\` a
 - Live IAM Credentials / Resource Manager / IAP API reachability via Service Usage (reported, **never** auto-enabled)
 - Impersonation for each configured service account
 - IAP audiences (including SA impersonation)
+- IAP credentials file on each route that sets \`auth.credentials\` or folded \`proxy.credentials\` (exists, \`authorized_user\` JSON, \`refresh_token\`, \`client_id\` matches the route). Failures hint \`gcloud auth application-default login\` with a client secret file that matches \`client_id\` (or omit \`client_id\`); TUI \`/auth login\` or \`devctl auth login\`
 - Configured \`doctor.tools\` binaries (demo: \`python3\`, \`bun\`)
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares \`container\` (every such service in config, not only the active profile — the demo probes Docker because \`postgres\` is always declared)
 - Container image USER is not root (warns when inspect shows root; set \`container.user\`)
@@ -908,7 +909,7 @@ Injected when applicable:
 - \`DEVCTL_TOKEN_URL\` and \`DEVCTL_INTERNAL_TOKEN\` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 - \`DEVCTL_HTTP_<NAME>_URL\` for each exposed \`http\` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
 
-References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` resolves to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${env.NAME}\` is rejected in service env YAML (existing design). Recipe \`url\` / \`headers\` / \`form\` / \`body\` are the exception: \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment **plus** \`.devctl/secrets.env\` at fetch time. IAP route \`auth.client_secret\` is the other exception: \`\${NAME}\` and \`\${env.NAME}\` expand from process env plus those secrets files when the token is minted, not at config load. Process environment still wins over the files.
+References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` in **service env** (and profile / dotenv values) is resolved at process start to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). Proxy route \`auth.headers\` — including headers on a service \`proxy:\` fragment, which merge into \`proxy.routes\` at load — are **not** run through \`resolveEnvMap\`; \`\${identity.user}\` there stays the literal string. \`\${token}\` in those headers is still substituted at request time on minting routes. \`devctl config validate\` warns if \`\${identity.\` appears in a proxy header value. \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${env.NAME}\` is rejected in service env YAML (existing design). Recipe \`url\` / \`headers\` / \`form\` / \`body\` are the exception: \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment **plus** \`.devctl/secrets.env\` at fetch time. IAP route \`auth.client_secret\` is the other exception: \`\${NAME}\` and \`\${env.NAME}\` expand from process env plus those secrets files when the token is minted, not at config load. Process environment still wins over the files.
 
 There is no \`\${secret:keychain:…}\` or \`\${secret:gcp:…}\` template syntax. OS keychain and Secret Manager stay \`environment.sources: [keychain, secret_manager]\` plus \`environment.secrets\` for \`projects/*/secrets/*\`.
 
@@ -1298,7 +1299,7 @@ Omit \`client_id\` to keep the default ADC client. \`client_id\` is only valid o
 
 The ADC refresh token must have been issued to that OAuth client. \`gcloud auth application-default login\` uses the Cloud SDK client by default; a mismatch fails as \`unauthorized_client\`. Login with a client secret file that matches \`client_id\`, or omit \`client_id\`.
 
-When a route (or \`proxy.credentials\`) points at a separate authorized_user file, \`devctl config validate\` checks that the file exists, is JSON with \`refresh_token\` and \`client_id\`, and that the file's \`client_id\` matches the route. \`devctl status\` reports that result as \`credentials_valid\` on the route snapshot (\`true\` / \`false\` when a file is configured; omitted otherwise).
+When a route (or \`proxy.credentials\`) points at a separate authorized_user file, \`devctl config validate\` checks that the file exists, is JSON with \`refresh_token\` and \`client_id\`, and that the file's \`client_id\` matches the route. \`devctl status\` reports that result as \`credentials_valid\` on the route snapshot (\`true\` / \`false\` when a file is configured; omitted otherwise). \`devctl doctor\` reports the same inspect as \`IAP credentials <route>\` even when a live mint is skipped (for example a missing audience). A missing or mismatched file is an error and hints \`gcloud auth application-default login\` with a client secret file that matches \`client_id\` (or omit \`client_id\`); TUI \`/auth login\` or \`devctl auth login\`.
 
 \`\`\`mermaid
 flowchart LR
@@ -1317,7 +1318,7 @@ The local proxy mints the token and injects \`Authorization: Bearer …\`. Servi
 
 Tokens refresh when \`expires_at - now < auth.refresh_threshold_seconds\` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request. Google minting is also capped at 10 refreshes per identity and audience per minute.
 
-Doctor probes IAP audiences (including SA impersonation and a configured OAuth client) even if the rest of the repo looks local-only.
+Doctor probes IAP audiences (including SA impersonation and a configured OAuth client) even if the rest of the repo looks local-only. The credentials-file inspect above is static and does not require network.
 
 Local demos can use \`auth.type: none\` so routes still appear in the proxy screen without calling real IAP.
 
@@ -1875,6 +1876,9 @@ llm:
         max_bytes: 1048576        # per-direction cap on the stored body (default 1 MiB)
         paths:                    # optional; extra POST JSON paths to capture raw
           - /generations/v1alpha2
+      cost_per_token:             # optional; proxy only
+        input: 0.000001           # per prompt token
+        output: 0.000002          # per completion token
 \`\`\`
 
 Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completions\`) and every OpenAI-compatible completion, chat, embedding, or streamed (\`text/event-stream\`) call is parsed and fed into the same store as any other source. All surfaces below then work unchanged.
@@ -1883,7 +1887,8 @@ Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completion
 - **OpenAI-compatible completions are captured by default.** Capture engages on a \`POST\` with a JSON request content-type on a completion-shaped path (\`/chat/completions\`, \`/completions\`, \`/embeddings\`); \`GET /models\`, \`/model/info\`, health checks, and CORS preflights are ignored. Anthropic-native \`/messages\` and the OpenAI Responses API (\`/responses\`) use different request/stream shapes and are not captured unless listed in \`capture.paths\`.
 - **\`capture.paths\` adds proprietary endpoints.** Each entry is a path substring (must start with \`/\`, not \`/\` alone) matched case-insensitively against the inbound request pathname, so a route mount prefix does not need repeating — \`/generations/v1alpha2\` matches \`/llm/generations/v1alpha2\`. Matching POST JSON is stored as a raw HTTP pair: parsed JSON bodies, or raw SSE text (not reassembled into a \`chat.completion\`). Model, token usage, and finish reason are copied when those standard JSON fields are present (\`model\`, \`usage.prompt_tokens\` / \`input_tokens\`, \`choices[0].finish_reason\`); otherwise they are omitted and \`model\` shows \`unknown\`. Built-in OpenAI paths on the same source still use the OpenAI mapper.
 - **\`proxy\` has no management hop.** It captures from \`via.route\` / \`via.routes\` and must not set \`service\`, \`endpoint\`, or \`management_*\`; config validation rejects those. \`via.routes\` is only valid on \`type: proxy\`.
-- **Redaction is unchanged** — the same \`secrets\` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`) are counts, not credentials, so they stay visible. Cost is unavailable from a \`proxy\` source, and a streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
+- **\`cost_per_token\` estimates spend.** Optional, \`type: proxy\` only (\`litellm\` and plugin sources already report spend and must not set it). Both \`input\` and \`output\` are required \`>= 0\` numbers when the block is present. A captured call gets \`cost = promptTokens * input + completionTokens * output\` when those usage fields exist; missing prompt or completion tokens leave \`cost\` unset (total-only usage is not enough). The inspector chip already shows \`cost\` when it is set.
+- **Redaction is unchanged** — the same \`secrets\` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`) are counts, not credentials, so they stay visible. A streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
 
 ## Caller (which service made the call)
 
@@ -2804,11 +2809,14 @@ custom path (not the default ADC location). Notes:
   route that has a credentials file: \`true\` when the file exists, is
   \`authorized_user\` JSON with \`refresh_token\` and a \`client_id\` that matches the
   route, otherwise \`false\`. Routes that are not IAP or have no credentials file
-  omit the field.
+  omit the field. \`devctl doctor\` reports the same inspect as \`IAP credentials
+  <route>\` and hints \`gcloud auth application-default login\` with a client
+  secret file that matches \`client_id\` (or omit \`client_id\`) when the file is
+  missing or mismatched.
 
 ### Extra token headers
 
-Some IAP-protected upstreams want the minted token under an additional header, not just \`Authorization: Bearer …\`. \`auth.headers\` injects extra request headers on a token-minting route; \`\${token}\` in a value is replaced with the same token used for the bearer:
+Some IAP-protected upstreams want the minted token under an additional header, not just \`Authorization: Bearer …\`. \`auth.headers\` injects extra request headers on a token-minting route; \`\${token}\` in a value is replaced with the same token used for the bearer at request time. These header values are **not** run through \`resolveEnvMap\` — \`\${identity.user}\` (and other env refs) stay literal, including on a service \`proxy:\` fragment, which is merged into \`proxy.routes\` at load. Use service env if the process needs the detected identity. \`devctl config validate\` warns if \`\${identity.\` appears in a header value:
 
 \`\`\`yaml
       auth:
@@ -3321,7 +3329,7 @@ The TUI services screen renders each service's live inspector — status, facts,
 
 ![The services inspector showing billing-console — health, command, workdir, ports, and its resolved environment with \`DEVCTL_INTERNAL_TOKEN\` and \`DEVCTL_TOKEN_URL\` redacted](assets/manual/tui-services.png)
 
-\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`\${identity.user}\` resolves to the running developer's detected Google email — handy in shared config as \`LOCAL_USER_EMAIL: \${identity.user}\` (each developer gets their own, nothing hardcoded); it is also injected automatically as \`DEVCTL_USER_EMAIL\`. \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
+\`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`\${identity.user}\` in **service env** resolves at process start to the running developer's detected Google email — handy in shared config as \`LOCAL_USER_EMAIL: \${identity.user}\` (each developer gets their own, nothing hardcoded); it is also injected automatically as \`DEVCTL_USER_EMAIL\`. The same placeholder in proxy route \`auth.headers\` (including a service \`proxy:\` fragment) is **not** resolved — it stays literal. Put the identity on the process via service env, not on the hop. \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
 String commands that contain \`|\`, \`||\`, \`&&\`, \`;\`, \`>\`, \`>>\`, \`<\`, or \`&\` fail validation unless \`shell: true\`.
 
