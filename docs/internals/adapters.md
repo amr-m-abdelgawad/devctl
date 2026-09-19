@@ -128,7 +128,7 @@ Public import path for plugin authors: `app/src/plugin-sdk.ts`.
 
 ## `adapters/doctor/`
 
-Implements `DoctorRunner`. Checks: tools, ports, containers, ADC, impersonation, APIs. Never auto-enables cloud APIs.
+Implements `DoctorRunner`. Checks: tools, ports, containers, ADC, impersonation, APIs, IAP credentials files (static inspect; live mint is separate). Never auto-enables cloud APIs.
 
 ## `adapters/update/`
 

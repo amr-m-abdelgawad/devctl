@@ -6,6 +6,7 @@ import { DEFAULT_WATCH_DEBOUNCE_MS, emptyService } from "../../domain/config/typ
 import { load, loadPath } from "./load.ts";
 import { mergeService } from "./merge.ts";
 import { configDiff } from "./provenance.ts";
+import { validate } from "./validate.ts";
 
 function writeFile(dir: string, rel: string, contents: string): void {
   const path = join(dir, rel);
@@ -1164,6 +1165,32 @@ proxy:
 `);
     const cfg = load(dir, "");
     expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.headers).toEqual({ "identity-token": "${token}", "x-custom": "literal" });
+  });
+
+  test("loads a route whose auth.headers contain ${identity.user} and leaves the value literal", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-authhdr-identity-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  app: { command: [app] }
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+  routes:
+    - name: api
+      match: { host: api.local }
+      upstream: { url: "http://127.0.0.1:8000" }
+      auth:
+        type: iap
+        audience: aud
+        identity: { type: user }
+        headers: { X-User: "\${identity.user}" }
+`);
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes.find((r) => r.name === "api")?.auth.headers).toEqual({ "X-User": "${identity.user}" });
+    expect(validate(cfg)).toContain(
+      "warning: proxy.routes[0].auth.headers.X-User contains ${identity. which is not resolved on proxy headers (only service env at start)",
+    );
   });
 
   test("a grpc route round-trips transport + listen and passes strict validation", () => {

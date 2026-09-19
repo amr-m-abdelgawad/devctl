@@ -575,6 +575,11 @@ export type LlmCaptureConfig = {
   paths: string[];
 };
 
+export type LlmCostPerTokenConfig = {
+  input: number;
+  output: number;
+};
+
 export type LlmSourceConfig = {
   name: string;
   type: string;
@@ -590,6 +595,8 @@ export type LlmSourceConfig = {
   auth: LlmAuthConfig;
   capture: LlmCaptureConfig;
   poll_seconds: number;
+  // proxy source only: per-token rates for estimateLlmCost. Omitted when unset.
+  cost_per_token?: LlmCostPerTokenConfig;
 };
 
 export type LlmConfig = {

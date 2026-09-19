@@ -1,7 +1,34 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyService } from "../../domain/config/types.ts";
+import { unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
 import { createDoctorRunner, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
+
+const IAP_CLIENT_ID = "desktop.apps.googleusercontent.com";
+const IAP_LOGIN_COMMAND = "gcloud auth application-default login";
+
+function writeIapCredentialsFile(suffix: string, body: Record<string, unknown>): string {
+  const path = join(process.env.TMPDIR ?? "/tmp", `devctl-doctor-iap-${suffix}-${Date.now()}.json`);
+  writeFileSync(path, JSON.stringify(body));
+  return path;
+}
+
+function iapRoute(overrides: { name?: string; audience?: string; client_id?: string; credentials?: string }) {
+  return {
+    name: overrides.name ?? "billing",
+    match: { host: "billing.local", path: "" },
+    upstream: { url: "https://example.com" },
+    auth: {
+      ...emptyRouteAuth(),
+      type: "iap",
+      identity: { type: "user", service_account: "" },
+      audience: overrides.audience ?? "/projects/1/iap",
+      client_id: overrides.client_id ?? IAP_CLIENT_ID,
+      credentials: overrides.credentials ?? "",
+    },
+  };
+}
 
 function localCfg() {
   const cfg = defaultConfig();
@@ -146,7 +173,86 @@ describe("doctor", () => {
     expect(aud?.severity).toBe("error");
     expect(aud?.message).toContain("missing audience");
     expect(report.checks.some((c) => c.name.startsWith("IAP billing"))).toBe(false);
+    expect(report.checks.some((c) => c.name === "IAP credentials billing")).toBe(false);
     expect(report.checks.some((c) => c.name === "IAM Credentials API")).toBe(false);
+  });
+
+  test("accepts an IAP authorized_user credentials file that matches client_id", async () => {
+    const path = writeIapCredentialsFile("ok", {
+      type: "authorized_user",
+      client_id: IAP_CLIENT_ID,
+      client_secret: "file-secret",
+      refresh_token: "rt-1",
+    });
+    try {
+      const cfg = localCfg();
+      cfg.google.project_id = "demo";
+      cfg.proxy.routes.push(iapRoute({ credentials: path }));
+      const report = await runDoctor(cfg, offlineHost());
+      expect(report.checks.find((c) => c.name === "IAP credentials billing")).toEqual({
+        name: "IAP credentials billing",
+        severity: "ok",
+        message: "authorized_user file matches client_id",
+      });
+      expect(report.checks.some((c) => c.name === "IAP billing")).toBe(false);
+    } finally {
+      unlinkSync(path);
+    }
+  });
+
+  test("flags a missing IAP credentials file with the documented login command", async () => {
+    const cfg = localCfg();
+    cfg.google.project_id = "demo";
+    cfg.proxy.routes.push(iapRoute({ credentials: "/no/such/devctl-iap-doctor.json" }));
+    const report = await runDoctor(cfg, offlineHost());
+    const check = report.checks.find((c) => c.name === "IAP credentials billing");
+    expect(check?.severity).toBe("error");
+    expect(check?.message).toContain("file not found");
+    expect(check?.hint).toContain(IAP_LOGIN_COMMAND);
+    expect(check?.hint).toContain("client secret file that matches `client_id`");
+    expect(check?.hint).toContain("/auth login");
+    expect(check?.hint).toContain("devctl auth login");
+  });
+
+  test("flags an IAP credentials client_id mismatch with the documented login command", async () => {
+    const path = writeIapCredentialsFile("mismatch", {
+      type: "authorized_user",
+      client_id: "other.apps.googleusercontent.com",
+      refresh_token: "rt-1",
+    });
+    try {
+      const cfg = localCfg();
+      cfg.google.project_id = "demo";
+      cfg.proxy.routes.push(iapRoute({ credentials: path }));
+      const report = await runDoctor(cfg, offlineHost());
+      const check = report.checks.find((c) => c.name === "IAP credentials billing");
+      expect(check?.severity).toBe("error");
+      expect(check?.message).toContain("client_id does not match");
+      expect(check?.hint).toContain(IAP_LOGIN_COMMAND);
+      expect(check?.hint).toContain("or omit `client_id`");
+    } finally {
+      unlinkSync(path);
+    }
+  });
+
+  test("checks the IAP credentials file even when live mint is skipped for a missing audience", async () => {
+    const path = writeIapCredentialsFile("no-aud", {
+      type: "authorized_user",
+      client_id: IAP_CLIENT_ID,
+      refresh_token: "rt-1",
+    });
+    try {
+      const cfg = localCfg();
+      cfg.google.project_id = "demo";
+      cfg.proxy.routes.push(iapRoute({ audience: "", credentials: path }));
+      const host = offlineHost();
+      const report = await runDoctor(cfg, host);
+      expect(report.checks.find((c) => c.name === "IAP audience billing")?.severity).toBe("error");
+      expect(report.checks.find((c) => c.name === "IAP credentials billing")?.severity).toBe("ok");
+      expect(report.checks.some((c) => c.name === "IAP billing")).toBe(false);
+    } finally {
+      unlinkSync(path);
+    }
   });
 
   test("mints an IAP user token with the configured OAuth client", async () => {

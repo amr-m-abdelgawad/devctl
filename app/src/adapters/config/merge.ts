@@ -312,6 +312,36 @@ function decodeLlmSource(raw: Record<string, unknown>): LlmSourceConfig {
       paths: asStringArray(capture.paths),
     },
     poll_seconds: asNumber(raw.poll_seconds),
+    cost_per_token: decodeLlmCostPerToken(raw.cost_per_token),
+  };
+}
+
+// Missing keys become NaN so validate can reject a present but incomplete
+// block; an omitted cost_per_token stays undefined. Unusable values stay NaN
+// instead of asNumber's 0, so "invalid" / null cannot silently cost zero.
+function decodeCostRate(value: unknown): number {
+  if (typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return Number.NaN;
+}
+
+function decodeLlmCostPerToken(raw: unknown): LlmSourceConfig["cost_per_token"] {
+  if (raw === undefined) {
+    return undefined;
+  }
+  if (!isRecord(raw)) {
+    return { input: Number.NaN, output: Number.NaN };
+  }
+  return {
+    input: raw.input === undefined ? Number.NaN : decodeCostRate(raw.input),
+    output: raw.output === undefined ? Number.NaN : decodeCostRate(raw.output),
   };
 }
 

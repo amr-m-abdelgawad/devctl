@@ -102,6 +102,29 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("identity.type is required"))).toBe(true);
   });
 
+  test("warns when a proxy auth header contains ${identity. and stays silent otherwise", () => {
+    const warned = withService("api");
+    warned.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ headers: { "X-User": "${identity.user}" } }),
+    });
+    expect(validate(warned)).toContain(
+      "warning: proxy.routes[0].auth.headers.X-User contains ${identity. which is not resolved on proxy headers (only service env at start)",
+    );
+
+    const clean = withService("api");
+    clean.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ headers: { "identity-token": "${token}", "x-custom": "literal" } }),
+    });
+    expect(validate(clean).some((issue) => issue.includes("${identity."))).toBe(false);
+    expect(validate(clean)).toEqual([]);
+  });
+
   test("accepts an IAP user route with client_id and an env-ref client_secret", () => {
     const cfg = withService("api");
     cfg.proxy.routes.push({
@@ -821,6 +844,55 @@ describe("config validate", () => {
 
     source.via.routes = [""];
     expect(validate(cfg).some((issue) => issue.includes("via.routes[0] must be a non-empty name"))).toBe(true);
+  });
+
+  test("accepts cost_per_token on a proxy source and rejects it on litellm or with negative rates", () => {
+    const cfg = withService("litellm");
+    cfg.services.litellm!.ports = [{ name: "http", value: 4000, auto: false }];
+    cfg.proxy.routes.push({
+      name: "apigee-llm",
+      match: { host: "", path: "/llm" },
+      upstream: { url: "https://gateway.example/llm" },
+      auth: emptyRouteAuth(),
+    });
+    cfg.llm.enabled = true;
+    const source = emptyLlmSource();
+    source.name = "apigee-llm";
+    source.type = "proxy";
+    source.via.route = "apigee-llm";
+    source.cost_per_token = { input: 0.000001, output: 0.000002 };
+    cfg.llm.sources = [source];
+    expect(validate(cfg)).toEqual([]);
+
+    source.cost_per_token = { input: -1, output: 0.000002 };
+    expect(validate(cfg).some((issue) => issue.includes("cost_per_token.input must be >= 0"))).toBe(true);
+    source.cost_per_token = { input: 0.000001, output: -2 };
+    expect(validate(cfg).some((issue) => issue.includes("cost_per_token.output must be >= 0"))).toBe(true);
+
+    const litellm = emptyLlmSource();
+    litellm.name = "platform";
+    litellm.type = "litellm";
+    litellm.service = "litellm";
+    litellm.auth = { type: "bearer", token_env: "LITELLM_MASTER_KEY", header: "" };
+    litellm.cost_per_token = { input: 0.000001, output: 0.000002 };
+    cfg.llm.sources = [litellm];
+    expect(validate(cfg).some((issue) => issue.includes("cost_per_token is only valid on type: proxy"))).toBe(true);
+    const decoded = withService("api");
+    decoded.proxy.routes.push({
+      name: "llm-apps",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+    });
+    decoded.llm.enabled = true;
+    const badRates = emptyLlmSource();
+    badRates.name = "apps";
+    badRates.type = "proxy";
+    badRates.via.route = "llm-apps";
+    badRates.cost_per_token = { input: Number.NaN, output: Number.NaN };
+    decoded.llm.sources = [badRates];
+    expect(validate(decoded).some((issue) => issue.includes("cost_per_token.input must be >= 0"))).toBe(true);
+    expect(validate(decoded).some((issue) => issue.includes("cost_per_token.output must be >= 0"))).toBe(true);
   });
 
   test("rejects via.routes on a litellm source", () => {

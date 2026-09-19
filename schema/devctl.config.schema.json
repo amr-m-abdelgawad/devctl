@@ -728,7 +728,18 @@
         "management_port": { "type": "string" },
         "auth": { "$ref": "#/$defs/llmAuth" },
         "capture": { "$ref": "#/$defs/llmCapture" },
-        "poll_seconds": { "type": "number", "minimum": 0 }
+        "poll_seconds": { "type": "number", "minimum": 0 },
+        "cost_per_token": { "$ref": "#/$defs/llmCostPerToken" }
+      }
+    },
+    "llmCostPerToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["input", "output"],
+      "description": "proxy source only: per-token rates used to estimate call cost as promptTokens * input + completionTokens * output. Both keys required when the block is present. Invalid on litellm and plugin sources.",
+      "properties": {
+        "input": { "type": "number", "minimum": 0, "description": "Cost per prompt/input token." },
+        "output": { "type": "number", "minimum": 0, "description": "Cost per completion/output token." }
       }
     },
     "llmAuth": {

@@ -107,10 +107,12 @@ export const knownLlmSource = [
   "auth",
   "capture",
   "poll_seconds",
+  "cost_per_token",
 ];
 export const knownLlmAuth = ["type", "token_env", "header"];
 export const knownLlmVia = ["route", "routes"];
 export const knownLlmCapture = ["prompts", "max_bytes", "paths"];
+export const knownLlmCostPerToken = ["input", "output"];
 
 export const knownCapabilities = ["google", "google_api", "iap", "network", "service_identity", "local_http"];
 

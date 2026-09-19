@@ -53,6 +53,7 @@ import {
   knownLlmAuth,
   knownLlmVia,
   knownLlmCapture,
+  knownLlmCostPerToken,
 } from "./known.ts";
 import { collectUnknownFields, servicePathKnown } from "./strict.ts";
 
@@ -139,8 +140,18 @@ describe("config allowlist/schema parity", () => {
       ["knownLlmAuth", knownLlmAuth, defs.llmAuth ?? {}],
       ["knownLlmVia", knownLlmVia, defs.llmVia ?? {}],
       ["knownLlmCapture", knownLlmCapture, defs.llmCapture ?? {}],
+      ["knownLlmCostPerToken", knownLlmCostPerToken, defs.llmCostPerToken ?? {}],
     ];
     for (const [name, known, node] of cases) expectParity(name, known, node);
+  });
+
+  test("unknown cost_per_token.foo is rejected; input and output are known", () => {
+    expect(collectUnknownFields({
+      sources: [{ name: "x", type: "proxy", cost_per_token: { input: 1, output: 2, foo: true } }],
+    }, "llm")).toContain("llm.sources.0.cost_per_token.foo");
+    expect(collectUnknownFields({
+      sources: [{ name: "x", type: "proxy", cost_per_token: { input: 1, output: 2 } }],
+    }, "llm")).toEqual([]);
   });
 
   test("unknown via.foo is rejected; via.routes is known", () => {

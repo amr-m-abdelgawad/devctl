@@ -133,11 +133,14 @@ custom path (not the default ADC location). Notes:
   route that has a credentials file: `true` when the file exists, is
   `authorized_user` JSON with `refresh_token` and a `client_id` that matches the
   route, otherwise `false`. Routes that are not IAP or have no credentials file
-  omit the field.
+  omit the field. `devctl doctor` reports the same inspect as `IAP credentials
+  <route>` and hints `gcloud auth application-default login` with a client
+  secret file that matches `client_id` (or omit `client_id`) when the file is
+  missing or mismatched.
 
 ### Extra token headers
 
-Some IAP-protected upstreams want the minted token under an additional header, not just `Authorization: Bearer …`. `auth.headers` injects extra request headers on a token-minting route; `${token}` in a value is replaced with the same token used for the bearer:
+Some IAP-protected upstreams want the minted token under an additional header, not just `Authorization: Bearer …`. `auth.headers` injects extra request headers on a token-minting route; `${token}` in a value is replaced with the same token used for the bearer at request time. These header values are **not** run through `resolveEnvMap` — `${identity.user}` (and other env refs) stay literal, including on a service `proxy:` fragment, which is merged into `proxy.routes` at load. Use service env if the process needs the detected identity. `devctl config validate` warns if `${identity.` appears in a header value:
 
 ```yaml
       auth:

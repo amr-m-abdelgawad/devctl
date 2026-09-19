@@ -26,6 +26,7 @@ The TUI **Doctor** screen (`/doctor` or `d`) re-runs on every visit (`r` also re
 - Live IAM Credentials / Resource Manager / IAP API reachability via Service Usage (reported, **never** auto-enabled)
 - Impersonation for each configured service account
 - IAP audiences (including SA impersonation)
+- IAP credentials file on each route that sets `auth.credentials` or folded `proxy.credentials` (exists, `authorized_user` JSON, `refresh_token`, `client_id` matches the route). Failures hint `gcloud auth application-default login` with a client secret file that matches `client_id` (or omit `client_id`); TUI `/auth login` or `devctl auth login`
 - Configured `doctor.tools` binaries (demo: `python3`, `bun`)
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares `container` (every such service in config, not only the active profile — the demo probes Docker because `postgres` is always declared)
 - Container image USER is not root (warns when inspect shows root; set `container.user`)

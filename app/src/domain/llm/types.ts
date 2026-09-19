@@ -111,3 +111,19 @@ export function normalizeLlmPathPrefix(prefix: string): string {
 export function llmPollSeconds(value: number): number {
   return value > 0 ? value : DEFAULT_LLM_POLL_SECONDS;
 }
+
+// Estimate spend from a captured usage split and configured per-token rates.
+// Undefined when rates are missing or either prompt/completion count is
+// missing — do not invent cost from totalTokens alone.
+export function estimateLlmCost(
+  usage: LlmUsage | undefined,
+  rates: { input: number; output: number } | undefined,
+): number | undefined {
+  if (rates === undefined || usage === undefined) {
+    return undefined;
+  }
+  if (usage.promptTokens === undefined || usage.completionTokens === undefined) {
+    return undefined;
+  }
+  return usage.promptTokens * rates.input + usage.completionTokens * rates.output;
+}

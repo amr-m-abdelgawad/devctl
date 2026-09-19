@@ -174,7 +174,34 @@ describe("ProxyCaptureSink recorder", () => {
     expect(call?.model).toBe("gpt-4o");
     expect(call?.source).toBe("apigee-llm");
     expect(call?.usage?.totalTokens).toBe(2);
+    expect(call?.cost).toBeUndefined();
     expect((call?.response as { choices: Array<{ message: { content: string } }> }).choices[0]?.message.content).toBe("yo");
+  });
+
+  test("fills cost when the source has cost_per_token and the completion reports usage", async () => {
+    const store = new LlmCallManager();
+    await drive(cfgWithProxySource((source) => {
+      source.cost_per_token = { input: 0.001, output: 0.002 };
+    }), store);
+    expect(store.get("req-9")?.cost).toBe(0.003);
+  });
+
+  test("leaves cost undefined when cost_per_token is set but the completion has no usage", async () => {
+    const store = new LlmCallManager();
+    const sink = new ProxyCaptureSink({
+      cfg: () => cfgWithProxySource((source) => {
+        source.cost_per_token = { input: 0.001, output: 0.002 };
+      }),
+      store,
+    });
+    const rec = sink.begin({ routeName: "apigee-llm", method: "POST", path: "/llm/v1/chat/completions", requestHeaders: jsonHeaders });
+    if (!rec) throw new Error("expected a recorder");
+    rec.setRequestBody(Buffer.from(JSON.stringify({ model: "gpt-4o", messages: [{ role: "user", content: "hi" }] })));
+    rec.setResponseContentType("application/json");
+    rec.appendResponse(Buffer.from(JSON.stringify({ id: "chatcmpl-9", model: "gpt-4o", choices: [] })));
+    await rec.finish({ status: 200, durationMs: 10, requestId: "req-nousage", timestamp: "2026-01-01T00:00:00.000Z" });
+    expect(store.get("req-nousage")?.usage).toBeUndefined();
+    expect(store.get("req-nousage")?.cost).toBeUndefined();
   });
 
   test("strips bodies when capture.prompts is false", async () => {

@@ -8,6 +8,7 @@ import {
   type LlmCallIngest,
   type LlmOperation,
   type LlmUsage,
+  estimateLlmCost,
 } from "../../domain/llm/llm.ts";
 import { splitSseFrames, sseEventData } from "../../domain/traffic/sse-frames.ts";
 import { asRecord, firstNumber, firstString, parseJsonish } from "./json.ts";
@@ -38,6 +39,9 @@ export type ProxyCaptureInput = {
   // parsed JSON (or raw SSE text) instead of reassembling a chat.completion,
   // and extract model/usage/finish_reason only when those standard keys exist.
   raw?: boolean;
+  // Optional per-token rates from the source's cost_per_token. Cost is filled
+  // only when both prompt and completion token counts are present.
+  costPerToken?: { input: number; output: number };
 };
 
 // Map a captured OpenAI-compatible completion (JSON or reassembled SSE) into the
@@ -56,6 +60,7 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
   const errText = errorText(respRec, input.status);
   const failed = input.status >= HTTP_ERROR_MIN || errText !== "";
   const finishReason = capturedFinishReason(respRec, input.raw === true);
+  const usage = usageOf(respRec);
 
   return {
     id: input.requestId,
@@ -69,8 +74,8 @@ export function mapProxyCapture(input: ProxyCaptureInput): LlmCallIngest {
     routedModel: routedModel !== "" && routedModel !== requestedModel ? routedModel : undefined,
     vendor: undefined,
     operation: operationFor(input.path, reqRec),
-    usage: usageOf(respRec),
-    cost: undefined,
+    usage,
+    cost: estimateLlmCost(usage, input.costPerToken),
     caller: input.caller,
     request: input.requestOmitted ? undefined : (request ?? undefined),
     response: response ?? undefined,

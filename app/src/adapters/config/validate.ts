@@ -81,6 +81,10 @@ export function unresolvedLlmSourceTypes(cfg: DevctlConfig): Array<{ source: str
   return unresolved;
 }
 
+export function isValidationWarning(issue: string): boolean {
+  return issue.startsWith("warning:");
+}
+
 export function validate(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
   if (cfg.version === 0) {
@@ -554,7 +558,15 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
 }
 
 function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
-  return validateAuthConfig(route.auth, prefix);
+  const issues = validateAuthConfig(route.auth, prefix);
+  for (const [name, value] of Object.entries(route.auth.headers ?? {})) {
+    if (value.includes("${identity.")) {
+      issues.push(
+        `warning: ${prefix}.auth.headers.${name} contains \${identity. which is not resolved on proxy headers (only service env at start)`,
+      );
+    }
+  }
+  return issues;
 }
 
 function validateRouteInspect(route: RouteConfig, prefix: string, pluginsConfigured: boolean): string[] {
@@ -814,8 +826,28 @@ function validateLlmSource(cfg: DevctlConfig, source: LlmSourceConfig, prefix: s
   }
   issues.push(...validateLlmAuth(source, prefix));
   issues.push(...validateLlmCapture(source, prefix));
+  issues.push(...validateLlmCostPerToken(source, prefix));
   if (source.poll_seconds < 0) {
     issues.push(`${prefix}.poll_seconds must be >= 0`);
+  }
+  return issues;
+}
+
+function validateLlmCostPerToken(source: LlmSourceConfig, prefix: string): string[] {
+  if (source.cost_per_token === undefined) {
+    return [];
+  }
+  const issues: string[] = [];
+  const kind = source.type.trim().toLowerCase();
+  if (kind !== LLM_SOURCE_TYPE_PROXY) {
+    issues.push(`${prefix}.cost_per_token is only valid on type: ${LLM_SOURCE_TYPE_PROXY}`);
+  }
+  const { input, output } = source.cost_per_token;
+  if (typeof input !== "number" || !Number.isFinite(input) || input < 0) {
+    issues.push(`${prefix}.cost_per_token.input must be >= 0`);
+  }
+  if (typeof output !== "number" || !Number.isFinite(output) || output < 0) {
+    issues.push(`${prefix}.cost_per_token.output must be >= 0`);
   }
   return issues;
 }
