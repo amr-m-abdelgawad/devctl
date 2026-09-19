@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService, emptyProfile } from "../../domain/config/types.ts";
-import { formatBodySummary, logRecord } from "../../domain/logs/logs.ts";
+import { formatBodySummary, logRecord, REQUEST_ID_ATTR } from "../../domain/logs/logs.ts";
 import { ConfigurationReloadFailed } from "../../shared/events.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
 import { alreadyUpNames, appendVisibleLogs, canStartAll, CHROME_RESERVED, chromeReserved, clipText, commandSelectOptions, compactChrome, COMPACT_CHROME_HEIGHT, confirmCopy, confirmHints, countRunning, cycleLogService, defaultProfileName, displayLogLevel, ENV_KEY_MAX, ENV_KEY_MIN, ENV_VALUE_MIN, envDisplayValue, envTableWidths, explicitServices, facetFilterCatalog, facetServiceCounts, factTableColumns, filterLogs, fleetFacts, focusedServices, foldLogLines, formatLoadAvg, formatLogDetails, formatLogLine, formatCpuPercent, formatMemoryKB, formatRatioPercent, formatStarted, formatStopped, formatUptime, footerHints, googleProjectDisplay, groupedCommands, HEADER_NARROW_WIDTH, HEADER_STACK_WIDTH, headerStatusChips, INTERNAL_LOG_SERVICES, isActiveRuntime, leftoverCopy, leftoverTone, loadCopy, loadPerCpu, loadTone, logCursorStep, logFilterCatalog, logFilterSources, logMessageSpans, logChromeWidth, logMessageWidth, LOG_TIME_COL, logPaneInnerWidth, logPinStart, logFollowMaxScroll, isLogFollowBottom, nextLogFollowAction, logRowExpanded, logServiceColumnWidth, logServiceCounts, logViewWindow, logWrapLabel, memoryTone, memoryUsedKB, mergeLoadedPage, NAV_ITEMS, navActiveIndex, navItemForDigit, navTabLabel, needsOlderLogPage, nextLogWrapMode, nextScreen, noneStarted, overlayRect, padClip, pendingPlanWaves, pickLogService, planActionCopy, planHeadline, planNextAction, planOverlayHeight, planProgress, planRowNote, planServices, planTitle, platformLabel, prependOlderPage, prettyPrintLogRaw, prevScreen, previousSessionNote, reloadFailureMessage, renderBar, restartDependents, runningLabel, runtimeEnvNeedsRestart, runtimeUptime, screenListCount, selectedSlashCommand, serviceCheckLabel, serviceCommandText, serviceEnvEntries, serviceEnvLabel, serviceEnvOptions, serviceFleetStats, serviceHealthText, serviceIdentityText, serviceListInnerWidth, serviceListPaneWidth, serviceNameColumnWidth, servicePortsText, serviceRestartText, serviceRowShowsEnv, serviceStatusLabel, shouldConfirmEnvSwitch, paletteOptions, slashWindowItems, slashWindowStart, sparkline, STATS_FACT_GAP, statsPaneWidth, statsServiceColumns, statusChipTone, statusStripChips, stripAnsi, tabChipWidth, topLogSources, usesTrafficHealth, visibleHints, visibleLogErrorCount, visibleTabRange, waveCardTitle, waveStatus, wrapLogMessage } from "./helpers.ts";
@@ -36,7 +36,7 @@ describe("TUI helpers", () => {
       pid: 0,
       seq: 1,
     });
-    const serviceEvent = logEv({ timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", level: "INFO", message: "ready", pid: 0, seq: 1 });
+    const serviceEvent = logEv({ timestamp: "2026-08-30T00:00:05.000Z", service: "api", source: "api", level: "INFO", message: "ready", pid: 0, seq: 2 });
     // Stopping every service must not clear the view — there's no `snap` parameter to react to that.
     expect(appendVisibleLogs([], [systemEvent, serviceEvent], "", 50)).toEqual([systemEvent, serviceEvent]);
     const later = logEv({ timestamp: "2026-08-30T00:01:00.000Z", service: "api", source: "api", level: "INFO", message: "ready again", pid: 0, seq: 1 });
@@ -62,6 +62,52 @@ describe("TUI helpers", () => {
       logEv({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", level: "ERROR", message: "failed" }),
       logEv({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", level: "FATAL", message: "stopped" }),
     ])).toBe(2);
+  });
+
+  test("appendVisibleLogs replaces a live row when the same seq is re-emitted", () => {
+    const first = logEv({
+      timestamp: "2026-08-30T00:00:01.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "ERROR",
+      message: "poll_activity_task_queue",
+      seq: 4,
+    });
+    const tagged = logEv({
+      timestamp: "2026-08-30T00:00:01.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "ERROR",
+      message: "poll_activity_task_queue",
+      seq: 4,
+      request_id: "req-hop-2",
+    });
+    const next = appendVisibleLogs([first], [tagged], "", 50);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
+  });
+
+  test("appendVisibleLogs keeps one row when a batch repeats a fresh seq", () => {
+    const first = logEv({
+      timestamp: "2026-08-30T00:00:01.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "ERROR",
+      message: "poll_activity_task_queue",
+      seq: 7,
+    });
+    const tagged = logEv({
+      timestamp: "2026-08-30T00:00:01.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "ERROR",
+      message: "poll_activity_task_queue",
+      seq: 7,
+      request_id: "req-hop-6",
+    });
+    const next = appendVisibleLogs([], [first, tagged], "", 50);
+    expect(next).toHaveLength(1);
+    expect(next[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-6");
   });
 
   test("live log append filters only the incoming batch and keeps the cap", () => {
@@ -159,6 +205,12 @@ describe("TUI helpers", () => {
     const catalog = facetFilterCatalog(names, facets);
     expect(catalog.map((row) => row.name)).toEqual(["", "auth", "api", "devctl"]);
     expect(catalog.map((row) => row.count)).toEqual([5, 2, 2, 1]);
+  });
+
+  test("facetFilterCatalog all-count stays the unscoped service total", () => {
+    const names = ["api", "worker"];
+    const facets = { total: 2, byService: { api: 2, worker: 1 }, byLevel: {}, bySource: {} };
+    expect(facetFilterCatalog(names, facets).map((row) => row.count)).toEqual([3, 2, 1]);
   });
 
   test("filterLogs and logViewWindow stay fast over a 50,000-event client buffer", () => {

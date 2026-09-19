@@ -20,6 +20,7 @@ import {
   createLogMatcher,
   logMessage,
   logRecord,
+  PROXY_HOP_CORRELATE_WINDOW_MS,
   parseJSONLogLine,
   REQUEST_ID_ATTR,
   SeverityError,
@@ -806,5 +807,244 @@ describe("LogManager dedupe_access_line", () => {
     const events = mgr.query({});
     expect(events).toHaveLength(1);
     expect(logMessage(events[0]!)).toBe("INFO GET /api/health\n             200");
+  });
+});
+
+describe("LogManager proxy hop request-id tagging", () => {
+  test("copies the proxy request id onto a nearby worker SDK line", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "correlate", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-1",
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    const events = mgr.query({});
+    expect(events).toHaveLength(2);
+    expect(events[1]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-1");
+  });
+
+  test("tags an earlier worker line when the proxy hop arrives second", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "correlate-late", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-2",
+    });
+    const events = mgr.query({});
+    expect(events).toHaveLength(2);
+    expect(events[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
+  });
+
+  test("re-emits and persists a reverse-order request-id update", async () => {
+    const bus = new Bus(8);
+    const live: string[] = [];
+    bus.subscribe((event) => {
+      if (event.type === LogReceived) {
+        const rec = event.payload?.event as { service: string; attributes?: Record<string, unknown> };
+        live.push(`${rec.service}:${String(rec.attributes?.[REQUEST_ID_ATTR] ?? "")}`);
+      }
+    });
+    const dir = tmp();
+    const mgr = new LogManager(100, bus, new Detector([], []), true, dir, "correlate-persist", 0, 0);
+    const seen: string[] = [];
+    mgr.setOnRecord((event) => {
+      seen.push(`${event.service}:${String(event.attributes[REQUEST_ID_ATTR] ?? "")}`);
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-3",
+    });
+    expect(seen).toEqual(["worker:", "worker:req-hop-3", "proxy:req-hop-3"]);
+    expect(live).toEqual(seen);
+    await mgr.flush();
+    const reloaded = loadSessionEvents("session-correlate-persist", dir);
+    expect(reloaded).toHaveLength(2);
+    expect(reloaded[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-3");
+    expect(reloaded[1]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-3");
+  });
+
+  test("keeps every candidate still inside the 50ms window", () => {
+    const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-window", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    for (let i = 0; i < 80; i += 1) {
+      mgr.append({
+        timestamp: "2026-09-19T00:00:00.010Z",
+        service: "noise",
+        source: "stdout",
+        level: "",
+        message: `noise ${i}`,
+        pid: 2,
+      });
+    }
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.020Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-4",
+    });
+    const worker = mgr.query({}).find((event) => event.service === "worker");
+    expect(worker?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-4");
+  });
+
+  test("future-dated noise does not evict an in-window pair", () => {
+    const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-arrival", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-5",
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:05.000Z",
+      service: "noise",
+      source: "stdout",
+      level: "",
+      message: "unrelated future-dated line",
+      pid: 3,
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    const worker = mgr.query({}).find((event) => event.service === "worker");
+    expect(worker?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-5");
+  });
+
+  test("does not retain a pair after 50ms of ingest arrival time", async () => {
+    const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-expire", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-6",
+    });
+    const arrivalExpireSlackMs = 25;
+    await Bun.sleep(PROXY_HOP_CORRELATE_WINDOW_MS + arrivalExpireSlackMs);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    await mgr.flush();
+    const worker = mgr.query({}).find((event) => event.service === "worker");
+    expect(worker).toBeDefined();
+    expect(worker?.attributes[REQUEST_ID_ATTR]).toBeUndefined();
+  });
+
+  test("folded process lines still tag when the proxy arrives inside the window", async () => {
+    const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-fold-in", 0, 0);
+    mgr.setServiceLogs({
+      worker: { stdout: true, stderr: true, multiline: { max_wait_ms: 500 } },
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    const arrivalInsideWindowMs = 20;
+    await Bun.sleep(arrivalInsideWindowMs);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-8",
+    });
+    const worker = mgr.query({}).find((event) => event.service === "worker");
+    expect(worker?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-8");
+  });
+
+  test("folded process lines keep their first-line arrival time", async () => {
+    const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-fold", 0, 0);
+    mgr.setServiceLogs({
+      worker: { stdout: true, stderr: true, multiline: { max_wait_ms: 500 } },
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    const arrivalExpireSlackMs = 25;
+    await Bun.sleep(PROXY_HOP_CORRELATE_WINDOW_MS + arrivalExpireSlackMs);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-7",
+    });
+    const worker = mgr.query({}).find((event) => event.service === "worker");
+    expect(worker).toBeDefined();
+    expect(worker?.attributes[REQUEST_ID_ATTR]).toBeUndefined();
   });
 });

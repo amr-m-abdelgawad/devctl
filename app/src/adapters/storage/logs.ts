@@ -14,6 +14,10 @@ import {
   createSearchMatcher,
   dedupeLogsByRequestId,
   isErrorSeverity,
+  PROXY_HOP_CORRELATE_WINDOW_MS,
+  requestIdAttribute,
+  shouldTagServiceLogWithProxyHop,
+  withRequestId,
   isPlainObject,
   isProcessLogSource,
   matchesLogDimensions,
@@ -43,6 +47,11 @@ const SESSION_FORMAT_FILE = "FORMAT";
 const SESSION_FORMAT_JSONL = "jsonl";
 
 type LogCursor = { session: string; seq: number };
+
+type CorrelateCandidate = {
+  readonly event: LogRecord;
+  readonly arrivedMs: number;
+};
 
 function encodeLogCursor(c: LogCursor): string {
   return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
@@ -93,6 +102,7 @@ export class LogManager {
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
   private lastByServicePid = new Map<string, LogRecord>();
+  private recentCorrelate: CorrelateCandidate[] = [];
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -316,15 +326,17 @@ export class LogManager {
     if (folded.severityNumber !== SeverityUnspecified && ev.severityNumber === undefined) {
       ev.severityNumber = folded.severityNumber;
     }
-    return this.commitIngest(ev);
+    return this.commitIngest(ev, folded.arrivedMs);
   }
 
-  private commitIngest(ev: LogIngest): LogRecord | undefined {
+  private commitIngest(ev: LogIngest, arrivedMs = Date.now()): LogRecord | undefined {
     const skipParse = ev.body !== undefined || ev.source === "otlp";
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
     const built = buildLogRecord(ev, parsed, this.nextSeq);
-    const next = this.detector ? redactLogRecord(this.detector, built) : built;
+    const redacted = this.detector ? redactLogRecord(this.detector, built) : built;
+    this.expireCorrelate(Date.now());
+    const next = this.attachProxyRequestId(redacted, arrivedMs);
     if (this.shouldDropAccessDuplicate(ev, next)) {
       return undefined;
     }
@@ -342,20 +354,79 @@ export class LogManager {
       this.events[this.eventStart] = next;
       this.eventStart = (this.eventStart + 1) % this.max;
     }
-    this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.severityText }));
-    this.onRecord?.(next);
-    if (this.persist) {
-      const text = `${JSON.stringify(next)}\n`;
-      const key = safeServiceFile(next.service);
-      const stream = this.streamFor(key);
-      this.lastWrite.set(
-        key,
-        new Promise((resolve) => {
-          stream.write(text, () => resolve());
-        }),
-      );
-    }
+    this.tagRecentServiceLogs(next, arrivedMs);
+    this.rememberCorrelate(next, arrivedMs);
+    this.publishRecord(next);
     return next;
+  }
+
+  private attachProxyRequestId(event: LogRecord, arrivedMs: number): LogRecord {
+    if (requestIdAttribute(event) !== "") {
+      return event;
+    }
+    for (const prev of this.recentCorrelate) {
+      if (this.inCorrelateArrivalWindow(prev.arrivedMs, arrivedMs) && shouldTagServiceLogWithProxyHop(prev.event, event)) {
+        return withRequestId(event, requestIdAttribute(prev.event));
+      }
+    }
+    return event;
+  }
+
+  private tagRecentServiceLogs(event: LogRecord, arrivedMs: number): void {
+    const requestId = requestIdAttribute(event);
+    if (requestId === "") {
+      return;
+    }
+    for (const prev of this.recentCorrelate) {
+      if (this.inCorrelateArrivalWindow(prev.arrivedMs, arrivedMs) && shouldTagServiceLogWithProxyHop(event, prev.event)) {
+        this.replaceRecord(prev.event.seq, withRequestId(prev.event, requestId));
+      }
+    }
+  }
+
+  private inCorrelateArrivalWindow(prevArrivedMs: number, arrivedMs: number): boolean {
+    return Math.abs(prevArrivedMs - arrivedMs) <= PROXY_HOP_CORRELATE_WINDOW_MS;
+  }
+
+  private replaceRecord(seq: number, updated: LogRecord): void {
+    const count = this.events.length;
+    for (let offset = 0; offset < count; offset += 1) {
+      const index = (this.eventStart + offset) % count;
+      if (this.events[index]?.seq === seq) {
+        this.events[index] = updated;
+        break;
+      }
+    }
+    this.recentCorrelate = this.recentCorrelate.map((row) =>
+      row.event.seq === seq ? { event: updated, arrivedMs: row.arrivedMs } : row,
+    );
+    this.publishRecord(updated);
+  }
+
+  private expireCorrelate(nowMs: number): void {
+    const cutoff = nowMs - PROXY_HOP_CORRELATE_WINDOW_MS;
+    this.recentCorrelate = this.recentCorrelate.filter((row) => row.arrivedMs >= cutoff);
+  }
+
+  private rememberCorrelate(event: LogRecord, arrivedMs = Date.now()): void {
+    this.recentCorrelate.push({ event, arrivedMs });
+  }
+
+  private publishRecord(event: LogRecord): void {
+    this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
+    this.onRecord?.(event);
+    if (!this.persist) {
+      return;
+    }
+    const text = `${JSON.stringify(event)}\n`;
+    const key = safeServiceFile(event.service);
+    const stream = this.streamFor(key);
+    this.lastWrite.set(
+      key,
+      new Promise((resolve) => {
+        stream.write(text, () => resolve());
+      }),
+    );
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {
@@ -520,7 +591,7 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogRec
 }
 
 function loadJsonlSession(dir: string): LogRecord[] {
-  const events: LogRecord[] = [];
+  const bySeq = new Map<number, LogRecord>();
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".jsonl")) {
       continue;
@@ -532,11 +603,11 @@ function loadJsonlSession(dir: string): LogRecord[] {
       }
       const record = parseStoredLogRecord(line);
       if (record) {
-        events.push(record);
+        bySeq.set(record.seq, record);
       }
     }
   }
-  return events.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
 }
 
 function loadLegacySession(dir: string): LogRecord[] {

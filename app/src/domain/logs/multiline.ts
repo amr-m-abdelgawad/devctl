@@ -23,6 +23,7 @@ export type FoldedLog = {
   ingest: LogIngest;
   body: string;
   severityNumber: number;
+  arrivedMs: number;
 };
 
 type ResolvedMultiline = {
@@ -35,6 +36,7 @@ type ResolvedMultiline = {
 type ServiceBuffer = {
   first: LogIngest;
   lines: string[];
+  firstAt: number;
   lastAt: number;
   inTraceback: boolean;
   sawTracebackException: boolean;
@@ -123,6 +125,7 @@ export class MultilineAssembler {
     return {
       first: ingest,
       lines: [line],
+      firstAt: nowMs,
       lastAt: nowMs,
       inTraceback: TRACEBACK_START.test(line),
       sawTracebackException: false,
@@ -150,6 +153,7 @@ export class MultilineAssembler {
       ingest: { ...buffer.first, message: raw, raw },
       body,
       severityNumber: severityFromFoldedLines(buffer.lines),
+      arrivedMs: buffer.firstAt,
     };
   }
 
