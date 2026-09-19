@@ -548,6 +548,14 @@ export function facetServiceCounts(names: string[], byService: Record<string, nu
 // Facets-based counterpart to logFilterCatalog() — same shape, but counts
 // come from the server's true totals for the active filter instead of
 // whatever page of events happens to be loaded client-side.
+export function facetAllCount(facets: LogFacets): number {
+  let total = 0;
+  for (const count of Object.values(facets.byService)) {
+    total += count;
+  }
+  return total;
+}
+
 export function facetFilterCatalog(
   names: string[],
   facets: LogFacets,
@@ -555,7 +563,7 @@ export function facetFilterCatalog(
 ): { name: string; count: number }[] {
   const pseudoEvents = Object.keys(facets.byService).map((service) => ({ service }));
   const sources = logFilterSources(names, pseudoEvents, extra);
-  return [{ name: "", count: facets.total }, ...facetServiceCounts(sources, facets.byService)];
+  return [{ name: "", count: facetAllCount(facets) }, ...facetServiceCounts(sources, facets.byService)];
 }
 
 export function runningLabel(running: number, total: number): string {

@@ -161,6 +161,12 @@ describe("TUI helpers", () => {
     expect(catalog.map((row) => row.count)).toEqual([5, 2, 2, 1]);
   });
 
+  test("facetFilterCatalog all-count stays the unscoped service total", () => {
+    const names = ["api", "worker"];
+    const facets = { total: 2, byService: { api: 2, worker: 1 }, byLevel: {}, bySource: {} };
+    expect(facetFilterCatalog(names, facets).map((row) => row.count)).toEqual([3, 2, 1]);
+  });
+
   test("filterLogs and logViewWindow stay fast over a 50,000-event client buffer", () => {
     // cfg.logs.max_memory_events defaults to 50,000 — even with bounded
     // paging, a long-running TUI session that never clears its view can

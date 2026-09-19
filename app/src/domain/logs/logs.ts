@@ -14,3 +14,4 @@ export * from "./regex.ts";
 export * from "./pagination.ts";
 export * from "./dedupe.ts";
 export * from "./access-line.ts";
+export * from "./correlate.ts";

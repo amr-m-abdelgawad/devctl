@@ -24,7 +24,7 @@ process stdout/stderr
 
 TUI/MCP **history** uses `logs_page` / `queryPage` (cursors in `domain/logs/pagination.ts`), not the event stream alone.
 
-Filters: service, level, search/regex, source, since/until, request_id, trace_id, attribute key/value. Optional query-time `dedupeRequestId` collapses nearby events that share `devctl.request_id` after the page is fetched — service stdout still will not get that id unless the process logged it. Facets (`logs_stats`) are the cheap poll.
+Filters: service, level, search/regex, source, since/until, request_id, trace_id, attribute key/value. Ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same method. Optional query-time `dedupeRequestId` then collapses those pairs after the page is fetched. Facets (`logs_stats`) are the cheap poll.
 
 Parsers: built-in line parser + plugin `LogParser`. Python-literal and OTLP AnyValue decoders live in domain so MCP/TUI share them.
 

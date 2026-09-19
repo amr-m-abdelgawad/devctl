@@ -808,3 +808,53 @@ describe("LogManager dedupe_access_line", () => {
     expect(logMessage(events[0]!)).toBe("INFO GET /api/health\n             200");
   });
 });
+
+describe("LogManager proxy hop request-id tagging", () => {
+  test("copies the proxy request id onto a nearby worker SDK line", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "correlate", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-1",
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    const events = mgr.query({});
+    expect(events).toHaveLength(2);
+    expect(events[1]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-1");
+  });
+
+  test("tags an earlier worker line when the proxy hop arrives second", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "correlate-late", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "worker",
+      source: "stdout",
+      level: "",
+      message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
+      pid: 1,
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.010Z",
+      service: "proxy",
+      source: "proxy",
+      level: "WARN",
+      message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
+      pid: 0,
+      request_id: "req-hop-2",
+    });
+    const events = mgr.query({});
+    expect(events).toHaveLength(2);
+    expect(events[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
+  });
+});

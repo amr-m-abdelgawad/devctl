@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowClockwiseIcon,
   ArrowsLeftRightIcon,
@@ -59,6 +59,7 @@ import {
   withDismissed,
   writeIdList,
 } from "./notifications.ts";
+import { mergeChipNames } from "./chips.ts";
 
 const POLL_MS = 2000;
 const WINDOW = 60;
@@ -131,6 +132,8 @@ export function App() {
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
   const [logFilter, setLogFilter] = useState<{ service: string; level: string }>({ service: "", level: "" });
+  const [seenLogServices, setSeenLogServices] = useState<string[]>([]);
+  const [seenLogLevels, setSeenLogLevels] = useState<string[]>([]);
   const [pollError, setPollError] = useState("");
   const [rates, setRates] = useState<RateSample[]>([]);
   const [traceMsById, setTraceMsById] = useState<Record<string, number>>({});
@@ -496,20 +499,26 @@ export function App() {
     };
   }, [route.name, route.traceId, requests]);
 
-  const serviceChips = useMemo(() => {
-    const names = new Set<string>();
-    for (const row of logs?.events ?? errors) {
-      names.add(row.service);
-    }
-    return [...names].sort();
-  }, [logs, errors]);
-  const levelChips = useMemo(() => {
-    const names = new Set<string>();
-    for (const row of logs?.events ?? errors) {
-      names.add(row.level || row.severityText);
-    }
-    return [...names].sort();
-  }, [logs, errors]);
+  useEffect(() => {
+    const rows = [...(logs?.events ?? []), ...errors];
+    setSeenLogServices((prev) =>
+      mergeChipNames(
+        prev,
+        services.map((row) => row.name),
+        rows.map((row) => row.service),
+        [logFilter.service],
+      ),
+    );
+    setSeenLogLevels((prev) =>
+      mergeChipNames(
+        prev,
+        rows.map((row) => row.level || row.severityText),
+        [logFilter.level],
+      ),
+    );
+  }, [logs, errors, services, logFilter.service, logFilter.level]);
+  const serviceChips = seenLogServices;
+  const levelChips = seenLogLevels;
 
   const ratePoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.reqs, row.errs] }));
   const latPoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.p50, row.p95] }));

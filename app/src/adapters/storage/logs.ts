@@ -14,6 +14,9 @@ import {
   createSearchMatcher,
   dedupeLogsByRequestId,
   isErrorSeverity,
+  requestIdAttribute,
+  shouldTagServiceLogWithProxyHop,
+  withRequestId,
   isPlainObject,
   isProcessLogSource,
   matchesLogDimensions,
@@ -38,6 +41,7 @@ import {
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
+const CORRELATE_RECENT_MAX = 64;
 const SESSION_PREFIX = "session-";
 const SESSION_FORMAT_FILE = "FORMAT";
 const SESSION_FORMAT_JSONL = "jsonl";
@@ -93,6 +97,7 @@ export class LogManager {
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
   private lastByServicePid = new Map<string, LogRecord>();
+  private recentCorrelate: LogRecord[] = [];
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -324,7 +329,8 @@ export class LogManager {
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
     const built = buildLogRecord(ev, parsed, this.nextSeq);
-    const next = this.detector ? redactLogRecord(this.detector, built) : built;
+    const redacted = this.detector ? redactLogRecord(this.detector, built) : built;
+    const next = this.attachProxyRequestId(redacted);
     if (this.shouldDropAccessDuplicate(ev, next)) {
       return undefined;
     }
@@ -342,6 +348,8 @@ export class LogManager {
       this.events[this.eventStart] = next;
       this.eventStart = (this.eventStart + 1) % this.max;
     }
+    this.tagRecentServiceLogs(next);
+    this.rememberCorrelate(next);
     this.bus?.publish(newEvent(LogReceived, next.service, { event: next, level: next.severityText }));
     this.onRecord?.(next);
     if (this.persist) {
@@ -356,6 +364,49 @@ export class LogManager {
       );
     }
     return next;
+  }
+
+  private attachProxyRequestId(event: LogRecord): LogRecord {
+    if (requestIdAttribute(event) !== "") {
+      return event;
+    }
+    for (const prev of this.recentCorrelate) {
+      if (shouldTagServiceLogWithProxyHop(prev, event)) {
+        return withRequestId(event, requestIdAttribute(prev));
+      }
+    }
+    return event;
+  }
+
+  private tagRecentServiceLogs(event: LogRecord): void {
+    const requestId = requestIdAttribute(event);
+    if (requestId === "") {
+      return;
+    }
+    for (const prev of this.recentCorrelate) {
+      if (shouldTagServiceLogWithProxyHop(event, prev)) {
+        this.replaceRecord(prev.seq, withRequestId(prev, requestId));
+      }
+    }
+  }
+
+  private replaceRecord(seq: number, updated: LogRecord): void {
+    const count = this.events.length;
+    for (let offset = 0; offset < count; offset += 1) {
+      const index = (this.eventStart + offset) % count;
+      if (this.events[index]?.seq === seq) {
+        this.events[index] = updated;
+        break;
+      }
+    }
+    this.recentCorrelate = this.recentCorrelate.map((row) => (row.seq === seq ? updated : row));
+  }
+
+  private rememberCorrelate(event: LogRecord): void {
+    this.recentCorrelate.push(event);
+    if (this.recentCorrelate.length > CORRELATE_RECENT_MAX) {
+      this.recentCorrelate = this.recentCorrelate.slice(-CORRELATE_RECENT_MAX);
+    }
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {
