@@ -4,7 +4,6 @@ import { useDensity } from "../density.tsx";
 import { clipText } from "../helpers/format.ts";
 import {
   TRAFFIC_INSPECTOR_JSON_CHARS,
-  clipTrafficJson,
   formatTrafficCaller,
   formatTrafficDuration,
   formatTrafficStatus,
@@ -12,6 +11,7 @@ import {
   trafficPayloadView,
   type TrafficBodyMode,
 } from "../helpers/traffic.ts";
+import { JsonView } from "./JsonView.tsx";
 import { Chip, FieldRow, KeyHints, MetaBar, scrollboxStyle, type KeyHintItem, type MetaChip } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
@@ -99,10 +99,7 @@ function JsonBody(props: { palette: Palette; call: TrafficCall; compact: boolean
   const { palette, call, compact, bodyMode, wide } = props;
   const request = trafficPayloadView(call.request, bodyMode);
   const response = trafficPayloadView(call.response, bodyMode);
-  const shownReq = compact ? clipTrafficJson(request, TRAFFIC_INSPECTOR_JSON_CHARS) : request;
-  const shownResp = compact ? clipTrafficJson(response, TRAFFIC_INSPECTOR_JSON_CHARS) : response;
-  const wrapMode = wide ? "word" : "none";
-  if (shownReq === "" && shownResp === "") {
+  if (request === "" && response === "") {
     return (
       <box flexGrow={1} overflow="hidden">
         <text fg={palette.muted}>{"no request/response body"}</text>
@@ -114,16 +111,16 @@ function JsonBody(props: { palette: Palette; call: TrafficCall; compact: boolean
       <box height={1} flexShrink={0} overflow="hidden">
         <text fg={palette.muted}>{bodyMode === "raw" ? "raw" : "json"}</text>
       </box>
-      {shownReq === "" ? null : (
+      {request === "" ? null : (
         <>
           <text fg={palette.muted}>{"request"}</text>
-          <text fg={palette.text} wrapMode={wrapMode}>{shownReq}</text>
+          <JsonView palette={palette} input={request} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
         </>
       )}
-      {shownResp === "" ? null : (
+      {response === "" ? null : (
         <>
           <text fg={palette.muted}>{"response"}</text>
-          <text fg={palette.text} wrapMode={wrapMode}>{shownResp}</text>
+          <JsonView palette={palette} input={response} compact={compact} wide={wide} maxChars={TRAFFIC_INSPECTOR_JSON_CHARS} parseStrings={bodyMode !== "raw"} />
         </>
       )}
     </box>

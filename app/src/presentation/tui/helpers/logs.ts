@@ -1,4 +1,5 @@
 import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
+import { coerceJsonInput } from "../../../shared/json-view.ts";
 import { clipText } from "./format.ts";
 import { SERVICE_NAME_MAX } from "./services.ts";
 
@@ -71,11 +72,8 @@ function logSpanKind(token: string): LogSpanKind {
 
 // event.raw holds the original line for a structured (JSON) log event; render it indented for the details overlay.
 export function prettyPrintLogRaw(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
+  const pretty = coerceJsonInput(raw).pretty;
+  return pretty === "" ? raw : pretty;
 }
 
 export function prettyPrintLogRecord(record: LogRecord): string {

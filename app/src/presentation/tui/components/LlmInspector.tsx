@@ -5,11 +5,9 @@ import { clipText } from "../helpers/format.ts";
 import {
   LLM_INSPECTOR_JSON_CHARS,
   LLM_INSPECTOR_TURNS,
-  clipLlmJson,
   formatLlmCaller,
   formatLlmCost,
   formatLlmDuration,
-  formatLlmJson,
   formatLlmTokenBreakdown,
   llmBodyModeHint,
   llmEffectiveBodyMode,
@@ -23,6 +21,7 @@ import {
   type LlmBodyMode,
   type LlmTurn,
 } from "../helpers/llm.ts";
+import { JsonView } from "./JsonView.tsx";
 import { Chip, FieldRow, KeyHints, MetaBar, scrollboxStyle, type KeyHintItem, type MetaChip } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 
@@ -158,9 +157,9 @@ function Transcript(props: { palette: Palette; turns: LlmTurn[]; omitted: number
 
 function JsonBody(props: { palette: Palette; call: LlmCall; compact: boolean }) {
   const { palette, call, compact } = props;
-  const request = compact ? clipLlmJson(call.request, LLM_INSPECTOR_JSON_CHARS) : formatLlmJson(call.request);
-  const response = compact ? clipLlmJson(call.response, LLM_INSPECTOR_JSON_CHARS) : formatLlmJson(call.response);
-  if (request === "" && response === "") {
+  const hasRequest = call.request !== undefined;
+  const hasResponse = call.response !== undefined;
+  if (!hasRequest && !hasResponse) {
     return (
       <box flexGrow={1} overflow="hidden">
         <text fg={palette.muted}>{"no request/response body"}</text>
@@ -172,18 +171,18 @@ function JsonBody(props: { palette: Palette; call: LlmCall; compact: boolean }) 
       <box height={1} flexShrink={0} overflow="hidden">
         <text fg={palette.muted}>{"json"}</text>
       </box>
-      {request === "" ? null : (
+      {hasRequest ? (
         <>
           <text fg={palette.muted}>{"request"}</text>
-          <text fg={palette.text} wrapMode="word">{request}</text>
+          <JsonView palette={palette} input={call.request} compact={compact} maxChars={LLM_INSPECTOR_JSON_CHARS} />
         </>
-      )}
-      {response === "" ? null : (
+      ) : null}
+      {hasResponse ? (
         <>
           <text fg={palette.muted}>{"response"}</text>
-          <text fg={palette.text} wrapMode="word">{response}</text>
+          <JsonView palette={palette} input={call.response} compact={compact} maxChars={LLM_INSPECTOR_JSON_CHARS} />
         </>
-      )}
+      ) : null}
     </box>
   );
 }
@@ -196,9 +195,7 @@ function AttributeList(props: { palette: Palette; call: LlmCall }) {
   return (
     <box flexShrink={0} flexDirection="column" overflow="hidden">
       <text fg={props.palette.muted}>{"attributes"}</text>
-      {attrs.map(([key, value]) => (
-        <text key={key} fg={props.palette.text} wrapMode="word">{`${key}  ${value}`}</text>
-      ))}
+      <JsonView palette={props.palette} input={Object.fromEntries(attrs)} />
     </box>
   );
 }

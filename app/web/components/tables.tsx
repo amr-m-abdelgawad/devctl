@@ -1,5 +1,6 @@
 import { clockMs, durationMs } from "../format.ts";
 import { hrefFor } from "../hash.ts";
+import { cn } from "../lib/utils.ts";
 import { serviceColor } from "../palette.ts";
 import type { LogRow, RequestRow } from "../types.ts";
 import { Empty, TraceLink } from "./primitives.tsx";
@@ -81,8 +82,15 @@ export function RequestTable(props: { requests: RequestRow[]; onJumpRequest?: (i
   );
 }
 
-export function LogTable(props: { events: LogRow[]; showTrace?: boolean }) {
-  const { events, showTrace = true } = props;
+export function logRowKey(row: LogRow, index: number): string {
+  if (typeof row.seq === "number") {
+    return `seq:${row.seq}`;
+  }
+  return `row:${index}`;
+}
+
+export function LogTable(props: { events: LogRow[]; showTrace?: boolean; selected?: string; onSelect?: (key: string) => void }) {
+  const { events, showTrace = true, selected, onSelect } = props;
   if (events.length === 0) {
     return <Empty>No log records.</Empty>;
   }
@@ -98,11 +106,28 @@ export function LogTable(props: { events: LogRow[]; showTrace?: boolean }) {
         </TableRow>
       </TableHeader>
       <TableBody>
-        {events.slice().reverse().map((row, index) => {
+        {events.map((row, index) => ({ row, key: logRowKey(row, index) })).reverse().map(({ row, key }) => {
           const level = row.level || row.severityText || "info";
           const isError = level.toLowerCase().includes("error") || level.toLowerCase() === "fatal";
+          const selectable = Boolean(onSelect);
           return (
-            <TableRow key={`${row.seq ?? index}-${row.timestamp}`} className={isError ? "bg-destructive/[0.06]" : undefined}>
+            <TableRow
+              key={key}
+              tabIndex={selectable ? 0 : undefined}
+              aria-selected={selectable ? selected === key : undefined}
+              className={cn(
+                isError ? "bg-destructive/[0.06]" : undefined,
+                selected === key ? "bg-primary/10" : selectable ? "cursor-pointer hover:bg-accent/40" : undefined,
+                selectable ? "outline-none focus-visible:bg-accent/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring" : undefined,
+              )}
+              onClick={onSelect ? () => onSelect(key) : undefined}
+              onKeyDown={onSelect ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(key);
+                }
+              } : undefined}
+            >
               <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{clockMs(row.timestamp)}</TableCell>
               <TableCell>
                 <span className="flex items-center gap-1.5">

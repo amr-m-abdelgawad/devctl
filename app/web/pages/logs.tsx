@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { serviceColor } from "../palette.ts";
-import { LogTable } from "../components/tables.tsx";
+import { JsonViewer } from "../components/json-viewer.tsx";
+import { logRowKey, LogTable } from "../components/tables.tsx";
 import { StatusDot } from "../components/status.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
@@ -51,6 +52,7 @@ export function LogsPage(props: {
   onFilter: (next: { service: string; level: string }) => void;
 }) {
   const { logs, logTotal, serviceChips, levelChips, filter, onFilter } = props;
+  const [selected, setSelected] = useState("");
   const events = (logs?.events ?? []).filter((row) => {
     if (filter.service && row.service !== filter.service) {
       return false;
@@ -60,6 +62,7 @@ export function LogsPage(props: {
     }
     return true;
   });
+  const selectedEvent = events.find((row, index) => logRowKey(row, index) === selected);
   return (
     <Card>
       <CardHeader>
@@ -75,7 +78,14 @@ export function LogsPage(props: {
           <FilterGroup label="service" kind="service" active={filter.service} options={serviceChips} onPick={(value) => onFilter({ ...filter, service: value })} />
           <FilterGroup label="level" kind="level" active={filter.level} options={levelChips} onPick={(value) => onFilter({ ...filter, level: value })} />
         </div>
-        <LogTable events={events} />
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <LogTable events={events} selected={selected} onSelect={setSelected} />
+          {selectedEvent ? (
+            <JsonViewer title="Log record" input={selectedEvent} />
+          ) : (
+            <p className="px-2 py-6 text-center text-xs text-muted-foreground">Select a log row to inspect its JSON.</p>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
