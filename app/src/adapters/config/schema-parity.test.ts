@@ -158,6 +158,15 @@ describe("config allowlist/schema parity", () => {
     }, "services.api")).toContain("services.api.logs.multiline.foo");
   });
 
+  test("logs.dedupe_access_line is known and logs.access_log is not", () => {
+    expect(collectUnknownFields({
+      logs: { stdout: true, dedupe_access_line: true },
+    }, "services.api")).toEqual([]);
+    expect(collectUnknownFields({
+      logs: { stdout: true, access_log: { enabled: true } },
+    }, "services.api")).toContain("services.api.logs.access_log");
+  });
+
   test("unknown timeout.foo is rejected on a route and a service proxy fragment", () => {
     expect(collectUnknownFields({
       routes: [{ name: "api", timeout: { idle_ms: 1, foo: true } }],

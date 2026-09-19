@@ -20,6 +20,7 @@ import {
   parseJSONLogLine,
   parseLogLine,
   redactLogRecord,
+  shouldDropAccessLine,
   SeverityUnspecified,
   truncateLogLine,
   type FoldedLog,
@@ -86,6 +87,7 @@ export class LogManager {
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
+  private lastByPid = new Map<number, LogRecord>();
   private idleTimer?: ReturnType<typeof setTimeout>;
   private onRecord?: (event: LogRecord) => void;
 
@@ -303,7 +305,7 @@ export class LogManager {
     writeLogExport(path, this.query(filter));
   }
 
-  private commitFolded(folded: FoldedLog): LogRecord {
+  private commitFolded(folded: FoldedLog): LogRecord | undefined {
     const ev: LogIngest = { ...folded.ingest };
     if (folded.severityNumber !== SeverityUnspecified && ev.severityNumber === undefined) {
       ev.severityNumber = folded.severityNumber;
@@ -311,13 +313,19 @@ export class LogManager {
     return this.commitIngest(ev);
   }
 
-  private commitIngest(ev: LogIngest): LogRecord {
+  private commitIngest(ev: LogIngest): LogRecord | undefined {
     const skipParse = ev.body !== undefined || ev.source === "otlp";
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
     const built = buildLogRecord(ev, parsed, this.nextSeq);
-    this.nextSeq += 1;
     const next = this.detector ? redactLogRecord(this.detector, built) : built;
+    if (this.shouldDropAccessDuplicate(ev, next)) {
+      return undefined;
+    }
+    if (this.serviceLogs.get(ev.service)?.dedupe_access_line === true) {
+      this.rememberPidEvent(ev.pid, next);
+    }
+    this.nextSeq += 1;
     this.recorded += 1;
     if (isErrorSeverity(next.severityNumber)) {
       this.errorCount += 1;
@@ -342,6 +350,23 @@ export class LogManager {
       );
     }
     return next;
+  }
+
+  private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {
+    if (this.serviceLogs.get(ev.service)?.dedupe_access_line !== true) {
+      return false;
+    }
+    if (!(ev.pid > 0)) {
+      return false;
+    }
+    const prev = this.lastByPid.get(ev.pid);
+    return prev !== undefined && shouldDropAccessLine(prev, next);
+  }
+
+  private rememberPidEvent(pid: number, event: LogRecord): void {
+    if (pid > 0) {
+      this.lastByPid.set(pid, event);
+    }
   }
 
   private flushPending(): void {

@@ -108,6 +108,7 @@ export type LogFilter = {
   traceId?: string;
   requestId?: string;
   attribute?: { key: string; value: string };
+  dedupeRequestId?: boolean;
 };
 
 export type LogPageDirection = "forward" | "backward";

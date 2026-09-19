@@ -320,6 +320,19 @@ describe("mcp tools", () => {
     expect((status.mcp as { token_age_ms?: number }).token_age_ms).toBeUndefined();
   });
 
+  test("get_logs parses dedupe_request_id", async () => {
+    const host = stubHost();
+    let seen: LogFilter | undefined;
+    host.logsPage = (req) => {
+      seen = req;
+      return fakeLogsPage([], req);
+    };
+    await callMcpTool(host, "get_logs", { dedupe_request_id: true });
+    expect(seen?.dedupeRequestId).toBe(true);
+    await callMcpTool(host, "get_logs", {});
+    expect(seen?.dedupeRequestId).toBe(false);
+  });
+
   test("get_logs filters by service and redacts", async () => {
     const result = (await callMcpTool(stubHost(), "get_logs", { service: "api" })) as {
       events: Array<{ service: string; message: string }>;

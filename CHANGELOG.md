@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Query-time `devctl logs --dedupe-request-id` / MCP `get_logs.dedupe_request_id` collapses nearby events that share `devctl.request_id` (keeps proxy attributes and the richest body), and optional `services.<name>.logs.dedupe_access_line` drops a plain uvicorn access line that duplicates the previous structured event from the same pid. See [Logs](docs/logs.md).
 - `devctl start --overlay <name>` applies `.devctl/overlays/<name>.yaml` as a sticky session config layer after `config.local.yaml` (recorded in `state.json`, shown in provenance), and `--env KEY=VAL` (repeatable) sets ephemeral process env for targeted services only.
 - Proxy routes can set optional `timeout.idle_ms` / `timeout.total_ms` (0 or omitted = unlimited) so a stalled hop returns HTTP 504 or gRPC `DEADLINE_EXCEEDED` without hanging the client. See [Proxy](docs/proxy.md#route-timeouts).
 - Built-in `health.type: grpc` probes `grpc.health.v1.Health/Check` over HTTP/2 (h2c, with TLS fallback), and gitignored `.devctl/secrets.env` (plus weaker `~/.devctl/secrets.env`) is always loaded for `${env.NAME}` interpolation and as a service-env layer after dotenv. Process environment still wins. There is no `${secret:}` template syntax.

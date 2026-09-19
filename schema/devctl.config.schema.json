@@ -266,6 +266,10 @@
           "properties": {
             "stdout": { "type": "boolean" },
             "stderr": { "type": "boolean" },
+            "dedupe_access_line": {
+              "type": "boolean",
+              "description": "Drop a plain uvicorn-style access line when the previous event from the same pid already has the same method, path, and status (off by default)"
+            },
             "multiline": {
               "type": "object",
               "additionalProperties": false,

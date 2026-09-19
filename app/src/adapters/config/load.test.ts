@@ -865,6 +865,74 @@ logs:
     expect(cfg.services.api?.logs.stderr).toBe(false);
   });
 
+  test("decodes optional logs.dedupe_access_line and leaves it omitted by default", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      dedupe_access_line: true
+  worker:
+    command: echo hi
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.logs.dedupe_access_line).toBe(true);
+    expect(cfg.services.worker?.logs.dedupe_access_line).toBeUndefined();
+  });
+
+  test("a modular service file can set logs.dedupe_access_line without clobbering stdout", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-presence-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      stdout: true
+      stderr: true
+`,
+    );
+    writeFile(
+      dir,
+      ".devctl/services/api.yaml",
+      `
+logs:
+  dedupe_access_line: true
+`,
+    );
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.logs.stdout).toBe(true);
+    expect(cfg.services.api?.logs.stderr).toBe(true);
+    expect(cfg.services.api?.logs.dedupe_access_line).toBe(true);
+  });
+
+  test("rejects logs.dedupe_access_line when the YAML value is not a boolean", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-dedupe-access-bad-${Date.now()}`;
+    writeFile(
+      dir,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  api:
+    command: echo hi
+    logs:
+      dedupe_access_line: "yes-please"
+`,
+    );
+    expect(() => load(dir, "")).toThrow(/logs\.dedupe_access_line must be a boolean/);
+  });
+
   test("a template lets a service explicitly clear an inherited required-env list", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-presence-required-${Date.now()}`;
     writeFile(

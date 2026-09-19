@@ -901,4 +901,12 @@ describe("config validate", () => {
     expect(issues).toContain("services.api.logs.multiline.max_wait_ms must be >= 0");
     expect(issues).toContain("services.api.logs.multiline.max_lines must be >= 0");
   });
+
+  test("rejects logs.dedupe_access_line when it is not a boolean", () => {
+    const cfg = withService("api");
+    cfg.services.api!.logs.dedupe_access_line = "yes" as unknown as boolean;
+    expect(validate(cfg)).toContain("services.api.logs.dedupe_access_line must be a boolean");
+    cfg.services.api!.logs.dedupe_access_line = true;
+    expect(validate(cfg)).not.toContain("services.api.logs.dedupe_access_line must be a boolean");
+  });
 });

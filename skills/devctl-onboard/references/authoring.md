@@ -34,7 +34,7 @@ complete allowlists.
 | `service.identity` | `type` `mode` `service_account` `config` |
 | `service.restart` | `enabled` `policy` `max_retries` `backoff_seconds` |
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
-| `service.logs` | `stdout` `stderr` `multiline` |
+| `service.logs` | `stdout` `stderr` `multiline` `dedupe_access_line` |
 | `service.logs.multiline` | `start` `continuation` `max_wait_ms` `max_lines` |
 | `service.environment` | `required` `defaults` + arbitrary `KEY: value` pairs |
 | `service.environments.<name>` | same shape as `service.environment` |
@@ -507,6 +507,7 @@ Every message names its path. Fix the path it names.
 | `services.X.logs.multiline.start is not a valid regular expression` | `start` / `continuation` must compile as a JS regex |
 | `services.X.logs.multiline.max_wait_ms must be >= 0` | negative idle fold timeout |
 | `services.X.logs.multiline.max_lines must be >= 0` | negative fold cap |
+| `services.X.logs.dedupe_access_line must be a boolean` | present value is not `true`/`false` |
 | `proxy.routes[i].log.grpc.ok[j].status must be a number` | each ok entry needs a numeric gRPC status |
 | `proxy.routes[i].log.grpc.ok[j].status must be an integer from 1 to 16` | listed statuses are the non-zero gRPC codes |
 | `proxy.routes[i].log.grpc.ok[j].log must be "info" or "silent"` | omit `log` for the info default |

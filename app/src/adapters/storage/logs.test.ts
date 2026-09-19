@@ -702,3 +702,57 @@ describe("LogManager process multiline folding", () => {
     await mgr.close();
   });
 });
+
+describe("LogManager dedupe_access_line", () => {
+  test("off by default keeps the uvicorn pair", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "pair-off", 0, 0);
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      pid: 9,
+      message: '{"method":"GET","path":"/health","status":200}',
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      pid: 9,
+      message: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK',
+    });
+    expect(mgr.query({})).toHaveLength(2);
+  });
+
+  test("drops the plain access line when enabled", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "pair-on", 0, 0);
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, dedupe_access_line: true } });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      pid: 9,
+      message: '{"method":"GET","path":"/health","status":200}',
+    });
+    mgr.append({
+      timestamp: "2026-09-19T00:00:00.000Z",
+      service: "api",
+      source: "stdout",
+      pid: 9,
+      message: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK',
+    });
+    const events = mgr.query({});
+    expect(events).toHaveLength(1);
+    expect(events[0]?.attributes.method).toBe("GET");
+    expect(events[0]?.attributes.path).toBe("/health");
+  });
+
+  test("does not change always-on HTTP status folding", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "status-fold", 0, 0);
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, dedupe_access_line: true } });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stderr", level: "", message: "INFO GET /api/health", pid: 1 });
+    mgr.append({ timestamp: "2026-09-19T00:00:00.010Z", service: "api", source: "stderr", level: "", message: "             200", pid: 1 });
+    const events = mgr.query({});
+    expect(events).toHaveLength(1);
+    expect(logMessage(events[0]!)).toBe("INFO GET /api/health\n             200");
+  });
+});

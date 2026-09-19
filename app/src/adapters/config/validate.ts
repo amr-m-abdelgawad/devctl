@@ -209,6 +209,9 @@ function validateServices(cfg: DevctlConfig): string[] {
 
 function validateServiceLogs(prefix: string, logs: ServiceLogConfig): string[] {
   const issues: string[] = [];
+  if (logs.dedupe_access_line !== undefined && typeof logs.dedupe_access_line !== "boolean") {
+    issues.push(`${prefix}.logs.dedupe_access_line must be a boolean`);
+  }
   const multiline = logs.multiline;
   if (!multiline) {
     return issues;

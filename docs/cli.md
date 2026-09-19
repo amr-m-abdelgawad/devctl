@@ -15,7 +15,7 @@ devctl env [service] [name] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl llm [--source] [--caller] [--model] [--status] [--search] [--since] [--until] [--json] [-f|--follow]
 devctl llm show <id> [--json]
@@ -60,7 +60,7 @@ devctl update [--json] [--check]
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - `status` also prints proxy, MCP, and WEB listen lines when a supervisor is up. Each service row includes `ENV` (the selected named overlay, empty when the service has none).
 - `status --watch` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (`ctrl+c`).
-- `logs -f` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. `--request-id` filters by `X-Devctl-Request-ID`; `--trace` prints the span tree plus correlated logs.
+- `logs -f` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. `--request-id` filters by `X-Devctl-Request-ID`; `--dedupe-request-id` collapses nearby events that share that id after the page is fetched; `--trace` prints the span tree plus correlated logs.
 - `devctl llm` lists recent LLM calls from configured `llm.sources` (LiteLLM spend logs first). `--caller` filters by originating service. `--follow` polls until interrupted. `devctl llm show <id>` prints one call including redacted bodies. See [LLM inspector](llm.md).
 - `devctl traffic` lists recent HTTP and gRPC hops captured on `inspect.enabled` proxy routes. `--follow` polls until interrupted. `devctl traffic show <id>` prints one hop including redacted bodies. Direct sockets that never hit the proxy are not listed. See [Proxy](proxy.md#inspect-bodies).
 - `devctl daemon logs [-f]` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when `start`/`attach` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. `-f` follows it live the same way `logs -f` does. The TUI equivalent is `/daemon`.

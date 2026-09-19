@@ -18,6 +18,7 @@ export function asLogFilter(rec: Record<string, unknown>): LogFilter {
     traceId: nonemptyString(rec.traceId) ?? nonemptyString(rec.trace_id),
     requestId: nonemptyString(rec.requestId) ?? nonemptyString(rec.request_id),
     attribute: asAttributePredicate(rec.attribute),
+    dedupeRequestId: rec.dedupeRequestId === true || rec.dedupe_request_id === true,
   };
 }
 
