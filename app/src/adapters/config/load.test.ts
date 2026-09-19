@@ -271,6 +271,45 @@ services:
     expect(() => load(dir, "")).toThrow(/unknown fields/);
   });
 
+  test("accepts health.grpc_service and rejects an unknown health key", () => {
+    const ok = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-grpc-health-${Date.now()}`;
+    writeFile(
+      ok,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  worker:
+    command: [echo, ok]
+    health:
+      type: grpc
+      address: 127.0.0.1:9090
+      grpc_service: ""
+`,
+    );
+    const cfg = load(ok, "");
+    expect(cfg.services.worker?.health.type).toBe("grpc");
+    expect(cfg.services.worker?.health.address).toBe("127.0.0.1:9090");
+    expect(cfg.services.worker?.health.grpc_service).toBe("");
+
+    const bad = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-grpc-unknown-${Date.now()}`;
+    writeFile(
+      bad,
+      ".devctl/config.yaml",
+      `
+version: 1
+services:
+  worker:
+    command: [echo, ok]
+    health:
+      type: grpc
+      address: 127.0.0.1:9090
+      grpc_target: nope
+`,
+    );
+    expect(() => load(bad, "")).toThrow(/unknown fields/);
+  });
+
   test("rejects unknown fields in modular profiles", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-prof-${Date.now()}`;
     writeFile(

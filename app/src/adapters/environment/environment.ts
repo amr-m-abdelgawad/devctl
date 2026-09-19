@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
+import { ConfigDirName } from "../../domain/config/paths.ts";
 import { resolveEnvMap, type DevctlConfig, type EnvConfig, type ServiceConfig } from "../config/index.ts";
 import type { HttpValueMap } from "../config/refs.ts";
 import { KindConfiguration, newError, wrapError } from "../../shared/errors.ts";
-import { credentialsDir } from "../storage/storage.ts";
+import { credentialsDir, homeDir } from "../storage/storage.ts";
 
 export type EnvRequest = {
   service: string;
@@ -52,12 +53,12 @@ export type EnvironmentSource = {
   load: (ctx: EnvSourceContext) => Record<string, string> | Promise<Record<string, string>>;
 };
 
-export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "generated", "keychain", "secret_manager", "defaults", "vars", "profile_service", "runtime"] as const;
+export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "secrets_env", "generated", "keychain", "secret_manager", "defaults", "vars", "profile_service", "runtime"] as const;
 
 export type EnvSourceName = (typeof ENV_SOURCE_ORDER)[number];
 
 const SECRET_MANAGER_PATTERN = /^projects\/[^/]+\/secrets\/[^/]+(?:\/versions\/[^/]+)?$/;
-const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "defaults", "vars", "profile_service", "runtime"];
+const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "secrets_env", "defaults", "vars", "profile_service", "runtime"];
 
 function dotenvSource(): EnvironmentSource {
   return {
@@ -112,10 +113,13 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
   };
   const assignedAll = collectAssigned(req);
   const userEmail = req.userEmail ?? "";
+  const processLayer = req.includeProcess === false ? {} : (req.clientEnv ?? osEnviron());
+  const profileLayer = resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail, req.http);
   const layers: Record<string, Record<string, string>> = {
-    process: req.includeProcess === false ? {} : (req.clientEnv ?? osEnviron()),
-    profile: resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail, req.http),
+    process: processLayer,
+    profile: profileLayer,
     dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll, userEmail, req.http),
+    secrets_env: secretsEnvLayer(repoRoot, processLayer, profileLayer),
     generated: {},
     keychain: req.sourceValues?.keychain ?? loadKeychainEnv(ctx),
     secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
@@ -141,6 +145,60 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     }
   }
   return out;
+}
+
+const SECRETS_ENV_FILE = "secrets.env";
+
+// User ~/.devctl/secrets.env first (weaker), then repo .devctl/secrets.env.
+// Process env is merged later by callers so it still wins.
+export function loadSecretsEnv(repoRoot?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  Object.assign(out, readDotenvFile(join(homeDir(), SECRETS_ENV_FILE)));
+  const root = repoRoot && repoRoot !== "" ? repoRoot : discoverRepoRoot();
+  if (root) {
+    Object.assign(out, readDotenvFile(join(root, ConfigDirName, SECRETS_ENV_FILE)));
+  }
+  return out;
+}
+
+export function envWithSecrets(env: Record<string, string | undefined>, repoRoot?: string): Record<string, string | undefined> {
+  return { ...loadSecretsEnv(repoRoot), ...env };
+}
+
+function secretsEnvLayer(repoRoot: string, processLayer: Record<string, string>, profileLayer: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(loadSecretsEnv(repoRoot))) {
+    if (processLayer[key] !== undefined || profileLayer[key] !== undefined) {
+      continue;
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
+function discoverRepoRoot(start = process.cwd()): string | undefined {
+  let dir = start;
+  for (;;) {
+    if (existsSync(join(dir, ConfigDirName, "config.yaml")) || existsSync(join(dir, ConfigDirName, SECRETS_ENV_FILE))) {
+      return dir;
+    }
+    const parent = dirname(dir);
+    if (parent === dir) {
+      return undefined;
+    }
+    dir = parent;
+  }
+}
+
+function readDotenvFile(path: string): Record<string, string> {
+  if (!existsSync(path)) {
+    return {};
+  }
+  try {
+    return parseDotenv(readFileSync(path));
+  } catch (err) {
+    throw wrapError(KindConfiguration, `unable to read ${path}`, err);
+  }
 }
 
 function flattenEnvConfig(env?: EnvConfig): Record<string, string> {

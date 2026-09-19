@@ -234,10 +234,14 @@
           "properties": {
             "type": {
               "type": "string",
-              "description": "http | tcp | process | command (plugins may add more)"
+              "description": "http | tcp | process | command | grpc (plugins may add more)"
             },
             "url": { "type": "string" },
             "address": { "type": "string" },
+            "grpc_service": {
+              "type": "string",
+              "description": "Health protocol service name for type grpc; empty is overall status"
+            },
             "command": { "$ref": "#/$defs/command" },
             "interval_seconds": { "type": "number", "minimum": 0 },
             "timeout_seconds": { "type": "number", "minimum": 0 },
