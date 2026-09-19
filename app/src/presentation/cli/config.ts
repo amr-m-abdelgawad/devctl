@@ -30,9 +30,16 @@ export function addReload(root: Command, runtime: ClientRuntime): void {
 
 function loadEffective(runtime: ClientRuntime, root: Command, overlayFlag?: string) {
   const explicit = configFlag(root);
-  const { repoRoot, configPath } = runtime.discover("", explicit);
-  const overlay = overlayFlag && overlayFlag !== "" ? overlayFlag : runtime.readPersistedState(repoRoot)?.config_overlay;
-  return runtime.loadPath(repoRoot, configPath, { overlay });
+  const overlay = overlayFlag && overlayFlag !== "" ? overlayFlag : overlayFromSession(runtime, explicit);
+  return overlay ? runtime.load("", explicit, { overlay }) : runtime.load("", explicit);
+}
+
+function overlayFromSession(runtime: ClientRuntime, explicit: string): string | undefined {
+  try {
+    return runtime.readPersistedState(runtime.discover("", explicit).repoRoot)?.config_overlay;
+  } catch {
+    return undefined;
+  }
 }
 
 export function addConfig(root: Command, runtime: ClientRuntime): void {
