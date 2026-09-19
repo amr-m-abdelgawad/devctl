@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
 import "../google/gcp-env.ts";
 import { type DevctlConfig, validate } from "../config/index.ts";
 import { versionLine } from "../../version.ts";
 import { DevctlError, humanMessage } from "../../shared/errors.ts";
+import { inspectIapOAuthClientFile, type IapOAuthClientInspectIssue } from "../../domain/config/iap-credentials.ts";
+import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { isImageUserRoot } from "../../domain/service/container-limits.ts";
@@ -11,6 +14,10 @@ import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
 export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
+
+// Documented in docs/iap.md / docs/proxy.md. There is no `devctl run auth-iap-login`.
+const IAP_CREDENTIALS_LOGIN_HINT =
+  "run `gcloud auth application-default login` with a client secret file that matches `client_id` (or omit `client_id`); TUI `/auth login` or `devctl auth login`";
 
 const LIVE_PROBE_MS = 4_000;
 const LIVE_SECTION_MS = 8_000;
@@ -212,6 +219,8 @@ export async function runDoctor(
       hint: "set google.project_id in .devctl/config.yaml",
     });
   }
+  // Static file inspect — not gated on ADC, audience, or live mint.
+  addIapCredentialsFileChecks(cfg, add, checking);
   const probeCloud =
     needsCloudFeatures(cfg) ||
     Object.values(cfg.services).some((svc) => svc.capabilities.includes("google") || svc.identity.type !== "");
@@ -424,6 +433,78 @@ async function addLiveCloudChecks(
     }
   });
   await Promise.all([...impersonation, ...iap]);
+}
+
+function addIapCredentialsFileChecks(
+  cfg: DevctlConfig,
+  add: (c: Check) => void,
+  checking: (name: string) => void,
+): void {
+  const proxyCredentials = cfg.proxy.credentials.trim();
+  for (const route of cfg.proxy.routes) {
+    if (route.auth.type.toLowerCase() !== "iap") {
+      continue;
+    }
+    const path = iapCredentialsPath(route.auth, proxyCredentials);
+    if (path === "") {
+      continue;
+    }
+    const name = `IAP credentials ${route.name}`;
+    checking(name);
+    add(iapCredentialsFileCheck(name, path, route.auth.client_id));
+  }
+}
+
+// auth.credentials wins; proxy.credentials is the fold used at load time for
+// custom-client IAP routes that omit their own file.
+function iapCredentialsPath(auth: RouteAuthConfig, proxyCredentials: string): string {
+  const own = (auth.credentials ?? "").trim();
+  if (own !== "") {
+    return own;
+  }
+  if (auth.client_id.trim() === "") {
+    return "";
+  }
+  return proxyCredentials;
+}
+
+function iapCredentialsFileCheck(name: string, path: string, clientId: string): Check {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch {
+    return iapCredentialsFailure(name, `file not found: ${path}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return iapCredentialsFailure(name, `file is not valid JSON: ${path}`);
+  }
+  const result = inspectIapOAuthClientFile(parsed, clientId);
+  if (result.ok) {
+    return { name, severity: "ok", message: "authorized_user file matches client_id" };
+  }
+  return iapCredentialsFailure(name, iapCredentialsIssueMessage(result.issue, path));
+}
+
+function iapCredentialsFailure(name: string, message: string): Check {
+  return { name, severity: "error", message, hint: IAP_CREDENTIALS_LOGIN_HINT };
+}
+
+function iapCredentialsIssueMessage(issue: IapOAuthClientInspectIssue, path: string): string {
+  switch (issue) {
+    case "malformed":
+      return `file is malformed: ${path}`;
+    case "wrong_type":
+      return "file type must be authorized_user";
+    case "missing_refresh_token":
+      return "file has no refresh_token";
+    case "missing_client_id":
+      return "file has no client_id";
+    case "client_id_mismatch":
+      return "file client_id does not match auth.client_id";
+  }
 }
 
 function classifyLiveFailure(name: string, err: unknown, hint: string): Check {

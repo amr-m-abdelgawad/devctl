@@ -133,7 +133,10 @@ custom path (not the default ADC location). Notes:
   route that has a credentials file: `true` when the file exists, is
   `authorized_user` JSON with `refresh_token` and a `client_id` that matches the
   route, otherwise `false`. Routes that are not IAP or have no credentials file
-  omit the field.
+  omit the field. `devctl doctor` reports the same inspect as `IAP credentials
+  <route>` and hints `gcloud auth application-default login` with a client
+  secret file that matches `client_id` (or omit `client_id`) when the file is
+  missing or mismatched.
 
 ### Extra token headers
 
