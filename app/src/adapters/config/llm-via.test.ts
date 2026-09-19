@@ -51,6 +51,19 @@ describe("llm via.route / via.routes", () => {
     expect(llm.sources[0]?.cost_per_token).toBeUndefined();
   });
 
+  test("unusable cost_per_token rates stay NaN instead of coercing to zero", () => {
+    const llm = emptyLlm();
+    applyLlm(llm, {
+      sources: [{ name: "one", type: "proxy", via: { route: "foo" }, cost_per_token: { input: "invalid", output: null } }],
+    });
+    expect(Number.isNaN(llm.sources[0]?.cost_per_token?.input)).toBe(true);
+    expect(Number.isNaN(llm.sources[0]?.cost_per_token?.output)).toBe(true);
+    applyLlm(llm, {
+      sources: [{ name: "one", type: "proxy", via: { route: "foo" }, cost_per_token: { input: "0.001", output: "0.002" } }],
+    });
+    expect(llm.sources[0]?.cost_per_token).toEqual({ input: 0.001, output: 0.002 });
+  });
+
   test("llmViaRoutes keeps route first and skips empties", () => {
     expect(llmViaRoutes(emptyLlmVia())).toEqual([]);
     expect(llmViaRoutes({ route: "  ", routes: ["", " a ", "a"] })).toEqual(["a"]);

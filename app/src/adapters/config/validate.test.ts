@@ -877,6 +877,22 @@ describe("config validate", () => {
     litellm.cost_per_token = { input: 0.000001, output: 0.000002 };
     cfg.llm.sources = [litellm];
     expect(validate(cfg).some((issue) => issue.includes("cost_per_token is only valid on type: proxy"))).toBe(true);
+    const decoded = withService("api");
+    decoded.proxy.routes.push({
+      name: "llm-apps",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+    });
+    decoded.llm.enabled = true;
+    const badRates = emptyLlmSource();
+    badRates.name = "apps";
+    badRates.type = "proxy";
+    badRates.via.route = "llm-apps";
+    badRates.cost_per_token = { input: Number.NaN, output: Number.NaN };
+    decoded.llm.sources = [badRates];
+    expect(validate(decoded).some((issue) => issue.includes("cost_per_token.input must be >= 0"))).toBe(true);
+    expect(validate(decoded).some((issue) => issue.includes("cost_per_token.output must be >= 0"))).toBe(true);
   });
 
   test("rejects via.routes on a litellm source", () => {

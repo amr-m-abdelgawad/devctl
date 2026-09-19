@@ -65,10 +65,11 @@ complete allowlists.
 | `telemetry.otlp` | `enabled` `listen` |
 | `web` | `enabled` `listen` |
 | `llm` | `enabled` `sources` |
-| `llm.sources[]` | `name` `type` `service` `port` `endpoint` `path_prefix` `headers` `via` `management_endpoint` `management_service` `management_port` `auth` `capture` `poll_seconds` |
+| `llm.sources[]` | `name` `type` `service` `port` `endpoint` `path_prefix` `headers` `via` `management_endpoint` `management_service` `management_port` `auth` `capture` `poll_seconds` `cost_per_token` |
 | `llm.sources[].auth` | `type` `token_env` `header` |
 | `llm.sources[].via` | `route` `routes` |
 | `llm.sources[].capture` | `prompts` `max_bytes` `paths` |
+| `llm.sources[].cost_per_token` | `input` `output` |
 | `auth` | `refresh_threshold_seconds` |
 | `shutdown` | `stop_services_on_exit` `grace_seconds` |
 | `ui` | `theme` `keymap` |
