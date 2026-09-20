@@ -23,6 +23,7 @@ import {
 } from "./decode.ts";
 import { overlayEnv } from "../../domain/service/environments.ts";
 import { resolveUserPath } from "../storage/storage.ts";
+import { envRefsIn } from "../../domain/config/env-ref.ts";
 import {
   emptyService,
   emptyEnv,
@@ -697,7 +698,7 @@ export function mergeServiceProxyRoutes(cfg: DevctlConfig, provenance?: ConfigPr
 // only ever consulted when minting for a custom OAuth client.
 export function applyProxyCredentials(cfg: DevctlConfig): void {
   const base = cfg.repoRoot || process.cwd();
-  const proxyDefault = cfg.proxy.credentials.trim() === "" ? "" : resolveUserPath(cfg.proxy.credentials.trim(), base);
+  const proxyDefault = resolveCredentialsPath(cfg.proxy.credentials.trim(), base);
   cfg.proxy.credentials = proxyDefault;
   for (const route of cfg.proxy.routes) {
     applyCredentialsToAuth(route.auth, proxyDefault, base);
@@ -707,12 +708,19 @@ export function applyProxyCredentials(cfg: DevctlConfig): void {
   }
 }
 
+function resolveCredentialsPath(path: string, base: string): string {
+  if (path === "" || envRefsIn(path).length > 0) {
+    return path;
+  }
+  return resolveUserPath(path, base);
+}
+
 function applyCredentialsToAuth(auth: RouteAuthConfig, proxyDefault: string, base: string): void {
   if (auth.client_id.trim() === "") {
     return;
   }
   const own = (auth.credentials ?? "").trim();
-  auth.credentials = own === "" ? proxyDefault : resolveUserPath(own, base);
+  auth.credentials = own === "" ? proxyDefault : resolveCredentialsPath(own, base);
 }
 
 function appendSynthesizedRoute(cfg: DevctlConfig, route: RouteConfig, via: string, provenance?: ConfigProvenance): void {

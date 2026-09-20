@@ -13,6 +13,8 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
 import { injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
+import { requireEnvInterpolation } from "../http/identity.ts";
+import { envWithSecrets } from "../environment/environment.ts";
 import { startRouteTimeout, timeoutMessage, type TimeoutKind } from "./route-timeout.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import type { TrafficCaptureRecorder, TrafficCaptureSink } from "../../ports/traffic-capture.ts";
@@ -79,9 +81,10 @@ export class GrpcProxyServer {
   // An upstream URL change retires the pooled client (GOAWAY) so the next
   // RPC dials the new target without closing this.server.
   replaceRoute(route: RouteConfig): void {
-    const prevUrl = this.route.upstream.url;
+    const prevUrl = this.resolvedUpstreamUrl(this.route);
     this.route = route;
-    if (route.upstream.url === prevUrl) {
+    const nextUrl = this.resolvedUpstreamUrl(route);
+    if (nextUrl === prevUrl) {
       return;
     }
     const stale = this.clients.get(prevUrl);
@@ -140,10 +143,14 @@ export class GrpcProxyServer {
     });
   }
 
+  private resolvedUpstreamUrl(route = this.route): string {
+    return requireEnvInterpolation(route.upstream.url, envWithSecrets(process.env), "upstream.url");
+  }
+
   // One pooled HTTP/2 session per upstream URL. Recreated lazily after it
   // closes or a GOAWAY retires it. Keyed by URL so a mid-stream replaceRoute
   // cannot send a token-injected request to a different origin.
-  private upstream(url = this.route.upstream.url): ClientHttp2Session {
+  private upstream(url = this.resolvedUpstreamUrl()): ClientHttp2Session {
     const existing = this.clients.get(url);
     if (existing && !existing.closed && !existing.destroyed) {
       return existing;
@@ -260,7 +267,7 @@ export class GrpcProxyServer {
       if (timeoutKind || recorded) {
         return;
       }
-      upReq = this.upstream(route.upstream.url).request(out as OutgoingHttpHeaders);
+      upReq = this.upstream(this.resolvedUpstreamUrl(route)).request(out as OutgoingHttpHeaders);
     } catch (err) {
       fail(GRPC_UNAVAILABLE, err instanceof Error ? err.message : "upstream unavailable");
       return;
@@ -434,7 +441,7 @@ export class GrpcProxyServer {
       }
       out[key] = Array.isArray(value) ? value.join(", ") : String(value);
     }
-    const target = new URL(route.upstream.url);
+    const target = new URL(this.resolvedUpstreamUrl(route));
     out[":method"] = String(inHeaders[":method"] ?? "POST");
     out[":path"] = String(inHeaders[":path"] ?? "/");
     out[":scheme"] = target.protocol === "https:" ? "https" : "http";

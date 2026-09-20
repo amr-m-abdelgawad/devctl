@@ -75,7 +75,7 @@ Unknown fields are checked with a prefix (`services.api.…`) so errors name the
 
 ## Environment references
 
-`refs.ts` `resolveEnvMap` expands `${services.*.ports.*}`, `${identity.user}`, `${http.*.*}`, etc. **Rejected** in service env: `${env.NAME}` (too easy to hide required process env). Recipe URL/headers/body and IAP `client_secret` are the documented exceptions and expand at fetch/mint time from process env.
+`refs.ts` `resolveEnvMap` expands `${services.*.ports.*}`, `${identity.user}`, `${http.*.*}`, and `${env.NAME}` / `${NAME}` from process env plus `.devctl/secrets.env`. Service env still rejects `${token}`. Recipe URL/headers/body, proxy route strings (including `.devctl/proxy/routes.yaml`), and IAP `client_secret` / `credentials` / `audience` expand `${env.NAME}` at fetch/request/mint time. `config validate` accepts those templates without requiring the variable to be set.
 
 ## TUI preferences (separate pipeline)
 

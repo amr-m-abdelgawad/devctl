@@ -114,18 +114,22 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
   const assignedAll = collectAssigned(req);
   const userEmail = req.userEmail ?? "";
   const processLayer = req.includeProcess === false ? {} : (req.clientEnv ?? osEnviron());
-  const profileLayer = resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail, req.http);
+  // `${env.NAME}` in YAML interpolates from the caller's env + secrets.env even
+  // when the process layer is omitted (containers), so a named secret can land
+  // in a declared key without copying the whole shell into the container.
+  const interpolationEnv = envWithSecrets(req.clientEnv ?? osEnviron(), repoRoot);
+  const profileLayer = resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail, req.http, interpolationEnv);
   const layers: Record<string, Record<string, string>> = {
     process: processLayer,
     profile: profileLayer,
-    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll, userEmail, req.http),
+    dotenv: resolveMaybe(await dotenvSource().load(ctx), req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     secrets_env: secretsEnvLayer(repoRoot, processLayer, profileLayer),
     generated: {},
     keychain: req.sourceValues?.keychain ?? loadKeychainEnv(ctx),
     secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
-    defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail, req.http),
-    vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http),
-    profile_service: resolveMaybe(flattenEnvConfig(req.profileServiceEnv), req.cfg, assignedAll, userEmail, req.http),
+    defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
+    vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
+    profile_service: resolveMaybe(flattenEnvConfig(req.profileServiceEnv), req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     runtime: req.runtime,
   };
   for (const name of sourceOrder(req.cfg)) {
@@ -135,7 +139,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     }
     const plugin = req.pluginSources?.find((source) => source.name === name);
     if (plugin) {
-      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll, userEmail, req.http));
+      Object.assign(out, resolveMaybe(await plugin.load(ctx), req.cfg, assignedAll, userEmail, req.http, interpolationEnv));
     }
   }
   const required = [...req.serviceCfg.environment.required, ...(req.profileServiceEnv?.required ?? [])];
@@ -233,11 +237,12 @@ function resolveMaybe(
   assigned: Record<string, Record<string, number>>,
   userEmail = "",
   http?: HttpValueMap,
+  processEnv?: Record<string, string | undefined>,
 ): Record<string, string> {
   if (!cfg || Object.keys(input).length === 0) {
     return input;
   }
-  return resolveEnvMap(input, cfg, assigned, userEmail, { http });
+  return resolveEnvMap(input, cfg, assigned, userEmail, { http, processEnv });
 }
 
 function loadKeychainEnv(ctx: EnvSourceContext): Record<string, string> {

@@ -111,7 +111,7 @@ export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "log
 const SECRETS_ENV_GITIGNORE = ".devctl/secrets.env";
 const SECRETS_ENV_EXAMPLE = `# Copy to secrets.env and fill in values. Do not commit secrets.env.
 # Loaded automatically (repo file wins over ~/.devctl/secrets.env; process env still wins).
-# There is no \${secret:} template syntax — keep using \${NAME} / \${env.NAME} at IAP mint.
+# There is no \${secret:} template syntax — use \${NAME} / \${env.NAME} in YAML (IAP mint, routes, service env).
 IAP_OAUTH_CLIENT_SECRET=
 `;
 

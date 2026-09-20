@@ -13,7 +13,8 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import { formatTraceparent } from "../../domain/logs/ids.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import { type Detector } from "../secrets/detector.ts";
-import { applyExtraAuthHeaders, mintAuthToken } from "../http/identity.ts";
+import { applyExtraAuthHeaders, mintAuthToken, requireEnvInterpolation } from "../http/identity.ts";
+import { envWithSecrets } from "../environment/environment.ts";
 import { type TokenManager, isTokenMintRateLimited, TOKEN_MINT_WINDOW_MS } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LlmCaptureRecorder, LlmCaptureSink } from "../../ports/llm-capture.ts";
@@ -155,7 +156,7 @@ export class ProxyServer {
   private upstreamBase(route: RouteConfig): string {
     const service = route.upstream.service ?? "";
     if (service === "") {
-      return route.upstream.url;
+      return requireEnvInterpolation(route.upstream.url, envWithSecrets(process.env), "upstream.url");
     }
     if (!this.resolvePort) {
       throw newError(KindProxy, `route ${route.name} addresses service ${service} but this proxy has no port resolver configured`);
@@ -213,8 +214,9 @@ export class ProxyServer {
   // Configured response headers (e.g. CORS Access-Control-Allow-*), applied to
   // every response on the route and overriding whatever the upstream sent.
   private applyResponseHeaders(res: ServerResponse, route: RouteConfig): void {
+    const env = envWithSecrets(process.env);
     for (const [key, value] of Object.entries(route.response_headers ?? {})) {
-      res.setHeader(key, value);
+      res.setHeader(key, requireEnvInterpolation(value, env, `response_headers.${key}`));
     }
   }
 
@@ -828,15 +830,13 @@ export async function injectIdentityHeaders(
   route: RouteConfig,
   headers: Record<string, string>,
   tokens?: TokenManager,
+  env: Record<string, string | undefined> = process.env,
 ): Promise<void> {
-  const token = await mintAuthToken(route.auth, tokens);
-  if (!token) {
-    return;
-  }
-  if (!route.auth.suppress_authorization) {
+  const token = (await mintAuthToken(route.auth, tokens, env)) ?? "";
+  if (token !== "" && !route.auth.suppress_authorization) {
     headers.authorization = `Bearer ${token}`;
   }
-  applyExtraAuthHeaders(headers, route.auth.headers, token);
+  applyExtraAuthHeaders(headers, route.auth.headers, token, envWithSecrets(env));
 }
 
 // `onChunk` observes each response chunk for LLM capture while the body streams

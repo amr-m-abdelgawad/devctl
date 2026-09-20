@@ -4,6 +4,7 @@ import { type DevctlConfig, validate } from "../config/index.ts";
 import { versionLine } from "../../version.ts";
 import { DevctlError, humanMessage } from "../../shared/errors.ts";
 import { inspectIapOAuthClientFile, type IapOAuthClientInspectIssue } from "../../domain/config/iap-credentials.ts";
+import { envRefsIn } from "../../domain/config/env-ref.ts";
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
@@ -446,7 +447,7 @@ function addIapCredentialsFileChecks(
       continue;
     }
     const path = iapCredentialsPath(route.auth, proxyCredentials);
-    if (path === "") {
+    if (path === "" || envRefsIn(path).length > 0) {
       continue;
     }
     const name = `IAP credentials ${route.name}`;

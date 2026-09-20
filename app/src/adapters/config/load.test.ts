@@ -1263,6 +1263,61 @@ proxy:
     );
   });
 
+  test("loads ${env.NAME} from modular routes.yaml and service env without requiring the var at validate time", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-envref-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [api]
+    environment:
+      SERVICE_KEY: \${env.API_KEY}
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: 18080 }
+`);
+    writeFile(dir, ".devctl/proxy/routes.yaml", `
+routes:
+  - name: billing
+    match: { host: billing.local }
+    upstream: { url: "https://\${env.BILLING_HOST}" }
+    auth:
+      type: iap
+      audience: "\${env.IAP_AUDIENCE}"
+      identity: { type: user }
+      client_id: desktop.apps.googleusercontent.com
+      client_secret: "\${env.IAP_OAUTH_CLIENT_SECRET}"
+      credentials: "\${env.IAP_CREDENTIALS}"
+      headers:
+        X-Api-Key: "\${env.API_KEY}"
+`);
+    writeFile(dir, ".devctl/http/login.yaml", `
+request:
+  method: POST
+  url: "https://\${env.API_HOST}/token"
+  headers:
+    Authorization: "Basic \${env.BASIC}"
+  auth:
+    type: iap
+    audience: "\${env.IAP_AUDIENCE}"
+    identity: { type: user }
+    client_id: desktop.apps.googleusercontent.com
+    client_secret: "\${env.IAP_OAUTH_CLIENT_SECRET}"
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.environment.vars.SERVICE_KEY).toBe("${env.API_KEY}");
+    const route = cfg.proxy.routes.find((r) => r.name === "billing");
+    expect(route?.upstream.url).toBe("https://${env.BILLING_HOST}");
+    expect(route?.auth.client_secret).toBe("${env.IAP_OAUTH_CLIENT_SECRET}");
+    expect(route?.auth.credentials).toBe("${env.IAP_CREDENTIALS}");
+    expect(route?.auth.headers).toEqual({ "X-Api-Key": "${env.API_KEY}" });
+    expect(route?.auth.audience).toBe("${env.IAP_AUDIENCE}");
+    expect(cfg.http.login?.request.url).toBe("https://${env.API_HOST}/token");
+    expect(cfg.http.login?.request.headers.Authorization).toBe("Basic ${env.BASIC}");
+    expect(cfg.http.login?.request.auth.audience).toBe("${env.IAP_AUDIENCE}");
+    expect(validate(cfg)).toEqual([]);
+  });
+
   test("a grpc route round-trips transport + listen and passes strict validation", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-grpc-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `

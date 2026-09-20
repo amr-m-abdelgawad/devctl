@@ -136,7 +136,8 @@ describe("config refs", () => {
     const cfg = defaultConfig();
     expect(resolveString("Basic ${APIGEE_BASIC}", cfg, {}, "", { processEnv: { APIGEE_BASIC: "abc123" } })).toBe("Basic abc123");
     expect(resolveString("sub=${token}", cfg, {}, "", { token: "id-token" })).toBe("sub=id-token");
-    expect(refResolvable("APIGEE_BASIC", cfg, { allowProcessEnv: true })).toBe(true);
+    expect(refResolvable("env.HOME", cfg, { allowProcessEnv: true })).toBe(true);
+    expect(refResolvable("HOME", cfg, { allowProcessEnv: true })).toBe(true);
     expect(refResolvable("token", cfg, { allowToken: true })).toBe(true);
     expect(refResolvable("token", cfg)).toBe(false);
   });

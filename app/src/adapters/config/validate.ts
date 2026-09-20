@@ -8,6 +8,7 @@ import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import {
   directedCycleIssues,
   effectiveStartupDependencies,
+  isProcessEnvRef,
   parseHttpRef,
   recipeAuthMintsToken,
   recipeCycleIssues,
@@ -325,7 +326,7 @@ function validateEnvRefs(prefix: string, env: EnvConfig, cfg: DevctlConfig): str
   const issues: string[] = [];
   const check = (key: string, value: string): void => {
     for (const ref of findRefs(value)) {
-      if (!refResolvable(ref, cfg)) {
+      if (!refResolvable(ref, cfg, { allowProcessEnv: true })) {
         issues.push(`${prefix}.${key}: unresolvable reference \${${ref}}`);
       }
     }
@@ -568,6 +569,33 @@ function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
         `warning: ${prefix}.auth.headers.${name} contains \${identity. which is not resolved on proxy headers (only service env at start)`,
       );
     }
+    issues.push(...validateInterpolatedString(`${prefix}.auth.headers.${name}`, value, { allowToken: true }));
+  }
+  for (const [name, value] of Object.entries(route.response_headers ?? {})) {
+    issues.push(...validateInterpolatedString(`${prefix}.response_headers.${name}`, value));
+  }
+  if ((route.upstream.url ?? "") !== "") {
+    issues.push(...validateInterpolatedString(`${prefix}.upstream.url`, route.upstream.url));
+  }
+  return issues;
+}
+
+function validateInterpolatedString(path: string, value: string, opts: { allowToken?: boolean } = {}): string[] {
+  const issues: string[] = [];
+  for (const ref of findRefs(value)) {
+    if (ref === "token") {
+      if (!opts.allowToken) {
+        issues.push(`${path}: unresolvable reference \${token}`);
+      }
+      continue;
+    }
+    if (ref.startsWith("identity.")) {
+      continue;
+    }
+    if (isProcessEnvRef(ref)) {
+      continue;
+    }
+    issues.push(`${path}: unresolvable reference \${${ref}}`);
   }
   return issues;
 }
@@ -660,6 +688,8 @@ function validateAuthConfig(auth: RouteAuthConfig, prefix: string): string[] {
     }
   }
   issues.push(...validateIapOAuthClient(auth, prefix));
+  issues.push(...validateInterpolatedString(`${prefix}.auth.audience`, auth.audience));
+  issues.push(...validateInterpolatedString(`${prefix}.auth.credentials`, auth.credentials ?? ""));
   const identType = auth.identity.type.toLowerCase();
   if (identType === "service" || identType === "service_account" || isServiceAccountIdentity({ type: identType, mode: "", service_account: "" })) {
     const sa = auth.identity.service_account || auth.service_account;
@@ -713,6 +743,11 @@ function validateIapCredentialsFile(auth: RouteAuthConfig, prefix: string): stri
   const path = (auth.credentials ?? "").trim();
   const clientId = (auth.client_id ?? "").trim();
   if (auth.type.toLowerCase() !== "iap" || path === "" || clientId === "") {
+    return [];
+  }
+  // `${NAME}` / `${env.NAME}` is resolved at mint from process env + secrets.env.
+  // Do not treat the template as a filesystem path here.
+  if (envRefsIn(path).length > 0) {
     return [];
   }
   let raw: string;

@@ -118,7 +118,7 @@ Two checkouts do not share a lock. `repoID` is `sha256(canonical repo root)` (16
 | Stale lock from a dead PID | Replaced |
 | `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
 | `.devctl/config.local.yaml` | Gitignore-friendly overlay — still do not commit secrets |
-| `.devctl/secrets.env` | Always-on dotenv file (gitignored). Weaker layer: `~/.devctl/secrets.env`. Process env still wins. Used for `${env.NAME}` at IAP mint / HTTP recipes and as a service-env source after `.env`. `devctl setup` writes `secrets.env.example` (keys only) and a `.gitignore` entry |
+| `.devctl/secrets.env` | Always-on dotenv file (gitignored). Weaker layer: `~/.devctl/secrets.env`. Process env still wins. Used for `${env.NAME}` in service env, HTTP recipes, and proxy routes (including `routes.yaml`). `devctl setup` writes `secrets.env.example` (keys only) and a `.gitignore` entry |
 
 On Unix, the owner-only state directory restricts access to the supervisor RPC socket. On Windows the named pipe `\\.\pipe\devctl-<repoID>` cannot take a current-user DACL (Bun does not expose that API), so every RPC frame also carries a token from `~/.devctl/state/<repoID>/rpc-token` (mode `0600`, inside the user's profile). Connecting without that token is unauthorized. The file is never printed in status, logs, or MCP output.
 

@@ -124,6 +124,7 @@ describe("route credentials_valid", () => {
     expect(routeIapCredentialsValid(emptyRouteAuth())).toBeUndefined();
     expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap" })).toBeUndefined();
     expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap", credentials: "/no/such/devctl-iap.json" })).toBe(false);
+    expect(routeIapCredentialsValid({ ...emptyRouteAuth(), type: "iap", credentials: "${env.IAP_CREDENTIALS}" })).toBeUndefined();
 
     const path = join(process.env.TMPDIR ?? "/tmp", `devctl-snap-iap-${Date.now()}.json`);
     writeFileSync(path, JSON.stringify({ type: "authorized_user", client_id: "cid", refresh_token: "rt" }));

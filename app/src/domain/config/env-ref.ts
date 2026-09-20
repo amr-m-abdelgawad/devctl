@@ -19,6 +19,27 @@ export function interpolateEnvRefs(value: string, env: Record<string, string | u
   return { value: interpolated, missing };
 }
 
+const TOKEN_PLACEHOLDER = "${token}";
+const TOKEN_SENTINEL = "\0DEVCTL_TOKEN\0";
+
+/**
+ * Interpolate `${NAME}` / `${env.NAME}` while leaving `${token}` for the
+ * caller to fill (or substituting it when `token` is non-empty). `${token}`
+ * must not be treated as process env `token`.
+ */
+export function interpolateEnvRefsProtectingToken(
+  value: string,
+  env: Record<string, string | undefined>,
+  token = "",
+): { value: string; missing: string[] } {
+  const protectedValue = value.includes(TOKEN_PLACEHOLDER) ? value.replaceAll(TOKEN_PLACEHOLDER, TOKEN_SENTINEL) : value;
+  const result = interpolateEnvRefs(protectedValue, env);
+  return {
+    value: result.value.replaceAll(TOKEN_SENTINEL, token === "" ? TOKEN_PLACEHOLDER : token),
+    missing: result.missing,
+  };
+}
+
 /** The `${NAME}` template as written, or undefined when the value is a literal secret. */
 export function secretTemplateLabel(value: string): string | undefined {
   const trimmed = value.trim();

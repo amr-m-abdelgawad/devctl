@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { envRefsIn, interpolateEnvRefs, secretTemplateLabel } from "./env-ref.ts";
+import { envRefsIn, interpolateEnvRefs, interpolateEnvRefsProtectingToken, secretTemplateLabel } from "./env-ref.ts";
 
 describe("env refs", () => {
   test("finds ${NAME} and ${env.NAME}", () => {
@@ -24,6 +24,16 @@ describe("env refs", () => {
   test("records empty or absent names without leaking other values", () => {
     expect(interpolateEnvRefs("${MISSING}", {})).toEqual({ value: "", missing: ["MISSING"] });
     expect(interpolateEnvRefs("${EMPTY}", { EMPTY: "" })).toEqual({ value: "", missing: ["EMPTY"] });
+  });
+
+  test("interpolateEnvRefsProtectingToken substitutes ${token} after env refs", () => {
+    expect(interpolateEnvRefsProtectingToken("Bearer ${token}", {}, "jwt")).toEqual({ value: "Bearer jwt", missing: [] });
+    expect(interpolateEnvRefsProtectingToken("k=${env.API_KEY} t=${token}", { API_KEY: "secret" }, "jwt")).toEqual({
+      value: "k=secret t=jwt",
+      missing: [],
+    });
+    expect(interpolateEnvRefsProtectingToken("Bearer ${token}", {}).value).toBe("Bearer ${token}");
+    expect(interpolateEnvRefsProtectingToken("${env.MISSING} ${token}", {}, "jwt").missing).toEqual(["MISSING"]);
   });
 
   test("secretTemplateLabel exposes env templates and hides literals", () => {

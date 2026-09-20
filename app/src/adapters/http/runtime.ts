@@ -124,11 +124,14 @@ export class RecipeRuntime implements HttpRecipeRuntime {
     for (const dep of httpRecipesReferencedBy(recipe)) {
       await this.ensure(dep);
     }
-    const token = recipeAuthMintsToken(recipe) ? await mintAuthToken(recipe.request.auth, this.deps.tokens) : undefined;
+    const processEnv = this.deps.processEnv();
+    const token = recipeAuthMintsToken(recipe)
+      ? ((await mintAuthToken(recipe.request.auth, this.deps.tokens, processEnv, cfg.repoRoot)) ?? "")
+      : "";
     const extras = {
       http: this.valueMap(),
-      token,
-      processEnv: this.deps.processEnv(),
+      token: token === "" ? undefined : token,
+      processEnv,
     };
     const assigned = assignedPorts(cfg, this.deps.ports());
     const userEmail = this.deps.userEmail();
@@ -142,12 +145,10 @@ export class RecipeRuntime implements HttpRecipeRuntime {
     for (const [key, value] of Object.entries(recipe.request.headers)) {
       headers[key] = interpolate(value);
     }
-    if (token !== undefined) {
-      if (!recipe.request.auth.suppress_authorization && !headerHasAuthorization(headers)) {
-        headers.authorization = `Bearer ${token}`;
-      }
-      applyExtraAuthHeaders(headers, recipe.request.auth.headers, token);
+    if (token !== "" && !recipe.request.auth.suppress_authorization && !headerHasAuthorization(headers)) {
+      headers.authorization = `Bearer ${token}`;
     }
+    applyExtraAuthHeaders(headers, recipe.request.auth.headers, token, processEnv);
     const method = (recipe.request.method || GET).toUpperCase();
     const body = encodeBody(recipe, interpolate, headers);
     const timeoutMs = httpTimeoutSeconds(recipe) * MS_PER_SECOND;

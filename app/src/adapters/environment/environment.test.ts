@@ -187,6 +187,69 @@ describe("environment precedence", () => {
     expect(env.DEVCTL_USER_EMAIL).toBe("dev@example.com");
   });
 
+  test("secrets.env interpolates ${env.NAME} in service YAML without a shell export", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-svc-${Date.now()}`;
+    const home = join(dir, "home");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(dir, ".devctl", "secrets.env"), "API_KEY=from-secrets-file\n");
+    const previous = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = home;
+    try {
+      const svc = emptyService();
+      svc.environment.vars = { SERVICE_KEY: "${env.API_KEY}", ALSO: "${API_KEY}" };
+      const cfg = defaultConfig();
+      cfg.services.api = svc;
+      const env = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: svc,
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        cfg,
+        clientEnv: {},
+      });
+      expect(env.SERVICE_KEY).toBe("from-secrets-file");
+      expect(env.ALSO).toBe("from-secrets-file");
+    } finally {
+      if (previous === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previous;
+    }
+  });
+
+  test("container YAML can interpolate ${env.NAME} from secrets.env without copying process env", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-ctr-${Date.now()}`;
+    const home = join(dir, "home");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(dir, ".devctl", "secrets.env"), "API_KEY=from-secrets-file\n");
+    const previous = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = home;
+    try {
+      const svc = emptyService();
+      svc.environment.vars = { SERVICE_KEY: "${env.API_KEY}" };
+      const cfg = defaultConfig();
+      cfg.services.api = svc;
+      const env = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: svc,
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        cfg,
+        clientEnv: { GITHUB_TOKEN: "must-not-cross" },
+        includeProcess: false,
+      });
+      expect(env.SERVICE_KEY).toBe("from-secrets-file");
+      expect(env.GITHUB_TOKEN).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previous;
+    }
+  });
+
   test("secrets.env interpolates at IAP mint without a shell export", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-mint-${Date.now()}`;
     const home = join(dir, "home");

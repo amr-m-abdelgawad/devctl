@@ -223,6 +223,43 @@ describe("RecipeRuntime", () => {
     expect(proxyAuthorization).toBe("Bearer google-id-token");
   });
 
+  test("interpolates ${env.NAME} in auth.none recipe auth.headers without minting", async () => {
+    const nowMs = { value: 1_000_000 };
+    let apiKey = "";
+    let authorization = "";
+    let url = "";
+    const { cfg, runtime } = recipeRuntime({
+      nowMs,
+      env: { API_KEY: "from-env", API_HOST: "api.example.com" },
+      fetch: async (input, init) => {
+        url = String(input);
+        const headers = new Headers(init.headers);
+        apiKey = headers.get("x-api-key") ?? "";
+        authorization = headers.get("authorization") ?? "";
+        return new Response("{}", { status: 200 });
+      },
+    });
+    cfg.http.meta = {
+      ...emptyHttpRecipe(),
+      request: {
+        method: "GET",
+        url: "https://${env.API_HOST}/meta",
+        headers: {},
+        body: "",
+        form: {},
+        auth: { ...emptyRouteAuth(), type: "none", headers: { "X-Api-Key": "${env.API_KEY}" } },
+        timeout_seconds: 10,
+      },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    await runtime.ensure("meta");
+    expect(url).toBe("https://api.example.com/meta");
+    expect(apiKey).toBe("from-env");
+    expect(authorization).toBe("");
+  });
+
   test("caches from JWT exp and coalesces in-flight fetches", async () => {
     const nowMs = { value: 1_700_000_000_000 };
     let calls = 0;

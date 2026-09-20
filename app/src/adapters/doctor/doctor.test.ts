@@ -200,6 +200,14 @@ describe("doctor", () => {
     }
   });
 
+  test("skips IAP credentials file inspect when the path is ${env.NAME}", async () => {
+    const cfg = localCfg();
+    cfg.google.project_id = "demo";
+    cfg.proxy.routes.push(iapRoute({ credentials: "${env.IAP_CREDENTIALS}" }));
+    const report = await runDoctor(cfg, offlineHost());
+    expect(report.checks.some((c) => c.name === "IAP credentials billing")).toBe(false);
+  });
+
   test("flags a missing IAP credentials file with the documented login command", async () => {
     const cfg = localCfg();
     cfg.google.project_id = "demo";

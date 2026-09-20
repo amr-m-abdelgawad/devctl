@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { cpus, loadavg, platform, uptime } from "node:os";
 import type { DevctlConfig } from "../config/index.ts";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
+import { envRefsIn } from "../../domain/config/env-ref.ts";
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, startPeriodWindow, type Runtime } from "../../domain/service/services.ts";
@@ -174,7 +175,7 @@ export function routeIapCredentialsValid(auth: RouteAuthConfig): boolean | undef
     return undefined;
   }
   const path = (auth.credentials ?? "").trim();
-  if (path === "") {
+  if (path === "" || envRefsIn(path).length > 0) {
     return undefined;
   }
   let raw: string;

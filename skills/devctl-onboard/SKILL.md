@@ -144,8 +144,9 @@ weaker `~/.devctl/secrets.env`) is always loaded — add that path to `.gitignor
 and ship `.devctl/secrets.env.example` with **keys only**. Process env still
 wins. There is no `${secret:keychain:…}` / `${secret:gcp:…}` syntax; keep
 `environment.sources: [keychain, secret_manager]` plus `environment.secrets`
-for OS keychain and `projects/*/secrets/*`. `${env.NAME}` stays rejected in
-service env YAML. The correct wiring is to declare the source and name the
+for OS keychain and `projects/*/secrets/*`. `${env.NAME}` / `${NAME}` work in
+service env, HTTP recipes, and proxy routes (including `routes.yaml`). The
+correct wiring for keychain/GCP is still to declare the source and name the
 keys — never to copy values:
 
 ```yaml

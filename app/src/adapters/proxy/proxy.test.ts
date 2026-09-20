@@ -180,6 +180,41 @@ describe("proxy", () => {
     expect(headers["x-static"]).toBe("literal");
   });
 
+  test("interpolates ${env.NAME} in auth.headers from the provided env, including auth.none", async () => {
+    const route: RouteConfig = {
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:1" },
+      auth: { ...NONE_AUTH, headers: { "X-Api-Key": "${env.API_KEY}", "x-static": "literal" } },
+    };
+    const headers: Record<string, string> = {};
+    await injectIdentityHeaders(route, headers, undefined, { API_KEY: "from-env" });
+    expect(headers["X-Api-Key"]).toBe("from-env");
+    expect(headers["x-static"]).toBe("literal");
+    expect(headers.authorization).toBeUndefined();
+  });
+
+  test("interpolates ${env.NAME} next to ${token} in auth.headers", async () => {
+    const provider: TokenProvider = { name: "stub", fetch: async () => token({ accessToken: "ID-TOKEN" }) };
+    const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());
+    const route: RouteConfig = {
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:1" },
+      auth: {
+        ...NONE_AUTH,
+        type: "iap",
+        audience: "/projects/1/iap",
+        headers: { "Proxy-Authorization": "Bearer ${token}", "X-Api-Key": "${env.API_KEY}" },
+      },
+    };
+    const headers: Record<string, string> = {};
+    await injectIdentityHeaders(route, headers, tokens, { API_KEY: "from-env" });
+    expect(headers.authorization).toBe("Bearer ID-TOKEN");
+    expect(headers["Proxy-Authorization"]).toBe("Bearer ID-TOKEN");
+    expect(headers["X-Api-Key"]).toBe("from-env");
+  });
+
   test("suppress_authorization skips Authorization and still substitutes ${token} in auth.headers", async () => {
     const provider: TokenProvider = { name: "stub", fetch: async () => token({ accessToken: "ID-TOKEN" }) };
     const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());

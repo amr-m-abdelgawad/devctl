@@ -74,7 +74,7 @@ services:
 
 `auth.type: iap` / `service_account` still mint a token for `${token}`, but do **not** set `Authorization: Bearer …` when the recipe already sets `request.headers.Authorization` (Apigee wants `Basic client_id:secret` on the token endpoint, with the Google ID token in `subject_token`). If `Authorization` is unset, Bearer injection matches today’s proxy behavior. `suppress_authorization: true` skips Bearer even when `Authorization` is unset, and still applies `auth.headers` — same flag as a proxy route.
 
-**Allowed refs inside a recipe request** (resolved at fetch time): `${services.*}`, `${identity.user}`, `${token}`, `${http.<other>.<output>}`. Recipe `url` / `headers` / `form` / `body` also expand `${NAME}` / `${env.NAME}` from the **supervisor process environment** so secrets like `client_secret` can live in the shell or keychain overlay, not in git. Service env still rejects `${env.NAME}`.
+**Allowed refs inside a recipe request** (resolved at fetch time): `${services.*}`, `${identity.user}`, `${token}`, `${http.<other>.<output>}`. Recipe `url` / `headers` / `form` / `body` / `auth.headers` also expand `${NAME}` / `${env.NAME}` from the **supervisor process environment** plus `.devctl/secrets.env` so secrets like `client_secret` can live in the shell or gitignored secrets file, not in git. Service env accepts the same `${env.NAME}` form (resolved at process start) and still rejects `${token}`.
 
 Load-time validation checks shape and names only (unknown recipe/output, cycles, reserved names, expose requires `proxy.enabled`, and a token-bearing expose requires `allow_token_body`). Values are not expanded until `ensure()`.
 

@@ -149,8 +149,9 @@ weaker \`~/.devctl/secrets.env\`) is always loaded — add that path to \`.gitig
 and ship \`.devctl/secrets.env.example\` with **keys only**. Process env still
 wins. There is no \`\${secret:keychain:…}\` / \`\${secret:gcp:…}\` syntax; keep
 \`environment.sources: [keychain, secret_manager]\` plus \`environment.secrets\`
-for OS keychain and \`projects/*/secrets/*\`. \`\${env.NAME}\` stays rejected in
-service env YAML. The correct wiring is to declare the source and name the
+for OS keychain and \`projects/*/secrets/*\`. \`\${env.NAME}\` / \`\${NAME}\` work in
+service env, HTTP recipes, and proxy routes (including \`routes.yaml\`). The
+correct wiring for keychain/GCP is still to declare the source and name the
 keys — never to copy values:
 
 \`\`\`yaml
@@ -465,10 +466,11 @@ belong under \`service.container\`, not directly on the service.
 
 \`\${services.<name>.ports.<portname>}\`, \`\${services.<name>.port}\`,
 \`\${services.<name>.url}\`, \`\${services.<name>.host}\`, \`\${identity.user}\` (the
-running developer's detected Google email), and \`\${http.<name>.<output>}\`
-(a named HTTP recipe snapshot — reserved outputs are \`body\`, \`url\`, \`status\`)
-are the supported forms in service/task/profile env. Anything else —
-\`\${env.FOO}\`, \`\${project.name}\` — throws there.
+running developer's detected Google email), \`\${http.<name>.<output>}\`
+(a named HTTP recipe snapshot — reserved outputs are \`body\`, \`url\`, \`status\`),
+and \`\${NAME}\` / \`\${env.NAME}\` (supervisor process env plus \`.devctl/secrets.env\`)
+are the supported forms in service/task/profile env. \`\${project.name}\` still
+throws there. \`\${token}\` is rejected in service env.
 
 - The referenced service must exist and the named port must be defined, or
   validation fails with *unresolvable reference*.
@@ -479,17 +481,21 @@ are the supported forms in service/task/profile env. Anything else —
   before the process starts.
 - Use them for every cross-service URL. Hard-coded ports silently break when a
   port changes or is switched to \`auto\`.
+- \`\${env.NAME}\` is accepted by \`devctl config validate\` without the variable
+  being set yet. An empty value fails at process start / mint / request time.
 
-HTTP **recipe request** fields (\`url\`, \`headers\`, \`form\`, \`body\`) are the
-exception: they also expand \`\${token}\` (the token minted for that recipe's
-\`auth\` block), \`\${NAME}\`, and \`\${env.NAME}\` from the supervisor process
-environment at fetch time. \`\${token}\` requires \`request.auth.type\` \`iap\` or
-\`service_account\`. Service env still rejects \`\${env.NAME}\` and \`\${token}\`.
+HTTP **recipe request** fields (\`url\`, \`headers\`, \`form\`, \`body\`, \`auth.headers\`)
+also expand \`\${token}\` (the token minted for that recipe's \`auth\` block),
+\`\${NAME}\`, and \`\${env.NAME}\` from the supervisor process environment plus
+\`.devctl/secrets.env\` at fetch time. \`\${token}\` requires \`request.auth.type\`
+\`iap\` or \`service_account\`. Service env still rejects \`\${token}\`.
 
-Proxy route \`auth.headers\` (including service \`proxy:\` fragments merged into
-\`proxy.routes\`) are **not** run through \`resolveEnvMap\`. \`\${identity.user}\`
-there stays literal. \`\${token}\` is still substituted at request time on
-minting routes. \`devctl config validate\` warns if \`\${identity.\` appears in
+Proxy route strings in \`proxy.routes\` or \`.devctl/proxy/routes.yaml\`
+(\`auth.headers\`, \`response_headers\`, \`upstream.url\`, \`auth.audience\`,
+\`auth.credentials\`, \`auth.client_secret\`) expand \`\${NAME}\` / \`\${env.NAME}\` at
+request or mint time. \`\${token}\` is substituted on minting routes. Proxy
+\`auth.headers\` are **not** run through full \`resolveEnvMap\` — \`\${identity.user}\`
+there stays literal. \`devctl config validate\` warns if \`\${identity.\` appears in
 those header values.
 
 ## Named service environments
@@ -649,10 +655,10 @@ Anything else is rejected.
   default.
 - Optional \`client_id\` plus \`client_secret\` mints the user IAP ID token with
   that OAuth client instead of ADC's default client. Put \`\${NAME}\` or
-  \`\${env.NAME}\` in \`client_secret\` so the value is read from the environment
-  at mint time (this is not service-env interpolation). These fields are
-  invalid on non-IAP routes and on IAP routes whose identity is a service
-  account.
+  \`\${env.NAME}\` in \`client_secret\`, \`credentials\`, \`audience\`, or \`auth.headers\`
+  so the value is read from the environment plus \`.devctl/secrets.env\` at mint
+  or request time. These fields are invalid on non-IAP routes and on IAP
+  routes whose identity is a service account.
 - An identity of \`service\` / \`service_account\` requires an SA email, from
   either \`auth.identity.service_account\` or the route's \`auth.service_account\`.
 - \`auth.type: none\` means no auth at all — any identity left on such a route is

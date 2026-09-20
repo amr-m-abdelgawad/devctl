@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emptyService, emptyRouteAuth, emptyProfile, emptyLlmSource, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { decodeRoute } from "./decode.ts";
-import { unresolvedInspectDecoders, validate } from "./validate.ts";
+import { unresolvedInspectDecoders, validate, isValidationWarning } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
   const cfg = defaultConfig();
@@ -123,6 +123,64 @@ describe("config validate", () => {
     });
     expect(validate(clean).some((issue) => issue.includes("${identity."))).toBe(false);
     expect(validate(clean)).toEqual([]);
+  });
+
+  test("accepts ${env.NAME} in service env, route headers, upstream url, and credentials", () => {
+    const cfg = withService("api");
+    cfg.services.api!.environment.vars.API_KEY = "${env.API_KEY}";
+    cfg.services.api!.environment.defaults.FALLBACK = "${FALLBACK}";
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://${env.BILLING_HOST}" },
+      auth: iapUserAuth({
+        client_id: "desktop.apps.googleusercontent.com",
+        client_secret: "${env.IAP_OAUTH_CLIENT_SECRET}",
+        credentials: "${env.IAP_CREDENTIALS}",
+        headers: { "X-Api-Key": "${env.API_KEY}" },
+      }),
+      response_headers: { "X-Env": "${env.CORS_ORIGIN}" },
+    });
+    expect(validate(cfg).filter((issue) => !isValidationWarning(issue))).toEqual([]);
+  });
+
+  test("accepts ${env.NAME} in HTTP recipe request, audience, and credentials", () => {
+    const cfg = withService("api");
+    cfg.http.login = {
+      request: {
+        method: "POST",
+        url: "https://${env.API_HOST}/token",
+        headers: { Authorization: "Basic ${env.BASIC}" },
+        body: "",
+        form: { client_secret: "${CLIENT_SECRET}" },
+        auth: {
+          ...emptyRouteAuth(),
+          type: "iap",
+          audience: "${env.IAP_AUDIENCE}",
+          identity: { type: "user", service_account: "" },
+          client_id: "desktop.apps.googleusercontent.com",
+          client_secret: "${env.IAP_OAUTH_CLIENT_SECRET}",
+          credentials: "${env.IAP_CREDENTIALS}",
+          headers: { "X-Api-Key": "${env.API_KEY}" },
+        },
+        timeout_seconds: 10,
+      },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    expect(validate(cfg).filter((issue) => !isValidationWarning(issue))).toEqual([]);
+  });
+
+  test("rejects non-env template refs on proxy route strings", () => {
+    const cfg = withService("api");
+    cfg.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://${services.api.port}" },
+      auth: emptyRouteAuth(),
+    });
+    expect(validate(cfg)).toContain("proxy.routes[0].upstream.url: unresolvable reference ${services.api.port}");
   });
 
   test("accepts an IAP user route with client_id and an env-ref client_secret", () => {

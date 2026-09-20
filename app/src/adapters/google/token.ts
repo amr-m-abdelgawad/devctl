@@ -9,7 +9,7 @@ import { type Bus, TokenRefreshed, TokenRefreshFailed, newEvent } from "../../sh
 import { classifyGoogle, ensureFetchShim } from "./google.ts";
 import { withRetry } from "../../shared/retry.ts";
 import { SlidingWindowLimiter } from "../../shared/sliding-window.ts";
-import { credentialsDir, writeFileSecure } from "../storage/storage.ts";
+import { credentialsDir, resolveUserPath, writeFileSecure } from "../storage/storage.ts";
 import type { Clock } from "../../ports/clock.ts";
 import type { OAuthClientCredentials } from "../../ports/credential-provider.ts";
 import { systemClock } from "../system/clock.ts";
@@ -108,18 +108,23 @@ export function resolveIapOAuthClient(auth: RouteAuthConfig, env: NodeJS.Process
   const raw = (auth.client_secret ?? "").trim();
   const { value: envSecret, missing } = interpolateEnvRefs(raw, envWithSecrets(env, repoRoot));
 
-  const credPath = (auth.credentials ?? "").trim();
+  const credRaw = (auth.credentials ?? "").trim();
+  const { value: credPath, missing: credMissing } = interpolateEnvRefs(credRaw, envWithSecrets(env, repoRoot));
+  if (credRaw !== "" && credMissing.length > 0) {
+    throw newError(KindConfiguration, `IAP credentials env ${credMissing[0]} is empty`);
+  }
   if (credPath !== "") {
     // A separate authorized_user file supplies the refresh token (and, when the
     // route omits them, the client id/secret). ADC is never consulted, so the
     // default gcloud client stays usable for GCS/Firestore.
-    const file = loadAuthorizedUserFile(credPath);
+    const resolvedCred = resolveUserPath(credPath, repoRoot && repoRoot !== "" ? repoRoot : process.cwd());
+    const file = loadAuthorizedUserFile(resolvedCred);
     if (file.clientId !== clientId) {
-      throw newError(KindConfiguration, `IAP credentials file ${credPath} is for client_id ${file.clientId}, not the route's ${clientId}`);
+      throw newError(KindConfiguration, `IAP credentials file ${resolvedCred} is for client_id ${file.clientId}, not the route's ${clientId}`);
     }
     const clientSecret = envSecret !== "" ? envSecret : file.clientSecret;
     if (clientSecret === "") {
-      throw newError(KindConfiguration, `IAP client_id ${clientId} requires a client_secret (in the route or ${credPath})`);
+      throw newError(KindConfiguration, `IAP client_id ${clientId} requires a client_secret (in the route or ${resolvedCred})`);
     }
     return { clientId, clientSecret, refreshToken: file.refreshToken };
   }

@@ -1,9 +1,11 @@
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
+import { interpolateEnvRefs, interpolateEnvRefsProtectingToken } from "../../domain/config/env-ref.ts";
 import { fromRoute, tokenIdentityKey } from "../../domain/identity/identity.ts";
-import { KindProxy, newError } from "../../shared/errors.ts";
+import { KindConfiguration, KindProxy, newError } from "../../shared/errors.ts";
+import { envWithSecrets } from "../environment/environment.ts";
 import { iapOAuthClientRef, type TokenManager } from "../google/token.ts";
 
-export async function mintAuthToken(auth: RouteAuthConfig, tokens?: TokenManager): Promise<string | undefined> {
+export async function mintAuthToken(auth: RouteAuthConfig, tokens?: TokenManager, env: Record<string, string | undefined> = process.env, repoRoot?: string): Promise<string | undefined> {
   const authType = auth.type.toLowerCase();
   if (authType === "" || authType === "none") {
     return undefined;
@@ -12,7 +14,8 @@ export async function mintAuthToken(auth: RouteAuthConfig, tokens?: TokenManager
     throw newError(KindProxy, "token manager unavailable");
   }
   const ident = fromRoute(auth);
-  const tok = await tokens.get(tokenIdentityKey(ident), auth.audience, [], iapOAuthClientRef(auth));
+  const audience = requireEnvInterpolation(auth.audience, envWithSecrets(env, repoRoot), "auth.audience");
+  const tok = await tokens.get(tokenIdentityKey(ident), audience, [], iapOAuthClientRef(auth, env, repoRoot));
   return tok.accessToken;
 }
 
@@ -20,12 +23,28 @@ export function headerHasAuthorization(headers: Record<string, string>): boolean
   return Object.keys(headers).some((key) => key.toLowerCase() === "authorization");
 }
 
-export function substituteToken(value: string, token: string): string {
-  return value.includes("${token}") ? value.replaceAll("${token}", token) : value;
+export function applyExtraAuthHeaders(
+  headers: Record<string, string>,
+  extra: Record<string, string> | undefined,
+  token: string,
+  env: Record<string, string | undefined> = envWithSecrets(process.env),
+): void {
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    const { value: interpolated, missing } = interpolateEnvRefsProtectingToken(value, env, token);
+    if (missing.length > 0) {
+      throw newError(KindConfiguration, `auth.headers env ${missing[0]} is empty`);
+    }
+    headers[key] = interpolated;
+  }
 }
 
-export function applyExtraAuthHeaders(headers: Record<string, string>, extra: Record<string, string> | undefined, token: string): void {
-  for (const [key, value] of Object.entries(extra ?? {})) {
-    headers[key] = substituteToken(value, token);
+export function requireEnvInterpolation(value: string, env: Record<string, string | undefined>, label: string): string {
+  if (value === "" || !value.includes("${")) {
+    return value;
   }
+  const { value: interpolated, missing } = interpolateEnvRefs(value, env);
+  if (missing.length > 0) {
+    throw newError(KindConfiguration, `${label} env ${missing[0]} is empty`);
+  }
+  return interpolated;
 }

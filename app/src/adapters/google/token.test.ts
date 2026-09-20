@@ -268,6 +268,17 @@ describe("resolveIapOAuthClient", () => {
     expect(resolveIapOAuthClient(auth, { IAP_OAUTH_CLIENT_SECRET: "from-env" })?.clientSecret).toBe("inline");
   });
 
+  test("reads a credentials path from ${env.NAME}", () => {
+    const path = `${process.env.TMPDIR ?? "/tmp"}/devctl-cred-${Date.now()}-env.json`;
+    writeFileSync(path, JSON.stringify({ type: "authorized_user", client_id: "cid", client_secret: "file-secret", refresh_token: "rt-env" }));
+    const auth = { ...emptyRouteAuth(), client_id: "cid", credentials: "${env.IAP_CREDENTIALS}" };
+    expect(resolveIapOAuthClient(auth, { IAP_CREDENTIALS: path })).toEqual({
+      clientId: "cid",
+      clientSecret: "file-secret",
+      refreshToken: "rt-env",
+    });
+  });
+
   test("throws when client_id is set and the env secret is empty", () => {
     const auth = { ...emptyRouteAuth(), client_id: "desktop.apps.googleusercontent.com", client_secret: "${IAP_OAUTH_CLIENT_SECRET}" };
     expect(() => resolveIapOAuthClient(auth, {})).toThrow(/IAP client_secret env IAP_OAUTH_CLIENT_SECRET is empty/);
