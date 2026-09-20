@@ -166,7 +166,14 @@ export class WorkerLogStore implements LogStore {
     const message: WorkerRequest = { ...body, id };
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        this.markDead(new Error(`log worker timed out (${body.type})`));
+        // A slow page/facet/export must not kill ingest. The ring keeps
+        // wrapping; only this RPC fails.
+        const waiting = this.pending.get(id);
+        if (!waiting) {
+          return;
+        }
+        this.pending.delete(id);
+        waiting.reject(new Error(`log worker timed out (${body.type})`));
       }, timeoutMs);
       this.pending.set(id, { resolve, reject, timer });
       try {

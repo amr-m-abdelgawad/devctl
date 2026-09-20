@@ -103,6 +103,31 @@ describe("WorkerLogStore", () => {
     }
   });
 
+  test("wraps the ring past max and keeps ingesting", async () => {
+    const store = new WorkerLogStore({ ...config(), max: 10 });
+    try {
+      await store.waitUntilReady();
+      for (let i = 0; i < 25; i += 1) {
+        store.append({
+          timestamp: `2026-08-30T00:00:${String(i).padStart(2, "0")}.000Z`,
+          service: "api",
+          source: "stdout",
+          level: "INFO",
+          message: `line ${i}`,
+          pid: 1,
+        });
+      }
+      const page = await store.queryPage({}, { limit: 20 });
+      expect(page.events).toHaveLength(10);
+      expect(logMessage(page.events[0]!)).toBe("line 15");
+      expect(logMessage(page.events[9]!)).toBe("line 24");
+      expect(store.snapshot().total).toBe(10);
+      expect(store.snapshot().seen).toBe(25);
+    } finally {
+      await store.close();
+    }
+  });
+
   test("query fails fast after close", async () => {
     const store = new WorkerLogStore(config());
     await store.waitUntilReady();

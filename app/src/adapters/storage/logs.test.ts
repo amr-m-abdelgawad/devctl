@@ -55,6 +55,15 @@ describe("LogManager persistence", () => {
     expect(mgr.snapshot()).toEqual({ total: 3, errors: 1, counts: { api: 3 }, seen: 6, seenErrors: 1 });
   });
 
+  test("wrapping drops the evicted service from snapshot counts", () => {
+    const mgr = new LogManager(2, undefined, new Detector([], []), false, tmp(), "evict", 0, 0);
+    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "old", source: "proxy", level: "ERROR", message: "gone", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", source: "proxy", level: "INFO", message: "keep", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", source: "proxy", level: "INFO", message: "newer", pid: 1 });
+    expect(mgr.query({}).map((event) => event.service)).toEqual(["api", "api"]);
+    expect(mgr.snapshot()).toEqual({ total: 2, errors: 0, counts: { api: 2 }, seen: 3, seenErrors: 1 });
+  });
+
   test("snapshot seen/seenErrors keep growing after the ring fills", () => {
     const mgr = new LogManager(2, undefined, new Detector([], []), false, tmp(), "cap", 0, 0);
     mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "proxy", level: "INFO", message: "ok", pid: 1 });
@@ -425,9 +434,10 @@ describe("LogManager at scale", () => {
   // LogManager's own DEFAULT_MAX_EVENTS both default to 50,000, so this is
   // the largest buffer the TUI is expected to hold. queryPage()/queryFacets()
   // scan the whole ring buffer every call (there's no secondary index) to
-  // compute hasNext/hasPrev/facet counts correctly, so this exists to prove
-  // that scan stays fast enough in practice that the TUI never visibly
-  // stalls at the cap, not just that it's correct at a handful of events.
+  // compute hasNext/hasPrev/facet counts correctly; snapshot() stays O(1) by
+  // updating ring totals on wrap. This exists to prove those scans stay fast
+  // enough that the TUI never visibly stalls at the cap, not just that the
+  // buffer is correct at a handful of events.
   function filled(count: number): LogManager {
     const mgr = new LogManager(count, undefined, new Detector([], []), false, tmp(), "scale", 0, 0);
     const services = ["api", "worker", "auth"];
@@ -503,6 +513,29 @@ describe("LogManager at scale", () => {
       expect(pages).toBeLessThan(20);
     }
     expect(seen.size).toBe(50_000);
+  });
+
+  test("ingest and snapshot stay cheap after the 50,000-event ring fills", () => {
+    const mgr = filled(50_000);
+    mgr.queryPage({}, { limit: 1 });
+    const started = performance.now();
+    for (let i = 0; i < 2_000; i += 1) {
+      mgr.append({
+        timestamp: new Date(2026, 7, 30, 1, 0, 0, i).toISOString(),
+        service: i % 2 === 0 ? "api" : "worker",
+        source: "proxy",
+        level: i % 20 === 0 ? "ERROR" : "INFO",
+        message: `wrap ${i}`,
+        pid: 1,
+      });
+      mgr.snapshot();
+    }
+    const elapsed = performance.now() - started;
+    const snap = mgr.snapshot();
+    expect(snap.total).toBe(50_000);
+    expect(snap.seen).toBe(52_000);
+    expect(logMessage(mgr.queryPage({}, { limit: 1 }).events[0]!)).toBe("wrap 1999");
+    expect(elapsed).toBeLessThan(2000);
   });
 });
 

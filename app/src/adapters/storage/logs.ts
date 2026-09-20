@@ -90,6 +90,8 @@ export class LogManager {
   private nextSeq = 1;
   private recorded = 0;
   private errorCount = 0;
+  private ringErrors = 0;
+  private readonly ringCounts: Record<string, number> = {};
   private readonly max: number;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
@@ -289,18 +291,10 @@ export class LogManager {
   }
 
   snapshot(): LogSnapshot {
-    const counts: Record<string, number> = {};
-    let errors = 0;
-    this.forEachEvent((ev) => {
-      counts[ev.service] = (counts[ev.service] ?? 0) + 1;
-      if (isErrorSeverity(ev.severityNumber)) {
-        errors += 1;
-      }
-    });
     return {
       total: this.events.length,
-      errors,
-      counts,
+      errors: this.ringErrors,
+      counts: { ...this.ringCounts },
       seen: this.recorded,
       seenErrors: this.errorCount,
     };
@@ -348,12 +342,7 @@ export class LogManager {
     if (isErrorSeverity(next.severityNumber)) {
       this.errorCount += 1;
     }
-    if (this.events.length < this.max) {
-      this.events.push(next);
-    } else {
-      this.events[this.eventStart] = next;
-      this.eventStart = (this.eventStart + 1) % this.max;
-    }
+    this.pushRing(next);
     this.tagRecentServiceLogs(next, arrivedMs);
     this.rememberCorrelate(next, arrivedMs);
     this.publishRecord(next);
@@ -410,6 +399,40 @@ export class LogManager {
 
   private rememberCorrelate(event: LogRecord, arrivedMs = Date.now()): void {
     this.recentCorrelate.push({ event, arrivedMs });
+  }
+
+  private pushRing(event: LogRecord): void {
+    if (this.events.length < this.max) {
+      this.events.push(event);
+      this.addRingCounts(event);
+      return;
+    }
+    const evicted = this.events[this.eventStart];
+    if (evicted) {
+      this.removeRingCounts(evicted);
+    }
+    this.events[this.eventStart] = event;
+    this.addRingCounts(event);
+    this.eventStart = (this.eventStart + 1) % this.max;
+  }
+
+  private addRingCounts(event: LogRecord): void {
+    this.ringCounts[event.service] = (this.ringCounts[event.service] ?? 0) + 1;
+    if (isErrorSeverity(event.severityNumber)) {
+      this.ringErrors += 1;
+    }
+  }
+
+  private removeRingCounts(event: LogRecord): void {
+    const remaining = (this.ringCounts[event.service] ?? 0) - 1;
+    if (remaining <= 0) {
+      delete this.ringCounts[event.service];
+    } else {
+      this.ringCounts[event.service] = remaining;
+    }
+    if (isErrorSeverity(event.severityNumber) && this.ringErrors > 0) {
+      this.ringErrors -= 1;
+    }
   }
 
   private publishRecord(event: LogRecord): void {
