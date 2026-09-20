@@ -511,6 +511,47 @@ describe("ServiceOrchestrator", () => {
     expect(session.runtimes.get("api")?.restarts).toBe(2);
   });
 
+  test("a healthy service that later fails probes is left running to recover", async () => {
+    let healthy = true;
+    const { orch, svc, processes, session } = harness({
+      lookup: () => ({
+        check: async () => ({ status: healthy ? HealthHealthy : HealthUnhealthy, message: healthy ? "ok" : "down" }),
+      }),
+    });
+    svc.health.type = "custom";
+    svc.health.interval_seconds = 0.01;
+    svc.health.unhealthy_threshold = 1;
+    svc.health.start_period_seconds = 0;
+    svc.restart = { enabled: true, policy: "on_failure", max_retries: 2, backoff_seconds: 0.01 };
+    await orch.start({ services: ["api"] });
+    await until(() => session.runtimes.get("api")?.health === HealthHealthy);
+    expect(processes.started).toHaveLength(1);
+    healthy = false;
+    await until(() => session.runtimes.get("api")?.health === HealthUnhealthy);
+    await Bun.sleep(40);
+    expect(processes.started).toHaveLength(1);
+    expect(session.runtimes.get("api")?.restarts).toBe(0);
+    healthy = true;
+    await until(() => session.runtimes.get("api")?.health === HealthHealthy);
+    expect(processes.started).toHaveLength(1);
+  });
+
+  test("wait_for_healthy does not health-restart before the startup timeout", async () => {
+    const { orch, svc, processes, session } = harness({
+      lookup: () => ({ check: async () => ({ status: HealthUnhealthy, message: "down" }) }),
+    });
+    svc.health.type = "custom";
+    svc.health.interval_seconds = 0.01;
+    svc.health.unhealthy_threshold = 1;
+    svc.health.start_period_seconds = 0;
+    svc.startup.wait_for_healthy = true;
+    svc.startup.timeout_seconds = 0.12;
+    svc.restart = { enabled: true, policy: "on_failure", max_retries: 2, backoff_seconds: 0.01 };
+    await expect(orch.start({ services: ["api"] })).rejects.toThrow(/failed to start/);
+    expect(processes.started).toHaveLength(1);
+    expect(session.runtimes.get("api")?.state).toBe(StateFailed);
+  });
+
   test("a throwing checker is reported as unhealthy", async () => {
     const { orch, svc, session } = harness({ lookup: () => ({ check: () => { throw new Error("probe failed"); } }) });
     svc.health.type = "custom";

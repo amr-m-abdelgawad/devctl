@@ -3532,7 +3532,7 @@ health:
   interval_seconds: 30
 \`\`\`
 
-During \`health.start_period_seconds\`, failing probes leave the service in its startup state and do not contribute to restart streaks. Status snapshots expose \`start_period_remaining_ms\` and \`start_period_total_ms\` on a service while that window is still open. Afterward, \`health.unhealthy_threshold\` consecutive failures trigger the configured restart policy (default 3). \`health.healthy_reset_threshold\` consecutive successes forgive prior restart attempts (default 10).
+During \`health.start_period_seconds\`, failing probes leave the service in its startup state and do not contribute to restart streaks. Status snapshots expose \`start_period_remaining_ms\` and \`start_period_total_ms\` on a service while that window is still open. Afterward, \`health.unhealthy_threshold\` consecutive failures trigger the configured restart policy (default 3) **only if the process has not yet had a successful probe**. Once a probe has succeeded, later failures mark the service \`UNHEALTHY\` but leave the process running so an in-process reloader (Vite HMR, \`bun --watch\`, a compile error the next save will fix) can recover. A process that actually exits still follows \`restart.policy\`. \`startup.wait_for_healthy\` uses the same grace window as start-period, so a slow first bind cannot race the startup wait and kill the process. \`health.healthy_reset_threshold\` consecutive successes forgive prior restart attempts (default 10).
 
 \`devctl\` watches \`.devctl/\` and offers reload. Source-file restart is **opt-in** per service — off by default so a noisy tree cannot bounce the fleet:
 

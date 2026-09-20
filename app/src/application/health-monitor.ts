@@ -1,5 +1,5 @@
 import type { ServiceConfig } from "../domain/config/types.ts";
-import { DEFAULT_MAX_RETRIES, HealthPolicy, RestartPolicy } from "../domain/service/policies.ts";
+import { DEFAULT_MAX_RETRIES, HealthPolicy, RestartPolicy, StartupPolicy } from "../domain/service/policies.ts";
 import { HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateHealthy, StateUnhealthy, StateRestarting, StateRunning, StateStopping, StateStopped, type ServiceHealth, type ServiceState } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { ProcessRuntime } from "../ports/process-runtime.ts";
@@ -20,6 +20,10 @@ export class HealthMonitor {
   private readonly unhealthyStreak = new Map<string, number>();
   private readonly healthyStreak = new Map<string, number>();
   private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // True after this lifecycle generation has had a successful probe. A later
+  // blip (Vite HMR, optimizeDeps, a one-shot 500) must not kill the process
+  // — crash restart still comes from onExit.
+  private readonly readyOnce = new Map<string, boolean>();
 
   constructor(
     private readonly host: () => HealthHost,
@@ -118,7 +122,13 @@ export class HealthMonitor {
     }
     const interval = svc.health.interval_seconds > 0 ? svc.health.interval_seconds * 1000 : DEFAULT_HEALTH_INTERVAL_MS;
     const startedAt = Date.parse(this.host().runtimes.get(name)?.startTime ?? "") || this.clock.unixMs();
+    const graceMs = HealthPolicy.probeGraceMs(svc);
+    let probing = false;
     const tick = (): void => {
+      if (probing) {
+        return;
+      }
+      probing = true;
       const healthResult: Promise<{ status: ServiceHealth; message: string }> = svc.container && svc.health.type.toLowerCase() === "process"
         ? Promise.resolve(this.processes.isRunning(name)
           ? { status: HealthHealthy, message: "container running" }
@@ -138,7 +148,7 @@ export class HealthMonitor {
           if (current && healthResultIgnored(current.state)) {
             return;
           }
-          if (res.status === HealthUnhealthy && this.clock.unixMs() - startedAt < svc.health.start_period_seconds * 1000) {
+          if (res.status === HealthUnhealthy && this.clock.unixMs() - startedAt < graceMs) {
             this.host().logs.append({ timestamp: this.clock.isoNow(), service: name, source: "health", level: "INFO", message: `health check still in start period: ${res.message}`, pid });
             return;
           }
@@ -152,6 +162,9 @@ export class HealthMonitor {
             pid,
           });
           this.maybeRestartUnhealthy(name, svc, res.status, gen);
+        })
+        .finally(() => {
+          probing = false;
         });
     };
     tick();
@@ -190,6 +203,7 @@ export class HealthMonitor {
     // crash's restart-count bump on the next tick, without the service ever
     // actually proving itself stable again under the new process.
     this.healthyStreak.set(name, 0);
+    this.readyOnce.set(name, false);
     return next;
   }
 
@@ -247,6 +261,9 @@ export class HealthMonitor {
       return;
     }
     rt.health = health;
+    if (health === HealthHealthy) {
+      this.readyOnce.set(name, true);
+    }
     if (rt.state === StateRunning || rt.state === StateHealthy || rt.state === StateUnhealthy) {
       rt.state = health === HealthHealthy ? StateHealthy : health === HealthUnhealthy ? StateUnhealthy : rt.state;
     }
@@ -266,6 +283,11 @@ export class HealthMonitor {
     if (policy !== "on_failure" && policy !== "always") {
       return;
     }
+    // wait_for_healthy owns the never-ready case (timeout → fail()). A
+    // health-restart here races that wait and kills a slow first bind.
+    if (StartupPolicy.waitForHealthy(svc) && !this.readyOnce.get(name)) {
+      return;
+    }
     // A restart is already committed and waiting for its backoff. Further
     // probes from the same process must not consume more retry budget or
     // continually push that timer back.
@@ -274,6 +296,15 @@ export class HealthMonitor {
     this.unhealthyStreak.set(name, streak);
     const threshold = svc.health.unhealthy_threshold > 0 ? svc.health.unhealthy_threshold : HEALTH_RESTART_STREAK;
     if (!HealthPolicy.shouldRestartUnhealthy(streak, threshold)) {
+      return;
+    }
+    // The process already proved it can serve. A later probe miss is
+    // readiness, not a crash — killing it is what leaves Vite/HMR dead
+    // after a compile error the next save would have fixed.
+    if (this.readyOnce.get(name)) {
+      if (streak === threshold) {
+        this.host().log(name, "WARN", `unhealthy after ${streak} consecutive checks; leaving the process up so it can recover`);
+      }
       return;
     }
     this.unhealthyStreak.set(name, 0);

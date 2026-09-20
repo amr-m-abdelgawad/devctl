@@ -46,6 +46,15 @@ describe("HealthPolicy", () => {
     expect(HealthPolicy.shouldRestartUnhealthy(2, 3)).toBe(false);
     expect(HealthPolicy.shouldRestartUnhealthy(3, 3)).toBe(true);
   });
+
+  test("probe grace is the longer of start_period and wait_for_healthy timeout", () => {
+    const svc = emptyService();
+    svc.health.start_period_seconds = 5;
+    expect(HealthPolicy.probeGraceMs(svc)).toBe(5_000);
+    svc.startup.wait_for_healthy = true;
+    svc.startup.timeout_seconds = 45;
+    expect(HealthPolicy.probeGraceMs(svc)).toBe(45_000);
+  });
 });
 
 describe("StartupPolicy", () => {

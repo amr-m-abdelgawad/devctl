@@ -29,6 +29,7 @@ templates:
       type: http
       interval_seconds: 2
       timeout_seconds: 2
+      start_period_seconds: 20
     logs:
       stdout: true
       stderr: true

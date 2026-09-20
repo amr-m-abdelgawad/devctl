@@ -3,6 +3,7 @@ import { RestartAlways, RestartNever, RestartOnFailure, effectiveRestartPolicy, 
 export const DEFAULT_MAX_RETRIES = 3;
 export const HEALTH_RESTART_STREAK = 3;
 export const HEALTH_RESET_STREAK = 10;
+export const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
 export type RestartContext = {
   policy: string;
@@ -38,16 +39,6 @@ export const RestartPolicy = {
   },
 };
 
-export const HealthPolicy = {
-  shouldRestartUnhealthy(unhealthyStreak: number, threshold = HEALTH_RESTART_STREAK): boolean {
-    return unhealthyStreak >= threshold;
-  },
-
-  shouldResetRestartBudget(healthyStreak: number, threshold = HEALTH_RESET_STREAK): boolean {
-    return healthyStreak >= threshold;
-  },
-};
-
 export const StartupPolicy = {
   timeoutMs(svc: ServiceConfig, fallbackMs: number): number {
     const seconds = svc.startup.timeout_seconds;
@@ -56,5 +47,24 @@ export const StartupPolicy = {
 
   waitForHealthy(svc: ServiceConfig): boolean {
     return svc.startup.wait_for_healthy;
+  },
+};
+
+export const HealthPolicy = {
+  shouldRestartUnhealthy(unhealthyStreak: number, threshold = HEALTH_RESTART_STREAK): boolean {
+    return unhealthyStreak >= threshold;
+  },
+
+  shouldResetRestartBudget(healthyStreak: number, threshold = HEALTH_RESET_STREAK): boolean {
+    return healthyStreak >= threshold;
+  },
+
+  // Unhealthy results during this window do not mark the service down or
+  // consume restart budget. wait_for_healthy uses the same window so a slow
+  // first bind cannot race the startup wait and kill the process.
+  probeGraceMs(svc: ServiceConfig, fallbackStartupMs = DEFAULT_STARTUP_TIMEOUT_MS): number {
+    const startPeriod = Math.max(0, svc.health.start_period_seconds) * 1000;
+    const wait = StartupPolicy.waitForHealthy(svc) ? StartupPolicy.timeoutMs(svc, fallbackStartupMs) : 0;
+    return Math.max(startPeriod, wait);
   },
 };

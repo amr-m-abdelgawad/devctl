@@ -5,7 +5,7 @@ import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureSt
 import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../shared/errors.ts";
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
-import { StartupPolicy } from "../domain/service/policies.ts";
+import { DEFAULT_STARTUP_TIMEOUT_MS, StartupPolicy } from "../domain/service/policies.ts";
 import { resolvedContainerLimits } from "../domain/service/container-limits.ts";
 import {
   HealthHealthy,
@@ -35,7 +35,6 @@ import { recipesNeededForEnv } from "../domain/http/recipes.ts";
 import { effectiveServiceEnv, overlayEnv, profileBoundOverlay, profileServiceEnvConfig, resolveEnvironmentName } from "../domain/service/environments.ts";
 
 const HEALTH_POLL_MS = 100;
-const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 
 export class ServiceOrchestrator implements ServiceOrchestratorPort {
   private session?: LifecycleSession;

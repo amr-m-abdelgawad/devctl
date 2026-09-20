@@ -247,7 +247,11 @@ you can point at the plugin that registers it.
 
 Defaults when omitted: interval 2s, timeout 2s, start period 0s, unhealthy
 threshold 3, healthy reset threshold 10. Failures during the start period do
-not mark the service unhealthy or consume restart budget.
+not mark the service unhealthy or consume restart budget. `startup.wait_for_healthy`
+extends that same grace through the startup timeout so a slow first bind cannot
+be killed by the probe loop. After a successful probe, later failures stay
+`UNHEALTHY` and do not restart a still-running process (Vite HMR / in-process
+reload); an actual process exit still follows `restart.policy`.
 
 ## Identity
 

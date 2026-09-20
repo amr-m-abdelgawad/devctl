@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `${NAME}` / `${env.NAME}` interpolation from process env plus `.devctl/secrets.env` now matches what 0.16.0 documented: `devctl config validate` accepts those templates in service env, HTTP recipes, and proxy routes (including `.devctl/proxy/routes.yaml`) without requiring the variable to be set, and no longer treats an IAP `auth.credentials` env ref as a filesystem path. Values still expand at start, fetch, request, or mint — not at load.
 - The in-memory log ring keeps ingesting after `logs.max_memory_events` (default 50,000): wrapping a slot is O(1) and a slow logs query no longer kills the log worker (which previously dropped every later line). Status `logs.total` stays at the cap; `logs.seen` keeps growing.
+- A service that has already passed a health probe is no longer killed when later probes fail (Vite HMR / optimizeDeps blips). It stays `UNHEALTHY` until the next success or the process exits. `startup.wait_for_healthy` also covers that first-bind window so a slow dev server cannot race the startup wait.
 
 ### Changed
 
