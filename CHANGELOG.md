@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-09-21
+
 ### Added
 
 - Web console **Logs** follows the daemon's 50k ring with cursor paging and a virtualized list (pause, search/regex, ERROR+, system sources, wrap, split, history, NDJSON export). **Doctor** (`#/doctor`) and read-only **Identity** (`#/identity`, header ADC chip) match the TUI screens; busy-port stop stays TUI/CLI-only. Overview/Graph restart asks named-only vs cascade when dependents exist. See [Web console](docs/web.md) and [Logs](docs/logs.md).
@@ -631,7 +633,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.0...HEAD
+[0.18.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.15.0...v0.16.0
 [0.15.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.14.1...v0.15.0
