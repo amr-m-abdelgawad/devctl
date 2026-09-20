@@ -2,6 +2,8 @@
 
 # devctl
 
+<video src="https://github.com/user-attachments/assets/796672be-d58b-4aaa-8ca1-5e7e1452eec2" controls muted width="900"></video>
+
 **One terminal for your local stack.**
 
 Start services, follow logs, trace requests, and inject cloud auth — from a keyboard-first TUI, the CLI, or an AI agent over MCP.
