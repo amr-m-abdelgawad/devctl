@@ -2,7 +2,7 @@
 
 # devctl
 
-<video src="https://github.com/user-attachments/assets/796672be-d58b-4aaa-8ca1-5e7e1452eec2" controls muted width="900"></video>
+<video src="https://github.com/user-attachments/assets/eadb7ee1-43e8-4ba0-b0ee-1011448f36a8" controls muted width="900"></video>
 
 **One terminal for your local stack.**
 
