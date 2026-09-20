@@ -44,3 +44,6 @@ Library/
 
 # PyCache
 __pycache__/
+
+# Brag output
+brag-output/
