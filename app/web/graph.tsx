@@ -187,8 +187,9 @@ export function DependencyGraph(props: {
   readonly services: ServiceRow[];
   readonly busy?: boolean;
   readonly onControl?: RunControl;
+  readonly onRestartServices?: (names: string[]) => void;
 }) {
-  const { config, services, busy = false, onControl } = props;
+  const { config, services, busy = false, onControl, onRestartServices } = props;
   const [hover, setHover] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const runtime = useMemo(() => new Map(services.map((row) => [row.name, row])), [services]);
@@ -367,6 +368,7 @@ export function DependencyGraph(props: {
           busy={busy}
           onSelect={setSelected}
           onControl={onControl}
+          onRestartServices={onRestartServices}
         />
       ) : null}
     </div>
@@ -391,8 +393,16 @@ function TopologyInspector(props: {
   readonly busy: boolean;
   readonly onSelect: (name: string) => void;
   readonly onControl?: RunControl;
+  readonly onRestartServices?: (names: string[]) => void;
 }) {
-  const { svc, row, edges, busy, onSelect, onControl } = props;
+  const { svc, row, edges, busy, onSelect, onControl, onRestartServices } = props;
+  const restart = (): void => {
+    if (onRestartServices) {
+      onRestartServices([svc.name]);
+      return;
+    }
+    onControl?.("restart_services", { services: [svc.name] }, `Restarting ${svc.name}…`);
+  };
   const upstream = edges.filter((edge) => edge.to === svc.name);
   const downstream = edges.filter((edge) => edge.from === svc.name);
   return (
@@ -405,7 +415,7 @@ function TopologyInspector(props: {
           <StatusBadge value={row.health} />
         ) : null}
         {portLabel(row, svc) ? <span className="font-mono text-[11px] text-muted-foreground">{portLabel(row, svc)}</span> : null}
-        {row && onControl ? <EnvSelect row={row} busy={busy} onControl={onControl} /> : null}
+        {row && onControl ? <EnvSelect row={row} busy={busy} onControl={onControl} onRestart={() => restart()} /> : null}
         {onControl ? (
           <div className="ml-auto">
             <ActionButtons
@@ -413,7 +423,7 @@ function TopologyInspector(props: {
               busy={busy}
               onStart={() => onControl("start_services", { services: [svc.name] }, `Starting ${svc.name}…`)}
               onStop={() => onControl("stop_services", { services: [svc.name] }, `Stopping ${svc.name}…`)}
-              onRestart={() => onControl("restart_services", { services: [svc.name] }, `Restarting ${svc.name}…`)}
+              onRestart={restart}
             />
           </div>
         ) : null}

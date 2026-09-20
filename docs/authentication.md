@@ -34,7 +34,7 @@ User identity and service identity are separate. A service or proxy route must d
 
 `devctl auth refresh` uses `auth.refresh_threshold_seconds` (default 300). Tokens live in the OS keychain when available, otherwise `~/.devctl/credentials` with mode `0600`. Metadata files never include the raw access token. Google minting is capped at 10 refreshes per identity and audience per minute; a still-unexpired cached token is reused when the cap is hit. Doctor warns when the rate for one pair is high.
 
-The TUI **identity** tab (`a`) shows user, project, source, ADC, gcloud, configured SAs, impersonation availability, and whether IAP routes exist. The **credentials** tab lists store backend and entry names only.
+The TUI **identity** tab (`a`) and the [web console](web.md) Identity page (`#/identity`, header ADC chip) show user, project, source, ADC, gcloud (TUI), configured SAs, impersonation availability, and whether IAP routes exist. Login stays `devctl auth login` / TUI `/auth login`. The **credentials** tab lists store backend and entry names only.
 
 ![The TUI identity tab — Google identity (user, project, source, ADC, gcloud), configured service accounts with impersonation state, and whether IAP routes are present](assets/manual/tui-identity.png)
 

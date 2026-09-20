@@ -81,7 +81,8 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { listSessions, loadSessionEvents } from "../storage/logs.ts";
+import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -862,6 +863,9 @@ export class Supervisor {
     return {
       status: () => this.commands.getServiceStatus.execute(),
       logsPage: (req) => this.queryLogsPage(req),
+      logsStats: (req) => this.queryLogsFacets(req),
+      listLogSessions: () => listSessions(this.logSessionsRoot()),
+      loadLogSession: (id) => this.loadPersistedLogSession(id),
       config: () => this.cfg,
       validateConfigText: (text) => validateConfigText(this.cfg.repoRoot, this.cfg.configPath, text),
       start: (req) => this.commands.startService.execute(req),
@@ -1019,6 +1023,18 @@ export class Supervisor {
 
   queryTrafficCall(id: string): TrafficCall | undefined {
     return this.trafficStore.get(id);
+  }
+
+  private logSessionsRoot(): string {
+    const directory = this.cfg.logs.persistence.directory;
+    return directory === "" || directory.startsWith("~/") ? logsDir() : directory;
+  }
+
+  private loadPersistedLogSession(id: string): LogEvent[] {
+    if (!id.startsWith("session-") || id.includes("/") || id.includes("\\") || id.includes("..")) {
+      return [];
+    }
+    return loadSessionEvents(id, this.logSessionsRoot());
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {

@@ -16,6 +16,8 @@ Exit code **2** when any check is not ok (same code as configuration errors).
 
 The TUI **Doctor** screen (`/doctor` or `d`) re-runs on every visit (`r` also refreshes). `j`/`k` move. `enter` on a busy port asks to SIGTERM that process (then SIGKILL if it stays up). Ports owned by a running container service are treated as healthy; `enter` never offers to kill the Docker or Podman daemon.
 
+The [web console](web.md) **Doctor** page (`#/doctor`) runs the same checks on visit and on Refresh. It lists severity, message, and hint, including the busy-port holder. **Stop stays TUI/CLI-only** — the web page does not kill processes.
+
 ![The TUI Doctor screen — a pass/warn/error progress bar and grouped checks with hints, re-run with `r`](assets/manual/tui-doctor.png)
 
 ## What it checks
@@ -57,3 +59,4 @@ flowchart LR
 - [Services](services.md)
 - [Admin setup](admin-setup.md)
 - [TUI](tui.md)
+- [Web console](web.md)

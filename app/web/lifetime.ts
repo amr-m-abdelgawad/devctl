@@ -1,6 +1,6 @@
-// Lifetime counters for dashboard KPIs. Tables still show the daemon's
-// bounded rings (last 100 requests, last 200 log rows); totals must keep
-// growing after those rings fill.
+// Lifetime counters for dashboard KPIs. Overview tables still show bounded
+// windows (last 100 requests, a small recent-error page); Logs holds up to
+// logs.max_memory_events. Totals must keep growing after those rings fill.
 
 export type RingCounter = {
   readonly seen: number;

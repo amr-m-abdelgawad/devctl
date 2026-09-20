@@ -3,7 +3,19 @@ import type { DevctlConfig } from "../../domain/config/types.ts";
 import { secretTemplateLabel } from "../../domain/config/env-ref.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
 import { Detector } from "../../shared/redaction.ts";
-import { formatBodySummary, redactLogRecord, redactSpan, type LogRecord } from "../../domain/logs/logs.ts";
+import {
+  clampLogPageSize,
+  formatBodySummary,
+  matchLog,
+  MAX_LOG_PAGE_SIZE,
+  redactLogRecord,
+  redactSpan,
+  type LogFilter,
+  type LogPage,
+  type LogPageDirection,
+  type LogPageRequest,
+  type LogRecord,
+} from "../../domain/logs/logs.ts";
 import { redactLlmCall, stripLlmBodies, type LlmCall } from "../../domain/llm/llm.ts";
 import { redactTrafficCall, stripTrafficBodies, type TrafficCall } from "../../domain/traffic/traffic.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
@@ -102,22 +114,51 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Filtered log pages, secrets redacted",
     category: "logs",
     description:
-      "Recent log records, optionally filtered. Capped at 200 events per page. Secrets are redacted. Pass cursor=next_cursor to page forward with no duplicate or same-millisecond-lost events; since/until are plain timestamp filters for a fresh query, not a follow cursor.",
+      "Recent log records, optionally filtered. Default page size is 200 (pass limit, max 5000). Secrets are redacted. Pass cursor=next_cursor to page toward newer events (direction defaults to forward whenever a cursor is set); pass cursor=prev_cursor with direction=backward for older events. since/until are plain timestamp filters for a fresh query, not a follow cursor. regex=true treats search as a regular expression.",
     inputSchema: {
       type: "object",
       properties: {
         service: { type: "string" },
         level: { type: "string" },
         search: { type: "string" },
+        regex: { type: "boolean", description: "Treat search as a regular expression" },
         source: { type: "string" },
         since: { type: "string", description: "Only events at or after this timestamp" },
         until: { type: "string", description: "Only events at or before this timestamp" },
-        cursor: { type: "string", description: "Opaque cursor from a previous response's next_cursor; continues forward from exactly there" },
+        cursor: { type: "string", description: "Opaque cursor from a previous response's next_cursor or prev_cursor" },
+        direction: { type: "string", enum: ["forward", "backward"], description: "Page toward newer (forward) or older (backward) events; default forward when cursor is set" },
+        limit: { type: "integer", description: "Page size (default 200, max 5000)" },
         request_id: { type: "string", description: "Filter by X-Devctl-Request-ID / devctl.request_id" },
         trace_id: { type: "string", description: "Filter by W3C trace id" },
         attribute_key: { type: "string", description: "Attribute key to match (with attribute_value)" },
         attribute_value: { type: "string", description: "Attribute value to match (with attribute_key)" },
         dedupe_request_id: { type: "boolean", description: "Collapse nearby events that share devctl.request_id (query-time; paging is unchanged)" },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_log_stats",
+    label: "Log stats",
+    summary: "Facet counts for the current filter",
+    category: "logs",
+    description:
+      "Facet counts for the current log filter (by service, level, and source). No event payload. Same filters as get_logs; secrets never appear because only counts are returned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        service: { type: "string" },
+        level: { type: "string" },
+        search: { type: "string" },
+        regex: { type: "boolean", description: "Treat search as a regular expression" },
+        source: { type: "string" },
+        since: { type: "string" },
+        until: { type: "string" },
+        request_id: { type: "string" },
+        trace_id: { type: "string" },
+        attribute_key: { type: "string" },
+        attribute_value: { type: "string" },
+        dedupe_request_id: { type: "boolean" },
       },
       additionalProperties: false,
     },
@@ -237,16 +278,19 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     label: "Recent errors",
     summary: "Latest error-severity log records",
     category: "logs",
-    description: "Latest error and fatal log records, capped at 200, secrets redacted. Same paging fields as get_logs.",
+    description: "Latest error and fatal log records, capped at 200 by default, secrets redacted. Same paging fields as get_logs.",
     inputSchema: {
       type: "object",
       properties: {
         service: { type: "string" },
         search: { type: "string" },
+        regex: { type: "boolean" },
         source: { type: "string" },
         since: { type: "string" },
         until: { type: "string" },
         cursor: { type: "string" },
+        direction: { type: "string", enum: ["forward", "backward"] },
+        limit: { type: "integer" },
         request_id: { type: "string" },
         trace_id: { type: "string" },
       },
@@ -673,32 +717,101 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
 }
 
 export async function getLogs(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
-  const service = typeof args.service === "string" ? args.service : "";
-  const since = typeof args.since === "string" ? args.since : "";
-  // A cursor names an exact sequence position, so resuming from one pages
-  // strictly forward from there — immune to the same-millisecond
-  // duplicate/loss a plain timestamp boundary can't avoid. since/until stay
-  // ordinary inclusive filters for a fresh query; they are not this tool's
-  // follow mechanism.
-  const cursor = typeof args.cursor === "string" ? args.cursor : undefined;
-  const attributeKey = typeof args.attribute_key === "string" ? args.attribute_key : "";
-  const attributeValue = typeof args.attribute_value === "string" ? args.attribute_value : "";
-  const page = await host.logsPage({
-    services: service === "" ? [] : [service],
-    level: typeof args.level === "string" ? args.level : "",
-    search: typeof args.search === "string" ? args.search : "",
-    source: typeof args.source === "string" ? args.source : "",
-    since,
-    until: typeof args.until === "string" ? args.until : "",
-    requestId: typeof args.request_id === "string" ? args.request_id : undefined,
-    traceId: typeof args.trace_id === "string" ? args.trace_id : undefined,
-    attribute: attributeKey !== "" && attributeValue !== "" ? { key: attributeKey, value: attributeValue } : undefined,
-    dedupeRequestId: args.dedupe_request_id === true,
-    cursor,
-    direction: cursor ? "forward" : undefined,
-    limit: MCP_LOG_CAP,
-  });
+  const filter = logFilterFromArgs(args);
+  const page = await host.logsPage({ ...filter, ...logPageRequestFromArgs(args, MCP_LOG_CAP) });
+  return logPageResponse(detectorFor(host.config()), page, filter.since ?? "");
+}
+
+export async function getLogStats(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
+  return host.logsStats(logFilterFromArgs(args));
+}
+
+export function listLogSessions(host: McpHost): readonly string[] | Promise<readonly string[]> {
+  return host.listLogSessions();
+}
+
+export async function getLogSession(host: McpHost, id: string, args: Record<string, unknown>): Promise<unknown> {
+  const filter = logFilterFromArgs(args);
+  const events = await host.loadLogSession(id);
+  const page = pageLoadedLogs(events, filter, logPageRequestFromArgs(args, MCP_LOG_CAP));
+  return logPageResponse(detectorFor(host.config()), page, filter.since ?? "");
+}
+
+export async function* iterateLogsExport(host: McpHost, args: Record<string, unknown>): AsyncGenerator<string> {
   const detector = detectorFor(host.config());
+  const filter = logFilterFromArgs(args);
+  const oldest = await oldestMatchingLogPage(host, filter);
+  if (oldest === undefined) {
+    return;
+  }
+  let page = oldest;
+  for (const line of logPageJsonl(detector, page)) {
+    yield line;
+  }
+  while (page.hasNext) {
+    const cursor = page.nextCursor;
+    page = await host.logsPage({ ...filter, cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
+    for (const line of logPageJsonl(detector, page)) {
+      yield line;
+    }
+    if (page.events.length === 0 || page.nextCursor === cursor) {
+      return;
+    }
+  }
+}
+
+function argString(args: Record<string, unknown>, key: string): string {
+  return typeof args[key] === "string" ? args[key] : "";
+}
+
+function argFlag(value: unknown): boolean {
+  return value === true || value === "true";
+}
+
+function parseLogLimit(value: unknown, fallback: number): number {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return clampLogPageSize(Number.isInteger(parsed) ? parsed : undefined);
+}
+
+function parseLogDirection(value: unknown, cursor: string | undefined): LogPageDirection | undefined {
+  if (value === "forward" || value === "backward") {
+    return value;
+  }
+  return cursor ? "forward" : undefined;
+}
+
+function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
+  const service = argString(args, "service");
+  const attributeKey = argString(args, "attribute_key");
+  const attributeValue = argString(args, "attribute_value");
+  return {
+    services: service === "" ? [] : [service],
+    level: argString(args, "level"),
+    search: argString(args, "search"),
+    regex: argFlag(args.regex),
+    source: argString(args, "source"),
+    since: argString(args, "since"),
+    until: argString(args, "until"),
+    requestId: nonempty(argString(args, "request_id")),
+    traceId: nonempty(argString(args, "trace_id")),
+    attribute: attributeKey !== "" && attributeValue !== "" ? { key: attributeKey, value: attributeValue } : undefined,
+    dedupeRequestId: argFlag(args.dedupe_request_id),
+  };
+}
+
+function logPageRequestFromArgs(args: Record<string, unknown>, defaultLimit: number): LogPageRequest {
+  const cursor = nonempty(argString(args, "cursor"));
+  return {
+    cursor,
+    direction: parseLogDirection(args.direction, cursor),
+    limit: parseLogLimit(args.limit, defaultLimit),
+  };
+}
+
+function logPageResponse(detector: Detector, page: LogPage, since: string): Record<string, unknown> {
   return {
     events: page.events.map((ev) => mcpLogRecord(detector, ev)),
     // Same meaning it always had: more (older) history exists than this
@@ -709,8 +822,73 @@ export async function getLogs(host: McpHost, args: Record<string, unknown>): Pro
     has_more: page.hasNext,
     next_since: page.events[page.events.length - 1]?.timestamp ?? since,
     next_cursor: page.nextCursor,
+    prev_cursor: page.prevCursor,
     session_changed: page.sessionChanged,
   };
+}
+
+function logPageJsonl(detector: Detector, page: LogPage): string[] {
+  return page.events.map((ev) => JSON.stringify(mcpLogRecord(detector, ev)));
+}
+
+async function oldestMatchingLogPage(host: McpHost, filter: LogFilter): Promise<LogPage | undefined> {
+  let page = await host.logsPage({ ...filter, limit: MAX_LOG_PAGE_SIZE, direction: "backward" });
+  if (page.events.length === 0) {
+    return undefined;
+  }
+  while (page.hasPrev) {
+    const cursor = page.prevCursor;
+    const older = await host.logsPage({ ...filter, cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
+    if (older.events.length === 0) {
+      break;
+    }
+    page = older;
+    if (older.prevCursor === cursor) {
+      break;
+    }
+  }
+  return page;
+}
+
+function pageLoadedLogs(events: readonly LogRecord[], filter: LogFilter, page: LogPageRequest): LogPage {
+  const matches = events.filter((ev) => matchLog(filter, ev));
+  const limit = clampLogPageSize(page.limit);
+  const cursorSeq = parseLoadedCursorSeq(page.cursor);
+  const windowed = windowLogMatches(matches, cursorSeq, page.direction, limit);
+  const firstSeq = windowed[0]?.seq;
+  const lastSeq = windowed[windowed.length - 1]?.seq;
+  return {
+    events: [...windowed],
+    nextCursor: String(lastSeq ?? cursorSeq ?? 0),
+    prevCursor: String(firstSeq ?? cursorSeq ?? 0),
+    hasNext: lastSeq !== undefined && matches.some((ev) => ev.seq > lastSeq),
+    hasPrev: firstSeq !== undefined && matches.some((ev) => ev.seq < firstSeq),
+    sessionChanged: false,
+  };
+}
+
+function parseLoadedCursorSeq(cursor: string | undefined): number | undefined {
+  if (cursor === undefined || cursor === "") {
+    return undefined;
+  }
+  const seq = Number(cursor);
+  return Number.isInteger(seq) ? seq : undefined;
+}
+
+function windowLogMatches(
+  matches: readonly LogRecord[],
+  cursorSeq: number | undefined,
+  direction: LogPageDirection | undefined,
+  limit: number,
+): readonly LogRecord[] {
+  if (cursorSeq === undefined) {
+    return matches.slice(Math.max(0, matches.length - limit));
+  }
+  if (direction === "forward") {
+    return matches.filter((ev) => ev.seq > cursorSeq).slice(0, limit);
+  }
+  const before = matches.filter((ev) => ev.seq < cursorSeq);
+  return before.slice(Math.max(0, before.length - limit));
 }
 
 function mcpLogRecord(detector: Detector, ev: LogRecord): Record<string, unknown> {
@@ -1062,6 +1240,8 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
     }
     case "get_logs":
       return getLogs(host, args);
+    case "get_log_stats":
+      return getLogStats(host, args);
     case "get_trace":
       return getTraceTool(host, args);
     case "trace_request":

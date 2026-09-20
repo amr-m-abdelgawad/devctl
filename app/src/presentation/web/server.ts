@@ -14,6 +14,8 @@ import {
   callMcpTool,
   getConfigSummary,
   getLogs,
+  getLogStats,
+  getLogSession,
   getLlmCallTool,
   getLlmCalls,
   getTrafficCallTool,
@@ -22,6 +24,8 @@ import {
   getStatusSummary,
   getTraceTool,
   isWebControlTool,
+  iterateLogsExport,
+  listLogSessions,
   listProfiles,
   listServices,
   traceRequestTool,
@@ -29,8 +33,10 @@ import {
 import { WEB_INDEX_HTML } from "./assets.generated.ts";
 
 const JSON_CONTENT = "application/json";
+const JSONL_CONTENT = "application/x-ndjson; charset=utf-8";
 const HTML_CONTENT = "text/html; charset=utf-8";
 const NOSNIFF = { "X-Content-Type-Options": "nosniff" } as const;
+const LOG_EXPORT_FILENAME = "devctl-logs.jsonl";
 const FRAME_GUARD = {
   "X-Frame-Options": "DENY",
   "Content-Security-Policy": "frame-ancestors 'none'",
@@ -199,6 +205,32 @@ export class WebHttpServer {
     }
     if (path === "/api/logs") {
       writeJson(res, 200, await getLogs(host, queryArgs(query)));
+      return;
+    }
+    if (path === "/api/logs/stats") {
+      writeJson(res, 200, await getLogStats(host, queryArgs(query)));
+      return;
+    }
+    if (path === "/api/logs/export") {
+      await streamLogsExport(host, queryArgs(query), res);
+      return;
+    }
+    if (path === "/api/logs/sessions") {
+      writeJson(res, 200, { sessions: await listLogSessions(host) });
+      return;
+    }
+    const sessionId = matchParam(path, "/api/logs/sessions/");
+    if (sessionId !== undefined) {
+      const id = decodeURIComponent(sessionId);
+      const sessions = await host.listLogSessions();
+      if (!sessions.includes(id)) {
+        throw new HttpError(404, "not found");
+      }
+      writeJson(res, 200, await getLogSession(host, id, queryArgs(query)));
+      return;
+    }
+    if (path === "/api/doctor") {
+      writeJson(res, 200, await host.doctor());
       return;
     }
     if (path === "/api/llm") {
@@ -396,6 +428,36 @@ function writeJson(res: ServerResponse, status: number, body: unknown): void {
     ...NOSNIFF,
   });
   res.end(text);
+}
+
+async function streamLogsExport(host: McpHost, args: Record<string, unknown>, res: ServerResponse): Promise<void> {
+  const lines = iterateLogsExport(host, args);
+  const first = await lines.next();
+  res.writeHead(200, {
+    "Content-Type": JSONL_CONTENT,
+    "Content-Disposition": `attachment; filename="${LOG_EXPORT_FILENAME}"`,
+    "Cache-Control": "no-store",
+    ...NOSNIFF,
+  });
+  if (!first.done && first.value !== undefined) {
+    await writeResponseChunk(res, `${first.value}\n`);
+  }
+  for await (const line of lines) {
+    await writeResponseChunk(res, `${line}\n`);
+  }
+  res.end();
+}
+
+function writeResponseChunk(res: ServerResponse, chunk: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    res.write(chunk, (err) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 function writeHtml(res: ServerResponse, html: string): void {

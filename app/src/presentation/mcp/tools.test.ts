@@ -6,7 +6,7 @@ import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { callMcpTool, isWebControlTool, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
+import { callMcpTool, isWebControlTool, iterateLogsExport, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -68,6 +68,19 @@ function fakeLogsPage(logs: ReturnType<typeof logRecord>[], req: LogFilter & Log
   };
 }
 
+function fakeLogsStats(logs: ReturnType<typeof logRecord>[], req: LogFilter): { total: number; byService: Record<string, number>; byLevel: Record<string, number>; bySource: Record<string, number> } {
+  const matches = logs.filter((ev) => matchLog(req, ev));
+  const byService: Record<string, number> = {};
+  const byLevel: Record<string, number> = {};
+  const bySource: Record<string, number> = {};
+  for (const ev of matches) {
+    byService[ev.service] = (byService[ev.service] ?? 0) + 1;
+    byLevel[ev.severityText] = (byLevel[ev.severityText] ?? 0) + 1;
+    bySource[ev.source] = (bySource[ev.source] ?? 0) + 1;
+  }
+  return { total: matches.length, byService, byLevel, bySource };
+}
+
 function stubHost(): McpHost {
   const cfg = defaultConfig();
   cfg.repoRoot = "/repo";
@@ -90,6 +103,9 @@ function stubHost(): McpHost {
   return {
     status: () => sampleSnap(),
     logsPage: (req: LogFilter & LogPageRequest) => fakeLogsPage(logs, req),
+    logsStats: (req) => fakeLogsStats(logs, req),
+    listLogSessions: () => ["session-one"],
+    loadLogSession: (id) => (id === "session-one" ? logs : []),
     config: () => cfg,
     validateConfigText: (text) => validateConfigText(cfg.repoRoot, cfg.configPath, text),
     start: async () => ({ started: true }),
@@ -383,6 +399,104 @@ describe("mcp tools", () => {
     });
     const result = (await callMcpTool(host, "get_logs", { cursor: "stale" })) as { session_changed: boolean };
     expect(result.session_changed).toBe(true);
+  });
+
+  test("get_logs honors limit, direction, regex, and returns prev_cursor", async () => {
+    const host = stubHost();
+    const many = Array.from({ length: 12 }, (_, i) => logRecord({
+      timestamp: `t${i + 1}`,
+      service: "api",
+      source: "stdout",
+      level: "INFO",
+      message: i === 3 ? "error-line" : `line ${i + 1}`,
+      pid: 1,
+      seq: i + 1,
+    }));
+    host.logsPage = (req) => fakeLogsPage(many, req);
+    const limited = (await callMcpTool(host, "get_logs", { limit: 5 })) as {
+      events: Array<{ seq: number }>;
+      prev_cursor: string;
+      next_cursor: string;
+      truncated: boolean;
+    };
+    expect(limited.events.map((ev) => ev.seq)).toEqual([8, 9, 10, 11, 12]);
+    expect(limited.prev_cursor).toBe("8");
+    expect(limited.next_cursor).toBe("12");
+    expect(limited.truncated).toBe(true);
+
+    const older = (await callMcpTool(host, "get_logs", { cursor: limited.prev_cursor, direction: "backward", limit: 5 })) as {
+      events: Array<{ seq: number }>;
+      prev_cursor: string;
+    };
+    expect(older.events.map((ev) => ev.seq)).toEqual([3, 4, 5, 6, 7]);
+    expect(older.prev_cursor).toBe("3");
+
+    const regexed = (await callMcpTool(host, "get_logs", { search: "error-.*", regex: true })) as {
+      events: Array<{ message: string }>;
+    };
+    expect(regexed.events.map((ev) => ev.message)).toEqual(["error-line"]);
+    const literal = (await callMcpTool(host, "get_logs", { search: "error-.*", regex: false })) as {
+      events: unknown[];
+    };
+    expect(literal.events).toEqual([]);
+  });
+
+  test("get_logs parses query-string booleans and numbers", async () => {
+    const host = stubHost();
+    let seen: LogFilter & LogPageRequest | undefined;
+    host.logsPage = (req) => {
+      seen = req;
+      return fakeLogsPage([], req);
+    };
+    await callMcpTool(host, "get_logs", {
+      limit: "25",
+      direction: "backward",
+      regex: "true",
+      dedupe_request_id: "true",
+      search: "err",
+    });
+    expect(seen?.limit).toBe(25);
+    expect(seen?.direction).toBe("backward");
+    expect(seen?.regex).toBe(true);
+    expect(seen?.dedupeRequestId).toBe(true);
+    expect(seen?.search).toBe("err");
+  });
+
+  test("get_log_stats returns facet counts without events", async () => {
+    const stats = (await callMcpTool(stubHost(), "get_log_stats", { service: "api" })) as {
+      total: number;
+      byService: Record<string, number>;
+      byLevel: Record<string, number>;
+      events?: unknown;
+    };
+    expect(stats.total).toBe(2);
+    expect(stats.byService).toEqual({ api: 2 });
+    expect(stats.byLevel.ERROR).toBe(1);
+    expect(stats.events).toBeUndefined();
+  });
+
+  test("iterateLogsExport streams redacted JSONL oldest-first across pages", async () => {
+    const host = stubHost();
+    const ev1 = logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "first", pid: 1, seq: 1 });
+    const ev2 = logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 });
+    host.logsPage = (req) => {
+      if (!req.cursor) {
+        return { events: [ev2], nextCursor: "2", prevCursor: "2", hasNext: false, hasPrev: true, sessionChanged: false };
+      }
+      if (req.direction === "backward") {
+        return { events: [ev1], nextCursor: "1", prevCursor: "1", hasNext: true, hasPrev: false, sessionChanged: false };
+      }
+      return { events: [ev2], nextCursor: "2", prevCursor: "2", hasNext: false, hasPrev: true, sessionChanged: false };
+    };
+    const lines: string[] = [];
+    for await (const line of iterateLogsExport(host, {})) {
+      lines.push(line);
+    }
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain("first");
+    expect(lines.join("\n")).not.toContain("super-secret");
+    expect(JSON.parse(lines[0] as string).seq).toBe(1);
+    expect(JSON.parse(lines[1] as string).seq).toBe(2);
   });
 
   test("start_services forwards profile and does not invent a service list", async () => {

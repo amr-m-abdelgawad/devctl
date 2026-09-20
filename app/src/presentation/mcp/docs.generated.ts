@@ -33,7 +33,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 
 | Page | Side |
 |------|------|
-| [Web console](web.md) | Browser controls, dependency graph, logs, traces, LLM, and traffic |
+| [Web console](web.md) | Browser controls, dependency graph, logs, traces, LLM, traffic, doctor, identity |
 | [TUI](tui.md) | Screens, keys, slash commands, themes, settings |
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |
@@ -429,7 +429,7 @@ User identity and service identity are separate. A service or proxy route must d
 
 \`devctl auth refresh\` uses \`auth.refresh_threshold_seconds\` (default 300). Tokens live in the OS keychain when available, otherwise \`~/.devctl/credentials\` with mode \`0600\`. Metadata files never include the raw access token. Google minting is capped at 10 refreshes per identity and audience per minute; a still-unexpired cached token is reused when the cap is hit. Doctor warns when the rate for one pair is high.
 
-The TUI **identity** tab (\`a\`) shows user, project, source, ADC, gcloud, configured SAs, impersonation availability, and whether IAP routes exist. The **credentials** tab lists store backend and entry names only.
+The TUI **identity** tab (\`a\`) and the [web console](web.md) Identity page (\`#/identity\`, header ADC chip) show user, project, source, ADC, gcloud (TUI), configured SAs, impersonation availability, and whether IAP routes exist. Login stays \`devctl auth login\` / TUI \`/auth login\`. The **credentials** tab lists store backend and entry names only.
 
 ![The TUI identity tab — Google identity (user, project, source, ADC, gcloud), configured service accounts with impersonation state, and whether IAP routes are present](assets/manual/tui-identity.png)
 
@@ -815,6 +815,8 @@ Exit code **2** when any check is not ok (same code as configuration errors).
 
 The TUI **Doctor** screen (\`/doctor\` or \`d\`) re-runs on every visit (\`r\` also refreshes). \`j\`/\`k\` move. \`enter\` on a busy port asks to SIGTERM that process (then SIGKILL if it stays up). Ports owned by a running container service are treated as healthy; \`enter\` never offers to kill the Docker or Podman daemon.
 
+The [web console](web.md) **Doctor** page (\`#/doctor\`) runs the same checks on visit and on Refresh. It lists severity, message, and hint, including the busy-port holder. **Stop stays TUI/CLI-only** — the web page does not kill processes.
+
 ![The TUI Doctor screen — a pass/warn/error progress bar and grouped checks with hints, re-run with \`r\`](assets/manual/tui-doctor.png)
 
 ## What it checks
@@ -856,6 +858,7 @@ flowchart LR
 - [Services](services.md)
 - [Admin setup](admin-setup.md)
 - [TUI](tui.md)
+- [Web console](web.md)
 ` },
   { path: "docs/environment.md", title: "Environment", body: `# Environment
 
@@ -1974,9 +1977,9 @@ Ingest also copies \`devctl.request_id\` from a proxy hop onto a nearby service 
 
 ## Pagination and facets
 
-Queries (CLI, TUI, MCP) return a bounded, cursor-paged slice instead of the whole matching history: a page defaults to the latest 500 matching events, capped at 5,000. The cursor is opaque (carries the daemon session and an internal per-event sequence number) and pages both backward (older) and forward (newer) without duplicating or dropping events that share the same millisecond — a plain timestamp boundary can't make that guarantee once two events land in the same millisecond and a page cuts between them. \`since\`/\`until\` keep working as ordinary timestamp filters alongside the cursor. Exporting (\`/export\`, \`devctl logs export\`) still reads the entire matching history — page size never truncates an export.
+Queries (CLI, TUI, MCP, web) return a bounded, cursor-paged slice instead of the whole matching history: a page defaults to the latest 500 matching events, capped at 5,000 (MCP \`get_logs\` still defaults to 200 unless you pass \`limit\`). The cursor is opaque (carries the daemon session and an internal per-event sequence number) and pages both backward (older) and forward (newer) without duplicating or dropping events that share the same millisecond — a plain timestamp boundary can't make that guarantee once two events land in the same millisecond and a page cuts between them. \`since\`/\`until\` keep working as ordinary timestamp filters alongside the cursor. Exporting (\`/export\`, \`devctl logs export\`, web **Export**) still reads the entire matching history — page size never truncates an export.
 
-Facets — the total matching count, plus per-service/level/source counts (each computed under every *other* active filter, not its own) — come from a separate, lightweight stats query with no event payload. The TUI refreshes them every two seconds while its logs screen is open, and immediately on a filter change, a clear, or reconnecting, so the filter chips' counts and the log pane title stay accurate even though the TUI itself only ever holds a bounded page rather than the full history.
+Facets — the total matching count, plus per-service/level/source counts (each computed under every *other* active filter, not its own) — come from a separate, lightweight stats query with no event payload (\`logs_stats\` / MCP \`get_log_stats\` / \`GET /api/logs/stats\`). The TUI and web Logs page refresh them every two seconds while open, and immediately on a filter change, a clear, or reconnecting, so the filter chips' counts stay accurate even though the UI only ever renders a viewport into a bounded buffer.
 
 ## TUI (Logs tab)
 
@@ -2005,6 +2008,20 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. \`j\`/\`k\` moves the highlight.
 
+## Web console (Logs)
+
+The [web console](web.md) Logs page is the same ring and paging, not a 200-row table. It holds up to \`logs.max_memory_events\` (default 50,000), virtualizes the list, and follows with \`cursor=next_cursor\` (~100ms while the page is visible, live, and not paused; slower when idle or the tab is hidden). Scroll up loads older pages (\`cursor=prev_cursor\`, \`direction=backward\`). Overview “recent errors” stays a small ERROR page and does not feed the 50k buffer.
+
+- Search (substring / regex), ERROR+, system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`)
+- Pause / live, jump latest (\`pinned · +N new\`)
+- Service chips from facets; timestamp/metadata columns from \`log_timestamps\` / \`log_metadata\`
+- Clear (client-local \`since=now\`; daemon ring untouched), export NDJSON, history session picker
+- Split: two panes, shared buffer and search, independent service filter and follow/pin
+- Wrap cycle: clip → wrap selected → wrap all
+- Keys: \`j\`/\`k\`, \`f\` search, \`p\` pause, \`g\` latest, \`e\` ERROR+, \`\\\` split, \`w\` wrap
+
+History loads a persisted session (same store as TUI \`/history\`). Export downloads JSONL for the current filters — the full match set, not one page.
+
 ## CLI
 
 \`\`\`bash
@@ -2022,6 +2039,7 @@ devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not 
 ## Related
 
 - [TUI](tui.md)
+- [Web console](web.md)
 - [CLI](cli.md)
 - [Security](security.md)
 ` },
@@ -2110,7 +2128,8 @@ so agents must be given the new snippets.
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_preferences\` | inspect | Resolved operator prefs, write paths, and layer provenance (\`user\` / \`repo\` / \`default\`). \`scope\` labels the save target |
 | \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
-| \`get_logs\` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from the previous \`next_cursor\` to page forward with no duplicate or same-millisecond-lost lines; \`since\`/\`until\` are plain timestamp filters for a fresh query |
+| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
+| \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\` |
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
 | \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
 | \`get_requests\` | inspect | The proxy's recent requests — method, route, status, duration, identity, request/trace ids, and \`captured\` when a traffic-inspector body exists |
@@ -2142,7 +2161,7 @@ Treat \`get_logs\`, service stdout, and \`get_doc\` pages as **untrusted input**
 
 Interactive \`gcloud\` login stays CLI/TUI-only (\`devctl auth login\` / \`/auth login\`). MCP \`run_doctor\` already probes service accounts; run \`devctl auth login\` when ADC is missing.
 
-\`get_logs\` is paged (cap 200). To follow, poll with \`cursor=next_cursor\`. There is no blocking \`follow\` tool.
+\`get_logs\` is paged (default 200, max 5000). To follow, poll with \`cursor=next_cursor\`. There is no blocking \`follow\` tool. The web console passes \`limit=500\` on first load and uses the same cursors.
 
 ## Enabling and disabling tools
 
@@ -4120,7 +4139,7 @@ The overview combines service status, profiles, recent proxy requests, and error
 
 When a service defines [named environment overlays](environment.md#per-service-named-overlays), use its Env selector in Overview or Graph. The selection becomes pending until you restart the service; the console offers a Restart action to apply it.
 
-Lifecycle rules match the CLI: stopping a service also stops its dependents; restarting a service normally restarts only that service. See [Services](services.md#start-stop-restart) before stopping a shared dependency.
+Lifecycle rules match the CLI: stopping a service also stops its dependents; restarting a service normally restarts only that service. When dependents exist, Overview and Graph ask **named-only** vs **cascade** (same as TUI \`R\` / \`c\`). See [Services](services.md#start-stop-restart) before stopping a shared dependency.
 
 ## Explore the dependency graph
 
@@ -4128,7 +4147,7 @@ Lifecycle rules match the CLI: stopping a service also stops its dependents; res
 
 Open Graph to see dependencies alongside current service state and runtime signals. Use it to understand which services sit upstream of a failure before deciding what to restart.
 
-The overview counters use lifetime totals for the current supervisor, while tables and charts show recent windows: the last 100 proxy requests, up to 200 log rows, and a 10-second rate/latency window. Those displays need not have identical totals.
+The overview counters use lifetime totals for the current supervisor, while tables and charts show recent windows: the last 100 proxy requests, a small recent-error slice, and a 10-second rate/latency window. Those displays need not have identical totals. Open Logs for the live ring (up to \`logs.max_memory_events\`, default 50,000).
 
 ## Follow a request into its trace
 
@@ -4145,13 +4164,21 @@ The proxy emits request spans. Deeper application spans require your services to
 
 ![Structured logs with service and severity filters and trace identifiers](assets/manual/web-logs.png)
 
-Open Logs to filter records by service and severity, inspect structured attributes, and follow trace identifiers. Service and level chips stay visible after you pick one, so you can switch without going back to all. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
+Open Logs to follow the supervisor ring. The page keeps up to \`logs.max_memory_events\` events (default 50,000), virtualizes the viewport, and polls only new lines with \`next_cursor\` while the tab is visible and live. Scroll up to backfill older pages (\`prev_cursor\`, \`direction=backward\`). Pause freezes follow; **Clear** hides earlier lines in this tab without touching the daemon. Filter chips use \`/api/logs/stats\` counts, not whatever is on screen.
+
+Search is substring or regex (\`f\` focuses the box). **ERROR+** (\`e\`) and the system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`) match the TUI. Wrap cycles clip → wrap selected → wrap all (\`w\`). Split (\`\\\`) opens a second pane on the same buffer with its own service filter and follow/pin. History loads a persisted session; **Export** downloads NDJSON for the active filter. Keys on Logs: \`j\`/\`k\` move, \`f\` search, \`p\` pause, \`g\` latest (\`pinned · +N new\` when you leave the tail), \`e\` ERROR+, \`\\\` split, \`w\` wrap. Select a row for the JSON inspector; newer appends do not replace the open record. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
 The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for a collapsible tree (path breadcrumb, expand/collapse, copy path or value) and a syntax-colored pretty view. Find highlights matching keys and values. The selected call stays open when newer calls arrive. Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
 
 ## Inspect proxied HTTP and gRPC bodies
 
 The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspector for hops captured on \`inspect.enabled\` proxy routes. The caller dropdown keeps one originating service (or hops with no caller) so a noisy neighbor does not bury the service you are debugging. Click a row to inspect JSON as a navigable tree or syntax-colored pretty text (copy path/value, find, wrap), or switch to raw. Logs and span attributes use the same viewer. The selected hop stays open when newer hops arrive. \`j\`/\`k\` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
+
+## Doctor and identity
+
+**Doctor** (\`#/doctor\`) is in the nav strip. It runs the same checks as \`devctl doctor\` on visit and on Refresh, with severity, message, and hint. Busy-port **stop stays TUI/CLI-only** — this page shows the holder and the same hint as [Doctor](doctor.md).
+
+**Identity** (\`#/identity\`) is a read-only view of fields \`/api/status\` already returns: user, project, \`project_source\`, ADC, IAP, and service-account probe status. Login stays \`devctl auth login\` / TUI \`/auth login\`. The header ADC chip links here so the primary nav does not grow by two full labels.
 
 ## If something is missing
 
@@ -4161,7 +4188,8 @@ The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspe
 | Pages load but controls fail | Reopen the access link from \`devctl web start --print-url\` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
 | No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
-| Cannot bind the listener | Check for a port conflict with \`devctl doctor\` and choose an unused loopback port. |
+| Cannot bind the listener | Check for a port conflict with \`devctl doctor\` or \`#/doctor\` and choose an unused loopback port. |
+| ADC missing | Open Identity from the header chip, then \`devctl auth login\` or TUI \`/auth login\`. |
 
 ## Related
 
@@ -4171,5 +4199,7 @@ The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspe
 - [Telemetry](telemetry.md)
 - [LLM inspector](llm.md)
 - [Proxy](proxy.md)
+- [Doctor](doctor.md)
+- [Logs](logs.md)
 ` },
 ];

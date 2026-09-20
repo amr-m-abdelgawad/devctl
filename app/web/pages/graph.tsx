@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { UPlotChart, type ChartStat, type SeriesPoint } from "../charts.tsx";
 import { DependencyGraph } from "../graph.tsx";
 import { hrefFor } from "../hash.ts";
+import { useCascadeRestart } from "../hooks/use-cascade-restart.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import type { ConfigService, ServiceRow } from "../types.ts";
@@ -30,7 +31,8 @@ export function GraphPage(props: {
   busy?: boolean;
   onControl?: RunControl;
 }) {
-  const { config, services, ratePoints, latPoints, hostPoints, busy, onControl } = props;
+  const { config, services, ratePoints, latPoints, hostPoints, busy = false, onControl } = props;
+  const { requestRestart, banner } = useCascadeRestart(config, onControl ?? noopControl, busy);
   const rate = lastValues(ratePoints);
   const lat = lastValues(latPoints);
   const host = lastValues(hostPoints);
@@ -64,7 +66,10 @@ export function GraphPage(props: {
           <CardTitle>Service topology</CardTitle>
           <Badge variant="muted">{config.length}</Badge>
         </CardHeader>
-        <CardContent className="pt-0"><DependencyGraph config={config} services={services} busy={busy} onControl={onControl} /></CardContent>
+        <CardContent className="pt-0">
+          {banner}
+          <DependencyGraph config={config} services={services} busy={busy} onControl={onControl} onRestartServices={requestRestart} />
+        </CardContent>
       </Card>
 
       <div className="flex flex-col gap-2">
@@ -172,4 +177,8 @@ function hostInsight(cpu: number, mem: number, ready: boolean): string {
     return "This machine has headroom. If something is slow, look at the service, not the laptop.";
   }
   return "Host load for the machine running the stack, not a per-service metric.";
+}
+
+function noopControl(): void {
+  return;
 }

@@ -83,7 +83,8 @@ so agents must be given the new snippets.
 | `get_status` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | `get_preferences` | inspect | Resolved operator prefs, write paths, and layer provenance (`user` / `repo` / `default`). `scope` labels the save target |
 | `set_preferences` | control | Write TUI/web prefs (`scope` repo or user). MCP listen always hits the repo overlay. `local.web_enabled` / `local.web_port` / `local.inspect_max_bytes` patch `.devctl/config.local.yaml` then reload |
-| `get_logs` | logs | Filtered log records (body, attributes, severity), capped at 200 per page, secrets redacted. Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from the previous `next_cursor` to page forward with no duplicate or same-millisecond-lost lines; `since`/`until` are plain timestamp filters for a fresh query |
+| `get_logs` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass `limit`, max 5000). Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from `next_cursor` to page toward newer events (`direction` defaults to forward when a cursor is set); pass `cursor` from `prev_cursor` with `direction=backward` for older events. `regex=true` treats `search` as a regular expression. `since`/`until` are plain timestamp filters for a fresh query |
+| `get_log_stats` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as `get_logs` |
 | `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |
 | `trace_request` | logs | Resolve a proxy `X-Devctl-Request-ID` to its trace, then return the span tree and correlated logs |
 | `get_requests` | inspect | The proxy's recent requests — method, route, status, duration, identity, request/trace ids, and `captured` when a traffic-inspector body exists |
@@ -115,7 +116,7 @@ Treat `get_logs`, service stdout, and `get_doc` pages as **untrusted input**. Th
 
 Interactive `gcloud` login stays CLI/TUI-only (`devctl auth login` / `/auth login`). MCP `run_doctor` already probes service accounts; run `devctl auth login` when ADC is missing.
 
-`get_logs` is paged (cap 200). To follow, poll with `cursor=next_cursor`. There is no blocking `follow` tool.
+`get_logs` is paged (default 200, max 5000). To follow, poll with `cursor=next_cursor`. There is no blocking `follow` tool. The web console passes `limit=500` on first load and uses the same cursors.
 
 ## Enabling and disabling tools
 

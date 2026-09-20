@@ -2,10 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowClockwiseIcon,
   ArrowsLeftRightIcon,
+  FirstAidIcon,
   FlowArrowIcon,
   GearIcon,
   GraphIcon,
   IconContext,
+  IdentificationCardIcon,
   PlayIcon,
   RobotIcon,
   ScrollIcon,
@@ -28,6 +30,8 @@ import { advanceRingCounter, emptyRingCounter, lifetimeTotal, logLifetime } from
 import { OverviewPage, type OverviewSummary } from "./pages/overview.tsx";
 import { GraphPage } from "./pages/graph.tsx";
 import { LogsPage } from "./pages/logs.tsx";
+import { DoctorPage } from "./pages/doctor.tsx";
+import { IdentityPage } from "./pages/identity.tsx";
 import { LlmPage } from "./pages/llm.tsx";
 import { TrafficPage } from "./pages/traffic.tsx";
 import { TracesPage } from "./pages/traces.tsx";
@@ -39,7 +43,6 @@ import type {
   LlmCallRow,
   LlmCallsPayload,
   LogRow,
-  LogsPayload,
   ProfileRow,
   RequestsPayload,
   Route,
@@ -59,7 +62,6 @@ import {
   withDismissed,
   writeIdList,
 } from "./notifications.ts";
-import { mergeChipNames } from "./chips.ts";
 import { consoleDocumentTitle, repoDisplayName } from "./title.ts";
 
 const POLL_MS = 2000;
@@ -72,8 +74,21 @@ const NAV: Array<{ name: RouteName; label: string; icon: Icon }> = [
   { name: "traffic", label: "Traffic", icon: ArrowsLeftRightIcon },
   { name: "graph", label: "Graph", icon: GraphIcon },
   { name: "logs", label: "Logs", icon: ScrollIcon },
+  { name: "doctor", label: "Doctor", icon: FirstAidIcon },
   { name: "settings", label: "Settings", icon: GearIcon },
 ];
+
+const PAGE_LABEL: Record<RouteName, string> = {
+  services: "Overview",
+  traces: "Traces",
+  llm: "LLM",
+  traffic: "Traffic",
+  graph: "Graph",
+  logs: "Logs",
+  doctor: "Doctor",
+  identity: "Identity",
+  settings: "Settings",
+};
 
 type RateSample = { t: number; reqs: number; errs: number; p50: number; p95: number };
 
@@ -115,7 +130,6 @@ export function App() {
   const [config, setConfig] = useState<ConfigSummary | undefined>(undefined);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [errors, setErrors] = useState<LogRow[]>([]);
-  const [logs, setLogs] = useState<LogsPayload | undefined>(undefined);
   const [llmCalls, setLlmCalls] = useState<LlmCallsPayload | undefined>(undefined);
   const [llmDetail, setLlmDetail] = useState<LlmCallRow | undefined>(undefined);
   const [llmError, setLlmError] = useState("");
@@ -134,9 +148,6 @@ export function App() {
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
-  const [logFilter, setLogFilter] = useState<{ service: string; level: string }>({ service: "", level: "" });
-  const [seenLogServices, setSeenLogServices] = useState<string[]>([]);
-  const [seenLogLevels, setSeenLogLevels] = useState<string[]>([]);
   const [pollError, setPollError] = useState("");
   const [rates, setRates] = useState<RateSample[]>([]);
   const [traceMsById, setTraceMsById] = useState<Record<string, number>>({});
@@ -173,7 +184,7 @@ export function App() {
     traceMsRef.current = traceMsById;
   }, [traceMsById]);
   useEffect(() => {
-    const page = NAV.find((item) => item.name === route.name)?.label ?? "Console";
+    const page = PAGE_LABEL[route.name];
     document.title = consoleDocumentTitle(page, repoDisplayName(config?.project, status?.repo_root));
   }, [route.name, config?.project, status?.repo_root]);
 
@@ -265,32 +276,6 @@ export function App() {
       window.clearInterval(timer);
     };
   }, [poll]);
-
-  useEffect(() => {
-    if (route.name !== "logs") {
-      return;
-    }
-    const params: Record<string, string> = {};
-    if (logFilter.service) {
-      params.service = logFilter.service;
-    }
-    if (logFilter.level) {
-      params.level = logFilter.level;
-    }
-    let cancelled = false;
-    void fetchLogs(params).then((payload) => {
-      if (!cancelled) {
-        setLogs(payload);
-      }
-    }).catch((err: unknown) => {
-      if (!cancelled) {
-        setPollError(err instanceof Error ? err.message : "logs failed");
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [route.name, logFilter, requests?.total, status?.logs.total, status?.logs.seen]);
 
   useEffect(() => {
     if (route.name !== "traces" || !route.traceId) {
@@ -515,27 +500,6 @@ export function App() {
     };
   }, [route.name, route.traceId, requests]);
 
-  useEffect(() => {
-    const rows = [...(logs?.events ?? []), ...errors];
-    setSeenLogServices((prev) =>
-      mergeChipNames(
-        prev,
-        services.map((row) => row.name),
-        rows.map((row) => row.service),
-        [logFilter.service],
-      ),
-    );
-    setSeenLogLevels((prev) =>
-      mergeChipNames(
-        prev,
-        rows.map((row) => row.level || row.severityText),
-        [logFilter.level],
-      ),
-    );
-  }, [logs, errors, services, logFilter.service, logFilter.level]);
-  const serviceChips = seenLogServices;
-  const levelChips = seenLogLevels;
-
   const ratePoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.reqs, row.errs] }));
   const latPoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.p50, row.p95] }));
   const cpu = status?.stats_series?.cpu ?? [];
@@ -608,6 +572,18 @@ export function App() {
             <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
               <ControlNotice busy={busy} notice={notice} />
               <div className="flex items-center gap-2">
+                <a
+                  href={hrefFor("identity")}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] hover:bg-accent hover:text-foreground",
+                    route.name === "identity" ? "bg-accent text-foreground" : "text-muted-foreground",
+                  )}
+                  title={status?.identity.adc ? "Application Default Credentials available" : "ADC missing — open Identity"}
+                >
+                  <IdentificationCardIcon className="size-3" />
+                  <span className={cn("size-1.5 rounded-full", status?.identity.adc ? "bg-success" : "bg-destructive")} />
+                  {status?.identity.adc ? "ADC" : "!ADC"}
+                </a>
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
@@ -671,6 +647,7 @@ export function App() {
               errors={errors}
               profiles={profiles}
               tasks={config?.tasks ?? []}
+              configServices={config?.services ?? []}
               profile={status?.profile || profiles[0]?.name || ""}
               busy={Boolean(busy)}
               traceMsById={traceMsById}
@@ -707,14 +684,12 @@ export function App() {
           ) : null}
           {route.name === "logs" ? (
             <LogsPage
-              logs={logs}
               logTotal={logTotal}
-              serviceChips={serviceChips}
-              levelChips={levelChips}
-              filter={logFilter}
-              onFilter={setLogFilter}
+              serviceNames={services.map((row) => row.name)}
             />
           ) : null}
+          {route.name === "doctor" ? <DoctorPage /> : null}
+          {route.name === "identity" ? <IdentityPage status={status} /> : null}
           {route.name === "llm" ? (
             <LlmPage
               payload={llmCalls}

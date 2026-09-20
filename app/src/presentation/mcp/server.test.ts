@@ -24,6 +24,9 @@ function host(): McpHost {
   return {
     status: () => snap,
     logsPage: () => ({ events: [], nextCursor: "", prevCursor: "", hasNext: false, hasPrev: false, sessionChanged: false }),
+    logsStats: () => ({ total: 0, byService: {}, byLevel: {}, bySource: {} }),
+    listLogSessions: () => [],
+    loadLogSession: () => [],
     config: () => cfg,
     validateConfigText: (text) => validateConfigText(cfg.repoRoot, cfg.configPath, text),
     start: async () => null,

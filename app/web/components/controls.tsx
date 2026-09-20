@@ -35,8 +35,9 @@ export function EnvSelect(props: {
   row: Pick<ServiceRow, "name" | "state" | "env" | "started_env" | "environments">;
   busy: boolean;
   onControl: RunControl;
+  onRestart?: (name: string) => void;
 }) {
-  const { row, busy, onControl } = props;
+  const { row, busy, onControl, onRestart } = props;
   const names = [...(row.environments ?? [])];
   if (row.env && !names.includes(row.env)) {
     names.unshift(row.env);
@@ -73,7 +74,13 @@ export function EnvSelect(props: {
             size="xs"
             variant="outline"
             disabled={busy || !isLiveState(row.state)}
-            onClick={() => onControl("restart_services", { services: [row.name] }, `Restarting ${row.name}…`)}
+            onClick={() => {
+              if (onRestart) {
+                onRestart(row.name);
+                return;
+              }
+              onControl("restart_services", { services: [row.name] }, `Restarting ${row.name}…`);
+            }}
           >
             Restart
           </Button>

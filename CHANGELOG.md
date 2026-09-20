@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Web console **Logs** follows the daemon's 50k ring with cursor paging and a virtualized list (pause, search/regex, ERROR+, system sources, wrap, split, history, NDJSON export). **Doctor** (`#/doctor`) and read-only **Identity** (`#/identity`, header ADC chip) match the TUI screens; busy-port stop stays TUI/CLI-only. Overview/Graph restart asks named-only vs cascade when dependents exist. See [Web console](docs/web.md) and [Logs](docs/logs.md).
+
+### Changed
+
+- Web overview no longer treats Logs as a 200-row replace poll. MCP `get_logs` still defaults to 200 per page (pass `limit`, max 5000); the SPA initial load uses `limit=500`. `get_logs` honors `direction`, `regex`, and returns `prev_cursor`. MCP `get_log_stats` and `GET /api/logs/stats` return facet counts without events.
+
 ## [0.17.0] - 2026-09-20
 
 ### Changed

@@ -2,6 +2,7 @@ import { GaugeIcon, LightningIcon, StackIcon, TimerIcon, WarningIcon } from "../
 import { useMemo, useState } from "react";
 import { isLiveState, type RunControl } from "../control.ts";
 import { durationMs, relative } from "../format.ts";
+import { useCascadeRestart } from "../hooks/use-cascade-restart.tsx";
 import { serviceColor } from "../palette.ts";
 import { RequestTable } from "../components/tables.tsx";
 import { ActionButtons, EnvSelect, FleetBar } from "../components/controls.tsx";
@@ -11,7 +12,7 @@ import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table.tsx";
-import type { LogRow, ProfileRow, RequestsPayload, ServiceRow, TaskRow } from "../types.ts";
+import type { ConfigService, LogRow, ProfileRow, RequestsPayload, ServiceRow, TaskRow } from "../types.ts";
 
 export type OverviewSummary = {
   healthy: number;
@@ -31,15 +32,17 @@ export function OverviewPage(props: {
   errors: LogRow[];
   profiles: ProfileRow[];
   tasks: TaskRow[];
+  configServices: ConfigService[];
   profile: string;
   busy: boolean;
   traceMsById?: Record<string, number>;
   onControl: RunControl;
 }) {
-  const { summary, services, requests, errors, profiles, tasks, profile, busy, traceMsById, onControl } = props;
+  const { summary, services, requests, errors, profiles, tasks, configServices, profile, busy, traceMsById, onControl } = props;
   const [selected, setSelected] = useState<string[]>([]);
   const [profileName, setProfileName] = useState(profile);
   const [confirmStopAll, setConfirmStopAll] = useState(false);
+  const { requestRestart, banner: restartBanner } = useCascadeRestart(configServices, onControl, busy);
   const chosenProfile = profiles.some((row) => row.name === profileName)
     ? profileName
     : (profiles.some((row) => row.name === profile) ? profile : profiles[0]?.name ?? "");
@@ -102,13 +105,14 @@ export function OverviewPage(props: {
               onStartProfile={() => onControl("start_services", { profile: chosenProfile }, `Starting ${chosenProfile}…`)}
               onStartSelected={() => onControl("start_services", { services: selectedNames }, "Starting selected…")}
               onStopSelected={() => onControl("stop_services", { services: selectedNames }, "Stopping selected…")}
-              onRestartSelected={() => onControl("restart_services", { services: selectedNames }, "Restarting selected…")}
+              onRestartSelected={() => requestRestart(selectedNames)}
               onStopAll={() => setConfirmStopAll(true)}
               onReload={() => onControl("reload_config", {}, "Reloading config…")}
               onRunTask={(name) => onControl("run_task", { name }, `Running ${name}…`)}
             />
           </CardHeader>
           <CardContent className="pt-0">
+            {restartBanner}
             {confirmStopAll ? (
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px]">
                 <span>Stop every running service? Dependents go down with them.</span>
@@ -163,7 +167,7 @@ export function OverviewPage(props: {
                       </TableCell>
                       <TableCell><StatusBadge value={row.state} /></TableCell>
                       <TableCell>
-                        <EnvSelect row={row} busy={busy} onControl={onControl} />
+                        <EnvSelect row={row} busy={busy} onControl={onControl} onRestart={(name) => requestRestart([name])} />
                       </TableCell>
                       <TableCell>
                         {row.start_period_remaining_ms !== undefined ? (
@@ -185,7 +189,7 @@ export function OverviewPage(props: {
                           busy={busy}
                           onStart={() => onControl("start_services", { services: [row.name] }, `Starting ${row.name}…`)}
                           onStop={() => onControl("stop_services", { services: [row.name] }, `Stopping ${row.name}…`)}
-                          onRestart={() => onControl("restart_services", { services: [row.name] }, `Restarting ${row.name}…`)}
+                          onRestart={() => requestRestart([row.name])}
                         />
                       </TableCell>
                     </TableRow>

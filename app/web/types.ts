@@ -1,3 +1,5 @@
+export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
+
 export type StatusSummary = {
   session_id: string;
   repo_root: string;
@@ -6,8 +8,11 @@ export type StatusSummary = {
   identity: {
     user: string;
     project: string;
+    project_source?: string;
     adc: boolean;
     iap: boolean;
+    service_accounts?: Record<string, boolean>;
+    service_account_status?: Record<string, ServiceAccountStatus>;
   };
   proxy: {
     running: boolean;
@@ -152,6 +157,10 @@ export type LogRow = {
   traceId?: string;
   spanId?: string;
   seq?: number;
+  severityNumber?: number;
+  body?: unknown;
+  attributes?: Record<string, unknown>;
+  pid?: number;
 };
 
 export type LogsPayload = {
@@ -159,6 +168,49 @@ export type LogsPayload = {
   truncated?: boolean;
   has_more?: boolean;
   next_cursor?: string;
+  prev_cursor?: string;
+  session_changed?: boolean;
+};
+
+export type LogFacets = {
+  total: number;
+  byService: Record<string, number>;
+  byLevel: Record<string, number>;
+  bySource: Record<string, number>;
+};
+
+export type LogsQuery = {
+  service?: string;
+  level?: string;
+  search?: string;
+  regex?: boolean;
+  source?: string;
+  since?: string;
+  until?: string;
+  cursor?: string;
+  direction?: "forward" | "backward";
+  limit?: number;
+};
+
+export type DoctorSeverity = "ok" | "warn" | "error";
+
+export type DoctorPortHolder = {
+  port: number;
+  pid: number;
+  command: string;
+};
+
+export type DoctorCheck = {
+  name: string;
+  severity: DoctorSeverity;
+  message: string;
+  hint?: string;
+  action?: { kind: "free-port"; holder: DoctorPortHolder };
+};
+
+export type DoctorReport = {
+  checks: DoctorCheck[];
+  issues: number;
 };
 
 export type SpanRow = {
@@ -248,7 +300,7 @@ export type TrafficCallsPayload = {
   next_cursor?: string;
 };
 
-export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "traffic" | "settings";
+export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "traffic" | "settings" | "doctor" | "identity";
 
 export type Route = {
   name: RouteName;

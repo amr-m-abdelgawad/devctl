@@ -6,6 +6,7 @@ import { KindGeneral } from "../../shared/errors.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
+import { logRecord } from "../../domain/logs/logs.ts";
 import { WebHttpServer } from "./server.ts";
 
 type ControlCall = { tool: string; args: unknown };
@@ -54,6 +55,11 @@ function host(): McpHost & { calls: ControlCall[] } {
     calls,
     status: () => snap,
     logsPage: () => ({ events: [], nextCursor: "", prevCursor: "", hasNext: false, hasPrev: false, sessionChanged: false }),
+    logsStats: () => ({ total: 3, byService: { api: 3 }, byLevel: { INFO: 2, ERROR: 1 }, bySource: { stdout: 3 } }),
+    listLogSessions: () => ["session-abc"],
+    loadLogSession: () => [
+      logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 }),
+    ],
     config: () => cfg,
     validateConfigText: (text) => validateConfigText(cfg.repoRoot, cfg.configPath, text),
     start: async (req) => {
@@ -288,6 +294,23 @@ describe("web http server", () => {
       const logs = await authGet(base, "/api/logs?level=ERROR");
       expect(logs.status).toBe(200);
 
+      const stats = await authGet(base, "/api/logs/stats");
+      expect((await stats.json() as { total: number; byService: Record<string, number> }).total).toBe(3);
+
+      const sessions = await authGet(base, "/api/logs/sessions");
+      expect((await sessions.json() as { sessions: string[] }).sessions).toEqual(["session-abc"]);
+
+      const session = await authGet(base, "/api/logs/sessions/session-abc");
+      expect((await session.json() as { events: Array<{ service: string }>; prev_cursor: string }).events[0]?.service).toBe("api");
+
+      const doctor = await authGet(base, "/api/doctor");
+      expect((await doctor.json() as { issues: number }).issues).toBe(0);
+
+      const exported = await authGet(base, "/api/logs/export");
+      expect(exported.status).toBe(200);
+      expect(exported.headers.get("content-type") ?? "").toContain("ndjson");
+      expect(exported.headers.get("content-disposition") ?? "").toContain("devctl-logs.jsonl");
+
       const trace = await authGet(base, "/api/trace/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
       expect((await trace.json() as { trace_id: string }).trace_id).toBe("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 
@@ -327,7 +350,7 @@ describe("web http server", () => {
     const port = server.listenPort();
     const base = `http://127.0.0.1:${port}`;
     try {
-      for (const path of ["/api/status", "/api/logs", "/api/llm", "/api/config", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
+      for (const path of ["/api/status", "/api/logs", "/api/logs/stats", "/api/logs/export", "/api/logs/sessions", "/api/doctor", "/api/llm", "/api/config", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
         const missing = await fetch(`${base}${path}`);
         expect(missing.status).toBe(401);
         const wrong = await fetch(`${base}${path}`, { headers: { Authorization: "Bearer nope" } });
@@ -637,6 +660,98 @@ describe("web http server", () => {
         body,
       });
       expect(referer.status).toBe(200);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("GET /api/logs parses query-string paging fields", async () => {
+    const api = host();
+    let seen: Parameters<McpHost["logsPage"]>[0] | undefined;
+    api.logsPage = (req) => {
+      seen = req;
+      return { events: [], nextCursor: "n", prevCursor: "p", hasNext: false, hasPrev: false, sessionChanged: false };
+    };
+    const server = await listen(api);
+    try {
+      const res = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs?limit=25&direction=backward&regex=true&search=err&cursor=8");
+      expect(res.status).toBe(200);
+      expect((await res.json() as { prev_cursor: string }).prev_cursor).toBe("p");
+      expect(seen?.limit).toBe(25);
+      expect(seen?.direction).toBe("backward");
+      expect(seen?.regex).toBe(true);
+      expect(seen?.search).toBe("err");
+      expect(seen?.cursor).toBe("8");
+      const defaults = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs");
+      expect(defaults.status).toBe(200);
+      expect(seen?.limit).toBe(200);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("GET /api/logs/stats forwards the active filter", async () => {
+    const api = host();
+    let seen: Parameters<McpHost["logsStats"]>[0] | undefined;
+    api.logsStats = (req) => {
+      seen = req;
+      return { total: 1, byService: { api: 1 }, byLevel: { ERROR: 1 }, bySource: { stderr: 1 } };
+    };
+    const server = await listen(api);
+    try {
+      const res = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs/stats?level=ERROR&regex=true");
+      expect(await res.json()).toEqual({ total: 1, byService: { api: 1 }, byLevel: { ERROR: 1 }, bySource: { stderr: 1 } });
+      expect(seen?.level).toBe("ERROR");
+      expect(seen?.regex).toBe(true);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("GET /api/logs/sessions/:id pages redacted events and 404s unknown ids", async () => {
+    const api = host();
+    api.loadLogSession = () => [
+      logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret", pid: 1, seq: 1 }),
+      logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "ok", pid: 1, seq: 2 }),
+      logRecord({ timestamp: "t3", service: "api", source: "stdout", level: "INFO", message: "later", pid: 1, seq: 3 }),
+    ];
+    const server = await listen(api);
+    const base = `http://127.0.0.1:${server.listenPort()}`;
+    try {
+      const page = await authGet(base, "/api/logs/sessions/session-abc?limit=2");
+      const body = await page.json() as { events: Array<{ seq: number; message: string }>; prev_cursor: string; truncated: boolean };
+      expect(body.events.map((ev) => ev.seq)).toEqual([2, 3]);
+      expect(body.events[0]?.message).not.toContain("super-secret");
+      expect(body.prev_cursor).toBe("2");
+      expect(body.truncated).toBe(true);
+      expect((await authGet(base, "/api/logs/sessions/nope")).status).toBe(404);
+    } finally {
+      await server.stop();
+    }
+  });
+
+  test("GET /api/logs/export streams redacted JSONL oldest-first", async () => {
+    const api = host();
+    const ev1 = logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "first", pid: 1, seq: 1 });
+    const ev2 = logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 });
+    api.logsPage = (req) => {
+      if (!req.cursor) {
+        return { events: [ev2], nextCursor: "2", prevCursor: "2", hasNext: false, hasPrev: true, sessionChanged: false };
+      }
+      if (req.direction === "backward") {
+        return { events: [ev1], nextCursor: "1", prevCursor: "1", hasNext: true, hasPrev: false, sessionChanged: false };
+      }
+      return { events: [ev2], nextCursor: "2", prevCursor: "2", hasNext: false, hasPrev: true, sessionChanged: false };
+    };
+    const server = await listen(api);
+    try {
+      const res = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs/export?service=api");
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      const lines = text.trim().split("\n");
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0] as string).seq).toBe(1);
+      expect(text).not.toContain("super-secret");
     } finally {
       await server.stop();
     }

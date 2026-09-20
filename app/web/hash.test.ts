@@ -19,4 +19,11 @@ describe("web hash", () => {
     expect(activeInspectId("old", "new")).toBe("old");
     expect(activeInspectId(undefined, undefined)).toBeUndefined();
   });
+
+  test("parses doctor and identity hashes", () => {
+    expect(parseHash("#/doctor")).toEqual({ name: "doctor" });
+    expect(parseHash("#/identity")).toEqual({ name: "identity" });
+    expect(hrefFor("doctor")).toBe("#/doctor");
+    expect(hrefFor("identity")).toBe("#/identity");
+  });
 });

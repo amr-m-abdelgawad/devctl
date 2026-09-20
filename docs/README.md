@@ -21,7 +21,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 
 | Page | Side |
 |------|------|
-| [Web console](web.md) | Browser controls, dependency graph, logs, traces, LLM, and traffic |
+| [Web console](web.md) | Browser controls, dependency graph, logs, traces, LLM, traffic, doctor, identity |
 | [TUI](tui.md) | Screens, keys, slash commands, themes, settings |
 | [CLI](cli.md) | Commands, flags, exit codes, attach vs start |
 | [MCP](mcp.md) | Localhost Streamable HTTP for Claude, Cursor, Codex, Kilo |

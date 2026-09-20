@@ -79,4 +79,14 @@ The TUI must stay usable at 50k ring events and chatty services:
 - `logs_stats` without payloads
 - Log list virtualization in `components/logs/LogList.tsx`
 
-When adding a field to every log line, measure the worker protocol and the TUI list, not only unit tests.
+The web console Logs page has the same constraints on loopback HTTP (no WebSocket/SSE; `EventSource` cannot send the Bearer token):
+
+- SPA ring cap = `logs.max_memory_events` (default 50,000); Overview “recent errors” stays a small ERROR page
+- Initial page `limit=500` (daemon default); MCP `get_logs` still defaults to 200
+- Follow polls only `cursor=next_cursor` (~100ms while Logs is visible, following, and not paused; backoff when idle or the tab is hidden)
+- Scroll-up uses `direction=backward` + `prev_cursor`
+- Facets from `GET /api/logs/stats` every 2s — not “whatever was in the last page”
+- Custom list windowing in `app/web/components/log-list.tsx` (clip = fixed row height; wrap-all uses measured/estimated height)
+- Export streams JSONL (`GET /api/logs/export`); do not `JSON.stringify` the ring
+
+When adding a field to every log line, measure the worker protocol, the TUI list, and the web virtualized list, not only unit tests.

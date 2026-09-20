@@ -2,13 +2,16 @@ import type { DevctlConfig } from "../domain/config/types.ts";
 import type { Report } from "../domain/doctor/types.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../domain/traffic/traffic.ts";
-import type { LogFilter, LogPage, LogPageRequest } from "../domain/logs/logs.ts";
+import type { LogFacets, LogFilter, LogPage, LogPageRequest, LogRecord } from "../domain/logs/logs.ts";
 import type { ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../domain/status.ts";
 import type { PreferenceScope, PreferenceSnapshot, PreferenceWrite } from "../domain/ui/preferences.ts";
 
 export type McpHost = {
   status(): StatusSnapshot;
   logsPage(req: LogFilter & LogPageRequest): LogPage | Promise<LogPage>;
+  logsStats(req: LogFilter): LogFacets | Promise<LogFacets>;
+  listLogSessions(): readonly string[] | Promise<readonly string[]>;
+  loadLogSession(id: string): readonly LogRecord[] | Promise<readonly LogRecord[]>;
   llmCallsPage?(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage | Promise<LlmCallPage>;
   getLlmCall?(id: string): LlmCall | undefined | Promise<LlmCall | undefined>;
   trafficCallsPage?(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage | Promise<TrafficCallPage>;

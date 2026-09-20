@@ -1,8 +1,20 @@
+import {
+  encodeLogsQuery,
+  exportFilename,
+  normalizeDoctorReport,
+  normalizeFacets,
+  normalizeLogsPayload,
+  queryString,
+  sessionIdsFrom,
+} from "./logs.ts";
 import type {
   ConfigSummary,
   ControlArgs,
   ControlTool,
+  DoctorReport,
+  LogFacets,
   LogsPayload,
+  LogsQuery,
   LlmCallRow,
   LlmCallsPayload,
   PreferenceSnapshot,
@@ -55,15 +67,49 @@ export function fetchProfiles(): Promise<ProfileRow[]> {
   return getJson("/api/profiles");
 }
 
-export function fetchLogs(params: Record<string, string> = {}): Promise<LogsPayload> {
-  const query = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== "") {
-      query.set(key, value);
-    }
+export async function fetchLogs(params: LogsQuery = {}): Promise<LogsPayload> {
+  const payload: unknown = await getJson(`/api/logs${queryString(encodeLogsQuery(params))}`);
+  return normalizeLogsPayload(payload);
+}
+
+export async function fetchLogStats(params: LogsQuery = {}): Promise<LogFacets> {
+  const payload: unknown = await getJson(`/api/logs/stats${queryString(encodeLogsQuery(params))}`);
+  return normalizeFacets(payload);
+}
+
+export async function fetchLogSessions(): Promise<string[]> {
+  const payload: unknown = await getJson("/api/logs/sessions");
+  return sessionIdsFrom(payload);
+}
+
+export async function fetchLogSession(id: string, params: LogsQuery = {}): Promise<LogsPayload> {
+  const path = `/api/logs/sessions/${encodeURIComponent(id)}${queryString(encodeLogsQuery(params))}`;
+  const payload: unknown = await getJson(path);
+  return normalizeLogsPayload(payload);
+}
+
+export async function fetchDoctor(): Promise<DoctorReport> {
+  const payload: unknown = await getJson("/api/doctor");
+  return normalizeDoctorReport(payload);
+}
+
+export async function downloadLogsExport(params: LogsQuery = {}): Promise<void> {
+  const path = `/api/logs/export${queryString(encodeLogsQuery(params))}`;
+  const res = await fetch(path, { headers: controlAuthHeaders() });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    rejectUnlessOk(res, path, body?.error);
+    return;
   }
-  const suffix = query.size > 0 ? `?${query.toString()}` : "";
-  return getJson(`/api/logs${suffix}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = exportFilename(res.headers.get("content-disposition"));
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function fetchTrace(traceId: string): Promise<TracePayload> {

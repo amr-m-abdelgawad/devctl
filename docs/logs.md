@@ -39,9 +39,9 @@ Ingest also copies `devctl.request_id` from a proxy hop onto a nearby service st
 
 ## Pagination and facets
 
-Queries (CLI, TUI, MCP) return a bounded, cursor-paged slice instead of the whole matching history: a page defaults to the latest 500 matching events, capped at 5,000. The cursor is opaque (carries the daemon session and an internal per-event sequence number) and pages both backward (older) and forward (newer) without duplicating or dropping events that share the same millisecond — a plain timestamp boundary can't make that guarantee once two events land in the same millisecond and a page cuts between them. `since`/`until` keep working as ordinary timestamp filters alongside the cursor. Exporting (`/export`, `devctl logs export`) still reads the entire matching history — page size never truncates an export.
+Queries (CLI, TUI, MCP, web) return a bounded, cursor-paged slice instead of the whole matching history: a page defaults to the latest 500 matching events, capped at 5,000 (MCP `get_logs` still defaults to 200 unless you pass `limit`). The cursor is opaque (carries the daemon session and an internal per-event sequence number) and pages both backward (older) and forward (newer) without duplicating or dropping events that share the same millisecond — a plain timestamp boundary can't make that guarantee once two events land in the same millisecond and a page cuts between them. `since`/`until` keep working as ordinary timestamp filters alongside the cursor. Exporting (`/export`, `devctl logs export`, web **Export**) still reads the entire matching history — page size never truncates an export.
 
-Facets — the total matching count, plus per-service/level/source counts (each computed under every *other* active filter, not its own) — come from a separate, lightweight stats query with no event payload. The TUI refreshes them every two seconds while its logs screen is open, and immediately on a filter change, a clear, or reconnecting, so the filter chips' counts and the log pane title stay accurate even though the TUI itself only ever holds a bounded page rather than the full history.
+Facets — the total matching count, plus per-service/level/source counts (each computed under every *other* active filter, not its own) — come from a separate, lightweight stats query with no event payload (`logs_stats` / MCP `get_log_stats` / `GET /api/logs/stats`). The TUI and web Logs page refresh them every two seconds while open, and immediately on a filter change, a clear, or reconnecting, so the filter chips' counts stay accurate even though the UI only ever renders a viewport into a bounded buffer.
 
 ## TUI (Logs tab)
 
@@ -70,6 +70,20 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 
 Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. `j`/`k` moves the highlight.
 
+## Web console (Logs)
+
+The [web console](web.md) Logs page is the same ring and paging, not a 200-row table. It holds up to `logs.max_memory_events` (default 50,000), virtualizes the list, and follows with `cursor=next_cursor` (~100ms while the page is visible, live, and not paused; slower when idle or the tab is hidden). Scroll up loads older pages (`cursor=prev_cursor`, `direction=backward`). Overview “recent errors” stays a small ERROR page and does not feed the 50k buffer.
+
+- Search (substring / regex), ERROR+, system-source toggle (`auth` / `mcp` / `devctl` / `proxy`)
+- Pause / live, jump latest (`pinned · +N new`)
+- Service chips from facets; timestamp/metadata columns from `log_timestamps` / `log_metadata`
+- Clear (client-local `since=now`; daemon ring untouched), export NDJSON, history session picker
+- Split: two panes, shared buffer and search, independent service filter and follow/pin
+- Wrap cycle: clip → wrap selected → wrap all
+- Keys: `j`/`k`, `f` search, `p` pause, `g` latest, `e` ERROR+, `\` split, `w` wrap
+
+History loads a persisted session (same store as TUI `/history`). Export downloads JSONL for the current filters — the full match set, not one page.
+
 ## CLI
 
 ```bash
@@ -87,5 +101,6 @@ devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not 
 ## Related
 
 - [TUI](tui.md)
+- [Web console](web.md)
 - [CLI](cli.md)
 - [Security](security.md)
