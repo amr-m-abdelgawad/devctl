@@ -16,6 +16,8 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
   <a href="#identity">Identity</a>
   ·
   <a href="#on-disk">On disk</a>
+  ·
+  <a href="#disclaimer">Disclaimer</a>
 </p>
 
 </div>
@@ -138,6 +140,10 @@ Override the home directory with `DEVCTL_HOME`.
 - Doctor never enables Google APIs or grants IAM.
 
 ---
+
+## Disclaimer
+
+devctl is provided as-is. You use it at your own risk. It starts the processes in your configuration, reads the environment and secrets you point it at, and can mint cloud tokens or decrypt a SOPS file on your machine. You are responsible for that configuration, those credentials, and the commands it runs. The authors and contributors accept no liability for loss, damage, or unauthorized access that results from using it. See the [MIT license](../LICENSE).
 
 ## Related
 

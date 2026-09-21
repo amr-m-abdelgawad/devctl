@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The README, security docs, docs site, and npm package page state that you use devctl at your own risk. It is provided as-is. See [Security](docs/security.md#disclaimer).
 - `environment.sources: [sops]` decrypts a SOPS file (`environment.sops.file`) at daemon start and on reload, with an optional `key_map` from env var name to SOPS key. The source sits before `secret_manager`, so Secret Manager still wins when a fetch succeeds. A missing `sops` binary or a failed decrypt skips the source with a warning; plaintext stays in memory. See [Environment](docs/environment.md).
 
 ## [0.18.1] - 2026-09-21

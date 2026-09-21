@@ -183,6 +183,8 @@ See [Security](docs/security.md) for the full model.
 
 devctl is pre-1.0 and under active development. A large portion of the codebase is AI-generated ("vibe-coded") rather than hand-written, so treat it as a work in progress. Reaching **v1.0.0** will mean the codebase has been personally reviewed, tested, and validated, and the project is considered stable for general use.
 
+**Use at your own risk.** devctl is provided as-is, without warranty. It starts the processes in your configuration, reads the environment and secrets you point it at, and can mint cloud tokens or decrypt a SOPS file on your machine. You are responsible for that configuration, those credentials, and the commands it runs. See [Security](docs/security.md#disclaimer) and the [MIT license](LICENSE).
+
 Issues and contributions are welcome — see [Contributing](CONTRIBUTING.md).
 
 ---

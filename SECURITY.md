@@ -13,3 +13,5 @@ Include the affected version (`devctl version`), what you expected, and a minima
 `devctl` is a localhost orchestrator. Tokens stay out of the TUI, logs, and MCP output. The proxy, token endpoint, and MCP bind `127.0.0.1` only. Service-account keys are never created.
 
 The full model is in [docs/security.md](docs/security.md).
+
+You use devctl at your own risk. It is provided as-is, without warranty. See [Disclaimer](docs/security.md#disclaimer).

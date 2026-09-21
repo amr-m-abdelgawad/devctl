@@ -31,6 +31,8 @@ Google Cloud CLI is optional and is needed only for user identity, service-accou
 
 Documentation and source: [github.com/amr-m-abdelgawad/devctl](https://github.com/amr-m-abdelgawad/devctl)
 
+Use at your own risk. devctl is provided as-is under the [MIT license](https://github.com/amr-m-abdelgawad/devctl/blob/main/LICENSE).
+
 ## Platform support
 
 - macOS: Apple silicon and Intel

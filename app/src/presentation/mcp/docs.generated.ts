@@ -1662,7 +1662,7 @@ async function copyInstall() {
     </div>
   </section>
 
-  <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><p>Free and open source · MIT licensed</p></section>
+  <section class="closing"><p class="eyebrow">LESS FRICTION. MORE FORWARD.</p><h2>Get your stack together.</h2><a class="primary-link" :href="withBase('/quickstart')">Start your first session <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></a><p>Free and open source · MIT licensed · Use at your own risk</p></section>
   <footer class="landing-footer" aria-label="Project links"><div class="footer-about"><strong>devctl<span>_</span></strong><p>Your local stack.<br>A shared view.</p><a href="https://github.com/amr-m-abdelgawad/devctl">Build with us on GitHub ↗</a></div><nav aria-label="Product documentation"><h3>Product</h3><a :href="withBase('/quickstart')">Quick start</a><a :href="withBase('/onboarding')">Onboard your repo</a><a :href="withBase('/examples')">Examples &amp; recipes</a><a :href="withBase('/web')">Web console</a><a :href="withBase('/tui')">Terminal interface</a><a :href="withBase('/mcp')">Agent integration</a></nav><nav aria-label="Project community"><h3>Get involved</h3><a href="https://github.com/amr-m-abdelgawad/devctl/issues/new">Report an issue</a><a href="https://github.com/amr-m-abdelgawad/devctl/issues">Discuss a feature</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/CONTRIBUTING.md">Contribute</a></nav><nav aria-label="Project information"><h3>Project</h3><a :href="withBase('/changelog')">Changelog</a><a :href="withBase('/installation')">Platforms &amp; installation</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/SECURITY.md">Report a vulnerability</a><a href="https://github.com/amr-m-abdelgawad/devctl/blob/main/LICENSE">MIT license</a></nav></footer>
 
 </div>
@@ -3207,6 +3207,8 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
   <a href="#identity">Identity</a>
   ·
   <a href="#on-disk">On disk</a>
+  ·
+  <a href="#disclaimer">Disclaimer</a>
 </p>
 
 </div>
@@ -3329,6 +3331,10 @@ Override the home directory with \`DEVCTL_HOME\`.
 - Doctor never enables Google APIs or grants IAM.
 
 ---
+
+## Disclaimer
+
+devctl is provided as-is. You use it at your own risk. It starts the processes in your configuration, reads the environment and secrets you point it at, and can mint cloud tokens or decrypt a SOPS file on your machine. You are responsible for that configuration, those credentials, and the commands it runs. The authors and contributors accept no liability for loss, damage, or unauthorized access that results from using it. See the [MIT license](../LICENSE).
 
 ## Related
 

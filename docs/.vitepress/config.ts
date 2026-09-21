@@ -204,7 +204,7 @@ const siteConfig = withMermaid({
     },
 
     footer: {
-      message: 'Released under the MIT License.',
+      message: 'Released under the MIT License. Use at your own risk.',
       copyright: `Copyright © 2026 Amr MOUSA · <a href="${blob}/SECURITY.md">Security</a>`
     }
   },
