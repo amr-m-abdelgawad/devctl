@@ -450,9 +450,9 @@ replace it, and it does not reorder anything.
   `.env.local`, `.env.<profile>`.
 - `keychain` throws when listed and a stored file cannot be read. `secret_manager`
   throws on a malformed resource name or a non-access fetch error (HTTP 404).
-  Missing credentials or HTTP 401/403 skip the key so dotenv can fill it —
-  listing `secret_manager` also enables `dotenv`. Only list these sources when
-  the repo genuinely uses them.
+  Missing credentials, HTTP 401/403, or a transport failure skip the key so
+  dotenv / process env can fill it — listing `secret_manager` also enables
+  `dotenv`. Only list these sources when the repo genuinely uses them.
 - `environment.required` on a service fails the start if those keys are still
   empty after the whole merge — the right place to encode "this cannot run
   without X".

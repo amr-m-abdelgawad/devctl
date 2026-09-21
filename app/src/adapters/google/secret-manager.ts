@@ -1,4 +1,4 @@
-import { KindAuthorization, KindConfiguration, hintError, newError } from "../../shared/errors.ts";
+import { KindAuthorization, KindConfiguration, hintError, newError, wrapError } from "../../shared/errors.ts";
 
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_FORBIDDEN = 403;
@@ -20,7 +20,12 @@ export function secretManagerFetcher(getAccessToken: () => Promise<string>): (re
     if (!res.ok) {
       throw newError(KindConfiguration, `secret manager request failed for ${resource}: HTTP ${res.status}`);
     }
-    const body = (await res.json()) as { payload?: { data?: string } };
+    let body: { payload?: { data?: string } };
+    try {
+      body = (await res.json()) as { payload?: { data?: string } };
+    } catch (err) {
+      throw wrapError(KindConfiguration, `secret manager response for ${resource} was not JSON`, err);
+    }
     if (!body.payload?.data) {
       throw newError(KindConfiguration, `secret manager response for ${resource} had no payload`);
     }

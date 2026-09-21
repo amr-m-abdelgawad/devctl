@@ -65,6 +65,16 @@ describe("secretManagerFetcher", () => {
       restore();
     }
   });
+
+  test("treats a non-JSON success body as a configuration error", async () => {
+    const restore = stubFetch(async () => new Response("not-json", { status: 200, headers: { "content-type": "application/json" } }));
+    try {
+      const fetchSecret = secretManagerFetcher(async () => "tok");
+      await expect(fetchSecret(SECRET)).rejects.toMatchObject({ kind: KindConfiguration });
+    } finally {
+      restore();
+    }
+  });
 });
 
 function stubFetch(impl: (url: string, init?: RequestInit) => Promise<Response>): () => void {

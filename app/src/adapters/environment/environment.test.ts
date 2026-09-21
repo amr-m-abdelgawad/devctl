@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
 import { KindAuthentication, KindAuthorization, KindConfiguration, newError } from "../../shared/errors.ts";
+import { secretManagerFetcher } from "../google/secret-manager.ts";
 import { resolveIapOAuthClient } from "../google/token.ts";
 import { resolveEnvironment, runtimeForService, sourceOrder } from "./environment.ts";
 
@@ -310,6 +311,36 @@ describe("environment precedence", () => {
         },
       }),
     ).rejects.toMatchObject({ kind: KindConfiguration });
+  });
+
+  test("malformed Secret Manager JSON is fatal instead of a dotenv fallback", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-json-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response("not-json", { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    try {
+      await expect(
+        resolveEnvironment(dir, {
+          service: "api",
+          profile: "",
+          serviceCfg: svc,
+          profileEnv: {},
+          assignedPorts: {},
+          runtime: {},
+          cfg,
+          clientEnv: {},
+          fetchSecret: secretManagerFetcher(async () => "tok"),
+        }),
+      ).rejects.toMatchObject({ kind: KindConfiguration });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("the process layer prefers a supplied clientEnv over the real process.env", async () => {
