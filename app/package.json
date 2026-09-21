@@ -1,6 +1,6 @@
 {
   "name": "devctl",
-  "version": "0.18.1",
+  "version": "0.19.0",
   "description": "Local development orchestrator",
   "license": "MIT",
   "module": "src/bin.ts",

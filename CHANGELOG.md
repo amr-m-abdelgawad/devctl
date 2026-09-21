@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-09-22
+
 ### Added
 
 - The README, security docs, docs site, and npm package page state that you use devctl at your own risk. It is provided as-is. See [Security](docs/security.md#disclaimer).
@@ -644,7 +646,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.0...HEAD
+[0.19.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.16.0...v0.17.0
