@@ -1,4 +1,7 @@
-import { KindConfiguration, newError } from "../../shared/errors.ts";
+import { KindAuthorization, KindConfiguration, hintError, newError } from "../../shared/errors.ts";
+
+const HTTP_UNAUTHORIZED = 401;
+const HTTP_FORBIDDEN = 403;
 
 export function secretManagerFetcher(getAccessToken: () => Promise<string>): (resource: string) => Promise<string> {
   return async (resource: string): Promise<string> => {
@@ -7,6 +10,13 @@ export function secretManagerFetcher(getAccessToken: () => Promise<string>): (re
     const res = await fetch(`https://secretmanager.googleapis.com/v1/${versioned}:access`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (res.status === HTTP_UNAUTHORIZED || res.status === HTTP_FORBIDDEN) {
+      throw hintError(
+        KindAuthorization,
+        `secret manager request failed for ${resource}: HTTP ${res.status}`,
+        "verify Secret Manager IAM, or rely on dotenv / .devctl/secrets.env when you do not have access",
+      );
+    }
     if (!res.ok) {
       throw newError(KindConfiguration, `secret manager request failed for ${resource}: HTTP ${res.status}`);
     }

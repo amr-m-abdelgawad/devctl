@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Secret Manager env source no longer aborts start when ADC or IAM is missing. HTTP 401/403, missing credentials, and transport failures skip that key so `.env` / `.devctl/secrets.env` / process env remain; listing `secret_manager` also enables `dotenv`. A malformed `environment.secrets` resource or HTTP 404 still fails. See [Environment](docs/environment.md).
+
 ## [0.18.0] - 2026-09-21
 
 ### Added

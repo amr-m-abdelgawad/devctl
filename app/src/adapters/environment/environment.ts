@@ -4,7 +4,16 @@ import { parse as parseDotenv } from "dotenv";
 import { ConfigDirName } from "../../domain/config/paths.ts";
 import { resolveEnvMap, type DevctlConfig, type EnvConfig, type ServiceConfig } from "../config/index.ts";
 import type { HttpValueMap } from "../config/refs.ts";
-import { KindConfiguration, newError, wrapError } from "../../shared/errors.ts";
+import {
+  DevctlError,
+  KindAuthentication,
+  KindAuthorization,
+  KindConfiguration,
+  KindGeneral,
+  KindToken,
+  newError,
+  wrapError,
+} from "../../shared/errors.ts";
 import { credentialsDir, homeDir } from "../storage/storage.ts";
 
 export type EnvRequest = {
@@ -83,6 +92,11 @@ export function sourceOrder(cfg?: DevctlConfig): string[] {
     return [...ENV_SOURCE_ORDER];
   }
   const wanted = new Set<string>([...ALWAYS_ON_SOURCES, ...configured]);
+  // Secret Manager wins when reachable; dotenv is the local fallback when
+  // ADC or IAM is missing, even if the repo only listed secret_manager.
+  if (wanted.has("secret_manager")) {
+    wanted.add("dotenv");
+  }
   const builtin = new Set<string>(ENV_SOURCE_ORDER);
   const extra = configured.filter((name) => !builtin.has(name));
   const order: string[] = [];
@@ -276,20 +290,44 @@ async function loadSecretManagerEnv(ctx: EnvSourceContext, fetchSecret?: (name: 
     return {};
   }
   const secrets = ctx.cfg?.environment.secrets ?? {};
-  const out: Record<string, string> = {};
   for (const [key, resource] of Object.entries(secrets)) {
     if (!SECRET_MANAGER_PATTERN.test(resource)) {
       throw newError(KindConfiguration, `environment.secrets.${key} is not a Secret Manager resource`);
     }
-    if (!fetchSecret) {
-      throw newError(
-        KindConfiguration,
-        `environment source secret_manager is not configured — set credentials or remove it from environment.sources`,
-      );
+  }
+  if (!fetchSecret) {
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, resource] of Object.entries(secrets)) {
+    const value = await readSecretManagerValue(fetchSecret, key, resource);
+    if (value !== undefined) {
+      out[key] = value;
     }
-    out[key] = await fetchSecret(resource);
   }
   return out;
+}
+
+async function readSecretManagerValue(
+  fetchSecret: (name: string) => string | Promise<string>,
+  key: string,
+  resource: string,
+): Promise<string | undefined> {
+  try {
+    return await fetchSecret(resource);
+  } catch (err) {
+    if (isSecretManagerAccessFailure(err)) {
+      return undefined;
+    }
+    throw wrapError(KindConfiguration, `unable to read secret manager env ${key}`, err);
+  }
+}
+
+function isSecretManagerAccessFailure(err: unknown): boolean {
+  if (!(err instanceof DevctlError)) {
+    return true;
+  }
+  return err.kind === KindAuthentication || err.kind === KindAuthorization || err.kind === KindToken || err.kind === KindGeneral;
 }
 
 function loadDotenvFamily(dir: string, profile: string): Record<string, string> {
