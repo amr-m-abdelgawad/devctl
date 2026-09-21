@@ -323,7 +323,11 @@ describe("environment precedence", () => {
     cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
     cfg.services.api = svc;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("not-json", { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain("secretmanager.googleapis.com");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer tok");
+      return new Response("not-json", { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
     try {
       await expect(
         resolveEnvironment(dir, {
