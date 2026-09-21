@@ -2,6 +2,8 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
+import { KindAuthentication, KindAuthorization, KindConfiguration, newError } from "../../shared/errors.ts";
+import { secretManagerFetcher } from "../google/secret-manager.ts";
 import { resolveIapOAuthClient } from "../google/token.ts";
 import { resolveEnvironment, runtimeForService, sourceOrder } from "./environment.ts";
 
@@ -115,6 +117,234 @@ describe("environment precedence", () => {
       sourceValues: { secret_manager: { DB_PASS: "s3cret" } },
     });
     expect(env.DB_PASS).toBe("s3cret");
+  });
+
+  test("listing secret_manager also enables dotenv as the local fallback", () => {
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["secret_manager"];
+    expect(sourceOrder(cfg)).toContain("dotenv");
+    expect(sourceOrder(cfg).indexOf("dotenv")).toBeLessThan(sourceOrder(cfg).indexOf("secret_manager"));
+  });
+
+  test("secret_manager wins over dotenv when the fetch succeeds", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-win-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+      cfg,
+      clientEnv: {},
+      fetchSecret: async () => "from-secret-manager",
+    });
+    expect(env.DB_PASS).toBe("from-secret-manager");
+  });
+
+  test("secret_manager falls back to dotenv when credentials are missing", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-no-fetch-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+      cfg,
+      clientEnv: {},
+    });
+    expect(env.DB_PASS).toBe("from-dotenv");
+  });
+
+  test("secret_manager falls back to dotenv when IAM denies access", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-403-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\nONLY_DOTENV=dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+      cfg,
+      clientEnv: {},
+      fetchSecret: async () => {
+        throw newError(KindAuthorization, "secret manager request failed for projects/demo/secrets/db-pass: HTTP 403");
+      },
+    });
+    expect(env.DB_PASS).toBe("from-dotenv");
+    expect(env.ONLY_DOTENV).toBe("dotenv");
+  });
+
+  test("secret_manager falls back to dotenv when ADC is missing or the transport fails", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-adc-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    const request = {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+      cfg,
+      clientEnv: {},
+    };
+    const fromAuth = await resolveEnvironment(dir, {
+      ...request,
+      fetchSecret: async () => {
+        throw newError(KindAuthentication, "application default credentials unavailable");
+      },
+    });
+    expect(fromAuth.DB_PASS).toBe("from-dotenv");
+    const fromNetwork = await resolveEnvironment(dir, {
+      ...request,
+      fetchSecret: async () => {
+        throw new Error("fetch failed");
+      },
+    });
+    expect(fromNetwork.DB_PASS).toBe("from-dotenv");
+  });
+
+  test("secret_manager keeps reachable secrets when one key is denied", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-partial-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DENIED=from-dotenv\nOK=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = {
+      DENIED: "projects/demo/secrets/denied",
+      OK: "projects/demo/secrets/ok",
+    };
+    cfg.services.api = svc;
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: {},
+      cfg,
+      clientEnv: {},
+      fetchSecret: async (resource: string) => {
+        if (resource.includes("denied")) {
+          throw newError(KindAuthorization, "secret manager request failed for projects/demo/secrets/denied: HTTP 403");
+        }
+        return "from-secret-manager";
+      },
+    });
+    expect(env.DENIED).toBe("from-dotenv");
+    expect(env.OK).toBe("from-secret-manager");
+  });
+
+  test("secret_manager still fails on a malformed resource name", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-bad-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "not-a-resource" };
+    cfg.services.api = svc;
+    await expect(
+      resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: svc,
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        cfg,
+        clientEnv: {},
+        fetchSecret: async () => "unused",
+      }),
+    ).rejects.toMatchObject({ kind: KindConfiguration });
+  });
+
+  test("secret_manager still fails when the secret is missing after a successful auth", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-404-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    await expect(
+      resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: svc,
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        cfg,
+        clientEnv: {},
+        fetchSecret: async () => {
+          throw newError(KindConfiguration, "secret manager request failed for projects/demo/secrets/db-pass: HTTP 404");
+        },
+      }),
+    ).rejects.toMatchObject({ kind: KindConfiguration });
+  });
+
+  test("malformed Secret Manager JSON is fatal instead of a dotenv fallback", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sm-json-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "DB_PASS=from-dotenv\n");
+    const svc = emptyService();
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["dotenv", "secret_manager"];
+    cfg.environment.secrets = { DB_PASS: "projects/demo/secrets/db-pass" };
+    cfg.services.api = svc;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain("secretmanager.googleapis.com");
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer tok");
+      return new Response("not-json", { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof fetch;
+    try {
+      await expect(
+        resolveEnvironment(dir, {
+          service: "api",
+          profile: "",
+          serviceCfg: svc,
+          profileEnv: {},
+          assignedPorts: {},
+          runtime: {},
+          cfg,
+          clientEnv: {},
+          fetchSecret: secretManagerFetcher(async () => "tok"),
+        }),
+      ).rejects.toMatchObject({ kind: KindConfiguration });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   test("the process layer prefers a supplied clientEnv over the real process.env", async () => {

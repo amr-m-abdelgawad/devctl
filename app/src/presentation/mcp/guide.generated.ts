@@ -198,8 +198,10 @@ Rules you must hold to:
 - Do not echo discovered secret values into your own output either — report the
   **key names** you found, not what they contain.
 - Add \`secret_manager\` to \`environment.sources\` only when values genuinely look
-  like \`projects/*/secrets/*\`; that source throws if it is listed and the fetch
-  fails.
+  like \`projects/*/secrets/*\`. Listing it also enables \`dotenv\`. Missing ADC,
+  HTTP 401/403, or a transport failure skips those keys so \`.env\` /
+  \`.devctl/secrets.env\` / process env can fill them; a malformed resource name
+  or HTTP 404 still fails start.
 - If a \`.env\` file is committed and contains real credentials, say so — that is
   a finding worth reporting, separate from the config work.
 
@@ -797,8 +799,11 @@ replace it, and it does not reorder anything.
 
 - \`dotenv\` reads repo root then \`working_dir\`: \`.env\`, \`.env.development\`,
   \`.env.local\`, \`.env.<profile>\`.
-- \`keychain\` and \`secret_manager\` throw when listed and the fetch fails, so
-  only list them when the repo genuinely uses them.
+- \`keychain\` throws when listed and a stored file cannot be read. \`secret_manager\`
+  throws on a malformed resource name or a non-access fetch error (HTTP 404).
+  Missing credentials, HTTP 401/403, or a transport failure skip the key so
+  dotenv / process env can fill it — listing \`secret_manager\` also enables
+  \`dotenv\`. Only list these sources when the repo genuinely uses them.
 - \`environment.required\` on a service fails the start if those keys are still
   empty after the whole merge — the right place to encode "this cannot run
   without X".

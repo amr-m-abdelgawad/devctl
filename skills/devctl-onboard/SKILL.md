@@ -193,8 +193,10 @@ Rules you must hold to:
 - Do not echo discovered secret values into your own output either — report the
   **key names** you found, not what they contain.
 - Add `secret_manager` to `environment.sources` only when values genuinely look
-  like `projects/*/secrets/*`; that source throws if it is listed and the fetch
-  fails.
+  like `projects/*/secrets/*`. Listing it also enables `dotenv`. Missing ADC,
+  HTTP 401/403, or a transport failure skips those keys so `.env` /
+  `.devctl/secrets.env` / process env can fill them; a malformed resource name
+  or HTTP 404 still fails start.
 - If a `.env` file is committed and contains real credentials, say so — that is
   a finding worth reporting, separate from the config work.
 

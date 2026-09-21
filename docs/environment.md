@@ -11,7 +11,7 @@ flowchart LR
   process --> profile --> dotenv --> secrets_env --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
 ```
 
-`process`, `secrets_env`, `defaults`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set.
+`process`, `secrets_env`, `defaults`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `secret_manager`) are added to the always-on set. Listing `secret_manager` also enables `dotenv`, so `.env` can fill keys when Secret Manager is unreachable.
 
 | Source | What it loads |
 |--------|----------------|
@@ -21,13 +21,13 @@ flowchart LR
 | `secrets_env` | Always-on dotenv file: gitignored `.devctl/secrets.env`, then weaker `~/.devctl/secrets.env`. Wins over repo `.env`; process and profile keys still win. No schema key — it is not listed in `environment.sources` |
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
-| `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API |
+| `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API. Missing ADC, HTTP 401/403, or a network failure skips that key so dotenv / `secrets.env` / process env remain. A malformed resource name or HTTP 404 still fails |
 | `defaults` | `services.<name>.environment.defaults` (and the selected `environments.<env>.defaults`) |
 | `vars` | Explicit `services.<name>.environment` keys (and the selected `environments.<env>` keys, which win) |
 | `profile_service` | `profiles.<name>.service_environment.<svc>` — per-service keys that win over vars |
 | `runtime` | Values `devctl` injects at start |
 
-`keychain` and `secret_manager` throw only when that source is listed and fetch fails.
+`keychain` throws only when that source is listed and the file exists but cannot be read. `secret_manager` throws on a malformed `environment.secrets` resource name or when Google returns a non-access error (for example HTTP 404). Missing credentials, HTTP 401/403, and transport failures skip the key instead of aborting start — list `dotenv` (or rely on the default full order, or always-on `.devctl/secrets.env`) so local files can fill those values.
 
 ### `process` and the daemon-replacement limitation
 
@@ -52,7 +52,7 @@ Injected when applicable:
 
 References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` in **service env** (and profile / dotenv values) is resolved at process start to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). Proxy route `auth.headers` — including headers on a service `proxy:` fragment, which merge into `proxy.routes` at load — are **not** run through `resolveEnvMap`; `${identity.user}` there stays the literal string. `${token}` in those headers is still substituted at request time on minting routes. `devctl config validate` warns if `${identity.` appears in a proxy header value. `${http.<name>.<output>}` resolves from a recipe snapshot after the daemon has fetched that recipe; `${http.name.url}` is the local expose URL. `${NAME}` and `${env.NAME}` expand from the supervisor process environment **plus** gitignored `.devctl/secrets.env` (weaker: `~/.devctl/secrets.env`) in service/task/profile env (at process start), HTTP recipe request strings (at fetch), and proxy routes including `.devctl/proxy/routes.yaml` (`auth.headers`, `response_headers`, `upstream.url`, `auth.audience`, `auth.credentials`, `auth.client_secret` — at request or mint). `devctl config validate` accepts those templates without requiring the variable to be set. Process environment still wins over the files. Service env still rejects `${token}`.
 
-There is no `${secret:keychain:…}` or `${secret:gcp:…}` template syntax. OS keychain and Secret Manager stay `environment.sources: [keychain, secret_manager]` plus `environment.secrets` for `projects/*/secrets/*`.
+There is no `${secret:keychain:…}` or `${secret:gcp:…}` template syntax. OS keychain and Secret Manager stay `environment.sources: [keychain, secret_manager]` plus `environment.secrets` for `projects/*/secrets/*`. Secret Manager values win when the fetch succeeds; if you do not have access, the same keys from `.env` / `.devctl/secrets.env` / process env are left in place.
 
 `environment.required` on a service fails start if those keys are still empty after the merge.
 
