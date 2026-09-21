@@ -142,6 +142,11 @@ devctl's `dotenv` source already reads, in order: repo root then the service's
   `.env.<profile>`. A key that exists only in the example file is unset at
   start, so if you mark it `required`, say in your report that the user must
   create the real `.env` first. See the SKILL's secrets section.
+- A SOPS-encrypted file in the repo (`secrets.enc.yaml`, `secrets.enc.json`,
+  `*.env.enc`) is the secret source of truth. Wire `environment.sources: [sops]`
+  and `environment.sops.file`. Do not decrypt it to a gitignored env file and
+  do not copy values into YAML. Optional `key_map` renames SOPS keys to the
+  env vars services expect.
 
 Cross-service URLs found in `.env` (`API_URL=http://localhost:8000`) should be
 rewritten as references in the config so they survive a port change:

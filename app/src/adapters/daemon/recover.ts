@@ -45,6 +45,7 @@ export type RecoverHost = {
   setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void;
   log(service: string, level: string, message: string): void;
   configOverlay?: string;
+  sopsValues: Record<string, string>;
 };
 
 export async function resolveAdoptedHealthEnv(
@@ -75,6 +76,8 @@ export async function resolveAdoptedHealthEnv(
       assignedPorts: assigned,
       runtime: runtimeEnv,
       cfg: host.cfg,
+      http: undefined,
+      sourceValues: { sops: host.sopsValues },
       fetchSecret: secretManagerFetcher(async () => (await host.tokens.get("user", "", [])).accessToken),
       pluginSources: host.registry?.environmentSources,
     });

@@ -30,7 +30,7 @@ function writePlugin(dir: string, name: string): string {
   return path;
 }
 
-function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
+function stubHost(repoRoot: string, prevPaths: string[], active: (name: string) => boolean = () => false): ReloadHost {
   return {
     cfg: defaultConfig(),
     setupMode: false,
@@ -40,7 +40,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     pluginMtimes: pluginMtimes(prevPaths, repoRoot),
     detector: { update() {}, extraMarkers: [], extraPatterns: [] } as unknown as ReloadHost["detector"],
     bus: { publish() {}, subscribe() { return () => undefined; } } as unknown as ReloadHost["bus"],
-    orchestrator: { serviceIsActive: () => false } as unknown as ReloadHost["orchestrator"],
+    orchestrator: { serviceIsActive: active } as unknown as ReloadHost["orchestrator"],
     runtimes: new Map(),
     tokens: { replaceProviders() {} } as unknown as ReloadHost["tokens"],
     logs: { setParsers() {}, setServiceLogs() {}, setSecrets() {} } as unknown as ReloadHost["logs"],
@@ -54,6 +54,7 @@ function stubHost(repoRoot: string, prevPaths: string[]): ReloadHost {
     forgetService() {},
     syncServiceWatchers() {},
     syncWebListener: async () => undefined,
+    refreshSops: async () => false,
   };
 }
 
@@ -190,6 +191,26 @@ services:
     };
     await reloadSupervisor(host);
     expect(calls).toEqual([]);
+  });
+
+  test("a changed sops decrypt marks active services for restart", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    writeFileSync(configPath, `version: 1
+services:
+  api:
+    command: [echo, ok]
+  idle:
+    command: [echo, ok]
+`);
+    const host = stubHost(dir, [], (name) => name === "api");
+    host.cfg = load(dir, configPath);
+    host.refreshSops = async () => true;
+    const result = await reloadSupervisor(host);
+    expect(result.restart_required).toEqual(["api"]);
+    expect(result.changes.api).toContain("sops");
+    expect(result.changes.idle).toBeUndefined();
   });
 });
 

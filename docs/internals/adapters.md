@@ -57,7 +57,7 @@ Docker/Podman: `startContainer`, `adoptContainer`, port publishes, env (no full 
 
 ## `adapters/environment/`
 
-`resolveEnvironment`, `ENV_SOURCE_ORDER`, dotenv family, always-on `secrets_env` (`.devctl/secrets.env` then `~/.devctl/secrets.env`), keychain/secret-manager fetch, `${}` resolution via `config/refs.ts`. Plugin `EnvironmentSource` spliced before `defaults`. Documented for users in `docs/environment.md`; this adapter is the implementation.
+`resolveEnvironment`, `ENV_SOURCE_ORDER`, dotenv family, always-on `secrets_env` (`.devctl/secrets.env` then `~/.devctl/secrets.env`), keychain/secret-manager fetch, and an in-memory `sops` decrypt (`sops --decrypt` at daemon start and reload; plaintext is not written). `${}` resolution via `config/refs.ts`. Plugin `EnvironmentSource` spliced before `defaults`. Documented for users in `docs/environment.md`; this adapter is the implementation.
 
 ## `adapters/health/`
 

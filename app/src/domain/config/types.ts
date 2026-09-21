@@ -579,9 +579,20 @@ export type PluginConfig = {
   path: string;
 };
 
+export type SopsConfig = {
+  file: string;
+  input_type: string;
+  key_map: Record<string, string>;
+};
+
+export function emptySops(): SopsConfig {
+  return { file: "", input_type: "", key_map: {} };
+}
+
 export type ProjectEnvironmentConfig = {
   sources: string[];
   secrets: Record<string, string>;
+  sops: SopsConfig;
 };
 
 export const LLM_SOURCE_TYPE_LITELLM = "litellm";
@@ -852,7 +863,7 @@ export function defaultConfig(): DevctlConfig {
     secrets: { extra_markers: [], extra_patterns: [] },
     doctor: { tools: [] },
     plugins: [],
-    environment: { sources: [], secrets: {} },
+    environment: { sources: [], secrets: {}, sops: emptySops() },
     llm: emptyLlm(),
     provenance: {},
     repoRoot: "",

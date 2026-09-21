@@ -97,7 +97,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `secrets` | Extra redaction markers and regexes |
 | `doctor.tools` | Extra CLI binaries to probe |
 | `plugins` | `{ path }` modules loaded when the supervisor starts |
-| `environment.sources` / `secrets` | Env source order and named secrets |
+| `environment.sources` / `secrets` / `sops` | Env source order, named secrets, and an optional SOPS file |
 
 ## Templates
 

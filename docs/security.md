@@ -31,7 +31,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0`, `::`, and other non-loopback binds. Managed containers publish ports on `127.0.0.1` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless `shell: true` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
-| **Config is not a secret store** | Working dirs join the repo root. Put secrets in `.devctl/secrets.env` (gitignored), overlays, keychain, or Secret Manager. There is no `${secret:}` template syntax |
+| **Config is not a secret store** | Working dirs join the repo root. Put secrets in `.devctl/secrets.env` (gitignored), overlays, keychain, Secret Manager, or a SOPS-encrypted file. `sops` decrypts that file in memory at daemon start and reload and does not write the plaintext. There is no `${secret:}` template syntax |
 
 Extra redaction: `secrets.extra_markers` and `secrets.extra_patterns` in `.devctl`. Free-text log lines also strip `Bearer` tokens, JWT-shaped strings (`eyJ…`), Google access tokens (`ya29.`), and `id_token=` / `access_token=` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic `data` is decoded before redaction so a base64/raw view cannot recover a secret the pretty `text` already masked. LiteLLM keys stay in the environment (`auth.token_env`); never inline them in config. `X-Devctl-Service` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 

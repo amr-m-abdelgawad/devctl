@@ -62,7 +62,7 @@ export type EnvironmentSource = {
   load: (ctx: EnvSourceContext) => Record<string, string> | Promise<Record<string, string>>;
 };
 
-export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "secrets_env", "generated", "keychain", "secret_manager", "defaults", "vars", "profile_service", "runtime"] as const;
+export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "secrets_env", "generated", "keychain", "sops", "secret_manager", "defaults", "vars", "profile_service", "runtime"] as const;
 
 export type EnvSourceName = (typeof ENV_SOURCE_ORDER)[number];
 
@@ -140,6 +140,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     secrets_env: secretsEnvLayer(repoRoot, processLayer, profileLayer),
     generated: {},
     keychain: req.sourceValues?.keychain ?? loadKeychainEnv(ctx),
+    sops: req.sourceValues?.sops ?? {},
     secret_manager: req.sourceValues?.secret_manager ?? (await loadSecretManagerEnv(ctx, req.fetchSecret)),
     defaults: resolveMaybe(req.serviceCfg.environment.defaults, req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http, interpolationEnv),

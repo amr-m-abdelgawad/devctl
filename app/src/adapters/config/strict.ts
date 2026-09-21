@@ -5,6 +5,7 @@ import {
   knownDependency,
   knownPlugin,
   knownProjectEnvironment,
+  knownSops,
   knownEnvStructured,
   knownExpose,
   knownGoogle,
@@ -128,6 +129,8 @@ function knownForPath(path: string): string[] {
       return knownDoctor;
     case "environment":
       return knownProjectEnvironment;
+    case "environment.sops":
+      return knownSops;
     case "telemetry":
       return knownTelemetry;
     case "telemetry.otlp":

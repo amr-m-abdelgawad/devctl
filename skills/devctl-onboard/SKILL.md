@@ -197,6 +197,11 @@ Rules you must hold to:
   HTTP 401/403, or a transport failure skips those keys so `.env` /
   `.devctl/secrets.env` / process env can fill them; a malformed resource name
   or HTTP 404 still fails start.
+- A committed SOPS file (`secrets.enc.yaml`, `secrets.enc.json`, `*.env.enc`)
+  is `environment.sources: [sops]` plus `environment.sops.file` and an optional
+  `key_map` (env var name → SOPS key). Do not decrypt it into `secrets.env` or
+  paste values into YAML. A missing `sops` binary or a failed decrypt skips
+  that source with a warning. See authoring.md.
 - If a `.env` file is committed and contains real credentials, say so — that is
   a finding worth reporting, separate from the config work.
 

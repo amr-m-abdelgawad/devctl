@@ -579,4 +579,47 @@ describe("environment precedence", () => {
     expect(env.FLAG).toBe("1");
     expect(env.SHARED).toBe("runtime");
   });
+
+  test("sops sits before secret_manager and wins over secrets.env", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-sops-${Date.now()}`;
+    const home = join(dir, "home");
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(dir, ".devctl", "secrets.env"), "SHARED=secrets\nONLY_SECRETS=secrets\n");
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["sops", "secret_manager"];
+    expect(sourceOrder(cfg).indexOf("secrets_env")).toBeLessThan(sourceOrder(cfg).indexOf("sops"));
+    expect(sourceOrder(cfg).indexOf("sops")).toBeLessThan(sourceOrder(cfg).indexOf("secret_manager"));
+    expect(sourceOrder(cfg)).toContain("dotenv");
+    const previous = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = home;
+    try {
+      const env = await resolveEnvironment(dir, {
+        service: "api",
+        profile: "",
+        serviceCfg: emptyService(),
+        profileEnv: {},
+        assignedPorts: {},
+        runtime: {},
+        cfg,
+        sourceValues: { sops: { SHARED: "from-sops", ONLY_SOPS: "from-sops" }, secret_manager: { SHARED: "from-sm" } },
+      });
+      expect(env.SHARED).toBe("from-sm");
+      expect(env.ONLY_SOPS).toBe("from-sops");
+      expect(env.ONLY_SECRETS).toBe("secrets");
+    } finally {
+      if (previous === undefined) delete process.env.DEVCTL_HOME;
+      else process.env.DEVCTL_HOME = previous;
+    }
+  });
+
+  test("listing sops does not pull in secret_manager", () => {
+    const cfg = defaultConfig();
+    cfg.environment.sources = ["sops"];
+    const order = sourceOrder(cfg);
+    expect(order).toContain("sops");
+    expect(order).not.toContain("secret_manager");
+    expect(order).not.toContain("dotenv");
+    expect(order.indexOf("secrets_env")).toBeLessThan(order.indexOf("sops"));
+  });
 });

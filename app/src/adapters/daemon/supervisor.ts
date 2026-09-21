@@ -255,6 +255,7 @@ export class Supervisor {
       recipes: this.recipes,
       environmentSources: () => this.registry?.environmentSources,
       otlpEndpoint: () => this.telemetry.endpoint(),
+      log: (level, message) => this.log("devctl", level, message),
     });
     this.mcp = new McpCoordinator({
       repoRoot: () => this.cfg.repoRoot,
@@ -401,6 +402,7 @@ export class Supervisor {
       forgetService: (name) => self.forgetService(name),
       syncServiceWatchers: () => self.serviceWatchers.sync(self.cfg.services),
       syncWebListener: () => self.web.sync(),
+      refreshSops: () => self.env.refreshSops(),
     };
   }
 
@@ -439,6 +441,7 @@ export class Supervisor {
       set configOverlay(value) { self.configOverlay = value; },
       setState: (name, state, health, pid, lastError) => self.setState(name, state, health, pid, lastError),
       log: (service, level, message) => self.log(service, level, message),
+      get sopsValues() { return self.env.sopsValues; },
     };
   }
 
@@ -461,6 +464,7 @@ export class Supervisor {
     this.llmFactory = llmSourceFactory(this.registry?.llmSources ?? []);
     assertPluginLlmSourceTypes(this.registry, this.cfg);
     assertPluginInspectDecoders(this.registry, this.cfg);
+    await this.env.refreshSops();
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());

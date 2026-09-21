@@ -1441,3 +1441,76 @@ proxy:
     );
   });
 });
+
+describe("sops environment config", () => {
+  test("decodes sops file, input type, and key map", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-sops-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api: { command: [api] }
+environment:
+  sources: [sops, secret_manager]
+  sops:
+    file: secrets.enc.json
+    input_type: json
+    key_map:
+      MY_API_KEY: my_api_key_secret_name
+      SERVICE_A_TOKEN: shared_token
+`);
+    writeFile(dir, ".devctl/config.local.yaml", `
+environment:
+  sops:
+    key_map:
+      SERVICE_B_TOKEN: shared_token
+`);
+    const cfg = load(dir, "");
+    expect(cfg.environment.sources).toEqual(["sops", "secret_manager"]);
+    expect(cfg.environment.sops).toEqual({
+      file: "secrets.enc.json",
+      input_type: "json",
+      key_map: {
+        MY_API_KEY: "my_api_key_secret_name",
+        SERVICE_A_TOKEN: "shared_token",
+        SERVICE_B_TOKEN: "shared_token",
+      },
+    });
+  });
+
+  test("rejects a sops source without a file, a bad input type, an outside path, and unknown keys", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-sops-bad-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api: { command: [api] }
+environment:
+  sources: [sops]
+  sops:
+    input_type: xml
+    key_map:
+      MY_API_KEY: ""
+`);
+    expect(() => load(dir, "")).toThrow(/environment\.sops\.file is required/);
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api: { command: [api] }
+environment:
+  sources: [sops]
+  sops:
+    file: ../secrets.enc.json
+    input_type: json
+`);
+    expect(() => load(dir, "")).toThrow(/must stay inside the repository/);
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api: { command: [api] }
+environment:
+  sops:
+    file: secrets.enc.json
+    extra: true
+`);
+    expect(() => load(dir, "")).toThrow(/unknown fields: environment\.sops\.extra/);
+  });
+});

@@ -202,6 +202,11 @@ Rules you must hold to:
   HTTP 401/403, or a transport failure skips those keys so \`.env\` /
   \`.devctl/secrets.env\` / process env can fill them; a malformed resource name
   or HTTP 404 still fails start.
+- A committed SOPS file (\`secrets.enc.yaml\`, \`secrets.enc.json\`, \`*.env.enc\`)
+  is \`environment.sources: [sops]\` plus \`environment.sops.file\` and an optional
+  \`key_map\` (env var name → SOPS key). Do not decrypt it into \`secrets.env\` or
+  paste values into YAML. A missing \`sops\` binary or a failed decrypt skips
+  that source with a warning. See authoring.md.
 - If a \`.env\` file is committed and contains real credentials, say so — that is
   a finding worth reporting, separate from the config work.
 
@@ -789,12 +794,12 @@ Named overlay files may be committed; do not gitignore all of \`overlays/\`.
 Merge order — later sources win:
 
 \`\`\`
-process → profile → dotenv → generated → keychain → secret_manager → defaults → vars → profile_service → runtime
+process → profile → dotenv → secrets_env → generated → keychain → sops → secret_manager → defaults → vars → profile_service → runtime
 \`\`\`
 
-\`process\`, \`defaults\`, \`vars\`, \`profile_service\` and \`runtime\` always run. Listing
+\`process\`, \`secrets_env\`, \`defaults\`, \`vars\`, \`profile_service\` and \`runtime\` always run. Listing
 \`environment.sources\` **adds** optional sources (\`profile\`, \`dotenv\`,
-\`generated\`, \`keychain\`, \`secret_manager\`) to that always-on set — it does not
+\`generated\`, \`keychain\`, \`sops\`, \`secret_manager\`) to that always-on set — it does not
 replace it, and it does not reorder anything.
 
 - \`dotenv\` reads repo root then \`working_dir\`: \`.env\`, \`.env.development\`,
@@ -804,6 +809,16 @@ replace it, and it does not reorder anything.
   Missing credentials, HTTP 401/403, or a transport failure skip the key so
   dotenv / process env can fill it — listing \`secret_manager\` also enables
   \`dotenv\`. Only list these sources when the repo genuinely uses them.
+- \`sops\` decrypts \`environment.sops.file\` (repo-relative; must stay inside the
+  repo) with \`sops --decrypt --output-type dotenv\` at daemon start and reload.
+  \`file\` is required when \`sops\` is listed. Optional \`input_type\` is \`json\`,
+  \`yaml\`, or \`dotenv\` (otherwise the extension is used). Optional \`key_map\`
+  maps an env var name to a SOPS key; several env vars may share one key, and
+  a mapped SOPS key is not also injected under its raw name. Unmapped keys are
+  uppercased. A missing binary, missing file, or failed decrypt skips the
+  source with a warning — it does not fail config load. Plaintext is not
+  written to disk. \`secret_manager\` still wins over \`sops\` when the fetch
+  succeeds.
 - \`environment.required\` on a service fails the start if those keys are still
   empty after the whole merge — the right place to encode "this cannot run
   without X".
@@ -1052,6 +1067,11 @@ devctl's \`dotenv\` source already reads, in order: repo root then the service's
   \`.env.<profile>\`. A key that exists only in the example file is unset at
   start, so if you mark it \`required\`, say in your report that the user must
   create the real \`.env\` first. See the SKILL's secrets section.
+- A SOPS-encrypted file in the repo (\`secrets.enc.yaml\`, \`secrets.enc.json\`,
+  \`*.env.enc\`) is the secret source of truth. Wire \`environment.sources: [sops]\`
+  and \`environment.sops.file\`. Do not decrypt it to a gitignored env file and
+  do not copy values into YAML. Optional \`key_map\` renames SOPS keys to the
+  env vars services expect.
 
 Cross-service URLs found in \`.env\` (\`API_URL=http://localhost:8000\`) should be
 rewritten as references in the config so they survive a port change:

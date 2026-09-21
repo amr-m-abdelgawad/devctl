@@ -126,11 +126,32 @@
         "sources": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Optional sources to add to the always-on set (process, defaults, vars, runtime). Typical: profile, dotenv, generated, keychain, secret_manager"
+          "description": "Optional sources added to the always-on set (process, secrets_env, defaults, vars, profile_service, runtime). Typical: profile, dotenv, generated, keychain, sops, secret_manager"
         },
         "secrets": {
           "type": "object",
           "additionalProperties": { "type": "string" }
+        },
+        "sops": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Decrypt a SOPS file when environment.sources includes sops. Plaintext stays in memory.",
+          "properties": {
+            "file": {
+              "type": "string",
+              "description": "SOPS-encrypted file relative to the repo root (JSON, YAML, or dotenv). Required when sops is listed in sources."
+            },
+            "input_type": {
+              "type": "string",
+              "enum": ["json", "yaml", "dotenv"],
+              "description": "Overrides format detection from the file extension"
+            },
+            "key_map": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "Env var name to SOPS key. Mapped SOPS keys are not also injected under the raw key name."
+            }
+          }
         }
       }
     }

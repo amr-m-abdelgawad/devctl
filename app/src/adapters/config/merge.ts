@@ -41,6 +41,7 @@ import {
   type RouteAuthConfig,
   type RouteConfig,
   type ServiceConfig,
+  type SopsConfig,
   type ServiceLogConfig,
   type ServiceLogMultilineConfig,
   type StartupConfig,
@@ -234,6 +235,9 @@ export function applyRoot(
     if (isRecord(raw.environment.secrets)) {
       cfg.environment.secrets = { ...cfg.environment.secrets, ...asStringMap(raw.environment.secrets) };
     }
+    if (isRecord(raw.environment.sops)) {
+      applySops(cfg.environment.sops, raw.environment.sops);
+    }
   }
   if (isRecord(raw.telemetry)) {
     applyTelemetry(cfg.telemetry, raw.telemetry);
@@ -243,6 +247,18 @@ export function applyRoot(
   }
   if (isRecord(raw.llm)) {
     applyLlm(cfg.llm, raw.llm);
+  }
+}
+
+function applySops(sops: SopsConfig, raw: Record<string, unknown>): void {
+  if (raw.file !== undefined) {
+    sops.file = asString(raw.file);
+  }
+  if (raw.input_type !== undefined) {
+    sops.input_type = asString(raw.input_type);
+  }
+  if (isRecord(raw.key_map)) {
+    sops.key_map = { ...sops.key_map, ...asStringMap(raw.key_map) };
   }
 }
 

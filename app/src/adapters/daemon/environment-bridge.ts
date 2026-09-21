@@ -3,6 +3,7 @@ import type { DevctlConfig, ServiceConfig } from "../../domain/config/types.ts";
 import { listenAddress } from "../config/index.ts";
 import { applyOtelExporterEnv } from "../../domain/telemetry/otel-env.ts";
 import { envList, resolveEnvironment, runtimeForService, type EnvironmentSource } from "../environment/environment.ts";
+import { envSignature, loadSopsEnvironment, type SopsLoadResult } from "../environment/sops.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { TokenEndpoint } from "../proxy/proxy.ts";
@@ -25,6 +26,7 @@ export type EnvironmentBridgeDeps = {
   recipes?: HttpRecipeRuntime;
   environmentSources: () => EnvironmentSource[] | undefined;
   otlpEndpoint: () => string;
+  log: (level: string, message: string) => void;
 };
 
 export class EnvironmentBridge {
@@ -49,6 +51,9 @@ export class EnvironmentBridge {
   readonly serviceStartedEnv = new Map<string, string>();
   profile = "";
   profileEnv: Record<string, string> = {};
+  sopsValues: Record<string, string> = {};
+  private sopsReady = false;
+  private sopsTask: Promise<boolean> | undefined;
   private readonly deps: EnvironmentBridgeDeps;
 
   constructor(deps: EnvironmentBridgeDeps) {
@@ -74,6 +79,29 @@ export class EnvironmentBridge {
     return svc.working_dir;
   }
 
+  async refreshSops(): Promise<boolean> {
+    const task = this.loadSops();
+    this.sopsTask = task;
+    try {
+      return await task;
+    } finally {
+      if (this.sopsTask === task) {
+        this.sopsTask = undefined;
+      }
+    }
+  }
+
+  async ensureSops(): Promise<void> {
+    if (this.sopsTask) {
+      await this.sopsTask;
+      return;
+    }
+    if (this.sopsReady) {
+      return;
+    }
+    await this.refreshSops();
+  }
+
   async resolveServiceExecution(
     name: string,
     svc: ServiceConfig,
@@ -83,6 +111,7 @@ export class EnvironmentBridge {
     includeProcess = true,
     selectedEnv?: string,
   ): Promise<{ env: Record<string, string>; workDir: string }> {
+    await this.ensureSops();
     const cfg = this.deps.cfg();
     const assigned = this.deps.ports().get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     const proxy = this.deps.proxy();
@@ -117,6 +146,7 @@ export class EnvironmentBridge {
       http: this.httpValues(cfg),
       fetchSecret: secretManagerFetcher(async () => (await this.deps.tokens.get("user", "", [])).accessToken),
       pluginSources: this.deps.environmentSources(),
+      sourceValues: { sops: this.sopsValues },
       clientEnv,
       includeProcess,
     });
@@ -133,6 +163,7 @@ export class EnvironmentBridge {
     serviceCfg: ServiceConfig,
     clientEnv: Record<string, string>,
   ): Promise<{ env: Record<string, string>; workDir: string }> {
+    await this.ensureSops();
     const cfg = this.deps.cfg();
     const userEmail = this.deps.userEmail();
     const env = await resolveEnvironment(cfg.repoRoot, {
@@ -146,6 +177,7 @@ export class EnvironmentBridge {
       cfg,
       http: this.httpValues(cfg),
       clientEnv,
+      sourceValues: { sops: this.sopsValues },
       fetchSecret: secretManagerFetcher(async () => (await this.deps.tokens.get("user", "", [])).accessToken),
       pluginSources: this.deps.environmentSources(),
     });
@@ -153,6 +185,25 @@ export class EnvironmentBridge {
       ? join(cfg.repoRoot, serviceCfg.working_dir)
       : serviceCfg.working_dir;
     return { env: envList(env), workDir };
+  }
+
+  private async loadSops(): Promise<boolean> {
+    const previous = envSignature(this.sopsValues);
+    let result: SopsLoadResult;
+    try {
+      result = await loadSopsEnvironment(this.deps.cfg());
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : "sops decrypt failed";
+      result = { values: {}, warning: `sops environment source skipped: ${detail}` };
+    }
+    this.sopsValues = result.values;
+    this.sopsReady = true;
+    if (result.warning) {
+      this.deps.log("WARN", result.warning);
+    } else if (previous !== envSignature(result.values) && Object.keys(result.values).length > 0) {
+      this.deps.log("INFO", `sops: decrypted ${Object.keys(result.values).length} keys from ${this.deps.cfg().environment.sops.file}`);
+    }
+    return previous !== envSignature(result.values);
   }
 
   private httpValues(cfg: DevctlConfig): HttpValueMap {

@@ -59,6 +59,7 @@ export type ReloadHost = {
   forgetService(name: string): void;
   syncServiceWatchers(): void;
   syncWebListener(): Promise<void>;
+  refreshSops(): Promise<boolean>;
 };
 
 export function applyRegistry(host: ReloadHost): void {
@@ -333,6 +334,9 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
     await host.applyProxyConfig();
   }
   await host.syncWebListener();
+  if (await host.refreshSops()) {
+    noteSopsRestart(host, result);
+  }
   host.bus.publish(
     newEvent(ConfigurationChanged, "", {
       restart_required: result.restart_required,
@@ -347,6 +351,22 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   host.persistState();
   void host.refreshIdentity();
   return result;
+}
+
+function noteSopsRestart(host: ReloadHost, result: ReloadResult): void {
+  const active = Object.keys(host.cfg.services).filter((name) => host.orchestrator.serviceIsActive(name));
+  if (active.length === 0) {
+    return;
+  }
+  for (const name of active) {
+    const fields = result.changes[name] ?? [];
+    if (!fields.includes("sops")) {
+      fields.push("sops");
+    }
+    result.changes[name] = fields;
+  }
+  result.restart_required = mergeRestartRequired(result.restart_required, active, Object.keys(host.cfg.services));
+  host.restartRequired = result.restart_required;
 }
 
 export function mergeRestartRequired(previous: string[], incoming: string[], stillInConfig: string[]): string[] {

@@ -684,7 +684,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`secrets\` | Extra redaction markers and regexes |
 | \`doctor.tools\` | Extra CLI binaries to probe |
 | \`plugins\` | \`{ path }\` modules loaded when the supervisor starts |
-| \`environment.sources\` / \`secrets\` | Env source order and named secrets |
+| \`environment.sources\` / \`secrets\` / \`sops\` | Env source order, named secrets, and an optional SOPS file |
 
 ## Templates
 
@@ -870,10 +870,10 @@ Default source order (\`ENV_SOURCE_ORDER\` / \`environment.sources\`):
 
 \`\`\`mermaid
 flowchart LR
-  process --> profile --> dotenv --> secrets_env --> generated --> keychain --> secret_manager --> defaults --> vars --> profile_service --> runtime
+  process --> profile --> dotenv --> secrets_env --> generated --> keychain --> sops --> secret_manager --> defaults --> vars --> profile_service --> runtime
 \`\`\`
 
-\`process\`, \`secrets_env\`, \`defaults\`, \`vars\`, \`profile_service\`, and \`runtime\` always run for host services. Container services deliberately omit \`process\` so the caller's whole shell is not stored in inspectable container metadata. If you set \`environment.sources\`, the listed optional sources (\`profile\`, \`dotenv\`, \`generated\`, \`keychain\`, \`secret_manager\`) are added to the always-on set. Listing \`secret_manager\` also enables \`dotenv\`, so \`.env\` can fill keys when Secret Manager is unreachable.
+\`process\`, \`secrets_env\`, \`defaults\`, \`vars\`, \`profile_service\`, and \`runtime\` always run for host services. Container services deliberately omit \`process\` so the caller's whole shell is not stored in inspectable container metadata. If you set \`environment.sources\`, the listed optional sources (\`profile\`, \`dotenv\`, \`generated\`, \`keychain\`, \`sops\`, \`secret_manager\`) are added to the always-on set. Listing \`secret_manager\` also enables \`dotenv\`, so \`.env\` can fill keys when Secret Manager is unreachable.
 
 | Source | What it loads |
 |--------|----------------|
@@ -883,13 +883,38 @@ flowchart LR
 | \`secrets_env\` | Always-on dotenv file: gitignored \`.devctl/secrets.env\`, then weaker \`~/.devctl/secrets.env\`. Wins over repo \`.env\`; process and profile keys still win. No schema key — it is not listed in \`environment.sources\` |
 | \`generated\` | Built-in hook that always returns \`{}\`. A plugin may register \`environmentSources\` if you need generated values |
 | \`keychain\` | Named secrets from \`environment.secrets\` / the credential store |
+| \`sops\` | \`sops --decrypt --output-type dotenv\` on \`environment.sops.file\` at daemon start and \`devctl reload\`. The \`sops\` binary must be on \`PATH\`. A missing binary, missing file, or failed decrypt (KMS, age, PGP, network) skips the source with a warning; services that \`environment.required\` a key SOPS was supposed to provide then fail to start. Plaintext is kept in memory only |
 | \`secret_manager\` | Values that look like \`projects/*/secrets/*\` via the Google REST API. Missing ADC, HTTP 401/403, or a network failure skips that key so dotenv / \`secrets.env\` / process env remain. A malformed resource name or HTTP 404 still fails |
 | \`defaults\` | \`services.<name>.environment.defaults\` (and the selected \`environments.<env>.defaults\`) |
 | \`vars\` | Explicit \`services.<name>.environment\` keys (and the selected \`environments.<env>\` keys, which win) |
 | \`profile_service\` | \`profiles.<name>.service_environment.<svc>\` — per-service keys that win over vars |
 | \`runtime\` | Values \`devctl\` injects at start |
 
-\`keychain\` throws only when that source is listed and the file exists but cannot be read. \`secret_manager\` throws on a malformed \`environment.secrets\` resource name or when Google returns a non-access error (for example HTTP 404). Missing credentials, HTTP 401/403, and transport failures skip the key instead of aborting start — list \`dotenv\` (or rely on the default full order, or always-on \`.devctl/secrets.env\`) so local files can fill those values.
+\`keychain\` throws only when that source is listed and the file exists but cannot be read. \`secret_manager\` throws on a malformed \`environment.secrets\` resource name or when Google returns a non-access error (for example HTTP 404). Missing credentials, HTTP 401/403, and transport failures skip the key instead of aborting start — list \`dotenv\` (or rely on the default full order, or always-on \`.devctl/secrets.env\`) so local files can fill those values. \`sops\` never aborts daemon start: it logs a warning and contributes nothing, so a later source or \`environment.required\` can still decide the outcome.
+
+### SOPS
+
+\`\`\`yaml
+environment:
+  sources: [sops, secret_manager]
+  sops:
+    file: secrets.enc.json   # relative to the repo root
+    # Optional. json, yaml, or dotenv. Omit to detect from the file name
+    # (secrets.enc.json, secrets.enc.yaml, secrets.json.enc, .env, …).
+    input_type: json
+    # Optional. Env var name → SOPS key. Several env vars may share one key.
+    # Mapped SOPS keys are not also injected under the raw name.
+    # Keys absent from key_map are uppercased and injected as-is.
+    key_map:
+      MY_API_KEY: my_api_key_secret_name
+      MY_DB_PASSWORD: db_password_secret_name
+      SERVICE_A_TOKEN: shared_token
+      SERVICE_B_TOKEN: shared_token
+\`\`\`
+
+\`sops\` wins over dotenv and \`.devctl/secrets.env\`. \`secret_manager\` still wins over \`sops\` when the fetch succeeds, so a repo can move keys to Secret Manager without dropping the file. \`devctl\` runs \`sops --decrypt --output-type dotenv <file>\` once at daemon start and again on reload. It does not write the plaintext to disk. The next start or restart picks up a reload; a running process keeps the environment it was launched with until then. If the decrypted values changed and a service is still running, reload reports that service in \`restart_required\`.
+
+\`environment.sops.file\` is required when \`sops\` is listed, and the path must stay inside the repository (including after symlink resolution). \`devctl config validate\` rejects a missing file field, an unknown \`input_type\`, an empty \`key_map\` value, or a path that escapes the repo. A missing file or a decrypt error is a runtime warning, not a validate failure.
 
 ### \`process\` and the daemon-replacement limitation
 
@@ -914,7 +939,7 @@ Injected when applicable:
 
 References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` in **service env** (and profile / dotenv values) is resolved at process start to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). Proxy route \`auth.headers\` — including headers on a service \`proxy:\` fragment, which merge into \`proxy.routes\` at load — are **not** run through \`resolveEnvMap\`; \`\${identity.user}\` there stays the literal string. \`\${token}\` in those headers is still substituted at request time on minting routes. \`devctl config validate\` warns if \`\${identity.\` appears in a proxy header value. \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment **plus** gitignored \`.devctl/secrets.env\` (weaker: \`~/.devctl/secrets.env\`) in service/task/profile env (at process start), HTTP recipe request strings (at fetch), and proxy routes including \`.devctl/proxy/routes.yaml\` (\`auth.headers\`, \`response_headers\`, \`upstream.url\`, \`auth.audience\`, \`auth.credentials\`, \`auth.client_secret\` — at request or mint). \`devctl config validate\` accepts those templates without requiring the variable to be set. Process environment still wins over the files. Service env still rejects \`\${token}\`.
 
-There is no \`\${secret:keychain:…}\` or \`\${secret:gcp:…}\` template syntax. OS keychain and Secret Manager stay \`environment.sources: [keychain, secret_manager]\` plus \`environment.secrets\` for \`projects/*/secrets/*\`. Secret Manager values win when the fetch succeeds; if you do not have access, the same keys from \`.env\` / \`.devctl/secrets.env\` / process env are left in place.
+There is no \`\${secret:keychain:…}\` or \`\${secret:gcp:…}\` template syntax. OS keychain and Secret Manager stay \`environment.sources: [keychain, secret_manager]\` plus \`environment.secrets\` for \`projects/*/secrets/*\`. A SOPS file stays \`environment.sources: [sops]\` plus \`environment.sops\`. Secret Manager values win when the fetch succeeds; if you do not have access, the same keys from \`.env\` / \`.devctl/secrets.env\` / \`sops\` / process env are left in place.
 
 \`environment.required\` on a service fails start if those keys are still empty after the merge.
 
@@ -3197,7 +3222,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **Loopback only** | Proxy, token endpoint, and MCP refuse \`0.0.0.0\`, \`::\`, and other non-loopback binds. Managed containers publish ports on \`127.0.0.1\` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless \`shell: true\` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
-| **Config is not a secret store** | Working dirs join the repo root. Put secrets in \`.devctl/secrets.env\` (gitignored), overlays, keychain, or Secret Manager. There is no \`\${secret:}\` template syntax |
+| **Config is not a secret store** | Working dirs join the repo root. Put secrets in \`.devctl/secrets.env\` (gitignored), overlays, keychain, Secret Manager, or a SOPS-encrypted file. \`sops\` decrypts that file in memory at daemon start and reload and does not write the plaintext. There is no \`\${secret:}\` template syntax |
 
 Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. Free-text log lines also strip \`Bearer\` tokens, JWT-shaped strings (\`eyJ…\`), Google access tokens (\`ya29.\`), and \`id_token=\` / \`access_token=\` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic \`data\` is decoded before redaction so a base64/raw view cannot recover a secret the pretty \`text\` already masked. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config. \`X-Devctl-Service\` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
