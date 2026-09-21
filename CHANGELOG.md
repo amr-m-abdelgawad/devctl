@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-09-21
+
 ### Changed
 
 - Secret Manager env source no longer aborts start when ADC or IAM is missing. HTTP 401/403, missing credentials, and transport failures skip that key so `.env` / `.devctl/secrets.env` / process env remain; listing `secret_manager` also enables `dotenv`. A malformed `environment.secrets` resource or HTTP 404 still fails. See [Environment](docs/environment.md).
@@ -637,7 +639,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.1...HEAD
+[0.18.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.17.0...v0.18.0
 [0.17.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.16.0...v0.17.0
 [0.16.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.15.0...v0.16.0
