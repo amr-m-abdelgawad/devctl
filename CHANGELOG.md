@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - After a laptop sleep or a long pause — including WSL and a VS Code dev container — the supervisor could stop answering `status` and `logs_page` (30s timeout) and ignore restart and quit, while its processes still held their ports. The client reconnects after a resume. A supervisor that still does not answer is replaced, and services that are still listening are adopted instead of left holding their ports.
+- SOPS decrypt used `--output-type dotenv`, so a nested value failed the whole file and secrets containing `#`, spaces, or newlines were truncated or left with literal `\n`. Decrypt now uses JSON. Nested keys become env names (`db.password` → `DB_PASSWORD`). See [Environment](docs/environment.md).
 
 ## [0.19.0] - 2026-09-22
 

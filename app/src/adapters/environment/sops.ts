@@ -1,7 +1,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { spawn } from "bun";
-import { parse as parseDotenv } from "dotenv";
 import type { DevctlConfig } from "../../domain/config/types.ts";
 
 const SOPS_DECRYPT_TIMEOUT_MS = 30_000;
@@ -79,7 +78,10 @@ export function detectSopsInputType(file: string): string {
 }
 
 export function sopsDecryptArgs(file: string, inputType: string): string[] {
-  const args = ["sops", "--decrypt", "--output-type", "dotenv"];
+  // JSON, not dotenv. SOPS refuses nested values in dotenv output, and a
+  // dotenv parser truncates `#`, trims spaces, and leaves `\n` escapes as
+  // two characters. JSON keeps the decrypted strings.
+  const args = ["sops", "--decrypt", "--output-type", "json"];
   const selected = normalizeSopsInputType(inputType) || detectSopsInputType(file);
   if (selected !== "") {
     args.push("--input-type", selected);
@@ -211,9 +213,13 @@ function isInside(root: string, target: string): boolean {
 function uppercaseKeys(input: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(input)) {
-    out[key.toUpperCase()] = value;
+    out[injectedName(key)] = value;
   }
   return out;
+}
+
+function injectedName(key: string): string {
+  return key.replaceAll(".", "_").toUpperCase();
 }
 
 function entriesExcept(input: Record<string, string>, excluded: ReadonlySet<string>): Record<string, string> {
@@ -237,11 +243,55 @@ function missingMappedKeys(decrypted: Record<string, string>, keyMap: Record<str
 }
 
 function parseDecrypted(stdout: string): { values: Record<string, string> } | { error: string } {
+  let parsed: unknown;
   try {
-    return { values: parseDotenv(stdout) };
+    parsed = JSON.parse(stdout);
   } catch {
-    return { error: "could not parse sops dotenv output" };
+    return { error: "could not parse sops json output" };
   }
+  if (!isPlainRecord(parsed)) {
+    return { error: "sops json output was not an object" };
+  }
+  const values: Record<string, string> = {};
+  collectSopsLeaves(parsed, "", values);
+  return { values };
+}
+
+function collectSopsLeaves(value: Record<string, unknown>, prefix: string, out: Record<string, string>): void {
+  for (const [key, item] of Object.entries(value)) {
+    const path = prefix === "" ? key : `${prefix}.${key}`;
+    if (isPlainRecord(item)) {
+      collectSopsLeaves(item, path, out);
+    } else {
+      const rendered = renderSopsLeaf(item);
+      if (rendered !== undefined) {
+        out[path] = rendered;
+      }
+    }
+  }
+}
+
+function renderSopsLeaf(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return JSON.stringify(value);
+  }
+  if (value === null) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    return JSON.stringify(value);
+  }
+  return undefined;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function skip(detail: string): string {

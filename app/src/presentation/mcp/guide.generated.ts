@@ -810,15 +810,17 @@ replace it, and it does not reorder anything.
   dotenv / process env can fill it — listing \`secret_manager\` also enables
   \`dotenv\`. Only list these sources when the repo genuinely uses them.
 - \`sops\` decrypts \`environment.sops.file\` (repo-relative; must stay inside the
-  repo) with \`sops --decrypt --output-type dotenv\` at daemon start and reload.
+  repo) with \`sops --decrypt --output-type json\` at daemon start and reload.
   \`file\` is required when \`sops\` is listed. Optional \`input_type\` is \`json\`,
-  \`yaml\`, or \`dotenv\` (otherwise the extension is used). Optional \`key_map\`
-  maps an env var name to a SOPS key; several env vars may share one key, and
-  a mapped SOPS key is not also injected under its raw name. Unmapped keys are
-  uppercased. A missing binary, missing file, or failed decrypt skips the
-  source with a warning — it does not fail config load. Plaintext is not
-  written to disk. \`secret_manager\` still wins over \`sops\` when the fetch
-  succeeds.
+  \`yaml\`, or \`dotenv\` (otherwise the extension is used) and selects how SOPS
+  reads the file, not the decrypt output. Optional \`key_map\` maps an env var
+  name to a SOPS key; several env vars may share one key, and a mapped SOPS
+  key is not also injected under its raw name. Unmapped keys are uppercased.
+  Nested objects use a dot path (\`db.password\` → \`DB_PASSWORD\`, or a
+  \`key_map\` entry). Arrays are JSON strings. \`#\`, spaces, and newlines are
+  kept. A missing binary, missing file, or failed decrypt skips the source
+  with a warning — it does not fail config load. Plaintext is not written to
+  disk. \`secret_manager\` still wins over \`sops\` when the fetch succeeds.
 - \`environment.required\` on a service fails the start if those keys are still
   empty after the whole merge — the right place to encode "this cannot run
   without X".

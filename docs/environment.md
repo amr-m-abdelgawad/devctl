@@ -21,7 +21,7 @@ flowchart LR
 | `secrets_env` | Always-on dotenv file: gitignored `.devctl/secrets.env`, then weaker `~/.devctl/secrets.env`. Wins over repo `.env`; process and profile keys still win. No schema key — it is not listed in `environment.sources` |
 | `generated` | Built-in hook that always returns `{}`. A plugin may register `environmentSources` if you need generated values |
 | `keychain` | Named secrets from `environment.secrets` / the credential store |
-| `sops` | `sops --decrypt --output-type dotenv` on `environment.sops.file` at daemon start and `devctl reload`. The `sops` binary must be on `PATH`. A missing binary, missing file, or failed decrypt (KMS, age, PGP, network) skips the source with a warning; services that `environment.required` a key SOPS was supposed to provide then fail to start. Plaintext is kept in memory only |
+| `sops` | `sops --decrypt --output-type json` on `environment.sops.file` at daemon start and `devctl reload`. The `sops` binary must be on `PATH`. A missing binary, missing file, or failed decrypt (KMS, age, PGP, network) skips the source with a warning; services that `environment.required` a key SOPS was supposed to provide then fail to start. Plaintext is kept in memory only |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API. Missing ADC, HTTP 401/403, or a network failure skips that key so dotenv / `secrets.env` / process env remain. A malformed resource name or HTTP 404 still fails |
 | `defaults` | `services.<name>.environment.defaults` (and the selected `environments.<env>.defaults`) |
 | `vars` | Explicit `services.<name>.environment` keys (and the selected `environments.<env>` keys, which win) |
@@ -42,7 +42,9 @@ environment:
     input_type: json
     # Optional. Env var name → SOPS key. Several env vars may share one key.
     # Mapped SOPS keys are not also injected under the raw name.
-    # Keys absent from key_map are uppercased and injected as-is.
+    # Keys absent from key_map are uppercased. Nested objects use a dot path
+    # (`db.password` → `DB_PASSWORD`). Arrays are JSON strings.
+    # `#`, spaces, and newlines in values are kept.
     key_map:
       MY_API_KEY: my_api_key_secret_name
       MY_DB_PASSWORD: db_password_secret_name
@@ -50,7 +52,7 @@ environment:
       SERVICE_B_TOKEN: shared_token
 ```
 
-`sops` wins over dotenv and `.devctl/secrets.env`. `secret_manager` still wins over `sops` when the fetch succeeds, so a repo can move keys to Secret Manager without dropping the file. `devctl` runs `sops --decrypt --output-type dotenv <file>` once at daemon start and again on reload. It does not write the plaintext to disk. The next start or restart picks up a reload; a running process keeps the environment it was launched with until then. If the decrypted values changed and a service is still running, reload reports that service in `restart_required`.
+`sops` wins over dotenv and `.devctl/secrets.env`. `secret_manager` still wins over `sops` when the fetch succeeds, so a repo can move keys to Secret Manager without dropping the file. `devctl` runs `sops --decrypt --output-type json <file>` once at daemon start and again on reload. A dotenv or YAML SOPS file is still read as that format (`--input-type`); only the decrypt result is JSON, so nested values, `#`, spaces, and newlines survive. It does not write the plaintext to disk. The next start or restart picks up a reload; a running process keeps the environment it was launched with until then. If the decrypted values changed and a service is still running, reload reports that service in `restart_required`.
 
 `environment.sops.file` is required when `sops` is listed, and the path must stay inside the repository (including after symlink resolution). `devctl config validate` rejects a missing file field, an unknown `input_type`, an empty `key_map` value, or a path that escapes the repo. A missing file or a decrypt error is a runtime warning, not a validate failure.
 

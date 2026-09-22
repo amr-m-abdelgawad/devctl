@@ -45,6 +45,16 @@ describe("sops key map", () => {
   test("omits a mapped env var whose SOPS key is absent", () => {
     expect(mapSopsKeys({ other: "x" }, { MY_API_KEY: "missing" })).toEqual({ OTHER: "x" });
   });
+
+  test("turns a nested dot path into an env name", () => {
+    expect(mapSopsKeys({ "db.password": "s3cret", "my-api": "a" }, {})).toEqual({
+      DB_PASSWORD: "s3cret",
+      "MY-API": "a",
+    });
+    expect(mapSopsKeys({ "db.password": "s3cret" }, { MY_DB_PASSWORD: "db.password" })).toEqual({
+      MY_DB_PASSWORD: "s3cret",
+    });
+  });
 });
 
 describe("sops decrypt command", () => {
@@ -60,12 +70,12 @@ describe("sops decrypt command", () => {
 
   test("passes input type from the override or the extension", () => {
     expect(sopsDecryptArgs("/repo/secrets.enc.json", "")).toEqual([
-      "sops", "--decrypt", "--output-type", "dotenv", "--input-type", "json", "/repo/secrets.enc.json",
+      "sops", "--decrypt", "--output-type", "json", "--input-type", "json", "/repo/secrets.enc.json",
     ]);
     expect(sopsDecryptArgs("/repo/secrets.enc.json", "dotenv")).toContain("--input-type");
     expect(sopsDecryptArgs("/repo/secrets.enc.json", "dotenv").at(-2)).toBe("dotenv");
     expect(sopsDecryptArgs("/repo/secrets.bin", "")).toEqual([
-      "sops", "--decrypt", "--output-type", "dotenv", "/repo/secrets.bin",
+      "sops", "--decrypt", "--output-type", "json", "/repo/secrets.bin",
     ]);
   });
 });
@@ -76,7 +86,7 @@ describe("load sops environment", () => {
     let called = false;
     const run: SopsCommandRunner = async () => {
       called = true;
-      return { ok: true, stdout: "A=b\n", stderr: "", code: 0 };
+      return { ok: true, stdout: '{"A":"b"}\n', stderr: "", code: 0 };
     };
     expect(await loadSopsEnvironment(cfg, run)).toEqual({ values: {} });
     expect(called).toBe(false);
@@ -94,7 +104,7 @@ describe("load sops environment", () => {
 
   test("skips a path that leaves the repository", async () => {
     const { cfg } = cfgWith("../secrets.enc.json");
-    const result = await loadSopsEnvironment(cfg, async () => ({ ok: true, stdout: "A=b\n", stderr: "", code: 0 }));
+    const result = await loadSopsEnvironment(cfg, async () => ({ ok: true, stdout: '{"A":"b"}\n', stderr: "", code: 0 }));
     expect(result.values).toEqual({});
     expect(result.warning).toContain("inside the repository");
   });
@@ -111,35 +121,67 @@ describe("load sops environment", () => {
     cfg.repoRoot = repo;
     cfg.environment.sources = ["sops"];
     cfg.environment.sops.file = "secrets.enc.json";
-    const result = await loadSopsEnvironment(cfg, async () => ({ ok: true, stdout: "LEAKED=1\n", stderr: "", code: 0 }));
+    const result = await loadSopsEnvironment(cfg, async () => ({ ok: true, stdout: '{"LEAKED":"1"}\n', stderr: "", code: 0 }));
     expect(result.values).toEqual({});
     expect(result.warning).toContain("inside the repository");
     expect(result.warning).not.toContain("LEAKED");
   });
 
-  test("parses dotenv stdout and applies key_map", async () => {
+  test("parses json stdout and applies key_map", async () => {
     const { dir, cfg } = cfgWith("secrets.enc.json");
     writeFileSync(join(dir, "secrets.enc.json"), "{}\n");
     cfg.environment.sops.key_map = { MY_API_KEY: "my_api_key", SERVICE_B_TOKEN: "shared_token" };
     const seen: { cmd: string[]; cwd: string }[] = [];
     const run: SopsCommandRunner = async (spec) => {
       seen.push(spec);
-      return { ok: true, stdout: "my_api_key=\"p@ss word\"\nshared_token=tok\nother=x\n", stderr: "", code: 0 };
+      return {
+        ok: true,
+        stdout: JSON.stringify({ my_api_key: "p@ss word", shared_token: "tok", other: "x" }),
+        stderr: "",
+        code: 0,
+      };
     };
     const result = await loadSopsEnvironment(cfg, run);
     expect(result.warning).toBeUndefined();
     expect(result.values).toEqual({ MY_API_KEY: "p@ss word", SERVICE_B_TOKEN: "tok", OTHER: "x" });
     expect(seen[0]?.cwd).toBe(dir);
-    expect(seen[0]?.cmd.slice(0, 4)).toEqual(["sops", "--decrypt", "--output-type", "dotenv"]);
+    expect(seen[0]?.cmd.slice(0, 4)).toEqual(["sops", "--decrypt", "--output-type", "json"]);
     expect(seen[0]?.cmd).toContain("--input-type");
     expect(seen[0]?.cmd.at(-1)).toBe(realpathSync(join(dir, "secrets.enc.json")));
+  });
+
+  test("keeps hashes, newlines, nested leaves, and arrays", async () => {
+    const { dir, cfg } = cfgWith("secrets.enc.yaml");
+    writeFileSync(join(dir, "secrets.enc.yaml"), "{}\n");
+    const result = await loadSopsEnvironment(cfg, async () => ({
+      ok: true,
+      stdout: JSON.stringify({
+        token: "a#b c ",
+        pem: "-----BEGIN-----\nline\n",
+        db: { password: "secret" },
+        flags: ["a", "b"],
+        port: 5432,
+        enabled: false,
+      }),
+      stderr: "",
+      code: 0,
+    }));
+    expect(result.warning).toBeUndefined();
+    expect(result.values).toEqual({
+      TOKEN: "a#b c ",
+      PEM: "-----BEGIN-----\nline\n",
+      DB_PASSWORD: "secret",
+      FLAGS: '["a","b"]',
+      PORT: "5432",
+      ENABLED: "false",
+    });
   });
 
   test("keeps decrypted values when key_map names a missing key", async () => {
     const { dir, cfg } = cfgWith("secrets.enc.yaml");
     writeFileSync(join(dir, "secrets.enc.yaml"), "{}\n");
     cfg.environment.sops.key_map = { MY_DB_PASSWORD: "absent" };
-    const result = await loadSopsEnvironment(cfg, async () => ({ ok: true, stdout: "other=x\n", stderr: "", code: 0 }));
+    const result = await loadSopsEnvironment(cfg, async () => ({ ok: true, stdout: '{"other":"x"}', stderr: "", code: 0 }));
     expect(result.values).toEqual({ OTHER: "x" });
     expect(result.warning).toContain("MY_DB_PASSWORD→absent");
   });
@@ -157,7 +199,7 @@ describe("load sops environment", () => {
     const result = await loadSopsEnvironment(cfg, async () => ({
       ok: true,
       code: 1,
-      stdout: "MY_API_KEY=super-secret\n",
+      stdout: '{"MY_API_KEY":"super-secret"}',
       stderr: "Failed to get the data key\n",
     }));
     expect(result.values).toEqual({});
