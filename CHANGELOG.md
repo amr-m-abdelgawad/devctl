@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-09-22
+
 ### Fixed
 
 - After a laptop sleep or a long pause — including WSL and a VS Code dev container — the supervisor could stop answering `status` and `logs_page` (30s timeout) and ignore restart and quit, while its processes still held their ports. The client reconnects after a resume. A supervisor that still does not answer is replaced, and services that are still listening are adopted instead of left holding their ports.
@@ -651,7 +653,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.1...HEAD
+[0.19.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.0...v0.18.1
 [0.18.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.17.0...v0.18.0
