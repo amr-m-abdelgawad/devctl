@@ -4,7 +4,7 @@ import { createServer, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, dial, ensureSupervisor, findDaemon, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, dial, ensureSupervisor, findDaemon, hostClockJumped, isRpcTimeout, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "../environment/environment.ts";
 import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "../../shared/errors.ts";
 import { bootstrapLogPath, killRepoSupervisor, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
@@ -163,6 +163,50 @@ describe("ensureSupervisor reap", () => {
     expect(pid).toBeGreaterThan(0);
     await reapSupervisorChild(child);
     expect(processAlive(pid)).toBe(false);
+  });
+});
+
+describe("resume detection", () => {
+  test("a short gap is not a resume and a long gap is", () => {
+    expect(hostClockJumped(0, 1_000)).toBe(false);
+    expect(hostClockJumped(0, 20_000)).toBe(true);
+    expect(isRpcTimeout(new Error("status timed out after 30000ms"))).toBe(true);
+    expect(isRpcTimeout(new Error("supervisor connection closed"))).toBe(false);
+  });
+
+  test("a timed-out call stays a timeout when the supervisor still answers ping", async () => {
+    const calls: string[] = [];
+    const ctrl = new Controller({ shutdown: { grace_seconds: 1 } } as never);
+    ctrl.client = {
+      compat: { compatible: true, legacy: false },
+      call: async (method: string) => {
+        calls.push(method);
+        if (method === "status") {
+          throw new Error("status timed out after 30000ms");
+        }
+        return null;
+      },
+      close: () => undefined,
+    } as never;
+    await expect(ctrl.status()).rejects.toThrow(/timed out after 30000ms/);
+    expect(calls).toEqual(["status", "ping"]);
+  });
+
+  test("dial rejects a socket that accepts and never answers ping", async () => {
+    const dir = tmp();
+    const path = socketPath(dir);
+    const server = createServer((conn) => {
+      conn.resume();
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(path, () => resolve());
+    });
+    try {
+      await expect(dial(dir, 300)).rejects.toThrow(/not responding/);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 

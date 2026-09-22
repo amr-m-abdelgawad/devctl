@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { available } from "../net/ports.ts";
-import { ProcessManager, sameProcess, sampleResourceUsage } from "./processes.ts";
+import { ProcessManager, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { parseElapsedMillis } from "./unix.ts";
 
 function listenPort(): Promise<number> {
@@ -54,6 +54,43 @@ describe("sameProcess", () => {
         { pid: 1, command: "python main.py", cwd: "/repo", startTime: now.toISOString() },
       ),
     ).toBe(true);
+  });
+});
+
+describe("sameAdoptedProcess", () => {
+  test("accepts a start time that drifted backward and rejects a newer pid", () => {
+    const now = new Date();
+    const observed = { pid: 1, command: "python main.py", cwd: "/repo" };
+    expect(
+      sameAdoptedProcess(
+        { args: ["python", "main.py"], workDir: "/repo", startTime: now },
+        { ...observed, startTime: new Date(now.getTime() + 10_000).toISOString() },
+      ),
+    ).toBe(true);
+    expect(
+      sameAdoptedProcess(
+        { args: ["python", "main.py"], workDir: "/repo", startTime: now },
+        { ...observed, startTime: new Date(now.getTime() + 120_000).toISOString() },
+      ),
+    ).toBe(false);
+    expect(
+      sameAdoptedProcess(
+        { args: ["python", "main.py"], workDir: "/repo", startTime: now },
+        { ...observed, startTime: new Date(now.getTime() - 60 * 60 * 1000).toISOString() },
+      ),
+    ).toBe(true);
+    expect(
+      sameAdoptedProcess(
+        { args: ["python", "main.py"], workDir: "/repo", startTime: now },
+        { ...observed, cwd: "/other", startTime: now.toISOString() },
+      ),
+    ).toBe(false);
+    expect(
+      sameAdoptedProcess(
+        { args: ["python", "main.py"], workDir: "/repo", startTime: now },
+        { ...observed, command: "node server.js", startTime: now.toISOString() },
+      ),
+    ).toBe(false);
   });
 });
 

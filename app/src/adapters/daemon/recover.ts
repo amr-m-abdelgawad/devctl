@@ -10,7 +10,7 @@ import { humanMessage } from "../../shared/errors.ts";
 import { SessionRecovered, newEvent, type Bus } from "../../shared/events.ts";
 import { occupiedFixedPorts, findPortHolder } from "../net/ports.ts";
 import type { Registry } from "../plugins/registry.ts";
-import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
+import { type ProcessManager, sameAdoptedProcess, type ProcessIdentity } from "../process/processes.ts";
 import type { ProxyServer, TokenEndpoint } from "../proxy/proxy.ts";
 import { readPersistedState, repoID } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
@@ -235,10 +235,7 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
       continue;
     }
     const observed = await host.inspectProcessFn(rec.pid);
-    const identityOk =
-      observed !== undefined &&
-      observed.command !== "" &&
-      sameProcess({ args: rec.command, workDir: rec.cwd, startTime: rec.startTime ? new Date(rec.startTime) : undefined }, observed);
+    const identityOk = adoptedIdentity(rec, observed);
     if (!identityOk) {
       const portOk =
         Object.values(rec.ports).length > 0 &&
@@ -309,14 +306,30 @@ async function persistedHolderMatches(host: RecoverHost, svc: ServiceConfig, sta
   const observed = await host.inspectProcessFn(pid);
   if (observed === undefined || observed.command === "") {
     // The listen pid is the one we persisted. Inspect is best-effort —
-    // Windows PowerShell often times out in CI — and refusing here would
-    // turn our own leftover process into a port conflict.
+    // Windows PowerShell often times out in CI, and ps and /proc stall after a
+    // WSL resume — and refusing here would turn our own leftover process
+    // into a port conflict.
     return true;
   }
   // Skip cwd: Windows inspect reports the image directory, not the process
   // working directory. Pid already matched the persisted record.
-  return sameProcess(
+  return sameAdoptedProcess(
     { args: [...svc.command.args], workDir: "", startTime: new Date(startTime) },
+    observed,
+  );
+}
+
+function adoptedIdentity(
+  rec: { command: string[]; cwd: string; startTime: string },
+  observed: ProcessIdentity | undefined,
+): boolean {
+  // Inspect is best-effort. After a WSL or dev-container resume, ps and
+  // /proc often time out; the pid is the one we stored and it is still alive.
+  if (observed === undefined || observed.command === "") {
+    return true;
+  }
+  return sameAdoptedProcess(
+    { args: rec.command, workDir: rec.cwd, startTime: rec.startTime ? new Date(rec.startTime) : undefined },
     observed,
   );
 }

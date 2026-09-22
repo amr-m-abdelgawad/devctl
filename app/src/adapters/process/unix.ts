@@ -86,7 +86,7 @@ export function parseProcUptimeSeconds(text: string): number | undefined {
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : undefined;
 }
 
-async function inspectProcessProc(pid: number, sampledAt: number): Promise<ProcessIdentity | undefined> {
+async function inspectProcessProc(pid: number): Promise<ProcessIdentity | undefined> {
   const stat = await readProcText(`/proc/${pid}/stat`);
   const command = parseProcCmdline(await readProcText(`/proc/${pid}/cmdline`)) || parseProcStatComm(stat);
   if (command === "") {
@@ -100,6 +100,10 @@ async function inspectProcessProc(pid: number, sampledAt: number): Promise<Proce
   }
   const ticks = parseProcStatStarttimeTicks(stat);
   const uptime = parseProcUptimeSeconds(await readProcText("/proc/uptime"));
+  // Stamp after the reads. A slow /proc (WSL or dev-container resume) must
+  // not make this process look newer than the start time we persisted, or
+  // adoption treats it as a reused pid and leaves its ports held.
+  const sampledAt = Date.now();
   const startTime = ticks !== undefined && uptime !== undefined
     ? new Date(sampledAt - (uptime - ticks / PROC_USER_HZ) * 1000).toISOString()
     : undefined;
@@ -111,7 +115,7 @@ export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity |
     return undefined;
   }
   if (process.platform === "linux") {
-    const viaProc = await inspectProcessProc(pid, Date.now());
+    const viaProc = await inspectProcessProc(pid);
     if (viaProc !== undefined) {
       return viaProc;
     }
@@ -121,8 +125,10 @@ export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity |
   // interprets it in the JS process's TZ, which may differ from the host TZ
   // used by ps (for example a daemon launched with TZ=UTC on a Cairo host).
   // `etime` is an elapsed duration and is timezone-independent.
-  const sampledAt = Date.now();
+  // Sample after `ps` returns. Sampling first makes a slow `ps` (typical
+  // right after WSL resumes) look like a newer process.
   const elapsed = parseElapsedMillis(await captureProcessOutput(["ps", "-p", String(pid), "-o", "etime="]));
+  const sampledAt = Date.now();
   const cwd = await cwdOf(pid);
   return {
     pid,
@@ -174,12 +180,34 @@ async function cwdOf(pid: number): Promise<string> {
   return "";
 }
 
+const PROCESS_OUTPUT_TIMEOUT_MS = 3_000;
+
 export async function captureProcessOutput(cmd: string[]): Promise<string> {
   try {
     const proc = spawn({ cmd, stdout: "pipe", stderr: "ignore" });
-    const text = proc.stdout ? await new Response(proc.stdout).text() : "";
-    await proc.exited;
-    return text;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<string>((resolve) => {
+      timer = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          // already exited
+        }
+        resolve("");
+      }, PROCESS_OUTPUT_TIMEOUT_MS);
+    });
+    const finished = (async (): Promise<string> => {
+      const text = proc.stdout ? await new Response(proc.stdout).text() : "";
+      await proc.exited;
+      return text;
+    })().catch(() => "");
+    try {
+      return await Promise.race([finished, timedOut]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   } catch {
     return "";
   }

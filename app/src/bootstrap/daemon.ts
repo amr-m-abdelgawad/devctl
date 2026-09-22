@@ -12,6 +12,7 @@ import type { Clock } from "../ports/clock.ts";
 import type { FileSystem } from "../ports/filesystem.ts";
 import { ServiceOrchestrator } from "../application/orchestrator.ts";
 import { commandsForHost } from "../application/commands.ts";
+import { startEventLoopWatchdog } from "../adapters/daemon/event-loop-watchdog.ts";
 import { Supervisor } from "../adapters/daemon/supervisor.ts";
 import type { TokenManager as Tokens } from "../adapters/google/token.ts";
 import type { ProcessManager as Processes } from "../adapters/process/processes.ts";
@@ -114,6 +115,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
 
 /** Entry used by the CLI’s internal daemon command. */
 export async function runDaemon(repoRoot: string, configPath: string): Promise<void> {
+  startEventLoopWatchdog();
   // loadOrEmpty, not load: a daemon is only ever spawned because a client
   // already decided one should exist, so a missing configuration here means
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An

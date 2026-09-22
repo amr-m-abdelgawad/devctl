@@ -7,6 +7,7 @@ import { DevctlError, hintError, KindConfiguration, KindProcessStart, wrapError 
 
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
+const PORT_LOOKUP_TIMEOUT_MS = 3_000;
 
 export async function assignPorts(
   cfg: DevctlConfig,
@@ -152,32 +153,58 @@ export async function findPortHolder(port: number): Promise<PortHolder | undefin
 }
 
 // A missing lsof/fuser binary (minimal container, WSL) degrades to "holder unknown" rather than crashing.
-async function lsofPortHolder(port: number): Promise<PortHolder | undefined> {
+// Both commands can also hang after a WSL or dev-container resume; the timeout keeps port checks from stalling restart.
+async function commandOutput(cmd: string[], includeStderr: boolean): Promise<string> {
   try {
-    const proc = spawn({
-      cmd: ["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN"],
-      stdout: "pipe",
-      stderr: "ignore",
+    const proc = spawn({ cmd, stdout: "pipe", stderr: includeStderr ? "pipe" : "ignore" });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<string>((resolve) => {
+      timer = setTimeout(() => {
+        try {
+          proc.kill();
+        } catch {
+          // already exited
+        }
+        resolve("");
+      }, PORT_LOOKUP_TIMEOUT_MS);
     });
-    const text = await new Response(proc.stdout).text();
-    await proc.exited;
-    return parseLsof(text, port);
+    const finished = (async (): Promise<string> => {
+      const out = await readSpawnPipe(proc.stdout);
+      const err = includeStderr ? await readSpawnPipe(proc.stderr) : "";
+      await proc.exited;
+      return includeStderr ? `${out} ${err}` : out;
+    })().catch(() => "");
+    try {
+      return await Promise.race([finished, timedOut]);
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   } catch {
-    return undefined;
+    // Missing lsof/fuser, or the process could not be spawned.
+    return "";
   }
 }
 
+async function readSpawnPipe(stream: ReadableStream<Uint8Array> | number | null | undefined): Promise<string> {
+  if (stream == null || typeof stream === "number") {
+    return "";
+  }
+  return new Response(stream).text();
+}
+
+async function lsofPortHolder(port: number): Promise<PortHolder | undefined> {
+  const text = await commandOutput(["lsof", "-nP", `-iTCP:${port}`, "-sTCP:LISTEN"], false);
+  if (text === "") {
+    return undefined;
+  }
+  return parseLsof(text, port);
+}
+
 async function fuserPortHolder(port: number): Promise<PortHolder | undefined> {
-  let fuserText: string;
-  try {
-    const proc = spawn({
-      cmd: ["fuser", "-n", "tcp", String(port)],
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    fuserText = `${await new Response(proc.stdout).text()} ${await new Response(proc.stderr).text()}`;
-    await proc.exited;
-  } catch {
+  const fuserText = await commandOutput(["fuser", "-n", "tcp", String(port)], true);
+  if (fuserText === "") {
     return undefined;
   }
   const match = fuserText.match(/(\d+)/);

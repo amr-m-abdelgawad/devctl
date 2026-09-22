@@ -1,4 +1,5 @@
 import { createConnection, type Socket } from "node:net";
+import { clearInterval as clearResumeInterval, setInterval as resumeInterval } from "node:timers";
 import { spawn } from "bun";
 import { type DevctlConfig, defaultConfig, discover, load, loadOrEmpty } from "../config/index.ts";
 import { resolveDaemonTarget } from "../daemon/daemon.ts";
@@ -9,7 +10,7 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogHint, bootstrapLogPath, persistedConfigOverlay, readBootstrapLog, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, persistedConfigOverlay, processAlive, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -24,6 +25,12 @@ const DIAL_TIMEOUT_MS = 8_000;
 const BOOTSTRAP_DIAL_TIMEOUT_MS = 15_000;
 const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
+const PING_PROBE_MS = 1_000;
+const REDIAL_MS = 3_000;
+const QUIT_RPC_MS = 3_000;
+const REAP_WAIT_MS = 2_000;
+const RESUME_POLL_MS = 1_000;
+export const RESUME_GAP_MS = 15_000;
 const COMMAND_RPC_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 // RPC methods a client must still be able to send to an incompatible
 // daemon: removing it (`down` → the "shutdown" call, made directly on
@@ -136,6 +143,9 @@ export class Client {
   }
 
   call(method: string, params: unknown, timeoutMs = RPC_CALL_TIMEOUT_MS): Promise<unknown> {
+    if (this.socket.destroyed) {
+      return Promise.reject(new Error("supervisor connection closed"));
+    }
     this.nextID += 1;
     const id = String(this.nextID);
     return new Promise((resolve, reject) => {
@@ -166,20 +176,42 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
   const path = socketPath(repoRoot);
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (action: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      action();
+    };
+    const fail = (err: Error): void => finish(() => reject(err));
     const tryOnce = (): void => {
+      if (settled || Date.now() >= deadline) {
+        fail(hintError(KindGeneral, "supervisor is not running", "run `devctl start` or `devctl attach` after starting services"));
+        return;
+      }
       const socket = createConnection(path);
-      socket.once("connect", () => {
-        const client = new Client(socket, readRpcToken(repoRoot));
-        void handshake(client).finally(() => resolve(client));
-      });
-      socket.once("error", (err) => {
+      const onError = (): void => {
         socket.destroy();
-        if (Date.now() >= deadline) {
-          reject(hintError(KindGeneral, "supervisor is not running", "run `devctl start` or `devctl attach` after starting services"));
+        if (settled || Date.now() >= deadline) {
+          fail(hintError(KindGeneral, "supervisor is not running", "run `devctl start` or `devctl attach` after starting services"));
           return;
         }
         setTimeout(tryOnce, DIAL_RETRY_MS);
-        void err;
+      };
+      socket.once("error", onError);
+      socket.once("connect", () => {
+        socket.off("error", onError);
+        const client = new Client(socket, readRpcToken(repoRoot));
+        const pingBudget = Math.min(DIAL_TIMEOUT_MS, Math.max(1, deadline - Date.now()));
+        void handshake(client, pingBudget).then((ok) => {
+          if (!ok) {
+            client.close();
+            fail(hintError(KindGeneral, "supervisor is not responding", "start devctl again; a supervisor that stops answering is replaced and its services are kept"));
+            return;
+          }
+          finish(() => resolve(client));
+        });
       });
     };
     tryOnce();
@@ -188,15 +220,15 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
 
 // Runs once per dial, before the caller ever sees the Client, so
 // Client.compat and Client.session are always real by the time any RPC
-// beyond ping is attempted. A ping failure leaves the optimistic default in
-// place — whatever RPC the caller actually wanted will surface the real
-// connection error on its own.
-async function handshake(client: Client): Promise<void> {
+// beyond ping is attempted. A ping that never returns means the socket is
+// open but the supervisor is not reading it — dial rejects instead of
+// handing back a client that will time out every later call.
+async function handshake(client: Client, timeoutMs: number): Promise<boolean> {
   let raw: unknown;
   try {
-    raw = await client.call("ping", null, DIAL_TIMEOUT_MS);
+    raw = await client.call("ping", null, timeoutMs);
   } catch {
-    return;
+    return false;
   }
   const rec = isRecord(raw) ? raw : {};
   if (typeof rec.session === "string") {
@@ -206,9 +238,10 @@ async function handshake(client: Client): Promise<void> {
   const version = typeof rec.version === "string" ? rec.version : undefined;
   if (protocol === undefined) {
     client.compat = { compatible: false, legacy: true, daemonVersion: version };
-    return;
+    return true;
   }
   client.compat = { compatible: protocol === RPC_PROTOCOL_VERSION, legacy: false, daemonVersion: version, daemonProtocol: protocol };
+  return true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -233,8 +266,58 @@ export function supervisorSpawnCommand(execPath: string, scriptArg: string, isSt
   return isStandalone ? [execPath, ...args] : [execPath, scriptArg, ...args];
 }
 
-export async function ensureSupervisor(repoRoot: string, configPath: string): Promise<Client> {
+export function hostClockJumped(previousMs: number, nowMs: number, gapMs = RESUME_GAP_MS): boolean {
+  return nowMs - previousMs >= gapMs;
+}
+
+export function isRpcTimeout(err: unknown): boolean {
+  return err instanceof Error && /timed out after \d+ms$/.test(err.message);
+}
+
+async function connectSupervisor(repoRoot: string): Promise<Client | undefined> {
   const existing = await tryDial(repoRoot);
+  if (existing) {
+    return existing;
+  }
+  return takeOverUnresponsive(repoRoot);
+}
+
+// A lock whose process is alive but never answers ping is the supervisor
+// left behind by a WSL or dev-container suspend: the socket may still
+// accept, and the child processes still hold their ports. Replace it so
+// the next supervisor can adopt those processes.
+async function takeOverUnresponsive(repoRoot: string): Promise<Client | undefined> {
+  const lock = readRepoLock(repoRoot);
+  if (!lock || !processAlive(lock.pid)) {
+    return undefined;
+  }
+  try {
+    return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
+  } catch {
+    if (processAlive(lock.pid)) {
+      killRepoSupervisor(repoRoot);
+      await waitForExit(lock.pid, REAP_WAIT_MS);
+    }
+    return undefined;
+  }
+}
+
+function waitForExit(pid: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const tick = (): void => {
+      if (!processAlive(pid) || Date.now() >= deadline) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, DIAL_RETRY_MS);
+    };
+    tick();
+  });
+}
+
+export async function ensureSupervisor(repoRoot: string, configPath: string): Promise<Client> {
+  const existing = await connectSupervisor(repoRoot);
   if (existing) {
     return existing;
   }
@@ -330,9 +413,31 @@ export class Controller {
   cfg: DevctlConfig;
   client?: Client;
   previousPersisted?: PersistedState;
+  private readonly busListeners = new Set<(ev: BusEvent) => void>();
+  private detachBus: (() => void) | undefined;
+  private resumeTimer: ReturnType<typeof resumeInterval> | undefined;
+  private lastResumeMark = Date.now();
+  private recovering: Promise<void> | undefined;
+  private closed = false;
+  private attachedRepo = "";
 
   constructor(cfg: DevctlConfig) {
     this.cfg = cfg;
+  }
+
+  attachClient(client: Client, repoRoot?: string): void {
+    this.detachBus?.();
+    this.detachBus = undefined;
+    this.client = client;
+    if (repoRoot) {
+      this.attachedRepo = repoRoot;
+    }
+    if (this.busListeners.size > 0) {
+      this.bindBus();
+    }
+    if (!this.closed) {
+      this.armResumeWatch();
+    }
   }
 
   async start(req: StartRequest): Promise<Plan> {
@@ -464,10 +569,11 @@ export class Controller {
   }
 
   onEvent(handler: (ev: BusEvent) => void): () => void {
-    if (this.client) {
-      return this.client.onEvent(handler);
-    }
-    return () => undefined;
+    this.busListeners.add(handler);
+    this.bindBus();
+    return () => {
+      this.busListeners.delete(handler);
+    };
   }
 
   async shutdown(opts: { stopServices: boolean }): Promise<void> {
@@ -479,16 +585,108 @@ export class Controller {
   }
 
   async close(opts?: { detach?: boolean; shutdownSupervisor?: boolean }): Promise<void> {
-    if (!this.client) {
+    this.closed = true;
+    this.stopResumeWatch();
+    const client = this.client;
+    if (!client) {
       return;
     }
     try {
       if (opts?.shutdownSupervisor === true && opts.detach !== true) {
-        await this.shutdown({ stopServices: true });
+        await client.call("shutdown", { stop_services: true }, QUIT_RPC_MS);
       }
+    } catch {
+      // A supervisor that stopped reading the socket must not hold the TTY.
     } finally {
-      this.client.close();
+      this.detachBus?.();
+      this.detachBus = undefined;
+      client.close();
+      this.client = undefined;
     }
+  }
+
+  private bindBus(): void {
+    this.detachBus?.();
+    this.detachBus = undefined;
+    if (!this.client) {
+      return;
+    }
+    this.detachBus = this.client.onEvent((ev) => {
+      for (const handler of this.busListeners) {
+        handler(ev);
+      }
+    });
+  }
+
+  private armResumeWatch(): void {
+    if (this.resumeTimer !== undefined) {
+      return;
+    }
+    this.lastResumeMark = Date.now();
+    this.resumeTimer = resumeInterval(() => {
+      const now = Date.now();
+      const previous = this.lastResumeMark;
+      this.lastResumeMark = now;
+      if (hostClockJumped(previous, now)) {
+        void this.recoverSupervisor();
+      }
+    }, RESUME_POLL_MS);
+    this.resumeTimer.unref();
+  }
+
+  private stopResumeWatch(): void {
+    if (this.resumeTimer !== undefined) {
+      clearResumeInterval(this.resumeTimer);
+      this.resumeTimer = undefined;
+    }
+  }
+
+  private async answersPing(): Promise<boolean> {
+    if (!this.client) {
+      return false;
+    }
+    try {
+      await this.client.call("ping", null, PING_PROBE_MS);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private recoverSupervisor(): Promise<void> {
+    if (!this.recovering) {
+      this.recovering = this.recoverSupervisorOnce().finally(() => {
+        this.recovering = undefined;
+      });
+    }
+    return this.recovering;
+  }
+
+  private async recoverSupervisorOnce(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+    const repo = this.attachedRepo || this.cfg.repoRoot;
+    const configPath = this.cfg.configPath;
+    this.detachBus?.();
+    this.detachBus = undefined;
+    this.client?.close();
+    this.client = undefined;
+    try {
+      this.attachClient(await dial(repo, REDIAL_MS), repo);
+      return;
+    } catch {
+      // The socket is still dead. Replace the supervisor below.
+    }
+    const lock = readRepoLock(repo);
+    if (lock && processAlive(lock.pid)) {
+      killRepoSupervisor(repo);
+      await waitForExit(lock.pid, REAP_WAIT_MS);
+    }
+    if (this.closed) {
+      return;
+    }
+    this.attachClient(await ensureSupervisor(repo, configPath), repo);
   }
 
   private async call(method: string, params: unknown, timeoutMs?: number): Promise<unknown> {
@@ -496,7 +694,22 @@ export class Controller {
       throw wrapError(KindGeneral, "supervisor is not running", new Error("no client"));
     }
     assertMethodAllowed(this.client, method);
-    return this.client.call(method, params, timeoutMs);
+    try {
+      return await this.client.call(method, params, timeoutMs);
+    } catch (err) {
+      if (method === "shutdown" || !isRpcTimeout(err)) {
+        throw err;
+      }
+      if (await this.answersPing()) {
+        throw err;
+      }
+      await this.recoverSupervisor();
+      if (!this.client) {
+        throw err;
+      }
+      assertMethodAllowed(this.client, method);
+      return this.client.call(method, params, timeoutMs);
+    }
   }
 }
 
@@ -553,11 +766,14 @@ export async function openController(
     : load(startDir, configPath, { overlay: overlayFromPersisted(startDir, configPath) });
   const ctrl = new Controller(cfg);
   if (!startSupervisor) {
-    ctrl.client = await tryDial(cfg.repoRoot);
+    const client = await tryDial(cfg.repoRoot);
+    if (client) {
+      ctrl.attachClient(client, cfg.repoRoot);
+    }
     warnIfVersionMismatch(ctrl.client);
     return ctrl;
   }
-  ctrl.client = await ensureSupervisor(cfg.repoRoot, cfg.configPath);
+  ctrl.attachClient(await ensureSupervisor(cfg.repoRoot, cfg.configPath), cfg.repoRoot);
   warnIfVersionMismatch(ctrl.client);
   return ctrl;
 }
@@ -566,9 +782,9 @@ export async function openController(
 // config" once attached — see Controller.configSnapshot(). The placeholder
 // passed to `new Controller()` here is discarded the instant the real
 // snapshot comes back; nothing reads it in between.
-async function attachAndSnapshot(client: Client): Promise<Controller> {
+async function attachAndSnapshot(client: Client, repoRoot: string): Promise<Controller> {
   const ctrl = new Controller(defaultConfig());
-  ctrl.client = client;
+  ctrl.attachClient(client, repoRoot);
   warnIfVersionMismatch(ctrl.client);
   ctrl.cfg = await ctrl.configSnapshot();
   return ctrl;
@@ -577,10 +793,10 @@ async function attachAndSnapshot(client: Client): Promise<Controller> {
 export async function openAttach(startDir: string, configPath: string): Promise<Controller> {
   const target = resolveDaemonTarget(startDir, "", configPath);
   const existing = target ? await tryDial(target.repoRoot) : undefined;
-  if (!existing) {
+  if (!target || !existing) {
     throw hintError(KindGeneral, "supervisor is not running", "run `devctl start` before `devctl attach`");
   }
-  return attachAndSnapshot(existing);
+  return attachAndSnapshot(existing, target.repoRoot);
 }
 
 // The TUI's own bootstrap: locate and attach to an existing daemon first,
@@ -593,14 +809,14 @@ export async function openAttach(startDir: string, configPath: string): Promise<
 // setup, and anything else is a real error with nothing started.
 export async function openTui(startDir: string, configPath: string): Promise<Controller> {
   const target = resolveDaemonTarget(startDir, "", configPath);
-  const existing = target ? await tryDial(target.repoRoot) : undefined;
-  if (existing) {
-    return attachAndSnapshot(existing);
+  const existing = target ? await connectSupervisor(target.repoRoot) : undefined;
+  if (existing && target) {
+    return attachAndSnapshot(existing, target.repoRoot);
   }
   const cfg = load(startDir, configPath, { overlay: overlayFromPersisted(startDir, configPath) });
   const ctrl = new Controller(cfg);
   const leftover = readPersistedState(cfg.repoRoot);
-  ctrl.client = await ensureSupervisor(cfg.repoRoot, cfg.configPath);
+  ctrl.attachClient(await ensureSupervisor(cfg.repoRoot, cfg.configPath), cfg.repoRoot);
   warnIfVersionMismatch(ctrl.client);
   ctrl.cfg = await ctrl.configSnapshot();
   if (leftover && leftover.processes.length > 0) {

@@ -445,6 +445,102 @@ describe("supervisor snapshot", () => {
     expect(sup.snapshot().services.api?.pid).toBe(leftover.pid);
   });
 
+  test("adopts a leftover whose start time drifted backward", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: ["python", "main.py"], shell: false },
+    };
+    const started = new Date();
+    const pid = 4242;
+    writePersistedState(dir, {
+      session_id: "2026-08-30T00-00-00Z-abc123",
+      repo_root: dir,
+      profile: "backend",
+      processes: [
+        {
+          name: "api",
+          pid,
+          command: ["python", "main.py"],
+          cwd: "",
+          startTime: started.toISOString(),
+          ports: { http: 18000 },
+        },
+      ],
+    });
+    const seen: string[] = [];
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({
+        gcloudInstalled: false,
+        adcAvailable: false,
+        userEmail: "",
+        projectID: "",
+        projectSource: "",
+      }),
+      processAlive: (alivePid) => alivePid === pid,
+      inspectProcess: async (inspected) =>
+        inspected === pid
+          ? { pid, command: "python main.py", cwd: "", startTime: new Date(started.getTime() - 60 * 60 * 1000).toISOString() }
+          : undefined,
+    });
+    sup.subscribe((ev) => seen.push(ev.type));
+    await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
+    expect(seen).toContain(SessionRecovered);
+    expect(sup.snapshot().services.api?.pid).toBe(pid);
+  });
+
+  test("does not adopt a newer process that reused the pid", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: ["python", "main.py"], shell: false },
+    };
+    const started = new Date();
+    const pid = 4242;
+    writePersistedState(dir, {
+      session_id: "2026-08-30T00-00-00Z-abc123",
+      repo_root: dir,
+      profile: "backend",
+      processes: [
+        {
+          name: "api",
+          pid,
+          command: ["python", "main.py"],
+          cwd: "",
+          startTime: started.toISOString(),
+          ports: {},
+        },
+      ],
+    });
+    const seen: string[] = [];
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({
+        gcloudInstalled: false,
+        adcAvailable: false,
+        userEmail: "",
+        projectID: "",
+        projectSource: "",
+      }),
+      processAlive: (alivePid) => alivePid === pid,
+      inspectProcess: async (inspected) =>
+        inspected === pid
+          ? { pid, command: "python main.py", cwd: "", startTime: new Date(started.getTime() + 120_000).toISOString() }
+          : undefined,
+    });
+    sup.subscribe((ev) => seen.push(ev.type));
+    await (sup as unknown as { recoverSession: () => Promise<void> }).recoverSession();
+    expect(seen).not.toContain(SessionRecovered);
+    expect(sup.snapshot().services.api?.pid ?? 0).toBe(0);
+  });
+
   test("snapshot includes live host system stats", () => {
     const dir = tmp();
     const cfg = defaultConfig();

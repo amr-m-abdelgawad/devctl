@@ -32,6 +32,7 @@ export class ResourceSampler {
   private readonly serviceCpu = new Map<string, number[]>();
   private readonly serviceMem = new Map<string, number[]>();
   private lastAt = 0;
+  private polling = false;
   private readonly deps: ResourceSamplerDeps;
 
   constructor(deps: ResourceSamplerDeps) {
@@ -70,6 +71,18 @@ export class ResourceSampler {
   // on an interval rather than tracked per state transition, since they
   // change continuously while a process runs.
   async poll(): Promise<void> {
+    if (this.polling) {
+      return;
+    }
+    this.polling = true;
+    try {
+      await this.sample();
+    } finally {
+      this.polling = false;
+    }
+  }
+
+  private async sample(): Promise<void> {
     const sampleTick = this.recordStatsSample();
     const pids: number[] = [];
     for (const rt of this.deps.runtimes().values()) {

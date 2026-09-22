@@ -15,7 +15,7 @@
 | Token expired | Automatic refresh uses `auth.refresh_threshold_seconds`; run `devctl auth refresh`. Open Doctor if ADC itself expired |
 | Token audience incorrect | Set `auth.audience` on the IAP route; Doctor flags missing audiences |
 | IAP used a user token for an SA route | Confirm the route identity is `service_account`; Doctor probes impersonated IAP separately |
-| Leftover process after crash | Reopen `devctl` — adopt only when pid + command + cwd + startTime match `~/.devctl/state/<hash>/state.json`. A port-only leftover is never attached |
+| Leftover process after crash | Reopen `devctl` — adopt when the pid is alive and the command matches `~/.devctl/state/<hash>/state.json`. A start time that only drifted (sleep, WSL clock) still matches; a newer process on that pid does not. A port with no persisted pid is never attached |
 | `devctl attach` fails | No supervisor. Use `devctl start` first; attach never starts one |
 | `devctl status` looks empty | If the socket is down, status prints persisted state and exits 0 when nothing is running. The TUI still starts a supervisor; leftover PIDs from the previous session appear on the idle dashboard |
 | Start exits 5 or 6 | 5 = spawn failed; 6 = health never passed. Doctor then Logs |
@@ -28,6 +28,7 @@
 | TUI says **Configuration error** but `devctl config validate` is clean | The supervisor failed to start (often `EADDRINUSE`). The TUI now shows **Supervisor failed to start** with the bootstrap-log line. `devctl daemon logs` has the same text |
 | Supervisor will not start | `devctl daemon logs` or TUI `/daemon` is the bootstrap stderr, not the service log bus. `unable to listen … (EADDRINUSE)` means a leftover already holds that port — Doctor names the holder |
 | TUI stale / not updating | TUI follows the event bus (20–50ms batch). Quit and let a new supervisor start if an old one is still listening |
+| `status` or `logs_page timed out after 30000ms` after sleep, and restart or quit hangs | Common after a Windows sleep while devctl runs in WSL or a VS Code dev container. Quit returns without waiting on the dead connection. Start again: an unresponsive supervisor is replaced and services that are still listening are adopted |
 | Reload needs a restart | `devctl reload` and `/reload` list services whose command, env, ports, or identity changed |
 | Configuration invalid | `devctl config validate` — unknown fields, cycles, and missing refs fail closed. TUI `v` / `/buffer` validates before write |
 | Config on disk is broken but the TUI still opens fine | Expected: it attached to an already-running daemon and is showing its `config_snapshot` (last-known-good), not a fresh reparse of the broken file. Fix the file and `/reload` |

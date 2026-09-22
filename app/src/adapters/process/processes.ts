@@ -270,6 +270,10 @@ export async function sampleResourceUsage(pids: number[]): Promise<Map<number, R
 }
 
 const START_TIME_TOLERANCE_MS = 2_000;
+// Adoption only. A reused pid is a newer process. Sleep on WSL or inside a
+// dev container moves the wall clock relative to /proc and makes the
+// reconstructed start look older, which must still count as the same process.
+const ADOPT_START_SKEW_MS = 15_000;
 
 export function sameProcess(expected: { args: string[]; workDir: string; startTime?: Date }, observed: ProcessIdentity): boolean {
   if (expected.workDir !== "" && observed.cwd !== "" && normalizePath(expected.workDir) !== normalizePath(observed.cwd)) {
@@ -284,6 +288,21 @@ export function sameProcess(expected: { args: string[]; workDir: string; startTi
     return Math.abs(expectedMs - observedMs) <= START_TIME_TOLERANCE_MS;
   }
   return true;
+}
+
+export function sameAdoptedProcess(expected: { args: string[]; workDir: string; startTime?: Date }, observed: ProcessIdentity): boolean {
+  if (expected.workDir !== "" && observed.cwd !== "" && normalizePath(expected.workDir) !== normalizePath(observed.cwd)) {
+    return false;
+  }
+  if (!commandMatches(expected.args, observed.command)) {
+    return false;
+  }
+  const expectedMs = timeMs(expected.startTime);
+  const observedMs = timeMs(observed.startTime);
+  if (expectedMs === undefined || observedMs === undefined) {
+    return true;
+  }
+  return observedMs - expectedMs <= ADOPT_START_SKEW_MS;
 }
 
 function timeMs(value: Date | string | undefined): number | undefined {
