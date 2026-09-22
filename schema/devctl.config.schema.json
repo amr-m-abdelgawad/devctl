@@ -524,8 +524,8 @@
       "additionalProperties": false,
       "required": ["replace", "with"],
       "properties": {
-        "replace": { "type": "string", "minLength": 1, "description": "Text to find. Literal unless regex is true. ${NAME} / ${env.NAME} expand at request time." },
-        "with": { "type": "string", "description": "Literal replacement. $ is not a capture reference. ${NAME} / ${env.NAME} expand at request time." },
+        "replace": { "type": "string", "minLength": 1, "description": "Text to find. Literal unless regex is true. ${NAME} / ${env.NAME} expand at request time. ${token} is the minted bearer on iap / service_account routes." },
+        "with": { "type": "string", "description": "Literal replacement. $ is not a capture reference. ${NAME} / ${env.NAME} expand at request time. ${token} is the minted bearer on iap / service_account routes." },
         "regex": { "type": "boolean", "description": "When true, replace is a JavaScript regular expression applied to every match. The pattern must not match an empty string." }
       }
     },

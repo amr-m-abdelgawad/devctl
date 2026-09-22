@@ -405,7 +405,22 @@ describe("config validate", () => {
       auth: emptyRouteAuth(),
       transform: { request_body: [{ replace: "${token}", with: "x" }] },
     });
-    expect(validate(token)).toContain("proxy.routes[0].transform.request_body[0].replace: unresolvable reference ${token}");
+    expect(validate(token)).toContain("proxy.routes[0].transform.request_body[0].replace: ${token} requires auth.type iap or service_account");
+
+    const minted = withService("api");
+    minted.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://remote.example.com" },
+      auth: iapUserAuth(),
+      transform: {
+        request_body: [
+          { replace: "Bearer PLACEHOLDER", with: "Bearer ${token}" },
+          { replace: "pre-${token}-post", with: "https://remote.example.com/${env.PUBLIC_ORIGIN}", regex: true },
+        ],
+      },
+    });
+    expect(validate(minted)).toEqual([]);
 
     const identity = withService("api");
     identity.proxy.routes.push({

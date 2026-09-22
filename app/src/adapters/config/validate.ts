@@ -643,13 +643,20 @@ function validateRouteTransform(route: RouteConfig, prefix: string): string[] {
   if ((route.upstream.recipe ?? "") !== "") {
     issues.push(`${prefix}.transform is not supported on a recipe route`);
   }
+  const allowToken = authTypeMintsToken(route.auth.type);
   rules.forEach((rule, index) => {
-    issues.push(...validateBodyReplacement(rule, `${prefix}.transform.request_body[${index}]`, prefix, index));
+    issues.push(...validateBodyReplacement(rule, `${prefix}.transform.request_body[${index}]`, prefix, index, allowToken));
   });
   return issues;
 }
 
-function validateBodyReplacement(rule: RequestBodyReplacement, rulePrefix: string, routePrefix: string, index: number): string[] {
+function validateBodyReplacement(
+  rule: RequestBodyReplacement,
+  rulePrefix: string,
+  routePrefix: string,
+  index: number,
+  allowToken: boolean,
+): string[] {
   const issues: string[] = [];
   if (rule.replace === "") {
     issues.push(`${rulePrefix}.replace is required`);
@@ -661,19 +668,22 @@ function validateBodyReplacement(rule: RequestBodyReplacement, rulePrefix: strin
     }
   }
   for (const field of ["replace", "with"] as const) {
-    issues.push(...validateBodyReplacementField(rule[field], `${rulePrefix}.${field}`));
+    issues.push(...validateBodyReplacementField(rule[field], `${rulePrefix}.${field}`, allowToken));
   }
   return issues;
 }
 
-function validateBodyReplacementField(value: string, path: string): string[] {
+function validateBodyReplacementField(value: string, path: string, allowToken: boolean): string[] {
   const issues: string[] = [];
   if (value.includes("${identity.")) {
     issues.push(
       `warning: ${path} contains \${identity. which is not resolved on a request body transform (only service env at start)`,
     );
   }
-  issues.push(...validateInterpolatedString(path, value));
+  if (!allowToken && value.includes("${token}")) {
+    issues.push(`${path}: \${token} requires auth.type iap or service_account`);
+  }
+  issues.push(...validateInterpolatedString(path, value, { allowToken: true }));
   return issues;
 }
 

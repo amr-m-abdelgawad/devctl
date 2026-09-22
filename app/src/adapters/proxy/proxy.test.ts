@@ -20,6 +20,7 @@ import { formatBodySummary } from "../../domain/logs/logs.ts";
 import { LogManager } from "../storage/logs.ts";
 import { forwardedRequestUrl, injectIdentityHeaders, INTERNAL_TOKEN_HEADER, matchRoute, ProxyServer, proxyUpgradeRequest, REQUEST_ID_HEADER, RequestLog, resolveProxyTarget, TokenEndpoint, type ProxyRequestRecord } from "./proxy.ts";
 import { Detector } from "../secrets/detector.ts";
+import { REDACTED_VALUE } from "../../shared/redaction.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
 // TokenManager defaults to the real OS keychain/file store when none is
@@ -593,6 +594,81 @@ describe("proxy", () => {
       expect(forwarded).toBe(false);
     } finally {
       restoreEnv("DEVCTL_TEST_BODY_TRANSFORM_MISSING", previous);
+      await close();
+    }
+  });
+
+  test("substitutes ${token} in request body transforms from the route mint", async () => {
+    const minted = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb";
+    let fetches = 0;
+    const provider: TokenProvider = {
+      name: "stub",
+      fetch: async () => {
+        fetches += 1;
+        return token({ accessToken: minted, audience: "/projects/1/iap", expiresAt: new Date(Date.now() + 10 * 60_000) });
+      },
+    };
+    const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());
+    let received = "";
+    let authorization = "";
+    const { proxyPort, close } = await setupProxy(
+      (req, res) => {
+        authorization = typeof req.headers.authorization === "string" ? req.headers.authorization : "";
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        req.on("end", () => {
+          received = Buffer.concat(chunks).toString("utf8");
+          res.end("ok");
+        });
+      },
+      {
+        auth: { ...NONE_AUTH, type: "iap", audience: "/projects/1/iap" },
+        tokens,
+        transform: {
+          request_body: [
+            { replace: "Bearer PLACEHOLDER", with: "Bearer ${token}" },
+            { replace: "SLOT", with: "${token}", regex: true },
+          ],
+        },
+      },
+    );
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"auth":"Bearer PLACEHOLDER","again":"SLOT"}',
+      });
+      expect(resp.status).toBe(200);
+      expect(received).toBe(`{"auth":"Bearer ${minted}","again":"${minted}"}`);
+      expect(authorization).toBe(`Bearer ${minted}`);
+      expect(fetches).toBe(1);
+    } finally {
+      await close();
+    }
+  });
+
+  test("${token} in a body transform on auth none fails the hop", async () => {
+    const logs = new LogManager(50, undefined, new Detector([], []), false, "", "px");
+    let forwarded = false;
+    const { proxyPort, close } = await setupProxy(
+      (_req, res) => {
+        forwarded = true;
+        res.end("ok");
+      },
+      { logs, transform: { request_body: [{ replace: "PLACEHOLDER", with: "${token}" }] } },
+    );
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"auth":"PLACEHOLDER"}',
+      });
+      expect(resp.status).toBe(502);
+      expect(await resp.text()).toBe("proxy error");
+      expect(forwarded).toBe(false);
+      const messages = logs.query({}).map((ev) => formatBodySummary(ev)).join("\n");
+      expect(messages).toContain("transform.request_body[0].with: ${token} requires auth.type iap or service_account");
+    } finally {
       await close();
     }
   });
@@ -1703,7 +1779,7 @@ describe("proxy LLM capture", () => {
 describe("proxy traffic inspect", () => {
   async function setupInspectProxy(
     handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
-    opts: { inspect?: boolean; maxBytes?: number; transform?: RouteConfig["transform"] } = {},
+    opts: { inspect?: boolean; maxBytes?: number; transform?: RouteConfig["transform"]; auth?: RouteAuthConfig; tokens?: TokenManager; redact?: boolean } = {},
   ) {
     const upstream = createServer(handler);
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
@@ -1717,13 +1793,14 @@ describe("proxy traffic inspect", () => {
       name: "route",
       match: { host: "", path: "" },
       upstream: { url: `http://127.0.0.1:${upPort}` },
-      auth: NONE_AUTH,
+      auth: opts.auth ?? NONE_AUTH,
       inspect: { enabled: opts.inspect ?? true, max_bytes: opts.maxBytes ?? 0 },
       transform: opts.transform,
     });
-    const store = new TrafficCallRing();
+    const detector = opts.redact ? new Detector([], []) : undefined;
+    const store = new TrafficCallRing(detector);
     const sink = new ProxyTrafficSink({ cfg: () => dc, store });
-    const server = new ProxyServer(dc.proxy, undefined, undefined, undefined, undefined, [], undefined, undefined, undefined, undefined, sink);
+    const server = new ProxyServer(dc.proxy, opts.tokens, undefined, undefined, detector, [], undefined, undefined, undefined, undefined, sink);
     await server.start();
     return {
       proxyPort,
@@ -1788,6 +1865,42 @@ describe("proxy traffic inspect", () => {
       const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
       await waitUntil(() => store.get(requestId) !== undefined);
       expect(store.get(requestId)?.request?.text).toContain("https://remote.example.com/hook");
+    } finally {
+      await close();
+    }
+  });
+
+  test("inspect redacts a ${token} substituted into the request body", async () => {
+    const minted = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.aaa.bbb";
+    const provider: TokenProvider = { name: "stub", fetch: async () => token({ accessToken: minted, audience: "/projects/1/iap" }) };
+    const tokens = new TokenManager(60_000, [provider], undefined, memoryStore());
+    let receivedBody = "";
+    const { proxyPort, store, close } = await setupInspectProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks).toString("utf8");
+        res.end("ok");
+      });
+    }, {
+      auth: { ...NONE_AUTH, type: "iap", audience: "/projects/1/iap" },
+      tokens,
+      redact: true,
+      transform: { request_body: [{ replace: "Bearer PLACEHOLDER", with: "Bearer ${token}" }] },
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"authorization":"Bearer PLACEHOLDER"}',
+      });
+      expect(await resp.text()).toBe("ok");
+      expect(receivedBody).toContain(minted);
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      await waitUntil(() => store.get(requestId) !== undefined);
+      const stored = store.get(requestId)?.request?.text ?? "";
+      expect(stored).not.toContain(minted);
+      expect(stored).toContain(REDACTED_VALUE);
     } finally {
       await close();
     }

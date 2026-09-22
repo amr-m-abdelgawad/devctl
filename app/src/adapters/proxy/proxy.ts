@@ -14,7 +14,7 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import { formatTraceparent } from "../../domain/logs/ids.ts";
 import { applyTraceHeaders, beginProxyTrace, proxyRecordToSpan, TRACEPARENT_HEADER } from "./tracing.ts";
 import { type Detector } from "../secrets/detector.ts";
-import { applyExtraAuthHeaders, mintAuthToken, requireEnvInterpolation } from "../http/identity.ts";
+import { applyExtraAuthHeaders, mintAuthToken, requireEnvInterpolation, requireTokenInterpolation } from "../http/identity.ts";
 import { envWithSecrets } from "../environment/environment.ts";
 import { type TokenManager, isTokenMintRateLimited, TOKEN_MINT_WINDOW_MS } from "../google/token.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
@@ -787,7 +787,7 @@ export class ProxyServer {
     }
     const rules = route.transform?.request_body ?? [];
     if (rules.length > 0) {
-      return this.prepareTransformedBody(req, rules, recorder, onActivity);
+      return this.prepareTransformedBody(req, route, rules, recorder, onActivity);
     }
     if (recorder) {
       const length = contentLengthOf(req);
@@ -815,6 +815,7 @@ export class ProxyServer {
   // rewritten bytes. Inspect stores the body that is actually forwarded.
   private async prepareTransformedBody(
     req: IncomingMessage,
+    route: RouteConfig,
     rules: NonNullable<RouteConfig["transform"]>["request_body"],
     recorder: HttpCaptureTee | undefined,
     onActivity?: () => void,
@@ -834,9 +835,10 @@ export class ProxyServer {
     });
     const text = decodeUtf8Body(buffered);
     const env = envWithSecrets(process.env);
+    const token = await transformToken(route, rules, this.tokens);
     const resolved = rules.map((rule, index) => ({
-      replace: requireEnvInterpolation(rule.replace, env, `transform.request_body[${index}].replace`),
-      with: requireEnvInterpolation(rule.with, env, `transform.request_body[${index}].with`),
+      replace: requireTokenInterpolation(rule.replace, env, token, `transform.request_body[${index}].replace`, true),
+      with: requireTokenInterpolation(rule.with, env, token, `transform.request_body[${index}].with`, true),
       regex: rule.regex === true,
     }));
     const body = Buffer.from(applyRequestBodyReplacements(text, resolved), "utf8");
@@ -869,6 +871,18 @@ export class ProxyServer {
     }
   }
 
+}
+
+async function transformToken(
+  route: RouteConfig,
+  rules: NonNullable<RouteConfig["transform"]>["request_body"],
+  tokens?: TokenManager,
+): Promise<string> {
+  const needsToken = rules.some((rule) => rule.replace.includes("${token}") || rule.with.includes("${token}"));
+  if (!needsToken) {
+    return "";
+  }
+  return (await mintAuthToken(route.auth, tokens)) ?? "";
 }
 
 export async function injectIdentityHeaders(

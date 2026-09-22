@@ -48,3 +48,27 @@ export function requireEnvInterpolation(value: string, env: Record<string, strin
   }
   return interpolated;
 }
+
+// `${NAME}` / `${env.NAME}` expand from env. `${token}` is the minted bearer
+// for this hop. An empty token leaves the placeholder only when the caller
+// did not ask for one; a body transform passes `tokenRequired` so a none
+// route cannot write a literal `${token}` into the upstream body.
+export function requireTokenInterpolation(
+  value: string,
+  env: Record<string, string | undefined>,
+  token: string,
+  label: string,
+  tokenRequired = false,
+): string {
+  if (value === "" || !value.includes("${")) {
+    return value;
+  }
+  if (tokenRequired && token === "" && value.includes("${token}")) {
+    throw newError(KindConfiguration, `${label}: \${token} requires auth.type iap or service_account`);
+  }
+  const { value: interpolated, missing } = interpolateEnvRefsProtectingToken(value, env, token);
+  if (missing.length > 0) {
+    throw newError(KindConfiguration, `${label} env ${missing[0]} is empty`);
+  }
+  return interpolated;
+}

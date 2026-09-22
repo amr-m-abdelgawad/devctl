@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-09-23
+
+### Added
+
+- On an `iap` or `service_account` proxy route, `${token}` in `transform.request_body` `replace` / `with` is the same minted, cached token used for `Authorization` and `auth.headers`. `auth.type: none` still rejects it at validate time. Inspect redacts that substituted token the same way it redacts a bearer. See [Proxy](docs/proxy.md#rewrite-the-request-body).
+
 ## [0.20.0] - 2026-09-22
 
 ### Added
@@ -659,7 +665,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.20.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.21.0...HEAD
+[0.21.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.1...v0.19.0
