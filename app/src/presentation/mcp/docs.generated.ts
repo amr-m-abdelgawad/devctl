@@ -939,7 +939,7 @@ Injected when applicable:
 - \`DEVCTL_TOKEN_URL\` and \`DEVCTL_INTERNAL_TOKEN\` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
 - \`DEVCTL_HTTP_<NAME>_URL\` for each exposed \`http\` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
 
-References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` in **service env** (and profile / dotenv values) is resolved at process start to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). Proxy route \`auth.headers\` — including headers on a service \`proxy:\` fragment, which merge into \`proxy.routes\` at load — are **not** run through \`resolveEnvMap\`; \`\${identity.user}\` there stays the literal string. \`\${token}\` in those headers is still substituted at request time on minting routes. \`devctl config validate\` warns if \`\${identity.\` appears in a proxy header value. \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment **plus** gitignored \`.devctl/secrets.env\` (weaker: \`~/.devctl/secrets.env\`) in service/task/profile env (at process start), HTTP recipe request strings (at fetch), and proxy routes including \`.devctl/proxy/routes.yaml\` (\`auth.headers\`, \`response_headers\`, \`upstream.url\`, \`auth.audience\`, \`auth.credentials\`, \`auth.client_secret\` — at request or mint). \`devctl config validate\` accepts those templates without requiring the variable to be set. Process environment still wins over the files. Service env still rejects \`\${token}\`.
+References such as \`\${services.identity.ports.http}\` resolve before process start, including inside profile and dotenv values. \`\${identity.user}\` in **service env** (and profile / dotenv values) is resolved at process start to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. \`LOCAL_USER_EMAIL: \${identity.user}\` (empty when no identity is detected). Proxy route \`auth.headers\` — including headers on a service \`proxy:\` fragment, which merge into \`proxy.routes\` at load — are **not** run through \`resolveEnvMap\`; \`\${identity.user}\` there stays the literal string. \`\${token}\` in those headers is still substituted at request time on minting routes. \`devctl config validate\` warns if \`\${identity.\` appears in a proxy header value. \`\${http.<name>.<output>}\` resolves from a recipe snapshot after the daemon has fetched that recipe; \`\${http.name.url}\` is the local expose URL. \`\${NAME}\` and \`\${env.NAME}\` expand from the supervisor process environment **plus** gitignored \`.devctl/secrets.env\` (weaker: \`~/.devctl/secrets.env\`) in service/task/profile env (at process start), HTTP recipe request strings (at fetch), and proxy routes including \`.devctl/proxy/routes.yaml\` (\`auth.headers\`, \`response_headers\`, \`upstream.url\`, \`auth.audience\`, \`auth.credentials\`, \`auth.client_secret\`, and \`transform.request_body\` \`replace\` / \`with\` — at request or mint). \`devctl config validate\` accepts those templates without requiring the variable to be set. Process environment still wins over the files. Service env still rejects \`\${token}\`.
 
 There is no \`\${secret:keychain:…}\` or \`\${secret:gcp:…}\` template syntax. OS keychain and Secret Manager stay \`environment.sources: [keychain, secret_manager]\` plus \`environment.secrets\` for \`projects/*/secrets/*\`. A SOPS file stays \`environment.sources: [sops]\` plus \`environment.sops\`. Secret Manager values win when the fetch succeeds; if you do not have access, the same keys from \`.env\` / \`.devctl/secrets.env\` / \`sops\` / process env are left in place.
 
@@ -2746,13 +2746,13 @@ The TUI **proxy** tab (\`p\`) shows status, routes, and a live inspector of hops
 
 ![The TUI proxy tab — routes with their auth (none/user, service account, IAP) on the left and a live request feed (method, status, duration, proxy hop, identity, route, path) on the right](assets/manual/tui-proxy.png)
 
-Each request gets \`X-Devctl-Request-ID\` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include \`Authorization\` headers. Bodies are streamed unless a route opts into [inspect](#inspect-bodies).
+Each request gets \`X-Devctl-Request-ID\` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include \`Authorization\` headers. Bodies are streamed unless a route opts into [inspect](#inspect-bodies) or a [request-body transform](#rewrite-the-request-body).
 
 WebSocket upgrades use the same route matching, identity injection, middleware, request logging, and statistics as ordinary HTTP traffic (HMR and other upgraded connections behind a route). Active upgraded sockets are closed during proxy shutdown so \`devctl down\` cannot hang.
 
 If \`proxy.enabled\` is true, \`devctl start\` also starts the proxy.
 
-A configuration reload that only changes routes (match, upstream, inspect, auth, \`strip_prefix\`, log) **hot-swaps** the live table. The HTTP listener, token endpoint, and each gRPC h2c socket stay bound when their \`listen\` host/port (and the token endpoint's enabled flag) are unchanged. Listeners are recreated only when that bind changes, or the proxy is disabled while running. A stopped proxy stays stopped — \`proxy stop\` suppression is not cleared. In-flight requests keep the route they already matched; new requests see the new table.
+A configuration reload that only changes routes (match, upstream, inspect, auth, \`strip_prefix\`, \`transform\`, log) **hot-swaps** the live table. The HTTP listener, token endpoint, and each gRPC h2c socket stay bound when their \`listen\` host/port (and the token endpoint's enabled flag) are unchanged. Listeners are recreated only when that bind changes, or the proxy is disabled while running. A stopped proxy stays stopped — \`proxy stop\` suppression is not cleared. In-flight requests keep the route they already matched; new requests see the new table.
 
 ## Routes
 
@@ -2794,6 +2794,31 @@ Match is host + optional path prefix.
       strip_prefix: true     # /my-service → / ; /my-service/foo → /foo ; query string kept
       upstream:
         url: http://127.0.0.1:18000
+\`\`\`
+
+### Rewrite the request body
+
+\`transform.request_body\` rewrites the request body before forwarding. Rules run in order. Each one replaces every occurrence of \`replace\` with \`with\`. Without \`regex: true\`, \`replace\` is a literal string (dots are not wildcards). With \`regex: true\`, \`replace\` is a JavaScript regular expression. \`with\` is inserted literally in both cases — \`$\` is not a capture reference.
+
+\`\${NAME}\` and \`\${env.NAME}\` expand in both \`replace\` and \`with\` at request time, from the supervisor process environment plus \`.devctl/secrets.env\`, the same way as \`upstream.url\`. \`devctl config validate\` accepts the template before the variable is set. An empty value fails that hop (**502**). \`\${token}\` and other non-env references are rejected. \`\${identity.user}\` stays literal; validate warns if \`\${identity.\` appears.
+
+The proxy buffers the body, up to 16 MiB, then forwards the rewritten bytes with a matching \`Content-Length\`. GET and HEAD are unchanged. A content-encoded body (anything other than \`identity\`) or a body that is not UTF-8 fails the hop instead of forwarding the local addresses unchanged. gRPC routes and recipe \`expose\` routes cannot set \`transform\`.
+
+When the route also has [inspect](#inspect-bodies) enabled, the stored request body is the rewritten one (what the upstream receives), still capped by \`inspect.max_bytes\`.
+
+\`\`\`yaml
+    - name: remote-agent-api
+      match:
+        path: /api/agents
+      upstream:
+        url: https://remote.example.com/api/agents
+      transform:
+        request_body:
+          - replace: "http://127.0.0.1:\${env.PROXY_PORT}"
+            with: "https://remote.example.com"
+          - replace: "http://127\\\\.0\\\\.0\\\\.1:\\\\d+"
+            with: "https://remote.example.com"
+            regex: true
 \`\`\`
 
 ### Route timeouts
@@ -2870,7 +2895,7 @@ custom path (not the default ADC location). Notes:
 
 ### Extra token headers
 
-Some IAP-protected upstreams want the minted token under an additional header, not just \`Authorization: Bearer …\`. \`auth.headers\` injects extra request headers on a token-minting route; \`\${token}\` in a value is replaced with the same token used for the bearer at request time. \`\${NAME}\` / \`\${env.NAME}\` in those headers (and in \`response_headers\`, \`upstream.url\`, \`auth.audience\`, \`auth.credentials\`) expand from process env plus \`.devctl/secrets.env\` at request/mint time. \`\${identity.user}\` stays literal — \`devctl config validate\` warns if \`\${identity.\` appears in a header value. Applied on \`iap\` / \`service_account\` routes for \`\${token}\`; env-ref headers also apply on \`auth.type: none\`:
+Some IAP-protected upstreams want the minted token under an additional header, not just \`Authorization: Bearer …\`. \`auth.headers\` injects extra request headers on a token-minting route; \`\${token}\` in a value is replaced with the same token used for the bearer at request time. \`\${NAME}\` / \`\${env.NAME}\` in those headers (and in \`response_headers\`, \`upstream.url\`, \`auth.audience\`, \`auth.credentials\`, and \`transform.request_body\` \`replace\` / \`with\`) expand from process env plus \`.devctl/secrets.env\` at request/mint time. \`\${identity.user}\` stays literal — \`devctl config validate\` warns if \`\${identity.\` appears in a header value. Applied on \`iap\` / \`service_account\` routes for \`\${token}\`; env-ref headers also apply on \`auth.type: none\`:
 
 \`\`\`yaml
       auth:
@@ -2914,7 +2939,7 @@ A CORS **preflight** (an \`OPTIONS\` carrying \`Access-Control-Request-Method\`)
 
 ### Per-service routes
 
-Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`), copying the full route (including \`inspect\`, \`strip_prefix\`, \`log\`, \`transport\`, \`timeout\`, and \`response_headers\`). Duplicate names fail validation. Runtime stays one listener.
+Optional \`proxy\` on a service is one route fragment or a list. At load they append to the **same** global \`proxy.routes\` list with stable names (\`<service>\` or \`<service>-<n>\`), copying the full route (including \`inspect\`, \`strip_prefix\`, \`log\`, \`transport\`, \`timeout\`, \`transform\`, and \`response_headers\`). Duplicate names fail validation. Runtime stays one listener.
 
 \`\`\`yaml
 services:

@@ -52,6 +52,7 @@ Containers omit token URL/internal token (they cannot reach host loopback). Pref
 - Auth types: none, IAP, service_account impersonation, plugin/OIDC
 - Inject `Authorization` unless `suppress_authorization` (and optional `auth.headers` with `${token}`)
 - CORS: `response_headers`; OPTIONS preflight answered locally
+- Optional `transform.request_body` rewrites the buffered HTTP body before forwarding (`${env.NAME}` at request time)
 - Logs: method, path, route, identity, status, duration, request id — never the bearer
 - `X-Devctl-Request-ID` generated or propagated; traces via `adapters/proxy/tracing.ts`
 

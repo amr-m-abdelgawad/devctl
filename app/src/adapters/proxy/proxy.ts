@@ -2,6 +2,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import { request as httpsRequest } from "node:https";
 import { type Duplex, PassThrough, Readable } from "node:stream";
 import { type ProxyConfig, type RouteConfig, isGrpcRoute, listenAddress } from "../config/index.ts";
+import { applyRequestBodyReplacements, REQUEST_BODY_TRANSFORM_MAX_BYTES } from "../../domain/proxy/body-transform.ts";
 import { stripMatchPrefix } from "../../domain/proxy/strip-prefix.ts";
 import { isLoopbackBindHost, isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
@@ -535,7 +536,10 @@ export class ProxyServer {
       // stripped, identity injected) and must not rewrite the captured request.
       recorder = this.beginCapture(route.name, method, path, headers, req);
       stripLlmCallerHeaders(headers);
-      const prepared = await this.prepareRequestBody(req, method, recorder, timeoutMs(route.timeout?.idle_ms) ? timeouts.touch : undefined);
+      const prepared = await this.prepareRequestBody(req, method, route, recorder, timeoutMs(route.timeout?.idle_ms) ? timeouts.touch : undefined);
+      if (prepared.rewritten) {
+        removeHeader(headers, "content-length");
+      }
       const resp = await fetchOrAbort(upstream, {
         method,
         headers,
@@ -774,11 +778,16 @@ export class ProxyServer {
   private async prepareRequestBody(
     req: IncomingMessage,
     method: string,
+    route: RouteConfig,
     recorder: HttpCaptureTee | undefined,
     onActivity?: () => void,
-  ): Promise<{ body: BodyInit | undefined; duplex: "half" | undefined }> {
+  ): Promise<{ body: BodyInit | undefined; duplex: "half" | undefined; rewritten: boolean }> {
     if (method === "GET" || method === "HEAD") {
-      return { body: undefined, duplex: undefined };
+      return { body: undefined, duplex: undefined, rewritten: false };
+    }
+    const rules = route.transform?.request_body ?? [];
+    if (rules.length > 0) {
+      return this.prepareTransformedBody(req, rules, recorder, onActivity);
     }
     if (recorder) {
       const length = contentLengthOf(req);
@@ -791,14 +800,50 @@ export class ProxyServer {
         // up the guard rather than closing a reachable overflow today.)
         const buffered = await readRequestBody(req, recorder.maxBytes, onActivity);
         recorder.setRequestBody(buffered);
-        return { body: buffered as unknown as BodyInit, duplex: undefined };
+        return { body: buffered as unknown as BodyInit, duplex: undefined, rewritten: false };
       }
       recorder.setRequestBody(Buffer.alloc(0), { omitted: true });
     }
     if (onActivity) {
-      return { body: tapRequestBody(req, onActivity) as unknown as BodyInit, duplex: "half" };
+      return { body: tapRequestBody(req, onActivity) as unknown as BodyInit, duplex: "half", rewritten: false };
     }
-    return { body: req as unknown as BodyInit, duplex: "half" };
+    return { body: req as unknown as BodyInit, duplex: "half", rewritten: false };
+  }
+
+  // Buffer, rewrite, then forward. Streaming cannot apply a replacement that
+  // may span chunks, and Content-Length is dropped so fetch sets it from the
+  // rewritten bytes. Inspect stores the body that is actually forwarded.
+  private async prepareTransformedBody(
+    req: IncomingMessage,
+    rules: NonNullable<RouteConfig["transform"]>["request_body"],
+    recorder: HttpCaptureTee | undefined,
+    onActivity?: () => void,
+  ): Promise<{ body: BodyInit | undefined; duplex: "half" | undefined; rewritten: boolean }> {
+    if (requestIsEncoded(req)) {
+      req.resume();
+      throw new Error("request body transform requires an uncompressed body");
+    }
+    const length = contentLengthOf(req);
+    if (length !== undefined && length > REQUEST_BODY_TRANSFORM_MAX_BYTES) {
+      req.resume();
+      throw new Error("request body exceeds transform cap");
+    }
+    const buffered = await readRequestBody(req, REQUEST_BODY_TRANSFORM_MAX_BYTES, onActivity, {
+      message: "request body exceeds transform cap",
+      destroy: false,
+    });
+    const text = decodeUtf8Body(buffered);
+    const env = envWithSecrets(process.env);
+    const resolved = rules.map((rule, index) => ({
+      replace: requireEnvInterpolation(rule.replace, env, `transform.request_body[${index}].replace`),
+      with: requireEnvInterpolation(rule.with, env, `transform.request_body[${index}].with`),
+      regex: rule.regex === true,
+    }));
+    const body = Buffer.from(applyRequestBodyReplacements(text, resolved), "utf8");
+    if (recorder) {
+      recorder.setRequestBody(body);
+    }
+    return { body: body as unknown as BodyInit, duplex: undefined, rewritten: true };
   }
 
   private async finishCapture(
@@ -950,18 +995,27 @@ function requestIsEncoded(req: IncomingMessage): boolean {
 // time. node:http frames the body to Content-Length, so the ceiling is a
 // defensive invariant local to the read (independent of the caller's guard)
 // rather than a fix for a reachable overflow.
-function readRequestBody(req: IncomingMessage, maxBytes: number, onActivity?: () => void): Promise<Buffer> {
+function readRequestBody(
+  req: IncomingMessage,
+  maxBytes: number,
+  onActivity?: () => void,
+  overflow?: { message: string; destroy: boolean },
+): Promise<Buffer> {
+  const overflowMessage = overflow?.message ?? "request body exceeds capture cap";
+  const destroyOnOverflow = overflow?.destroy ?? true;
   return new Promise((resolve, reject) => {
     let chunks: Buffer[] = [];
     let size = 0;
     let settled = false;
-    const fail = (err: Error): void => {
+    const fail = (err: Error, destroy: boolean): void => {
       if (settled) {
         return;
       }
       settled = true;
       chunks = [];
-      req.destroy();
+      if (destroy) {
+        req.destroy();
+      }
       reject(err);
     };
     req.on("data", (chunk: Buffer | string) => {
@@ -972,7 +1026,7 @@ function readRequestBody(req: IncomingMessage, maxBytes: number, onActivity?: ()
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       size += buf.length;
       if (size > maxBytes) {
-        fail(new Error("request body exceeds capture cap"));
+        fail(new Error(overflowMessage), destroyOnOverflow);
         return;
       }
       chunks.push(buf);
@@ -984,8 +1038,25 @@ function readRequestBody(req: IncomingMessage, maxBytes: number, onActivity?: ()
       settled = true;
       resolve(Buffer.concat(chunks));
     });
-    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err))));
+    req.on("error", (err) => fail(err instanceof Error ? err : new Error(String(err)), true));
   });
+}
+
+function decodeUtf8Body(body: Buffer): string {
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(body);
+  } catch {
+    throw new Error("request body transform requires UTF-8");
+  }
+}
+
+function removeHeader(headers: Record<string, string>, name: string): void {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) {
+      delete headers[key];
+    }
+  }
 }
 
 function capturePeer(req: IncomingMessage): { address: string; port: number } | undefined {

@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
 import { findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
+import { invalidBodyReplacement } from "../../domain/proxy/body-transform.ts";
 import {
   directedCycleIssues,
   effectiveStartupDependencies,
@@ -34,6 +35,7 @@ import {
   type IdentityConfig,
   type RouteAuthConfig,
   type RouteConfig,
+  type RequestBodyReplacement,
   type ServiceLogConfig,
   type LlmSourceConfig,
   dependencyName,
@@ -474,6 +476,7 @@ function validateProxy(cfg: DevctlConfig): string[] {
     issues.push(...validateRouteInspect(route, prefix, cfg.plugins.length > 0));
     issues.push(...validateRouteLog(route, prefix));
     issues.push(...validateRouteTimeout(route, prefix));
+    issues.push(...validateRouteTransform(route, prefix));
     if (isGrpcRoute(route)) {
       issues.push(...validateGrpcRoute(route, prefix, seenGrpcPorts, cfg));
     }
@@ -626,6 +629,52 @@ export function unresolvedInspectDecoders(cfg: DevctlConfig): Array<{ route: str
     }
   }
   return unresolved;
+}
+
+function validateRouteTransform(route: RouteConfig, prefix: string): string[] {
+  const rules = route.transform?.request_body ?? [];
+  if (rules.length === 0) {
+    return [];
+  }
+  const issues: string[] = [];
+  if (isGrpcRoute(route)) {
+    issues.push(`${prefix}.transform is not supported on a grpc route`);
+  }
+  if ((route.upstream.recipe ?? "") !== "") {
+    issues.push(`${prefix}.transform is not supported on a recipe route`);
+  }
+  rules.forEach((rule, index) => {
+    issues.push(...validateBodyReplacement(rule, `${prefix}.transform.request_body[${index}]`, prefix, index));
+  });
+  return issues;
+}
+
+function validateBodyReplacement(rule: RequestBodyReplacement, rulePrefix: string, routePrefix: string, index: number): string[] {
+  const issues: string[] = [];
+  if (rule.replace === "") {
+    issues.push(`${rulePrefix}.replace is required`);
+  }
+  if (rule.regex === true && rule.replace !== "" && !rule.replace.includes("${")) {
+    const invalid = invalidBodyReplacement({ replace: rule.replace, with: rule.with, regex: true }, index);
+    if (invalid !== undefined) {
+      issues.push(`${routePrefix}.${invalid}`);
+    }
+  }
+  for (const field of ["replace", "with"] as const) {
+    issues.push(...validateBodyReplacementField(rule[field], `${rulePrefix}.${field}`));
+  }
+  return issues;
+}
+
+function validateBodyReplacementField(value: string, path: string): string[] {
+  const issues: string[] = [];
+  if (value.includes("${identity.")) {
+    issues.push(
+      `warning: ${path} contains \${identity. which is not resolved on a request body transform (only service env at start)`,
+    );
+  }
+  issues.push(...validateInterpolatedString(path, value));
+  return issues;
 }
 
 function validateRouteTimeout(route: RouteConfig, prefix: string): string[] {

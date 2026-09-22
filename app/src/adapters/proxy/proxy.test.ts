@@ -65,9 +65,17 @@ function token(partial: Partial<AccessToken> = {}): AccessToken {
 
 const NONE_AUTH: RouteAuthConfig = { type: "none", identity: { type: "user", service_account: "" }, audience: "", service_account: "", client_id: "", client_secret: "" };
 
+function restoreEnv(name: string, previous: string | undefined): void {
+  if (previous === undefined) {
+    delete process.env[name];
+    return;
+  }
+  process.env[name] = previous;
+}
+
 async function setupProxy(
   handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
-  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus; responseHeaders?: Record<string, string>; timeout?: RouteConfig["timeout"] } = {},
+  opts: { auth?: RouteAuthConfig; tokens?: TokenManager; logs?: LogManager; bus?: Bus; responseHeaders?: Record<string, string>; timeout?: RouteConfig["timeout"]; transform?: RouteConfig["transform"] } = {},
 ) {
   const upstream = createServer(handler);
   await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
@@ -87,6 +95,7 @@ async function setupProxy(
     auth: opts.auth ?? NONE_AUTH,
     response_headers: opts.responseHeaders,
     timeout: opts.timeout,
+    transform: opts.transform,
   });
   const server = new ProxyServer(cfg, opts.tokens, opts.logs, opts.bus);
   await server.start();
@@ -492,6 +501,100 @@ describe("proxy", () => {
     expect(resolveProxyTarget("http://127.0.0.1:8000", forwardedRequestUrl(route, "/my-service")).href).toBe("http://127.0.0.1:8000/");
     expect(resolveProxyTarget("http://127.0.0.1:8000", forwardedRequestUrl(route, "/my-service/foo?q=1")).href).toBe("http://127.0.0.1:8000/foo?q=1");
     expect(forwardedRequestUrl({ ...route, strip_prefix: false }, "/my-service/foo")).toBe("/my-service/foo");
+  });
+
+  test("rewrites the request body before forwarding and updates content-length", async () => {
+    let received = "";
+    let contentLength = "";
+    const previousPort = process.env.DEVCTL_TEST_PROXY_PORT;
+    const previousHost = process.env.DEVCTL_TEST_REMOTE_ORIGIN;
+    process.env.DEVCTL_TEST_PROXY_PORT = "18080";
+    process.env.DEVCTL_TEST_REMOTE_ORIGIN = "https://remote.example.com";
+    const { proxyPort, close } = await setupProxy(
+      (req, res) => {
+        contentLength = typeof req.headers["content-length"] === "string" ? req.headers["content-length"] : "";
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        req.on("end", () => {
+          received = Buffer.concat(chunks).toString("utf8");
+          res.end("ok");
+        });
+      },
+      {
+        transform: {
+          request_body: [
+            { replace: "http://127.0.0.1:${env.DEVCTL_TEST_PROXY_PORT}", with: "${env.DEVCTL_TEST_REMOTE_ORIGIN}" },
+            { replace: "http://127\\.0\\.0\\.1:\\d+", with: "${DEVCTL_TEST_REMOTE_ORIGIN}", regex: true },
+          ],
+        },
+      },
+    );
+    const payload = JSON.stringify({
+      webhook: "http://127.0.0.1:18080/hooks/a",
+      other: "http://127.0.0.1:9/hooks/b",
+      keep: "http://127X0X0X1:18080",
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/api/agents`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: payload,
+      });
+      expect(resp.status).toBe(200);
+      const expected = JSON.stringify({
+        webhook: "https://remote.example.com/hooks/a",
+        other: "https://remote.example.com/hooks/b",
+        keep: "http://127X0X0X1:18080",
+      });
+      expect(received).toBe(expected);
+      expect(contentLength).toBe(String(Buffer.byteLength(expected)));
+    } finally {
+      restoreEnv("DEVCTL_TEST_PROXY_PORT", previousPort);
+      restoreEnv("DEVCTL_TEST_REMOTE_ORIGIN", previousHost);
+      await close();
+    }
+  });
+
+  test("a missing transform env fails the hop and an encoded body is not rewritten", async () => {
+    const logs = new LogManager(50, undefined, new Detector([], []), false, "", "px");
+    const previous = process.env.DEVCTL_TEST_BODY_TRANSFORM_MISSING;
+    delete process.env.DEVCTL_TEST_BODY_TRANSFORM_MISSING;
+    let forwarded = false;
+    const { proxyPort, close } = await setupProxy(
+      (_req, res) => {
+        forwarded = true;
+        res.end("ok");
+      },
+      {
+        logs,
+        transform: { request_body: [{ replace: "http://127.0.0.1:${env.DEVCTL_TEST_BODY_TRANSFORM_MISSING}", with: "https://remote.example.com" }] },
+      },
+    );
+    try {
+      const missing = await fetch(`http://127.0.0.1:${proxyPort}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"url":"http://127.0.0.1:1"}',
+      });
+      expect(missing.status).toBe(502);
+      expect(await missing.text()).toBe("proxy error");
+      expect(forwarded).toBe(false);
+      const messages = logs.query({}).map((ev) => formatBodySummary(ev)).join("\n");
+      expect(messages).toContain("transform.request_body[0].replace env DEVCTL_TEST_BODY_TRANSFORM_MISSING is empty");
+
+      const encoded = await fetch(`http://127.0.0.1:${proxyPort}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-encoding": "gzip" },
+        body: gzipSync(Buffer.from('{"url":"http://127.0.0.1:1"}')),
+      });
+      expect(encoded.status).toBe(502);
+      const after = logs.query({}).map((ev) => formatBodySummary(ev)).join("\n");
+      expect(after).toContain("request body transform requires an uncompressed body");
+      expect(forwarded).toBe(false);
+    } finally {
+      restoreEnv("DEVCTL_TEST_BODY_TRANSFORM_MISSING", previous);
+      await close();
+    }
   });
 
   test("proxyUpgradeRequest uses https.request for https upstreams", () => {
@@ -1600,7 +1703,7 @@ describe("proxy LLM capture", () => {
 describe("proxy traffic inspect", () => {
   async function setupInspectProxy(
     handler: (req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse) => void,
-    opts: { inspect?: boolean; maxBytes?: number } = {},
+    opts: { inspect?: boolean; maxBytes?: number; transform?: RouteConfig["transform"] } = {},
   ) {
     const upstream = createServer(handler);
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", () => resolve()));
@@ -1616,6 +1719,7 @@ describe("proxy traffic inspect", () => {
       upstream: { url: `http://127.0.0.1:${upPort}` },
       auth: NONE_AUTH,
       inspect: { enabled: opts.inspect ?? true, max_bytes: opts.maxBytes ?? 0 },
+      transform: opts.transform,
     });
     const store = new TrafficCallRing();
     const sink = new ProxyTrafficSink({ cfg: () => dc, store });
@@ -1656,6 +1760,34 @@ describe("proxy traffic inspect", () => {
       expect(call?.id).toBe(requestId);
       expect(call?.request?.text).toContain('"id"');
       expect(call?.response?.text).toContain('"ok"');
+    } finally {
+      await close();
+    }
+  });
+
+  test("inspect stores the rewritten request body", async () => {
+    let receivedBody = "";
+    const { proxyPort, store, close } = await setupInspectProxy((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+      req.on("end", () => {
+        receivedBody = Buffer.concat(chunks).toString("utf8");
+        res.end("ok");
+      });
+    }, {
+      transform: { request_body: [{ replace: "http://127.0.0.1:9", with: "https://remote.example.com" }] },
+    });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/api`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"url":"http://127.0.0.1:9/hook"}',
+      });
+      expect(await resp.text()).toBe("ok");
+      expect(receivedBody).toBe('{"url":"https://remote.example.com/hook"}');
+      const requestId = resp.headers.get(REQUEST_ID_HEADER) ?? "";
+      await waitUntil(() => store.get(requestId) !== undefined);
+      expect(store.get(requestId)?.request?.text).toContain("https://remote.example.com/hook");
     } finally {
       await close();
     }

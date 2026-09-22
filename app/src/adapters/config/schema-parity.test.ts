@@ -33,6 +33,8 @@ import {
   knownRouteLogGrpc,
   knownRouteLogGrpcOk,
   knownRouteTimeout,
+  knownRouteTransform,
+  knownRequestBodyReplacement,
   knownSecrets,
   knownService,
   knownServiceLogs,
@@ -123,6 +125,8 @@ describe("config allowlist/schema parity", () => {
       ["knownRouteLogGrpc", knownRouteLogGrpc, defs.routeLogGrpc ?? {}],
       ["knownRouteLogGrpcOk", knownRouteLogGrpcOk, defs.routeLogGrpcOk ?? {}],
       ["knownRouteTimeout", knownRouteTimeout, defs.routeTimeout ?? {}],
+      ["knownRouteTransform", knownRouteTransform, defs.routeTransform ?? {}],
+      ["knownRequestBodyReplacement", knownRequestBodyReplacement, defs.requestBodyReplacement ?? {}],
       ["knownLogs", knownLogs, logs],
       ["knownPersistence", knownPersistence, logs.properties?.persistence ?? {}],
       ["knownAuth", knownAuth, at("auth")],
@@ -189,6 +193,19 @@ describe("config allowlist/schema parity", () => {
     expect(collectUnknownFields({
       logs: { stdout: true, access_log: { enabled: true } },
     }, "services.api")).toContain("services.api.logs.access_log");
+  });
+
+  test("unknown transform keys are rejected on a route and a service proxy fragment", () => {
+    expect(collectUnknownFields({
+      routes: [{ name: "api", transform: { request_body: [{ replace: "a", with: "b", regex: true, foo: true }], extra: true } }],
+    }, "proxy")).toEqual(["proxy.routes.0.transform.request_body.0.foo", "proxy.routes.0.transform.extra"]);
+    expect(collectUnknownFields({
+      match: { path: "/api" },
+      transform: { request_body: [{ replace: "a", with: "b" }] },
+    }, "services.api.proxy")).toEqual([]);
+    expect(collectUnknownFields({
+      proxy: [{ match: { path: "/api" }, transform: { request_body: [{ replace: "a", with: "b", extra: true }] } }],
+    }, "services.api")).toContain("services.api.proxy.0.transform.request_body.0.extra");
   });
 
   test("unknown timeout.foo is rejected on a route and a service proxy fragment", () => {

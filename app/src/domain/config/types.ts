@@ -375,6 +375,18 @@ export type RouteTimeoutConfig = {
   total_ms?: number;
 };
 
+// One request-body rewrite applied before the hop is forwarded. `regex` omitted
+// or false means `replace` is a literal string. `with` is inserted literally.
+export type RequestBodyReplacement = {
+  replace: string;
+  with: string;
+  regex?: boolean;
+};
+
+export type RouteTransformConfig = {
+  request_body: RequestBodyReplacement[];
+};
+
 export type RouteConfig = {
   name: string;
   // "" / "http" (default) → the shared HTTP/1.1 listener, matched by host/path.
@@ -404,6 +416,8 @@ export type RouteConfig = {
   log?: RouteLogConfig;
   // Opt-in idle/total deadlines. 0 or omitted = unlimited.
   timeout?: RouteTimeoutConfig;
+  // Opt-in request-body rewrites applied before forwarding. HTTP routes only.
+  transform?: RouteTransformConfig;
 };
 
 export function isGrpcRoute(route: RouteConfig): boolean {

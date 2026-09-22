@@ -503,7 +503,30 @@
           "description": "When forwarding, strip match.path from the inbound pathname. No-op if match.path is empty. Traffic inspector and proxy logs keep the inbound path. `/my-service` → `/`, `/my-service/foo` → `/foo`; query string is preserved."
         },
         "log": { "$ref": "#/$defs/routeLog" },
-        "timeout": { "$ref": "#/$defs/routeTimeout" }
+        "timeout": { "$ref": "#/$defs/routeTimeout" },
+        "transform": { "$ref": "#/$defs/routeTransform" }
+      }
+    },
+    "routeTransform": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Rewrites applied to the request before it is forwarded. HTTP routes only.",
+      "properties": {
+        "request_body": {
+          "type": "array",
+          "description": "String or regular-expression replacements applied to the request body, in order, before forwarding. ${NAME} and ${env.NAME} expand in replace and with at request time.",
+          "items": { "$ref": "#/$defs/requestBodyReplacement" }
+        }
+      }
+    },
+    "requestBodyReplacement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["replace", "with"],
+      "properties": {
+        "replace": { "type": "string", "minLength": 1, "description": "Text to find. Literal unless regex is true. ${NAME} / ${env.NAME} expand at request time." },
+        "with": { "type": "string", "description": "Literal replacement. $ is not a capture reference. ${NAME} / ${env.NAME} expand at request time." },
+        "regex": { "type": "boolean", "description": "When true, replace is a JavaScript regular expression applied to every match. The pattern must not match an empty string." }
       }
     },
     "routeTimeout": {

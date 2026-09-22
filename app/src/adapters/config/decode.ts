@@ -30,6 +30,8 @@ import {
   type RouteIdentity,
   type RouteLogConfig,
   type RouteTimeoutConfig,
+  type RequestBodyReplacement,
+  type RouteTransformConfig,
   type ServiceConfig,
   type ServiceLogConfig,
   type ServiceLogMultilineConfig,
@@ -494,6 +496,25 @@ function decodeTimeoutMs(value: unknown): number {
   return Number.NaN;
 }
 
+function decodeRequestBodyReplacement(value: unknown): RequestBodyReplacement {
+  if (!isRecord(value)) {
+    return { replace: "", with: "" };
+  }
+  const rule: RequestBodyReplacement = {
+    replace: asString(value.replace),
+    with: asString(value.with),
+  };
+  if (value.regex === true) {
+    rule.regex = true;
+  }
+  return rule;
+}
+
+function decodeRouteTransform(value: unknown): RouteTransformConfig {
+  const rules = isRecord(value) && Array.isArray(value.request_body) ? value.request_body : [];
+  return { request_body: rules.map(decodeRequestBodyReplacement) };
+}
+
 function decodeRouteTimeout(value: unknown): RouteTimeoutConfig | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -532,6 +553,7 @@ export function decodeRoute(value: unknown): RouteConfig {
     strip_prefix: asBoolean(value.strip_prefix),
     log: decodeRouteLog(value.log),
     timeout: decodeRouteTimeout(value.timeout),
+    transform: isRecord(value.transform) ? decodeRouteTransform(value.transform) : undefined,
   };
 }
 

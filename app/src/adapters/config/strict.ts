@@ -32,6 +32,8 @@ import {
   knownRouteLogGrpc,
   knownRouteLogGrpcOk,
   knownRouteTimeout,
+  knownRouteTransform,
+  knownRequestBodyReplacement,
   knownSecrets,
   knownService,
   knownServiceLogs,
@@ -289,12 +291,30 @@ function serviceProxyPathKnown(parts: string[]): string[] {
   if (kind === "timeout") {
     return knownRouteTimeout;
   }
+  if (kind === "transform") {
+    return routeTransformKnown(rest.slice(start + 1));
+  }
   return knownRoute;
+}
+
+function routeTransformKnown(after: string[]): string[] {
+  if (after.length === 0) {
+    return knownRouteTransform;
+  }
+  const index = after[1] ?? "";
+  if (after[0] === "request_body" && after.length === 2 && /^\d+$/.test(index)) {
+    return knownRequestBodyReplacement;
+  }
+  return [];
 }
 
 function routePathKnown(path: string): string[] {
   if (path === "proxy.routes") {
     return [];
+  }
+  const transformAt = path.split(".").lastIndexOf("transform");
+  if (transformAt >= 0) {
+    return routeTransformKnown(path.split(".").slice(transformAt + 1));
   }
   if (path.endsWith(".match")) {
     return knownMatch;

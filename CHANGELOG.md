@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-09-22
+
+### Added
+
+- Proxy routes can rewrite the request body before forwarding (`transform.request_body`). Each rule replaces every occurrence of `replace` with `with`; `regex: true` treats `replace` as a JavaScript regular expression, and `with` is inserted literally. `${NAME}` / `${env.NAME}` expand in both strings at request time, so a payload that baked in `http://127.0.0.1:<proxy-port>` can be rewritten to the remote origin before it is stored upstream. The body is buffered (16 MiB cap) and must be uncompressed UTF-8. Invalid on gRPC and recipe routes. See [Proxy](docs/proxy.md#rewrite-the-request-body).
+
 ## [0.19.1] - 2026-09-22
 
 ### Fixed
@@ -653,7 +659,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.20.0...HEAD
+[0.20.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.0...v0.19.1
 [0.19.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.1...v0.19.0
 [0.18.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.18.0...v0.18.1

@@ -342,6 +342,98 @@ describe("config validate", () => {
     const respHeaders = withService("api");
     respHeaders.proxy.routes.push({ ...grpc("t", 7233, "https://t:443"), response_headers: { "Access-Control-Allow-Origin": "*" } });
     expect(validate(respHeaders)).toContain("proxy.routes[0].response_headers is not supported on a grpc route");
+
+    const transformed = withService("api");
+    transformed.proxy.routes.push({
+      ...grpc("t", 7233, "https://t:443"),
+      transform: { request_body: [{ replace: "http://127.0.0.1:1", with: "https://remote.example.com" }] },
+    });
+    expect(validate(transformed)).toContain("proxy.routes[0].transform is not supported on a grpc route");
+  });
+
+  test("accepts request body transforms and rejects empty, invalid, and unresolved patterns", () => {
+    const ok = withService("api");
+    ok.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "/api" },
+      upstream: { url: "https://remote.example.com" },
+      auth: emptyRouteAuth(),
+      transform: {
+        request_body: [
+          { replace: "http://127.0.0.1:${env.PROXY_PORT}", with: "https://remote.example.com" },
+          { replace: "http://127\\.0\\.0\\.1:\\d+", with: "${PUBLIC_ORIGIN}", regex: true },
+        ],
+      },
+    });
+    expect(validate(ok)).toEqual([]);
+
+    const empty = withService("api");
+    empty.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://remote.example.com" },
+      auth: emptyRouteAuth(),
+      transform: { request_body: [{ replace: "", with: "x" }] },
+    });
+    expect(validate(empty)).toContain("proxy.routes[0].transform.request_body[0].replace is required");
+
+    const badRegex = withService("api");
+    badRegex.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://remote.example.com" },
+      auth: emptyRouteAuth(),
+      transform: { request_body: [{ replace: "(", with: "x", regex: true }] },
+    });
+    expect(validate(badRegex).some((issue) => issue.includes("not a valid regular expression"))).toBe(true);
+
+    const emptyMatch = withService("api");
+    emptyMatch.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://remote.example.com" },
+      auth: emptyRouteAuth(),
+      transform: { request_body: [{ replace: ".*", with: "x", regex: true }] },
+    });
+    expect(validate(emptyMatch)).toContain("proxy.routes[0].transform.request_body[0].replace matches an empty string");
+
+    const token = withService("api");
+    token.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://remote.example.com" },
+      auth: emptyRouteAuth(),
+      transform: { request_body: [{ replace: "${token}", with: "x" }] },
+    });
+    expect(validate(token)).toContain("proxy.routes[0].transform.request_body[0].replace: unresolvable reference ${token}");
+
+    const identity = withService("api");
+    identity.proxy.routes.push({
+      name: "api",
+      match: { host: "", path: "" },
+      upstream: { url: "https://remote.example.com" },
+      auth: emptyRouteAuth(),
+      transform: { request_body: [{ replace: "user", with: "${identity.user}" }] },
+    });
+    expect(validate(identity)).toContain(
+      "warning: proxy.routes[0].transform.request_body[0].with contains ${identity. which is not resolved on a request body transform (only service env at start)",
+    );
+
+    const recipe = withService("api");
+    recipe.http.login = {
+      request: { method: "GET", url: "https://idp.example/token", headers: {}, body: "", form: {}, auth: emptyRouteAuth(), timeout_seconds: 0 },
+      outputs: {},
+      cache: { jwt: false, expires_in: "" },
+      expose: { enabled: false, host: "", response_headers: {}, allow_token_body: false },
+    };
+    recipe.proxy.routes.push({
+      name: "login",
+      match: { host: "login.local", path: "" },
+      upstream: { url: "", recipe: "login" },
+      auth: emptyRouteAuth(),
+      transform: { request_body: [{ replace: "a", with: "b" }] },
+    });
+    expect(validate(recipe)).toContain("proxy.routes[0].transform is not supported on a recipe route");
   });
 
   test("rejects invalid log.grpc.ok log levels and accepts info|silent", () => {

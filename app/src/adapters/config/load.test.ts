@@ -1340,6 +1340,33 @@ proxy:
     expect(route?.listen).toEqual({ host: "127.0.0.1", port: 7233 });
   });
 
+  test("a route transform decodes replace, with, regex, and env refs", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-transform-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: echo hi
+    proxy:
+      match: { path: /api }
+      upstream: { url: https://remote.example.com/api }
+      transform:
+        request_body:
+          - replace: "http://127.0.0.1:\${env.PROXY_PORT}"
+            with: "https://remote.example.com"
+          - replace: "http://127\\\\.0\\\\.0\\\\.1:\\\\d+"
+            with: "\${PUBLIC_ORIGIN}"
+            regex: true
+`);
+    const cfg = load(dir, "");
+    expect(cfg.proxy.routes.find((route) => route.name === "api")?.transform).toEqual({
+      request_body: [
+        { replace: "http://127.0.0.1:${env.PROXY_PORT}", with: "https://remote.example.com" },
+        { replace: "http://127\\.0\\.0\\.1:\\d+", with: "${PUBLIC_ORIGIN}", regex: true },
+      ],
+    });
+  });
+
   test("route response_headers with arbitrary header names decodes and passes strict validation", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-resphdr-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `
