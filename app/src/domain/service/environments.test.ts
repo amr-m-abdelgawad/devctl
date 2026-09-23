@@ -46,6 +46,22 @@ describe("service named environments", () => {
     expect(merged.required).toEqual(["A", "B"]);
   });
 
+  test("a named overlay keeps the base terraform path until it sets its own", () => {
+    const base = {
+      vars: {},
+      required: [],
+      defaults: {},
+      terraform: { path: "deploy/api", resource: "google_cloud_run_v2_service.api", attribute: "" },
+    };
+    expect(overlayEnv(base, { vars: { MODE: "local" }, required: [], defaults: {} }).terraform?.path).toBe("deploy/api");
+    expect(overlayEnv(base, {
+      vars: {},
+      required: [],
+      defaults: {},
+      terraform: { path: "deploy/api/local.tf", resource: "", attribute: "" },
+    }).terraform?.path).toBe("deploy/api/local.tf");
+  });
+
   test("names sort alphabetically and default_environment wins when valid", () => {
     const svc = serviceWithEnvs();
     expect(namedEnvironmentNames(svc)).toEqual(["deployed", "local"]);

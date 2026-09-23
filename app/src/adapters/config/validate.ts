@@ -2,6 +2,7 @@ import { knownCapabilities, SHELL_META_TOKENS } from "./known.ts";
 import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/hosts.ts";
 import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import { sopsConfigIssues } from "../environment/sops.ts";
+import { terraformConfigIssues } from "../environment/terraform.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
 import { findRefs, refResolvable } from "./refs.ts";
@@ -124,6 +125,7 @@ export function validate(cfg: DevctlConfig): string[] {
     issues.push("logs.max_memory_events must be >= 0");
   }
   issues.push(...sopsConfigIssues(cfg));
+  issues.push(...terraformConfigIssues(cfg));
   return issues;
 }
 

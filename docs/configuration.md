@@ -97,7 +97,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `secrets` | Extra redaction markers and regexes |
 | `doctor.tools` | Extra CLI binaries to probe |
 | `plugins` | `{ path }` modules loaded when the supervisor starts |
-| `environment.sources` / `secrets` / `sops` | Env source order, named secrets, and an optional SOPS file |
+| `environment.sources` / `secrets` / `sops` | Env source order, named secrets, and an optional SOPS file. A service can also set `environment.terraform` to read literal env vars from its Terraform — see [Environment](environment.md#terraform) |
 
 ## Templates
 

@@ -8,10 +8,10 @@ Default source order (`ENV_SOURCE_ORDER` / `environment.sources`):
 
 ```mermaid
 flowchart LR
-  process --> profile --> dotenv --> secrets_env --> generated --> keychain --> sops --> secret_manager --> defaults --> vars --> profile_service --> runtime
+  process --> profile --> dotenv --> secrets_env --> generated --> keychain --> sops --> secret_manager --> defaults --> terraform --> vars --> profile_service --> runtime
 ```
 
-`process`, `secrets_env`, `defaults`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `sops`, `secret_manager`) are added to the always-on set. Listing `secret_manager` also enables `dotenv`, so `.env` can fill keys when Secret Manager is unreachable.
+`process`, `secrets_env`, `defaults`, `terraform`, `vars`, `profile_service`, and `runtime` always run for host services. Container services deliberately omit `process` so the caller's whole shell is not stored in inspectable container metadata. If you set `environment.sources`, the listed optional sources (`profile`, `dotenv`, `generated`, `keychain`, `sops`, `secret_manager`) are added to the always-on set. Listing `secret_manager` also enables `dotenv`, so `.env` can fill keys when Secret Manager is unreachable. `terraform` is always in the order and is configured per service (`environment.terraform`), not in `environment.sources`. It contributes nothing until that field is set.
 
 | Source | What it loads |
 |--------|----------------|
@@ -24,6 +24,7 @@ flowchart LR
 | `sops` | `sops --decrypt --output-type json` on `environment.sops.file` at daemon start and `devctl reload`. The `sops` binary must be on `PATH`. A missing binary, missing file, or failed decrypt (KMS, age, PGP, network) skips the source with a warning; services that `environment.required` a key SOPS was supposed to provide then fail to start. Plaintext is kept in memory only |
 | `secret_manager` | Values that look like `projects/*/secrets/*` via the Google REST API. Missing ADC, HTTP 401/403, or a network failure skips that key so dotenv / `secrets.env` / process env remain. A malformed resource name or HTTP 404 still fails |
 | `defaults` | `services.<name>.environment.defaults` (and the selected `environments.<env>.defaults`) |
+| `terraform` | Literal env values from `services.<name>.environment.terraform` (a `.tf` file or directory). Always in the order; empty until that field is set. See below |
 | `vars` | Explicit `services.<name>.environment` keys (and the selected `environments.<env>` keys, which win) |
 | `profile_service` | `profiles.<name>.service_environment.<svc>` — per-service keys that win over vars |
 | `runtime` | Values `devctl` injects at start |
@@ -55,6 +56,45 @@ environment:
 `sops` wins over dotenv and `.devctl/secrets.env`. `secret_manager` still wins over `sops` when the fetch succeeds, so a repo can move keys to Secret Manager without dropping the file. `devctl` runs `sops --decrypt --output-type json <file>` once at daemon start and again on reload. A dotenv or YAML SOPS file is still read as that format (`--input-type`); only the decrypt result is JSON, so nested values, `#`, spaces, and newlines survive. It does not write the plaintext to disk. The next start or restart picks up a reload; a running process keeps the environment it was launched with until then. If the decrypted values changed and a service is still running, reload reports that service in `restart_required`.
 
 `environment.sops.file` is required when `sops` is listed, and the path must stay inside the repository (including after symlink resolution). `devctl config validate` rejects a missing file field, an unknown `input_type`, an empty `key_map` value, or a path that escapes the repo. A missing file or a decrypt error is a runtime warning, not a validate failure.
+
+### Terraform
+
+Point a service at the Terraform that already defines its deployed environment. devctl reads those literal values when the service starts, so the same keys do not have to be copied into YAML.
+
+```yaml
+services:
+  api:
+    environment:
+      terraform:
+        path: deploy/api          # a .tf file, or a directory of *.tf (that directory only)
+        resource: google_cloud_run_v2_service.api   # optional
+        # attribute: service_env   # optional extra map name
+      # Local-only keys stay here and override Terraform.
+      AUTH_URL: http://127.0.0.1:${services.identity.ports.http}
+```
+
+A string is shorthand for the path: `terraform: deploy/api/main.tf`.
+
+Read in file order (a later `.tf` file in the directory wins on the same key):
+
+- `env { name = "..." value = "..." }` blocks
+- map attributes named `environment_variables`, `env_vars`, and `env` — an object of literals, or a list of `{ name, value }` objects
+- a `variable` block's `default` when the variable is named one of those maps
+- `attribute`, when set, adds one more map name (a `locals` map such as `service_env`)
+
+`resource` limits the read to one block. `resource "type" "name"` is written `type.name`, `module "name"` is `module.name`, and `data "type" "name"` is `data.type.name`. With `resource` set, only that block is read. Without it, every literal in the path is included, so set it when the directory defines more than one workload. `attribute` is read in that same scope: a root `locals` map is included when `resource` is omitted, and omitted when `resource` selects a different block.
+
+Left unread:
+
+- interpolations (`${...}`, `%{...}`) and references (`var`, `local`, resource attributes). `$${` in HCL is kept as a literal `${`
+- `value_source` and other secret refs. Name those under `environment.secrets`
+- `.tfvars`, `.tf.json`, files under `.terraform/`, and `*.tf` in subdirectories
+
+Values are taken as written. `${services...}` and `${env.NAME}` inside a Terraform literal are not expanded.
+
+`devctl config validate` requires the path to stay inside the repository (including after symlink resolution), to exist, and to contain at least one literal. A `resource` address that does not appear in those files fails validate. The next start or restart reads the files again. A running process keeps the environment it launched with until then. Editing a `.tf` file does not reload configuration by itself; restart the service after the Terraform change.
+
+Terraform wins over `defaults` and over dotenv. An explicit YAML key, a named environment overlay, `profiles.<name>.service_environment`, and runtime injections still win. A `terraform` path on that profile entry replaces the service path for launches under the profile. Leave the Terraform keys out of YAML when local dev can use the same value.
 
 ### `process` and the daemon-replacement limitation
 

@@ -17,10 +17,19 @@ export type PortSpec = {
   readonly auto: boolean;
 };
 
+/** Literal env read from a service's Terraform. `invalid` is a decode sentinel. */
+export type TerraformEnvConfig = {
+  path: string;
+  resource: string;
+  attribute: string;
+  invalid?: boolean;
+};
+
 export type EnvConfig = {
   vars: Record<string, string>;
   required: string[];
   defaults: Record<string, string>;
+  terraform?: TerraformEnvConfig;
 };
 
 export type HealthCheckConfig = {

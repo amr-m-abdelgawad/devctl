@@ -548,19 +548,15 @@ function mergeEnv(base: EnvConfig, raw: unknown): EnvConfig {
   if (!isRecord(raw)) {
     return base;
   }
-  const vars = { ...base.vars };
-  const defaults = { ...base.defaults };
-  let required = base.required;
-  for (const [key, item] of Object.entries(raw)) {
-    if (key === "required") {
-      required = asStringArray(item);
-    } else if (key === "defaults") {
-      Object.assign(defaults, asStringMap(item));
-    } else {
-      vars[key] = asString(item);
-    }
-  }
-  return { vars, required, defaults };
+  const decoded = decodeEnv(raw);
+  const terraform = Object.hasOwn(raw, "terraform") ? decoded.terraform : base.terraform;
+  const merged: EnvConfig = {
+    vars: { ...base.vars, ...decoded.vars },
+    defaults: { ...base.defaults, ...decoded.defaults },
+    required: Object.hasOwn(raw, "required") ? decoded.required : base.required,
+  };
+  if (terraform) merged.terraform = terraform;
+  return merged;
 }
 
 function mergeEnvironments(base: Record<string, EnvConfig>, raw: unknown): Record<string, EnvConfig> {
@@ -931,11 +927,13 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     wait_for_healthy: present.has("startup.wait_for_healthy") ? svc.startup.wait_for_healthy : base.startup.wait_for_healthy,
     timeout_seconds: present.has("startup.timeout_seconds") ? svc.startup.timeout_seconds : base.startup.timeout_seconds,
   };
+  const terraform = present.has("environment.terraform") ? svc.environment.terraform : base.environment.terraform;
   out.environment = {
     vars: { ...base.environment.vars, ...svc.environment.vars },
     defaults: { ...base.environment.defaults, ...svc.environment.defaults },
     required: present.has("environment.required") ? svc.environment.required : base.environment.required,
   };
+  if (terraform) out.environment.terraform = terraform;
   out.environments = mergeDecodedEnvironments(base.environments, svc.environments);
   if (present.has("default_environment")) {
     out.default_environment = svc.default_environment;

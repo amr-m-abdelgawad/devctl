@@ -2,11 +2,16 @@ import { emptyEnv, type DevctlConfig, type EnvConfig, type ServiceConfig } from 
 
 /** Overlay a named environment onto the service's base `environment`. */
 export function overlayEnv(base: EnvConfig, overlay: EnvConfig): EnvConfig {
-  return {
+  const merged: EnvConfig = {
     vars: { ...base.vars, ...overlay.vars },
     defaults: { ...base.defaults, ...overlay.defaults },
     required: uniqueKeys([...base.required, ...overlay.required]),
   };
+  const terraform = overlay.terraform && (overlay.terraform.path !== "" || overlay.terraform.invalid)
+    ? overlay.terraform
+    : base.terraform;
+  if (terraform) merged.terraform = terraform;
+  return merged;
 }
 
 export function namedEnvironmentNames(svc: ServiceConfig): string[] {
@@ -72,11 +77,13 @@ export function allServiceEnvConfigs(svc: ServiceConfig): EnvConfig[] {
 }
 
 function cloneEnv(env: EnvConfig): EnvConfig {
-  return {
+  const cloned: EnvConfig = {
     vars: { ...env.vars },
     defaults: { ...env.defaults },
     required: [...env.required],
   };
+  if (env.terraform) cloned.terraform = { ...env.terraform };
+  return cloned;
 }
 
 function uniqueKeys(values: string[]): string[] {

@@ -613,6 +613,76 @@ describe("environment precedence", () => {
     }
   });
 
+  test("terraform literals beat defaults and dotenv, and yaml vars beat terraform", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-tf-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, ".env"), "LOG_LEVEL=dotenv\nFROM_DOTENV=dotenv\n");
+    writeFileSync(join(dir, "service.tf"), `
+      resource "google_cloud_run_v2_service" "api" {
+        template {
+          containers {
+            env {
+              name  = "LOG_LEVEL"
+              value = "info"
+            }
+            env {
+              name  = "PUBLIC_URL"
+              value = "https://api.example.com"
+            }
+            env {
+              name  = "LITERAL_DOLLAR"
+              value = "$\${not_interp}"
+            }
+          }
+        }
+      }
+    `);
+    const svc = emptyService();
+    svc.environment.defaults = { LOG_LEVEL: "debug", FROM_DEFAULT: "default" };
+    svc.environment.vars = { PUBLIC_URL: "http://127.0.0.1:18080" };
+    svc.environment.terraform = { path: "service.tf", resource: "google_cloud_run_v2_service.api", attribute: "" };
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      profileServiceEnv: { vars: { PUBLIC_URL: "https://override.example.com" }, required: [], defaults: {} },
+      assignedPorts: {},
+      runtime: {},
+      clientEnv: {},
+    });
+    expect(env.LOG_LEVEL).toBe("info");
+    expect(env.FROM_DOTENV).toBe("dotenv");
+    expect(env.FROM_DEFAULT).toBe("default");
+    expect(env.PUBLIC_URL).toBe("https://override.example.com");
+    expect(env.LITERAL_DOLLAR).toBe("${not_interp}");
+  });
+
+  test("a profile service_environment terraform path replaces the service file", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-env-tf-profile-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "service.tf"), `env { name = "LOG_LEVEL" value = "from-service" }\n`);
+    writeFileSync(join(dir, "profile.tf"), `env { name = "LOG_LEVEL" value = "from-profile" }\n`);
+    const svc = emptyService();
+    svc.environment.terraform = { path: "service.tf", resource: "", attribute: "" };
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "deployed",
+      serviceCfg: svc,
+      profileEnv: {},
+      profileServiceEnv: {
+        vars: {},
+        required: [],
+        defaults: {},
+        terraform: { path: "profile.tf", resource: "", attribute: "" },
+      },
+      assignedPorts: {},
+      runtime: {},
+      clientEnv: {},
+    });
+    expect(env.LOG_LEVEL).toBe("from-profile");
+  });
+
   test("listing sops does not pull in secret_manager", () => {
     const cfg = defaultConfig();
     cfg.environment.sources = ["sops"];

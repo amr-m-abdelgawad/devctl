@@ -1541,3 +1541,78 @@ environment:
     expect(() => load(dir, "")).toThrow(/unknown fields: environment\.sops\.extra/);
   });
 });
+
+describe("terraform environment config", () => {
+  test("reads a service terraform path and lets a template supply it", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-tf-${Date.now()}`;
+    writeFile(dir, "deploy/api/main.tf", `
+resource "google_cloud_run_v2_service" "api" {
+  template {
+    containers {
+      env {
+        name  = "LOG_LEVEL"
+        value = "info"
+      }
+    }
+  }
+}
+`);
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+templates:
+  api:
+    environment:
+      terraform: deploy/api
+services:
+  api:
+    extends: api
+    command: [api]
+    environment:
+      PUBLIC_URL: http://127.0.0.1:18080
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.environment.terraform).toEqual({
+      path: "deploy/api",
+      resource: "",
+      attribute: "",
+    });
+    expect(cfg.services.api?.environment.vars.PUBLIC_URL).toBe("http://127.0.0.1:18080");
+    expect(cfg.services.api?.environment.vars.terraform).toBeUndefined();
+  });
+
+  test("rejects an unknown terraform field, a bad resource, and a missing path", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-tf-bad-${Date.now()}`;
+    writeFile(dir, "main.tf", `env { name = "LOG_LEVEL" value = "info" }\n`);
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [api]
+    environment:
+      terraform:
+        path: main.tf
+        nope: true
+`);
+    expect(() => load(dir, "")).toThrow(/unknown fields: services\.api\.environment\.terraform\.nope/);
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [api]
+    environment:
+      terraform:
+        path: main.tf
+        resource: google_cloud_run_v2_service.missing
+`);
+    expect(() => load(dir, "")).toThrow(/was not found/);
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [api]
+    environment:
+      terraform: {}
+`);
+    expect(() => load(dir, "")).toThrow(/environment\.terraform\.path is required/);
+  });
+});

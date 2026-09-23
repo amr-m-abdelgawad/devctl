@@ -188,6 +188,7 @@ grep -rhoE 'resource "google_[a-z_]+"' --include='*.tf' . | sort -u
 | `google_secret_manager_secret` | a key under `environment.secrets`, mapped to `projects/<p>/secrets/<name>`; add `secret_manager` to `environment.sources` |
 | `google_cloud_run_v2_service`, `google_compute_backend_service` | if the repo builds it → the local service it corresponds to; if not → a proxy route `upstream.url` |
 | `google_sql_database_instance`, Pub/Sub topics, GCS buckets | env keys the local service needs; no devctl object of their own |
+| literal `env` / `environment_variables` / `env_vars` on a service you run locally | `services.<name>.environment.terraform` — do not copy the literals into YAML |
 | `google_project_iam_member` on a SA | tells you which SA a service is *meant* to run as — good evidence for `identity` |
 
 ### The judgement call
@@ -196,7 +197,11 @@ For each Cloud Run / GKE workload in Terraform, ask: **does this repo contain
 the source and a way to start it?**
 
 - Yes → it is a devctl service. Terraform tells you its identity and which
-  secrets it reads.
+  secrets it reads. Point `environment.terraform` at that service's `.tf`
+  file or directory (`resource: type.name` when the file defines more than
+  one workload) so literal env values are read from Terraform. Do not copy
+  those literals into YAML. Secret refs stay names under `environment.secrets`.
+  `.tfvars` stays unread.
 - No → it is a dependency your local services call. If it needs injected auth
   (IAP, impersonation), give it a **proxy route** so local callers hit
   `127.0.0.1:<proxy>` and devctl attaches the credential. If it needs no auth,

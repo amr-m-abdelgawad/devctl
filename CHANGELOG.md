@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A service can set `environment.terraform` to a `.tf` file or directory and take literal environment values from that Terraform (`env` blocks and `environment_variables` / `env_vars` / `env` maps). `resource` limits the read to one resource or module. Interpolations and secret refs are skipped. An explicit YAML env key still overrides, so local-only values stay in YAML. See [Environment](docs/environment.md#terraform).
+
 ### Changed
 
 - Freeing a busy port from the TUI Doctor screen rechecks that port only. It no longer reruns the full doctor. See [Doctor](docs/doctor.md).

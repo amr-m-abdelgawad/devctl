@@ -96,6 +96,10 @@ services:
 
 `e` / `/env` in the TUI, `devctl env api deployed`, the web console Env column, or MCP `set_service_environment` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
 
+## Terraform environment
+
+`environment.terraform` reads literal env values from a service's `.tf` file or directory (`env` blocks and `environment_variables` maps) so those values live in Terraform instead of a second copy in YAML. An explicit YAML key still overrides. See [Environment](environment.md#terraform).
+
 ## Container services
 
 Set `container.image` to let devctl own a Docker or Podman container with the

@@ -185,6 +185,35 @@
         "defaults": {
           "type": "object",
           "additionalProperties": { "type": "string" }
+        },
+        "terraform": {
+          "description": "Read literal env values from this service's Terraform. A string is the path. Explicit environment keys still override these values.",
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Path to a .tf file or a directory of .tf files, relative to the repo root"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": ".tf file or directory of *.tf (that directory only), relative to the repo root"
+                },
+                "resource": {
+                  "type": "string",
+                  "description": "Limit the read to resource \"type\" \"name\" (type.name) or module \"name\" (module.name)"
+                },
+                "attribute": {
+                  "type": "string",
+                  "description": "Also read this map attribute, such as a locals map name"
+                }
+              }
+            }
+          ]
         }
       },
       "additionalProperties": { "type": "string" }

@@ -75,6 +75,7 @@ nothing at all. What Terraform legitimately contributes:
 | `google_service_account` | `identity.service_account`, or a route's `auth.identity.service_account` |
 | IAP brand / OAuth client / `iap_web_*` | route `auth.type: iap` + `audience`; optional `client_id` + `client_secret` (`${NAME}` or a literal) to mint with a specific user OAuth client |
 | `google_secret_manager_secret` | a name under `environment.secrets` — never the value |
+| literal `env { name, value }` / `environment_variables` on a service you run locally | `environment.terraform` on that service — do not copy the literals into YAML |
 | `project`, `region` in provider/vars | `google.project_id`, `google.region` |
 | Cloud Run / GKE endpoint you do **not** run locally | proxy route `upstream.url` |
 | `google_sql_*`, Pub/Sub, buckets | usually just env keys the local service needs |

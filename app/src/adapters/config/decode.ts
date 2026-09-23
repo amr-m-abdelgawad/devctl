@@ -14,6 +14,7 @@ import {
   watchDebounceMs,
   type Command,
   type EnvConfig,
+  type TerraformEnvConfig,
   type ExposeConfig,
   type Dependency,
   type HealthCheckConfig,
@@ -156,16 +157,37 @@ export function decodeEnv(value: unknown): EnvConfig {
   const vars: Record<string, string> = {};
   let required: string[] = [];
   let defaults: Record<string, string> = {};
+  let terraform: TerraformEnvConfig | undefined;
   for (const [key, item] of Object.entries(value)) {
     if (key === "required") {
       required = asStringArray(item);
     } else if (key === "defaults") {
       defaults = asStringMap(item);
+    } else if (key === "terraform") {
+      terraform = decodeTerraformEnv(item);
     } else {
       vars[key] = asString(item);
     }
   }
-  return { vars, required, defaults };
+  const env: EnvConfig = { vars, required, defaults };
+  if (terraform) env.terraform = terraform;
+  return env;
+}
+
+function decodeTerraformEnv(value: unknown): TerraformEnvConfig | undefined {
+  if (typeof value === "string") {
+    const path = value.trim();
+    if (path === "") return undefined;
+    return { path, resource: "", attribute: "" };
+  }
+  if (!isRecord(value)) {
+    return { path: "", resource: "", attribute: "", invalid: true };
+  }
+  return {
+    path: asString(value.path).trim(),
+    resource: asString(value.resource).trim(),
+    attribute: asString(value.attribute).trim(),
+  };
 }
 
 export function decodeEnvironments(value: unknown): Record<string, EnvConfig> {

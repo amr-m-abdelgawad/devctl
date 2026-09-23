@@ -80,6 +80,7 @@ nothing at all. What Terraform legitimately contributes:
 | \`google_service_account\` | \`identity.service_account\`, or a route's \`auth.identity.service_account\` |
 | IAP brand / OAuth client / \`iap_web_*\` | route \`auth.type: iap\` + \`audience\`; optional \`client_id\` + \`client_secret\` (\`\${NAME}\` or a literal) to mint with a specific user OAuth client |
 | \`google_secret_manager_secret\` | a name under \`environment.secrets\` — never the value |
+| literal \`env { name, value }\` / \`environment_variables\` on a service you run locally | \`environment.terraform\` on that service — do not copy the literals into YAML |
 | \`project\`, \`region\` in provider/vars | \`google.project_id\`, \`google.region\` |
 | Cloud Run / GKE endpoint you do **not** run locally | proxy route \`upstream.url\` |
 | \`google_sql_*\`, Pub/Sub, buckets | usually just env keys the local service needs |
@@ -392,7 +393,8 @@ complete allowlists.
 | \`service.startup\` | \`wait_for_healthy\` \`timeout_seconds\` |
 | \`service.logs\` | \`stdout\` \`stderr\` \`multiline\` \`dedupe_access_line\` |
 | \`service.logs.multiline\` | \`start\` \`continuation\` \`max_wait_ms\` \`max_lines\` |
-| \`service.environment\` | \`required\` \`defaults\` + arbitrary \`KEY: value\` pairs |
+| \`service.environment\` | \`required\` \`defaults\` \`terraform\` + arbitrary \`KEY: value\` pairs |
+| \`service.environment.terraform\` | \`path\` \`resource\` \`attribute\`, or a string path |
 | \`service.environments.<name>\` | same shape as \`service.environment\` |
 | \`service.expose\` | \`enabled\` \`host\` \`port\` (or the \`true\` shorthand) |
 | \`proxy\` | \`enabled\` \`inspect_max_bytes\` \`gateway\` \`credentials\` \`listen\` \`token_endpoint\` \`routes\` |
@@ -435,7 +437,8 @@ complete allowlists.
 | \`secrets\` | \`extra_markers\` \`extra_patterns\` |
 | \`doctor\` | \`tools\` (each \`{ name, command }\`) |
 | \`plugins[]\` | \`path\` |
-| \`environment\` | \`sources\` \`secrets\` |
+| \`environment\` | \`sources\` \`secrets\` \`sops\` |
+| \`environment.sops\` | \`file\` \`input_type\` \`key_map\` |
 
 There is no \`depends_on\`, \`build\`, \`replicas\`, or \`env_file\`. Container fields
 belong under \`service.container\`, not directly on the service.
@@ -801,13 +804,15 @@ Named overlay files may be committed; do not gitignore all of \`overlays/\`.
 Merge order — later sources win:
 
 \`\`\`
-process → profile → dotenv → secrets_env → generated → keychain → sops → secret_manager → defaults → vars → profile_service → runtime
+process → profile → dotenv → secrets_env → generated → keychain → sops → secret_manager → defaults → terraform → vars → profile_service → runtime
 \`\`\`
 
-\`process\`, \`secrets_env\`, \`defaults\`, \`vars\`, \`profile_service\` and \`runtime\` always run. Listing
+\`process\`, \`secrets_env\`, \`defaults\`, \`terraform\`, \`vars\`, \`profile_service\` and \`runtime\` always run. Listing
 \`environment.sources\` **adds** optional sources (\`profile\`, \`dotenv\`,
 \`generated\`, \`keychain\`, \`sops\`, \`secret_manager\`) to that always-on set — it does not
-replace it, and it does not reorder anything.
+replace it, and it does not reorder anything. \`terraform\` is not an
+\`environment.sources\` entry. It reads \`services.<name>.environment.terraform\`
+when that field is set.
 
 - \`dotenv\` reads repo root then \`working_dir\`: \`.env\`, \`.env.development\`,
   \`.env.local\`, \`.env.<profile>\`.
@@ -831,6 +836,17 @@ replace it, and it does not reorder anything.
 - \`environment.required\` on a service fails the start if those keys are still
   empty after the whole merge — the right place to encode "this cannot run
   without X".
+- \`environment.terraform\` on a service (or a named overlay) reads literal env
+  values from a \`.tf\` file or a directory of \`*.tf\`. \`path\` is required and
+  must stay inside the repo. Optional \`resource\` is \`type.name\`, \`module.name\`,
+  or \`data.type.name\`. Optional \`attribute\` adds one map name. A string is
+  shorthand for \`path\`. Interpolations and \`value_source\` secrets are skipped.
+  \`.tfvars\` is not read. The path must contain at least one literal or
+  validate fails. Terraform wins over \`defaults\` and dotenv; explicit YAML
+  keys, named overlays, and \`service_environment\` still win. A \`terraform\`
+  path on \`profiles.<name>.service_environment.<svc>\` replaces the service
+  path for that profile. Do not copy the literals into YAML. See
+  \`docs/environment.md\`.
 
 Runtime values devctl injects: \`SERVICE_PORT\`, \`SERVICE_HOST\`,
 \`DEVCTL_PROXY_URL\`, \`DEVCTL_SERVICE_NAME\`, \`DEVCTL_ENVIRONMENT\`,
@@ -889,6 +905,9 @@ Every message names its path. Fix the path it names.
 | \`services.X.health.url is required for http health checks\` | add \`url\`, or change the type |
 | \`services.X.identity.service_account must be an email\` | placeholder left unresolved |
 | \`services.X.environment.K: unresolvable reference \${…}\` | referenced service or port name does not exist |
+| \`services.X.environment.terraform.path must stay inside the repository\` | path escapes the repo, including via a symlink |
+| \`services.X.environment.terraform.resource "…" was not found\` | \`resource\` does not match a block in that path |
+| \`services.X.environment.terraform: no literal env values\` | file has only interpolations or secret refs |
 | \`services.X.capabilities: unknown capability "c"\` | only the six listed above are accepted |
 | \`profiles.P references unknown service "S"\` | profile lists a service that is not defined |
 | \`profiles.P.environments.S references unknown service "S"\` | overlay bind names a service that is not defined |
@@ -1122,6 +1141,7 @@ grep -rhoE 'resource "google_[a-z_]+"' --include='*.tf' . | sort -u
 | \`google_secret_manager_secret\` | a key under \`environment.secrets\`, mapped to \`projects/<p>/secrets/<name>\`; add \`secret_manager\` to \`environment.sources\` |
 | \`google_cloud_run_v2_service\`, \`google_compute_backend_service\` | if the repo builds it → the local service it corresponds to; if not → a proxy route \`upstream.url\` |
 | \`google_sql_database_instance\`, Pub/Sub topics, GCS buckets | env keys the local service needs; no devctl object of their own |
+| literal \`env\` / \`environment_variables\` / \`env_vars\` on a service you run locally | \`services.<name>.environment.terraform\` — do not copy the literals into YAML |
 | \`google_project_iam_member\` on a SA | tells you which SA a service is *meant* to run as — good evidence for \`identity\` |
 
 ### The judgement call
@@ -1130,7 +1150,11 @@ For each Cloud Run / GKE workload in Terraform, ask: **does this repo contain
 the source and a way to start it?**
 
 - Yes → it is a devctl service. Terraform tells you its identity and which
-  secrets it reads.
+  secrets it reads. Point \`environment.terraform\` at that service's \`.tf\`
+  file or directory (\`resource: type.name\` when the file defines more than
+  one workload) so literal env values are read from Terraform. Do not copy
+  those literals into YAML. Secret refs stay names under \`environment.secrets\`.
+  \`.tfvars\` stays unread.
 - No → it is a dependency your local services call. If it needs injected auth
   (IAP, impersonation), give it a **proxy route** so local callers hit
   \`127.0.0.1:<proxy>\` and devctl attaches the credential. If it needs no auth,
