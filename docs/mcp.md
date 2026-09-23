@@ -105,8 +105,8 @@ so agents must be given the new snippets.
 | `run_task` | control | Run a named task from configuration; output is also in the log ring as `task:<name>` |
 | `start_proxy` / `stop_proxy` | control | Start or stop the local reverse proxy |
 | `exec_service` | control | Run an arbitrary command in a service's resolved environment/cwd, or inspect its redacted environment with `print_env`. **Off by default.** Enable it on the TUI MCP page. Running a command requires `confirm: true` |
-| `get_setup_guide` | setup | The onboarding guide for authoring a `.devctl`. `section`: `procedure` (default), `authoring`, `discovery`. Same text as [`skills/devctl-onboard`](../skills/devctl-onboard/SKILL.md), compiled into the binary so no skill install is needed |
-| `search_docs` | setup | Keyword search over the compiled-in product docs (`docs/*.md`) and the onboarding skill. Pass `query`; optional `limit` (default 5, max 10). Returns ranked pages with short snippets — pass a hit's `path` to `get_doc` to read the whole page |
+| `get_setup_guide` | setup | The onboarding guide for authoring a `.devctl`, and the procedure for debugging a service that is already running. `section`: `procedure` (default), `authoring`, `discovery`, `debug`. `debug` is [`skills/devctl-debug`](../skills/devctl-debug/SKILL.md). The other sections are [`skills/devctl-onboard`](../skills/devctl-onboard/SKILL.md). Compiled into the binary so no skill install is needed |
+| `search_docs` | setup | Keyword search over the compiled-in product docs (`docs/*.md`) and the onboarding and service-debug skills. Pass `query`; optional `limit` (default 5, max 10). Returns ranked pages with short snippets — pass a hit's `path` to `get_doc` to read the whole page |
 | `get_doc` | setup | Return the full text of one embedded doc page. Pass `path` from a `search_docs` hit (e.g. `docs/proxy.md`); an unambiguous basename like `proxy.md` also resolves |
 | `validate_config` | setup | Validate configuration and return the loader's exact issues. No arguments validates what is on disk; `text` validates a candidate `config.yaml` through the real load pipeline before it is written |
 

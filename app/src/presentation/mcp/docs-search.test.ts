@@ -35,6 +35,11 @@ describe("searchDocs", () => {
     expect(result.hits.some((hit) => hit.path.includes("devctl-onboard"))).toBe(true);
   });
 
+  test("includes the service-debug skill when it matches", () => {
+    const result = searchDocs("crash loop print-env unhealthy");
+    expect(result.hits.some((hit) => hit.path === "skills/devctl-debug/SKILL.md")).toBe(true);
+  });
+
   test("rejects an empty query", () => {
     expect(() => searchDocs("")).toThrow(/query is required/);
     expect(() => searchDocs("   ")).toThrow(/query is required/);

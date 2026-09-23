@@ -58,4 +58,4 @@ When you add an **internals** page: add it to `docs/internals/README.md` **and**
 
 ## Skills
 
-`skills/devctl-onboard/` is for agents configuring **other** repositories. Changing the loader without updating `references/authoring.md` causes silent YAML that the schema accepts and `validate()` rejects.
+`skills/devctl-onboard/` is for agents configuring **other** repositories. Changing the loader without updating `references/authoring.md` causes silent YAML that the schema accepts and `validate()` rejects. `skills/devctl-debug/` is the procedure for diagnosing a service that is already running; `sync-guide` embeds it as `get_setup_guide` section `debug`.

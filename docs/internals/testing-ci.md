@@ -38,7 +38,7 @@ Prefer fakes at ports over mocking module internals. Do not add architecture all
 
 ## Generated fixtures
 
-After editing `docs/*.md` (top-level) or `skills/devctl-onboard/`, run `bun run sync-guide` or `docs-search.test.ts` / `guide.test.ts` fail.
+After editing `docs/*.md` (top-level), `skills/devctl-onboard/`, or `skills/devctl-debug/`, run `bun run sync-guide` or `docs-search.test.ts` / `guide.test.ts` fail.
 
 After editing `app/web/`, run `bun run build:web`.
 

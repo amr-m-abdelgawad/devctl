@@ -1,0 +1,8 @@
+---
+description: Debug a service devctl is already supervising (crash, health, logs, env, traffic). Not for authoring .devctl YAML.
+alwaysApply: false
+---
+
+Follow `skills/devctl-debug/SKILL.md` when the user asks to debug, trace, or explain a service devctl is running.
+
+Do not rewrite `.devctl` configuration from this rule. Authoring and fixing YAML is `skills/devctl-onboard/SKILL.md`.

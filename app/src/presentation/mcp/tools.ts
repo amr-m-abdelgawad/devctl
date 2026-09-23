@@ -499,14 +499,14 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "How to author a .devctl for this repo",
     category: "setup",
     description:
-      "The devctl onboarding guide: how to survey a repository and author a .devctl configuration for it. Read section=procedure first; read section=authoring BEFORE writing any YAML (it carries the rules the loader rejects on, which the JSON Schema does not state); read section=discovery for mapping compose/package.json/pyproject/Terraform/k8s/.env to services. Write the files with your own editing tools — this server does not write them — then check your work with validate_config.",
+      "The devctl onboarding guide, plus the service-debugging procedure. Read section=procedure first when authoring a .devctl; read section=authoring BEFORE writing any YAML (it carries the rules the loader rejects on, which the JSON Schema does not state); read section=discovery for mapping compose/package.json/pyproject/Terraform/k8s/.env to services. Read section=debug when a service devctl is already running is crashing, unhealthy, or returning a bad response — that section does not author YAML. Write configuration with your own editing tools — this server does not write them — then check your work with validate_config.",
     inputSchema: {
       type: "object",
       properties: {
         section: {
           type: "string",
-          enum: ["procedure", "authoring", "discovery"],
-          description: "Which part of the guide to return; defaults to procedure",
+          enum: ["procedure", "authoring", "discovery", "debug"],
+          description: "Which part of the guide to return. procedure (default), authoring, and discovery onboard a repo. debug diagnoses a service that is already running.",
         },
       },
       additionalProperties: false,
@@ -518,7 +518,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Search the embedded product documentation",
     category: "setup",
     description:
-      "Search the compiled-in product documentation (docs/*.md plus the onboarding skill). Returns ranked pages with short snippets for discovery. To read a full page, pass a hit's `path` to get_doc. Use this for IAP, proxy, MCP, configuration, and similar topics; use get_setup_guide for the full onboarding procedure.",
+      "Search the compiled-in product documentation (docs/*.md plus the onboarding and service-debug skills). Returns ranked pages with short snippets for discovery. To read a full page, pass a hit's `path` to get_doc. Use this for IAP, proxy, MCP, configuration, and similar topics; use get_setup_guide for the full onboarding procedure or section=debug to diagnose a running service.",
     inputSchema: {
       type: "object",
       properties: {

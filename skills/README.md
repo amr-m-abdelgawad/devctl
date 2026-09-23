@@ -8,12 +8,16 @@ Code.
 | Skill | What it does |
 |---|---|
 | [`devctl-onboard`](devctl-onboard/SKILL.md) | Surveys a repository — services, docker-compose, Terraform, Kubernetes manifests, `.env` files, task runners — and authors a validated `.devctl/` configuration for it. |
+| [`devctl-debug`](devctl-debug/SKILL.md) | Diagnoses a service devctl is already running: crashes, health, logs, environment, and proxy hops. Does not author or repair `.devctl` YAML. |
 
-`SKILL.md` is the single source of truth. This repository already points at it
-from [`AGENTS.md`](../AGENTS.md), [`.cursor/rules/devctl-onboard.mdc`](../.cursor/rules/devctl-onboard.mdc),
-and [`.kilocode/rules/devctl-onboard.md`](../.kilocode/rules/devctl-onboard.md).
+`SKILL.md` is the single source of truth. This repository already points at
+onboarding from [`AGENTS.md`](../AGENTS.md), [`.cursor/rules/devctl-onboard.mdc`](../.cursor/rules/devctl-onboard.mdc),
+and [`.kilocode/rules/devctl-onboard.md`](../.kilocode/rules/devctl-onboard.md),
+and at service debugging from [`.cursor/rules/devctl-debug.mdc`](../.cursor/rules/devctl-debug.mdc)
+and [`.kilocode/rules/devctl-debug.md`](../.kilocode/rules/devctl-debug.md).
 The per-agent setup below is for installing the same pointer into **another**
-repo you are onboarding.
+repo. `devctl-debug` installs the same way as `devctl-onboard`; point the
+rule at `skills/devctl-debug/SKILL.md`.
 
 ## Claude Code
 

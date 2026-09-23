@@ -1,0 +1,1 @@
+When asked to debug a service devctl is already running — a crash, a health failure, a bad response, or a missing environment value — follow skills/devctl-debug/SKILL.md. Read status, logs, print-env, and proxy traffic. Do not rewrite .devctl YAML; that is skills/devctl-onboard/SKILL.md.

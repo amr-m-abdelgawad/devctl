@@ -6,12 +6,14 @@ import { getSetupGuide, MCP_TOOLS } from "./tools.ts";
 
 // src/presentation/mcp -> presentation -> src -> app -> repo root
 const repoRoot = dirname(dirname(dirname(dirname(import.meta.dir))));
-const skill = join(repoRoot, "skills", "devctl-onboard");
+const onboard = join(repoRoot, "skills", "devctl-onboard");
+const debug = join(repoRoot, "skills", "devctl-debug");
 
 const SOURCES: Array<[keyof typeof GUIDE_SECTIONS, string]> = [
-  ["procedure", join(skill, "SKILL.md")],
-  ["authoring", join(skill, "references", "authoring.md")],
-  ["discovery", join(skill, "references", "discovery.md")],
+  ["procedure", join(onboard, "SKILL.md")],
+  ["authoring", join(onboard, "references", "authoring.md")],
+  ["discovery", join(onboard, "references", "discovery.md")],
+  ["debug", join(debug, "SKILL.md")],
 ];
 
 describe("setup guide", () => {
@@ -37,7 +39,7 @@ describe("setup guide", () => {
       const result = getSetupGuide({ section: key }) as { section: string; text: string; sections: string[] };
       expect(result.section).toBe(key);
       expect(result.text).toBe(GUIDE_SECTIONS[key]);
-      expect(result.sections).toEqual(["procedure", "authoring", "discovery"]);
+      expect(result.sections).toEqual(["procedure", "authoring", "discovery", "debug"]);
     }
   });
 

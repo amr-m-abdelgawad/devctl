@@ -15,7 +15,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Examples & recipes](examples.md) | Frontend, workers, containers, proxy, and tracing workflows |
 | [Developer setup](developer-setup.md) | Day-to-day loop without admin privileges |
 | [Demo platform](../examples/demo-platform/README.md) | Local invoicing example (no Google Cloud; opt-in Docker `data` profile) |
-| [Agent skills](../skills/README.md) | Onboard a repo: survey what it runs and author `.devctl/` |
+| [Agent skills](../skills/README.md) | Onboard a repo, or debug a service devctl is already running |
 
 ## Using it
 

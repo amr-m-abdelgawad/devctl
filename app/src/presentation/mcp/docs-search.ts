@@ -35,6 +35,7 @@ function guidePages(): DocPage[] {
     { path: "skills/devctl-onboard/SKILL.md", title: "Onboard procedure", body: GUIDE_SECTIONS.procedure },
     { path: "skills/devctl-onboard/references/authoring.md", title: "Onboard authoring", body: GUIDE_SECTIONS.authoring },
     { path: "skills/devctl-onboard/references/discovery.md", title: "Onboard discovery", body: GUIDE_SECTIONS.discovery },
+    { path: "skills/devctl-debug/SKILL.md", title: "Debug a running service", body: GUIDE_SECTIONS.debug },
   ];
 }
 
