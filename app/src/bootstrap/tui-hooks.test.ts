@@ -67,6 +67,40 @@ test("diagnostics preserves progress and ignores an older run finishing after a 
   } finally { await mounted.close(); }
 });
 
+test("refreshing a freed port patches that row and does not rerun doctor", async () => {
+  const client = createClient();
+  client.detectGoogle = async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" });
+  const workspace = createTuiWorkspace(client);
+  const cfg = defaultConfig();
+  let runs = 0;
+  workspace.runDoctor = async () => {
+    runs += 1;
+    return {
+      issues: 1,
+      checks: [
+        { name: "gcloud", severity: "warn", message: "missing" },
+        { name: "Port 8080", severity: "error", message: "in use by node (pid 9)", action: { kind: "free-port", holder: { port: 8080, pid: 9, command: "node" } } },
+      ],
+    };
+  };
+  workspace.recheckPort = async (port) => {
+    expect(port).toBe(8080);
+    return { name: "Port 8080", severity: "ok", message: "available" };
+  };
+  const mounted = await mountHook(useDiagnostics, { workspace, cfg, screen: "doctor", setSnap: () => {}, setStatus: () => {} });
+  try {
+    await act(async () => {});
+    expect(runs).toBe(1);
+    expect(mounted.value.doctor?.issues).toBe(1);
+    await act(async () => { await mounted.value.refreshPort(8080); });
+    expect(runs).toBe(1);
+    expect(mounted.value.doctor?.checks[1]).toEqual({ name: "Port 8080", severity: "ok", message: "available" });
+    expect(mounted.value.doctor?.checks[0]?.name).toBe("gcloud");
+    expect(mounted.value.doctor?.issues).toBe(1);
+    expect(mounted.value.doctorLoading).toBe(false);
+  } finally { await mounted.close(); }
+});
+
 test("log view keeps a pinned window stable as new logs arrive and clears only its local view", async () => {
   const statuses: string[] = [];
   const mounted = await mountHook(useLogView, {

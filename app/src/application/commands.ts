@@ -2,7 +2,7 @@ import type { DevctlConfig } from "../domain/config/types.ts";
 import { startupPlan, shutdownPlan, resolveStartRequest, type Plan } from "../domain/service/services.ts";
 import type { StartRequest, StatusSnapshot, ReloadResult } from "../domain/status.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
-import type { DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
+import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
 import { profileId, type ProfileId, serviceId, type ServiceId } from "../domain/ids.ts";
 import type { DaemonCommandHost, ServiceOrchestratorPort } from "../ports/daemon.ts";
 
@@ -74,6 +74,9 @@ export class RunDoctor {
   constructor(private readonly runner: DoctorRunner) {}
   execute(cfg: DevctlConfig, onProgress?: (progress: DoctorProgress) => void, runtime?: DoctorRuntimeContext): Promise<Report> {
     return this.runner.run(cfg, onProgress, runtime);
+  }
+  recheckPort(port: number): Promise<Check> {
+    return this.runner.recheckPort(port);
   }
 }
 

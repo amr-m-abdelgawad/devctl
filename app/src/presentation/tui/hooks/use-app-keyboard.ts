@@ -43,7 +43,7 @@ type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart" | "planBusy">;
   mcp: Pick<ReturnType<typeof useMcpControls>, "applyMcpPortDraft" | "toggleMcp" | "toggleMcpTool" | "copyFocusedMcpSnippet" | "persistMcpPort" | "restartMcpOnPort" | "setMcpPortDraft">;
   preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "applyLogTimestamps" | "applyLogMetadata">;
-  diagnostics: Pick<ReturnType<typeof useDiagnostics>, "doctor" | "refreshAuth" | "setDoctorTick">;
+  diagnostics: Pick<ReturnType<typeof useDiagnostics>, "doctor" | "refreshAuth" | "refreshPort" | "setDoctorTick">;
   refs: KeyboardRefs;
 };
 
@@ -124,9 +124,9 @@ export function useAppKeyboard({
         return;
       }
       void freePort(holder)
+        .then(() => diagnostics.refreshPort(holder.port))
         .then(() => {
           setStatus(`Stopped ${holder.command} (pid ${holder.pid}) on port ${holder.port}`);
-          diagnostics.setDoctorTick((tick) => tick + 1);
         })
         .catch((err: unknown) => {
           setStatus(humanMessage(err));

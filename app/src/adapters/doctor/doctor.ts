@@ -99,7 +99,16 @@ const defaultHost: DoctorHost = createDoctorHost();
 export function createDoctorRunner(host: DoctorHost = createDoctorHost()): DoctorRunner {
   return {
     run: (cfg, onProgress, runtime) => runDoctor(cfg, host, onProgress, runtime),
+    recheckPort: (port) => recheckPort(port, host),
   };
+}
+
+export async function recheckPort(port: number, host: DoctorHost = defaultHost): Promise<Check> {
+  const label = `Port ${port}`;
+  if (await host.portAvailable(port)) {
+    return { name: label, severity: "ok", message: "available" };
+  }
+  return busyPortCheck(label, port, "the configured port");
 }
 
 export async function runDoctor(

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
+import { replacePortCheck } from "../../../domain/doctor/report.ts";
 import { type DoctorProgress, type Report } from "../../../domain/doctor/types.ts";
 import { type GoogleStatus } from "../../../domain/identity/google-status.ts";
 import { humanMessage } from "../../../shared/errors.ts";
@@ -31,7 +32,7 @@ export function useDiagnostics({
   setSnap,
   setStatus,
 }: Options) {
-  const { detectGoogle, runDoctor, loadPath } = workspace;
+  const { detectGoogle, runDoctor, loadPath, recheckPort } = workspace;
   const [google, setGoogle] = useState<GoogleStatus | undefined>();
   const [doctor, setDoctor] = useState<Report | undefined>();
   const [doctorLoading, setDoctorLoading] = useState(false);
@@ -121,5 +122,10 @@ export function useDiagnostics({
       });
   }, [screen, cfg, doctorTick, snap?.session_id, configReloadError]);
 
-  return { google, setGoogle, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick, refreshAuth };
+  const refreshPort = useCallback(async (port: number) => {
+    const next = await recheckPort(port);
+    setDoctor((current) => (current ? replacePortCheck(current, port, next) : current));
+  }, [recheckPort]);
+
+  return { google, setGoogle, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick, refreshAuth, refreshPort };
 }

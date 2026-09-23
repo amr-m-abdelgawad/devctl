@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Freeing a busy port from the TUI Doctor screen rechecks that port only. It no longer reruns the full doctor. See [Doctor](docs/doctor.md).
+
 ## [0.21.0] - 2026-09-23
 
 ### Added

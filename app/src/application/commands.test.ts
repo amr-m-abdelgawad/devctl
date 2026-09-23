@@ -16,6 +16,7 @@ test("doctor can run through a replacement port with progress and daemon context
       onProgress?.({ active: "Diagnostics complete", checks: report.checks });
       return report;
     },
+    recheckPort: async () => ({ name: "Port 0", severity: "ok", message: "available" }),
   };
   expect(await new RunDoctor(runner).execute(cfg, (progress) => updates.push(progress), runtime)).toBe(report);
   expect(updates).toEqual([{ active: "Diagnostics complete", checks: report.checks }]);
@@ -23,7 +24,7 @@ test("doctor can run through a replacement port with progress and daemon context
 
 test("a failed doctor runner propagates its error to the caller", async () => {
   const error = new Error("diagnostic runner unavailable");
-  const command = new RunDoctor({ run: async () => { throw error; } });
+  const command = new RunDoctor({ run: async () => { throw error; }, recheckPort: async () => { throw error; } });
   await expect(command.execute(defaultConfig())).rejects.toBe(error);
 });
 

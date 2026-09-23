@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
-import { createDoctorRunner, runDoctor, type DoctorHost } from "./doctor.ts";
+import { createDoctorRunner, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 
 const IAP_CLIENT_ID = "desktop.apps.googleusercontent.com";
@@ -60,6 +60,17 @@ function offlineHost(): DoctorHost {
 }
 
 describe("doctor", () => {
+  test("recheckPort only asks whether that port is free", async () => {
+    const seen: number[] = [];
+    const host = offlineHost();
+    host.portAvailable = async (port) => {
+      seen.push(port);
+      return port === 18080;
+    };
+    expect(await recheckPort(18080, host)).toEqual({ name: "Port 18080", severity: "ok", message: "available" });
+    expect(seen).toEqual([18080]);
+  });
+
   test("skips live impersonation when the repo is local-only", async () => {
     const report = await runDoctor(localCfg(), offlineHost());
     expect(report.checks.some((c) => c.name.startsWith("Impersonate "))).toBe(false);
