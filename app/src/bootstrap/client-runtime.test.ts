@@ -48,6 +48,7 @@ test("TUI workspace forwards diagnostics progress and attached daemon context", 
       onProgress?.({ active: "Complete", checks: [] });
       return report;
     },
+    recheckPort: async () => ({ name: "Port 0", severity: "ok", message: "available" }),
   } });
   const workspace = createTuiWorkspace(client);
   expect(await workspace.runDoctor(cfg, (update) => updates.push(update), context)).toBe(report);
