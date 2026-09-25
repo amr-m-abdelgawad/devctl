@@ -115,7 +115,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
 
 /** Entry used by the CLI’s internal daemon command. */
 export async function runDaemon(repoRoot: string, configPath: string): Promise<void> {
-  startEventLoopWatchdog();
+  const watchdog = startEventLoopWatchdog();
   // loadOrEmpty, not load: a daemon is only ever spawned because a client
   // already decided one should exist, so a missing configuration here means
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An
@@ -133,13 +133,18 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // admin `kill`, a container orchestrator). Without a handler, Node's
   // default action skips shutdown() entirely — including flushing the
   // now-asynchronous log writes — so register one as a safety net.
-  let shuttingDown = false;
+  // Both the shutdown RPC and a signal end here. The watchdog worker (and
+  // any handle a subsystem failed to close) would otherwise keep the process
+  // alive after the socket is gone, so exit once teardown has finished.
+  void sup.stopped.then(() => {
+    watchdog.stop();
+    process.exit(0);
+  });
   const onSignal = (): void => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-    void sup.shutdown(stopOnExit(cfg.shutdown)).finally(() => process.exit(0));
+    // A failed teardown still resolves `stopped`, so the process exits.
+    sup.shutdown(stopOnExit(cfg.shutdown)).catch((err: unknown) => {
+      process.stderr.write(`devctl: shutdown failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    });
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);

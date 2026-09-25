@@ -5,7 +5,7 @@ import { followLogs } from "./cli.ts";
 import { parseEnvPairs } from "./lifecycle.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
 import { formatBodySummary, logRecord, type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
-import { killRepoSupervisor, processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
+import { killRepoSupervisor, processAlive, readPersistedState, readRepoLock } from "../../adapters/storage/storage.ts";
 
 function tmp(): string {
   const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-cli-${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -24,6 +24,15 @@ async function stopSpawned(dir: string, originalArgv1?: string): Promise<void> {
   if (originalArgv1 !== undefined) {
     process.argv[1] = originalArgv1;
   }
+}
+
+// `down` must end the supervisor process itself, not just its socket (#132).
+async function expectExited(pid: number): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (processAlive(pid) && Date.now() < deadline) {
+    await Bun.sleep(50);
+  }
+  expect(processAlive(pid)).toBe(false);
 }
 
 function captureStdout(): { output: () => string; restore: () => void } {
@@ -101,9 +110,12 @@ services:
     try {
       const startOut = await run(["--config", configFile(dir), "start", "api", "--detach"]);
       expect(startOut).toContain("detached");
+      const supervisorPid = readRepoLock(dir)?.pid ?? 0;
+      expect(supervisorPid).toBeGreaterThan(0);
 
       const downOut = await run(["down", "--repo", dir]);
       expect(downOut).toContain("stopped services and the supervisor");
+      await expectExited(supervisorPid);
 
       const statusOut = await run(["status", "--repo", dir]);
       expect(statusOut).toContain("supervisor is not running");
@@ -134,9 +146,12 @@ services:
       const beforeDown = readPersistedState(dir);
       pid = beforeDown?.processes.find((p) => p.name === "api")?.pid ?? 0;
       expect(pid).toBeGreaterThan(0);
+      const supervisorPid = readRepoLock(dir)?.pid ?? 0;
+      expect(supervisorPid).toBeGreaterThan(0);
 
       const downOut = await run(["down", "--repo", dir, "--keep-services"]);
       expect(downOut).toContain("its services keep running");
+      await expectExited(supervisorPid);
 
       const statusOut = await run(["status", "--repo", dir]);
       expect(statusOut).toContain("supervisor is not running");
