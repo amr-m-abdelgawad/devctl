@@ -141,17 +141,22 @@ services:
     const originalArgv1 = process.argv[1] ?? "";
     process.argv[1] = join(import.meta.dir, "../../bin.ts");
     let pid = 0;
+    let supervisorPid = 0;
     try {
       await run(["--config", configFile(dir), "start", "api", "--detach"]);
       const beforeDown = readPersistedState(dir);
       pid = beforeDown?.processes.find((p) => p.name === "api")?.pid ?? 0;
       expect(pid).toBeGreaterThan(0);
-      const supervisorPid = readRepoLock(dir)?.pid ?? 0;
+      supervisorPid = readRepoLock(dir)?.pid ?? 0;
       expect(supervisorPid).toBeGreaterThan(0);
 
       const downOut = await run(["down", "--repo", dir, "--keep-services"]);
       expect(downOut).toContain("its services keep running");
-      await expectExited(supervisorPid);
+      // On Windows services are not detached and would die with the
+      // supervisor, so it deliberately stays up there (see runDaemon).
+      if (process.platform !== "win32") {
+        await expectExited(supervisorPid);
+      }
 
       const statusOut = await run(["status", "--repo", dir]);
       expect(statusOut).toContain("supervisor is not running");
@@ -163,11 +168,15 @@ services:
       expect(processAlive(pid)).toBe(true);
     } finally {
       await stopSpawned(dir, originalArgv1);
-      if (pid > 0) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // already gone
+      // The lock is gone after `down`, so stopSpawned can't find a
+      // supervisor that deliberately stays up on Windows; kill it by pid.
+      for (const leftover of [pid, supervisorPid]) {
+        if (leftover > 0) {
+          try {
+            process.kill(leftover, "SIGKILL");
+          } catch {
+            // already gone
+          }
         }
       }
     }

@@ -118,9 +118,9 @@ export class Supervisor {
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
   private shuttingDown = false;
-  private markStopped: () => void = () => undefined;
+  private markStopped: (result: { servicesStopped: boolean }) => void = () => undefined;
   /** Resolves once shutdown() has finished tearing everything down. */
-  readonly stopped: Promise<void> = new Promise((resolve) => {
+  readonly stopped: Promise<{ servicesStopped: boolean }> = new Promise((resolve) => {
     this.markStopped = resolve;
   });
   private detached = false;
@@ -948,7 +948,7 @@ export class Supervisor {
     try {
       await this.teardown(stopServices);
     } finally {
-      this.markStopped();
+      this.markStopped({ servicesStopped: stopServices });
     }
   }
 
