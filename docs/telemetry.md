@@ -32,8 +32,8 @@ In the TUI, `enter` on a log opens the details overlay: the body, an
 
 ## OTLP receiver
 
-An opt-in loopback endpoint that accepts **OTLP/HTTP + JSON** for logs and
-traces. It is off until you enable it, and rejects any non-loopback bind (both
+An opt-in loopback endpoint that accepts **OTLP/HTTP** logs and traces, as
+JSON or protobuf. It is off until you enable it, and rejects any non-loopback bind (both
 at `devctl config validate` and at listen time).
 
 ```yaml
@@ -45,8 +45,14 @@ telemetry:
       port: 4318                  # default 4318 (standard OTLP/HTTP)
 ```
 
-It serves `POST /v1/logs` and `POST /v1/traces` (JSON only; other methods and
-paths are rejected). Its port must differ from the proxy, token-endpoint, and
+It serves `POST /v1/logs` and `POST /v1/traces`; other methods and paths are
+rejected. The body may be `Content-Type: application/json` (OTLP/JSON, also
+assumed when the header is missing) or `application/x-protobuf`
+(`Export*ServiceRequest`), optionally with `Content-Encoding: gzip`
+(`OTEL_EXPORTER_OTLP_COMPRESSION=gzip`). A protobuf request gets a protobuf
+response. Any other content type or encoding gets `415` naming the accepted
+ones; a body that does not decode gets `400`; a body over 4 MiB, before or
+after decompression, gets `413`. Its port must differ from the proxy, token-endpoint, and
 any gRPC route port — a collision is reported at config-validation time.
 
 When the receiver is enabled, devctl injects the standard exporter variables
@@ -60,7 +66,10 @@ OTEL_SERVICE_NAME             <service>
 ```
 
 So a service instrumented with an OpenTelemetry SDK exports to devctl with no
-per-service configuration. Only OTLP/HTTP+JSON is accepted (no protobuf/gRPC).
+per-service configuration. That includes exporters that send protobuf whatever
+`OTEL_EXPORTER_OTLP_PROTOCOL` says, such as Python's
+`opentelemetry-exporter-otlp-proto-http`. OTLP over gRPC (port 4317) and
+`/v1/metrics` are not served.
 
 ## Traces and correlation
 
@@ -124,7 +133,8 @@ trace, and read the responsible service's span and logs — all redacted.
 - `*UnixNano` timestamps are held as JS numbers, so precision is **millisecond**
   granular (fine for display, ordering, and durations ≥ ~1 ms); do not rely on
   exact-nanosecond equality.
-- No new runtime dependency: the OTLP/JSON decode and the model are built in.
+- No new runtime dependency: the OTLP/JSON and protobuf decode and the model
+  are built in.
 
 ## Related
 

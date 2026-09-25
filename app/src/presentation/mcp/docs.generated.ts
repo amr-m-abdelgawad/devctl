@@ -675,7 +675,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`profiles\` | Named service sets, overlay binds, and per-service env |
 | \`proxy\` | Listen address, token endpoint, routes (\`inspect.enabled\` captures bodies) — see [Proxy](proxy.md) |
 | \`logs\` | In-memory cap and persistence |
-| \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
+| \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP receiver, JSON or protobuf (off by default) — see [Telemetry](telemetry.md) |
 | \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Web console](web.md) |
 | \`llm\` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
@@ -1127,7 +1127,7 @@ devctl logs telemetry
 devctl logs --source otlp
 \`\`\`
 
-Copy a trace identifier from the console and pass it to \`devctl logs --trace <trace-id>\`. In your own application, deeper spans require instrumentation and the supported OTLP/HTTP+JSON exporter. See [Telemetry](telemetry.md) and the [web console tour](web.md).
+Copy a trace identifier from the console and pass it to \`devctl logs --trace <trace-id>\`. In your own application, deeper spans require instrumentation and an OTLP/HTTP exporter (JSON or protobuf). See [Telemetry](telemetry.md) and the [web console tour](web.md).
 
 ## Traffic inspector and LLM stub
 
@@ -3709,8 +3709,8 @@ In the TUI, \`enter\` on a log opens the details overlay: the body, an
 
 ## OTLP receiver
 
-An opt-in loopback endpoint that accepts **OTLP/HTTP + JSON** for logs and
-traces. It is off until you enable it, and rejects any non-loopback bind (both
+An opt-in loopback endpoint that accepts **OTLP/HTTP** logs and traces, as
+JSON or protobuf. It is off until you enable it, and rejects any non-loopback bind (both
 at \`devctl config validate\` and at listen time).
 
 \`\`\`yaml
@@ -3722,8 +3722,14 @@ telemetry:
       port: 4318                  # default 4318 (standard OTLP/HTTP)
 \`\`\`
 
-It serves \`POST /v1/logs\` and \`POST /v1/traces\` (JSON only; other methods and
-paths are rejected). Its port must differ from the proxy, token-endpoint, and
+It serves \`POST /v1/logs\` and \`POST /v1/traces\`; other methods and paths are
+rejected. The body may be \`Content-Type: application/json\` (OTLP/JSON, also
+assumed when the header is missing) or \`application/x-protobuf\`
+(\`Export*ServiceRequest\`), optionally with \`Content-Encoding: gzip\`
+(\`OTEL_EXPORTER_OTLP_COMPRESSION=gzip\`). A protobuf request gets a protobuf
+response. Any other content type or encoding gets \`415\` naming the accepted
+ones; a body that does not decode gets \`400\`; a body over 4 MiB, before or
+after decompression, gets \`413\`. Its port must differ from the proxy, token-endpoint, and
 any gRPC route port — a collision is reported at config-validation time.
 
 When the receiver is enabled, devctl injects the standard exporter variables
@@ -3737,7 +3743,10 @@ OTEL_SERVICE_NAME             <service>
 \`\`\`
 
 So a service instrumented with an OpenTelemetry SDK exports to devctl with no
-per-service configuration. Only OTLP/HTTP+JSON is accepted (no protobuf/gRPC).
+per-service configuration. That includes exporters that send protobuf whatever
+\`OTEL_EXPORTER_OTLP_PROTOCOL\` says, such as Python's
+\`opentelemetry-exporter-otlp-proto-http\`. OTLP over gRPC (port 4317) and
+\`/v1/metrics\` are not served.
 
 ## Traces and correlation
 
@@ -3801,7 +3810,8 @@ trace, and read the responsible service's span and logs — all redacted.
 - \`*UnixNano\` timestamps are held as JS numbers, so precision is **millisecond**
   granular (fine for display, ordering, and durations ≥ ~1 ms); do not rely on
   exact-nanosecond equality.
-- No new runtime dependency: the OTLP/JSON decode and the model are built in.
+- No new runtime dependency: the OTLP/JSON and protobuf decode and the model
+  are built in.
 
 ## Related
 
@@ -4275,7 +4285,7 @@ The overview counters use lifetime totals for the current supervisor, while tabl
 3. Inspect the correlated logs for the same trace to see what the service reported.
 4. Make your change, restart the affected service if needed, and repeat the request.
 
-The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP+JSON**, not protobuf or gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
+The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP** as JSON or protobuf, not gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
 
 ## Read logs, LLM calls, and traffic
 
@@ -4304,7 +4314,7 @@ The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspe
 | Browser cannot connect | Run \`devctl web status\`, then \`devctl web start --print-url\`; use the address it prints. |
 | Pages load but controls fail | Reopen the access link from \`devctl web start --print-url\` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
-| No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
+| No application traces | Check your instrumentation and OTLP/HTTP exporter configuration in [Telemetry](telemetry.md). |
 | Cannot bind the listener | Check for a port conflict with \`devctl doctor\` or \`#/doctor\` and choose an unused loopback port. |
 | ADC missing | Open Identity from the header chip, then \`devctl auth login\` or TUI \`/auth login\`. |
 

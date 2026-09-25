@@ -88,7 +88,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `profiles` | Named service sets, overlay binds, and per-service env |
 | `proxy` | Listen address, token endpoint, routes (`inspect.enabled` captures bodies) — see [Proxy](proxy.md) |
 | `logs` | In-memory cap and persistence |
-| `telemetry.otlp` | Opt-in loopback OTLP/HTTP+JSON receiver (off by default) — see [Telemetry](telemetry.md) |
+| `telemetry.otlp` | Opt-in loopback OTLP/HTTP receiver, JSON or protobuf (off by default) — see [Telemetry](telemetry.md) |
 | `web` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Web console](web.md) |
 | `llm` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | `auth.refresh_threshold_seconds` | Token refresh window (default 300) |
