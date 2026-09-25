@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Freeing a busy port from the TUI Doctor screen rechecks that port only. It no longer reruns the full doctor. See [Doctor](docs/doctor.md).
 
+### Fixed
+
+- An `http` or `grpc` health check can target a `ports: auto` service. `${services.<name>.…}` in `health.url` and `health.address` now expands from the currently assigned ports before every probe, instead of being passed to the probe literally (which left the service `UNHEALTHY` forever). `devctl config validate` rejects a reference in those fields that could never expand, and names the field. See [Services](docs/services.md#health). (#111)
+- A plain-text log line that ends with a JSON object or Python dict, such as `upload failed: 400, reason: {"error": "quota exceeded"}`, keeps the whole line as its message. The object's fields, including its severity, request id, trace ids, and time, go into attributes. Before, the object replaced the message, and the text before it survived only in `raw`. A logger preamble (timestamp, level, logger name, bracketed tag) before the object is still stripped as before. (#113)
+
 ## [0.21.0] - 2026-09-23
 
 ### Added

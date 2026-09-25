@@ -38,6 +38,26 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.includes("dependency cycle"))).toBe(true);
   });
 
+  test("accepts health templates that reference a declared port", () => {
+    const cfg = withService("api");
+    cfg.services.api!.ports = [{ name: "http", value: 0, auto: true }];
+    cfg.services.api!.health = { ...cfg.services.api!.health, type: "http", url: "http://127.0.0.1:${services.api.ports.http}/" };
+    expect(validate(cfg).filter((issue) => issue.includes("health"))).toEqual([]);
+  });
+
+  test("rejects health templates that could never expand, naming the field", () => {
+    const cfg = withService("api");
+    cfg.services.api!.ports = [{ name: "http", value: 0, auto: true }];
+    cfg.services.api!.health = { ...cfg.services.api!.health, type: "http", url: "http://127.0.0.1:${services.api.ports.admin}/" };
+    expect(validate(cfg).some((issue) => issue.startsWith("services.api.health.url: unresolvable reference ${services.api.ports.admin}"))).toBe(true);
+    cfg.services.api!.health = { ...cfg.services.api!.health, type: "grpc", url: "", address: "${env.GRPC_ADDR}" };
+    expect(validate(cfg).some((issue) => issue.startsWith("services.api.health.address: unresolvable reference ${env.GRPC_ADDR}"))).toBe(true);
+    for (const ref of ["services.api.bogus", "services.api.ports.5"]) {
+      cfg.services.api!.health = { ...cfg.services.api!.health, type: "grpc", address: `127.0.0.1:\${${ref}}` };
+      expect(validate(cfg).some((issue) => issue.startsWith(`services.api.health.address: unresolvable reference \${${ref}}`)), ref).toBe(true);
+    }
+  });
+
   test("rejects duplicate ports", () => {
     const cfg = withService("a");
     cfg.services.a!.ports = [{ name: "http", value: 8000, auto: false }];

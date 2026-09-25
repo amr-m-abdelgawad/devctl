@@ -1,4 +1,4 @@
-import type { DevctlConfig, ServiceConfig } from "../domain/config/types.ts";
+import type { DevctlConfig, HealthCheckConfig, ServiceConfig } from "../domain/config/types.ts";
 import type { Runtime, ServiceHealth, ServiceState } from "../domain/service/services.ts";
 import type { LogStore } from "./log-store.ts";
 import type { Bus } from "../shared/events.ts";
@@ -21,6 +21,8 @@ export type HealthHost = {
   readonly healthCheckers: HealthCheckerFactory;
   readonly logs: Pick<LogStore, "append">;
   readonly bus: Bus;
+  /** Expands `${services.…}` templates in health.url / health.address; throws naming the field. */
+  resolveHealthConfig(name: string, health: HealthCheckConfig, assigned: Record<string, number>): HealthCheckConfig;
   setState(name: string, state: ServiceState, health: ServiceHealth, pid: number, lastError: string): void;
   persistState(): void;
   log(service: string, level: string, message: string): void;

@@ -129,11 +129,21 @@ export class HealthMonitor {
         return;
       }
       probing = true;
-      const healthResult: Promise<{ status: ServiceHealth; message: string }> = svc.container && svc.health.type.toLowerCase() === "process"
+      // Resolved per probe: a referenced service can restart on a new port.
+      let health = svc.health;
+      let resolveError = "";
+      try {
+        health = this.host().resolveHealthConfig(name, svc.health, assigned);
+      } catch (err) {
+        resolveError = humanMessage(err);
+      }
+      const healthResult: Promise<{ status: ServiceHealth; message: string }> = resolveError !== ""
+        ? Promise.resolve({ status: HealthUnhealthy, message: resolveError })
+        : svc.container && svc.health.type.toLowerCase() === "process"
         ? Promise.resolve(this.processes.isRunning(name)
           ? { status: HealthHealthy, message: "container running" }
           : { status: HealthUnhealthy, message: "container not running" })
-        : Promise.resolve().then(() => this.host().healthCheckers.lookup(svc.health.type)?.check(svc.health, { pid, ports: assigned, workDir, env }) ?? { status: HealthUnhealthy, message: `unknown health type ${svc.health.type}` });
+        : Promise.resolve().then(() => this.host().healthCheckers.lookup(svc.health.type)?.check(health, { pid, ports: assigned, workDir, env }) ?? { status: HealthUnhealthy, message: `unknown health type ${svc.health.type}` });
       void healthResult
         .catch((err: unknown) => ({ status: HealthUnhealthy, message: humanMessage(err) }) as const)
         .then((res) => {

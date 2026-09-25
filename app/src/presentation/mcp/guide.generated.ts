@@ -595,6 +595,11 @@ the process cwd, and not the \`.devctl\` directory itself.
 | \`command\` | \`health.command\` (non-empty) |
 | \`process\` or omitted | nothing; only checks the pid is alive |
 
+\`health.url\` and \`health.address\` may use \`\${services.<name>.port}\`,
+\`.ports.<name>\` (or a fixed port's index), \`.host\` or \`.url\`; they expand
+before every probe from the currently assigned ports, so an \`http\` or \`grpc\`
+check works with \`ports: auto\`. No other reference kind expands in a health field.
+
 \`type: grpc\` calls \`grpc.health.v1.Health/Check\` over h2c (TLS/h2 if cleartext
 is refused). SERVING is healthy; NOT_SERVING, SERVICE_UNKNOWN, and RPC
 failure are not. This only proves **some** process answered Health/Check
@@ -903,6 +908,7 @@ Every message names its path. Fix the path it names.
 | \`http.X: \${token} requires request.auth.type iap or service_account\` | minting auth is required for \`\${token}\` |
 | \`proxy.routes[i].upstream requires either url, service, or recipe\` | every route needs exactly one upstream kind |
 | \`services.X.health.url is required for http health checks\` | add \`url\`, or change the type |
+| \`services.X.health.url: unresolvable reference \${…} (health templates accept only \${services.<name>.…})\` | unknown service or port name, or a non-\`services.\` reference in \`health.url\` / \`health.address\` |
 | \`services.X.identity.service_account must be an email\` | placeholder left unresolved |
 | \`services.X.environment.K: unresolvable reference \${…}\` | referenced service or port name does not exist |
 | \`services.X.environment.terraform.path must stay inside the repository\` | path escapes the repo, including via a symlink |

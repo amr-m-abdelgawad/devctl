@@ -1,6 +1,6 @@
 import { findTemplateRefs } from "../../domain/config/env-ref.ts";
 import { httpOutputDefined, isProcessEnvRef, parseHttpRef, processEnvName } from "../../domain/http/recipes.ts";
-import { firstPort, namedPort, type DevctlConfig, type ServiceConfig } from "../../domain/config/types.ts";
+import { firstPort, namedPort, type DevctlConfig, type HealthCheckConfig, type ServiceConfig } from "../../domain/config/types.ts";
 
 export type HttpValueMap = Record<string, Record<string, string>>;
 
@@ -181,6 +181,76 @@ export function resolveEnvMap(
     out[key] = resolveString(value, cfg, assigned, userEmail, extras);
   }
   return out;
+}
+
+// Health fields that accept `${services.<name>.…}` templates.
+export const HEALTH_TEMPLATE_FIELDS = ["url", "address"] as const;
+
+// Expands `${services.<name>.…}` in health.url and health.address for one
+// service's probe. `running` holds the ports assigned to running services;
+// `own` (this service's assigned ports) wins for its own references, and
+// fixed ports fill in for services that aren't running. Each map follows the
+// service's declared port order, so `.port` picks the first declared port.
+export function resolveHealthConfig(
+  health: HealthCheckConfig,
+  cfg: DevctlConfig,
+  service: string,
+  own: Record<string, number>,
+  running: ReadonlyMap<string, Record<string, number>> = new Map(),
+): HealthCheckConfig {
+  if (!HEALTH_TEMPLATE_FIELDS.some((field) => health[field].includes("${"))) {
+    return health;
+  }
+  const assigned: Record<string, Record<string, number>> = {};
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const live = name === service ? { ...running.get(name), ...own } : running.get(name) ?? {};
+    const ports: Record<string, number> = {};
+    for (const p of svc.ports) {
+      const value = live[p.name] ?? (p.auto ? undefined : p.value);
+      if (value !== undefined) {
+        ports[p.name] = value;
+      }
+    }
+    assigned[name] = { ...ports, ...live };
+  }
+  const resolved = { ...health };
+  for (const field of HEALTH_TEMPLATE_FIELDS) {
+    try {
+      resolved[field] = resolveString(health[field], cfg, assigned);
+    } catch (err) {
+      throw new Error(`health.${field}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return resolved;
+}
+
+// Whether `${ref}` in a health field can expand at probe time: exactly the
+// `services.<name>.port|host|url` and `.ports.<name|index>` forms the resolver
+// accepts. An index must name a fixed port (assigned ports are keyed by name).
+export function healthRefResolvable(ref: string, cfg: DevctlConfig): boolean {
+  const [root, svcName = "", kind = "", portName, ...rest] = ref.split(".");
+  const svc = cfg.services[svcName];
+  if (root !== "services" || !svc || rest.length > 0) {
+    return false;
+  }
+  if (portName === undefined) {
+    if (kind === "host") {
+      return true;
+    }
+    if (kind === "url") {
+      return svc.ports.length > 0 || (cfg.proxy.enabled && cfg.proxy.routes.some((route) => route.upstream.service === svcName));
+    }
+    return kind === "port" && svc.ports.length > 0;
+  }
+  if (kind !== "ports") {
+    return false;
+  }
+  if (namedPort(svc.ports, portName)) {
+    return true;
+  }
+  const index = /^\d+$/.test(portName) ? Number(portName) : -1;
+  const indexed = svc.ports[index];
+  return indexed !== undefined && !indexed.auto;
 }
 
 export function findRefs(value: string): string[] {

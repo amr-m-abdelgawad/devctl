@@ -217,6 +217,18 @@ health:
   interval_seconds: 30
 ```
 
+`health.url` and `health.address` accept `${services.<name>.…}` references (`.port`, `.ports.<name>` or a fixed port's index, `.host`, `.url`), expanded before every probe from the ports currently assigned. This lets an `http` or `grpc` check follow `ports: auto`, including another service that restarts on a new port:
+
+```yaml
+ports:
+  http: auto
+health:
+  type: http
+  url: http://127.0.0.1:${services.api.ports.http}/health
+```
+
+Other health fields, and other reference kinds (`${env.NAME}`, `${identity.user}`, `${http.…}`), are not expanded there. `devctl config validate` rejects them, and any reference to an unknown service or port, naming the field. `type: tcp` with no `address` already checks the assigned `http` port, or the first port.
+
 During `health.start_period_seconds`, failing probes leave the service in its startup state and do not contribute to restart streaks. Status snapshots expose `start_period_remaining_ms` and `start_period_total_ms` on a service while that window is still open. Afterward, `health.unhealthy_threshold` consecutive failures trigger the configured restart policy (default 3) **only if the process has not yet had a successful probe**. Once a probe has succeeded, later failures mark the service `UNHEALTHY` but leave the process running so an in-process reloader (Vite HMR, `bun --watch`, a compile error the next save will fix) can recover. A process that actually exits still follows `restart.policy`. `startup.wait_for_healthy` uses the same grace window as start-period, so a slow first bind cannot race the startup wait and kill the process. `health.healthy_reset_threshold` consecutive successes forgive prior restart attempts (default 10).
 
 `devctl` watches `.devctl/` and offers reload. Source-file restart is **opt-in** per service — off by default so a noisy tree cannot bounce the fleet:
