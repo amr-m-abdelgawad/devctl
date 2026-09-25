@@ -123,17 +123,27 @@ export class HealthMonitor {
     const interval = svc.health.interval_seconds > 0 ? svc.health.interval_seconds * 1000 : DEFAULT_HEALTH_INTERVAL_MS;
     const startedAt = Date.parse(this.host().runtimes.get(name)?.startTime ?? "") || this.clock.unixMs();
     const graceMs = HealthPolicy.probeGraceMs(svc);
+    // Ports are fixed for this process's lifetime, so templates resolve once.
+    let health = svc.health;
+    let resolveError = "";
+    try {
+      health = this.host().resolveHealthConfig(name, svc.health, assigned);
+    } catch (err) {
+      resolveError = humanMessage(err);
+    }
     let probing = false;
     const tick = (): void => {
       if (probing) {
         return;
       }
       probing = true;
-      const healthResult: Promise<{ status: ServiceHealth; message: string }> = svc.container && svc.health.type.toLowerCase() === "process"
+      const healthResult: Promise<{ status: ServiceHealth; message: string }> = resolveError !== ""
+        ? Promise.resolve({ status: HealthUnhealthy, message: resolveError })
+        : svc.container && svc.health.type.toLowerCase() === "process"
         ? Promise.resolve(this.processes.isRunning(name)
           ? { status: HealthHealthy, message: "container running" }
           : { status: HealthUnhealthy, message: "container not running" })
-        : Promise.resolve().then(() => this.host().healthCheckers.lookup(svc.health.type)?.check(svc.health, { pid, ports: assigned, workDir, env }) ?? { status: HealthUnhealthy, message: `unknown health type ${svc.health.type}` });
+        : Promise.resolve().then(() => this.host().healthCheckers.lookup(svc.health.type)?.check(health, { pid, ports: assigned, workDir, env }) ?? { status: HealthUnhealthy, message: `unknown health type ${svc.health.type}` });
       void healthResult
         .catch((err: unknown) => ({ status: HealthUnhealthy, message: humanMessage(err) }) as const)
         .then((res) => {

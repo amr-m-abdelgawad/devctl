@@ -16,6 +16,7 @@ import { applyRegistry as applyPluginRegistry, checkPluginEnvironmentSources as 
 import { ServiceWatchers } from "./service-watch.ts";
 import { EnvironmentBridge } from "./environment-bridge.ts";
 import { envWithSecrets } from "../environment/environment.ts";
+import { resolveHealthConfig } from "../config/refs.ts";
 import { IdentityCoordinator } from "./identity-coordinator.ts";
 import { McpCoordinator } from "./mcp-coordinator.ts";
 import { WebCoordinator } from "./web-coordinator.ts";
@@ -705,6 +706,7 @@ export class Supervisor {
           } } : self.healthCheckers.lookup(type);
         },
       },
+      resolveHealthConfig: (name, health, assigned) => resolveHealthConfig(health, self.cfg, name, assigned, self.ports),
       logs: { append: (event) => self.logs.append(event) },
       bus: self.bus,
       processMeta: self.processMeta,

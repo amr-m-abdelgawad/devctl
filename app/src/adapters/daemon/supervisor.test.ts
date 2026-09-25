@@ -719,6 +719,53 @@ describe("supervisor snapshot", () => {
     expect(fired).toBe(false);
   });
 
+  test("http, grpc, and tcp health checks follow ports: auto", async () => {
+    const cfg = defaultConfig();
+    cfg.repoRoot = tmp();
+    cfg.logs.persistence.enabled = false;
+    const probe = { interval_seconds: 0.05, timeout_seconds: 1 };
+    cfg.services.web = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "Bun.serve({ hostname: '127.0.0.1', port: Number(process.env.HTTP_PORT), fetch: () => new Response('ok') }); setInterval(() => {}, 1000)"], shell: false },
+      ports: [{ name: "http", value: 0, auto: true }],
+      health: { ...emptyHealth(), ...probe, type: "http", url: "http://127.0.0.1:${services.web.ports.http}/" },
+    };
+    const grpcServer = [
+      "const http2 = require('node:http2');",
+      "const server = http2.createServer();",
+      "server.on('stream', (stream) => { stream.on('data', () => {}); stream.on('end', () => {",
+      "  stream.respond({ ':status': 200, 'content-type': 'application/grpc' }, { waitForTrailers: true });",
+      "  stream.on('wantTrailers', () => stream.sendTrailers({ 'grpc-status': '0' }));",
+      "  stream.end(Buffer.from([0, 0, 0, 0, 2, 0x08, 1]));",
+      "}); });",
+      "server.listen(Number(process.env.GRPC_PORT), '127.0.0.1');",
+    ].join("\n");
+    cfg.services.rpc = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", grpcServer], shell: false },
+      ports: [{ name: "grpc", value: 0, auto: true }],
+      health: { ...emptyHealth(), ...probe, type: "grpc", address: "127.0.0.1:${services.rpc.ports.grpc}" },
+    };
+    cfg.services.raw = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", "require('node:net').createServer().listen(Number(process.env.HTTP_PORT), '127.0.0.1')"], shell: false },
+      ports: [{ name: "http", value: 0, auto: true }],
+      health: { ...emptyHealth(), ...probe, type: "tcp" },
+    };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      await sup.start({ services: ["web", "rpc", "raw"] });
+      const deadline = Date.now() + 5000;
+      const healthOf = () => ["web", "rpc", "raw"].map((name) => sup.snapshot().services[name]?.health);
+      while (Date.now() < deadline && healthOf().some((health) => health !== "HEALTHY")) {
+        await sleep(50);
+      }
+      expect(healthOf()).toEqual(["HEALTHY", "HEALTHY", "HEALTHY"]);
+    } finally {
+      await sup.stop(["web", "rpc", "raw"]);
+    }
+  }, 15_000);
+
   test("a startup health-check failure is not resurrected by its own kill", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

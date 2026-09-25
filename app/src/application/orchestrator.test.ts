@@ -73,6 +73,7 @@ function harness(checkers: HealthCheckerFactory = { lookup: () => undefined }) {
     serviceProfile: new Map(), serviceProfileEnv: new Map(), serviceEnv: new Map(), serviceStartedEnv: new Map(), processMeta: new Map(),
     containerPrefix: "devctl-test-", logs: { append: () => {} }, bus: new Bus(32), healthCheckers: checkers,
     prepareServiceIdentity: async () => {},
+    resolveHealthConfig: (_name, health) => health,
     resolveServiceExecution: async (_name, _svc, profile, env) => ({ env: { ...env, PROFILE: profile }, workDir: "/work" }),
     ensureHttpRecipes: async () => {},
     detectGoogle: async () => ({ adcAvailable: true }), startProxy: async () => {},

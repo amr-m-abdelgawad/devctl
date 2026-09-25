@@ -5,7 +5,7 @@ import { sopsConfigIssues } from "../environment/sops.ts";
 import { terraformConfigIssues } from "../environment/terraform.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
-import { findRefs, refResolvable } from "./refs.ts";
+import { HEALTH_TEMPLATE_FIELDS, findRefs, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import { invalidBodyReplacement } from "../../domain/proxy/body-transform.ts";
 import {
@@ -180,7 +180,7 @@ function validateServices(cfg: DevctlConfig): string[] {
     if (identErr !== "") {
       issues.push(identErr);
     }
-    issues.push(...validateHealth(prefix, svc, cfg.plugins.length > 0));
+    issues.push(...validateHealth(prefix, svc, cfg.plugins.length > 0), ...validateHealthRefs(prefix, svc.health, cfg));
     if (svc.health.start_period_seconds < 0) issues.push(`${prefix}.health.start_period_seconds must be >= 0`);
     if (svc.health.unhealthy_threshold < 1) issues.push(`${prefix}.health.unhealthy_threshold must be >= 1`);
     if (svc.health.healthy_reset_threshold < 1) issues.push(`${prefix}.health.healthy_reset_threshold must be >= 1`);
@@ -278,6 +278,20 @@ function validateHealth(
   }
   if (kind === "command" && commandEmpty({ args: svc.health.command.args, shell: false })) {
     issues.push(`${prefix}.health.command is required for command health checks`);
+  }
+  return issues;
+}
+
+// health.url and health.address expand `${services.<name>.…}` at probe time;
+// any other reference, or one naming an unknown service or port, never would.
+function validateHealthRefs(prefix: string, health: { url: string; address: string }, cfg: DevctlConfig): string[] {
+  const issues: string[] = [];
+  for (const field of HEALTH_TEMPLATE_FIELDS) {
+    for (const ref of findRefs(health[field])) {
+      if (!ref.startsWith("services.") || !refResolvable(ref, cfg)) {
+        issues.push(`${prefix}.health.${field}: unresolvable reference \${${ref}} (health templates accept only \${services.<name>.…})`);
+      }
+    }
   }
   return issues;
 }

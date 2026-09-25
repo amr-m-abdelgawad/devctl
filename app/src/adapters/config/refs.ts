@@ -1,6 +1,6 @@
 import { findTemplateRefs } from "../../domain/config/env-ref.ts";
 import { httpOutputDefined, isProcessEnvRef, parseHttpRef, processEnvName } from "../../domain/http/recipes.ts";
-import { firstPort, namedPort, type DevctlConfig, type ServiceConfig } from "../../domain/config/types.ts";
+import { firstPort, namedPort, type DevctlConfig, type HealthCheckConfig, type ServiceConfig } from "../../domain/config/types.ts";
 
 export type HttpValueMap = Record<string, Record<string, string>>;
 
@@ -181,6 +181,45 @@ export function resolveEnvMap(
     out[key] = resolveString(value, cfg, assigned, userEmail, extras);
   }
   return out;
+}
+
+// Health fields that accept `${services.<name>.…}` templates.
+export const HEALTH_TEMPLATE_FIELDS = ["url", "address"] as const;
+
+// Expands `${services.<name>.…}` in health.url and health.address for one
+// service's probe. `running` holds the ports assigned to running services;
+// `own` (this service's assigned ports) wins for its own references, and
+// fixed ports fill in for services that aren't running.
+export function resolveHealthConfig(
+  health: HealthCheckConfig,
+  cfg: DevctlConfig,
+  service: string,
+  own: Record<string, number>,
+  running: ReadonlyMap<string, Record<string, number>> = new Map(),
+): HealthCheckConfig {
+  if (!HEALTH_TEMPLATE_FIELDS.some((field) => health[field].includes("${"))) {
+    return health;
+  }
+  const assigned: Record<string, Record<string, number>> = {};
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const fixed: Record<string, number> = {};
+    for (const p of svc.ports) {
+      if (!p.auto) {
+        fixed[p.name] = p.value;
+      }
+    }
+    assigned[name] = { ...fixed, ...running.get(name) };
+  }
+  assigned[service] = { ...assigned[service], ...own };
+  const resolved = { ...health };
+  for (const field of HEALTH_TEMPLATE_FIELDS) {
+    try {
+      resolved[field] = resolveString(health[field], cfg, assigned);
+    } catch (err) {
+      throw new Error(`health.${field}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return resolved;
 }
 
 export function findRefs(value: string): string[] {
