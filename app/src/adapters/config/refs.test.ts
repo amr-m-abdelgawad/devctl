@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
-import { findRefs, refResolvable, resolveEnvMap, resolveHealthConfig, resolveString } from "./refs.ts";
+import { findRefs, healthRefResolvable, refResolvable, resolveEnvMap, resolveHealthConfig, resolveString } from "./refs.ts";
 import { emptyHealth } from "../../domain/config/types.ts";
 
 function cfgWithApi(ports: { name: string; value: number; auto: boolean }[]) {
@@ -169,5 +169,37 @@ describe("config refs", () => {
     const cfg = cfgWithApi([{ name: "http", value: 0, auto: true }]);
     const health = { ...emptyHealth(), type: "http", url: "http://127.0.0.1:${services.api.ports.http}/" };
     expect(() => resolveHealthConfig(health, cfg, "worker", {})).toThrow(/^health\.url: unresolvable reference/);
+  });
+
+  test("resolveHealthConfig picks .port in declared order, http first", () => {
+    const cfg = cfgWithApi([{ name: "grpc", value: 0, auto: true }, { name: "metrics", value: 9100, auto: false }]);
+    const health = { ...emptyHealth(), type: "tcp", address: "127.0.0.1:${services.api.port}" };
+    expect(resolveHealthConfig(health, cfg, "api", { grpc: 41000, metrics: 9100 }).address).toBe("127.0.0.1:41000");
+    expect(resolveHealthConfig(health, cfg, "worker", {}, new Map([["api", { grpc: 41000 }]])).address).toBe("127.0.0.1:41000");
+    const withHttp = cfgWithApi([{ name: "grpc", value: 0, auto: true }, { name: "http", value: 0, auto: true }]);
+    expect(resolveHealthConfig(health, withHttp, "api", { grpc: 41000, http: 41001 }).address).toBe("127.0.0.1:41001");
+  });
+
+  test("healthRefResolvable accepts exactly the forms the resolver expands", () => {
+    const cfg = cfgWithApi([{ name: "http", value: 0, auto: true }, { name: "metrics", value: 9100, auto: false }]);
+    cfg.services.bare = emptyService();
+    for (const ref of ["services.api.port", "services.api.host", "services.api.url", "services.api.ports.http", "services.api.ports.1", "services.bare.host"]) {
+      expect(healthRefResolvable(ref, cfg), ref).toBe(true);
+    }
+    for (const ref of [
+      "services.api.bogus",
+      "services.api.ports.admin",
+      "services.api.ports.0",
+      "services.api.ports.7",
+      "services.api.ports.http.extra",
+      "services.api.port.http",
+      "services.bare.port",
+      "services.bare.url",
+      "services.nope.port",
+      "env.API_PORT",
+      "identity.user",
+    ]) {
+      expect(healthRefResolvable(ref, cfg), ref).toBe(false);
+    }
   });
 });

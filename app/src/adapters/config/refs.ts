@@ -189,7 +189,8 @@ export const HEALTH_TEMPLATE_FIELDS = ["url", "address"] as const;
 // Expands `${services.<name>.…}` in health.url and health.address for one
 // service's probe. `running` holds the ports assigned to running services;
 // `own` (this service's assigned ports) wins for its own references, and
-// fixed ports fill in for services that aren't running.
+// fixed ports fill in for services that aren't running. Each map follows the
+// service's declared port order, so `.port` picks the first declared port.
 export function resolveHealthConfig(
   health: HealthCheckConfig,
   cfg: DevctlConfig,
@@ -202,15 +203,16 @@ export function resolveHealthConfig(
   }
   const assigned: Record<string, Record<string, number>> = {};
   for (const [name, svc] of Object.entries(cfg.services)) {
-    const fixed: Record<string, number> = {};
+    const live = name === service ? { ...running.get(name), ...own } : running.get(name) ?? {};
+    const ports: Record<string, number> = {};
     for (const p of svc.ports) {
-      if (!p.auto) {
-        fixed[p.name] = p.value;
+      const value = live[p.name] ?? (p.auto ? undefined : p.value);
+      if (value !== undefined) {
+        ports[p.name] = value;
       }
     }
-    assigned[name] = { ...fixed, ...running.get(name) };
+    assigned[name] = { ...ports, ...live };
   }
-  assigned[service] = { ...assigned[service], ...own };
   const resolved = { ...health };
   for (const field of HEALTH_TEMPLATE_FIELDS) {
     try {
@@ -220,6 +222,35 @@ export function resolveHealthConfig(
     }
   }
   return resolved;
+}
+
+// Whether `${ref}` in a health field can expand at probe time: exactly the
+// `services.<name>.port|host|url` and `.ports.<name|index>` forms the resolver
+// accepts. An index must name a fixed port (assigned ports are keyed by name).
+export function healthRefResolvable(ref: string, cfg: DevctlConfig): boolean {
+  const [root, svcName = "", kind = "", portName, ...rest] = ref.split(".");
+  const svc = cfg.services[svcName];
+  if (root !== "services" || !svc || rest.length > 0) {
+    return false;
+  }
+  if (portName === undefined) {
+    if (kind === "host") {
+      return true;
+    }
+    if (kind === "url") {
+      return svc.ports.length > 0 || (cfg.proxy.enabled && cfg.proxy.routes.some((route) => route.upstream.service === svcName));
+    }
+    return kind === "port" && svc.ports.length > 0;
+  }
+  if (kind !== "ports") {
+    return false;
+  }
+  if (namedPort(svc.ports, portName)) {
+    return true;
+  }
+  const index = /^\d+$/.test(portName) ? Number(portName) : -1;
+  const indexed = svc.ports[index];
+  return indexed !== undefined && !indexed.auto;
 }
 
 export function findRefs(value: string): string[] {

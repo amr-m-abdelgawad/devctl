@@ -123,20 +123,20 @@ export class HealthMonitor {
     const interval = svc.health.interval_seconds > 0 ? svc.health.interval_seconds * 1000 : DEFAULT_HEALTH_INTERVAL_MS;
     const startedAt = Date.parse(this.host().runtimes.get(name)?.startTime ?? "") || this.clock.unixMs();
     const graceMs = HealthPolicy.probeGraceMs(svc);
-    // Ports are fixed for this process's lifetime, so templates resolve once.
-    let health = svc.health;
-    let resolveError = "";
-    try {
-      health = this.host().resolveHealthConfig(name, svc.health, assigned);
-    } catch (err) {
-      resolveError = humanMessage(err);
-    }
     let probing = false;
     const tick = (): void => {
       if (probing) {
         return;
       }
       probing = true;
+      // Resolved per probe: a referenced service can restart on a new port.
+      let health = svc.health;
+      let resolveError = "";
+      try {
+        health = this.host().resolveHealthConfig(name, svc.health, assigned);
+      } catch (err) {
+        resolveError = humanMessage(err);
+      }
       const healthResult: Promise<{ status: ServiceHealth; message: string }> = resolveError !== ""
         ? Promise.resolve({ status: HealthUnhealthy, message: resolveError })
         : svc.container && svc.health.type.toLowerCase() === "process"

@@ -596,9 +596,9 @@ the process cwd, and not the \`.devctl\` directory itself.
 | \`process\` or omitted | nothing; only checks the pid is alive |
 
 \`health.url\` and \`health.address\` may use \`\${services.<name>.port}\`,
-\`.ports.<name>\`, \`.host\` or \`.url\`; they expand at probe time from the
-assigned ports, so an \`http\` or \`grpc\` check works with \`ports: auto\`. No other
-reference kind expands in a health field.
+\`.ports.<name>\` (or a fixed port's index), \`.host\` or \`.url\`; they expand
+before every probe from the currently assigned ports, so an \`http\` or \`grpc\`
+check works with \`ports: auto\`. No other reference kind expands in a health field.
 
 \`type: grpc\` calls \`grpc.health.v1.Health/Check\` over h2c (TLS/h2 if cleartext
 is refused). SERVING is healthy; NOT_SERVING, SERVICE_UNKNOWN, and RPC

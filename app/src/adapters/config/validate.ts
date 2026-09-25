@@ -5,7 +5,7 @@ import { sopsConfigIssues } from "../environment/sops.ts";
 import { terraformConfigIssues } from "../environment/terraform.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
-import { HEALTH_TEMPLATE_FIELDS, findRefs, refResolvable } from "./refs.ts";
+import { HEALTH_TEMPLATE_FIELDS, findRefs, healthRefResolvable, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import { invalidBodyReplacement } from "../../domain/proxy/body-transform.ts";
 import {
@@ -288,7 +288,7 @@ function validateHealthRefs(prefix: string, health: { url: string; address: stri
   const issues: string[] = [];
   for (const field of HEALTH_TEMPLATE_FIELDS) {
     for (const ref of findRefs(health[field])) {
-      if (!ref.startsWith("services.") || !refResolvable(ref, cfg)) {
+      if (!healthRefResolvable(ref, cfg)) {
         issues.push(`${prefix}.health.${field}: unresolvable reference \${${ref}} (health templates accept only \${services.<name>.…})`);
       }
     }

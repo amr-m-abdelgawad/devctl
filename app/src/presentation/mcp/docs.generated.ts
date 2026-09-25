@@ -3636,7 +3636,7 @@ health:
   interval_seconds: 30
 \`\`\`
 
-\`health.url\` and \`health.address\` accept \`\${services.<name>.…}\` references (\`.port\`, \`.ports.<name>\`, \`.host\`, \`.url\`), expanded each time the probe starts from the ports assigned to that process. This lets an \`http\` or \`grpc\` check follow \`ports: auto\`:
+\`health.url\` and \`health.address\` accept \`\${services.<name>.…}\` references (\`.port\`, \`.ports.<name>\` or a fixed port's index, \`.host\`, \`.url\`), expanded before every probe from the ports currently assigned. This lets an \`http\` or \`grpc\` check follow \`ports: auto\`, including another service that restarts on a new port:
 
 \`\`\`yaml
 ports:

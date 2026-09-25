@@ -498,6 +498,40 @@ describe("ServiceOrchestrator", () => {
     expect(session.runtimes.get("api")?.state).toBe(StateStopped);
   });
 
+  test("health templates resolve on every probe, not once per start", async () => {
+    const seen: string[] = [];
+    const { orch, svc, session } = harness({ lookup: () => ({ check: async (cfg) => { seen.push(cfg.url); return { status: HealthHealthy, message: "ok" }; } }) });
+    let upstreamPort = 4001;
+    session.resolveHealthConfig = (_name, health) => ({ ...health, url: health.url.replace("${services.db.port}", String(upstreamPort)) });
+    svc.health.type = "custom";
+    svc.health.url = "http://127.0.0.1:${services.db.port}/";
+    svc.health.interval_seconds = 0.005;
+    svc.health.start_period_seconds = 0;
+    await orch.start({ services: ["api"] });
+    await until(() => seen.includes("http://127.0.0.1:4001/"));
+    upstreamPort = 4002;
+    await until(() => seen.includes("http://127.0.0.1:4002/"));
+    await orch.stop(["api"]);
+  });
+
+  test("a health template that fails to resolve can recover on a later probe", async () => {
+    let ready = false;
+    const { orch, svc, session } = harness({ lookup: () => ({ check: async () => ({ status: HealthHealthy, message: "ok" }) }) });
+    session.resolveHealthConfig = (_name, health) => {
+      if (!ready) throw new Error("health.url: unresolvable reference ${services.db.port}");
+      return health;
+    };
+    svc.health.type = "custom";
+    svc.health.interval_seconds = 0.005;
+    svc.health.start_period_seconds = 0;
+    svc.health.unhealthy_threshold = 1000;
+    await orch.start({ services: ["api"] });
+    await until(() => session.runtimes.get("api")?.health === HealthUnhealthy);
+    ready = true;
+    await until(() => session.runtimes.get("api")?.health === HealthHealthy);
+    await orch.stop(["api"]);
+  });
+
   test("unhealthy restarts consume the shared retry budget", async () => {
     const { orch, svc, processes, session } = harness({ lookup: () => ({ check: async () => ({ status: HealthUnhealthy, message: "down" }) }) });
     svc.health.type = "custom";

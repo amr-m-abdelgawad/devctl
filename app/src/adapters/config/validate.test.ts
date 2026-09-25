@@ -52,6 +52,10 @@ describe("config validate", () => {
     expect(validate(cfg).some((issue) => issue.startsWith("services.api.health.url: unresolvable reference ${services.api.ports.admin}"))).toBe(true);
     cfg.services.api!.health = { ...cfg.services.api!.health, type: "grpc", url: "", address: "${env.GRPC_ADDR}" };
     expect(validate(cfg).some((issue) => issue.startsWith("services.api.health.address: unresolvable reference ${env.GRPC_ADDR}"))).toBe(true);
+    for (const ref of ["services.api.bogus", "services.api.ports.5"]) {
+      cfg.services.api!.health = { ...cfg.services.api!.health, type: "grpc", address: `127.0.0.1:\${${ref}}` };
+      expect(validate(cfg).some((issue) => issue.startsWith(`services.api.health.address: unresolvable reference \${${ref}}`)), ref).toBe(true);
+    }
   });
 
   test("rejects duplicate ports", () => {
