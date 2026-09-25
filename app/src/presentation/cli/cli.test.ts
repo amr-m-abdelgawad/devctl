@@ -5,7 +5,7 @@ import { followLogs } from "./cli.ts";
 import { parseEnvPairs } from "./lifecycle.ts";
 import { newRoot } from "../../bootstrap/test-client.ts";
 import { formatBodySummary, logRecord, type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
-import { killRepoSupervisor, processAlive, readPersistedState } from "../../adapters/storage/storage.ts";
+import { killRepoSupervisor, processAlive, readPersistedState, readRepoLock } from "../../adapters/storage/storage.ts";
 
 function tmp(): string {
   const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-cli-${Date.now()}-${Math.random().toString(16).slice(2)}`);
@@ -24,6 +24,15 @@ async function stopSpawned(dir: string, originalArgv1?: string): Promise<void> {
   if (originalArgv1 !== undefined) {
     process.argv[1] = originalArgv1;
   }
+}
+
+// `down` must end the supervisor process itself, not just its socket (#132).
+async function expectExited(pid: number): Promise<void> {
+  const deadline = Date.now() + 3000;
+  while (processAlive(pid) && Date.now() < deadline) {
+    await Bun.sleep(50);
+  }
+  expect(processAlive(pid)).toBe(false);
 }
 
 function captureStdout(): { output: () => string; restore: () => void } {
@@ -101,9 +110,12 @@ services:
     try {
       const startOut = await run(["--config", configFile(dir), "start", "api", "--detach"]);
       expect(startOut).toContain("detached");
+      const supervisorPid = readRepoLock(dir)?.pid ?? 0;
+      expect(supervisorPid).toBeGreaterThan(0);
 
       const downOut = await run(["down", "--repo", dir]);
       expect(downOut).toContain("stopped services and the supervisor");
+      await expectExited(supervisorPid);
 
       const statusOut = await run(["status", "--repo", dir]);
       expect(statusOut).toContain("supervisor is not running");
@@ -129,14 +141,22 @@ services:
     const originalArgv1 = process.argv[1] ?? "";
     process.argv[1] = join(import.meta.dir, "../../bin.ts");
     let pid = 0;
+    let supervisorPid = 0;
     try {
       await run(["--config", configFile(dir), "start", "api", "--detach"]);
       const beforeDown = readPersistedState(dir);
       pid = beforeDown?.processes.find((p) => p.name === "api")?.pid ?? 0;
       expect(pid).toBeGreaterThan(0);
+      supervisorPid = readRepoLock(dir)?.pid ?? 0;
+      expect(supervisorPid).toBeGreaterThan(0);
 
       const downOut = await run(["down", "--repo", dir, "--keep-services"]);
       expect(downOut).toContain("its services keep running");
+      // On Windows services are not detached and would die with the
+      // supervisor, so it deliberately stays up there (see runDaemon).
+      if (process.platform !== "win32") {
+        await expectExited(supervisorPid);
+      }
 
       const statusOut = await run(["status", "--repo", dir]);
       expect(statusOut).toContain("supervisor is not running");
@@ -148,11 +168,15 @@ services:
       expect(processAlive(pid)).toBe(true);
     } finally {
       await stopSpawned(dir, originalArgv1);
-      if (pid > 0) {
-        try {
-          process.kill(pid, "SIGKILL");
-        } catch {
-          // already gone
+      // The lock is gone after `down`, so stopSpawned can't find a
+      // supervisor that deliberately stays up on Windows; kill it by pid.
+      for (const leftover of [pid, supervisorPid]) {
+        if (leftover > 0) {
+          try {
+            process.kill(leftover, "SIGKILL");
+          } catch {
+            // already gone
+          }
         }
       }
     }

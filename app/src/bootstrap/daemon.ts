@@ -115,7 +115,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
 
 /** Entry used by the CLI’s internal daemon command. */
 export async function runDaemon(repoRoot: string, configPath: string): Promise<void> {
-  startEventLoopWatchdog();
+  const watchdog = startEventLoopWatchdog();
   // loadOrEmpty, not load: a daemon is only ever spawned because a client
   // already decided one should exist, so a missing configuration here means
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An
@@ -133,13 +133,36 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // admin `kill`, a container orchestrator). Without a handler, Node's
   // default action skips shutdown() entirely — including flushing the
   // now-asynchronous log writes — so register one as a safety net.
-  let shuttingDown = false;
-  const onSignal = (): void => {
-    if (shuttingDown) {
+  // Both the shutdown RPC and a signal end here. The watchdog worker (and
+  // any handle a subsystem failed to close) would otherwise keep the process
+  // alive after the socket is gone, so exit once teardown has finished.
+  // Exception: on Windows services are not spawned detached, so they die
+  // with this process. `down --keep-services` must leave them running, so
+  // the process stays until they exit (the pre-#132 behavior there).
+  // A teardown failure is reported and exits 1, so `down` never looks clean
+  // when cleanup did not finish.
+  let signalled = false;
+  let stoppedAlready = false;
+  void sup.stopped.then(({ servicesStopped, failure }) => {
+    stoppedAlready = true;
+    watchdog.stop();
+    if (failure !== undefined) {
+      process.stderr.write(`devctl: shutdown failed: ${failure instanceof Error ? failure.message : String(failure)}\n`);
+      process.exit(1);
+    }
+    if (process.platform === "win32" && !servicesStopped && !signalled) {
       return;
     }
-    shuttingDown = true;
-    void sup.shutdown(stopOnExit(cfg.shutdown)).finally(() => process.exit(0));
+    process.exit(0);
+  });
+  const onSignal = (): void => {
+    signalled = true;
+    // Teardown already ran (the Windows --keep-services case above): a
+    // signal now just ends the process, as it did before #132.
+    if (stoppedAlready) {
+      process.exit(0);
+    }
+    sup.shutdown(stopOnExit(cfg.shutdown)).catch(() => undefined);
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
