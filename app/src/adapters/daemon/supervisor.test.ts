@@ -766,6 +766,31 @@ describe("supervisor snapshot", () => {
     }
   }, 15_000);
 
+  test("stopped resolves with the teardown failure, and shutdown still rejects", async () => {
+    const cfg = defaultConfig();
+    cfg.repoRoot = tmp();
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    const boom = new Error("teardown boom");
+    (sup as unknown as { teardown: (stopServices: boolean) => Promise<void> }).teardown = async () => {
+      throw boom;
+    };
+    await expect(sup.shutdown(true)).rejects.toBe(boom);
+    expect(await sup.stopped).toEqual({ servicesStopped: true, failure: boom });
+    // A second call is a no-op and doesn't resolve stopped differently.
+    await sup.shutdown(false);
+    expect(await sup.stopped).toEqual({ servicesStopped: true, failure: boom });
+  });
+
+  test("stopped reports a clean shutdown without a failure", async () => {
+    const cfg = defaultConfig();
+    cfg.repoRoot = tmp();
+    cfg.logs.persistence.enabled = false;
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    await sup.shutdown(false);
+    expect(await sup.stopped).toEqual({ servicesStopped: false, failure: undefined });
+  });
+
   test("a startup health-check failure is not resurrected by its own kill", async () => {
     const dir = tmp();
     const cfg = defaultConfig();

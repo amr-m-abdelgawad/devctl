@@ -91,6 +91,9 @@ import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import type { LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
+/** Outcome of Supervisor.shutdown(): whether services were stopped, and the teardown error if any. */
+export type SupervisorStopped = { servicesStopped: boolean; failure?: unknown };
+
 export class Supervisor {
   private cfg: DevctlConfig;
   private readonly sessionID: string;
@@ -118,9 +121,9 @@ export class Supervisor {
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
   private shuttingDown = false;
-  private markStopped: (result: { servicesStopped: boolean }) => void = () => undefined;
-  /** Resolves once shutdown() has finished tearing everything down. */
-  readonly stopped: Promise<{ servicesStopped: boolean }> = new Promise((resolve) => {
+  private markStopped: (result: SupervisorStopped) => void = () => undefined;
+  /** Resolves once shutdown() has finished, with the teardown error if one step threw. */
+  readonly stopped: Promise<SupervisorStopped> = new Promise((resolve) => {
     this.markStopped = resolve;
   });
   private detached = false;
@@ -623,7 +626,8 @@ export class Supervisor {
       case "shutdown":
         const stopServices = typeof rec.stop_services === "boolean" ? rec.stop_services : stopOnExit(this.cfg.shutdown);
         setTimeout(() => {
-          void this.shutdown(stopServices);
+          // A teardown failure is reported through `stopped` (runDaemon).
+          this.shutdown(stopServices).catch(() => undefined);
         }, 50);
         return null;
       default:
@@ -945,10 +949,14 @@ export class Supervisor {
       return;
     }
     this.shuttingDown = true;
+    let failure: unknown;
     try {
       await this.teardown(stopServices);
+    } catch (err) {
+      failure = err ?? new Error("shutdown failed");
+      throw err;
     } finally {
-      this.markStopped({ servicesStopped: stopServices });
+      this.markStopped({ servicesStopped: stopServices, failure });
     }
   }
 

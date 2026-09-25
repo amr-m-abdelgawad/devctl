@@ -139,9 +139,17 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // Exception: on Windows services are not spawned detached, so they die
   // with this process. `down --keep-services` must leave them running, so
   // the process stays until they exit (the pre-#132 behavior there).
+  // A teardown failure is reported and exits 1, so `down` never looks clean
+  // when cleanup did not finish.
   let signalled = false;
-  void sup.stopped.then(({ servicesStopped }) => {
+  let stoppedAlready = false;
+  void sup.stopped.then(({ servicesStopped, failure }) => {
+    stoppedAlready = true;
     watchdog.stop();
+    if (failure !== undefined) {
+      process.stderr.write(`devctl: shutdown failed: ${failure instanceof Error ? failure.message : String(failure)}\n`);
+      process.exit(1);
+    }
     if (process.platform === "win32" && !servicesStopped && !signalled) {
       return;
     }
@@ -149,10 +157,12 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   });
   const onSignal = (): void => {
     signalled = true;
-    // A failed teardown still resolves `stopped`, so the process exits.
-    sup.shutdown(stopOnExit(cfg.shutdown)).catch((err: unknown) => {
-      process.stderr.write(`devctl: shutdown failed: ${err instanceof Error ? err.message : String(err)}\n`);
-    });
+    // Teardown already ran (the Windows --keep-services case above): a
+    // signal now just ends the process, as it did before #132.
+    if (stoppedAlready) {
+      process.exit(0);
+    }
+    sup.shutdown(stopOnExit(cfg.shutdown)).catch(() => undefined);
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
