@@ -47,12 +47,13 @@ export function parseLogLine(line: string): ParsedLog {
 }
 
 export function parseJSONLogLine(line: string): ParsedLog | undefined {
-  const extracted = extractStructuredObject(stripAnsi(line));
+  const text = stripAnsi(line);
+  const extracted = extractStructuredObject(text);
   if (!extracted) {
     return undefined;
   }
   if (extracted.prose) {
-    return { ...proseWithObjectLog(extracted.value, extracted.raw), raw: line };
+    return { ...proseWithObjectLog(extracted.value, text), raw: line };
   }
   const parsed =
     parseOtlpLog(extracted.value, extracted.raw) ??
@@ -94,7 +95,8 @@ function extractStructuredObject(line: string): ExtractedObject | undefined {
 
 // Tokens a logger writes before its payload: timestamps, levels, logger names
 // ("app:", "INFO:workflows", or bare after a separator as in "- worker -"),
-// bracketed thread/pid tags, and separators.
+// bracketed thread/pid tags, and separators. A logger name alone is not enough
+// ("reason: {...}" is prose), so a preamble also needs a timestamp, level, or tag.
 const PREAMBLE_TIMESTAMP_RE = /^\d[\d\-:.,/TZ+]*$/;
 const PREAMBLE_LEVEL_RE = /^(?:level=)?(?:trace|debug|info|notice|warn|warning|error|err|fatal|critical|crit)(?::[\w.\-/]+)?:?$/i;
 const PREAMBLE_LOGGER_RE = /^[\w.\-/]+:$/;
@@ -104,23 +106,42 @@ const PREAMBLE_BARE_NAME_RE = /^[\w.\-/]+$/;
 
 function isLogPreamble(prefix: string): boolean {
   const tokens = prefix.replace(/\[[^\]]*\]/g, (tag) => tag.replace(/\s+/g, "_")).trim().split(/\s+/);
-  return tokens.every((token, i) =>
-    PREAMBLE_TIMESTAMP_RE.test(token) ||
-    PREAMBLE_LEVEL_RE.test(token) ||
+  const isAnchor = (token: string) =>
+    PREAMBLE_TIMESTAMP_RE.test(token) || PREAMBLE_LEVEL_RE.test(token) || PREAMBLE_BRACKETED_RE.test(token);
+  return tokens.some(isAnchor) && tokens.every((token, i) =>
+    isAnchor(token) ||
     PREAMBLE_LOGGER_RE.test(token) ||
-    PREAMBLE_BRACKETED_RE.test(token) ||
     PREAMBLE_SEPARATOR_RE.test(token) ||
     (i > 0 && PREAMBLE_SEPARATOR_RE.test(tokens[i - 1] ?? "") && PREAMBLE_BARE_NAME_RE.test(token)));
 }
 
 // Prose followed by an object ("upload failed: 400, reason: {...}"): the line
 // stays the message, and the object contributes attributes, severity, and ids.
+// The object's own message fields stay reachable as attributes.
 function proseWithObjectLog(obj: Record<string, unknown>, line: string): ParsedLog {
+  const otlp = parseOtlpLog(obj, line);
+  if (otlp) {
+    const severityNumber = otlp.severityNumber ?? severityFromPlainText(line);
+    return {
+      ...otlp,
+      body: line,
+      attributes: obj.body === undefined ? otlp.attributes : { ...otlp.attributes, body: decodeOtlpAnyValue(obj.body) },
+      severityNumber,
+      severityText: otlp.severityText ?? severityTextFromNumber(severityNumber),
+      request_id: parseRequestID(line) || undefined,
+    };
+  }
   const split = splitFields(obj, []);
   const severityNumber = split.severityNumber ?? severityFromPlainText(line);
+  const messageFields: Attributes = {};
+  for (const key of [...JSON_MESSAGE_KEYS, "body"]) {
+    if (obj[key] !== undefined && obj[key] !== null) {
+      messageFields[key] = coerceAnyValue(obj[key]);
+    }
+  }
   return {
     body: line,
-    attributes: split.attributes,
+    attributes: { ...messageFields, ...split.attributes },
     severityNumber,
     severityText: split.severityText ?? severityTextFromNumber(severityNumber),
     traceId: split.traceId,

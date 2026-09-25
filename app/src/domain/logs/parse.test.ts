@@ -169,6 +169,33 @@ describe("structured log parse table", () => {
     expect(parsed.attributes?.card).toBe("visa");
   });
 
+  test("a single prose label before an object is not a logger preamble", () => {
+    const line = 'reason: {"error":"quota exceeded"}';
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe(line);
+    expect(parsed.attributes).toEqual({ error: "quota exceeded" });
+  });
+
+  test("the object's message fields stay available as attributes", () => {
+    const parsed = parseLogLine('detail follows {"message":"hello","user":1}');
+    expect(parsed.body).toBe('detail follows {"message":"hello","user":1}');
+    expect(parsed.attributes).toEqual({ message: "hello", user: 1 });
+  });
+
+  test("an OTLP object after prose keeps its severity and time", () => {
+    const line = 'received OTLP record: {"timeUnixNano":100,"severityNumber":17,"body":"fault"}';
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe(line);
+    expect(parsed.severityNumber).toBe(17);
+    expect(parsed.timeUnixNano).toBe(100);
+    expect(parsed.attributes?.body).toBe("fault");
+  });
+
+  test("the prose body keeps the line's surrounding whitespace", () => {
+    const line = '  upload failed: {"error":"quota exceeded"}  ';
+    expect(parseLogLine(line).body).toBe(line);
+  });
+
   test("text after the object keeps the line as the body", () => {
     const line = '2026-09-08T19:23:10.000Z {"msg":"booted"} in 12ms';
     expect(parseLogLine(line).body).toBe(line);
