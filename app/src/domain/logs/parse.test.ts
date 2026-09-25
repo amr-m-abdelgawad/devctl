@@ -145,6 +145,54 @@ describe("structured log parse table", () => {
     expect(parsed?.attributes?.user_id).toBe("u-9");
   });
 
+  test("prose before a JSON object stays the body; the object becomes attributes", () => {
+    const line = 'upload failed: 400, reason: {"error": "quota exceeded"}';
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe(line);
+    expect(parsed.attributes).toEqual({ error: "quota exceeded" });
+    expect(parsed.severityNumber).toBe(SeverityError);
+    expect(summary(line)).toContain("upload failed: 400, reason:");
+  });
+
+  test("prose before a Python dict stays the body; the dict becomes attributes", () => {
+    const line = "Retrying request to {'host': 'api', 'attempt': 2}";
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe(line);
+    expect(parsed.attributes).toEqual({ host: "api", attempt: 2 });
+  });
+
+  test("the object's level and request id win over the prose", () => {
+    const parsed = parseLogLine('payment declined {"level":"warn","request_id":"r-1","card":"visa"}');
+    expect(parsed.body).toBe('payment declined {"level":"warn","request_id":"r-1","card":"visa"}');
+    expect(parsed.severityNumber).toBe(SeverityWarn);
+    expect(parsed.request_id).toBe("r-1");
+    expect(parsed.attributes?.card).toBe("visa");
+  });
+
+  test("text after the object keeps the line as the body", () => {
+    const line = '2026-09-08T19:23:10.000Z {"msg":"booted"} in 12ms';
+    expect(parseLogLine(line).body).toBe(line);
+  });
+
+  test("common logger preambles before JSON are still stripped", () => {
+    for (const line of [
+      '2026-09-23 12:00:00 INFO app: {"msg":"booted"}',
+      '2026-09-23 12:00:00,123 - worker - INFO - {"msg":"booted"}',
+      '[main] INFO: {"msg":"booted"}',
+      '12:00:00 [pid 42] level=info {"msg":"booted"}',
+    ]) {
+      expect(parseJSONLogLine(line)?.body, line).toBe("booted");
+    }
+  });
+
+  test("unparseable braces inside prose stay plain text", () => {
+    const line = "template {name} is not valid";
+    expect(parseJSONLogLine(line)).toBeUndefined();
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe(line);
+    expect(parsed.attributes).toEqual({});
+  });
+
   test("Python dict without HTTP fields renders logfmt, not braces", () => {
     const line = "{'foo': 'bar', 'count': 2}";
     const parsed = parseJSONLogLine(line);

@@ -51,6 +51,9 @@ export function parseJSONLogLine(line: string): ParsedLog | undefined {
   if (!extracted) {
     return undefined;
   }
+  if (extracted.prose) {
+    return { ...proseWithObjectLog(extracted.value, extracted.raw), raw: line };
+  }
   const parsed =
     parseOtlpLog(extracted.value, extracted.raw) ??
     parseMetricLog(extracted.value, extracted.raw) ??
@@ -62,7 +65,9 @@ export function parseJSONLogLine(line: string): ParsedLog | undefined {
   return { ...parsed, raw: line };
 }
 
-function extractStructuredObject(line: string): { value: Record<string, unknown>; raw: string } | undefined {
+type ExtractedObject = { value: Record<string, unknown>; raw: string; prose?: boolean };
+
+function extractStructuredObject(line: string): ExtractedObject | undefined {
   const trimmed = line.trim();
   if (trimmed.length > MAX_JSON_LOG_BYTES) {
     return undefined;
@@ -79,10 +84,54 @@ function extractStructuredObject(line: string): { value: Record<string, unknown>
   if (candidate.length > MAX_JSON_LOG_BYTES) {
     return undefined;
   }
-  return objectFromCandidate(candidate, trimmed);
+  const extracted = objectFromCandidate(candidate, trimmed);
+  if (!extracted) {
+    return undefined;
+  }
+  const prose = !isLogPreamble(trimmed.slice(0, start)) || trimmed.slice(end + 1).trim() !== "";
+  return prose ? { ...extracted, prose } : extracted;
 }
 
-function objectFromCandidate(candidate: string, raw: string): { value: Record<string, unknown>; raw: string } | undefined {
+// Tokens a logger writes before its payload: timestamps, levels, logger names
+// ("app:", "INFO:workflows", or bare after a separator as in "- worker -"),
+// bracketed thread/pid tags, and separators.
+const PREAMBLE_TIMESTAMP_RE = /^\d[\d\-:.,/TZ+]*$/;
+const PREAMBLE_LEVEL_RE = /^(?:level=)?(?:trace|debug|info|notice|warn|warning|error|err|fatal|critical|crit)(?::[\w.\-/]+)?:?$/i;
+const PREAMBLE_LOGGER_RE = /^[\w.\-/]+:$/;
+const PREAMBLE_BRACKETED_RE = /^[[(][^\])]*[\])]:?$/;
+const PREAMBLE_SEPARATOR_RE = /^[-|:>]+$/;
+const PREAMBLE_BARE_NAME_RE = /^[\w.\-/]+$/;
+
+function isLogPreamble(prefix: string): boolean {
+  const tokens = prefix.replace(/\[[^\]]*\]/g, (tag) => tag.replace(/\s+/g, "_")).trim().split(/\s+/);
+  return tokens.every((token, i) =>
+    PREAMBLE_TIMESTAMP_RE.test(token) ||
+    PREAMBLE_LEVEL_RE.test(token) ||
+    PREAMBLE_LOGGER_RE.test(token) ||
+    PREAMBLE_BRACKETED_RE.test(token) ||
+    PREAMBLE_SEPARATOR_RE.test(token) ||
+    (i > 0 && PREAMBLE_SEPARATOR_RE.test(tokens[i - 1] ?? "") && PREAMBLE_BARE_NAME_RE.test(token)));
+}
+
+// Prose followed by an object ("upload failed: 400, reason: {...}"): the line
+// stays the message, and the object contributes attributes, severity, and ids.
+function proseWithObjectLog(obj: Record<string, unknown>, line: string): ParsedLog {
+  const split = splitFields(obj, []);
+  const severityNumber = split.severityNumber ?? severityFromPlainText(line);
+  return {
+    body: line,
+    attributes: split.attributes,
+    severityNumber,
+    severityText: split.severityText ?? severityTextFromNumber(severityNumber),
+    traceId: split.traceId,
+    spanId: split.spanId,
+    request_id: split.requestId ?? (parseRequestID(line) || undefined),
+    timeUnixNano: split.timeUnixNano,
+    raw: line,
+  };
+}
+
+function objectFromCandidate(candidate: string, raw: string): ExtractedObject | undefined {
   const value = parseJsonObject(candidate) ?? parsePythonLiteralObject(candidate);
   if (!value) {
     return undefined;
