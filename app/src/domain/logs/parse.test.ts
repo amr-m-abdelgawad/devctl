@@ -176,6 +176,24 @@ describe("structured log parse table", () => {
     expect(parsed.attributes).toEqual({ error: "quota exceeded" });
   });
 
+  test("a status code before an object is prose, not a timestamp", () => {
+    const line = '429: {"error":"rate limited"}';
+    const parsed = parseLogLine(line);
+    expect(parsed.body).toBe(line);
+    expect(parsed.attributes).toEqual({ error: "rate limited" });
+  });
+
+  test("ISO, zoned, and epoch timestamps still anchor a preamble", () => {
+    for (const line of [
+      '2026-09-08T19:23:10.000Z {"msg":"booted"}',
+      '2026-09-08T19:23:10+02:00 INFO {"msg":"booted"}',
+      '2026/09/08 19:23:10 {"msg":"booted"}',
+      '1758830590 {"msg":"booted"}',
+    ]) {
+      expect(parseJSONLogLine(line)?.body, line).toBe("booted");
+    }
+  });
+
   test("the object's message fields stay available as attributes", () => {
     const parsed = parseLogLine('detail follows {"message":"hello","user":1}');
     expect(parsed.body).toBe('detail follows {"message":"hello","user":1}');

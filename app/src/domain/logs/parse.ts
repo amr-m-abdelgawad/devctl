@@ -97,7 +97,9 @@ function extractStructuredObject(line: string): ExtractedObject | undefined {
 // ("app:", "INFO:workflows", or bare after a separator as in "- worker -"),
 // bracketed thread/pid tags, and separators. A logger name alone is not enough
 // ("reason: {...}" is prose), so a preamble also needs a timestamp, level, or tag.
-const PREAMBLE_TIMESTAMP_RE = /^\d[\d\-:.,/TZ+]*$/;
+// Dates (2026-09-23, 2026/09/23, ISO-8601), clock times (12:00:00,123), and
+// epoch seconds or millis. A bare status code such as "429:" is not a timestamp.
+const PREAMBLE_TIMESTAMP_RE = /^(?:\d{4}[-/]\d{2}[-/]\d{2}(?:[T ]?[\d:.,]*)?(?:Z|[+-]\d{2}:?\d{2})?|\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?|\d{10,19}),?$/;
 const PREAMBLE_LEVEL_RE = /^(?:level=)?(?:trace|debug|info|notice|warn|warning|error|err|fatal|critical|crit)(?::[\w.\-/]+)?:?$/i;
 const PREAMBLE_LOGGER_RE = /^[\w.\-/]+:$/;
 const PREAMBLE_BRACKETED_RE = /^[[(][^\])]*[\])]:?$/;
