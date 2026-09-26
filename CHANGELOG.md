@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-09-26
+
 ### Added
 
 - `log.grpc.ok` accepts status `0` and `inspect: false`, so a high-volume gRPC method (Temporal `PollWorkflowTaskQueue` / `PollActivityTaskQueue` on status 0 and 14) can stay out of the traffic inspector ring and the proxy log without turning inspect off for the route. Status 0 does not change error counts. See [Proxy](docs/proxy.md#grpc-status-policy).
@@ -720,7 +722,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.22.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.23.0...HEAD
+[0.23.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.1...v0.20.0
