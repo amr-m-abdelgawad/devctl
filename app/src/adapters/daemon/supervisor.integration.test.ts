@@ -47,7 +47,19 @@ describe("demo-platform integration", () => {
       }),
     });
     try {
-      const plan = await sup.start({ services: ["identity"] });
+      const plan = await sup.start({ services: ["identity"] }).catch(async (err: unknown) => {
+        // Say why identity never came up (its output, health, last error);
+        // the bare "failed to start" hides it, e.g. on the macOS runner.
+        const rt = sup.snapshot().services.identity;
+        const { events } = (await sup.dispatch("logs", {})) as { events: Array<{ service?: string; severityText?: string; body?: unknown; raw?: string }> };
+        const lines = events
+          .filter((event) => event.service === "identity" || event.service === "devctl")
+          .slice(-40)
+          .map((event) => `  ${event.severityText ?? ""} ${event.service ?? ""} ${event.raw ?? JSON.stringify(event.body)}`);
+        throw new Error(
+          [`${err instanceof Error ? err.message : String(err)}`, `identity: state=${rt?.state} health=${rt?.health} pid=${rt?.pid} last_error=${rt?.last_error}`, "logs:", ...lines].join("\n"),
+        );
+      });
       expect(plan.waves.flat()).toContain("identity");
       const rt = sup.snapshot().services.identity;
       expect(rt?.pid ?? 0).toBeGreaterThan(0);
