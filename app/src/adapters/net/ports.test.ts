@@ -1,7 +1,7 @@
 import { createServer } from "node:net";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
-import { assignPorts, findPortHolder, occupiedFixedPorts, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
+import { assignPorts, available, findPortHolder, occupiedFixedPorts, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
 
 function listen(port = 0): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve, reject) => {
@@ -96,6 +96,22 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
     const cfg = defaultConfig();
     cfg.services.api = { ...emptyService(), ports: [{ name: "http", value: 0, auto: false }] };
     await expect(assignPorts(cfg, ["api"])).rejects.toMatchObject({ service: "api" });
+  });
+
+  test("auto ports chosen together stay distinct and free to bind", async () => {
+    const cfg = defaultConfig();
+    for (const name of ["web", "rpc", "raw"]) {
+      cfg.services[name] = {
+        ...emptyService(),
+        ports: [{ name: "http", value: 0, auto: true }],
+      };
+    }
+    const assigned = await assignPorts(cfg, ["web", "rpc", "raw"]);
+    const ports = ["web", "rpc", "raw"].map((name) => assigned[name]?.http ?? 0);
+    expect(new Set(ports).size).toBe(ports.length);
+    for (const port of ports) {
+      expect(await available(port)).toBe(true);
+    }
   });
 
   test("a duplicate port is attributed to the service whose assignment actually collides, not an unrelated one", async () => {

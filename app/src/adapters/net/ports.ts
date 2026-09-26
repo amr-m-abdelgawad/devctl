@@ -8,6 +8,7 @@ import { DevctlError, hintError, KindConfiguration, KindProcessStart, wrapError 
 const MAX_PORT = 65535;
 const MIN_PORT = 1;
 const PORT_LOOKUP_TIMEOUT_MS = 3_000;
+const PORT_ALLOCATION_ATTEMPTS = 32;
 
 export async function assignPorts(
   cfg: DevctlConfig,
@@ -21,50 +22,82 @@ export async function assignPorts(
     }
   }
   const assigned: Record<string, Record<string, number>> = {};
-  for (const [name, svc] of Object.entries(cfg.services)) {
-    if (selected.length > 0 && !selected.includes(name)) {
-      continue;
+  // The kernel can reissue an ephemeral port as soon as its probe socket closes.
+  // Hold every reservation until the whole selection is chosen.
+  const release: Array<() => Promise<void>> = [];
+  try {
+    for (const [name, svc] of Object.entries(cfg.services)) {
+      if (selected.length > 0 && !selected.includes(name)) {
+        continue;
+      }
+      const ports: Record<string, number> = {};
+      for (const spec of svc.ports) {
+        const held = existing[name]?.[spec.name];
+        let val = held && held >= MIN_PORT ? held : spec.value;
+        if (held === undefined && spec.auto) {
+          val = await allocatePort(used, release, name);
+        }
+        if (val < MIN_PORT || val > MAX_PORT) {
+          throw new DevctlError(KindConfiguration, `invalid port ${val} on service ${name}`, { service: name });
+        }
+        if (used[val] && used[val] !== name) {
+          throw new DevctlError(KindConfiguration, `duplicate port ${val} used by ${used[val]} and ${name}`, { service: name });
+        }
+        const reused = held === val;
+        if (!reused && !spec.auto && !(await available(val))) {
+          throw await portBusyError(name, spec.name, val);
+        }
+        used[val] = name;
+        ports[spec.name] = val;
+      }
+      assigned[name] = ports;
     }
-    const ports: Record<string, number> = {};
-    for (const spec of svc.ports) {
-      const held = existing[name]?.[spec.name];
-      let val = held && held >= MIN_PORT ? held : spec.value;
-      if (held === undefined && spec.auto) {
-        val = await allocate();
-      }
-      if (val < MIN_PORT || val > MAX_PORT) {
-        throw new DevctlError(KindConfiguration, `invalid port ${val} on service ${name}`, { service: name });
-      }
-      if (used[val] && used[val] !== name) {
-        throw new DevctlError(KindConfiguration, `duplicate port ${val} used by ${used[val]} and ${name}`, { service: name });
-      }
-      const reused = held === val;
-      if (!reused && !spec.auto && !(await available(val))) {
-        throw await portBusyError(name, spec.name, val);
-      }
-      used[val] = name;
-      ports[spec.name] = val;
-    }
-    assigned[name] = ports;
+    return assigned;
+  } finally {
+    await Promise.all(release.map((close) => close()));
   }
-  return assigned;
 }
 
-function allocate(): Promise<number> {
+type PortReservation = {
+  readonly port: number;
+  readonly close: () => Promise<void>;
+};
+
+function reservePort(): Promise<PortReservation> {
   return new Promise((resolve, reject) => {
     const server = createServer();
-    server.listen(0, "127.0.0.1", () => {
+    server.listen({ port: 0, host: "127.0.0.1", exclusive: true }, () => {
       const addr = server.address();
-      server.close(() => {
-        if (addr && typeof addr === "object") {
-          resolve(addr.port);
-        } else {
-          reject(wrapError(KindConfiguration, "unable to allocate dynamic port", new Error("no address")));
-        }
+      if (!addr || typeof addr !== "object") {
+        server.close();
+        reject(wrapError(KindConfiguration, "unable to allocate dynamic port", new Error("no address")));
+        return;
+      }
+      resolve({
+        port: addr.port,
+        close: () =>
+          new Promise((done) => {
+            server.close(() => done());
+          }),
       });
     });
     server.on("error", (err) => reject(wrapError(KindConfiguration, "unable to allocate dynamic port", err)));
   });
+}
+
+async function allocatePort(
+  used: Record<number, string>,
+  release: Array<() => Promise<void>>,
+  service: string,
+): Promise<number> {
+  for (let attempt = 0; attempt < PORT_ALLOCATION_ATTEMPTS; attempt++) {
+    const reservation = await reservePort();
+    release.push(reservation.close);
+    if (used[reservation.port] === undefined) {
+      return reservation.port;
+    }
+  }
+  throw new DevctlError(KindConfiguration, "unable to allocate dynamic port", { service });
 }
 
 export async function occupiedFixedPorts(svc: { ports: Array<{ name: string; value: number; auto: boolean }> }): Promise<Record<string, number> | undefined> {
