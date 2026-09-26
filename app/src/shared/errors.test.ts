@@ -50,6 +50,24 @@ describe("typed errors", () => {
     expect(err.exitCode()).toBe(ExitStartup);
   });
 
+  test("a hinted error keeps one copy of its hint across RPC", () => {
+    const hint = "Open Doctor and press enter to free port 18000, or change web ports.http in .devctl.";
+    const original = hintError("process_start", "web blocked: bun (pid 42) is using port 18000", hint, "web");
+    const wire = serializeError(original);
+    // Clients that only read `error` still see the hint.
+    expect(wire.error).toBe(`web blocked: bun (pid 42) is using port 18000 — ${hint}`);
+    const received = parseError(wire);
+    expect(received.hint).toBe(hint);
+    expect(received.service).toBe("web");
+    expect(humanMessage(received)).toBe(humanMessage(original));
+    expect(humanMessage(received).split(hint)).toHaveLength(2);
+  });
+
+  test("a hint that isn't a suffix of the error is left alone", () => {
+    const received = parseError({ error: "api failed", kind: "process_start", hint: "check logs" });
+    expect(humanMessage(received)).toBe("api failed — check logs");
+  });
+
   test("human message includes hint", () => {
     const err = withHint(newError("authentication", "ADC unavailable"), "run login");
     expect(err).toBeInstanceOf(DevctlError);
