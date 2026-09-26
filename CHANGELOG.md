@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-09-27
+
 ### Added
 
 - `environment.terraform` reads `terraform.tfvars`, `*.auto.tfvars`, and a path that points at a `.tfvars` file. A bare `var.name` in an env value is filled from that assignment or the variable's default. Other `.tfvars` files are still ignored. See [Environment](docs/environment.md#terraform).
@@ -727,7 +729,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.23.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.24.0...HEAD
+[0.24.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.20.0...v0.21.0
