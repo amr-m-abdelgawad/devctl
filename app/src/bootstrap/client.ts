@@ -1,7 +1,9 @@
 import { loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath } from "../adapters/config/tui-preferences.ts";
 import { patchRepoLocalConfig } from "../adapters/config/local-overlay.ts";
 import type { ClientRuntime } from "../application/client-runtime.ts";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { runForeground } from "../adapters/process/foreground.ts";
+import { archiveDirectory } from "../adapters/storage/archive.ts";
 import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
 import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents } from "../adapters/storage/logs.ts";
 import { readInstances, releaseSlot } from "../adapters/storage/instances.ts";
@@ -34,6 +36,9 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     readTextFile: (path) => readFileSync(path, "utf8"),
     writeTextFile: (path, text) => writeFileSync(path, text),
     writeSecretFile: writeFileSecure,
+    runForeground,
+    archiveDirectory,
+    removePath: (path) => rmSync(path, { recursive: true, force: true }),
     fileExists: existsSync,
     load,
     loadOrEmpty,

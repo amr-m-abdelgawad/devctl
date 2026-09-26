@@ -7,6 +7,8 @@ import { displayState, formatPlan } from "../../domain/service/services.ts";
 import { type ServiceConfig } from "../../domain/config/types.ts";
 import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { configFlag, writeOut } from "./shared.ts";
+import { DEFAULT_WAIT_TIMEOUT, plannedServices, waitForStack } from "./wait.ts";
+import { parseDuration } from "../../domain/harness.ts";
 
 export function addExec(root: Command, runtime: ClientRuntime): void {
   root.command("exec")
@@ -58,8 +60,11 @@ export function addStart(root: Command, runtime: ClientRuntime): void {
     .option("--overlay <name>", "apply .devctl/overlays/<name>.yaml for this session (sticky like --profile)")
     .option("--env <kv>", "set KEY=VAL on this start for targeted services (repeatable)", collectRepeatable, [] as string[])
     .option("--detach", "deprecated, no longer changes behavior: the daemon already outlives this command; use `devctl down` to stop it")
+    .option("--wait", "block until every started service is healthy (exit 6 on timeout, 5 if one fails)")
+    .option("--timeout <duration>", "with --wait: how long to wait (for example 2m, 90s)", DEFAULT_WAIT_TIMEOUT)
     .option("--json", "machine-readable output")
-    .action(async (services: string[], opts: { profile?: string; overlay?: string; env?: string[]; detach?: boolean; json?: boolean }) => {
+    .action(async (services: string[], opts: { profile?: string; overlay?: string; env?: string[]; detach?: boolean; wait?: boolean; timeout: string; json?: boolean }) => {
+      const timeoutMs = parseDuration(opts.timeout);
       if (opts.detach) {
         process.stderr.write(
           "warning: --detach is deprecated and no longer changes behavior — the daemon already keeps running after `start` exits; use `devctl down` to stop it\n",
@@ -76,11 +81,19 @@ export function addStart(root: Command, runtime: ClientRuntime): void {
           extra_env: Object.keys(extra_env).length > 0 ? extra_env : undefined,
           detach: opts.detach === true,
         });
+        if (!opts.json) {
+          writeOut(formatPlan(plan));
+        }
+        if (opts.wait) {
+          await waitForStack(ctrl, ctrl.cfg, plan, timeoutMs);
+        }
         if (opts.json) {
           writeOut(JSON.stringify(plan, null, 2) + "\n");
           return;
         }
-        writeOut(formatPlan(plan));
+        if (opts.wait) {
+          writeOut(`ready: ${plannedServices(plan).join(", ") || "(nothing to start)"}\n`);
+        }
         if (opts.detach) {
           writeOut("detached; services continue running\n");
         }
