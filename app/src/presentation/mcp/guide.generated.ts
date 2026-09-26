@@ -897,7 +897,7 @@ Every message names its path. Fix the path it names.
 | \`at least one service must be defined\` | empty/missing \`services\` |
 | \`duplicate port N used by X and Y\` | two services pinned the same port |
 | \`services.X.command is required\` | missing or empty command |
-| \`services.X.command contains shell metacharacters\` | add \`shell: true\` or use argv |
+| \`services.X.command contains shell metacharacters\` | a string command has \`;\`, \`\\|\`, or \`&&\`, or an array item is a bare operator (\`\\|\`, \`&&\`, \`;\`, \`>\`, …). Add \`shell: true\`, or use an array whose items only contain those characters |
 | \`services.X.dependencies: unknown service "Y"\` | typo, or Y lives in a file you did not create |
 | \`dependency cycle: a → b → a\` | remove an edge |
 | \`http recipe cycle: a → b → a\` | two recipes interpolate each other |

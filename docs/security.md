@@ -31,7 +31,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **No tokens on screen** | TUI, `devctl status`, and MCP tool results never print access tokens |
 | **Redacted env** | Credential names (`password`, `secret`, `api_key`, `access_token`, `authorization`, `cookie`, …) and names containing TOKEN, SECRET, PASSWORD, … → `********`. Metadata such as `token_type`, `page_token`, `secret_name`, and `DEVCTL_TOKEN_URL` stays visible. A field named exactly `token` is masked only when the value looks like a credential |
 | **Loopback only** | Proxy, token endpoint, and MCP refuse `0.0.0.0`, `::`, and other non-loopback binds. Managed containers publish ports on `127.0.0.1` and default to 1g RAM, 1 CPU, and 256 PIDs |
-| **Argv by default** | Shell metacharacters fail validation unless `shell: true` |
+| **Argv by default** | Shell operators fail validation unless `shell: true`. Array commands are checked only for a bare operator item (`\|`, `&&`, `;`, …); characters inside an item are passed as-is. See [Services](services.md) |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in `.devctl/secrets.env` (gitignored), overlays, keychain, Secret Manager, or a SOPS-encrypted file. `sops` decrypts that file in memory at daemon start and reload and does not write the plaintext. There is no `${secret:}` template syntax |
 

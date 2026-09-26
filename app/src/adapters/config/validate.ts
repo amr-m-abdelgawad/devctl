@@ -1147,8 +1147,13 @@ function validateShellCommand(prefix: string, command: Command, serviceShell: bo
   if (command.shell || serviceShell) {
     return [];
   }
+  // A bare operator token means a pipeline or sequence was intended. Inside
+  // an array argument (`node -e "a; b"`, a URL, a regex) `;`, `|` and `&&`
+  // are plain characters, since arrays never reach a shell (#136); a string
+  // command was written as a shell line, so they still count there.
   for (const arg of command.args) {
-    if (SHELL_META_TOKENS.includes(arg) || arg.includes("|") || arg.includes(";") || arg.includes("&&")) {
+    const embedded = command.fromString === true && (arg.includes("|") || arg.includes(";") || arg.includes("&&"));
+    if (SHELL_META_TOKENS.includes(arg) || embedded) {
       return [`${prefix}.command contains shell metacharacters; set shell: true to run via a shell`];
     }
   }
