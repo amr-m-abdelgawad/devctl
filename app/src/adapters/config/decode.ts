@@ -358,6 +358,8 @@ export function decodeContainer(value: unknown): import("../../domain/config/typ
     ports,
     env: asStringMap(value.env),
     volumes: asStringArray(value.volumes),
+    seed_from: asStringMap(value.seed_from),
+    shared_volumes: asStringArray(value.shared_volumes),
     user: asString(value.user),
     memory: asString(value.memory),
     cpus: asString(value.cpus),

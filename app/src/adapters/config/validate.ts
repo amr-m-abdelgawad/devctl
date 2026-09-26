@@ -8,6 +8,7 @@ import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.t
 import { HEALTH_TEMPLATE_FIELDS, findRefs, healthRefResolvable, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import { invalidBodyReplacement } from "../../domain/proxy/body-transform.ts";
+import { volumeConfigIssues } from "../../domain/service/container-volumes.ts";
 import {
   directedCycleIssues,
   effectiveStartupDependencies,
@@ -213,6 +214,7 @@ function validateServices(cfg: DevctlConfig): string[] {
         if (target < MIN_PORT || target > MAX_PORT) issues.push(`${prefix}.container.ports.${portName}: invalid container port ${target}`);
       }
       if (svc.container.pids_limit < 0) issues.push(`${prefix}.container.pids_limit must be >= 0`);
+      issues.push(...volumeConfigIssues(prefix, svc.container));
     }
   }
   return issues;

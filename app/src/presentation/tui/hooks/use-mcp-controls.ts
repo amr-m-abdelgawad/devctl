@@ -32,14 +32,14 @@ export function useMcpControls({
 }: Options) {
 
   const [mcpPortDraft, setMcpPortDraft] = useState("");
-  const [mcpPort, setMcpPort] = useState(() => tui.mcp_port ?? derivedMcpPort(controller?.cfg.repoRoot ?? process.cwd()));
+  const [mcpPort, setMcpPort] = useState(() => tui.mcp_port ?? derivedMcpPort(controller?.cfg.repoRoot ?? process.cwd(), controller?.cfg.instance.name));
 
   const persistMcpPort = useCallback(
     (next: number) => {
       const port = clampMcpPort(next);
       setMcpPort(port);
       const root = cfg?.repoRoot ?? process.cwd();
-      if (isDerivedMcpPort(root, port)) {
+      if (isDerivedMcpPort(root, port, cfg?.instance.name)) {
         persistPrefs({ mcp_port: null }, `MCP port ${port} (default)`, "repo");
         return;
       }

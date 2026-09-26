@@ -7,19 +7,33 @@ import { loadPath } from "../config/index.ts";
 import { claimSlot, currentSlot, instancesPath, readInstances, recordInstancePorts, releaseSlot, startWithSlot } from "./instances.ts";
 
 let previousHome: string | undefined;
+let previousInstance: string | undefined;
 
 beforeEach(() => {
   previousHome = process.env.DEVCTL_HOME;
+  previousInstance = process.env.DEVCTL_INSTANCE;
   process.env.DEVCTL_HOME = mkdtempSync(join(tmpdir(), "devctl-instances-"));
+  delete process.env.DEVCTL_INSTANCE;
 });
 
 afterEach(() => {
-  if (previousHome === undefined) {
-    delete process.env.DEVCTL_HOME;
-  } else {
-    process.env.DEVCTL_HOME = previousHome;
+  for (const [key, value] of [["DEVCTL_HOME", previousHome], ["DEVCTL_INSTANCE", previousInstance]] as const) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
   }
 });
+
+function asInstance<T>(name: string, fn: () => T): T {
+  process.env.DEVCTL_INSTANCE = name;
+  try {
+    return fn();
+  } finally {
+    delete process.env.DEVCTL_INSTANCE;
+  }
+}
 
 describe("instance slot registry", () => {
   test("the first checkout takes slot 0, the next slot 1, and each keeps its slot", () => {
@@ -35,6 +49,24 @@ describe("instance slot registry", () => {
     ]);
     expect(currentSlot("/src/app-review")).toBe(1);
     expect(currentSlot("/src/unknown")).toBe(0);
+  });
+
+  test("a named instance of a checkout holds a slot of its own", () => {
+    expect(claimSlot("/src/app").slot).toBe(0);
+    expect(asInstance("ci-7", () => claimSlot("/src/app"))).toEqual({ slot: 1, claimed: true });
+    expect(asInstance("ci-7", () => currentSlot("/src/app"))).toBe(1);
+    expect(currentSlot("/src/app")).toBe(0);
+    expect(readInstances().map((entry) => [entry.slot, entry.instance])).toEqual([
+      [0, undefined],
+      [1, "ci-7"],
+    ]);
+    asInstance("ci-7", () => releaseSlot("/src/app"));
+    expect(readInstances().map((entry) => entry.slot)).toEqual([0]);
+  });
+
+  test("an invalid instance name is rejected before anything is written", () => {
+    expect(() => asInstance("Bad Name", () => claimSlot("/src/app"))).toThrow('invalid instance name "Bad Name"');
+    expect(readInstances()).toEqual([]);
   });
 
   test("claimed is true only for the call that created the claim", () => {
@@ -115,7 +147,7 @@ web:
     claimSlot("/someone-else");
     claimSlot(repo);
     const cfg = loadPath(repo, configPath);
-    expect(cfg.instance).toEqual({ slot: 1, portOffset: 100 });
+    expect(cfg.instance).toEqual({ name: "", slot: 1, portOffset: 100 });
     expect(cfg.services.api?.ports[0]?.value).toBe(18100);
     expect(cfg.web.listen.port).toBe(19000);
     // An explicit slot overrides the registry.

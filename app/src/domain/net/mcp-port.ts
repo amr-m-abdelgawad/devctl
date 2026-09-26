@@ -40,13 +40,13 @@ export function commitMcpPortDraft(draft: string, fallback: number): number {
   return clampMcpPort(parsed);
 }
 
-export function derivedMcpPort(repoRoot: string): number {
-  const n = Number.parseInt(repoID(repoRoot).slice(0, HEX_PREFIX_LEN), 16);
+export function derivedMcpPort(repoRoot: string, instance = ""): number {
+  const n = Number.parseInt(repoID(repoRoot, instance).slice(0, HEX_PREFIX_LEN), 16);
   const offset = Number.isFinite(n) ? n % MCP_PORT_SPAN : 0;
   return MCP_PORT_BASE + offset;
 }
 
-export function isDerivedMcpPort(repoRoot: string, port: number): boolean {
-  return port === derivedMcpPort(repoRoot);
+export function isDerivedMcpPort(repoRoot: string, port: number, instance = ""): boolean {
+  return port === derivedMcpPort(repoRoot, instance);
 }
 

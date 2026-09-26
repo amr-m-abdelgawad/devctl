@@ -65,12 +65,20 @@ devctl mcp                 # URL + four snippets
 devctl mcp --on [--port N]
 devctl mcp --off
 devctl mcp --rotate
+devctl mcp --write claude  # or cursor, kilo: write this stack's config into the checkout
 devctl mcp --json
 ```
 
 `--on` starts a supervisor if needed. `--off` stops the listener only.
 `--rotate` writes a new bearer token; if the listener is running it is restarted
 so agents must be given the new snippets.
+
+`--write <client>` writes the snippet into the client's project config in the
+checkout (`.mcp.json`, `.cursor/mcp.json` or `kilo.jsonc`), keeping any other
+servers there. The MCP port is derived per stack, so each worktree of a
+[parallel stacks](parallel-stacks.md) setup points its agent at its own stack.
+The file holds the bearer token: keep it out of git, and write it again after a
+rotate or remint. It needs a running listener (`devctl mcp --on --write …`).
 
 ![devctl mcp — the loopback URL and ready-to-paste config snippets for Claude, Cursor, Kilo Code, and Codex, each with the bearer header (token redacted here)](assets/manual/cli-mcp.png)
 

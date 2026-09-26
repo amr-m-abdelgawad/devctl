@@ -26,7 +26,16 @@ export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): C
     .description("Local development orchestrator")
     .version(versionLine(), "-V, --version", "print version")
     .option("--config <path>", "path to config file or .devctl directory")
+    .option("--instance <name>", "work on a named stack of this checkout (default: the checkout's own; env DEVCTL_INSTANCE)")
     .enablePositionalOptions();
+  // Every per-stack path (state, socket, tokens, containers, port slot) is
+  // derived from DEVCTL_INSTANCE, and a spawned supervisor inherits it.
+  root.hook("preAction", () => {
+    const { instance } = root.opts<{ instance?: string }>();
+    if (instance !== undefined) {
+      process.env.DEVCTL_INSTANCE = instance;
+    }
+  });
   root.command("version").description("print version").action(() => {
     writeOut(`${versionLine()}\n`);
   });

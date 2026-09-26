@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../../domain/service/container-limits.ts";
-import { containerEnvironment, containerRunArgs, type ContainerLaunchSpec } from "./containers.ts";
+import { containerEnvironment, containerRunArgs, seedCopyArgs, type ContainerLaunchSpec } from "./containers.ts";
 
 describe("container runtime", () => {
   test("builds a deterministic run command without putting secret values in argv", () => {
@@ -39,4 +39,13 @@ describe("container runtime", () => {
   test("preserves image-owned environment such as PATH", () => {
     expect(containerEnvironment({ PATH: "/host/bin", HOME: "/host", API_URL: "http://api" })).toEqual({ API_URL: "http://api" });
   });
+});
+
+test("a volume seed copies with the service's image, source read-only", () => {
+  expect(seedCopyArgs("postgres:16", { volume: "devctl-abc-pgdata", from: "pgdata", required: false })).toEqual([
+    "run", "--rm",
+    "--volume", "pgdata:/devctl-seed-from:ro",
+    "--volume", "devctl-abc-pgdata:/devctl-seed-to",
+    "--entrypoint", "cp", "postgres:16", "-a", "/devctl-seed-from/.", "/devctl-seed-to/",
+  ]);
 });

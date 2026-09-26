@@ -1,7 +1,20 @@
 import { Command } from "commander";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
 import { derivedMcpPort } from "../mcp/port.ts";
-import { claudeSnippet, cursorSnippet, kiloSnippet, codexToml, formatMcpSnippets, mcpUrl } from "../mcp/snippets.ts";
+import { join } from "node:path";
+import {
+  claudeSnippet,
+  codexToml,
+  cursorSnippet,
+  formatMcpSnippets,
+  isWritableSnippet,
+  kiloSnippet,
+  mcpUrl,
+  mergeSnippetFile,
+  snippetPath,
+  WRITABLE_SNIPPETS,
+  type WritableSnippetKind,
+} from "../mcp/snippets.ts";
 import { MCP_TOKEN_TTL_DAYS, formatMcpTokenAge } from "../../shared/mcp-token.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
@@ -58,11 +71,19 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
     .option("--off", "stop the MCP listener")
     .option("--port <port>", "listen port")
     .option("--rotate", "mint a new bearer token (restarts the listener if it is running)")
+    .option("--write <client>", `write this stack's MCP config for ${WRITABLE_SNIPPETS.join(", ")} into the checkout`)
     .option("--json", "machine-readable output")
-    .action(async (opts: { on?: boolean; off?: boolean; port?: string; rotate?: boolean; json?: boolean }) => {
+    .action(async (opts: { on?: boolean; off?: boolean; port?: string; rotate?: boolean; write?: string; json?: boolean }) => {
       const portOpt = opts.port === undefined ? undefined : Number(opts.port);
       if (opts.port !== undefined && (!Number.isInteger(portOpt) || (portOpt ?? 0) <= 0)) {
         throw new Error(`invalid --port ${opts.port}`);
+      }
+      if (opts.write !== undefined && !isWritableSnippet(opts.write)) {
+        throw new Error(
+          opts.write === "codex"
+            ? "codex reads ~/.codex/config.toml, not a per-checkout file; use the snippet `devctl mcp` prints (or `codex mcp add`)"
+            : `--write takes one of ${WRITABLE_SNIPPETS.join(", ")}`,
+        );
       }
       const ctrl = await runtime.openController("", configFlag(root), opts.on === true, { allowMissingConfig: true });
       try {
@@ -81,10 +102,14 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
         }
         const snap = ctrl.client ? await ctrl.status() : undefined;
         const tui = runtime.loadTuiConfig(ctrl.cfg.repoRoot, ctrl.cfg.ui.keymap);
-        const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot);
+        const port = snap?.mcp?.port ?? portOpt ?? tui.mcp_port ?? derivedMcpPort(ctrl.cfg.repoRoot, ctrl.cfg.instance.name);
         const url = snap?.mcp?.address ?? mcpUrl(port);
         const token = snap?.mcp?.token ?? rotatedToken;
         const ageMs = snap?.mcp?.token_age_ms ?? runtime.mcpTokenAgeMs(ctrl.cfg.repoRoot);
+        if (opts.write !== undefined && isWritableSnippet(opts.write)) {
+          writeSnippetFile(runtime, ctrl.cfg.repoRoot, opts.write, url, token);
+          return;
+        }
         if (opts.json) {
           writeOut(
             JSON.stringify(
@@ -123,4 +148,18 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
         await ctrl.close();
       }
     });
+}
+
+// Parallel stacks (#117): each worktree's agent reads its own project config,
+// so writing the stack's URL and token there points it at its own stack.
+function writeSnippetFile(runtime: ClientRuntime, repoRoot: string, kind: WritableSnippetKind, url: string, token: string): void {
+  if (token === "") {
+    throw new Error("the MCP listener isn't running, so there is no token to write; start it with `devctl mcp --on --write " + kind + "`");
+  }
+  const rel = snippetPath(kind);
+  const path = join(repoRoot, rel);
+  const existing = runtime.fileExists(path) ? runtime.readTextFile(path) : undefined;
+  runtime.writeSecretFile(path, mergeSnippetFile(kind, existing, url, token));
+  writeOut(`wrote ${rel}: devctl -> ${url}\n`);
+  writeOut(`It holds this stack's bearer token: keep it out of git, and write it again after \`devctl mcp --rotate\`.\n`);
 }

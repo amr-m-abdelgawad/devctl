@@ -129,8 +129,12 @@ services:
       address: 127.0.0.1:15432
 ```
 
-Container names are deterministic and scoped to the repository, allowing a
-new devctl daemon to adopt containers left running by its predecessor. Secret
+Container names are deterministic and scoped to the stack (the checkout, or a
+named `--instance` of it), allowing a new devctl daemon to adopt containers left
+running by its predecessor. Named volumes are scoped the same way:
+`pgdata` above is `devctl-<id>-pgdata` to the runtime, filled on first use from
+`seed_from` or the unprefixed `pgdata`. `shared_volumes` lists named volumes
+every stack mounts as written. See [parallel stacks](parallel-stacks.md#volumes). Secret
 environment values are supplied through the runtime process environment and
 are not placed in command-line arguments. Published ports bind to
 `127.0.0.1` by default rather than every network interface. Every run also

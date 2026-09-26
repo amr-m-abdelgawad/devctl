@@ -131,7 +131,7 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
     const handle = await host.procs.adoptContainer({
       name,
       runtime,
-      containerName: `devctl-${repoID(host.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
+      containerName: `devctl-${repoID(host.cfg.repoRoot, host.cfg.instance.name)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       workDir,
       onLine: (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
       onExit: (code, err) => host.orchestrator.health.onExit(name, gen, code, err),
@@ -208,7 +208,7 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
     const handle = await host.procs.adoptContainer({
       name,
       runtime,
-      containerName: `devctl-${repoID(host.cfg.repoRoot)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
+      containerName: `devctl-${repoID(host.cfg.repoRoot, host.cfg.instance.name)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       workDir: host.serviceWorkDir(svc),
       onLine: (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
       onExit: (code, err) => host.orchestrator.health.onExit(name, gen, code, err),

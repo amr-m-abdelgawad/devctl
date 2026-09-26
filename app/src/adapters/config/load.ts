@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve } from "node:path";
 import { parse } from "yaml";
 import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newError, wrapError } from "../../shared/errors.ts";
-import { homeDir } from "../storage/storage.ts";
+import { currentInstance, homeDir } from "../storage/storage.ts";
 import { currentSlot } from "../storage/instances.ts";
 import { shiftConfigPorts, slotOffset } from "../../domain/net/port-slots.ts";
 import { decodeProfile, decodeRoute, decodeService, decodeHttpRecipe, isRecord } from "./decode.ts";
@@ -88,7 +88,7 @@ export function loadOrEmpty(startDir: string, explicit: string, opts?: LoadOpts)
 function applyInstanceSlot(cfg: DevctlConfig, slot: number): void {
   const portOffset = slotOffset(slot);
   shiftConfigPorts(cfg, portOffset);
-  cfg.instance = { slot, portOffset };
+  cfg.instance = { name: currentInstance(), slot, portOffset };
 }
 
 export function loadPath(repoRoot: string, configPath: string, opts?: LoadOpts): DevctlConfig {

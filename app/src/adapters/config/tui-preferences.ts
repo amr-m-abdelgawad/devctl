@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import { homeDir, writeFileSecure } from "../storage/storage.ts";
-import { repoID } from "../../shared/repo-id.ts";
+import { homeDir, stackID, writeFileSecure } from "../storage/storage.ts";
 import {
   defaultTuiConfig,
   isWebAppearance,
@@ -38,7 +37,7 @@ export function userTuiConfigPath(): string {
 }
 
 export function repoTuiConfigPath(repoRoot: string): string {
-  return join(homeDir(), "state", repoID(repoRoot), "tui.json");
+  return join(homeDir(), "state", stackID(repoRoot), "tui.json");
 }
 
 export function resolveTuiOverridePath(startDir = ""): string | undefined {

@@ -182,7 +182,7 @@ export type StatusSnapshot = {
   credentials?: CredentialsSnapshot;
   detached?: boolean;
   // Parallel stacks (#117): this checkout's port slot and offset.
-  instance?: { slot: number; port_offset: number };
+  instance?: { name?: string; slot: number; port_offset: number };
   // True while the daemon is running without any configuration on disk — the
   // bootstrap state `devctl mcp --on` creates so an agent can be pointed at
   // the MCP server and asked to author a .devctl. It is not "a daemon with an
@@ -209,3 +209,13 @@ export type TraceResponse = {
   tree: TraceTree;
   events: LogEvent[];
 };
+
+/** The status line naming a stack's instance and port slot; undefined for a checkout's own stack in slot 0. */
+export function instanceStatusLine(instance: StatusSnapshot["instance"]): string | undefined {
+  const name = instance?.name ?? "";
+  const slot = instance?.slot ?? 0;
+  if (name === "" && slot === 0) {
+    return undefined;
+  }
+  return `INSTANCE: ${name === "" ? "" : `${name}, `}slot ${slot} (ports +${instance?.port_offset ?? 0})`;
+}

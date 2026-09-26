@@ -5,6 +5,7 @@ import type { LineHandler } from "../process/processes.ts";
 import { emptyContainer } from "../../domain/config/types.ts";
 import { resolvedContainerLimits } from "../../domain/service/container-limits.ts";
 import type { ContainerLaunchSpec } from "../../ports/process-runtime.ts";
+import type { VolumeSeed } from "../../domain/service/container-volumes.ts";
 export type { ContainerLaunchSpec } from "../../ports/process-runtime.ts";
 
 export type ContainerControl = {
@@ -18,6 +19,9 @@ export type ContainerControl = {
 
 export async function startContainer(spec: ContainerLaunchSpec): Promise<ContainerControl> {
   await removeStopped(spec.runtime, spec.containerName);
+  for (const seed of spec.seeds ?? []) {
+    await seedVolume(spec.runtime, spec.image, seed, spec.onLine);
+  }
   const args = containerRunArgs(spec);
   const launched = await runCaptured(spec.runtime, args, spec.env);
   if (launched.code !== 0 || launched.stdout.trim() === "") {
@@ -100,6 +104,43 @@ function attachControl(
       await done;
     },
   };
+}
+
+/**
+ * Fills a stack's named volume the first time it is used (#117): copies
+ * `seed.from` into it with the service's own image (`cp -a`, so ownership and
+ * modes carry over). A volume that already exists is left alone, so a seed
+ * runs once per stack.
+ */
+export async function seedVolume(runtime: "docker" | "podman", image: string, seed: VolumeSeed, onLine?: LineHandler): Promise<void> {
+  const env = process.env as Record<string, string>;
+  if ((await runCaptured(runtime, ["volume", "inspect", seed.volume], env)).code === 0) {
+    return;
+  }
+  if ((await runCaptured(runtime, ["volume", "inspect", seed.from], env)).code !== 0) {
+    if (seed.required) {
+      throw newError(KindProcessStart, `seed_from volume "${seed.from}" for ${seed.volume} does not exist`);
+    }
+    return;
+  }
+  const created = await runCaptured(runtime, ["volume", "create", "--label", "devctl.managed=true", seed.volume], env);
+  if (created.code !== 0) {
+    throw newError(KindProcessStart, `failed to create volume ${seed.volume}: ${created.stderr.trim()}`);
+  }
+  onLine?.("stderr", `devctl: seeding volume ${seed.volume} from ${seed.from}`);
+  const copied = await runCaptured(runtime, seedCopyArgs(image, seed), env);
+  if (copied.code !== 0) {
+    // Leave no half-filled volume behind: the next start seeds it again.
+    await runCaptured(runtime, ["volume", "rm", "--force", seed.volume], env);
+    throw newError(
+      KindProcessStart,
+      `failed to seed volume ${seed.volume} from ${seed.from} (the copy runs \`cp\` in ${image}): ${copied.stderr.trim()}`,
+    );
+  }
+}
+
+export function seedCopyArgs(image: string, seed: VolumeSeed): string[] {
+  return ["run", "--rm", "--volume", `${seed.from}:/devctl-seed-from:ro`, "--volume", `${seed.volume}:/devctl-seed-to`, "--entrypoint", "cp", image, "-a", "/devctl-seed-from/.", "/devctl-seed-to/"];
 }
 
 async function removeStopped(runtime: string, name: string): Promise<void> {

@@ -1,3 +1,4 @@
+import type { VolumeSeed } from "../domain/service/container-volumes.ts";
 import type { ContainerLimits } from "../domain/service/container-limits.ts";
 
 export type ProcessLineHandler = (stream: "stdout" | "stderr", line: string) => void;
@@ -34,6 +35,8 @@ export type ContainerLaunchSpec = {
   ports: Record<string, number>;
   targetPorts: Record<string, number>;
   volumes: string[];
+  // Named volumes to fill before the first run (#117).
+  seeds?: VolumeSeed[];
   workDir: string;
   limits?: ContainerLimits;
   onLine?: ProcessLineHandler;

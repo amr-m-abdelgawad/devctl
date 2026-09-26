@@ -717,7 +717,7 @@ export class Supervisor {
       logs: { append: (event) => self.logs.append(event) },
       bus: self.bus,
       processMeta: self.processMeta,
-      get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot)}-`; },
+      get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot, self.cfg.instance.name)}-`; },
       prepareServiceIdentity: (name, svc) => self.identity.prepareServiceIdentity(name, svc),
       resolveServiceExecution: (name, svc, profile, env, clientEnv, includeProcess, selectedEnv) => self.env.resolveServiceExecution(name, svc, profile, env, clientEnv, includeProcess, selectedEnv),
       ensureHttpRecipes: async (names) => {
