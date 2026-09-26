@@ -52,6 +52,8 @@ flowchart LR
   iap --> up["Upstream"]
 ```
 
+> **Experimental.** `suppress_authorization` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 The local proxy mints the token and injects `Authorization: Bearer …` by default. Set `suppress_authorization: true` with `auth.headers` (for example `Proxy-Authorization: "Bearer ${token}"`) when the caller already owns `Authorization`. Services do not implement IAP themselves. Minting (`audience`, `identity`, `client_id` / `client_secret`, `credentials`) is unchanged.
 
 Tokens refresh when `expires_at - now < auth.refresh_threshold_seconds` (default 300). Concurrent refreshes for the same identity + audience + scope + OAuth client share one in-flight request. Google minting is also capped at 10 refreshes per identity and audience per minute.

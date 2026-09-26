@@ -1,7 +1,8 @@
 # Platform bets
 
-These are separate products, not commitments on the current roadmap. Each item
-needs its own scoped design before implementation.
+These are separate products, not commitments on the current
+[roadmap](roadmap.md). None starts until Phases 1–3 of the roadmap are in daily
+use. Each item needs its own scoped design before implementation.
 
 | Item | Why it is late | Honest constraint |
 |------|----------------|-------------------|
@@ -23,6 +24,7 @@ Interactive `gcloud` login stays a local TTY flow. MCP never owns a browser or a
 
 ## Related
 
+- [Roadmap](roadmap.md)
 - [Architecture](architecture.md)
 - [Plugins](plugins.md)
 - [MCP](mcp.md)

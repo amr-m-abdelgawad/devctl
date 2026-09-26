@@ -82,6 +82,7 @@ These pages are **not** the operator manual. They map the TypeScript tree for pe
 |------|------|
 | [Building from source](typescript.md) | \`app/\` layout, tests, TUI config file |
 | [Architecture](architecture.md) | Layers, composition roots, import rules |
+| [Roadmap](roadmap.md) | Phases before v1.0, experimental features, feedback from other stacks |
 | [Platform bets](platform-bets.md) | Remote/multi-repo/k8s/OIDC/signing — design separately |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
 | [Changelog](../CHANGELOG.md) | Notable changes, newest first |
@@ -901,6 +902,8 @@ flowchart LR
 
 ### SOPS
 
+> **Experimental.** \`environment.sops\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 \`\`\`yaml
 environment:
   sources: [sops, secret_manager]
@@ -926,6 +929,8 @@ environment:
 \`environment.sops.file\` is required when \`sops\` is listed, and the path must stay inside the repository (including after symlink resolution). \`devctl config validate\` rejects a missing file field, an unknown \`input_type\`, an empty \`key_map\` value, or a path that escapes the repo. A missing file or a decrypt error is a runtime warning, not a validate failure.
 
 ### Terraform
+
+> **Experimental.** \`environment.terraform\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 Point a service at the Terraform that already defines its deployed environment. devctl reads those literal values when the service starts, so the same keys do not have to be copied into YAML.
 
@@ -1387,6 +1392,8 @@ flowchart LR
   iam --> iap
   iap --> up["Upstream"]
 \`\`\`
+
+> **Experimental.** \`suppress_authorization\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 The local proxy mints the token and injects \`Authorization: Bearer …\` by default. Set \`suppress_authorization: true\` with \`auth.headers\` (for example \`Proxy-Authorization: "Bearer \${token}"\`) when the caller already owns \`Authorization\`. Services do not implement IAP themselves. Minting (\`audience\`, \`identity\`, \`client_id\` / \`client_secret\`, \`credentials\`) is unchanged.
 
@@ -1927,6 +1934,8 @@ A 404/401/403 from \`/spend/logs\` is a **source error** in the UI (“this URL 
 LiteLLM needs a DB plus a master key (or a key with \`get_spend_routes\`).
 
 ## Proxy-capture source (\`type: proxy\`)
+
+> **Experimental.** \`capture.field_map\` and \`cost_per_token\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 When LiteLLM sits behind a gateway that only exposes \`/v1/chat/completions\` and blocks \`/spend/logs\` (common with Apigee, IAP, or API Management), there is no management hop to poll. Instead, route the completion traffic through the devctl [proxy](proxy.md) and let devctl capture the bodies as they pass:
 
@@ -2570,6 +2579,8 @@ Local-only services (the [demo platform](../examples/demo-platform/README.md)) r
 ` },
   { path: "docs/parallel-stacks.md", title: "Parallel stacks", body: `# Parallel stacks
 
+> **Experimental.** Parallel stacks (port slots, \`--instance\`, per-stack volumes, \`devctl instances\`, \`devctl mcp --write\`) may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 Run the same configuration in several checkouts at once, such as one git worktree per coding agent or a review branch next to your main checkout, without editing any ports. Each stack gets its own ports, listeners, containers, volumes and state. A checkout is one stack; a named instance adds more in the same checkout.
 
 \`\`\`bash
@@ -2686,8 +2697,9 @@ devctl mcp --write <client>       # write this stack's MCP config into the check
 ` },
   { path: "docs/platform-bets.md", title: "Platform bets", body: `# Platform bets
 
-These are separate products, not commitments on the current roadmap. Each item
-needs its own scoped design before implementation.
+These are separate products, not commitments on the current
+[roadmap](roadmap.md). None starts until Phases 1–3 of the roadmap are in daily
+use. Each item needs its own scoped design before implementation.
 
 | Item | Why it is late | Honest constraint |
 |------|----------------|-------------------|
@@ -2709,6 +2721,7 @@ Interactive \`gcloud\` login stays a local TTY flow. MCP never owns a browser or
 
 ## Related
 
+- [Roadmap](roadmap.md)
 - [Architecture](architecture.md)
 - [Plugins](plugins.md)
 - [MCP](mcp.md)
@@ -2975,6 +2988,8 @@ Match is host + optional path prefix.
 
 ### Rewrite the request body
 
+> **Experimental.** \`transform.request_body\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 \`transform.request_body\` rewrites the request body before forwarding. Rules run in order. Each one replaces every occurrence of \`replace\` with \`with\`. Without \`regex: true\`, \`replace\` is a literal string (dots are not wildcards). With \`regex: true\`, \`replace\` is a JavaScript regular expression. \`with\` is inserted literally in both cases — \`$\` is not a capture reference.
 
 \`\${NAME}\` and \`\${env.NAME}\` expand in both \`replace\` and \`with\` at request time, from the supervisor process environment plus \`.devctl/secrets.env\`, the same way as \`upstream.url\`. \`devctl config validate\` accepts the template before the variable is set. An empty value fails that hop (**502**). On an \`iap\` or \`service_account\` route, \`\${token}\` in \`replace\` or \`with\` is the same minted, cached token used for \`Authorization\` and \`auth.headers\`, resolved per request. On \`auth.type: none\` it is a validate error (\`\${token} requires auth.type iap or service_account\`). In a regex \`replace\`, \`\${token}\` is substituted before the pattern is compiled. \`with\` stays literal, including when \`regex: true\`. \`\${identity.user}\` stays literal; validate warns if \`\${identity.\` appears. Other references are rejected.
@@ -3086,6 +3101,8 @@ Some IAP-protected upstreams want the minted token under an additional header, n
 \`\`\`
 
 Applied only on \`iap\` / \`service_account\` routes (there is no token on a \`none\` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
+
+> **Experimental.** \`suppress_authorization\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 When the backend **also** needs the caller's \`Authorization\` (Google Workspace OAuth, a user-level API token) and IAP must see the ID token in \`Proxy-Authorization\` instead, set \`suppress_authorization: true\`. The route still mints (\`audience\`, \`identity\`, \`client_id\` / \`client_secret\`, \`credentials\` unchanged) and still applies \`auth.headers\`; it does **not** write \`Authorization: Bearer\`. \`\${token}\` is the raw JWT — include the \`Bearer \` prefix in the header value when the upstream expects it. \`auth.headers\` is required so the minted token is sent somewhere. Invalid on \`auth.type: none\`.
 
@@ -3278,6 +3295,8 @@ proxy:
           decoder: temporal   # optional plugin trafficDecoders name
 \`\`\`
 
+> **Experimental.** gRPC body decoding (\`inspect.grpc\`) may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 \`inspect: true\` is the same as \`enabled: true\` with the default cap (no \`grpc\` block, no \`capture_sse\`). Unknown keys are rejected. \`max_bytes\` uses the same ceiling rules as LLM \`capture.max_bytes\`. Set \`proxy.inspect_max_bytes\` (or Settings → Inspect body cap) when most routes should keep more than 1 MiB; a route that sets \`max_bytes > 0\` still wins. Inspect is ignored when the proxy is off. Recipe \`expose\` routes (cached GET snapshots) are never captured as live RPCs. \`inspect.grpc.decoder\` names a plugin \`trafficDecoders\` entry; omit it to pretty-print JSON frames (\`application/grpc+json\` or JSON-looking payloads) and otherwise proto3 \`decode_raw\` field numbers (fixed-width wire values as \`0x\` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails \`config validate\` when \`plugins:\` is empty.
 
 \`inspect.capture_sse\` (default **false**) changes only how a teed **response** is stored when \`Content-Type\` is exactly \`text/event-stream\` (parameters such as charset are ignored). The proxy still forwards the stream immediately; the inspector copy is parsed after the hop. Generic SSE is stored as a **JSON array of blank-line-delimited event strings** (one frame per array element) so the inspector is readable. OpenAI-shaped chat/completion streams (\`data:\` JSON with a \`choices\` array) are reassembled into pretty \`chat.completion\` JSON. Flag false or omitted keeps the raw event-stream text. Non-SSE content-types and request bodies ignore the flag. \`max_bytes\` / \`truncated\` still apply to the teed bytes. Redaction runs on the decoded \`text\`.
@@ -3394,6 +3413,92 @@ No Google Cloud for the host services. Profiles: \`minimal\`, \`backend\`, \`ful
 - [Developer setup](developer-setup.md)
 - [Agent skills](../skills/README.md)
 - [Doctor](doctor.md)
+` },
+  { path: "docs/roadmap.md", title: "Roadmap", body: `# Roadmap
+
+What devctl works on before v1.0, in order. Each item is a GitHub issue, so the issue is where the details and the discussion live. [Platform bets](platform-bets.md) are separate products that wait until Phases 1–3 are in daily use.
+
+Sizes are relative: **S** is a contained change in one or two modules, **M** a new piece of a subsystem, **L** cross-cutting design work.
+
+## Phase 1: fix what the documented paths get wrong
+
+Bugs on paths the docs promise, and the process that keeps them from coming back.
+
+| Item | Issue | Size | Status |
+|------|-------|------|--------|
+| Proxy isolation between checkouts | [CHANGELOG 0.22.0](https://github.com/amr-m-abdelgawad/devctl/blob/main/CHANGELOG.md#0220---2026-09-26) | S | Done in 0.22.0 |
+| \`http\` / \`grpc\` health checks can't target \`ports: auto\` | [#111](https://github.com/amr-m-abdelgawad/devctl/issues/111) | S | Done |
+| Stock OpenTelemetry SDKs can't export to devctl (protobuf, gzip) | [#112](https://github.com/amr-m-abdelgawad/devctl/issues/112) | M | Done |
+| The log parser drops the text around embedded JSON | [#113](https://github.com/amr-m-abdelgawad/devctl/issues/113) | S | Done |
+| End-to-end tests of documented scenarios | [#114](https://github.com/amr-m-abdelgawad/devctl/issues/114) | M | Done; new scenarios land with each fix |
+| Users outside the original stack; experimental labels; this roadmap | [#115](https://github.com/amr-m-abdelgawad/devctl/issues/115) | Ongoing | In progress |
+| macOS in the unit-test CI job | [#116](https://github.com/amr-m-abdelgawad/devctl/issues/116) | S | Done |
+
+## Phase 2: work the way agents and CI work
+
+| Item | Issue | Size | Status |
+|------|-------|------|--------|
+| Parallel, isolated stacks per checkout or named instance | [#117](https://github.com/amr-m-abdelgawad/devctl/issues/117) | L | Shipped ([Parallel stacks](parallel-stacks.md)), experimental |
+| Test/CI harness: \`start --wait\`, \`devctl test\`, a failure bundle | [#118](https://github.com/amr-m-abdelgawad/devctl/issues/118) | M | Open |
+| Proxy replay, mocks and fault injection | [#119](https://github.com/amr-m-abdelgawad/devctl/issues/119) | M | Open |
+
+## Phase 3: fill the gaps around the core
+
+| Item | Issue | Size | Status |
+|------|-------|------|--------|
+| Containers as full citizens: builds, networks, host access, OTLP env | [#120](https://github.com/amr-m-abdelgawad/devctl/issues/120) | L | Open |
+| Debug mode: run a service under a debugger, generate an attach config | [#121](https://github.com/amr-m-abdelgawad/devctl/issues/121) | M | Open |
+| OTLP metrics and per-route charts | [#122](https://github.com/amr-m-abdelgawad/devctl/issues/122) | M | Open |
+| Local HTTPS for proxy hostnames | [#123](https://github.com/amr-m-abdelgawad/devctl/issues/123) | M | Open |
+| Opt-in public tunnels for webhooks | [#124](https://github.com/amr-m-abdelgawad/devctl/issues/124) | M | Open |
+| Toolchain checks and setup | [#125](https://github.com/amr-m-abdelgawad/devctl/issues/125) | M | Open |
+| Crash notifications | [#126](https://github.com/amr-m-abdelgawad/devctl/issues/126) | S | Open |
+| \`<service>.local\` hosts setup | [#127](https://github.com/amr-m-abdelgawad/devctl/issues/127) | S | Open |
+
+## Unscheduled: if users need them
+
+These depend on who ends up using devctl. They move into a phase when someone outside the original stack asks for them.
+
+| Item | Issue | Size |
+|------|-------|------|
+| Cloud auth and secrets beyond Google (AWS SigV4, SSO, Azure Entra) | [#128](https://github.com/amr-m-abdelgawad/devctl/issues/128) | L |
+| Multi-repo workspaces | [#129](https://github.com/amr-m-abdelgawad/devctl/issues/129) | L |
+
+## Experimental features
+
+A feature is **experimental** until a user outside the original stack relies on it. Until then its configuration and behavior may change in a minor release, without a deprecation period. Each one is marked in its docs with the same line:
+
+> **Experimental.** … may change without a deprecation period. See [Experimental features](#experimental-features).
+
+| Feature | Since | Docs |
+|---------|-------|------|
+| \`transform.request_body\` on proxy routes | 0.20.0 | [Proxy](proxy.md#rewrite-the-request-body) |
+| \`auth.suppress_authorization\` | 0.17.0 | [Proxy](proxy.md#extra-token-headers), [IAP](iap.md) |
+| LLM \`capture.field_map\` and \`cost_per_token\` | 0.16.0 | [LLM inspector](llm.md#proxy-capture-source-type-proxy) |
+| gRPC body decoding (\`inspect.grpc\`, \`trafficDecoders\`) | 0.16.0 | [Proxy](proxy.md#inspect-bodies) |
+| \`environment.sops\` | 0.19.0 | [Environment](environment.md#sops) |
+| \`environment.terraform\` | 0.22.0 | [Environment](environment.md#terraform) |
+| Parallel stacks: port slots, \`--instance\`, per-stack volumes, \`devctl mcp --write\` | 0.22.0 | [Parallel stacks](parallel-stacks.md) |
+
+When a feature graduates, its line comes out of the docs and the CHANGELOG says so under **Changed**, for example: "\`environment.sops\` is no longer experimental."
+
+## Feedback from other stacks
+
+Most of devctl so far was shaped by one stack (Temporal, IAP, Workspace OAuth, LiteLLM, uvicorn, Vite). The missing input is teams on other stacks: AWS, Node-only, Go, a polyrepo org. If you try devctl on yours, onboard with the [\`devctl-onboard\` skill](https://github.com/amr-m-abdelgawad/devctl/blob/main/skills/devctl-onboard/SKILL.md) and no other help. Wherever you get stuck, open a ["Doesn't fit my stack"](https://github.com/amr-m-abdelgawad/devctl/issues/new?template=doesnt-fit-my-stack.md) issue. Its blockers become issues here, and the reports are linked from [#115](https://github.com/amr-m-abdelgawad/devctl/issues/115).
+
+## Toward v1.0
+
+v1.0 is the point where the codebase has been personally reviewed, tested and validated (see [Project status](https://github.com/amr-m-abdelgawad/devctl#project-status)). To keep that reachable while features land:
+
+- New surface starts experimental, as above.
+- Phase 1 comes before new Phase 2 and 3 features.
+- A feature freeze before 1.0 is likely, so review can catch up with what has shipped.
+
+## Related
+
+- [Platform bets](platform-bets.md)
+- [Architecture](architecture.md)
+- [CHANGELOG](https://github.com/amr-m-abdelgawad/devctl/blob/main/CHANGELOG.md)
 ` },
   { path: "docs/security.md", title: "Security", body: `<div align="center">
 
@@ -3658,6 +3763,8 @@ services:
 \`e\` / \`/env\` in the TUI, \`devctl env api deployed\`, the web console Env column, or MCP \`set_service_environment\` selects the overlay for that service only. See [Environment](environment.md#per-service-named-overlays).
 
 ## Terraform environment
+
+> **Experimental.** \`environment.terraform\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 \`environment.terraform\` reads literal env values from a service's \`.tf\` file or directory (\`env\` blocks and \`environment_variables\` maps) so those values live in Terraform instead of a second copy in YAML. An explicit YAML key still overrides. See [Environment](environment.md#terraform).
 
