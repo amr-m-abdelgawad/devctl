@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlencode, urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -167,6 +167,6 @@ def token_watch() -> None:
 if __name__ == "__main__":
     threading.Thread(target=poll, daemon=True).start()
     threading.Thread(target=token_watch, daemon=True).start()
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = otel.LoopbackHTTPServer(("127.0.0.1", PORT), Handler)
     log(f"listening on {PORT} invoices_api={API_URL}")
     server.serve_forever()

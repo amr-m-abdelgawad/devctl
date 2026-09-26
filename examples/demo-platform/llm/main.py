@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import time
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -187,7 +188,18 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
 
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    """Skips HTTPServer.server_bind's socket.getfqdn(), which can stall on macOS
+    before the server accepts connections (see traceutil.LoopbackHTTPServer)."""
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
+
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = LoopbackHTTPServer(("127.0.0.1", PORT), Handler)
     log(f"listening on {PORT} model={MODEL}")
     server.serve_forever()
