@@ -108,7 +108,9 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
     expect(parseFuser("18779/tcp:   685\n", 18779)).toBe(685);
     expect(parseFuser("", 18779)).toBeUndefined();
     expect(parseFuser("18779/tcp:\n", 18779)).toBeUndefined();
-    expect(parseFuser("18779\n", 18779)).toBeUndefined();
+    // A pid equal to the port is still a pid once the label is gone.
+    expect(parseFuser("18779\n", 18779)).toBe(18779);
+    expect(parseFuser("18779/tcp:  18779\n", 18779)).toBe(18779);
     expect(parseFuser("0\n", 18779)).toBeUndefined();
   });
 
