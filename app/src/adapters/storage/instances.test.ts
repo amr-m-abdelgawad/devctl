@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MAX_PORT_SLOTS } from "../../domain/net/port-slots.ts";
 import { loadPath } from "../config/index.ts";
@@ -28,9 +28,10 @@ describe("instance slot registry", () => {
     expect(claimSlot("/src/app")).toBe(0);
     // Same checkout, different spelling: still one entry.
     expect(claimSlot("/src/app-review/")).toBe(1);
+    // Stored resolved (D:\src\app on Windows).
     expect(readInstances().map((entry) => [entry.slot, entry.repoRoot])).toEqual([
-      [0, "/src/app"],
-      [1, "/src/app-review"],
+      [0, resolve("/src/app")],
+      [1, resolve("/src/app-review")],
     ]);
     expect(currentSlot("/src/app-review")).toBe(1);
     expect(currentSlot("/src/unknown")).toBe(0);
