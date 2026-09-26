@@ -1116,7 +1116,7 @@ Read:
 
 Left unread:
 
-- Go template actions (\`{{ ... }}\`), including \`{{ .Values... }}\`
+- Go template actions, including a \`.Values\` reference
 - \`valueFrom\` and other secret refs. Name those under \`environment.secrets\`
 - files under \`charts/\`, and files that are not \`.yaml\` or \`.yml\`
 
