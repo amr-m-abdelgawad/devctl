@@ -33,12 +33,12 @@ Doctor uses the same probes with more IAM/API granularity (`adapters/doctor/doct
 
 `EnvironmentBridge` adds, for **host** processes when configured:
 
-- `DEVCTL_PROXY_URL`
-- `DEVCTL_TOKEN_URL` + `DEVCTL_INTERNAL_TOKEN` (loopback token endpoint)
+- `DEVCTL_PROXY_URL` (only while `ProxyCoordinator` is running)
+- `DEVCTL_TOKEN_URL` (only when the token endpoint is bound: `boundTokenURL`) + `DEVCTL_INTERNAL_TOKEN`
 - `DEVCTL_USER_EMAIL` when known
 - `DEVCTL_HTTP_<NAME>_URL` for exposed recipes
 
-Containers omit token URL/internal token (they cannot reach host loopback). Prefer proxy/recipe URLs over stuffing bearer tokens into env.
+Containers omit token URL/internal token (they cannot reach host loopback). `recover.ts` `resolveAdoptedHealthEnv` follows the same rule. Never fall back to the configured listen address: another checkout's proxy, or any local process, may hold that port. Prefer proxy/recipe URLs over stuffing bearer tokens into env.
 
 ## Proxy
 
@@ -46,6 +46,7 @@ Containers omit token URL/internal token (they cannot reach host loopback). Pref
 
 - Bind `proxy.listen` (must be loopback; tests in `security.test.ts`)
 - **Lazy start**: supervisor boot does not bind. First `start()` auto-starts unless the user ran `proxy stop` (`suppressed`)
+- **All or nothing**: `ProxyCoordinator.start()` stops every listener it bound when a later one (token endpoint, gRPC) fails. The orchestrator then blocks the not-yet-running services in that start (`proxy failed to start (…)`) instead of launching them against a foreign listener
 - Routes: hand-written `proxy.routes`, synthesized `expose` / `proxy.gateway`, synthesized `http.*.expose`
 - HTTP/1.1 listener matches `host` + `path`
 - `transport: grpc` → dedicated h2c listener (`grpc-proxy.ts`)

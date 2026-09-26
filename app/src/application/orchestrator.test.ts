@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyProfile, emptyService } from "../domain/config/types.ts";
 import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../domain/service/container-limits.ts";
-import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateStopped } from "../domain/service/services.ts";
+import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateRunning, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
 import type { HealthCheckerFactory, HealthCheckResult } from "../ports/health-checker.ts";
 import type { ContainerLaunchSpec, ProcessHandle, ProcessRuntime, ProcessSpec } from "../ports/process-runtime.ts";
@@ -673,5 +673,44 @@ describe("ServiceOrchestrator", () => {
     await Bun.sleep(5);
     expect(session.runtimes.get("api")?.health).toBe(HealthUnknown);
     expect(processes.isRunning("api")).toBe(true);
+  });
+});
+
+describe("ServiceOrchestrator proxy start failure", () => {
+  test("blocks services that are not yet running and leaves live ones alone", async () => {
+    const { orch, cfg, session, processes } = harness();
+    cfg.proxy.enabled = true;
+    const failures: Array<{ name: string; message: string }> = [];
+    const logged: string[] = [];
+    session.startProxy = async () => {
+      throw new Error("unable to listen on 127.0.0.1:18080 (EADDRINUSE)");
+    };
+    session.log = (_service, _level, message) => logged.push(message);
+    session.fail = async (name, err) => {
+      failures.push({ name, message: err instanceof Error ? err.message : String(err) });
+      session.setState(name, StateFailed, HealthUnknown, 0, "failed");
+    };
+    cfg.services.worker = emptyService();
+    cfg.services.worker.command = { args: ["worker"], shell: false };
+    cfg.services.worker.startup.wait_for_healthy = false;
+    cfg.services.worker.health.type = "";
+    session.runtimes.set("worker", { ...emptyRuntime("worker"), state: StateRunning, pid: 42 });
+    await orch.start({ services: ["api", "worker"] });
+    expect(processes.started).toHaveLength(0);
+    expect(failures.map((f) => f.name)).toEqual(["api"]);
+    expect(failures[0]?.message).toContain("proxy failed to start (unable to listen on 127.0.0.1:18080 (EADDRINUSE))");
+    expect(session.runtimes.get("worker")?.state).toBe(StateRunning);
+    expect(logged).toContain("proxy failed to start: unable to listen on 127.0.0.1:18080 (EADDRINUSE)");
+  });
+
+  test("a suppressed proxy is not started and does not block", async () => {
+    const { orch, cfg, session, processes } = harness();
+    cfg.proxy.enabled = true;
+    Object.assign(session, { proxySuppressed: true });
+    session.startProxy = async () => {
+      throw new Error("must not be called");
+    };
+    await orch.start({ services: ["api"] });
+    expect(processes.started.map((spec) => spec.name)).toEqual(["api"]);
   });
 });

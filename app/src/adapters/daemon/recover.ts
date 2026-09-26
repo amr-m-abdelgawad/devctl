@@ -1,5 +1,4 @@
 import type { DevctlConfig, ServiceConfig } from "../config/index.ts";
-import { listenAddress } from "../config/index.ts";
 import { envList, resolveEnvironment, runtimeForService } from "../environment/environment.ts";
 import { effectiveServiceEnv, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
@@ -11,7 +10,7 @@ import { SessionRecovered, newEvent, type Bus } from "../../shared/events.ts";
 import { occupiedFixedPorts, findPortHolder } from "../net/ports.ts";
 import type { Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameAdoptedProcess, type ProcessIdentity } from "../process/processes.ts";
-import type { ProxyServer, TokenEndpoint } from "../proxy/proxy.ts";
+import type { ProxyServer } from "../proxy/proxy.ts";
 import { readPersistedState, repoID } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { LogStore } from "../../ports/log-store.ts";
@@ -34,7 +33,6 @@ export type RecoverHost = {
   readonly tokens: TokenManager;
   readonly registry?: Registry;
   readonly proxy?: ProxyServer;
-  readonly tokenEP?: TokenEndpoint;
   readonly boundTokenURL: string;
   readonly internalTok: string;
   readonly bus: Bus;
@@ -54,16 +52,12 @@ export async function resolveAdoptedHealthEnv(
   svc: ServiceConfig,
   assigned: Record<string, number>,
 ): Promise<Record<string, string>> {
-  let proxyURL = "";
-  if (host.proxy?.isRunning()) {
-    proxyURL = `http://${host.proxy.address()}`;
-  } else if (host.cfg.proxy.enabled) {
-    proxyURL = `http://${listenAddress(host.cfg.proxy.listen)}`;
-  }
+  // Only listeners this daemon bound; see EnvironmentBridge.resolveServiceExecution.
+  const proxyURL = host.proxy?.isRunning() ? `http://${host.proxy.address()}` : "";
   const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, host.cfg.project.name);
   runtimeEnv.DEVCTL_INTERNAL_TOKEN = host.internalTok;
-  if (host.cfg.proxy.token_endpoint.enabled) {
-    runtimeEnv.DEVCTL_TOKEN_URL = host.boundTokenURL || `http://127.0.0.1:${host.tokenEP?.listenPort() || host.cfg.proxy.token_endpoint.port}/token`;
+  if (host.cfg.proxy.token_endpoint.enabled && host.boundTokenURL !== "") {
+    runtimeEnv.DEVCTL_TOKEN_URL = host.boundTokenURL;
   }
   try {
     const envName = resolveEnvironmentName(svc, host.serviceStartedEnv.get(name) ?? host.serviceEnv.get(name));

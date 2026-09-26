@@ -80,9 +80,16 @@ export class ProxyCoordinator {
     if (this.server?.isRunning()) {
       return;
     }
-    await this.startHttp(this.deps.cfg().proxy);
-    await this.syncTokenEndpoint();
-    await this.syncGrpcListeners();
+    try {
+      await this.startHttp(this.deps.cfg().proxy);
+      await this.syncTokenEndpoint();
+      await this.syncGrpcListeners();
+    } catch (err) {
+      // All or nothing: a half-bound proxy would read as running on the next
+      // start() and let services launch against the listener that failed.
+      await this.stop().catch(() => undefined);
+      throw err;
+    }
     this.deps.persistState();
   }
 
@@ -196,7 +203,13 @@ export class ProxyCoordinator {
         continue;
       }
       const grpc = new GrpcProxyServer(route, this.deps.tokens, this.deps.logs, this.deps.bus, this.deps.detector, this.deps.spans, this.deps.traffic);
-      await grpc.start();
+      try {
+        await grpc.start();
+      } catch (err) {
+        // Keep every listener reachable from this.grpc so stop() releases it.
+        this.grpc = [...next, ...remaining];
+        throw err;
+      }
       next.push(grpc);
     }
     await Promise.all(remaining.map((grpc) => grpc.stop()));

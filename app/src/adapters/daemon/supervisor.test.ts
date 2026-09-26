@@ -960,6 +960,71 @@ services:
     }
   }, 15_000);
 
+  test("a proxy port held by another process blocks the start instead of pointing services at it", async () => {
+    const dir = tmp();
+    const marker = join(dir, "launched.txt");
+    // Another checkout's proxy (or any other process) already holds the port.
+    const squatter = createHttpServer((_req, res) => res.end("not this checkout"));
+    await new Promise<void>((resolve) => squatter.listen(0, "127.0.0.1", () => resolve()));
+    const heldPort = (squatter.address() as { port: number }).port;
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 1;
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: heldPort };
+    cfg.proxy.token_endpoint = { ...cfg.proxy.token_endpoint, enabled: true, port: await freePort() };
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'x'); setInterval(() => {}, 1000)`], shell: false },
+    };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.start({ services: ["api"] });
+      const api = sup.snapshot().services.api;
+      expect(api?.state).toBe("FAILED");
+      expect(api?.last_error).toContain(`proxy failed to start (unable to listen on 127.0.0.1:${heldPort}`);
+      expect(existsSync(marker)).toBe(false);
+      expect(sup.snapshot().proxy.running).toBe(false);
+
+      // With the proxy explicitly stopped, services start without any proxy
+      // or token endpoint address rather than the configured (foreign) one.
+      await sup.dispatch("proxy_stop", null);
+      const printed = await sup.execService("api", [], {}, true);
+      expect(printed.environment?.DEVCTL_PROXY_URL).toBeUndefined();
+      expect(printed.environment?.DEVCTL_TOKEN_URL).toBeUndefined();
+      expect(printed.environment?.DEVCTL_INTERNAL_TOKEN).toBeDefined();
+    } finally {
+      await sup.stop(["api"]).catch(() => {});
+      await sup.shutdown(false);
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+    }
+  }, 15_000);
+
+  test("services see the proxy and token endpoint this daemon bound", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: await freePort() };
+    cfg.proxy.token_endpoint = { ...cfg.proxy.token_endpoint, enabled: true, port: await freePort() };
+    cfg.services.api = { ...emptyService(), command: { args: ["unused"], shell: false } };
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.dispatch("proxy_start", null);
+      const printed = await sup.execService("api", [], {}, true);
+      expect(printed.environment?.DEVCTL_PROXY_URL).toBe(`http://127.0.0.1:${cfg.proxy.listen.port}`);
+      expect(printed.environment?.DEVCTL_TOKEN_URL).toBe(`http://127.0.0.1:${cfg.proxy.token_endpoint.port}/token`);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
   test("a request through the live proxy shows up in the status snapshot without any explicit refresh", async () => {
     // Not just stats() in isolation: this exercises the full path a TUI
     // client actually rides — request hits the real ProxyServer, the daemon
