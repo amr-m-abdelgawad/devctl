@@ -1,5 +1,7 @@
 # Parallel stacks
 
+> **Experimental.** Parallel stacks (port slots, `--instance`, per-stack volumes, `devctl instances`, `devctl mcp --write`) may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 Run the same configuration in several checkouts at once, such as one git worktree per coding agent or a review branch next to your main checkout, without editing any ports. Each stack gets its own ports, listeners, containers, volumes and state. A checkout is one stack; a named instance adds more in the same checkout.
 
 ```bash

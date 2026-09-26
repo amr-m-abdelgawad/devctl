@@ -155,6 +155,7 @@ const siteConfig = withMermaid({
           { text: 'Changelog', link: '/changelog' },
           { text: 'Building from source', link: '/typescript' },
           { text: 'Architecture', link: '/architecture' },
+          { text: 'Roadmap', link: '/roadmap' },
           { text: 'Platform bets', link: '/platform-bets' },
           { text: 'npm publishing', link: '/npm-publishing' },
           { text: 'Contributing', link: `${blob}/CONTRIBUTING.md` },

@@ -181,7 +181,7 @@ See [Security](docs/security.md) for the full model.
 
 ## Project status
 
-devctl is pre-1.0 and under active development. A large portion of the codebase is AI-generated ("vibe-coded") rather than hand-written, so treat it as a work in progress. Reaching **v1.0.0** will mean the codebase has been personally reviewed, tested, and validated, and the project is considered stable for general use.
+devctl is pre-1.0 and under active development. A large portion of the codebase is AI-generated ("vibe-coded") rather than hand-written, so treat it as a work in progress. Reaching **v1.0.0** will mean the codebase has been personally reviewed, tested, and validated, and the project is considered stable for general use. The [roadmap](docs/roadmap.md) lists what comes first, and which features are still [experimental](docs/roadmap.md#experimental-features): those may change without a deprecation period until someone outside the original stack relies on them. If devctl doesn't fit your stack, [tell us where it broke](https://github.com/amr-m-abdelgawad/devctl/issues/new?template=doesnt-fit-my-stack.md).
 
 **Use at your own risk.** devctl is provided as-is, without warranty. It starts the processes in your configuration, reads the environment and secrets you point it at, and can mint cloud tokens or decrypt a SOPS file on your machine. You are responsible for that configuration, those credentials, and the commands it runs. See [Security](docs/security.md#disclaimer) and the [MIT license](LICENSE).
 

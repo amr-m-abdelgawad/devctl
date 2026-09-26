@@ -105,6 +105,8 @@ LiteLLM needs a DB plus a master key (or a key with `get_spend_routes`).
 
 ## Proxy-capture source (`type: proxy`)
 
+> **Experimental.** `capture.field_map` and `cost_per_token` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 When LiteLLM sits behind a gateway that only exposes `/v1/chat/completions` and blocks `/spend/logs` (common with Apigee, IAP, or API Management), there is no management hop to poll. Instead, route the completion traffic through the devctl [proxy](proxy.md) and let devctl capture the bodies as they pass:
 
 ```yaml

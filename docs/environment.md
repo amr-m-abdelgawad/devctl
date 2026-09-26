@@ -33,6 +33,8 @@ flowchart LR
 
 ### SOPS
 
+> **Experimental.** `environment.sops` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 ```yaml
 environment:
   sources: [sops, secret_manager]
@@ -58,6 +60,8 @@ environment:
 `environment.sops.file` is required when `sops` is listed, and the path must stay inside the repository (including after symlink resolution). `devctl config validate` rejects a missing file field, an unknown `input_type`, an empty `key_map` value, or a path that escapes the repo. A missing file or a decrypt error is a runtime warning, not a validate failure.
 
 ### Terraform
+
+> **Experimental.** `environment.terraform` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 Point a service at the Terraform that already defines its deployed environment. devctl reads those literal values when the service starts, so the same keys do not have to be copied into YAML.
 

@@ -76,6 +76,8 @@ Match is host + optional path prefix.
 
 ### Rewrite the request body
 
+> **Experimental.** `transform.request_body` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 `transform.request_body` rewrites the request body before forwarding. Rules run in order. Each one replaces every occurrence of `replace` with `with`. Without `regex: true`, `replace` is a literal string (dots are not wildcards). With `regex: true`, `replace` is a JavaScript regular expression. `with` is inserted literally in both cases — `$` is not a capture reference.
 
 `${NAME}` and `${env.NAME}` expand in both `replace` and `with` at request time, from the supervisor process environment plus `.devctl/secrets.env`, the same way as `upstream.url`. `devctl config validate` accepts the template before the variable is set. An empty value fails that hop (**502**). On an `iap` or `service_account` route, `${token}` in `replace` or `with` is the same minted, cached token used for `Authorization` and `auth.headers`, resolved per request. On `auth.type: none` it is a validate error (`${token} requires auth.type iap or service_account`). In a regex `replace`, `${token}` is substituted before the pattern is compiled. `with` stays literal, including when `regex: true`. `${identity.user}` stays literal; validate warns if `${identity.` appears. Other references are rejected.
@@ -187,6 +189,8 @@ Some IAP-protected upstreams want the minted token under an additional header, n
 ```
 
 Applied only on `iap` / `service_account` routes (there is no token on a `none` route). This lets the proxy fully satisfy an upstream's auth expectations without changing the upstream or the calling service.
+
+> **Experimental.** `suppress_authorization` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 When the backend **also** needs the caller's `Authorization` (Google Workspace OAuth, a user-level API token) and IAP must see the ID token in `Proxy-Authorization` instead, set `suppress_authorization: true`. The route still mints (`audience`, `identity`, `client_id` / `client_secret`, `credentials` unchanged) and still applies `auth.headers`; it does **not** write `Authorization: Bearer`. `${token}` is the raw JWT — include the `Bearer ` prefix in the header value when the upstream expects it. `auth.headers` is required so the minted token is sent somewhere. Invalid on `auth.type: none`.
 
@@ -378,6 +382,8 @@ proxy:
         grpc:
           decoder: temporal   # optional plugin trafficDecoders name
 ```
+
+> **Experimental.** gRPC body decoding (`inspect.grpc`) may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
 
 `inspect: true` is the same as `enabled: true` with the default cap (no `grpc` block, no `capture_sse`). Unknown keys are rejected. `max_bytes` uses the same ceiling rules as LLM `capture.max_bytes`. Set `proxy.inspect_max_bytes` (or Settings → Inspect body cap) when most routes should keep more than 1 MiB; a route that sets `max_bytes > 0` still wins. Inspect is ignored when the proxy is off. Recipe `expose` routes (cached GET snapshots) are never captured as live RPCs. `inspect.grpc.decoder` names a plugin `trafficDecoders` entry; omit it to pretty-print JSON frames (`application/grpc+json` or JSON-looking payloads) and otherwise proto3 `decode_raw` field numbers (fixed-width wire values as `0x` hex). Multi-message streams become a JSON array. A named decoder that no plugin registers fails `config validate` when `plugins:` is empty.
 

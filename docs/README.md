@@ -70,6 +70,7 @@ These pages are **not** the operator manual. They map the TypeScript tree for pe
 |------|------|
 | [Building from source](typescript.md) | `app/` layout, tests, TUI config file |
 | [Architecture](architecture.md) | Layers, composition roots, import rules |
+| [Roadmap](roadmap.md) | Phases before v1.0, experimental features, feedback from other stacks |
 | [Platform bets](platform-bets.md) | Remote/multi-repo/k8s/OIDC/signing — design separately |
 | [npm publishing](npm-publishing.md) | Maintainer bootstrap, trusted publishing, and release trust |
 | [Changelog](../CHANGELOG.md) | Notable changes, newest first |

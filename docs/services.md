@@ -101,6 +101,8 @@ services:
 
 ## Terraform environment
 
+> **Experimental.** `environment.terraform` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
 `environment.terraform` reads literal env values from a service's `.tf` file or directory (`env` blocks and `environment_variables` maps) so those values live in Terraform instead of a second copy in YAML. An explicit YAML key still overrides. See [Environment](environment.md#terraform).
 
 ## Container services
