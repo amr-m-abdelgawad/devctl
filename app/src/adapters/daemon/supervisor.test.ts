@@ -2346,10 +2346,13 @@ services:
       - ${JSON.stringify(process.execPath)}
       - -e
       - "setInterval(() => {}, 1000)"
+    working_dir: web
     ports:
       http: ${port}
 `,
     );
+    // web's own directory, so its recorded cwd differs from the squatter's.
+    mkdirSync(join(dir, "web"), { recursive: true });
     const { load } = await import("../config/index.ts");
     const cfg = load(dir, "");
     cfg.logs.persistence.enabled = false;
@@ -2363,9 +2366,10 @@ services:
       await sup.start({ services: ["web"] });
       const webPid = sup.snapshot().services.web?.pid ?? 0;
       expect(webPid).toBeGreaterThan(0);
-      // Not web's process: started later (past the 2 s start-time tolerance)
-      // from another directory, it takes web's port (web never binds it).
-      await Bun.sleep(2_500);
+      // Not web's process: started from another directory, and well past the
+      // 2 s start-time tolerance (macOS ps reports start times in whole
+      // seconds), it takes web's port (web never binds it).
+      await Bun.sleep(4_000);
       const child = Bun.spawn(
         [process.execPath, "-e", `require("net").createServer().listen(${port}, "127.0.0.1", () => console.log("up")); setInterval(() => {}, 1000)`],
         { cwd: tmp(), stdout: "pipe" },
@@ -2396,7 +2400,7 @@ services:
       squatter?.kill("SIGKILL");
       await sup.stop([]).catch(() => {});
     }
-  }, 15_000);
+  }, 20_000);
 
   test("reload rejects a candidate config with an unresolvable plugin health type, keeping the previous config", async () => {
     const dir = tmp();
