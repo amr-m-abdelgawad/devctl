@@ -19,9 +19,7 @@ describeE2E("command validation", () => {
     sandbox = undefined;
   });
 
-  // Known failure: an argument that merely contains `;` is rejected even
-  // though an array command never reaches a shell (#136).
-  test.failing("a command array with ; inside an argument validates and starts (#136)", async () => {
+  test("a command array with ; inside an argument validates and starts (#136)", async () => {
     sandbox = Sandbox.create("command-array", {
       ".devctl/config.yaml": config([process.execPath, "-e", "console.log('a'); console.log('b'); setInterval(() => {}, 1000)"]),
     });

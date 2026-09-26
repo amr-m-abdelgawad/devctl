@@ -3301,7 +3301,7 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | **No tokens on screen** | TUI, \`devctl status\`, and MCP tool results never print access tokens |
 | **Redacted env** | Credential names (\`password\`, \`secret\`, \`api_key\`, \`access_token\`, \`authorization\`, \`cookie\`, …) and names containing TOKEN, SECRET, PASSWORD, … → \`********\`. Metadata such as \`token_type\`, \`page_token\`, \`secret_name\`, and \`DEVCTL_TOKEN_URL\` stays visible. A field named exactly \`token\` is masked only when the value looks like a credential |
 | **Loopback only** | Proxy, token endpoint, and MCP refuse \`0.0.0.0\`, \`::\`, and other non-loopback binds. Managed containers publish ports on \`127.0.0.1\` and default to 1g RAM, 1 CPU, and 256 PIDs |
-| **Argv by default** | Shell metacharacters fail validation unless \`shell: true\` |
+| **Argv by default** | Shell operators fail validation unless \`shell: true\`. Array commands are checked only for a bare operator item (\`\\|\`, \`&&\`, \`;\`, …); characters inside an item are passed as-is. See [Services](services.md) |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in \`.devctl/secrets.env\` (gitignored), overlays, keychain, Secret Manager, or a SOPS-encrypted file. \`sops\` decrypts that file in memory at daemon start and reload and does not write the plaintext. There is no \`\${secret:}\` template syntax |
 
@@ -3486,7 +3486,10 @@ The TUI services screen renders each service's live inspector — status, facts,
 
 \`\${services.<name>.ports.<port>}\` interpolates another service's port; \`\${services.<name>.url}\` and \`\${services.<name>.host}\` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). \`\${identity.user}\` in **service env** resolves at process start to the running developer's detected Google email — handy in shared config as \`LOCAL_USER_EMAIL: \${identity.user}\` (each developer gets their own, nothing hardcoded); it is also injected automatically as \`DEVCTL_USER_EMAIL\`. The same placeholder in proxy route \`auth.headers\` (including a service \`proxy:\` fragment) is **not** resolved — it stays literal. Put the identity on the process via service env, not on the hop. \`expose: true\` publishes the service through the proxy at \`<service>.local\` when \`proxy.enabled\` is true; \`proxy.gateway: true\` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
-String commands that contain \`|\`, \`||\`, \`&&\`, \`;\`, \`>\`, \`>>\`, \`<\`, or \`&\` fail validation unless \`shell: true\`.
+Without \`shell: true\`, a command runs as argv and never goes through a shell, so shell syntax in it fails validation:
+
+- **String command** (\`command: "npm run dev"\`): split on whitespace. Fails if any word is \`|\`, \`||\`, \`&&\`, \`;\`, \`>\`, \`>>\`, \`<\`, or \`&\`, or contains \`|\`, \`;\`, or \`&&\` (\`echo hi;rm x\`).
+- **Array command** (\`command: [node, -e, "a(); b()"]\`): each item is passed to the process unchanged. Fails only if an item is exactly one of those operators. \`;\`, \`|\`, and \`&&\` inside an item are ordinary characters, so inline scripts (\`python -c "a; b"\`), SQL (\`psql -c "select 1; select 2"\`), URLs, and regexes need no shell.
 
 ## Hooks and one-off tasks
 

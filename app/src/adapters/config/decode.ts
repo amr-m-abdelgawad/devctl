@@ -119,7 +119,7 @@ export function asStringMap(value: unknown): Record<string, string> {
 
 export function decodeCommand(value: unknown): Command {
   if (typeof value === "string") {
-    return { args: value.split(/\s+/).filter((part) => part !== ""), shell: false };
+    return { args: value.split(/\s+/).filter((part) => part !== ""), shell: false, fromString: true };
   }
   if (Array.isArray(value)) {
     return { args: value.map((item) => asString(item)), shell: false };

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { emptyService, emptyRouteAuth, emptyProfile, emptyLlmSource, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
-import { decodeRoute } from "./decode.ts";
+import { decodeCommand, decodeRoute } from "./decode.ts";
 import { unresolvedInspectDecoders, validate, isValidationWarning } from "./validate.ts";
 
 function withService(name: string, command: string[] = ["echo", "ok"]): ReturnType<typeof defaultConfig> {
@@ -691,6 +691,43 @@ describe("config validate", () => {
   test("rejects shell metacharacters without shell: true", () => {
     const cfg = withService("api", ["echo", "hi", "&&", "rm"]);
     expect(validate(cfg).some((issue) => issue.includes("shell metacharacters"))).toBe(true);
+  });
+
+  test("an array argument containing ;, | or && is not shell syntax (#136)", () => {
+    for (const args of [
+      ["node", "-e", "const x = 1; console.log(x)"],
+      ["psql", "-c", "select 1; select 2"],
+      ["grep", "-E", "a|b", "log.txt"],
+      ["sh-free", "--flag=x&&y"],
+    ]) {
+      const cfg = withService("api", args);
+      cfg.services.api!.hooks = { pre_start: { args, shell: false }, post_start: { args, shell: false } };
+      expect(validate(cfg).filter((issue) => issue.includes("shell metacharacters"))).toEqual([]);
+    }
+  });
+
+  test("a bare operator token in an array is still rejected", () => {
+    for (const op of ["|", "||", "&&", ";", ">", ">>", "<", "&"]) {
+      const cfg = withService("api", ["echo", "hi", op, "x"]);
+      expect(validate(cfg)).toContain("services.api.command contains shell metacharacters; set shell: true to run via a shell");
+    }
+  });
+
+  test("a string command with ; | or && inside a word is still rejected", () => {
+    for (const line of ["echo hi;rm x", "cat a|grep b", "make&&make install"]) {
+      const cfg = withService("api");
+      cfg.services.api!.command = decodeCommand(line);
+      expect(validate(cfg)).toContain("services.api.command contains shell metacharacters; set shell: true to run via a shell");
+    }
+    const ok = withService("api");
+    ok.services.api!.command = decodeCommand("node server.js --port 3000");
+    expect(validate(ok).filter((issue) => issue.includes("shell metacharacters"))).toEqual([]);
+  });
+
+  test("shell: true accepts any metacharacters", () => {
+    const cfg = withService("api");
+    cfg.services.api!.command = { ...decodeCommand("echo hi;rm x"), shell: true };
+    expect(validate(cfg).filter((issue) => issue.includes("shell metacharacters"))).toEqual([]);
   });
 
   test("rejects unknown capabilities", () => {

@@ -55,7 +55,10 @@ The TUI services screen renders each service's live inspector — status, facts,
 
 `${services.<name>.ports.<port>}` interpolates another service's port; `${services.<name>.url}` and `${services.<name>.host}` give a stable base address that routes through the proxy when the target is exposed (see [Proxy → Expose](proxy.md)). `${identity.user}` in **service env** resolves at process start to the running developer's detected Google email — handy in shared config as `LOCAL_USER_EMAIL: ${identity.user}` (each developer gets their own, nothing hardcoded); it is also injected automatically as `DEVCTL_USER_EMAIL`. The same placeholder in proxy route `auth.headers` (including a service `proxy:` fragment) is **not** resolved — it stays literal. Put the identity on the process via service env, not on the hop. `expose: true` publishes the service through the proxy at `<service>.local` when `proxy.enabled` is true; `proxy.gateway: true` does the same for every HTTP service at once. Neither flag creates a route if the proxy is off.
 
-String commands that contain `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&` fail validation unless `shell: true`.
+Without `shell: true`, a command runs as argv and never goes through a shell, so shell syntax in it fails validation:
+
+- **String command** (`command: "npm run dev"`): split on whitespace. Fails if any word is `|`, `||`, `&&`, `;`, `>`, `>>`, `<`, or `&`, or contains `|`, `;`, or `&&` (`echo hi;rm x`).
+- **Array command** (`command: [node, -e, "a(); b()"]`): each item is passed to the process unchanged. Fails only if an item is exactly one of those operators. `;`, `|`, and `&&` inside an item are ordinary characters, so inline scripts (`python -c "a; b"`), SQL (`psql -c "select 1; select 2"`), URLs, and regexes need no shell.
 
 ## Hooks and one-off tasks
 

@@ -9,6 +9,10 @@ export type RestartPolicy = typeof RestartNever | typeof RestartOnFailure | type
 export type Command = {
   readonly args: string[];
   readonly shell: boolean;
+  // Set when the YAML gave a single string, which is split on whitespace.
+  // Validation treats `;`, `|` and `&&` inside such a string as intended
+  // shell syntax; an array's arguments are passed to the process as-is.
+  readonly fromString?: true;
 };
 
 export type PortSpec = {
