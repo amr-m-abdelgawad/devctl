@@ -62,21 +62,25 @@ export class Sandbox {
   private readonly root: string;
   private readonly pids = new Set<number>();
 
-  private constructor(root: string) {
+  private constructor(root: string, home?: string) {
     this.root = root;
     this.dir = join(root, "repo");
-    this.home = join(root, "h");
+    this.home = home ?? join(root, "h");
     mkdirSync(join(this.dir, ".devctl"), { recursive: true });
     mkdirSync(this.home, { recursive: true });
   }
 
-  /** A fresh repository with `files` written relative to its root. */
-  static create(name: string, files: Record<string, string> = {}): Sandbox {
+  /**
+   * A fresh repository with `files` written relative to its root. `home`
+   * shares one DEVCTL_HOME between sandboxes (parallel checkouts on one
+   * machine); the caller removes it.
+   */
+  static create(name: string, files: Record<string, string> = {}, opts: { home?: string } = {}): Sandbox {
     // Rooted at /tmp, not $TMPDIR: the daemon socket lives at
     // $DEVCTL_HOME/state/<repo id>/devctl.sock, and macOS's long
     // /var/folders/... TMPDIR would push it past the 104-byte socket limit.
     const root = mkdtempSync(join("/tmp", `dctl-${name.slice(0, 12)}-`));
-    const sandbox = new Sandbox(root);
+    const sandbox = new Sandbox(root, opts.home);
     // Some commands (config import) resolve the repository via git.
     Bun.spawnSync(["git", "init", "-q", sandbox.dir], { stdout: "ignore", stderr: "ignore" });
     for (const [path, content] of Object.entries(files)) {

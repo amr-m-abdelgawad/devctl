@@ -8,6 +8,7 @@ import { versionLine } from "../../version.ts";
 import { addAuth } from "./auth.ts";
 import { addConfig, addReload } from "./config.ts";
 import { addAttach, addDown, addEnv, addExec, addRestart, addRun, addStart, addStatus, addStop } from "./lifecycle.ts";
+import { addInstances } from "./instances.ts";
 import { addDaemon, addLogs } from "./logs.ts";
 import { addLlm } from "./llm.ts";
 import { addTraffic } from "./traffic.ts";
@@ -41,6 +42,7 @@ export function newRoot(runtime: ClientRuntime, launchDaemon: DaemonLauncher): C
   addEnv(root, runtime);
   addStatus(root, runtime);
   addDown(root, runtime);
+  addInstances(root, runtime);
   addLogs(root, runtime);
   addLlm(root, runtime);
   addTraffic(root, runtime);

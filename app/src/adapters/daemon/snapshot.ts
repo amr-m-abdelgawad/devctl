@@ -116,6 +116,7 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
     session_id: host.sessionID,
     repo_root: host.cfg.repoRoot,
     profile: host.profile,
+    instance: { slot: host.cfg.instance.slot, port_offset: host.cfg.instance.portOffset },
     services,
     proxy: {
       running: host.proxy?.isRunning() ?? false,
@@ -202,7 +203,11 @@ function selectedEnvName(host: SnapshotHost, name: string): string {
 }
 
 export function formatStatusFromSnapshot(snap: StatusSnapshot): string {
-  const lines = [`PROFILE: ${snap.profile || "(none)"}`, "", "SERVICE\tSTATUS\tHEALTH\tENV\tPID"];
+  const lines = [`PROFILE: ${snap.profile || "(none)"}`];
+  if ((snap.instance?.slot ?? 0) > 0) {
+    lines.push(`INSTANCE: slot ${snap.instance?.slot} (ports +${snap.instance?.port_offset})`);
+  }
+  lines.push("", "SERVICE\tSTATUS\tHEALTH\tENV\tPID");
   for (const [name, rt] of Object.entries(snap.services)) {
     lines.push(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.env || ""}\t${rt.pid}`);
   }

@@ -48,6 +48,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     "exec",
     "env",
     "down",
+    "instances",
     "daemon",
     "stop",
     "restart",
@@ -99,6 +100,9 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
   }
   if (cmd === "proxy") {
     return filterPrefix(["status", "start", "stop"], tail);
+  }
+  if (cmd === "instances") {
+    return filterPrefix(["prune"], tail);
   }
   if (cmd === "web") {
     return filterPrefix(["status", "start", "stop"], tail);

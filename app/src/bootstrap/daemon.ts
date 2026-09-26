@@ -1,4 +1,5 @@
 import { existsSync, unlinkSync } from "node:fs";
+import { resolve } from "node:path";
 import { healthCheckerFactory } from "../adapters/health/health.ts";
 import type { HealthCheckerFactory } from "../ports/health-checker.ts";
 import type { DevctlConfig } from "../domain/config/types.ts";
@@ -20,6 +21,8 @@ import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
 import { createDaemonLogStore } from "../adapters/storage/worker-log-store.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID, persistedConfigOverlay } from "../adapters/storage/storage.ts";
+import { claimSlot, recordInstancePorts, releaseSlot } from "../adapters/storage/instances.ts";
+import { listenerPorts } from "../domain/net/port-slots.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
 import { McpHttpServer } from "../presentation/mcp/server.ts";
 import { WebHttpServer } from "../presentation/web/server.ts";
@@ -122,12 +125,19 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An
   // invalid configuration still throws.
   let overlay: string | undefined;
+  let root = resolve(repoRoot);
   try {
-    overlay = persistedConfigOverlay(discover(repoRoot, configPath).repoRoot);
+    root = discover(repoRoot, configPath).repoRoot;
+    overlay = persistedConfigOverlay(root);
   } catch {
     overlay = undefined;
   }
-  const cfg = loadOrEmpty(repoRoot, configPath, { overlay });
+  // Parallel stacks (#117): take this checkout's port slot before loading,
+  // so every fixed port and listener is shifted for it. Sticky until a full
+  // `down` below (or `devctl instances prune`).
+  const slot = claimSlot(root);
+  const cfg = loadOrEmpty(repoRoot, configPath, { overlay, slot });
+  recordInstancePorts(cfg.repoRoot, listenerPorts(cfg));
   const { supervisor: sup } = await createDaemon(cfg);
   // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
   // but it can also receive a signal directly (system shutdown, an
@@ -141,8 +151,17 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // `down --keep-services` too: they keep running after this process exits.
   // A teardown failure is reported and exits 1, so `down` never looks clean
   // when cleanup did not finish.
-  void sup.stopped.then(({ failure }) => {
+  void sup.stopped.then(({ servicesStopped, failure }) => {
     watchdog.stop();
+    // A full stop frees the port slot; with --keep-services the services
+    // still run on the slot's ports, so it stays with this checkout.
+    if (servicesStopped && failure === undefined) {
+      try {
+        releaseSlot(cfg.repoRoot);
+      } catch {
+        // the slot is freed by `devctl instances prune` instead
+      }
+    }
     if (failure !== undefined) {
       process.stderr.write(`devctl: shutdown failed: ${failure instanceof Error ? failure.message : String(failure)}\n`);
       process.exit(1);

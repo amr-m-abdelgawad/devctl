@@ -4,6 +4,7 @@ import type { ClientRuntime } from "../application/client-runtime.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { readPersistedState, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
 import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents } from "../adapters/storage/logs.ts";
+import { readInstances, releaseSlot } from "../adapters/storage/instances.ts";
 import { freePort } from "../adapters/net/ports.ts";
 import { createStarterConfig, runSetup } from "../presentation/cli/setup.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
@@ -24,6 +25,8 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath, patchRepoLocalConfig, listSessions, loadSessionEvents,
     loadPath, validateConfigText, discover, configDiff,
     openTui, findDaemon, tryDial, assertMethodAllowed,
+    listInstances: readInstances,
+    releaseInstance: releaseSlot,
     readPersistedState, rotateMcpToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
     createStarterConfig,
     runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),

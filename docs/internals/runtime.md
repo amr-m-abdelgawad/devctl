@@ -70,6 +70,8 @@ If `service.container.image` is set, `startContainer` (Docker or Podman). Port m
 
 ## Port assignment
 
+Parallel stacks (#117): `adapters/storage/instances.ts` keeps the port-slot registry (`$DEVCTL_HOME/instances.json`, lock file + atomic rename). `runDaemon` claims the checkout's slot before loading, and `loadPath` applies `shiftConfigPorts` (`domain/net/port-slots.ts`) for that slot on every load, so the supervisor, reload, offline doctor and the TUI all see the same shifted ports. `cfg.instance` records the slot and offset. A full shutdown releases it.
+
 `adapters/net/ports.ts` `assignPorts`. Duplicate configured ports fail validation. In-use ports fail at assign/start (doctor also reports them). `freePort` re-checks the holder before SIGTERM and again before the SIGKILL, and stops only the pid it was given. When a service stops, `Supervisor.releasePorts` frees its ports only if `provenSameProcess` matches the holder to the service: the command, and at least one of cwd or start time actually compared (a name-only match, all Windows `tasklist` gives, is not enough). For a service a reload removed, it matches against the last `processMeta` recorded for it; without one, or without proof, it leaves the holder running and logs why. Auto ports pick a free loopback port and inject `SERVICE_PORT` / named values into env. Each auto port is reserved with an exclusive listening socket until every port in the batch is chosen; those sockets then close so the service can bind. A candidate already recorded for another service is skipped and another port is chosen.
 
 ## Persistence

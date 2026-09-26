@@ -1,3 +1,4 @@
+import type { InstanceSlot } from "../domain/net/port-slots.ts";
 import type { TuiConfig, TuiKeybinds, TuiPreferencePatch, SaveTuiPreferencesOpts, LocalWebPatch } from "../domain/ui/preferences.ts";
 import type { DevctlConfig } from "../domain/config/types.ts";
 import type { ConfigDiffEntry } from "../domain/config/provenance.ts";
@@ -92,6 +93,9 @@ export type ClientRuntime = {
   openAttach(startDir: string, configPath: string): Promise<Controller>;
   openTui(startDir: string, configPath: string): Promise<Controller>;
   findDaemon(startDir: string, explicitRepo: string, explicitConfig?: string): Promise<{ repoRoot: string; client?: DaemonClient }>;
+  // Parallel stacks (#117): the port-slot registry under DEVCTL_HOME.
+  listInstances(): InstanceSlot[];
+  releaseInstance(repoRoot: string): void;
   tryDial(repoRoot: string): Promise<DaemonClient | undefined>;
   assertMethodAllowed(client: DaemonClient, method: string): void;
   readPersistedState(repoRoot: string): PersistedState | undefined;

@@ -39,6 +39,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Configuration](configuration.md) | Discovery, merge, validation, JSON Schema, reload |
 | [Services](services.md) | Commands, ports, health, restart, dependencies |
 | [Profiles](profiles.md) | Named sets, session recovery |
+| [Parallel stacks](parallel-stacks.md) | Several checkouts of one config at once, port slots, `devctl instances` |
 | [Environment](environment.md) | Source order, `${…}` refs, secrets |
 | [Custom HTTP APIs](http.md) | Named outbound recipes, token cache, local expose |
 | [Plugins](plugins.md) | SDK contract, extension points, generic OIDC provider |
