@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { Command } from "commander";
 import { describe, expect, test } from "bun:test";
 import type { ClientRuntime, Controller } from "../../application/client-runtime.ts";
@@ -82,10 +83,12 @@ describe("devctl mcp --write", () => {
   }
 
   test("writes the stack's URL and token into the checkout's client config", async () => {
-    const files = new Map([["/wt/.mcp.json", JSON.stringify({ mcpServers: { other: { url: "x" } } })]]);
+    // The command joins the checkout and file with path.join (\wt\.mcp.json on Windows).
+    const path = join("/wt", ".mcp.json");
+    const files = new Map([[path, JSON.stringify({ mcpServers: { other: { url: "x" } } })]]);
     const out = await run(runtimeWith(files, "tok"), "--write", "claude");
     expect(out).toContain("wrote .mcp.json: devctl -> http://127.0.0.1:18801/mcp");
-    expect(JSON.parse(files.get("/wt/.mcp.json") ?? "")).toEqual({
+    expect(JSON.parse(files.get(path) ?? "")).toEqual({
       mcpServers: { other: { url: "x" }, devctl: { type: "http", url: "http://127.0.0.1:18801/mcp", headers: { Authorization: "Bearer tok" } } },
     });
   });
