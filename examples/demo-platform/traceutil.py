@@ -4,10 +4,27 @@ from __future__ import annotations
 
 import json
 import os
+import socketserver
 import time
 import urllib.error
 import urllib.request
+from http.server import ThreadingHTTPServer
 from urllib.parse import urlparse
+
+class LoopbackHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer without HTTPServer.server_bind's socket.getfqdn().
+
+    That reverse DNS lookup runs after bind and before the server accepts
+    connections; on macOS it can stall for many seconds, so the service
+    looks hung and misses its health check. server_name is unused here.
+    """
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
 
 KIND_INTERNAL = 1
 KIND_SERVER = 2

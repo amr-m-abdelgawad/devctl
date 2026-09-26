@@ -132,7 +132,15 @@ export function parseError(raw: SerializedError | string): DevctlError {
     return newError(KindGeneral, raw);
   }
   if (raw.kind) {
-    return new DevctlError(raw.kind, raw.error.replace(`${raw.kind}: `, ""), { hint: raw.hint, service: raw.service });
+    // serializeError puts humanMessage() in `error`, which already ends with
+    // the hint, and also sends the hint on its own. Keep the hint only as
+    // the field, or humanMessage() on this side prints it twice.
+    let message = raw.error.replace(`${raw.kind}: `, "");
+    const suffix = raw.hint ? ` — ${raw.hint}` : "";
+    if (suffix !== "" && message.endsWith(suffix)) {
+      message = message.slice(0, -suffix.length);
+    }
+    return new DevctlError(raw.kind, message, { hint: raw.hint, service: raw.service });
   }
   return newError(KindGeneral, raw.error);
 }

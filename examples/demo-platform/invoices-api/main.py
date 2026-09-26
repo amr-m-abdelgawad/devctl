@@ -19,7 +19,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -310,6 +310,6 @@ def heartbeat() -> None:
 
 if __name__ == "__main__":
     threading.Thread(target=heartbeat, daemon=True).start()
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = otel.LoopbackHTTPServer(("127.0.0.1", PORT), Handler)
     log(f"listening on {PORT} identity={AUTH_URL}")
     server.serve_forever()
