@@ -41,7 +41,10 @@ For a service with an image and no local host process, use devctl's native
 
 `devctl config import compose <file>` (dry-run) prints mapped YAML and a table
 of dropped fields. The importer is a subset: it maps image, command, host
-ports, `depends_on`, environment, and a command healthcheck when present. It
+ports, `depends_on`, environment, and a command healthcheck when present.
+Published ports become `ports: {http: <host>, port2: …}` with the matching
+`container.ports`; a port with no host side (`"9000"`) becomes `auto`. Port
+ranges and `${VAR}` ports are listed as dropped (`ports[i]`). It
 **drops** `build`, `networks`, `deploy`, `replicas`, per-service `env_file`,
 `volumes`, `cap_drop`, `mem_limit`, `cpus`, `user`, `entrypoint`, and similar.
 Review that table before `--write`; add volumes and limits by hand if the

@@ -114,8 +114,8 @@ function mapComposeService(
   if (Object.keys(env).length > 0) {
     body.environment = { defaults: env };
   }
-  const ports = mapPorts(spec.ports);
-  if (ports.host.length > 0) {
+  const ports = mapPorts(spec.ports, name, dropped);
+  if (Object.keys(ports.host).length > 0) {
     body.ports = ports.host;
   }
   const health = mapHealthcheck(spec.healthcheck);
@@ -178,49 +178,73 @@ function mapEnvironment(value: unknown): Record<string, string> {
   return out;
 }
 
-function mapPorts(value: unknown): { host: Array<{ name: string; value: number }>; container: Record<string, number> } {
-  const host: Array<{ name: string; value: number }> = [];
+// devctl's `ports` is a name → port map (a list is read as bare values), so
+// the first published port becomes `http` and the rest `port2`, `port3`, ….
+// A compose port with no host side ("6379") gets an ephemeral host port from
+// Docker; `auto` is the devctl equivalent.
+function mapPorts(value: unknown, service: string, dropped: DroppedComposeField[]): { host: Record<string, number | "auto">; container: Record<string, number> } {
+  const host: Record<string, number | "auto"> = {};
   const container: Record<string, number> = {};
   if (!Array.isArray(value)) {
     return { host, container };
   }
   let i = 0;
-  for (const item of value) {
+  for (const [index, item] of value.entries()) {
     const parsed = parseComposePort(item);
     if (!parsed) {
+      dropped.push({ service, field: `ports[${index}]`, reason: "port ranges, variables, and invalid ports are not imported; add them under ports by hand" });
       continue;
     }
     i += 1;
     const name = i === 1 ? "http" : `port${i}`;
-    host.push({ name, value: parsed.host });
+    host[name] = parsed.host;
     container[name] = parsed.container;
   }
   return { host, container };
 }
 
-function parseComposePort(value: unknown): { host: number; container: number } | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return { host: value, container: value };
+function parseComposePort(value: unknown): { host: number | "auto"; container: number } | undefined {
+  if (typeof value === "number") {
+    return validPort(value) ? { host: "auto", container: value } : undefined;
   }
   if (typeof value === "string") {
-    const cleaned = value.replace(/\/(tcp|udp)$/i, "");
-    const parts = cleaned.split(":");
-    const last = Number(parts[parts.length - 1]);
-    const host = parts.length > 1 ? Number(parts[parts.length - 2]) : last;
-    if (!Number.isFinite(last) || !Number.isFinite(host)) {
+    // [host_ip:][host:]container[/protocol]; ranges and ${VAR} are skipped.
+    const parts = value.trim().replace(/\/(tcp|udp)$/i, "").split(":");
+    const target = portNumber(parts[parts.length - 1]);
+    if (target === undefined) {
       return undefined;
     }
-    return { host, container: last };
+    if (parts.length === 1 || parts[parts.length - 2] === "") {
+      return { host: "auto", container: target };
+    }
+    const published = portNumber(parts[parts.length - 2]);
+    return published === undefined ? undefined : { host: published, container: target };
   }
   if (isRecord(value)) {
-    const published = Number(value.published ?? value.target);
-    const target = Number(value.target ?? value.published);
-    if (!Number.isFinite(published) || !Number.isFinite(target)) {
+    const target = portNumber(value.target);
+    if (target === undefined) {
       return undefined;
     }
-    return { host: published, container: target };
+    if (value.published === undefined || value.published === null || value.published === "") {
+      return { host: "auto", container: target };
+    }
+    const published = portNumber(value.published);
+    return published === undefined ? undefined : { host: published, container: target };
   }
   return undefined;
+}
+
+function portNumber(value: unknown): number | undefined {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!/^\d+$/.test(text)) {
+    return undefined;
+  }
+  const port = Number(text);
+  return validPort(port) ? port : undefined;
+}
+
+function validPort(port: number): boolean {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
 
 function mapHealthcheck(value: unknown): Record<string, unknown> | undefined {
