@@ -82,7 +82,13 @@ export class ProcessManager implements ProcessRuntime {
         stdout: spec.captureStdout === false ? "ignore" : "pipe",
         stderr: spec.captureStderr === false ? "ignore" : "pipe",
         stdin: "ignore",
-        detached: process.platform !== "win32",
+        // Services outlive the supervisor (`down --keep-services`, daemon
+        // replacement). POSIX: setsid, so stop signals the group. Windows:
+        // outside the job object that kills children when the parent exits;
+        // windowsHide keeps console windows from opening for the service or
+        // console programs it starts. Stop uses `taskkill /T` there.
+        detached: true,
+        windowsHide: true,
       });
     } catch (err) {
       throw wrapError(KindProcessStart, `failed to start ${spec.name}`, err);

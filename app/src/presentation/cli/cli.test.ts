@@ -152,11 +152,7 @@ services:
 
       const downOut = await run(["down", "--repo", dir, "--keep-services"]);
       expect(downOut).toContain("its services keep running");
-      // On Windows services are not detached and would die with the
-      // supervisor, so it deliberately stays up there (see runDaemon).
-      if (process.platform !== "win32") {
-        await expectExited(supervisorPid);
-      }
+      await expectExited(supervisorPid);
 
       const statusOut = await run(["status", "--repo", dir]);
       expect(statusOut).toContain("supervisor is not running");
@@ -168,8 +164,8 @@ services:
       expect(processAlive(pid)).toBe(true);
     } finally {
       await stopSpawned(dir, originalArgv1);
-      // The lock is gone after `down`, so stopSpawned can't find a
-      // supervisor that deliberately stays up on Windows; kill it by pid.
+      // The lock is gone after `down`, so stopSpawned can't find what's
+      // left if an assertion failed; kill the service and supervisor by pid.
       for (const leftover of [pid, supervisorPid]) {
         if (leftover > 0) {
           try {
