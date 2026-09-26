@@ -18,9 +18,10 @@ export type OverviewSummary = {
   healthy: number;
   total: number;
   requests: number;
-  errors: number;
-  errorRate: number;
-  errPerSec: number;
+  failedRequests: number;
+  failedRate: number;
+  failedPerSec: number;
+  logErrors: number;
   p95: number;
   reqPerSec: number;
 };
@@ -68,7 +69,7 @@ export function OverviewPage(props: {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-[repeat(auto-fit,minmax(160px,1fr))]">
         <Kpi label="Services" value={`${summary.healthy}/${summary.total}`} tone={healthTone} sub="healthy" icon={<StackIcon className="size-4" />} />
         <Kpi label="Requests" value={summary.requests.toLocaleString("en-US")} tone="muted" sub="since daemon start" icon={<GaugeIcon className="size-4" />} />
-        <Kpi label="Errors" value={summary.errors.toLocaleString("en-US")} tone={summary.errors > 0 ? "destructive" : "muted"} sub={`${summary.errPerSec.toFixed(summary.errPerSec >= 10 ? 0 : 1)}/s · ${summary.errorRate.toFixed(1)}% of logs`} icon={<WarningIcon className="size-4" />} />
+        <Kpi label="Failed requests" value={summary.failedRequests.toLocaleString("en-US")} tone={summary.failedRequests > 0 ? "destructive" : "muted"} sub={`${summary.failedPerSec.toFixed(summary.failedPerSec >= 10 ? 0 : 1)}/s · ${summary.failedRate.toFixed(1)}% of requests`} icon={<WarningIcon className="size-4" />} />
         <Kpi label="Latency p95" value={summary.p95 ? Math.round(summary.p95) : "—"} unit={summary.p95 ? "ms" : undefined} tone={summary.p95 > 500 ? "warning" : "muted"} sub="last 10s of recent requests" icon={<TimerIcon className="size-4" />} />
         <Kpi label="Throughput" value={summary.reqPerSec.toFixed(summary.reqPerSec >= 10 ? 0 : 1)} unit="req/s" tone="muted" sub="last 10s of recent requests" icon={<LightningIcon className="size-4" />} />
       </div>
@@ -250,7 +251,7 @@ export function OverviewPage(props: {
         <Card>
           <CardHeader>
             <CardTitle>Recent errors</CardTitle>
-            {summary.errors > 0 ? <Badge variant="destructive">{summary.errors.toLocaleString("en-US")}</Badge> : null}
+            {summary.logErrors > 0 ? <Badge variant="destructive">{summary.logErrors.toLocaleString("en-US")}</Badge> : null}
           </CardHeader>
           <CardContent className="pt-0">
             {errors.length === 0 ? <Empty>No error-level logs.</Empty> : (

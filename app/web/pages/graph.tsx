@@ -9,6 +9,7 @@ import type { ConfigService, ServiceRow } from "../types.ts";
 import type { RunControl } from "../control.ts";
 
 const CHART_HEIGHT = 168;
+const RATE_WHOLE = 10;
 const LATENCY_FAST_MS = 100;
 const LATENCY_CEILING_STEP_MS = 50;
 const LATENCY_SLOW_MS = 500;
@@ -25,30 +26,39 @@ function lastValues(points: SeriesPoint[]): number[] {
 export function GraphPage(props: {
   config: ConfigService[];
   services: ServiceRow[];
-  ratePoints: SeriesPoint[];
+  requestPoints: SeriesPoint[];
+  logPoints: SeriesPoint[];
   latPoints: SeriesPoint[];
   hostPoints: SeriesPoint[];
   busy?: boolean;
   onControl?: RunControl;
 }) {
-  const { config, services, ratePoints, latPoints, hostPoints, busy = false, onControl } = props;
+  const { config, services, requestPoints, logPoints, latPoints, hostPoints, busy = false, onControl } = props;
   const { requestRestart, banner } = useCascadeRestart(config, onControl ?? noopControl, busy);
-  const rate = lastValues(ratePoints);
+  const request = lastValues(requestPoints);
+  const log = lastValues(logPoints);
   const lat = lastValues(latPoints);
   const host = lastValues(hostPoints);
-  const req = rate[0] ?? 0;
-  const err = rate[1] ?? 0;
+  const req = request[0] ?? 0;
+  const reqFailed = request[1] ?? 0;
+  const logs = log[0] ?? 0;
+  const logFailed = log[1] ?? 0;
   const p50 = lat[0] ?? 0;
   const p95 = lat[1] ?? 0;
   const cpu = host[0] ?? 0;
   const mem = host[1] ?? 0;
-  const ready = ratePoints.length >= 2;
+  const ready = requestPoints.length >= 2;
+  const logsReady = logPoints.length >= 2;
   const peakP95 = latPoints.reduce((max, point) => Math.max(max, point.values[1] ?? 0), 0);
   const latCeiling = Math.max(LATENCY_FAST_MS, Math.ceil(peakP95 / LATENCY_CEILING_STEP_MS) * LATENCY_CEILING_STEP_MS);
 
-  const rateStats: ChartStat[] = [
+  const requestStats: ChartStat[] = [
     { label: "requests / s", value: req.toFixed(1), color: "#7ce0bd" },
-    { label: "log errors / s", value: err.toFixed(1), color: "#f4868d", tone: err > 0 ? "destructive" : "default" },
+    { label: "failed / s", value: reqFailed.toFixed(1), color: "#f4868d", tone: reqFailed > 0 ? "destructive" : "default" },
+  ];
+  const logStats: ChartStat[] = [
+    { label: "logs / s", value: logs.toFixed(1), color: "#7ce0bd" },
+    { label: "failed logs / s", value: logFailed.toFixed(1), color: "#f4868d", tone: logFailed > 0 ? "destructive" : "default" },
   ];
   const latStats: ChartStat[] = [
     { label: "median", value: `${Math.round(p50)}ms`, color: "#79c6dc" },
@@ -76,19 +86,30 @@ export function GraphPage(props: {
         <div className="flex flex-col gap-1 px-0.5">
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Live signals</h2>
           <p className="text-[12px] text-muted-foreground">
-            How the stack is behaving right now: proxy traffic, ERROR logs, and load on this machine. Hover a plot for a timestamp.
+            How the stack is behaving right now: proxy traffic, log volume, and load on this machine. Hover a plot for a timestamp.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <UPlotChart
-            title="Traffic and errors"
-            description="Green is proxy completions in the last 10s. Red is ERROR/FATAL log lines in the same window — the records on the Logs page, not only failed HTTP responses."
-            labels={["requests/s", "log errors/s"]}
+            title="Requests"
+            description="Green is proxy completions in the last 10s. Red is failed completions in that window: HTTP 4xx/5xx or a proxy error."
+            labels={["requests/s", "failed/s"]}
             colors={["#7ce0bd", "#f4868d"]}
-            points={ratePoints}
+            points={requestPoints}
             height={CHART_HEIGHT}
-            stats={rateStats}
-            insight={trafficInsight(req, err, ready)}
+            stats={requestStats}
+            insight={requestInsight(req, reqFailed, ready)}
+            empty="Rates appear after the second poll (~2s)."
+          />
+          <UPlotChart
+            title="Logs"
+            description="Green is log lines ingested in the last 10s. Red is ERROR and FATAL lines in the same window."
+            labels={["logs/s", "failed logs/s"]}
+            colors={["#7ce0bd", "#f4868d"]}
+            points={logPoints}
+            height={CHART_HEIGHT}
+            stats={logStats}
+            insight={logInsight(logs, logFailed, logsReady)}
             empty="Rates appear after the second poll (~2s)."
           />
           <UPlotChart
@@ -123,20 +144,41 @@ export function GraphPage(props: {
   );
 }
 
-function trafficInsight(req: number, err: number, ready: boolean): ReactNode {
+function formatPerSec(value: number): string {
+  return value.toFixed(value >= RATE_WHOLE ? 0 : 1);
+}
+
+function requestInsight(req: number, failed: number, ready: boolean): ReactNode {
   if (!ready) {
     return "Rates appear after the second poll (~2s).";
   }
-  if (req === 0 && err === 0) {
-    return "No proxy completions or ERROR logs in the last 10 seconds.";
+  if (req === 0 && failed === 0) {
+    return "No proxy completions in the last 10 seconds.";
   }
-  if (err <= 0) {
-    return "Traffic is flowing through the proxy with no ERROR/FATAL logs this window.";
+  if (failed <= 0) {
+    return "Traffic is flowing through the proxy with no failed requests this window.";
   }
   return (
     <>
-      {err.toFixed(err >= 10 ? 0 : 1)} ERROR logs per second — the same stream as Logs
-      {req > 0 ? ", including application failures that still returned HTTP 200" : ""}.{" "}
+      {formatPerSec(failed)} failed requests per second (HTTP 4xx/5xx or a proxy error).{" "}
+      <a href={hrefFor("traces")} className="text-primary underline-offset-4 hover:underline">Open Traces</a>
+    </>
+  );
+}
+
+function logInsight(logs: number, failed: number, ready: boolean): ReactNode {
+  if (!ready) {
+    return "Rates appear after the second poll (~2s).";
+  }
+  if (logs === 0 && failed === 0) {
+    return "No log lines in the last 10 seconds.";
+  }
+  if (failed <= 0) {
+    return "Logs are arriving with no ERROR or FATAL lines this window.";
+  }
+  return (
+    <>
+      {formatPerSec(failed)} ERROR or FATAL logs per second.{" "}
       <a href={hrefFor("logs")} className="text-primary underline-offset-4 hover:underline">Open Logs</a>
     </>
   );

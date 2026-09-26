@@ -27,6 +27,7 @@ import { cn } from "./lib/utils.ts";
 import { DevctlLogo } from "./brand.tsx";
 import { activeInspectId, hrefFor, parseHash } from "./hash.ts";
 import { advanceRingCounter, emptyRingCounter, lifetimeTotal, logLifetime } from "./lifetime.ts";
+import { counterWindowRate, rateInWindow, requestIsFailure } from "./rates.ts";
 import { OverviewPage, type OverviewSummary } from "./pages/overview.tsx";
 import { GraphPage } from "./pages/graph.tsx";
 import { LogsPage } from "./pages/logs.tsx";
@@ -90,20 +91,17 @@ const PAGE_LABEL: Record<RouteName, string> = {
   settings: "Settings",
 };
 
-type RateSample = { t: number; reqs: number; errs: number; p50: number; p95: number };
-
-function rateInWindow(timestamps: string[], nowMs: number, lookbackMs: number): number {
-  const cutoff = nowMs - lookbackMs;
-  const seconds = lookbackMs / 1000;
-  let count = 0;
-  for (const stamp of timestamps) {
-    const ts = Date.parse(stamp);
-    if (!Number.isNaN(ts) && ts >= cutoff) {
-      count += 1;
-    }
-  }
-  return count / seconds;
-}
+type RateSample = {
+  t: number;
+  reqs: number;
+  reqFails: number;
+  logs: number;
+  logFails: number;
+  seen: number;
+  seenErrors: number;
+  p50: number;
+  p95: number;
+};
 
 function readRoute(): Route {
   return parseHash(window.location.hash);
@@ -214,17 +212,31 @@ export function App() {
     setProfiles(nextProfiles);
     setPollError("");
     const nowMs = Date.now();
-    const lat = (nextRequests.requests ?? []).map((row) => row.duration_ms);
-    const reqs = rateInWindow((nextRequests.requests ?? []).map((row) => row.timestamp), nowMs, RATE_LOOKBACK_MS);
-    const errs = rateInWindow(nextErrors.events.map((row) => row.timestamp), nowMs, RATE_LOOKBACK_MS);
-    const sample: RateSample = {
-      t: nowMs / 1000,
-      reqs,
-      errs,
-      p50: percentile(lat, 50),
-      p95: percentile(lat, 95),
-    };
-    setRates((cur) => [...cur, sample].slice(-WINDOW));
+    const rows = nextRequests.requests ?? [];
+    const lat = rows.map((row) => row.duration_ms);
+    const reqs = rateInWindow(rows.map((row) => row.timestamp), nowMs, RATE_LOOKBACK_MS);
+    const reqFails = rateInWindow(
+      rows.filter((row) => requestIsFailure(row)).map((row) => row.timestamp),
+      nowMs,
+      RATE_LOOKBACK_MS,
+    );
+    const counts = logLifetime(nextStatus.logs);
+    const nowSec = nowMs / 1000;
+    const lookbackSec = RATE_LOOKBACK_MS / 1000;
+    setRates((cur) => {
+      const sample: RateSample = {
+        t: nowSec,
+        reqs,
+        reqFails,
+        logs: counterWindowRate(cur.map((row) => ({ t: row.t, value: row.seen })), nowSec, counts.total, lookbackSec),
+        logFails: counterWindowRate(cur.map((row) => ({ t: row.t, value: row.seenErrors })), nowSec, counts.errors, lookbackSec),
+        seen: counts.total,
+        seenErrors: counts.errors,
+        p50: percentile(lat, 50),
+        p95: percentile(lat, 95),
+      };
+      return [...cur, sample].slice(-WINDOW);
+    });
     setTraceMsById((cur) => {
       let changed = false;
       const next = { ...cur };
@@ -500,7 +512,8 @@ export function App() {
     };
   }, [route.name, route.traceId, requests]);
 
-  const ratePoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.reqs, row.errs] }));
+  const requestPoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.reqs, row.reqFails] }));
+  const logPoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.logs, row.logFails] }));
   const latPoints: SeriesPoint[] = rates.map((row) => ({ t: row.t, values: [row.p50, row.p95] }));
   const cpu = status?.stats_series?.cpu ?? [];
   const mem = status?.stats_series?.mem ?? [];
@@ -513,6 +526,7 @@ export function App() {
 
   const logCounts = logLifetime(status?.logs);
   const reqTotal = lifetimeTotal(status?.proxy.requestTotal, requests?.total, requestLifeRef.current.seen);
+  const failedRequests = lifetimeTotal(status?.proxy.requestErrors, requests?.errors);
   const logTotal = logCounts.total;
   const logErrors = logCounts.errors;
   const last = rates[rates.length - 1];
@@ -524,9 +538,10 @@ export function App() {
       return h === "HEALTHY" || st === "RUNNING" || st === "HEALTHY";
     }).length,
     requests: reqTotal,
-    errors: logErrors,
-    errorRate: logTotal > 0 ? (logErrors / logTotal) * 100 : 0,
-    errPerSec: last?.errs ?? 0,
+    failedRequests,
+    failedRate: reqTotal > 0 ? (failedRequests / reqTotal) * 100 : 0,
+    failedPerSec: last?.reqFails ?? 0,
+    logErrors,
     p95: last?.p95 ?? 0,
     reqPerSec: last?.reqs ?? 0,
   };
@@ -675,7 +690,8 @@ export function App() {
             <GraphPage
               config={config?.services ?? []}
               services={services}
-              ratePoints={ratePoints}
+              requestPoints={requestPoints}
+              logPoints={logPoints}
               latPoints={latPoints}
               hostPoints={hostPoints}
               busy={Boolean(busy)}

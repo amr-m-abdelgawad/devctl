@@ -4272,11 +4272,13 @@ Lifecycle rules match the CLI: stopping a service also stops its dependents; res
 
 ## Explore the dependency graph
 
-![Dependency graph with service topology, traffic, errors, latency, and host resource charts](assets/manual/web-graph.png)
+![Dependency graph with service topology, request and log rate charts, latency, and host resource charts](assets/manual/web-graph.png)
 
 Open Graph to see dependencies alongside current service state and runtime signals. Use it to understand which services sit upstream of a failure before deciding what to restart.
 
-The overview counters use lifetime totals for the current supervisor, while tables and charts show recent windows: the last 100 proxy requests, a small recent-error slice, and a 10-second rate/latency window. Those displays need not have identical totals. Open Logs for the live ring (up to \`logs.max_memory_events\`, default 50,000).
+The overview **Requests** and **Failed requests** tiles are lifetime proxy totals for this supervisor. A failed request is an HTTP status of 400 or higher, or a proxy error. The subtitle rate is the last 10 seconds of the recent request buffer. **Recent errors** is still ERROR and FATAL log lines, with a lifetime log-error badge.
+
+Graph charts use that same 10-second window: requests against failed requests from the recent proxy buffer, and log lines against ERROR and FATAL lines from the lifetime log counters (\`logs.seen\` and \`logs.seenErrors\`). Latency is the recent request buffer. Those windows need not match the lifetime tiles. Open Logs for the live ring (up to \`logs.max_memory_events\`, default 50,000).
 
 ## Follow a request into its trace
 
