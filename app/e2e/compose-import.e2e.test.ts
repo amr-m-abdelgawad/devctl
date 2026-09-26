@@ -33,8 +33,7 @@ describeE2E("compose import", () => {
     await importAndValidate(sandbox);
   }, SCENARIO_TIMEOUT_MS);
 
-  // Known failure: published ports import as an invalid `ports` list (#135).
-  test.failing("a service that publishes a port imports and validates (#135)", async () => {
+  test("a service that publishes a port imports and validates (#135)", async () => {
     sandbox = Sandbox.create("compose-ports", {
       "compose.yaml": `services:
   cache:

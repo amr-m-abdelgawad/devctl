@@ -64,7 +64,7 @@ instead of `bun src/bin.ts`.
 | `otel-exporters` | Stock Python and Node OTLP/HTTP protobuf exporters deliver spans and logs (#112) |
 | `log-prose` | A line that ends in JSON keeps its prose as the body (#113) |
 | `parallel-checkouts` | Two checkouts of one config run side by side (#117, known failure) |
-| `compose-import` | `config import compose` output validates (#135 known failure; container start pending #120) |
+| `compose-import` | `config import compose` output validates, with and without published ports (container start pending #120) |
 | `config-validate` | A command array with `;` in an argument validates (#136, known failure) |
 | `docs-examples` | Every complete config example in `docs/*.md` passes `config validate` |
 
