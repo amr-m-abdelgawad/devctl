@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- CI runs an end-to-end suite (`app/e2e/`) on Linux and macOS against the real CLI and daemon: auto-port health checks, stock Python and Node OpenTelemetry exporters at pinned versions, log parsing, compose import, command validation, and the config examples in `docs/`. Scenarios for open bugs (#117, #135, #136) are known failures that flip when fixed. Run it locally with `bun run e2e:setup && bun run e2e` from `app/`. See [Testing and CI](docs/internals/testing-ci.md). (#114)
 - Freeing a busy port from the TUI Doctor screen rechecks that port only. It no longer reruns the full doctor. See [Doctor](docs/doctor.md).
 
 ### Fixed

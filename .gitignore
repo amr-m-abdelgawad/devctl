@@ -21,6 +21,9 @@ vendor/
 # TypeScript / Bun
 app/node_modules/
 examples/**/node_modules/
+# e2e exporter packages installed by app/e2e/setup.sh
+app/e2e/.deps/
+app/e2e/fixtures/**/node_modules/
 
 # VitePress website (docs/)
 docs/node_modules/

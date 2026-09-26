@@ -2,7 +2,8 @@
   "$schema": "https://unpkg.com/knip@6/schema-jsonc.json",
   // Reserved hexagonal port: adapters are expected to implement this later.
   // plugin-sdk.ts is a public entry; its re-exports have no in-repo importer.
-  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts"],
+  // e2e fixtures are programs devctl runs as services, not modules anything imports.
+  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts", "e2e/fixtures/**"],
   "entry": ["web/main.tsx"],
   // Host tools spawned at runtime, not npm packages.
   "ignoreBinaries": ["explorer", "xdg-open", "vm_stat"],
