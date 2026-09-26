@@ -166,6 +166,8 @@ describeE2E("parallel checkouts (#117)", () => {
       ports.push(svc.ports.http ?? 0);
     }
     expect(ports[1]).toBe((ports[0] ?? 0) + 100);
+    expect(box.supervisorPid()).toBeGreaterThan(0);
+    expect(ci.supervisorPid()).toBeGreaterThan(0);
     expect(ci.supervisorPid()).not.toBe(box.supervisorPid());
     expect((await ci.cli(["status"])).stdout).toContain("INSTANCE: ci-7, slot 1 (ports +100)");
     // The flag works as well as the environment.

@@ -5,7 +5,7 @@
 // test is `bun src/bin.ts` unless DEVCTL_E2E_BIN names a compiled binary.
 
 import { describe } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { processAlive, readRepoLock } from "../src/adapters/storage/storage.ts";
 
@@ -218,7 +218,9 @@ export class Sandbox {
       process.env.DEVCTL_INSTANCE = env.DEVCTL_INSTANCE;
     }
     try {
-      return readRepoLock(this.dir)?.pid ?? 0;
+      // The supervisor keys its lock on the resolved checkout path (macOS's
+      // /tmp is a symlink to /private/tmp).
+      return readRepoLock(existsSync(this.dir) ? realpathSync(this.dir) : this.dir)?.pid ?? 0;
     } finally {
       for (const [key, value] of [["DEVCTL_HOME", previous.home], ["DEVCTL_INSTANCE", previous.instance]] as const) {
         if (value === undefined) {
