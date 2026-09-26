@@ -49,6 +49,8 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     "env",
     "down",
     "instances",
+    "test",
+    "bundle",
     "daemon",
     "stop",
     "restart",
@@ -82,6 +84,7 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     return filterPrefix([...SHELLS].sort(), tail);
   }
   if (cmd === "run") return filterPrefix([...Object.keys(cfg.tasks).sort(), "--json"], tail);
+  if (cmd === "test") return filterPrefix([...Object.keys(cfg.tasks).sort(), "--profile", "--services", "--timeout", "--env-from", "--artifacts", "--keep"], tail);
   if (cmd === "exec") return filterPrefix([...services, "--print-env", "--reveal", "--json"], tail);
   if (cmd === "env") {
     if (words.length <= 2) {

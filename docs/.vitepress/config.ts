@@ -131,6 +131,7 @@ const siteConfig = withMermaid({
           { text: 'Services', link: '/services' },
           { text: 'Profiles', link: '/profiles' },
           { text: 'Parallel stacks', link: '/parallel-stacks' },
+          { text: 'Tests and CI', link: '/ci' },
           { text: 'Environment', link: '/environment' },
           { text: 'Custom HTTP APIs', link: '/http' },
           { text: 'Plugins', link: '/plugins' }

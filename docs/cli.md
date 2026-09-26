@@ -5,7 +5,7 @@ The CLI and the TUI share one supervisor. Global flags: `--config <path>` (file 
 ```text
 devctl                         # TUI (attaches to a daemon, spawning one if none is running)
 devctl version
-devctl start [svc…] [--profile <name>] [--overlay <name>] [--env KEY=VAL] [--detach] [--json]
+devctl start [svc…] [--profile <name>] [--overlay <name>] [--env KEY=VAL] [--wait [--timeout 5m]] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--cascade] [--json]
 devctl run <task> [--json]
@@ -15,6 +15,8 @@ devctl env [service] [name] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl instances [--json]
 devctl instances prune
+devctl test [--profile <name> | --services a,b] [--timeout 5m] [--env-from <svc>] [--artifacts <dir>] [--keep] (<task> | -- <command…>)
+devctl bundle [--since 10m] [--output <dir|file.tgz>]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
 devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--output] [--json] [-f|--follow] [--all]
@@ -58,6 +60,7 @@ devctl update [--json] [--check]
 - `exec` runs once in a service's resolved environment and working directory, even when that service is stopped. `--print-env` prints the exact environment without running a command; secret-like values are redacted unless `--reveal` is explicitly supplied. The TUI equivalents are `/exec <service> -- <command…>` and `/exec <service> --print-env` (the env inspector shows the same resolved map, not config-only `vars`/`defaults`).
 - `env` lists per-service named overlays (`services.<name>.environments`) and the one selected for this session. `devctl env invoices-api` shows that service; `devctl env invoices-api deployed` selects `deployed` for invoices-api only. Other services are unchanged. A running process keeps the overlay it started with until you restart it.
 - `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
+- `start --wait` blocks until every service it started is ready (running, and healthy when it has a health check). It exits 5 if one fails and 6 when `--timeout` runs out, naming the services still not ready. `test` runs a task or a command against a throwaway [named instance](parallel-stacks.md#named-instances), writes a redacted bundle to `--artifacts` on failure, tears the stack down, and exits with the command's code. `bundle` writes the same evidence on demand. See [Tests and CI](ci.md).
 - `instances` lists the stacks holding a port slot for [parallel stacks](parallel-stacks.md): slot, port offset, checkout path, instance name, proxy/web/OTLP ports, and status (`running`, `stopped`, or `missing` for a deleted checkout). `instances prune` stops the stacks of missing checkouts and frees their slots. A full `down` also frees the checkout's slot; `down --keep-services` keeps it.
 - `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.

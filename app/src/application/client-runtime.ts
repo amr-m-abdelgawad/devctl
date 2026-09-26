@@ -115,6 +115,10 @@ export type ClientRuntime = {
   writeTextFile(path: string, text: string): void;
   // Owner-only (0600), parent directories created: for files holding a token.
   writeSecretFile(path: string, text: string): void;
+  // The test/CI harness (#118): run a command with live output, and pack a bundle.
+  runForeground(command: readonly string[], env: Record<string, string>, cwd: string): Promise<number>;
+  archiveDirectory(dir: string, file: string): void;
+  removePath(path: string): void;
   fileExists(path: string): boolean;
   checkUpdate(): Promise<UpdateCheck>;
   applyUpdate(command: readonly string[], inherit?: boolean): Promise<UpdateApplyResult>;

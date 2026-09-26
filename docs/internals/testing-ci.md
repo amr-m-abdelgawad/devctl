@@ -64,6 +64,7 @@ instead of `bun src/bin.ts`.
 | `otel-exporters` | Stock Python and Node OTLP/HTTP protobuf exporters deliver spans and logs (#112) |
 | `log-prose` | A line that ends in JSON keeps its prose as the body (#113) |
 | `parallel-checkouts` | Two checkouts sharing one `DEVCTL_HOME` run side by side on slots 0 and 1 (+100); `instances` lists them, `down` frees a slot, `instances prune` stops a deleted checkout's stack (#117) |
+| `test-harness` | `devctl test` runs a command against a throwaway instance and leaves no process behind; a failing command returns its code and a bundle whose files never contain a known secret; `start --wait` exits 6 naming a service that never gets healthy (#118) |
 | `compose-import` | `config import compose` output validates, with and without published ports (container start pending #120) |
 | `config-validate` | A command array with `;` in an argument validates |
 | `docs-examples` | Every complete config example in `docs/*.md` passes `config validate` |

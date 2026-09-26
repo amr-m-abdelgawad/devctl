@@ -51,6 +51,7 @@ The running product is TypeScript on [Bun](https://bun.sh) with an [OpenTUI](htt
 | [Configuration](configuration.md) | Discovery, merge, validation, JSON Schema, reload |
 | [Services](services.md) | Commands, ports, health, restart, dependencies |
 | [Profiles](profiles.md) | Named sets, session recovery |
+| [Tests and CI](ci.md) | \`devctl test\`, \`start --wait\`, failure bundles, a GitHub Actions example |
 | [Parallel stacks](parallel-stacks.md) | Several checkouts of one config at once, port slots, \`devctl instances\` |
 | [Environment](environment.md) | Source order, \`\${…}\` refs, secrets |
 | [Custom HTTP APIs](http.md) | Named outbound recipes, token cache, local expose |
@@ -458,6 +459,118 @@ import ChangelogPage from './.vitepress/theme/ChangelogPage.vue'
 
 <ChangelogPage />
 ` },
+  { path: "docs/ci.md", title: "Tests and CI", body: `# Tests and CI
+
+> **Experimental.** \`devctl test\`, \`devctl bundle\` and \`start --wait\` may change without a deprecation period. See [Experimental features](roadmap.md#experimental-features).
+
+The configuration that runs your dev stack also runs your integration tests, on a laptop or in CI, with no separate compose file. \`devctl test\` brings up a throwaway stack, waits until it is healthy, runs your tests against it, saves evidence if they fail, and tears everything down.
+
+\`\`\`bash
+# run a command against the stack
+devctl test -- pytest -q tests/integration
+
+# or a task from the config
+devctl test integration
+
+# a profile instead of every service
+devctl test --profile backend --timeout 2m -- npm test
+\`\`\`
+
+## \`devctl start --wait\`
+
+The building block. \`--wait\` blocks until every service the start asked for is ready:
+
+\`\`\`bash
+devctl start --profile backend --wait --timeout 2m
+\`\`\`
+
+A service is **ready** when it is running and, if it has a [health check](services.md), healthy. A service without a health check counts as ready as soon as it runs. devctl has nothing else to wait on, so give a service a \`health\` block when "it is listening" matters.
+
+| Outcome | Exit code |
+|---------|-----------|
+| Every service ready | 0 |
+| A service failed to start, or is blocked | 5 |
+| \`--timeout\` ran out (default 5m); the message names the services still not ready and their state | 6 |
+
+\`--timeout\` takes \`90s\`, \`2m\`, \`500ms\`, \`1h\` or a number of seconds.
+
+## \`devctl test\`
+
+\`\`\`text
+devctl test [--profile <name> | --services a,b] [--timeout 5m] [--env-from <service>]
+            [--artifacts devctl-artifacts] [--keep] (<task> | -- <command>...)
+\`\`\`
+
+1. **A throwaway stack.** The run is a [named instance](parallel-stacks.md#named-instances), \`test-<random>\`, with its own port slot, state, containers and volumes, so it never collides with your dev stack or another CI job on the same machine. Pass \`--instance <name>\` (before \`test\`) to choose the name.
+2. **Start and wait.** With \`--profile\` or \`--services\`, those start (with their dependencies). With neither, every service starts. Then it waits as \`start --wait\` does.
+3. **Run the tests.**
+   - A task from the config runs as \`devctl run\` would. Its output is printed when it ends.
+   - A command after \`--\` runs in the foreground with your environment, so its output streams live. On top of your environment it gets where the stack is:
+     - \`DEVCTL_<SERVICE>_<PORT>_PORT\` for every running service port (\`DEVCTL_API_HTTP_PORT\`, \`DEVCTL_DB_MAIN_DB_PORT\`: names uppercased, anything but letters and digits becomes \`_\`),
+     - \`DEVCTL_PROXY_URL\` while the proxy is up,
+     - \`DEVCTL_INSTANCE\`.
+     Ports move with the stack's slot, so read them from these instead of hardcoding them. \`--env-from <service>\` adds that service's fully resolved environment as well, the same one \`devctl exec <service>\` uses.
+4. **On failure, the bundle.** If the stack or the tests fail, a [bundle](#the-bundle) is written to \`--artifacts\` (default \`./devctl-artifacts\`).
+5. **Tear down.** Services, containers and the supervisor stop, and the port slot is freed. \`--keep\` leaves the stack running instead, and prints how to stop it. Ctrl-C reaches the test command and still tears down.
+6. **Exit** with the test command's code, or 5 or 6 when the stack itself failed.
+
+## The bundle
+
+\`devctl bundle\` writes the same evidence on demand, for a bug report:
+
+\`\`\`bash
+devctl bundle --since 10m --output devctl-bundle.tgz   # or a directory
+\`\`\`
+
+| File | Contents |
+|------|----------|
+| \`status.json\` | The status snapshot: services, ports, health, proxy, instance. The MCP token is removed. |
+| \`logs.ndjson\` | Log records, newest 5000 (\`--since\` limits them to a window) |
+| \`traces.json\` | Span trees with their logs, for up to 20 failed requests (5xx proxied requests and error logs) |
+| \`traffic.json\` | Up to 200 captured proxy hops, without bodies |
+| \`doctor.json\` | \`devctl doctor --json\` |
+| \`config-diff.json\` | \`devctl config diff --json\`: effective values and where each came from |
+| \`bootstrap.log\` | The supervisor's startup output |
+| \`versions.txt\` | devctl, Bun, platform, instance |
+| \`errors.txt\` | Any part that could not be collected (for example, no supervisor running) |
+
+Every file is redacted, whatever \`secrets.redact\` says. Keys that name secrets are masked, and every string goes through the same detector as logs and traffic, including your \`secrets.extra_markers\` and \`extra_patterns\`. The bundle never reads \`.devctl/secrets.env\`, keychain values or decrypted SOPS output. Still, look through it before you attach it somewhere public.
+
+## GitHub Actions
+
+Install devctl from npm, run \`devctl test\`, and upload the bundle when the job fails:
+
+\`\`\`yaml
+name: integration
+on: [push, pull_request]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --global @amr-m-abdelgawad/devctl
+      # Install what your services need (uv sync, npm ci, ...) here.
+      - run: devctl test --timeout 5m -- npm run test:integration
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: devctl-artifacts
+          path: devctl-artifacts
+\`\`\`
+
+Parallel jobs on one runner each get their own instance and ports, so nothing needs to be serialized.
+
+## Related
+
+- [Parallel stacks](parallel-stacks.md)
+- [Services and health checks](services.md)
+- [CLI](cli.md)
+- [Troubleshooting](troubleshooting.md)
+` },
   { path: "docs/cli.md", title: "CLI", body: `# CLI
 
 The CLI and the TUI share one supervisor. Global flags: \`--config <path>\` (file or \`.devctl\` directory) and \`--instance <name>\` (a named stack of this checkout, see [parallel stacks](parallel-stacks.md); \`DEVCTL_INSTANCE\` sets it too). Both go before the command.
@@ -465,7 +578,7 @@ The CLI and the TUI share one supervisor. Global flags: \`--config <path>\` (fil
 \`\`\`text
 devctl                         # TUI (attaches to a daemon, spawning one if none is running)
 devctl version
-devctl start [svc…] [--profile <name>] [--overlay <name>] [--env KEY=VAL] [--detach] [--json]
+devctl start [svc…] [--profile <name>] [--overlay <name>] [--env KEY=VAL] [--wait [--timeout 5m]] [--detach] [--json]
 devctl stop [svc…] [--json]
 devctl restart [svc…] [--cascade] [--json]
 devctl run <task> [--json]
@@ -475,6 +588,8 @@ devctl env [service] [name] [--json]
 devctl down [--repo <path>] [--keep-services]
 devctl instances [--json]
 devctl instances prune
+devctl test [--profile <name> | --services a,b] [--timeout 5m] [--env-from <svc>] [--artifacts <dir>] [--keep] (<task> | -- <command…>)
+devctl bundle [--since 10m] [--output <dir|file.tgz>]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
 devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--output] [--json] [-f|--follow] [--all]
@@ -518,6 +633,7 @@ devctl update [--json] [--check]
 - \`exec\` runs once in a service's resolved environment and working directory, even when that service is stopped. \`--print-env\` prints the exact environment without running a command; secret-like values are redacted unless \`--reveal\` is explicitly supplied. The TUI equivalents are \`/exec <service> -- <command…>\` and \`/exec <service> --print-env\` (the env inspector shows the same resolved map, not config-only \`vars\`/\`defaults\`).
 - \`env\` lists per-service named overlays (\`services.<name>.environments\`) and the one selected for this session. \`devctl env invoices-api\` shows that service; \`devctl env invoices-api deployed\` selects \`deployed\` for invoices-api only. Other services are unchanged. A running process keeps the overlay it started with until you restart it.
 - \`down\` stops the daemon's services and the daemon itself; \`--keep-services\` stops only the daemon, leaving services running to be adopted later. \`--repo\` targets a repository directly, without needing a loadable configuration there; the global \`--config\` also resolves it (by file location, not by parsing) when \`--repo\` is not given.
+- \`start --wait\` blocks until every service it started is ready (running, and healthy when it has a health check). It exits 5 if one fails and 6 when \`--timeout\` runs out, naming the services still not ready. \`test\` runs a task or a command against a throwaway [named instance](parallel-stacks.md#named-instances), writes a redacted bundle to \`--artifacts\` on failure, tears the stack down, and exits with the command's code. \`bundle\` writes the same evidence on demand. See [Tests and CI](ci.md).
 - \`instances\` lists the stacks holding a port slot for [parallel stacks](parallel-stacks.md): slot, port offset, checkout path, instance name, proxy/web/OTLP ports, and status (\`running\`, \`stopped\`, or \`missing\` for a deleted checkout). \`instances prune\` stops the stacks of missing checkouts and frees their slots. A full \`down\` also frees the checkout's slot; \`down --keep-services\` keeps it.
 - \`status\` and \`down\` resolve their target the same way: \`--repo\` wins outright, else the global \`--config\` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - \`status\` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
@@ -3439,7 +3555,7 @@ Bugs on paths the docs promise, and the process that keeps them from coming back
 | Item | Issue | Size | Status |
 |------|-------|------|--------|
 | Parallel, isolated stacks per checkout or named instance | [#117](https://github.com/amr-m-abdelgawad/devctl/issues/117) | L | Shipped ([Parallel stacks](parallel-stacks.md)), experimental |
-| Test/CI harness: \`start --wait\`, \`devctl test\`, a failure bundle | [#118](https://github.com/amr-m-abdelgawad/devctl/issues/118) | M | Open |
+| Test/CI harness: \`start --wait\`, \`devctl test\`, a failure bundle | [#118](https://github.com/amr-m-abdelgawad/devctl/issues/118) | M | Shipped ([Tests and CI](ci.md)), experimental |
 | Proxy replay, mocks and fault injection | [#119](https://github.com/amr-m-abdelgawad/devctl/issues/119) | M | Open |
 
 ## Phase 3: fill the gaps around the core
@@ -3479,6 +3595,7 @@ A feature is **experimental** until a user outside the original stack relies on 
 | \`environment.sops\` | 0.19.0 | [Environment](environment.md#sops) |
 | \`environment.terraform\` | 0.22.0 | [Environment](environment.md#terraform) |
 | Parallel stacks: port slots, \`--instance\`, per-stack volumes, \`devctl mcp --write\` | 0.22.0 | [Parallel stacks](parallel-stacks.md) |
+| \`devctl test\`, \`devctl bundle\`, \`start --wait\` | Unreleased | [Tests and CI](ci.md) |
 
 When a feature graduates, its line comes out of the docs and the CHANGELOG says so under **Changed**, for example: "\`environment.sops\` is no longer experimental."
 

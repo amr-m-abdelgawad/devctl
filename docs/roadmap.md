@@ -23,7 +23,7 @@ Bugs on paths the docs promise, and the process that keeps them from coming back
 | Item | Issue | Size | Status |
 |------|-------|------|--------|
 | Parallel, isolated stacks per checkout or named instance | [#117](https://github.com/amr-m-abdelgawad/devctl/issues/117) | L | Shipped ([Parallel stacks](parallel-stacks.md)), experimental |
-| Test/CI harness: `start --wait`, `devctl test`, a failure bundle | [#118](https://github.com/amr-m-abdelgawad/devctl/issues/118) | M | Open |
+| Test/CI harness: `start --wait`, `devctl test`, a failure bundle | [#118](https://github.com/amr-m-abdelgawad/devctl/issues/118) | M | Shipped ([Tests and CI](ci.md)), experimental |
 | Proxy replay, mocks and fault injection | [#119](https://github.com/amr-m-abdelgawad/devctl/issues/119) | M | Open |
 
 ## Phase 3: fill the gaps around the core
@@ -63,6 +63,7 @@ A feature is **experimental** until a user outside the original stack relies on 
 | `environment.sops` | 0.19.0 | [Environment](environment.md#sops) |
 | `environment.terraform` | 0.22.0 | [Environment](environment.md#terraform) |
 | Parallel stacks: port slots, `--instance`, per-stack volumes, `devctl mcp --write` | 0.22.0 | [Parallel stacks](parallel-stacks.md) |
+| `devctl test`, `devctl bundle`, `start --wait` | Unreleased | [Tests and CI](ci.md) |
 
 When a feature graduates, its line comes out of the docs and the CHANGELOG says so under **Changed**, for example: "`environment.sops` is no longer experimental."
 
