@@ -63,19 +63,7 @@ describe("demo-platform integration", () => {
       expect(plan.waves.flat()).toContain("identity");
       const rt = sup.snapshot().services.identity;
       expect(rt?.pid ?? 0).toBeGreaterThan(0);
-      // TEMP(macOS CI): which processes share a group, and what stop signals.
-      const ps = Bun.spawnSync(["ps", "-o", "pid=,ppid=,pgid=,comm=", "-p", [rt?.pid ?? 0, process.pid, process.ppid].join(",")]);
-      console.error(`[macos-diag] test pid=${process.pid} ppid=${process.ppid} identity pid=${rt?.pid}\n${ps.stdout.toString()}`);
-      const realKill = process.kill.bind(process);
-      process.kill = ((pid: number, signal?: string | number) => {
-        console.error(`[macos-diag] process.kill(${pid}, ${String(signal)})`);
-        return realKill(pid, signal);
-      }) as typeof process.kill;
-      try {
-        await sup.stop(["identity"]);
-      } finally {
-        process.kill = realKill;
-      }
+      await sup.stop(["identity"]);
       expect(sup.snapshot().services.identity?.state).toBe("STOPPED");
     } finally {
       await sup.stop(["identity"]);
