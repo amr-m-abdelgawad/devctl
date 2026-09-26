@@ -109,13 +109,15 @@ This memory does not survive the daemon process itself being replaced (upgrade, 
 Injected when applicable:
 
 - `SERVICE_PORT`, `SERVICE_HOST`
-- `DEVCTL_PROXY_URL`
+- `DEVCTL_PROXY_URL` — only while this checkout's proxy is running; omitted after `devctl proxy stop`
 - `DEVCTL_SERVICE_NAME`
 - `DEVCTL_ENVIRONMENT`
 - `DEVCTL_SERVICE_ENV` — the selected named overlay (`services.<name>.environments.<env>`), omitted when the service has none
 - `DEVCTL_USER_EMAIL` — the developer's own detected Google identity (gcloud/ADC), so a service can key on who is running it without a hardcoded, team-unfriendly value. Omitted when no identity is detected.
-- `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint
-- `DEVCTL_HTTP_<NAME>_URL` for each exposed `http` recipe (uppercase, hyphens → underscores), host services only — see [Custom HTTP APIs](http.md)
+- `DEVCTL_TOKEN_URL` and `DEVCTL_INTERNAL_TOKEN` for host services (never a raw access token); containers omit both because container loopback cannot reach the host loopback endpoint. `DEVCTL_TOKEN_URL` is set only while this checkout's token endpoint is listening
+- `DEVCTL_HTTP_<NAME>_URL` for each exposed `http` recipe (uppercase, hyphens → underscores), host services only, while the proxy is running — see [Custom HTTP APIs](http.md)
+
+The proxy and token endpoint addresses are always ones this checkout's supervisor bound. devctl never falls back to the configured port, which another process, such as a second checkout's proxy, may hold. See [Proxy](proxy.md#when-the-proxy-cannot-bind).
 
 References such as `${services.identity.ports.http}` resolve before process start, including inside profile and dotenv values. `${identity.user}` in **service env** (and profile / dotenv values) is resolved at process start to the running developer's detected email — use it to map that identity onto a service's own variable in shared config, e.g. `LOCAL_USER_EMAIL: ${identity.user}` (empty when no identity is detected). Proxy route `auth.headers` — including headers on a service `proxy:` fragment, which merge into `proxy.routes` at load — are **not** run through `resolveEnvMap`; `${identity.user}` there stays the literal string. `${token}` in those headers, and in `transform.request_body` `replace` / `with`, is substituted at request time on `iap` / `service_account` routes. On `auth.type: none`, `${token}` in a body transform is a validate error. `devctl config validate` warns if `${identity.` appears in a proxy header value. `${http.<name>.<output>}` resolves from a recipe snapshot after the daemon has fetched that recipe; `${http.name.url}` is the local expose URL. `${NAME}` and `${env.NAME}` expand from the supervisor process environment **plus** gitignored `.devctl/secrets.env` (weaker: `~/.devctl/secrets.env`) in service/task/profile env (at process start), HTTP recipe request strings (at fetch), and proxy routes including `.devctl/proxy/routes.yaml` (`auth.headers`, `response_headers`, `upstream.url`, `auth.audience`, `auth.credentials`, `auth.client_secret`, and `transform.request_body` `replace` / `with` — at request or mint). `devctl config validate` accepts those templates without requiring the variable to be set. Process environment still wins over the files. Service env still rejects `${token}`.
 

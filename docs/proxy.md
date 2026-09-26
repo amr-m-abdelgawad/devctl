@@ -24,6 +24,14 @@ If `proxy.enabled` is true, `devctl start` also starts the proxy.
 
 A configuration reload that only changes routes (match, upstream, inspect, auth, `strip_prefix`, `transform`, log) **hot-swaps** the live table. The HTTP listener, token endpoint, and each gRPC h2c socket stay bound when their `listen` host/port (and the token endpoint's enabled flag) are unchanged. Listeners are recreated only when that bind changes, or the proxy is disabled while running. A stopped proxy stays stopped — `proxy stop` suppression is not cleared. In-flight requests keep the route they already matched; new requests see the new table.
 
+### When the proxy cannot bind
+
+The first `devctl start` binds the proxy's HTTP listener, the [token endpoint](#token-endpoint), and each gRPC listener. If any of them fails, for example because another checkout's proxy or another program already holds the port, none stay bound. The services in that start are then **blocked**: they go to `FAILED` with `proxy failed to start (unable to listen on 127.0.0.1:8080 (EADDRINUSE))` and are not launched. Services that are already running keep running.
+
+Before, those services started anyway with `DEVCTL_PROXY_URL` and `DEVCTL_TOKEN_URL` pointing at the configured port, so their traffic and `DEVCTL_INTERNAL_TOKEN` went to whatever process held it.
+
+To recover, free the port (`devctl doctor` names the holder), give this checkout a different `proxy.listen.port` in `.devctl/config.local.yaml`, or run `devctl proxy stop` to start services without the proxy. A stopped proxy means services get no `DEVCTL_PROXY_URL`, `DEVCTL_TOKEN_URL`, or `DEVCTL_HTTP_<NAME>_URL`.
+
 ## Routes
 
 ```yaml
@@ -339,7 +347,7 @@ Optional `GET /token` (`proxy.token_endpoint`) binds to loopback (never `0.0.0.0
 }
 ```
 
-Managed processes receive `DEVCTL_TOKEN_URL` (rewritten to the bound port after listen) and `DEVCTL_INTERNAL_TOKEN`, not raw tokens in the environment.
+Managed processes receive `DEVCTL_TOKEN_URL` (rewritten to the bound port after listen) and `DEVCTL_INTERNAL_TOKEN`, not raw tokens in the environment. `DEVCTL_TOKEN_URL` is omitted while the endpoint is not listening, never pointed at the configured port.
 
 ## Live request log
 

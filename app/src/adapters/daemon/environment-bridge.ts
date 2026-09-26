@@ -1,12 +1,10 @@
 import { isAbsolute, join } from "node:path";
 import type { DevctlConfig, ServiceConfig } from "../../domain/config/types.ts";
-import { listenAddress } from "../config/index.ts";
 import { applyOtelExporterEnv } from "../../domain/telemetry/otel-env.ts";
 import { envList, resolveEnvironment, runtimeForService, type EnvironmentSource } from "../environment/environment.ts";
 import { envSignature, loadSopsEnvironment, type SopsLoadResult } from "../environment/sops.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { TokenManager } from "../google/token.ts";
-import type { TokenEndpoint } from "../proxy/proxy.ts";
 import type { HttpRecipeRuntime } from "../../ports/http-recipe-runtime.ts";
 import { httpRecipeEnvUrlKey } from "../../domain/config/types.ts";
 import type { HttpValueMap } from "../config/refs.ts";
@@ -19,7 +17,6 @@ export type EnvironmentBridgeDeps = {
   // DEVCTL_USER_EMAIL and resolved for ${identity.user}. "" when undetected.
   userEmail: () => string;
   proxy: () => { isRunning(): boolean; address(): string } | undefined;
-  tokenEndpoint: () => TokenEndpoint | undefined;
   boundTokenURL: () => string;
   internalTok: () => string;
   tokens: TokenManager;
@@ -115,7 +112,10 @@ export class EnvironmentBridge {
     const cfg = this.deps.cfg();
     const assigned = this.deps.ports().get(name) ?? Object.fromEntries(svc.ports.filter((port) => !port.auto).map((port) => [port.name, port.value]));
     const proxy = this.deps.proxy();
-    const proxyURL = proxy?.isRunning() ? `http://${proxy.address()}` : cfg.proxy.enabled ? `http://${listenAddress(cfg.proxy.listen)}` : "";
+    // Only listeners this daemon actually bound are advertised. Falling back
+    // to the configured address would hand services whatever process holds
+    // that port — typically another checkout's proxy.
+    const proxyURL = proxy?.isRunning() ? `http://${proxy.address()}` : "";
     const userEmail = this.deps.userEmail();
     const envName = resolveEnvironmentName(svc, selectedEnv !== undefined ? selectedEnv : this.serviceEnv.get(name));
     const serviceCfg = envName === "" ? svc : { ...svc, environment: effectiveServiceEnv(svc, envName) };
@@ -126,10 +126,11 @@ export class EnvironmentBridge {
     }
     if (!svc.container) {
       runtime.DEVCTL_INTERNAL_TOKEN = this.deps.internalTok();
-      if (cfg.proxy.token_endpoint.enabled) {
-        runtime.DEVCTL_TOKEN_URL = this.deps.boundTokenURL() || `http://127.0.0.1:${this.deps.tokenEndpoint()?.listenPort() || cfg.proxy.token_endpoint.port}/token`;
+      const tokenURL = this.deps.boundTokenURL();
+      if (cfg.proxy.token_endpoint.enabled && tokenURL !== "") {
+        runtime.DEVCTL_TOKEN_URL = tokenURL;
       }
-      if (cfg.proxy.enabled) {
+      if (proxyURL !== "") {
         Object.assign(runtime, this.httpExposeUrls(cfg));
       }
     }

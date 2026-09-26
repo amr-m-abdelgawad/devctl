@@ -351,3 +351,50 @@ describe("ProxyCoordinator.applyConfig", () => {
     }
   });
 });
+
+describe("ProxyCoordinator.start", () => {
+  test("a listener that fails to bind releases the ones already bound and leaves the proxy stopped", async () => {
+    const httpPort = await reservePort();
+    const grpcUp = await startGrpcUpstream();
+    // Another process (say, a second checkout's proxy) already holds the token endpoint port.
+    const squatter = createServer((_req, res) => res.end("someone else"));
+    await new Promise<void>((resolve) => squatter.listen(0, "127.0.0.1", () => resolve()));
+    const heldPort = (squatter.address() as { port: number }).port;
+    const cfg = defaultConfig();
+    cfg.proxy.enabled = true;
+    cfg.proxy.listen = { host: "127.0.0.1", port: httpPort };
+    cfg.proxy.token_endpoint = { ...cfg.proxy.token_endpoint, enabled: true, host: "127.0.0.1", port: heldPort };
+    const { logs } = memoryLogs();
+    const coord = coordinator(() => cfg, logs);
+    try {
+      await expect(coord.start()).rejects.toThrow();
+      expect(coord.isRunning()).toBe(false);
+      expect(coord.boundTokenURL).toBe("");
+      // The HTTP port bound before the failure was released.
+      const probe = createServer();
+      await new Promise<void>((resolve, reject) => {
+        probe.once("error", reject);
+        probe.listen(httpPort, "127.0.0.1", () => resolve());
+      });
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+
+      // Same for a gRPC listener: the one that bound is released when a later one fails.
+      const grpcPort = await reservePort();
+      cfg.proxy.token_endpoint = { ...cfg.proxy.token_endpoint, enabled: false };
+      cfg.proxy.routes = [grpcRoute("first", grpcPort, grpcUp.url), grpcRoute("second", heldPort, grpcUp.url)];
+      await expect(coord.start()).rejects.toThrow();
+      expect(coord.isRunning()).toBe(false);
+      expect(coord.grpcServers).toEqual([]);
+      const grpcProbe = createServer();
+      await new Promise<void>((resolve, reject) => {
+        grpcProbe.once("error", reject);
+        grpcProbe.listen(grpcPort, "127.0.0.1", () => resolve());
+      });
+      await new Promise<void>((resolve) => grpcProbe.close(() => resolve()));
+    } finally {
+      await coord.stop();
+      await new Promise<void>((resolve) => squatter.close(() => resolve()));
+      await grpcUp.close();
+    }
+  });
+});

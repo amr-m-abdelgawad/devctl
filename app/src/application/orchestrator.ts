@@ -17,6 +17,7 @@ import {
   HealthUnknown,
   StateStopped,
   StateStopping,
+  StateUnknown,
   dependentsClosure,
   profileEnvironment,
   resolveStartRequest,
@@ -113,12 +114,31 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     const plan = this.planStart(s.cfg, resolved.services, resolved.profile);
     const google = await s.detectGoogle(s.cfg.google.project_id);
     plan.blockers = [...(plan.blockers ?? []), ...identityBlockers(s.cfg, plan.waves.flat(), google.adcAvailable)];
+    if (s.cfg.proxy.enabled && !s.proxySuppressed) {
+      // A proxy that cannot bind blocks the start: its configured address
+      // (and the token endpoint's) is held by some other process — often
+      // another checkout's devctl — and services started now would send
+      // their traffic and internal token there.
+      const proxyError = await s.startProxy().then(
+        () => undefined,
+        (err: unknown) => humanMessage(err),
+      );
+      if (proxyError !== undefined) {
+        s.log("devctl", "ERROR", `proxy failed to start: ${proxyError}`);
+        // Services already live keep running: blocking goes through fail(),
+        // which would kill them.
+        const already = new Set(plan.blockers.map((blocker) => blocker.name));
+        for (const name of plan.waves.flat()) {
+          const state = s.runtimes.get(name)?.state ?? StateStopped;
+          if (!already.has(name) && (state === StateStopped || state === StateFailed || state === StateUnknown)) {
+            plan.blockers.push({ name, message: `proxy failed to start (${proxyError}); free the port, change proxy.listen, or run devctl proxy stop to start without it` });
+          }
+        }
+      }
+    }
     const blocked = new Set(plan.blockers.map((blocker) => blocker.name));
     for (const blocker of plan.blockers) {
       await s.fail(blocker.name, newError(KindProcessStart, blocker.message));
-    }
-    if (s.cfg.proxy.enabled && !s.proxySuppressed) {
-      await s.startProxy().catch((err) => s.log("devctl", "ERROR", humanMessage(err)));
     }
     const pending: string[] = [];
     for (const name of plan.waves.flat()) {
