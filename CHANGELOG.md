@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- CI runs `bun test` on macOS (`macos-tests` on `macos-15`), matching `windows-tests`. Coverage stays on Linux. Docker lifecycle tests stay on the Linux `container-tests` job because hosted macOS runners have no Docker. See [Testing and CI](docs/internals/testing-ci.md). (#116)
+
 ## [0.22.0] - 2026-09-26
 
 ### Security

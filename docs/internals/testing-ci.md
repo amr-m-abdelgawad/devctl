@@ -31,7 +31,7 @@ bun run check:dup           # jscpd src scripts
 | TUI hooks | `presentation/tui/hooks/*.test.ts`, `bootstrap/tui-hooks.test.ts` | Stale results, pinned log windows |
 | MCP | `presentation/mcp/*.test.ts` | Tool gate, redaction, docs search |
 | Google | `google.test.ts`; `google.integration.test.ts` | Integration skipped without credentials |
-| Containers | `containers.integration.test.ts` | `DEVCTL_CONTAINER_TESTS=1` |
+| Containers | `containers.integration.test.ts` | `DEVCTL_CONTAINER_TESTS=1` (Linux `container-tests` job; skipped on macOS CI — hosted runners have no Docker) |
 | End-to-end scenarios | `app/e2e/*.e2e.test.ts` | `DEVCTL_E2E=1`; real CLI and daemon (see below) |
 | Architecture checker | `architecture.test.ts` | Forbidden import examples |
 
@@ -125,6 +125,7 @@ Jobs (all must pass except dependency-review skipped on non-PR):
 | compile-smoke | `compile-binaries.sh` + `smoke-test-binary.sh` |
 | npm-package-build / smoke | Pack + install matrix (Linux/macOS/Windows/Alpine) |
 | windows-tests | `bun test` on windows-latest |
+| macos-tests | `bun test` on macos-15 (Docker-gated tests stay skipped) |
 | e2e | `bun run e2e:setup` + `bun run e2e` on ubuntu-latest and macos-15 |
 | audit | `bun audit` |
 | codeql | JS/TS on `app` |

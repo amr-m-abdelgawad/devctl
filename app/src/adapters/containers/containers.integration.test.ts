@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { ProcessManager } from "../process/processes.ts";
 
+// Docker is not installed on GitHub-hosted macOS runners. The Linux
+// `container-tests` job sets DEVCTL_CONTAINER_TESTS=1; macos-tests does not.
 const enabled = process.env.DEVCTL_CONTAINER_TESTS === "1";
 
-describe.skipIf(!enabled)("container integration", () => {
+describe.skipIf(!enabled)("container integration (requires Docker via DEVCTL_CONTAINER_TESTS=1)", () => {
   test("captures logs and stops/removes a managed Docker container", async () => {
     const name = `devctl-test-${process.pid}-${Date.now()}`;
     const lines: string[] = [];
