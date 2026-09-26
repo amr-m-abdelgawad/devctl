@@ -137,32 +137,19 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // Both the shutdown RPC and a signal end here. The watchdog worker (and
   // any handle a subsystem failed to close) would otherwise keep the process
   // alive after the socket is gone, so exit once teardown has finished.
-  // Exception: on Windows services are not spawned detached, so they die
-  // with this process. `down --keep-services` must leave them running, so
-  // the process stays until they exit (the pre-#132 behavior there).
+  // Services are spawned detached on every platform, so this holds for
+  // `down --keep-services` too: they keep running after this process exits.
   // A teardown failure is reported and exits 1, so `down` never looks clean
   // when cleanup did not finish.
-  let signalled = false;
-  let stoppedAlready = false;
-  void sup.stopped.then(({ servicesStopped, failure }) => {
-    stoppedAlready = true;
+  void sup.stopped.then(({ failure }) => {
     watchdog.stop();
     if (failure !== undefined) {
       process.stderr.write(`devctl: shutdown failed: ${failure instanceof Error ? failure.message : String(failure)}\n`);
       process.exit(1);
     }
-    if (process.platform === "win32" && !servicesStopped && !signalled) {
-      return;
-    }
     process.exit(0);
   });
   const onSignal = (): void => {
-    signalled = true;
-    // Teardown already ran (the Windows --keep-services case above): a
-    // signal now just ends the process, as it did before #132.
-    if (stoppedAlready) {
-      process.exit(0);
-    }
     sup.shutdown(stopOnExit(cfg.shutdown)).catch(() => undefined);
   };
   process.on("SIGINT", onSignal);

@@ -76,6 +76,8 @@ After connect, the client calls `ping`. Response:
 | Client crash | Unchanged (detached spawn) | Unchanged |
 | Supervisor crash | Gone | Orphans recovered on next `run()` via `recover.ts` |
 
+Services are spawned detached on every platform (`ProcessManager.start`), which is what lets them outlive the supervisor in the `--keep-services` and crash rows. On POSIX that is `setsid`, so a stop signals the service's whole process group. On Windows it keeps them out of the job object that kills children when the parent exits, `windowsHide` stops console windows opening, and a stop runs `taskkill /T /F` on the tree.
+
 `StartRequest.detach` still exists on the wire for compatibility; `devctl start` always leaves the daemon running. `--detach` is deprecated.
 
 ## Session recovery
