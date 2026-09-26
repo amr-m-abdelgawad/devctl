@@ -60,7 +60,7 @@ RPC auth: `rpc-token` in the session dir, sent as `Envelope.auth` on every reque
 After connect, the client calls `ping`. Response:
 
 ```json
-{ "session": "<id>", "version": "0.9.0", "protocol": 2 }
+{ "session": "<id>", "version": "<product-version>", "protocol": 2 }
 ```
 
 `RPC_PROTOCOL_VERSION` in `version.ts` is independent of the product version. Same protocol + different `VERSION` is compatible (warning only). Missing `protocol` is a **legacy** daemon: only `logs` / `logs_page` / `logs_stats` and `shutdown` (`down`) are allowed until the user runs `devctl down`.

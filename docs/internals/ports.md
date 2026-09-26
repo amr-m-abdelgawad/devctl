@@ -9,7 +9,7 @@ Ports are TypeScript types (and tiny aliases) under `app/src/ports/`. They are t
 | `Clock` | `clock.ts` | `adapters/system/clock.ts` | Deterministic tests; ISO timestamps |
 | `FileSystem` | `filesystem.ts` | `adapters/system/filesystem.ts` | Tiny exists/read/write used by supervisor |
 | `ProcessRuntime` | `process-runtime.ts` | `ProcessManager` | Spawn, stop, `runOnce`, containers |
-| `HealthChecker` / `HealthCheckerFactory` | `health-checker.ts` | `adapters/health/health.ts` + plugins | HTTP/TCP/process/command (+ custom types) |
+| `HealthChecker` / `HealthCheckerFactory` | `health-checker.ts` | `adapters/health/health.ts` + plugins | HTTP/TCP/process/command/gRPC (+ custom types) |
 | `LogStore` | `log-store.ts` | `worker-log-store.ts` / in-process `LogManager` | Ring + persist + page + redact |
 | `SpanStore` | `span-store.ts` | `adapters/storage/spans.ts` | Trace trees |
 | `LlmCallStore` | `llm-call-store.ts` | `adapters/llm/store.ts` | Inspector ring |

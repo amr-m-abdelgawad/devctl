@@ -1,6 +1,7 @@
-# Platform bets (Phase 5)
+# Platform bets
 
-These are separate products. Do not start them until Phases 1–3 of the product-gaps roadmap are in daily use. Each item needs its own scoped design.
+These are separate products, not commitments on the current roadmap. Each item
+needs its own scoped design before implementation.
 
 | Item | Why it is late | Honest constraint |
 |------|----------------|-------------------|

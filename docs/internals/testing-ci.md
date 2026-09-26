@@ -65,7 +65,7 @@ instead of `bun src/bin.ts`.
 | `log-prose` | A line that ends in JSON keeps its prose as the body (#113) |
 | `parallel-checkouts` | Two checkouts of one config run side by side (#117, known failure) |
 | `compose-import` | `config import compose` output validates, with and without published ports (container start pending #120) |
-| `config-validate` | A command array with `;` in an argument validates (#136, known failure) |
+| `config-validate` | A command array with `;` in an argument validates |
 | `docs-examples` | Every complete config example in `docs/*.md` passes `config validate` |
 
 ### Adding a scenario
@@ -84,8 +84,9 @@ instead of `bun src/bin.ts`.
    started is still running.
 5. Use `ports: auto` unless the scenario is about pinned ports, pass
    `SCENARIO_TIMEOUT_MS` as the test timeout, and write inline service code to
-   a file in the sandbox. The validator rejects `;` inside a command array
-   (#136).
+   a file in the sandbox. In argv arrays, shell metacharacters inside an
+   argument are passed literally; bare shell operator items are rejected
+   unless `shell: true` is set.
 6. Add the scenario to the table above.
 
 ### Known failures
@@ -117,7 +118,7 @@ Jobs (all must pass except dependency-review skipped on non-PR):
 | Job | What |
 |-----|------|
 | tests | `check:coverage` |
-| typecheck | `tsc --noEmit` |
+| typecheck | CI runs app `tsc --noEmit`; local `bun run typecheck` also checks `web` |
 | architecture | `check:architecture` |
 | hygiene | knip + jscpd |
 | container-tests | Docker lifecycle |

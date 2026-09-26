@@ -46,18 +46,20 @@ the same key.
 
 ## Overlays and precedence
 
-Local overlays merge after the repo config. Each stage overrides the one before
-it, so the rightmost source wins:
+The selected config is assembled in this order. Each stage overrides fields
+provided by an earlier stage, so the rightmost source wins:
 
 ```mermaid
 flowchart LR
-  defaults["Built-in defaults"] --> repo["Repository .devctl"]
+  defaults["Built-in defaults"] --> repo["Main config + modular files"]
   repo --> homeLocal["~/.devctl/config.local.yaml"]
   homeLocal --> repoLocal[".devctl/config.local.yaml"]
   repoLocal --> session[".devctl/overlays/<name>.yaml"]
-  session --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
-  env --> flags["CLI --config"]
 ```
+
+`--config` selects the main config file (or a `.devctl` directory); it is not
+an override layer. `ENV_SOURCE_ORDER` controls the separate service-process
+environment merge described in [Environment](environment.md).
 
 The repository's own `config.local.yaml` overrides the one in your home
 directory, not the other way round: overlays are applied home-first so the

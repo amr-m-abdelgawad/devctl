@@ -25,7 +25,9 @@ Two ingestion lanes feed one model:
   or log prefix before the object is stripped and retried. An unrecognized
   object is kept as structured data and shown as a `key=value` summary — never
   as raw braces.
-- **OTLP (lossless).** Anything sent to the receiver maps 1:1.
+- **OTLP (structured input).** The receiver decodes OTLP into devctl's log and
+  span model; stored records are subject to that model and the configured
+  redaction policy.
 
 In the TUI, `enter` on a log opens the details overlay: the body, an
 **attributes table**, the severity, and `traceId`/`spanId`. See [Logs](logs.md).

@@ -158,16 +158,12 @@ Selection is **session state** (`~/.devctl/state/<repo>/state.json` `service_env
 
 The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (`started_env`) until you restart it. The TUI chip shows `env deployed · restart` in that case. The service list env column (wide terminals) uses warning color instead of the ` · restart` suffix. `devctl status` prints an `ENV` column with the selected overlay.
 
-## TUI / CLI flag precedence
+## TUI preferences are separate
 
-```mermaid
-flowchart LR
-  cli["CLI flags"] --> env["DEVCTL_* env"]
-  env --> tuiEnv["DEVCTL_TUI_CONFIG"]
-  tuiEnv --> tuiJson["repo / user tui.json"]
-  tuiJson --> yaml["repo .devctl"]
-  yaml --> defaults["defaults"]
-```
+TUI settings such as theme, keybindings, and MCP listener preferences use
+`tui.json` files; they do not participate in service environment resolution.
+`DEVCTL_TUI_CONFIG` selects an exclusive, session-only preferences file. For
+the TUI preference search order, see [Building from source](typescript.md#tui-preferences).
 
 ## File plugins
 

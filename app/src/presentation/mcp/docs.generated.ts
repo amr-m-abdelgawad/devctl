@@ -633,18 +633,20 @@ the same key.
 
 ## Overlays and precedence
 
-Local overlays merge after the repo config. Each stage overrides the one before
-it, so the rightmost source wins:
+The selected config is assembled in this order. Each stage overrides fields
+provided by an earlier stage, so the rightmost source wins:
 
 \`\`\`mermaid
 flowchart LR
-  defaults["Built-in defaults"] --> repo["Repository .devctl"]
+  defaults["Built-in defaults"] --> repo["Main config + modular files"]
   repo --> homeLocal["~/.devctl/config.local.yaml"]
   homeLocal --> repoLocal[".devctl/config.local.yaml"]
   repoLocal --> session[".devctl/overlays/<name>.yaml"]
-  session --> env["DEVCTL_* / ENV_SOURCE_ORDER"]
-  env --> flags["CLI --config"]
 \`\`\`
+
+\`--config\` selects the main config file (or a \`.devctl\` directory); it is not
+an override layer. \`ENV_SOURCE_ORDER\` controls the separate service-process
+environment merge described in [Environment](environment.md).
 
 The repository's own \`config.local.yaml\` overrides the one in your home
 directory, not the other way round: overlays are applied home-first so the
@@ -1020,16 +1022,12 @@ Selection is **session state** (\`~/.devctl/state/<repo>/state.json\` \`service_
 
 The next start, restart, exec, or print-env uses that overlay. A process already running keeps the overlay it started with (\`started_env\`) until you restart it. The TUI chip shows \`env deployed · restart\` in that case. The service list env column (wide terminals) uses warning color instead of the \` · restart\` suffix. \`devctl status\` prints an \`ENV\` column with the selected overlay.
 
-## TUI / CLI flag precedence
+## TUI preferences are separate
 
-\`\`\`mermaid
-flowchart LR
-  cli["CLI flags"] --> env["DEVCTL_* env"]
-  env --> tuiEnv["DEVCTL_TUI_CONFIG"]
-  tuiEnv --> tuiJson["repo / user tui.json"]
-  tuiJson --> yaml["repo .devctl"]
-  yaml --> defaults["defaults"]
-\`\`\`
+TUI settings such as theme, keybindings, and MCP listener preferences use
+\`tui.json\` files; they do not participate in service environment resolution.
+\`DEVCTL_TUI_CONFIG\` selects an exclusive, session-only preferences file. For
+the TUI preference search order, see [Building from source](typescript.md#tui-preferences).
 
 ## File plugins
 
@@ -2558,9 +2556,10 @@ Local-only services (the [demo platform](../examples/demo-platform/README.md)) r
 - [LLM inspector](llm.md)
 - [Telemetry](telemetry.md)
 ` },
-  { path: "docs/platform-bets.md", title: "Platform bets (Phase 5)", body: `# Platform bets (Phase 5)
+  { path: "docs/platform-bets.md", title: "Platform bets", body: `# Platform bets
 
-These are separate products. Do not start them until Phases 1–3 of the product-gaps roadmap are in daily use. Each item needs its own scoped design.
+These are separate products, not commitments on the current roadmap. Each item
+needs its own scoped design before implementation.
 
 | Item | Why it is late | Honest constraint |
 |------|----------------|-------------------|
@@ -3717,7 +3716,9 @@ Two ingestion lanes feed one model:
   or log prefix before the object is stripped and retried. An unrecognized
   object is kept as structured data and shown as a \`key=value\` summary — never
   as raw braces.
-- **OTLP (lossless).** Anything sent to the receiver maps 1:1.
+- **OTLP (structured input).** The receiver decodes OTLP into devctl's log and
+  span model; stored records are subject to that model and the configured
+  redaction policy.
 
 In the TUI, \`enter\` on a log opens the details overlay: the body, an
 **attributes table**, the severity, and \`traceId\`/\`spanId\`. See [Logs](logs.md).
@@ -3872,7 +3873,7 @@ trace, and read the responsible service's span and logs — all redacted.
 | Config on disk is broken but the TUI still opens fine | Expected: it attached to an already-running daemon and is showing its \`config_snapshot\` (last-known-good), not a fresh reparse of the broken file. Fix the file and \`/reload\` |
 | \`devctl update\` says unavailable | GitHub Releases API could not be reached. For npm: \`npm install --global @amr-m-abdelgawad/devctl@latest\`. Homebrew and GitHub binaries: see [installation](installation.md) |
 | MCP agent cannot connect | Listener is off by default. \`/mcp\` or \`devctl mcp --on\`. URL is loopback only; snippets include the bearer token |
-| Web UI shows \`{"error":"forbidden"}\` | The page Host header was not a loopback name. Use the printed \`http://127.0.0.1:<port>/\` (or \`localhost\` / \`[::1]\`), not a machine or Dev Container hostname. 0.8.0 required the Host port to match exactly, so WSL / Dev Container port forwarding and IPv6 \`localhost\` 403'd; upgrade to 0.8.1 |
+| Web UI shows \`{"error":"forbidden"}\` | The page Host header was not a loopback name. Use the printed \`http://127.0.0.1:<port>/\` (or \`localhost\` / \`[::1]\`), not a machine or Dev Container hostname. Releases before 0.8.1 required the Host port to match exactly, so WSL / Dev Container port forwarding and IPv6 \`localhost\` could return 403; current releases include the fix. If the issue persists, upgrade to the latest release. |
 | \`devctl: command not found\` | Run \`npm install --global @amr-m-abdelgawad/devctl\`, then ensure npm's global binary directory is on \`PATH\`. See [Installation](installation.md) |
 | Bundled Bun runtime was not installed | Reinstall the npm package without \`--ignore-scripts\`; Bun uses its install script to select the correct platform runtime |
 
