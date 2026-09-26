@@ -5,7 +5,7 @@
 // test is `bun src/bin.ts` unless DEVCTL_E2E_BIN names a compiled binary.
 
 import { describe } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { processAlive, readRepoLock } from "../src/adapters/storage/storage.ts";
 
@@ -62,21 +62,25 @@ export class Sandbox {
   private readonly root: string;
   private readonly pids = new Set<number>();
 
-  private constructor(root: string) {
+  private constructor(root: string, home?: string) {
     this.root = root;
     this.dir = join(root, "repo");
-    this.home = join(root, "h");
+    this.home = home ?? join(root, "h");
     mkdirSync(join(this.dir, ".devctl"), { recursive: true });
     mkdirSync(this.home, { recursive: true });
   }
 
-  /** A fresh repository with `files` written relative to its root. */
-  static create(name: string, files: Record<string, string> = {}): Sandbox {
+  /**
+   * A fresh repository with `files` written relative to its root. `home`
+   * shares one DEVCTL_HOME between sandboxes (parallel checkouts on one
+   * machine); the caller removes it.
+   */
+  static create(name: string, files: Record<string, string> = {}, opts: { home?: string } = {}): Sandbox {
     // Rooted at /tmp, not $TMPDIR: the daemon socket lives at
     // $DEVCTL_HOME/state/<repo id>/devctl.sock, and macOS's long
     // /var/folders/... TMPDIR would push it past the 104-byte socket limit.
     const root = mkdtempSync(join("/tmp", `dctl-${name.slice(0, 12)}-`));
-    const sandbox = new Sandbox(root);
+    const sandbox = new Sandbox(root, opts.home);
     // Some commands (config import) resolve the repository via git.
     Bun.spawnSync(["git", "init", "-q", sandbox.dir], { stdout: "ignore", stderr: "ignore" });
     for (const [path, content] of Object.entries(files)) {
@@ -137,11 +141,16 @@ export class Sandbox {
   /**
    * Teardown: `devctl down`, then fail if the supervisor or any service it
    * started is still running (they are killed first so nothing leaks past
-   * the test). Removes the sandbox.
+   * the test). Removes the sandbox. Before removing a shared home, call it
+   * for every sandbox that used it.
    */
   async down(): Promise<void> {
     await this.trackPids().catch(() => undefined);
-    await this.cli(["down"], { allowFail: true });
+    // A test may delete the checkout (a removed worktree); its tracked pids
+    // are still checked and killed below.
+    if (existsSync(this.dir)) {
+      await this.cli(["down"], { allowFail: true });
+    }
     const deadline = Date.now() + EXIT_WAIT_MS;
     let alive = [...this.pids].filter((pid) => processAlive(pid));
     while (alive.length > 0 && Date.now() < deadline) {

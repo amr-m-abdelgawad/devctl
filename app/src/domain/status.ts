@@ -181,6 +181,8 @@ export type StatusSnapshot = {
   identity: IdentitySnapshot;
   credentials?: CredentialsSnapshot;
   detached?: boolean;
+  // Parallel stacks (#117): this checkout's port slot and offset.
+  instance?: { slot: number; port_offset: number };
   // True while the daemon is running without any configuration on disk — the
   // bootstrap state `devctl mcp --on` creates so an agent can be pointed at
   // the MCP server and asked to author a .devctl. It is not "a daemon with an

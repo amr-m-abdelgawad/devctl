@@ -792,6 +792,14 @@ export type DevctlConfig = {
   provenance: ConfigProvenance;
   repoRoot: string;
   configPath: string;
+  // Parallel stacks (#117): this checkout's slot and the offset every fixed
+  // port and listener was moved by at load. Not YAML: set by the loader.
+  instance: InstanceConfig;
+};
+
+export type InstanceConfig = {
+  slot: number;
+  portOffset: number;
 };
 
 export const DEFAULT_PROXY_PORT = 8080;
@@ -896,6 +904,7 @@ export function defaultConfig(): DevctlConfig {
     provenance: {},
     repoRoot: "",
     configPath: "",
+    instance: { slot: 0, portOffset: 0 },
   };
 }
 

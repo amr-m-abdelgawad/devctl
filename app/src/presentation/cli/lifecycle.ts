@@ -170,7 +170,11 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
       writeOut(JSON.stringify(snap, null, 2) + "\n");
       return;
     }
-    writeOut(`PROFILE: ${snap.profile || "(none)"}\n\nSERVICE\tSTATUS\tHEALTH\tENV\tPID\n`);
+    writeOut(`PROFILE: ${snap.profile || "(none)"}\n`);
+    if ((snap.instance?.slot ?? 0) > 0) {
+      writeOut(`INSTANCE: slot ${snap.instance?.slot} (ports +${snap.instance?.port_offset})\n`);
+    }
+    writeOut("\nSERVICE\tSTATUS\tHEALTH\tENV\tPID\n");
     for (const [name, rt] of Object.entries(snap.services)) {
       writeOut(`${name}\t${displayState(rt)}\t${rt.health}\t${rt.env || ""}\t${rt.pid}\n`);
     }
@@ -255,7 +259,7 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
     });
 }
 
-async function waitUntilUnreachable(runtime: ClientRuntime, repoRoot: string, timeoutMs: number): Promise<void> {
+export async function waitUntilUnreachable(runtime: ClientRuntime, repoRoot: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const probe = await runtime.tryDial(repoRoot);
@@ -272,7 +276,7 @@ async function waitUntilUnreachable(runtime: ClientRuntime, repoRoot: string, ti
 // the more accurate source when it's reachable; fall back to a generous
 // fixed timeout otherwise — the shutdown itself still completes
 // server-side even if this client stops waiting for the response.
-async function shutdownTimeoutFor(client: { call: (method: string, params: unknown) => Promise<unknown> }): Promise<number> {
+export async function shutdownTimeoutFor(client: { call: (method: string, params: unknown) => Promise<unknown> }): Promise<number> {
   const fallback = 30_000;
   try {
     const cfg = (await client.call("config_snapshot", null)) as { shutdown?: { grace_seconds?: number } };

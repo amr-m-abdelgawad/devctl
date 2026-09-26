@@ -63,7 +63,7 @@ instead of `bun src/bin.ts`.
 | `ports-auto-health` | `http`, `grpc` and `tcp` health on `ports: auto` (#111) |
 | `otel-exporters` | Stock Python and Node OTLP/HTTP protobuf exporters deliver spans and logs (#112) |
 | `log-prose` | A line that ends in JSON keeps its prose as the body (#113) |
-| `parallel-checkouts` | Two checkouts of one config run side by side (#117, known failure) |
+| `parallel-checkouts` | Two checkouts sharing one `DEVCTL_HOME` run side by side on slots 0 and 1 (+100); `instances` lists them, `down` frees a slot, `instances prune` stops a deleted checkout's stack (#117) |
 | `compose-import` | `config import compose` output validates, with and without published ports (container start pending #120) |
 | `config-validate` | A command array with `;` in an argument validates |
 | `docs-examples` | Every complete config example in `docs/*.md` passes `config validate` |

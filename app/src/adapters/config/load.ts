@@ -3,6 +3,8 @@ import { basename, dirname, extname, join, resolve } from "node:path";
 import { parse } from "yaml";
 import { DevctlError, isKind, KindConfiguration, KindConfigurationMissing, newError, wrapError } from "../../shared/errors.ts";
 import { homeDir } from "../storage/storage.ts";
+import { currentSlot } from "../storage/instances.ts";
+import { shiftConfigPorts, slotOffset } from "../../domain/net/port-slots.ts";
 import { decodeProfile, decodeRoute, decodeService, decodeHttpRecipe, isRecord } from "./decode.ts";
 import { ConfigDirName, ConfigFileName, discover, fileExists } from "./discover.ts";
 import { applyProxy, applyProxyCredentials, applyRoot, applyTemplates, mergeService, mergeHttpRecipe, mergeServiceProxyRoutes, newConfigPresence, recordPresence, recordProvenance, type ConfigPresence } from "./merge.ts";
@@ -22,6 +24,10 @@ export type LoadOpts = {
   // Session overlay stem: `.devctl/overlays/<name>.yaml`. Applied after
   // home + repo `config.local.yaml` so the session layer wins.
   overlay?: string;
+  // Parallel stacks (#117): the port slot to load for. Defaults to the slot
+  // this checkout holds in the registry (0 when none), so every reader of the
+  // config (supervisor, reload, offline doctor, TUI) sees the same ports.
+  slot?: number;
 };
 
 export function validateConfigText(repoRoot: string, configPath: string, text: string, overlay?: string): string[] {
@@ -73,8 +79,16 @@ export function loadOrEmpty(startDir: string, explicit: string, opts?: LoadOpts)
     // candidate text at the main-file read step and never stats this path,
     // so buffer validation works against it before anything is written.
     cfg.configPath = join(repoRoot, ConfigDirName, ConfigFileName);
+    applyInstanceSlot(cfg, opts?.slot ?? currentSlot(repoRoot));
     return cfg;
   }
+}
+
+// Before validation, so a port the offset pushes past 65535 is reported.
+function applyInstanceSlot(cfg: DevctlConfig, slot: number): void {
+  const portOffset = slotOffset(slot);
+  shiftConfigPorts(cfg, portOffset);
+  cfg.instance = { slot, portOffset };
 }
 
 export function loadPath(repoRoot: string, configPath: string, opts?: LoadOpts): DevctlConfig {
@@ -98,6 +112,7 @@ export function loadPath(repoRoot: string, configPath: string, opts?: LoadOpts):
   mergeServiceProxyRoutes(cfg, presence.provenance);
   applyProxyCredentials(cfg);
   cfg.provenance = presence.provenance;
+  applyInstanceSlot(cfg, opts?.slot ?? currentSlot(repoRoot));
   const issues = validate(cfg);
   if (issues.some((issue) => !isValidationWarning(issue))) {
     throw newError(KindConfiguration, issues.join("\n"));

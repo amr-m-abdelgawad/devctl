@@ -12,7 +12,7 @@ function readDoc(name: string): string {
 }
 
 const INTERNAL_CLI = new Set(["_supervisor", "__complete", "help"]);
-const SYNTHESIZED_CONFIG = new Set(["provenance", "repoRoot", "configPath"]);
+const SYNTHESIZED_CONFIG = new Set(["provenance", "repoRoot", "configPath", "instance"]);
 
 describe("operator docs catalogs", () => {
   test("docs/cli.md lists every user-facing CLI command", () => {
