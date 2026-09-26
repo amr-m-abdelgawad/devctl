@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import { ConfigDirName } from "../../domain/config/paths.ts";
-import { resolveEnvMap, type DevctlConfig, type EnvConfig, type ServiceConfig, type TerraformEnvConfig } from "../config/index.ts";
+import { resolveEnvMap, type DevctlConfig, type EnvConfig, type HelmEnvConfig, type ServiceConfig, type TerraformEnvConfig } from "../config/index.ts";
 import type { HttpValueMap } from "../config/refs.ts";
 import {
   DevctlError,
@@ -16,6 +16,7 @@ import {
 } from "../../shared/errors.ts";
 import { credentialsDir, homeDir } from "../storage/storage.ts";
 import { loadTerraformEnvironment } from "./terraform.ts";
+import { loadHelmEnvironment } from "./helm.ts";
 
 export type EnvRequest = {
   service: string;
@@ -63,12 +64,12 @@ export type EnvironmentSource = {
   load: (ctx: EnvSourceContext) => Record<string, string> | Promise<Record<string, string>>;
 };
 
-export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "secrets_env", "generated", "keychain", "sops", "secret_manager", "defaults", "terraform", "vars", "profile_service", "runtime"] as const;
+export const ENV_SOURCE_ORDER = ["process", "profile", "dotenv", "secrets_env", "generated", "keychain", "sops", "secret_manager", "defaults", "terraform", "helm", "vars", "profile_service", "runtime"] as const;
 
 export type EnvSourceName = (typeof ENV_SOURCE_ORDER)[number];
 
 const SECRET_MANAGER_PATTERN = /^projects\/[^/]+\/secrets\/[^/]+(?:\/versions\/[^/]+)?$/;
-const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "secrets_env", "defaults", "terraform", "vars", "profile_service", "runtime"];
+const ALWAYS_ON_SOURCES: readonly EnvSourceName[] = ["process", "secrets_env", "defaults", "terraform", "helm", "vars", "profile_service", "runtime"];
 
 function terraformSource(req: EnvRequest): { prefix: string; spec: TerraformEnvConfig | undefined } {
   const overlay = req.profileServiceEnv?.terraform;
@@ -76,6 +77,14 @@ function terraformSource(req: EnvRequest): { prefix: string; spec: TerraformEnvC
     return { prefix: `profiles.${req.profile}.service_environment.${req.service}.terraform`, spec: overlay };
   }
   return { prefix: `services.${req.service}.environment.terraform`, spec: req.serviceCfg.environment.terraform };
+}
+
+function helmSource(req: EnvRequest): { prefix: string; spec: HelmEnvConfig | undefined } {
+  const overlay = req.profileServiceEnv?.helm;
+  if (overlay && (overlay.path !== "" || overlay.invalid)) {
+    return { prefix: `profiles.${req.profile}.service_environment.${req.service}.helm`, spec: overlay };
+  }
+  return { prefix: `services.${req.service}.environment.helm`, spec: req.serviceCfg.environment.helm };
 }
 
 function dotenvSource(): EnvironmentSource {
@@ -143,6 +152,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
   const interpolationEnv = envWithSecrets(req.clientEnv ?? osEnviron(), repoRoot);
   const profileLayer = resolveMaybe(req.profileEnv, req.cfg, assignedAll, userEmail, req.http, interpolationEnv);
   const terraform = terraformSource(req);
+  const helm = helmSource(req);
   const layers: Record<string, Record<string, string>> = {
     process: processLayer,
     profile: profileLayer,
@@ -156,6 +166,7 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     // Terraform literals are already concrete. Do not expand ${} in them:
     // $${ in HCL is a literal ${...}, not a devctl reference.
     terraform: loadTerraformEnvironment(repoRoot, terraform.prefix, terraform.spec),
+    helm: loadHelmEnvironment(repoRoot, helm.prefix, helm.spec),
     vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     profile_service: resolveMaybe(flattenEnvConfig(req.profileServiceEnv), req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     runtime: req.runtime,

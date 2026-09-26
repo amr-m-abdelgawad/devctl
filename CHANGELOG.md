@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `environment.terraform` reads `terraform.tfvars`, `*.auto.tfvars`, and a path that points at a `.tfvars` file. A bare `var.name` in an env value is filled from that assignment or the variable's default. Other `.tfvars` files are still ignored. See [Environment](docs/environment.md#terraform).
+- `environment.helm` reads literal env values from a Helm chart or Kubernetes YAML (`values.yaml`, chart templates, and container `env` lists). Go templates and `valueFrom` are skipped. An explicit YAML key still overrides. See [Environment](docs/environment.md#helm).
+
 ## [0.23.0] - 2026-09-26
 
 ### Added

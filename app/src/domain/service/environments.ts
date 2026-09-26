@@ -11,6 +11,10 @@ export function overlayEnv(base: EnvConfig, overlay: EnvConfig): EnvConfig {
     ? overlay.terraform
     : base.terraform;
   if (terraform) merged.terraform = terraform;
+  const helm = overlay.helm && (overlay.helm.path !== "" || overlay.helm.invalid)
+    ? overlay.helm
+    : base.helm;
+  if (helm) merged.helm = helm;
   return merged;
 }
 
@@ -83,6 +87,7 @@ function cloneEnv(env: EnvConfig): EnvConfig {
     required: [...env.required],
   };
   if (env.terraform) cloned.terraform = { ...env.terraform };
+  if (env.helm) cloned.helm = { ...env.helm };
   return cloned;
 }
 

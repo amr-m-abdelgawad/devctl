@@ -14,6 +14,7 @@ import {
   watchDebounceMs,
   type Command,
   type EnvConfig,
+  type HelmEnvConfig,
   type TerraformEnvConfig,
   type ExposeConfig,
   type Dependency,
@@ -158,6 +159,7 @@ export function decodeEnv(value: unknown): EnvConfig {
   let required: string[] = [];
   let defaults: Record<string, string> = {};
   let terraform: TerraformEnvConfig | undefined;
+  let helm: HelmEnvConfig | undefined;
   for (const [key, item] of Object.entries(value)) {
     if (key === "required") {
       required = asStringArray(item);
@@ -165,12 +167,15 @@ export function decodeEnv(value: unknown): EnvConfig {
       defaults = asStringMap(item);
     } else if (key === "terraform") {
       terraform = decodeTerraformEnv(item);
+    } else if (key === "helm") {
+      helm = decodeHelmEnv(item);
     } else {
       vars[key] = asString(item);
     }
   }
   const env: EnvConfig = { vars, required, defaults };
   if (terraform) env.terraform = terraform;
+  if (helm) env.helm = helm;
   return env;
 }
 
@@ -187,6 +192,21 @@ function decodeTerraformEnv(value: unknown): TerraformEnvConfig | undefined {
     path: asString(value.path).trim(),
     resource: asString(value.resource).trim(),
     attribute: asString(value.attribute).trim(),
+  };
+}
+
+function decodeHelmEnv(value: unknown): HelmEnvConfig | undefined {
+  if (typeof value === "string") {
+    const path = value.trim();
+    if (path === "") return undefined;
+    return { path, resource: "" };
+  }
+  if (!isRecord(value)) {
+    return { path: "", resource: "", invalid: true };
+  }
+  return {
+    path: asString(value.path).trim(),
+    resource: asString(value.resource).trim(),
   };
 }
 

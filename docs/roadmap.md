@@ -62,6 +62,7 @@ A feature is **experimental** until a user outside the original stack relies on 
 | gRPC body decoding (`inspect.grpc`, `trafficDecoders`) | 0.16.0 | [Proxy](proxy.md#inspect-bodies) |
 | `environment.sops` | 0.19.0 | [Environment](environment.md#sops) |
 | `environment.terraform` | 0.22.0 | [Environment](environment.md#terraform) |
+| `environment.helm` | unreleased | [Environment](environment.md#helm) |
 | Parallel stacks: port slots, `--instance`, per-stack volumes, `devctl mcp --write` | 0.22.0 | [Parallel stacks](parallel-stacks.md) |
 | `devctl test`, `devctl bundle`, `start --wait` | 0.22.0 | [Tests and CI](ci.md) |
 

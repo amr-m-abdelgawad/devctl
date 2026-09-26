@@ -8,6 +8,7 @@ import {
   knownSops,
   knownEnvStructured,
   knownTerraformEnv,
+  knownHelmEnv,
   knownExpose,
   knownGoogle,
   knownHealth,
@@ -85,8 +86,14 @@ function isTerraformEnvPath(path: string): boolean {
   return /\.service_environment\.[^.]+\.terraform$/.test(path);
 }
 
+function isHelmEnvPath(path: string): boolean {
+  if (path.endsWith(".environment.helm")) return true;
+  if (/\.environments\.[^.]+\.helm$/.test(path)) return true;
+  return /\.service_environment\.[^.]+\.helm$/.test(path);
+}
+
 function allowArbitraryKeys(path: string): boolean {
-  if (isTerraformEnvPath(path)) return false;
+  if (isTerraformEnvPath(path) || isHelmEnvPath(path)) return false;
   if (path === "services" || path === "profiles" || path === "templates" || path === "tasks" || path === "http") {
     return true;
   }
@@ -172,12 +179,14 @@ function nestedKnown(path: string): string[] {
       return knownProfile;
     }
     if (parts[2] === "service_environment" && parts[4] === "terraform") return knownTerraformEnv;
+    if (parts[2] === "service_environment" && parts[4] === "helm") return knownHelmEnv;
   }
   if (path.startsWith("tasks.")) {
     const parts = path.split(".");
     if (parts.length === 2) return knownTask;
     if (parts[2] === "environment") {
       if (parts[3] === "terraform") return knownTerraformEnv;
+      if (parts[3] === "helm") return knownHelmEnv;
       return knownEnvStructured;
     }
   }
@@ -253,12 +262,14 @@ export function servicePathKnown(path: string): string[] {
         return knownServiceLogs;
       case "environment":
         if (parts[3] === "terraform") return knownTerraformEnv;
+        if (parts[3] === "helm") return knownHelmEnv;
         return knownEnvStructured;
       case "environments":
         if (parts.length === 3) {
           return [];
         }
         if (parts[4] === "terraform") return knownTerraformEnv;
+        if (parts[4] === "helm") return knownHelmEnv;
         return knownEnvStructured;
       case "proxy":
         return serviceProxyPathKnown(parts);

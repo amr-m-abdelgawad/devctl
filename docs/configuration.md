@@ -99,7 +99,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | `secrets` | `redact` (default true), plus extra redaction markers and regexes. `secrets.redact: false` stops masking newly captured logs, traffic, and LLM payloads |
 | `doctor.tools` | Extra CLI binaries to probe |
 | `plugins` | `{ path }` modules loaded when the supervisor starts |
-| `environment.sources` / `secrets` / `sops` | Env source order, named secrets, and an optional SOPS file. A service can also set `environment.terraform` to read literal env vars from its Terraform — see [Environment](environment.md#terraform) |
+| `environment.sources` / `secrets` / `sops` | Env source order, named secrets, and an optional SOPS file. A service can also set `environment.terraform` or `environment.helm` to read literal env vars from its Terraform or Helm YAML — see [Environment](environment.md#terraform) |
 
 ## Templates
 

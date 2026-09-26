@@ -36,8 +36,9 @@ complete allowlists.
 | `service.startup` | `wait_for_healthy` `timeout_seconds` |
 | `service.logs` | `stdout` `stderr` `multiline` `dedupe_access_line` |
 | `service.logs.multiline` | `start` `continuation` `max_wait_ms` `max_lines` |
-| `service.environment` | `required` `defaults` `terraform` + arbitrary `KEY: value` pairs |
+| `service.environment` | `required` `defaults` `terraform` `helm` + arbitrary `KEY: value` pairs |
 | `service.environment.terraform` | `path` `resource` `attribute`, or a string path |
+| `service.environment.helm` | `path` `resource`, or a string path |
 | `service.environments.<name>` | same shape as `service.environment` |
 | `service.expose` | `enabled` `host` `port` (or the `true` shorthand) |
 | `proxy` | `enabled` `inspect_max_bytes` `gateway` `credentials` `listen` `token_endpoint` `routes` |
@@ -452,15 +453,16 @@ Named overlay files may be committed; do not gitignore all of `overlays/`.
 Merge order — later sources win:
 
 ```
-process → profile → dotenv → secrets_env → generated → keychain → sops → secret_manager → defaults → terraform → vars → profile_service → runtime
+process → profile → dotenv → secrets_env → generated → keychain → sops → secret_manager → defaults → terraform → helm → vars → profile_service → runtime
 ```
 
-`process`, `secrets_env`, `defaults`, `terraform`, `vars`, `profile_service` and `runtime` always run. Listing
+`process`, `secrets_env`, `defaults`, `terraform`, `helm`, `vars`, `profile_service` and `runtime` always run. Listing
 `environment.sources` **adds** optional sources (`profile`, `dotenv`,
 `generated`, `keychain`, `sops`, `secret_manager`) to that always-on set — it does not
-replace it, and it does not reorder anything. `terraform` is not an
-`environment.sources` entry. It reads `services.<name>.environment.terraform`
-when that field is set.
+replace it, and it does not reorder anything. `terraform` and `helm` are not
+`environment.sources` entries. `terraform` reads `services.<name>.environment.terraform`
+when that field is set. `helm` reads `services.<name>.environment.helm` when that
+field is set.
 
 - `dotenv` reads repo root then `working_dir`: `.env`, `.env.development`,
   `.env.local`, `.env.<profile>`.
@@ -485,16 +487,29 @@ when that field is set.
   empty after the whole merge — the right place to encode "this cannot run
   without X".
 - `environment.terraform` on a service (or a named overlay) reads literal env
-  values from a `.tf` file or a directory of `*.tf`. `path` is required and
+  values from a `.tf` file, a `.tfvars` file, or a directory of `*.tf`. `path` is required and
   must stay inside the repo. Optional `resource` is `type.name`, `module.name`,
   or `data.type.name`. Optional `attribute` adds one map name. A string is
   shorthand for `path`. Interpolations and `value_source` secrets are skipped.
-  `.tfvars` is not read. The path must contain at least one literal or
+  `terraform.tfvars` and `*.auto.tfvars` in that directory are read, and a path
+  that is itself a `.tfvars` file is read too. A bare `var.name` is filled from
+  a variable default or those files. Other `*.tfvars` files and `.tfvars.json`
+  are not read. The path must contain at least one literal or
   validate fails. Terraform wins over `defaults` and dotenv; explicit YAML
   keys, named overlays, and `service_environment` still win. A `terraform`
   path on `profiles.<name>.service_environment.<svc>` replaces the service
   path for that profile. Do not copy the literals into YAML. See
   `docs/environment.md`.
+- `environment.helm` on a service (or a named overlay) reads literal env
+  values from a Helm chart or Kubernetes `.yaml`/`.yml`. `path` is required
+  and must stay inside the repo. A chart directory reads `values.yaml`,
+  `values/*`, then `templates/**`. Optional `resource` is `Kind` or
+  `Kind/name` (`Deployment/api`). A string is shorthand for `path`. Go
+  template actions and `valueFrom` are skipped. `charts/` is not read. The
+  path must contain at least one literal or validate fails. Helm wins over
+  Terraform; explicit YAML keys, named overlays, and `service_environment`
+  still win. A `helm` path on `profiles.<name>.service_environment.<svc>`
+  replaces the service path for that profile. See `docs/environment.md`.
 
 Runtime values devctl injects: `SERVICE_PORT`, `SERVICE_HOST`,
 `DEVCTL_PROXY_URL`, `DEVCTL_SERVICE_NAME`, `DEVCTL_ENVIRONMENT`,
@@ -557,6 +572,9 @@ Every message names its path. Fix the path it names.
 | `services.X.environment.terraform.path must stay inside the repository` | path escapes the repo, including via a symlink |
 | `services.X.environment.terraform.resource "…" was not found` | `resource` does not match a block in that path |
 | `services.X.environment.terraform: no literal env values` | file has only interpolations or secret refs |
+| `services.X.environment.helm.path must stay inside the repository` | path escapes the repo, including via a symlink |
+| `services.X.environment.helm.resource "…" was not found` | `resource` does not match a workload in that path |
+| `services.X.environment.helm: no literal env values` | file has only Helm templates or `valueFrom` refs |
 | `services.X.capabilities: unknown capability "c"` | only the six listed above are accepted |
 | `profiles.P references unknown service "S"` | profile lists a service that is not defined |
 | `profiles.P.environments.S references unknown service "S"` | overlay bind names a service that is not defined |

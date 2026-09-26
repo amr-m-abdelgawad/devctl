@@ -29,11 +29,19 @@ export type TerraformEnvConfig = {
   invalid?: boolean;
 };
 
+/** Literal env read from a Helm chart or Kubernetes YAML. `invalid` is a decode sentinel. */
+export type HelmEnvConfig = {
+  path: string;
+  resource: string;
+  invalid?: boolean;
+};
+
 export type EnvConfig = {
   vars: Record<string, string>;
   required: string[];
   defaults: Record<string, string>;
   terraform?: TerraformEnvConfig;
+  helm?: HelmEnvConfig;
 };
 
 export type HealthCheckConfig = {

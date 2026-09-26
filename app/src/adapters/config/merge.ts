@@ -935,12 +935,14 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     timeout_seconds: present.has("startup.timeout_seconds") ? svc.startup.timeout_seconds : base.startup.timeout_seconds,
   };
   const terraform = present.has("environment.terraform") ? svc.environment.terraform : base.environment.terraform;
+  const helm = present.has("environment.helm") ? svc.environment.helm : base.environment.helm;
   out.environment = {
     vars: { ...base.environment.vars, ...svc.environment.vars },
     defaults: { ...base.environment.defaults, ...svc.environment.defaults },
     required: present.has("environment.required") ? svc.environment.required : base.environment.required,
   };
   if (terraform) out.environment.terraform = terraform;
+  if (helm) out.environment.helm = helm;
   out.environments = mergeDecodedEnvironments(base.environments, svc.environments);
   if (present.has("default_environment")) {
     out.default_environment = svc.default_environment;

@@ -3,6 +3,7 @@ import { isLinkLocalOrMetadataHost, isLoopbackBindHost } from "../../domain/net/
 import { resolvePluginPath } from "../../shared/plugin-paths.ts";
 import { sopsConfigIssues } from "../environment/sops.ts";
 import { terraformConfigIssues } from "../environment/terraform.ts";
+import { helmConfigIssues } from "../environment/helm.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
 import { HEALTH_TEMPLATE_FIELDS, findRefs, healthRefResolvable, refResolvable } from "./refs.ts";
@@ -127,6 +128,7 @@ export function validate(cfg: DevctlConfig): string[] {
   }
   issues.push(...sopsConfigIssues(cfg));
   issues.push(...terraformConfigIssues(cfg));
+  issues.push(...helmConfigIssues(cfg));
   return issues;
 }
 

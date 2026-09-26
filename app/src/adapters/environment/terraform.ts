@@ -1,10 +1,12 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { DevctlConfig, TerraformEnvConfig } from "../../domain/config/types.ts";
 import { KindConfiguration, newError } from "../../shared/errors.ts";
 
 // Literal environment values from a service's Terraform. Interpolations,
-// secret value_source blocks, .tfvars, and state are left unread.
+// secret value_source blocks, and state are left unread. terraform.tfvars,
+// *.auto.tfvars, and a path that is itself a .tfvars file supply variable
+// values. Other *.tfvars files are not read.
 
 const TERRAFORM_ENV_ATTRIBUTES = ["environment_variables", "env_vars", "env"];
 const UNICODE_ESCAPE_DIGITS = 4;
@@ -24,6 +26,7 @@ type HclValue =
   | { kind: "literal"; value: string }
   | { kind: "object"; entries: { key: string; value: HclValue }[] }
   | { kind: "list"; items: HclValue[] }
+  | { kind: "var"; name: string }
   | { kind: "skip" };
 
 type HclItem =
@@ -37,7 +40,9 @@ type Cursor = { file: string; tokens: Token[]; i: number };
 
 type ExtractState = { foundResource: boolean; values: Record<string, string> };
 type TerraformRead = { issues: string[]; values: Record<string, string> };
-type LocatedTf = { files: { name: string; abs: string }[] } | { error: string };
+type LocatedFile = { name: string; abs: string };
+type LocatedTf = { config: LocatedFile[]; tfvars: LocatedFile[] } | { error: string };
+type VarMap = ReadonlyMap<string, HclValue>;
 
 export function terraformConfigIssues(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
@@ -71,11 +76,14 @@ export function extractTerraformEnv(
   files: { name: string; text: string }[],
   resource: string,
   attribute: string,
+  tfvars: { name: string; text: string }[] = [],
 ): { values: Record<string, string>; foundResource: boolean } {
   const state: ExtractState = { foundResource: false, values: {} };
   const names = attributeNames(attribute);
+  const vars = variableBindings(files, tfvars);
+  if (resource === "") applyModuleVars(vars, names, state.values);
   for (const file of files) {
-    collect(parseHcl(file.name, file.text).items, resource === "", names, resource, state);
+    collect(parseHcl(file.name, file.text).items, resource === "", names, resource, state, vars);
   }
   return { values: state.values, foundResource: state.foundResource };
 }
@@ -88,9 +96,10 @@ function inspectTerraform(prefix: string, repoRoot: string, spec: TerraformEnvCo
   if ("error" in located) return { issues: [`${prefix}.path ${located.error}`], values: {} };
   try {
     const extracted = extractTerraformEnv(
-      located.files.map((file) => ({ name: file.name, text: readFileSync(file.abs, "utf8") })),
+      located.config.map((file) => ({ name: file.name, text: readFileSync(file.abs, "utf8") })),
       spec.resource,
       spec.attribute,
+      located.tfvars.map((file) => ({ name: file.name, text: readFileSync(file.abs, "utf8") })),
     );
     return extractionIssues(prefix, spec, extracted);
   } catch (err) {
@@ -142,23 +151,81 @@ function locateTerraform(repoRoot: string, path: string): LocatedTf {
   if (!pathStaysInRepo(realRoot, real)) return { error: "must stay inside the repository" };
   const stat = statSync(real);
   if (stat.isDirectory()) return locateTerraformDir(real, realRoot, trimmed);
-  if (stat.isFile() && real.endsWith(".tf")) return { files: [{ name: trimmed, abs: real }] };
-  return { error: "must be a .tf file or a directory" };
+  if (stat.isFile() && real.endsWith(".tf")) {
+    return withAutoTfvars([{ name: trimmed, abs: real }], dirname(real), realRoot);
+  }
+  if (stat.isFile() && real.endsWith(".tfvars")) return locateTfvarsFile(real, realRoot, trimmed);
+  return { error: "must be a .tf file, a .tfvars file, or a directory" };
 }
 
 function locateTerraformDir(dir: string, root: string, display: string): LocatedTf {
+  const config = filesIn(dir, root, (name) => name.endsWith(".tf"));
+  if ("error" in config) return config;
+  const located = withAutoTfvars(config, dir, root);
+  if ("error" in located) return located;
+  if (located.config.length === 0 && located.tfvars.length === 0) return { error: `has no .tf files: ${display}` };
+  return located;
+}
+
+function locateTfvarsFile(file: string, root: string, display: string): LocatedTf {
+  const config = filesIn(dirname(file), root, (name) => name.endsWith(".tf"));
+  if ("error" in config) return config;
+  return withAutoTfvars(config, dirname(file), root, { name: display, abs: file });
+}
+
+function withAutoTfvars(config: LocatedFile[], dir: string, root: string, extra?: LocatedFile): LocatedTf {
+  const auto = autoTfvarsIn(dir, root);
+  if ("error" in auto) return auto;
+  const tfvars = extra ? dedupeFiles([...auto, extra]) : auto;
+  return { config, tfvars };
+}
+
+function autoTfvarsIn(dir: string, root: string): LocatedFile[] | { error: string } {
+  const listed = filesIn(dir, root, isAutoTfvars);
+  if ("error" in listed) return listed;
+  const terraformTfvars = listed.filter((file) => fileBase(file.name) === "terraform.tfvars");
+  const auto = listed
+    .filter((file) => fileBase(file.name).endsWith(".auto.tfvars"))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return [...terraformTfvars, ...auto];
+}
+
+function fileBase(name: string): string {
+  const slash = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  return slash < 0 ? name : name.slice(slash + 1);
+}
+
+function isAutoTfvars(name: string): boolean {
+  return name === "terraform.tfvars" || name.endsWith(".auto.tfvars");
+}
+
+function filesIn(dir: string, root: string, include: (name: string) => boolean): LocatedFile[] | { error: string } {
   const names = readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".tf") && !entry.name.startsWith("."))
+    .filter((entry) => entry.isFile() && !entry.name.startsWith(".") && include(entry.name))
     .map((entry) => entry.name)
     .sort((a, b) => a.localeCompare(b));
-  if (names.length === 0) return { error: `has no .tf files: ${display}` };
-  const files: { name: string; abs: string }[] = [];
+  const files: LocatedFile[] = [];
   for (const name of names) {
     const abs = realpathSync(join(dir, name));
     if (!pathStaysInRepo(root, abs)) return { error: "must stay inside the repository" };
     files.push({ name: relative(root, abs), abs });
   }
-  return { files };
+  return files;
+}
+
+function dedupeFiles(files: LocatedFile[]): LocatedFile[] {
+  const index = new Map<string, number>();
+  const out: LocatedFile[] = [];
+  for (const file of files) {
+    const prev = index.get(file.abs);
+    if (prev === undefined) {
+      index.set(file.abs, out.length);
+      out.push(file);
+    } else {
+      out[prev] = file;
+    }
+  }
+  return out;
 }
 
 function pathStaysInRepo(root: string, target: string): boolean {
@@ -166,6 +233,40 @@ function pathStaysInRepo(root: string, target: string): boolean {
   if (rel === "") return true;
   if (isAbsolute(rel)) return false;
   return rel !== ".." && !rel.startsWith(`..${sep}`);
+}
+
+function variableBindings(
+  files: { name: string; text: string }[],
+  tfvars: { name: string; text: string }[],
+): Map<string, HclValue> {
+  const vars = new Map<string, HclValue>();
+  for (const file of files) {
+    for (const item of parseHcl(file.name, file.text).items) {
+      const name = item.kind === "block" && item.block.type === "variable" ? item.block.labels[0] : undefined;
+      const fallback = name !== undefined && item.kind === "block" ? lastAttribute(item.block, "default") : undefined;
+      if (name !== undefined && fallback) vars.set(name, fallback);
+    }
+  }
+  for (const file of tfvars) {
+    for (const item of parseHcl(file.name, file.text).items) {
+      if (item.kind === "attr") vars.set(item.key, item.value);
+    }
+  }
+  return vars;
+}
+
+function applyModuleVars(vars: VarMap, names: ReadonlySet<string>, out: Record<string, string>): void {
+  for (const name of names) {
+    const value = vars.get(name);
+    if (value) takeValue(value, out, vars);
+  }
+}
+
+function resolveBinding(value: HclValue, vars: VarMap): HclValue | undefined {
+  if (value.kind !== "var") return value;
+  const bound = vars.get(value.name);
+  if (!bound || bound.kind === "var" || bound.kind === "skip") return undefined;
+  return bound;
 }
 
 function attributeNames(extra: string): Set<string> {
@@ -179,24 +280,24 @@ function parseHcl(file: string, text: string): HclBlock {
   return { type: "", labels: [], items: parseItems({ file, tokens: tokenize(file, src), i: 0 }, "eof") };
 }
 
-function collect(items: HclItem[], active: boolean, names: ReadonlySet<string>, resource: string, state: ExtractState): void {
+function collect(items: HclItem[], active: boolean, names: ReadonlySet<string>, resource: string, state: ExtractState, vars: VarMap): void {
   for (const item of items) {
     if (item.kind === "attr") {
-      if (active && names.has(item.key)) takeValue(item.value, state.values);
+      if (active && names.has(item.key)) takeValue(item.value, state.values, vars);
     } else {
-      takeBlock(item.block, active, names, resource, state);
+      takeBlock(item.block, active, names, resource, state, vars);
     }
   }
 }
 
-function takeBlock(block: HclBlock, active: boolean, names: ReadonlySet<string>, resource: string, state: ExtractState): void {
+function takeBlock(block: HclBlock, active: boolean, names: ReadonlySet<string>, resource: string, state: ExtractState, vars: VarMap): void {
   const address = blockAddress(block);
   const matched = resource !== "" && address === resource;
   if (matched) state.foundResource = true;
   const childActive = resource === "" || active || matched;
-  if (childActive && block.type === "env" && block.labels.length === 0) takeEnvBlock(block, state.values);
-  if (childActive && block.type === "variable") takeVariableDefault(block, names, state.values);
-  collect(block.items, childActive, names, resource, state);
+  if (childActive && block.type === "env" && block.labels.length === 0) takeEnvBlock(block, state.values, vars);
+  if (childActive && block.type === "variable") takeVariableDefault(block, names, state.values, vars);
+  collect(block.items, childActive, names, resource, state, vars);
 }
 
 function blockAddress(block: HclBlock): string {
@@ -208,46 +309,51 @@ function blockAddress(block: HclBlock): string {
   return "";
 }
 
-function takeEnvBlock(block: HclBlock, out: Record<string, string>): void {
+function takeEnvBlock(block: HclBlock, out: Record<string, string>, vars: VarMap): void {
   if (blockContains(block, "value_source")) return;
-  const name = lastLiteral(block, "name");
-  const value = lastLiteral(block, "value");
+  const name = lastLiteral(block, "name", vars);
+  const value = lastLiteral(block, "value", vars);
   if (name === undefined || value === undefined || name === "") return;
   out[name] = value;
 }
 
-function takeVariableDefault(block: HclBlock, names: ReadonlySet<string>, out: Record<string, string>): void {
+function takeVariableDefault(block: HclBlock, names: ReadonlySet<string>, out: Record<string, string>, vars: VarMap): void {
   const label = block.labels[0];
   if (label === undefined || !names.has(label)) return;
-  const fallback = lastAttribute(block, "default");
-  if (fallback) takeValue(fallback, out);
+  const bound = vars.get(label) ?? lastAttribute(block, "default");
+  if (bound) takeValue(bound, out, vars);
 }
 
-function takeValue(value: HclValue, out: Record<string, string>): void {
-  if (value.kind === "object") {
-    for (const entry of value.entries) {
-      if (entry.value.kind === "literal" && entry.key !== "") out[entry.key] = entry.value.value;
+function takeValue(value: HclValue, out: Record<string, string>, vars: VarMap): void {
+  const resolved = resolveBinding(value, vars);
+  if (!resolved || resolved.kind === "skip" || resolved.kind === "var") return;
+  if (resolved.kind === "object") {
+    for (const entry of resolved.entries) {
+      const item = resolveBinding(entry.value, vars);
+      if (item?.kind === "literal" && entry.key !== "") out[entry.key] = item.value;
     }
     return;
   }
-  if (value.kind === "list") {
-    for (const item of value.items) takeNameValueItem(item, out);
+  if (resolved.kind === "list") {
+    for (const item of resolved.items) takeNameValueItem(item, out, vars);
   }
 }
 
-function takeNameValueItem(value: HclValue, out: Record<string, string>): void {
-  if (value.kind !== "object") return;
+function takeNameValueItem(value: HclValue, out: Record<string, string>, vars: VarMap): void {
+  const resolved = resolveBinding(value, vars);
+  if (!resolved || resolved.kind !== "object") return;
   let name = "";
   let literal = "";
   let sawName = false;
   let sawValue = false;
   let secret = false;
-  for (const entry of value.entries) {
-    if (entry.key === "name" && entry.value.kind === "literal") {
-      name = entry.value.value;
+  for (const entry of resolved.entries) {
+    const item = resolveBinding(entry.value, vars);
+    if (entry.key === "name" && item?.kind === "literal") {
+      name = item.value;
       sawName = true;
-    } else if (entry.key === "value" && entry.value.kind === "literal") {
-      literal = entry.value.value;
+    } else if (entry.key === "value" && item?.kind === "literal") {
+      literal = item.value;
       sawValue = true;
     } else if (entry.key === "value_source") {
       secret = true;
@@ -263,10 +369,12 @@ function blockContains(block: HclBlock, type: string): boolean {
   return false;
 }
 
-function lastLiteral(block: HclBlock, key: string): string | undefined {
+function lastLiteral(block: HclBlock, key: string, vars: VarMap): string | undefined {
   const value = lastAttribute(block, key);
-  if (!value || value.kind !== "literal") return undefined;
-  return value.value;
+  if (!value) return undefined;
+  const resolved = resolveBinding(value, vars);
+  if (!resolved || resolved.kind !== "literal") return undefined;
+  return resolved.value;
 }
 
 function lastAttribute(block: HclBlock, key: string): HclValue | undefined {
@@ -543,7 +651,18 @@ function parsePrimary(c: Cursor): HclValue {
   if (tok.t === "punct" && tok.v === "(") return parseGroup(c);
   if (tok.t === "punct" && tok.v === "-" && c.tokens[c.i]?.t === "num") return negativeNumber(c);
   if (tok.t === "id" && (tok.v === "true" || tok.v === "false")) return { kind: "literal", value: tok.v };
+  if (tok.t === "id" && tok.v === "var") return parseVarRef(c);
   return { kind: "skip" };
+}
+
+function parseVarRef(c: Cursor): HclValue {
+  const dot = c.tokens[c.i];
+  const ident = c.tokens[c.i + 1];
+  if (dot?.t !== "punct" || dot.v !== "." || ident?.t !== "id") return { kind: "skip" };
+  c.i += 2;
+  const more = c.tokens[c.i];
+  if (more?.t === "punct" && (more.v === "." || more.v === "[")) return { kind: "skip" };
+  return { kind: "var", name: ident.v };
 }
 
 function negativeNumber(c: Cursor): HclValue {

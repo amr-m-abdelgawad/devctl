@@ -194,6 +194,61 @@ describe("terraform env config", () => {
     expect(values).toEqual({ FROM_A: "b" });
   });
 
+  test("reads terraform.tfvars and auto.tfvars, and an explicit .tfvars path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "devctl-tfvars-"));
+    const deploy = join(dir, "deploy");
+    mkdirSync(deploy);
+    writeFileSync(join(deploy, "main.tf"), `
+      variable "project_id" { default = "from-default" }
+      variable "environment_variables" { default = { FROM_DEFAULT = "default" DROPPED = "no" } }
+      resource "google_cloud_run_v2_service" "api" {
+        template {
+          containers {
+            env { name = "PROJECT_ID" value = var.project_id }
+            env { name = "FROM_BLOCK" value = "block" }
+          }
+        }
+      }
+    `);
+    writeFileSync(join(deploy, "other.tf"), `
+      resource "google_cloud_run_v2_service" "other" {
+        template { containers { env { name = "OTHER" value = "no" } } }
+      }
+    `);
+    writeFileSync(join(deploy, "terraform.tfvars"), `
+      project_id = "from-tfvars"
+      environment_variables = { FROM_TFVARS = "tfvars" }
+    `);
+    writeFileSync(join(deploy, "local.auto.tfvars"), `project_id = "from-auto"\n`);
+    writeFileSync(join(deploy, "secrets.tfvars"), `project_id = "secret"\n`);
+    const selected = loadTerraformEnvironment(dir, "services.api.environment.terraform", {
+      path: "deploy",
+      resource: "google_cloud_run_v2_service.api",
+      attribute: "",
+    });
+    expect(selected).toEqual({ PROJECT_ID: "from-auto", FROM_BLOCK: "block" });
+
+    const whole = loadTerraformEnvironment(dir, "services.api.environment.terraform", {
+      path: "deploy/main.tf",
+      resource: "",
+      attribute: "",
+    });
+    expect(whole.PROJECT_ID).toBe("from-auto");
+    expect(whole.FROM_BLOCK).toBe("block");
+    expect(whole.FROM_TFVARS).toBe("tfvars");
+    expect(whole.DROPPED).toBeUndefined();
+    expect(whole.OTHER).toBeUndefined();
+
+    writeFileSync(join(deploy, "dev.tfvars"), `project_id = "from-dev"\n`);
+    const explicit = loadTerraformEnvironment(dir, "services.api.environment.terraform", {
+      path: "deploy/dev.tfvars",
+      resource: "google_cloud_run_v2_service.api",
+      attribute: "",
+    });
+    expect(explicit.PROJECT_ID).toBe("from-dev");
+    expect(explicit.FROM_BLOCK).toBe("block");
+  });
+
   test("rejects a directory symlink that leaves the repository", () => {
     const dir = mkdtempSync(join(tmpdir(), "devctl-tf-link-"));
     const outside = mkdtempSync(join(tmpdir(), "devctl-tf-outside-"));
