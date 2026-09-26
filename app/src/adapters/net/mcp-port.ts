@@ -1,11 +1,12 @@
 import { KindConfiguration, newError } from "../../shared/errors.ts";
 import { available } from "./ports.ts";
 import { derivedMcpPort } from "../../domain/net/mcp-port.ts";
+import { currentInstance } from "../storage/storage.ts";
 const WALK_LIMIT = 600;
 const MAX_TCP_PORT = 65535;
 
 export async function resolveMcpPort(repoRoot: string, override?: number): Promise<number> {
-  const preferred = Number.isInteger(override) && (override ?? 0) > 0 ? (override as number) : derivedMcpPort(repoRoot);
+  const preferred = Number.isInteger(override) && (override ?? 0) > 0 ? (override as number) : derivedMcpPort(repoRoot, currentInstance());
   for (let step = 0; step < WALK_LIMIT; step += 1) {
     const port = preferred + step;
     if (port > MAX_TCP_PORT) {

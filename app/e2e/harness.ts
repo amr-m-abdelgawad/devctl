@@ -5,7 +5,7 @@
 // test is `bun src/bin.ts` unless DEVCTL_E2E_BIN names a compiled binary.
 
 import { describe } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { processAlive, readRepoLock } from "../src/adapters/storage/storage.ts";
 
@@ -59,15 +59,27 @@ export class Sandbox {
   readonly dir: string;
   /** DEVCTL_HOME for this sandbox only. */
   readonly home: string;
+  /** The `--instance` name this sandbox's commands run as ("" for the checkout's own stack). */
+  readonly instance: string;
   private readonly root: string;
   private readonly pids = new Set<number>();
 
-  private constructor(root: string, home?: string) {
+  private constructor(root: string, home?: string, instance = "") {
     this.root = root;
     this.dir = join(root, "repo");
     this.home = home ?? join(root, "h");
+    this.instance = instance;
     mkdirSync(join(this.dir, ".devctl"), { recursive: true });
     mkdirSync(this.home, { recursive: true });
+  }
+
+  /**
+   * The same checkout as a named instance (`devctl --instance <name>`): its
+   * own stack, torn down on its own. Tear it down before the checkout's
+   * sandbox, which removes the directory.
+   */
+  asInstance(name: string): Sandbox {
+    return new Sandbox(this.root, this.home, name);
   }
 
   /**
@@ -99,7 +111,7 @@ export class Sandbox {
   async cli(args: string[], opts: { allowFail?: boolean } = {}): Promise<CliResult> {
     const proc = Bun.spawn([...cliCommand(), ...args], {
       cwd: this.dir,
-      env: { ...process.env, DEVCTL_HOME: this.home, NO_COLOR: "1" },
+      env: { ...this.env(), NO_COLOR: "1" },
       stdout: "pipe",
       stderr: "pipe",
       stdin: "ignore",
@@ -164,7 +176,9 @@ export class Sandbox {
         // already gone
       }
     }
-    rmSync(this.root, { recursive: true, force: true });
+    if (this.instance === "") {
+      rmSync(this.root, { recursive: true, force: true });
+    }
     if (alive.length > 0) {
       throw new Error(`processes still running after devctl down: ${alive.join(", ")}`);
     }
@@ -178,17 +192,42 @@ export class Sandbox {
     await this.status();
   }
 
-  private supervisorPid(): number {
-    // readRepoLock resolves the lock under $DEVCTL_HOME at call time.
-    const previous = process.env.DEVCTL_HOME;
+  private env(): Record<string, string> {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && key !== "DEVCTL_INSTANCE") {
+        env[key] = value;
+      }
+    }
+    env.DEVCTL_HOME = this.home;
+    if (this.instance !== "") {
+      env.DEVCTL_INSTANCE = this.instance;
+    }
+    return env;
+  }
+
+  /** The supervisor's pid, from its lock under this sandbox's home and instance. */
+  supervisorPid(): number {
+    // readRepoLock resolves the lock under $DEVCTL_HOME and $DEVCTL_INSTANCE at call time.
+    const previous = { home: process.env.DEVCTL_HOME, instance: process.env.DEVCTL_INSTANCE };
+    const env = this.env();
     process.env.DEVCTL_HOME = this.home;
+    if (env.DEVCTL_INSTANCE === undefined) {
+      delete process.env.DEVCTL_INSTANCE;
+    } else {
+      process.env.DEVCTL_INSTANCE = env.DEVCTL_INSTANCE;
+    }
     try {
-      return readRepoLock(this.dir)?.pid ?? 0;
+      // The supervisor keys its lock on the resolved checkout path (macOS's
+      // /tmp is a symlink to /private/tmp).
+      return readRepoLock(existsSync(this.dir) ? realpathSync(this.dir) : this.dir)?.pid ?? 0;
     } finally {
-      if (previous === undefined) {
-        delete process.env.DEVCTL_HOME;
-      } else {
-        process.env.DEVCTL_HOME = previous;
+      for (const [key, value] of [["DEVCTL_HOME", previous.home], ["DEVCTL_INSTANCE", previous.instance]] as const) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
       }
     }
   }

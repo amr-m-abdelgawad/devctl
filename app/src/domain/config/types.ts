@@ -92,6 +92,11 @@ export type ContainerConfig = {
   ports: Record<string, number>;
   env: Record<string, string>;
   volumes: string[];
+  // Named volume -> the volume to copy into this stack's copy of it on first
+  // use (#117). Without an entry, the unprefixed volume seeds it if present.
+  seed_from: Record<string, string>;
+  // Named volumes every stack shares, mounted as written (caches, say).
+  shared_volumes: string[];
   user: string;
   memory: string;
   cpus: string;
@@ -107,6 +112,8 @@ export function emptyContainer(): ContainerConfig {
     ports: {},
     env: {},
     volumes: [],
+    seed_from: {},
+    shared_volumes: [],
     user: "",
     memory: "",
     cpus: "",
@@ -798,6 +805,8 @@ export type DevctlConfig = {
 };
 
 export type InstanceConfig = {
+  // "" for the checkout's default stack, else the `--instance` name.
+  name: string;
   slot: number;
   portOffset: number;
 };
@@ -904,7 +913,7 @@ export function defaultConfig(): DevctlConfig {
     provenance: {},
     repoRoot: "",
     configPath: "",
-    instance: { slot: 0, portOffset: 0 },
+    instance: { name: "", slot: 0, portOffset: 0 },
   };
 }
 

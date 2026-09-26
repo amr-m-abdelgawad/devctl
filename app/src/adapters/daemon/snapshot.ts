@@ -7,7 +7,7 @@ import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, startPeriodWindow, type Runtime } from "../../domain/service/services.ts";
 import { defaultEnvironmentName, resolveEnvironmentName } from "../../domain/service/environments.ts";
-import type { IdentitySnapshot, LogSnapshot, ServiceAccountStatus, StatsSeries, StatusSnapshot, SystemSnapshot } from "../../domain/status.ts";
+import { instanceStatusLine, type IdentitySnapshot, type LogSnapshot, type ServiceAccountStatus, type StatsSeries, type StatusSnapshot, type SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
 import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
@@ -116,7 +116,7 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
     session_id: host.sessionID,
     repo_root: host.cfg.repoRoot,
     profile: host.profile,
-    instance: { slot: host.cfg.instance.slot, port_offset: host.cfg.instance.portOffset },
+    instance: { name: host.cfg.instance.name, slot: host.cfg.instance.slot, port_offset: host.cfg.instance.portOffset },
     services,
     proxy: {
       running: host.proxy?.isRunning() ?? false,
@@ -204,8 +204,9 @@ function selectedEnvName(host: SnapshotHost, name: string): string {
 
 export function formatStatusFromSnapshot(snap: StatusSnapshot): string {
   const lines = [`PROFILE: ${snap.profile || "(none)"}`];
-  if ((snap.instance?.slot ?? 0) > 0) {
-    lines.push(`INSTANCE: slot ${snap.instance?.slot} (ports +${snap.instance?.port_offset})`);
+  const instanceLine = instanceStatusLine(snap.instance);
+  if (instanceLine !== undefined) {
+    lines.push(instanceLine);
   }
   lines.push("", "SERVICE\tSTATUS\tHEALTH\tENV\tPID");
   for (const [name, rt] of Object.entries(snap.services)) {

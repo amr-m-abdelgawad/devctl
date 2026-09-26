@@ -99,7 +99,7 @@ function allowArbitraryKeys(path: string): boolean {
   if (/\.environments\.[^.]+$/.test(path)) {
     return true;
   }
-  if (path.endsWith(".container.ports") || path.endsWith(".container.env")) {
+  if (path.endsWith(".container.ports") || path.endsWith(".container.env") || path.endsWith(".container.seed_from")) {
     return true;
   }
   if (path.endsWith(".auth.headers") || path.endsWith(".response_headers") || path.endsWith(".headers") || path.endsWith(".outputs") || path.endsWith(".form")) {

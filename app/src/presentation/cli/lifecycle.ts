@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { Detector } from "../../shared/redaction.ts";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import type { StatusSnapshot } from "../../domain/status.ts";
+import { instanceStatusLine, type StatusSnapshot } from "../../domain/status.ts";
 import { displayState, formatPlan } from "../../domain/service/services.ts";
 import { type ServiceConfig } from "../../domain/config/types.ts";
 import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
@@ -171,8 +171,9 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
       return;
     }
     writeOut(`PROFILE: ${snap.profile || "(none)"}\n`);
-    if ((snap.instance?.slot ?? 0) > 0) {
-      writeOut(`INSTANCE: slot ${snap.instance?.slot} (ports +${snap.instance?.port_offset})\n`);
+    const instanceLine = instanceStatusLine(snap.instance);
+    if (instanceLine !== undefined) {
+      writeOut(`${instanceLine}\n`);
     }
     writeOut("\nSERVICE\tSTATUS\tHEALTH\tENV\tPID\n");
     for (const [name, rt] of Object.entries(snap.services)) {

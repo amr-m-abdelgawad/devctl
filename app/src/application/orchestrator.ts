@@ -7,6 +7,7 @@ import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
 import { DEFAULT_STARTUP_TIMEOUT_MS, StartupPolicy } from "../domain/service/policies.ts";
 import { resolvedContainerLimits } from "../domain/service/container-limits.ts";
+import { scopeVolumes } from "../domain/service/container-volumes.ts";
 import {
   HealthHealthy,
   StateHealthy,
@@ -372,6 +373,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
         });
       };
       const onExit = (code: number, err?: Error): void => this.health.onExit(name, gen, code, err);
+      const mounts = svc.container ? scopeVolumes(svc.container, s.containerPrefix) : undefined;
       handle = svc.container
         ? await this.processes.startContainer({
             name,
@@ -382,7 +384,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             env: { ...env, ...svc.container.env },
             ports: assigned,
             targetPorts: svc.container.ports,
-            volumes: svc.container.volumes,
+            volumes: mounts?.volumes ?? [],
+            seeds: mounts?.seeds ?? [],
             workDir,
             limits: resolvedContainerLimits(svc.container),
             onLine,

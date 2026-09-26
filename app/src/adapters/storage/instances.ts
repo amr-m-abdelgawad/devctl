@@ -3,12 +3,14 @@ import { join, resolve } from "node:path";
 import { MAX_PORT_SLOTS, pickSlot, type InstanceSlot } from "../../domain/net/port-slots.ts";
 import { hintError, KindGeneral } from "../../shared/errors.ts";
 import { repoID } from "../../shared/repo-id.ts";
-import { ensureDir, homeDir, writeFileSecure } from "./storage.ts";
+import { currentInstance, ensureDir, homeDir, writeFileSecure } from "./storage.ts";
 
-// The slot registry for parallel stacks (#117): which checkout holds which
-// port slot, shared by every checkout under one DEVCTL_HOME. A slot is sticky:
-// it stays with its checkout across restarts and supervisor crashes, and is
-// freed by a full `devctl down` or `devctl instances prune`.
+// The slot registry for parallel stacks (#117): which stack holds which port
+// slot, shared by every checkout under one DEVCTL_HOME. A stack is a checkout,
+// or a named `--instance` of one; every function here acts on this process's
+// instance of `repoRoot`. A slot is sticky: it stays with its stack across
+// restarts and supervisor crashes, and is freed by a full `devctl down` or
+// `devctl instances prune`.
 
 const LOCK_WAIT_MS = 5_000;
 const LOCK_STALE_MS = 10_000;
@@ -25,8 +27,16 @@ export function readInstances(): InstanceSlot[] {
 
 /** This checkout's slot, or 0 when it holds none. Never claims. */
 export function currentSlot(repoRoot: string): number {
-  const id = repoID(repoRoot);
-  return readRegistry().instances.find((entry) => repoID(entry.repoRoot) === id)?.slot ?? 0;
+  const id = ownID(repoRoot);
+  return readRegistry().instances.find((entry) => entryID(entry) === id)?.slot ?? 0;
+}
+
+function ownID(repoRoot: string): string {
+  return repoID(repoRoot, currentInstance());
+}
+
+function entryID(entry: InstanceSlot): string {
+  return repoID(entry.repoRoot, entry.instance ?? "");
 }
 
 /**
@@ -36,20 +46,21 @@ export function currentSlot(repoRoot: string): number {
 export function claimSlot(repoRoot: string, now = new Date()): { slot: number; claimed: boolean } {
   return withRegistry((registry) => {
     const root = resolve(repoRoot);
-    const id = repoID(root);
-    const own = registry.instances.find((entry) => repoID(entry.repoRoot) === id);
+    const instance = currentInstance();
+    const id = repoID(root, instance);
+    const own = registry.instances.find((entry) => entryID(entry) === id);
     if (own) {
       return { slot: own.slot, claimed: false };
     }
-    const slot = pickSlot(registry.instances, root);
+    const slot = pickSlot(registry.instances, root, instance);
     if (slot === undefined) {
       throw hintError(
         KindGeneral,
-        `all ${MAX_PORT_SLOTS} port slots are taken by other checkouts`,
+        `all ${MAX_PORT_SLOTS} port slots are taken by other stacks`,
         "run `devctl instances` to see them, and `devctl down` in one you're done with (or `devctl instances prune` for deleted checkouts)",
       );
     }
-    registry.instances.push({ slot, repoRoot: root, claimedAt: now.toISOString() });
+    registry.instances.push({ slot, repoRoot: root, ...(instance === "" ? {} : { instance }), claimedAt: now.toISOString() });
     return { slot, claimed: true };
   });
 }
@@ -74,8 +85,8 @@ export async function startWithSlot<T>(repoRoot: string, start: (slot: number) =
 
 export function recordInstancePorts(repoRoot: string, ports: Record<string, number>): void {
   withRegistry((registry) => {
-    const id = repoID(repoRoot);
-    const own = registry.instances.find((entry) => repoID(entry.repoRoot) === id);
+    const id = ownID(repoRoot);
+    const own = registry.instances.find((entry) => entryID(entry) === id);
     if (own) {
       own.ports = ports;
     }
@@ -84,8 +95,8 @@ export function recordInstancePorts(repoRoot: string, ports: Record<string, numb
 
 export function releaseSlot(repoRoot: string): void {
   withRegistry((registry) => {
-    const id = repoID(repoRoot);
-    registry.instances = registry.instances.filter((entry) => repoID(entry.repoRoot) !== id);
+    const id = ownID(repoRoot);
+    registry.instances = registry.instances.filter((entry) => entryID(entry) !== id);
   });
 }
 
@@ -108,7 +119,12 @@ function isSlot(value: unknown): value is InstanceSlot {
     return false;
   }
   const entry = value as Record<string, unknown>;
-  return Number.isInteger(entry.slot) && typeof entry.repoRoot === "string" && typeof entry.claimedAt === "string";
+  return (
+    Number.isInteger(entry.slot) &&
+    typeof entry.repoRoot === "string" &&
+    typeof entry.claimedAt === "string" &&
+    (entry.instance === undefined || typeof entry.instance === "string")
+  );
 }
 
 // Read-modify-write under an exclusive lock file, written atomically, so two

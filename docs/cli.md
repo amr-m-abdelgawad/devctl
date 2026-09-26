@@ -1,6 +1,6 @@
 # CLI
 
-The CLI and the TUI share one supervisor. Global flag: `--config <path>` (file or `.devctl` directory).
+The CLI and the TUI share one supervisor. Global flags: `--config <path>` (file or `.devctl` directory) and `--instance <name>` (a named stack of this checkout, see [parallel stacks](parallel-stacks.md); `DEVCTL_INSTANCE` sets it too). Both go before the command.
 
 ```text
 devctl                         # TUI (attaches to a daemon, spawning one if none is running)
@@ -29,7 +29,7 @@ devctl doctor [--json]
 devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
-devctl mcp [--on|--off] [--port N] [--rotate] [--json]
+devctl mcp [--on|--off] [--port N] [--rotate] [--write claude|cursor|kilo] [--json]
 devctl web status|start|stop
 devctl config validate|show|diff [--json] [--overlay <name>]
 devctl attach
@@ -58,7 +58,7 @@ devctl update [--json] [--check]
 - `exec` runs once in a service's resolved environment and working directory, even when that service is stopped. `--print-env` prints the exact environment without running a command; secret-like values are redacted unless `--reveal` is explicitly supplied. The TUI equivalents are `/exec <service> -- <command…>` and `/exec <service> --print-env` (the env inspector shows the same resolved map, not config-only `vars`/`defaults`).
 - `env` lists per-service named overlays (`services.<name>.environments`) and the one selected for this session. `devctl env invoices-api` shows that service; `devctl env invoices-api deployed` selects `deployed` for invoices-api only. Other services are unchanged. A running process keeps the overlay it started with until you restart it.
 - `down` stops the daemon's services and the daemon itself; `--keep-services` stops only the daemon, leaving services running to be adopted later. `--repo` targets a repository directly, without needing a loadable configuration there; the global `--config` also resolves it (by file location, not by parsing) when `--repo` is not given.
-- `instances` lists the checkouts holding a port slot for [parallel stacks](parallel-stacks.md): slot, port offset, checkout path, proxy/web/OTLP ports, and status (`running`, `stopped`, or `missing` for a deleted checkout). `instances prune` stops the stacks of missing checkouts and frees their slots. A full `down` also frees the checkout's slot; `down --keep-services` keeps it.
+- `instances` lists the stacks holding a port slot for [parallel stacks](parallel-stacks.md): slot, port offset, checkout path, instance name, proxy/web/OTLP ports, and status (`running`, `stopped`, or `missing` for a deleted checkout). `instances prune` stops the stacks of missing checkouts and frees their slots. A full `down` also frees the checkout's slot; `down --keep-services` keeps it.
 - `status` and `down` resolve their target the same way: `--repo` wins outright, else the global `--config` (or plain discovery from the working directory) locates it by file, else a state-directory scan finds a still-live daemon whose original config is now gone.
 - `status` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - `status` also prints proxy, MCP, and WEB listen lines when a supervisor is up. Each service row includes `ENV` (the selected named overlay, empty when the service has none).

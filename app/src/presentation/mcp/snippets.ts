@@ -121,3 +121,47 @@ export function formatMcpSnippets(url: string, token: string): string {
   }
   return lines.join("\n");
 }
+
+/** Clients whose MCP config lives in the project, so each worktree can point its agent at its own stack. */
+export const WRITABLE_SNIPPETS = ["claude", "cursor", "kilo"] as const;
+export type WritableSnippetKind = (typeof WRITABLE_SNIPPETS)[number];
+
+export function isWritableSnippet(kind: string): kind is WritableSnippetKind {
+  return (WRITABLE_SNIPPETS as readonly string[]).includes(kind);
+}
+
+/**
+ * The client's project config with devctl's server entry set to this stack's
+ * URL and token. Every other key and server in `existing` is kept, so
+ * writing again after a token rotation only replaces devctl's entry.
+ */
+export function mergeSnippetFile(kind: WritableSnippetKind, existing: string | undefined, url: string, token: string): string {
+  const snippet = mcpSnippets(url, token).find((entry) => entry.kind === kind);
+  if (!snippet) {
+    throw new Error(`no ${kind} snippet`);
+  }
+  const fresh = JSON.parse(snippet.text) as Record<string, Record<string, unknown>>;
+  if (existing === undefined || existing.trim() === "") {
+    return `${JSON.stringify(fresh, null, 2)}\n`;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(existing);
+  } catch {
+    throw new Error(`${snippet.path} is not plain JSON (comments or a syntax error); add devctl's entry by hand from \`devctl mcp\``);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`${snippet.path} is not a JSON object`);
+  }
+  const doc = parsed as Record<string, unknown>;
+  for (const [section, servers] of Object.entries(fresh)) {
+    const current = doc[section];
+    const kept = typeof current === "object" && current !== null && !Array.isArray(current) ? (current as Record<string, unknown>) : {};
+    doc[section] = { ...kept, ...servers };
+  }
+  return `${JSON.stringify(doc, null, 2)}\n`;
+}
+
+export function snippetPath(kind: WritableSnippetKind): string {
+  return mcpSnippets("", "").find((entry) => entry.kind === kind)?.path ?? "";
+}

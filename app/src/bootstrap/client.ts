@@ -2,7 +2,7 @@ import { loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfi
 import { patchRepoLocalConfig } from "../adapters/config/local-overlay.ts";
 import type { ClientRuntime } from "../application/client-runtime.ts";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { readPersistedState, processAlive, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
+import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
 import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents } from "../adapters/storage/logs.ts";
 import { readInstances, releaseSlot } from "../adapters/storage/instances.ts";
 import { freePort } from "../adapters/net/ports.ts";
@@ -33,6 +33,7 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),
     readTextFile: (path) => readFileSync(path, "utf8"),
     writeTextFile: (path, text) => writeFileSync(path, text),
+    writeSecretFile: writeFileSecure,
     fileExists: existsSync,
     load,
     loadOrEmpty,

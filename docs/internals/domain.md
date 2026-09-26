@@ -26,6 +26,7 @@ Current schema version: `CurrentVersion = 1`.
 | `lifecycle.ts` | `LEGAL_TRANSITIONS` / `canTransition` / `transition`. Illegal edges throw `KindConfiguration`. |
 | `policies.ts` | `StartupPolicy`, `RestartPolicy`, `HealthPolicy` — interpret YAML (`never` / `on_failure` / `always`, wait-for-healthy, retry budget). |
 | `container-limits.ts` | Parse `memory` / `cpus` / `pids_limit` into a Docker/Podman shape. |
+| `container-volumes.ts` | Scope named volumes per stack (`devctl-<id>-<name>`), their first-use seeds, and `seed_from` / `shared_volumes` checks. |
 | `watch.ts` | Pure helpers for file-watch restart (paths, ignore globs). |
 
 Waves: `startupPlan` returns `Plan { profile, steps, waves, blockers? }`. A configured profile clips the dependency closure to `profile.services ∪ selected`. Independent services share a wave (`Promise.allSettled` in the orchestrator); the next wave waits only for members a later step depends on with `condition: service_healthy`. Shutdown reverses dependencies unless `shutdownPlanExact` (stop only the named set).

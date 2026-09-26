@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Named instances: `devctl --instance <name> <command>` (or `DEVCTL_INSTANCE=<name>`) runs another stack of the same checkout, with its own port slot, supervisor, state, tokens, containers, volumes and MCP port. `devctl instances` shows the instance name, `devctl status` shows `INSTANCE: <name>, slot N`, and `down` or `prune` stop one instance without touching the others. Without a name nothing changes. See [Parallel stacks](docs/parallel-stacks.md#named-instances). (#117)
+- `devctl mcp --write claude|cursor|kilo` writes this stack's MCP URL and bearer token into the checkout's `.mcp.json`, `.cursor/mcp.json` or `kilo.jsonc`, keeping other servers there, so each worktree's agent talks to its own stack. See [MCP](docs/mcp.md#cli). (#117)
+- `container.seed_from` fills a stack's named volume from a prepared volume on first use, and `container.shared_volumes` lists named volumes every stack mounts as written, such as build caches. (#117)
 - CI runs `bun test` on macOS (`macos-tests` on `macos-15`), matching `windows-tests`. Coverage stays on Linux. Docker lifecycle tests stay on the Linux `container-tests` job because hosted macOS runners have no Docker. See [Testing and CI](docs/internals/testing-ci.md). (#116)
+
+### Changed
+
+- A named volume in `container.volumes` belongs to one stack: `pgdata` is mounted as `devctl-<id>-pgdata`, so parallel checkouts no longer share a database. The first time a stack uses it, the volume is filled from the unprefixed `pgdata` if that exists, so a stack keeps the data it had before. Bind mounts are unchanged. See [Parallel stacks](docs/parallel-stacks.md#volumes). (#117)
 
 ## [0.22.0] - 2026-09-26
 

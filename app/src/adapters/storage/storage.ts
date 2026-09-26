@@ -1,4 +1,5 @@
-import { repoID } from "../../shared/repo-id.ts";
+import { INSTANCE_NAME_PATTERN, repoID } from "../../shared/repo-id.ts";
+import { hintError, KindConfiguration } from "../../shared/errors.ts";
 export { repoID } from "../../shared/repo-id.ts";
 import type { PersistedState } from "../../domain/session/session.ts";
 export { sessionStartedAt, type PersistedProcess, type PersistedState } from "../../domain/session/session.ts";
@@ -20,6 +21,24 @@ export function resolveUserPath(input: string, baseDir: string): string {
   return isAbsolute(expanded) ? expanded : resolve(baseDir, expanded);
 }
 
+/**
+ * The named instance this process works on (`--instance`, which the CLI
+ * passes on as DEVCTL_INSTANCE so the supervisor it spawns inherits it), or
+ * "" for the checkout's default stack.
+ */
+export function currentInstance(): string {
+  const name = process.env.DEVCTL_INSTANCE ?? "";
+  if (name !== "" && !INSTANCE_NAME_PATTERN.test(name)) {
+    throw hintError(KindConfiguration, `invalid instance name "${name}"`, "use 1-32 lowercase letters, digits, '-' or '_', starting with a letter or digit");
+  }
+  return name;
+}
+
+/** repoID for this process's instance of `repoRoot`. */
+export function stackID(repoRoot: string): string {
+  return repoID(repoRoot, currentInstance());
+}
+
 export function homeDir(): string {
   const override = process.env.DEVCTL_HOME;
   if (override && override !== "") {
@@ -33,8 +52,8 @@ export function ensureDir(path: string): void {
 }
 
 export function sessionDir(repoRoot: string): string {
-  const next = join(homeDir(), "state", repoID(repoRoot));
-  const legacy = join(homeDir(), "sessions", repoID(repoRoot));
+  const next = join(homeDir(), "state", stackID(repoRoot));
+  const legacy = join(homeDir(), "sessions", stackID(repoRoot));
   if (!existsSync(next) && existsSync(legacy)) {
     ensureDir(dirname(next));
     try {
@@ -73,7 +92,7 @@ export function credentialsDir(): string {
 
 export function socketPath(repoRoot: string, platform = process.platform): string {
   if (platform === "win32") {
-    return `\\\\.\\pipe\\devctl-${repoID(repoRoot)}`;
+    return `\\\\.\\pipe\\devctl-${stackID(repoRoot)}`;
   }
   return join(sessionDir(repoRoot), "devctl.sock");
 }

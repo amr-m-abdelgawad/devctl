@@ -28,7 +28,7 @@ complete allowlists.
 | `profiles.<name>` | `services` `environment` `environments` `service_environment` |
 | `service.health` | `type` `url` `address` `grpc_service` `command` `interval_seconds` `timeout_seconds` `start_period_seconds` `unhealthy_threshold` `healthy_reset_threshold` |
 | `service.hooks` | `pre_start` `post_start` |
-| `service.container` | `image` `runtime` `ports` `env` `volumes` `user` `memory` `cpus` `read_only` `cap_drop` `pids_limit` |
+| `service.container` | `image` `runtime` `ports` `env` `volumes` `seed_from` `shared_volumes` `user` `memory` `cpus` `read_only` `cap_drop` `pids_limit` |
 | `service.watch` | `enabled` `paths` `debounce_ms` `ignore` |
 | `tasks.<name>` | `command` `shell` `working_dir` `dependencies` `environment` |
 | `service.identity` | `type` `mode` `service_account` `config` |

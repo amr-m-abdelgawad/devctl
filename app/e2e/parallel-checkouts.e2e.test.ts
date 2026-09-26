@@ -148,4 +148,40 @@ describeE2E("parallel checkouts (#117)", () => {
     const remaining = JSON.parse((await keep.cli(["instances", "--json"])).stdout) as InstanceRow[];
     expect(remaining.map((row) => row.repoRoot)).toEqual([keepDir]);
   }, SCENARIO_TIMEOUT_MS);
+
+  test("a named instance runs a second stack of the same checkout", async () => {
+    const home = sharedHome();
+    const box = Sandbox.create("instance", { "web.js": SERVER, ".devctl/config.yaml": await config() }, { home });
+    const ci = box.asInstance("ci-7");
+    // Torn down in order: the instance, then the checkout (which removes the directory).
+    sandboxes.push(ci, box);
+    await box.start(["web"]);
+    await ci.start(["web"]);
+    const ports: number[] = [];
+    for (const stack of [box, ci]) {
+      const svc = await waitFor(`web HEALTHY (instance "${stack.instance}")`, async () => {
+        const status = await stack.status();
+        return status.services.web?.health === "HEALTHY" ? status.services.web : undefined;
+      });
+      ports.push(svc.ports.http ?? 0);
+    }
+    expect(ports[1]).toBe((ports[0] ?? 0) + 100);
+    expect(box.supervisorPid()).toBeGreaterThan(0);
+    expect(ci.supervisorPid()).toBeGreaterThan(0);
+    expect(ci.supervisorPid()).not.toBe(box.supervisorPid());
+    expect((await ci.cli(["status"])).stdout).toContain("INSTANCE: ci-7, slot 1 (ports +100)");
+    // The flag works as well as the environment.
+    expect((await box.cli(["--instance", "ci-7", "status"])).stdout).toContain("INSTANCE: ci-7, slot 1");
+
+    const rows = JSON.parse((await box.cli(["instances", "--json"])).stdout) as (InstanceRow & { instance?: string })[];
+    expect(rows.map((row) => [row.slot, row.instance ?? "", row.status])).toEqual([
+      [0, "", "running"],
+      [1, "ci-7", "running"],
+    ]);
+
+    // Stopping the instance leaves the checkout's own stack alone.
+    await ci.cli(["down"]);
+    const after = JSON.parse((await box.cli(["instances", "--json"])).stdout) as InstanceRow[];
+    expect(after.map((row) => [row.slot, row.status])).toEqual([[0, "running"]]);
+  }, SCENARIO_TIMEOUT_MS);
 });

@@ -41,3 +41,25 @@ export function writeOut(text: string): void {
     throw err;
   }
 }
+
+/**
+ * Runs `fn` against another stack's instance (`--instance`): per-stack paths
+ * are derived from DEVCTL_INSTANCE, so it is set for the call and restored.
+ */
+export async function withInstance<T>(instance: string | undefined, fn: () => Promise<T>): Promise<T> {
+  const previous = process.env.DEVCTL_INSTANCE;
+  if (instance === undefined || instance === "") {
+    delete process.env.DEVCTL_INSTANCE;
+  } else {
+    process.env.DEVCTL_INSTANCE = instance;
+  }
+  try {
+    return await fn();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.DEVCTL_INSTANCE;
+    } else {
+      process.env.DEVCTL_INSTANCE = previous;
+    }
+  }
+}

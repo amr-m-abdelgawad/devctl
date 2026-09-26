@@ -10,6 +10,8 @@ export const MAX_PORT_SLOTS = 9;
 export type InstanceSlot = {
   slot: number;
   repoRoot: string;
+  // The `--instance` name; absent for the checkout's default stack.
+  instance?: string;
   claimedAt: string;
   // Listener ports the stack ran with, recorded by its supervisor for
   // `devctl instances`. Absent until one has started in that slot.
@@ -21,8 +23,8 @@ export function slotOffset(slot: number): number {
 }
 
 /** The lowest slot no other checkout holds, or undefined when all are taken. */
-export function pickSlot(instances: readonly InstanceSlot[], repoRoot: string): number | undefined {
-  const own = instances.find((entry) => entry.repoRoot === repoRoot);
+export function pickSlot(instances: readonly InstanceSlot[], repoRoot: string, instance = ""): number | undefined {
+  const own = instances.find((entry) => entry.repoRoot === repoRoot && (entry.instance ?? "") === instance);
   if (own) {
     return own.slot;
   }

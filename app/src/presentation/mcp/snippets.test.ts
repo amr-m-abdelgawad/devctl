@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { claudeSnippet, codexAddHint, codexToml, cursorSnippet, kiloSnippet, mcpUrl } from "./snippets.ts";
+import { claudeSnippet, codexAddHint, codexToml, cursorSnippet, isWritableSnippet, kiloSnippet, mcpUrl, mergeSnippetFile, snippetPath } from "./snippets.ts";
 
 const URL = "http://127.0.0.1:18721/mcp";
 const TOKEN = "abc123";
@@ -38,5 +38,34 @@ describe("mcp snippets", () => {
     expect(text).toContain('http_headers = { Authorization = "Bearer abc123" }');
     expect(codexAddHint(URL)).toBe(`codex mcp add --url ${URL}`);
     expect(mcpUrl(18721)).toBe(URL);
+  });
+});
+
+describe("mergeSnippetFile (devctl mcp --write)", () => {
+  const url = "http://127.0.0.1:18801/mcp";
+
+  test("a new file holds just devctl's entry", () => {
+    expect(JSON.parse(mergeSnippetFile("claude", undefined, url, "tok"))).toEqual({
+      mcpServers: { devctl: { type: "http", url, headers: { Authorization: "Bearer tok" } } },
+    });
+  });
+
+  test("other servers and keys are kept; devctl's entry is replaced", () => {
+    const existing = JSON.stringify({ mcpServers: { other: { url: "x" }, devctl: { url: "old" } }, extra: 1 });
+    expect(JSON.parse(mergeSnippetFile("cursor", existing, url, "tok"))).toEqual({
+      mcpServers: { other: { url: "x" }, devctl: { url, headers: { Authorization: "Bearer tok" } } },
+      extra: 1,
+    });
+  });
+
+  test("a file that isn't plain JSON is left for a hand edit", () => {
+    expect(() => mergeSnippetFile("kilo", "// comment\n{}", url, "tok")).toThrow("kilo.jsonc is not plain JSON");
+    expect(() => mergeSnippetFile("claude", "[]", url, "tok")).toThrow(".mcp.json is not a JSON object");
+  });
+
+  test("only project-level clients are writable", () => {
+    expect(isWritableSnippet("claude")).toBe(true);
+    expect(isWritableSnippet("codex")).toBe(false);
+    expect(snippetPath("cursor")).toBe(".cursor/mcp.json");
   });
 });

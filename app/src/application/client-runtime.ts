@@ -113,6 +113,8 @@ export type ClientRuntime = {
   runSetup(startDir: string, explicitConfig?: string, force?: boolean): Promise<void>;
   readTextFile(path: string): string;
   writeTextFile(path: string, text: string): void;
+  // Owner-only (0600), parent directories created: for files holding a token.
+  writeSecretFile(path: string, text: string): void;
   fileExists(path: string): boolean;
   checkUpdate(): Promise<UpdateCheck>;
   applyUpdate(command: readonly string[], inherit?: boolean): Promise<UpdateApplyResult>;
