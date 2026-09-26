@@ -97,7 +97,7 @@ function stubHost(): McpHost {
   ];
   const logs = [
     logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "hello", pid: 1, seq: 1 }),
-    logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 }),
+    logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "ERROR", message: "Authorization: Bearer super-secret-token-value", pid: 1, seq: 2 }),
     logRecord({ timestamp: "t3", service: "worker", source: "stderr", level: "INFO", message: "tick", pid: 2, seq: 3 }),
   ];
   return {
@@ -113,8 +113,8 @@ function stubHost(): McpHost {
     restart: async () => undefined,
     reload: async () => ({ restart_required: [], changes: {} }),
     doctor: async () => ({ checks: [{ name: "ok", severity: "ok", message: "fine" }], issues: 0 }),
-    exec: async (service, command, printEnv) => ({ service, code: 0, stdout: command.join(" ") + " Bearer secret-token", stderr: "", environment: printEnv ? { API_TOKEN: "secret-token", NAME: "ok" } : undefined }),
-    runTask: async (name) => ({ task: name, code: 0, stdout: `ran ${name} Bearer secret-token`, stderr: "" }),
+    exec: async (service, command, printEnv) => ({ service, code: 0, stdout: command.join(" ") + " Bearer super-secret-token-value", stderr: "", environment: printEnv ? { API_TOKEN: "secret-token", NAME: "ok" } : undefined }),
+    runTask: async (name) => ({ task: name, code: 0, stdout: `ran ${name} Bearer super-secret-token-value`, stderr: "" }),
     startProxy: async () => undefined,
     stopProxy: async () => undefined,
     setServiceEnvironment: (service, name) => ({ service, env: name }),
@@ -478,7 +478,7 @@ describe("mcp tools", () => {
   test("iterateLogsExport streams redacted JSONL oldest-first across pages", async () => {
     const host = stubHost();
     const ev1 = logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "first", pid: 1, seq: 1 });
-    const ev2 = logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 });
+    const ev2 = logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret-token-value", pid: 1, seq: 2 });
     host.logsPage = (req) => {
       if (!req.cursor) {
         return { events: [ev2], nextCursor: "2", prevCursor: "2", hasNext: false, hasPrev: true, sessionChanged: false };
@@ -572,14 +572,14 @@ describe("mcp tools", () => {
           startUnixNano: 1,
           endUnixNano: 2,
           status: { code: "ok" },
-          attributes: { "http.request.method": "GET", token: "super-secret" },
+          attributes: { "http.request.method": "GET", token: "super-secret-token-value" },
           events: [],
           links: [],
           resource: { "service.name": "proxy" },
         }],
         roots: [],
       },
-      events: [logRecord({ service: "api", message: "Authorization: Bearer super-secret", traceId: id, seq: 1 })],
+      events: [logRecord({ service: "api", message: "Authorization: Bearer super-secret-token-value", traceId: id, seq: 1 })],
     });
     host.traceRequest = async (requestId) => ({ ...(await host.getTrace!(traceId)), requestId });
     const byTrace = (await callMcpTool(host, "get_trace", { trace_id: traceId })) as {
@@ -608,9 +608,9 @@ describe("mcp tools", () => {
       operation: "chat" as const,
       usage: { promptTokens: 12, completionTokens: 4, totalTokens: 16 },
       cost: 0.01,
-      request: { messages: [{ role: "user", content: "Authorization: Bearer super-secret" }] },
+      request: { messages: [{ role: "user", content: "Authorization: Bearer super-secret-token-value" }] },
       response: { choices: [{ message: { content: "ok" } }] },
-      attributes: { token: "super-secret" },
+      attributes: { token: "super-secret-token-value" },
     };
     host.llmCallsPage = () => ({
       calls: [call],
@@ -646,9 +646,9 @@ describe("mcp tools", () => {
       transport: "http" as const,
       callerEmail: "accounts.google.com:dev@example.com",
       status: 200,
-      request: { text: '{"token":"super-secret"}', encoding: "utf8" as const },
+      request: { text: '{"token":"super-secret-token-value"}', encoding: "utf8" as const },
       response: { text: '{"ok":true}', encoding: "utf8" as const },
-      attributes: { token: "super-secret" },
+      attributes: { token: "super-secret-token-value" },
     };
     host.trafficCallsPage = () => ({
       calls: [call],

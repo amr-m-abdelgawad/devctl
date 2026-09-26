@@ -32,7 +32,7 @@ Export: `logs` RPC with `export` path, or client-side `writeLogExport`.
 
 ## Redaction
 
-`adapters/secrets/detector.ts` + `domain/logs/redact.ts` + `shared/redaction.ts`. Markers include PASSWORD, TOKEN, SECRET, … plus `secrets.extra_markers` / `extra_patterns`. Name markers match as delimited tokens (`API_TOKEN`) so they do not fire on `prompt_tokens`. MCP and web always redact at output. Logs, LLM calls, and traffic inspector hops are also redacted at ingest (irreversible). TUI `/reveal` unmasks service env and `/diff` only.
+`adapters/secrets/detector.ts` + `domain/logs/redact.ts` + `shared/redaction.ts`. Markers include PASSWORD, TOKEN, SECRET, … plus `secrets.extra_markers` / `extra_patterns`. Name markers match as delimited tokens (`API_TOKEN`) so they do not fire on `prompt_tokens`, `token_type`, `page_token`, or `DEVCTL_TOKEN_URL`. A field named exactly `token` is masked only when the value looks like a credential. Objects are walked; numbers and booleans stay. `secrets.redact: false` makes the detector a no-op for new data. MCP and web redact at output with the same flag. Logs, LLM calls, and traffic inspector hops are redacted at ingest when the flag is on (irreversible). TUI `/reveal` unmasks service env and `/diff` only.
 
 Never log `Authorization`. Proxy request logs are structured without header dumps.
 

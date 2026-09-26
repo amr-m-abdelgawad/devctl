@@ -214,11 +214,12 @@ export function serviceEnvEntries(
   extraPatterns: string[],
   resolved?: Record<string, string>,
   envName?: string,
+  redact = true,
 ): ServiceEnvEntry[] {
   const configuredEnv = effectiveServiceEnv(svc, envName);
   const configured = { ...configuredEnv.defaults, ...configuredEnv.vars };
   const merged = resolved ?? configured;
-  const redacted = redactEnv(merged, reveal, extraMarkers, extraPatterns);
+  const redacted = redactEnv(merged, reveal, extraMarkers, extraPatterns, redact);
   const keys = new Set([...Object.keys(redacted), ...configuredEnv.required]);
   return [...keys]
     .map((key) => ({
@@ -312,11 +313,11 @@ export function serviceLineState(rt?: Runtime): string {
   return displayState(rt);
 }
 
-export function redactEnv(env: Record<string, string>, reveal: boolean, extraMarkers: string[], extraPatterns: string[]): Record<string, string> {
-  if (reveal) {
+export function redactEnv(env: Record<string, string>, reveal: boolean, extraMarkers: string[], extraPatterns: string[], redact = true): Record<string, string> {
+  if (reveal || !redact) {
     return env;
   }
-  return new Detector(extraMarkers, extraPatterns).redactMap(env);
+  return new Detector(extraMarkers, extraPatterns, true).redactMap(env);
 }
 
 const LIVE_PROCESS_STATES = new Set(["RUNNING", "STARTING", "RESTARTING", "HEALTHY", "UNHEALTHY"]);

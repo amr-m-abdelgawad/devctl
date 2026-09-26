@@ -21,7 +21,7 @@ export function addExec(root: Command, runtime: ClientRuntime): void {
       try {
         const result = await ctrl.execService(service, command, opts.printEnv === true);
         if (result.environment) {
-          const env = opts.reveal ? result.environment : new Detector(ctrl.cfg.secrets.extra_markers, ctrl.cfg.secrets.extra_patterns).redactMap(result.environment);
+          const env = opts.reveal ? result.environment : new Detector(ctrl.cfg.secrets.extra_markers, ctrl.cfg.secrets.extra_patterns, ctrl.cfg.secrets.redact).redactMap(result.environment);
           if (opts.json) writeOut(JSON.stringify({ ...result, environment: env }, null, 2) + "\n");
           else for (const key of Object.keys(env).sort()) writeOut(`${key}=${env[key]}\n`);
         } else if (opts.json) writeOut(JSON.stringify(result, null, 2) + "\n");

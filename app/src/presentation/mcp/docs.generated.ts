@@ -681,7 +681,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
 | \`shutdown\` | \`stop_services_on_exit\`, \`grace_seconds\` |
 | \`ui\` | Optional theme / keymap hints in YAML (TUI prefs still win from \`tui.json\`) |
-| \`secrets\` | Extra redaction markers and regexes |
+| \`secrets\` | \`redact\` (default true), plus extra redaction markers and regexes. \`secrets.redact: false\` stops masking newly captured logs, traffic, and LLM payloads |
 | \`doctor.tools\` | Extra CLI binaries to probe |
 | \`plugins\` | \`{ path }\` modules loaded when the supervisor starts |
 | \`environment.sources\` / \`secrets\` / \`sops\` | Env source order, named secrets, and an optional SOPS file. A service can also set \`environment.terraform\` to read literal env vars from its Terraform — see [Environment](environment.md#terraform) |
@@ -1966,7 +1966,7 @@ Point workers at the route (e.g. \`http://127.0.0.1:17400/llm/v1/chat/completion
 - **\`capture.field_map\` fills inspector summary fields from non-OpenAI JSON.** Optional, \`type: proxy\` only. Each value is a JSONPath subset evaluated against \`{ request, response }\` — \`$\` / \`$.\` prefix, dotted keys, and \`[n]\` indexes (no \`$..\` or filters). Allowed keys: \`model\`, \`prompt_tokens\`, \`completion_tokens\`, \`cost\`, \`finish_reason\`. Paths must start with \`$.request.\` or \`$.response.\`. A present mapped value wins over the automatic parser; a missing or null path leaves the default, so a source can mix OpenAI completions with proprietary \`capture.paths\`. Raw SSE stored as text cannot be walked. Mapped \`cost\` wins over \`cost_per_token\`; if \`cost\` is unset or misses, \`cost_per_token\` still estimates from the final token counts.
 - **\`proxy\` has no management hop.** It captures from \`via.route\` / \`via.routes\` and must not set \`service\`, \`endpoint\`, or \`management_*\`; config validation rejects those. \`via.routes\` is only valid on \`type: proxy\`.
 - **\`cost_per_token\` estimates spend.** Optional, \`type: proxy\` only (\`litellm\` and plugin sources already report spend and must not set it). Both \`input\` and \`output\` are required \`>= 0\` numbers when the block is present. A captured call gets \`cost = promptTokens * input + completionTokens * output\` when those usage fields exist; missing prompt or completion tokens leave \`cost\` unset (total-only usage is not enough). The inspector chip already shows \`cost\` when it is set.
-- **Redaction is unchanged** — the same \`secrets\` detector runs at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`) are counts, not credentials, so they stay visible. A streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
+- **Redaction** uses the same \`secrets\` detector at upsert, and full prompts never go on the status snapshot. Usage keys (\`prompt_tokens\`, \`completion_tokens\`, \`total_tokens\`, \`max_tokens\`), \`token_type\`, and logprob \`token\` pieces stay visible. Credential-shaped values and keys such as \`api_key\` / \`access_token\` are still masked. \`secrets.redact: false\` stores new payloads unmasked. A streamed response carries token usage only when the caller sets \`stream_options.include_usage\`. TUI \`/reveal\` unmasks service env only; it cannot restore a payload that was already redacted at ingest.
 
 ## Caller (which service made the call)
 
@@ -3115,7 +3115,7 @@ Managed processes receive \`DEVCTL_TOKEN_URL\` (rewritten to the bound port afte
 
 The proxy keeps the last 100 requests in memory — method, path, matched route (blank for a request that matched no route, still logged as a 404), identity key used, status, duration, and request id — and reports a running total/error count alongside them. This is part of the regular status snapshot, so it updates the same way everything else in the TUI does: the moment a request refreshes a token or hits a route, the **proxy** tab reflects it without pressing \`r\` or restarting anything.
 
-Paths are redacted the same way response header values already are, since a query string can carry secrets. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart. This ring is **metadata-only**; request and response bodies are not stored here.
+Paths in this log are redacted, since a query string can carry secrets. Response headers are forwarded to the client unchanged. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart. This ring is **metadata-only**; request and response bodies are not stored here.
 
 ## Inspect bodies
 
@@ -3289,13 +3289,15 @@ Tokens never sit in the TUI, logs, LLM inspector, traffic inspector, or MCP outp
 | Rule | What you see |
 |------|----------------|
 | **No tokens on screen** | TUI, \`devctl status\`, and MCP tool results never print access tokens |
-| **Redacted env** | Names matching PASSWORD, SECRET, TOKEN, PRIVATE_KEY, CLIENT_SECRET, API_KEY, CREDENTIAL, ACCESS_KEY, AUTH_KEY → \`********\` |
+| **Redacted env** | Credential names (\`password\`, \`secret\`, \`api_key\`, \`access_token\`, \`authorization\`, \`cookie\`, …) and names containing TOKEN, SECRET, PASSWORD, … → \`********\`. Metadata such as \`token_type\`, \`page_token\`, \`secret_name\`, and \`DEVCTL_TOKEN_URL\` stays visible. A field named exactly \`token\` is masked only when the value looks like a credential |
 | **Loopback only** | Proxy, token endpoint, and MCP refuse \`0.0.0.0\`, \`::\`, and other non-loopback binds. Managed containers publish ports on \`127.0.0.1\` and default to 1g RAM, 1 CPU, and 256 PIDs |
 | **Argv by default** | Shell metacharacters fail validation unless \`shell: true\` |
 | **No SA keys** | Impersonation uses IAM Credentials APIs, never a downloaded JSON key |
 | **Config is not a secret store** | Working dirs join the repo root. Put secrets in \`.devctl/secrets.env\` (gitignored), overlays, keychain, Secret Manager, or a SOPS-encrypted file. \`sops\` decrypts that file in memory at daemon start and reload and does not write the plaintext. There is no \`\${secret:}\` template syntax |
 
-Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. Free-text log lines also strip \`Bearer\` tokens, JWT-shaped strings (\`eyJ…\`), Google access tokens (\`ya29.\`), and \`id_token=\` / \`access_token=\` assignments. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies are redacted with the same detector at ingest and again on MCP/web output. Traffic \`data\` is decoded before redaction so a base64/raw view cannot recover a secret the pretty \`text\` already masked. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config. \`X-Devctl-Service\` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
+Extra redaction: \`secrets.extra_markers\` and \`secrets.extra_patterns\` in \`.devctl\`. Set \`secrets.redact: false\` to turn redaction off for newly captured logs, spans, traffic, LLM payloads, env output, and MCP results. Already stored \`********\` values are not restored, and with redaction off those secrets can be written to \`~/.devctl/logs\`. The default is \`true\`.
+
+Free-text log lines strip credential-shaped \`Bearer\` tokens (not the next word of prose, and not \`Bearer realm=\`), JWT-shaped strings with three long segments (\`eyJ…\`), Google access tokens (\`ya29.\`), and \`id_token=\` / \`access_token=\` assignments. Objects and arrays are walked; a secret key masks its string value and does not blank the rest of the object. Numbers, booleans, and null stay. LLM inspector payloads (prompts, responses, attributes) and traffic inspector bodies use the same detector at ingest and again on MCP/web output. Traffic \`data\` is decoded before redaction so a base64/raw view cannot recover a secret the pretty \`text\` already masked. Response headers are forwarded to the client unchanged; redaction applies to stored inspector copies. LiteLLM keys stay in the environment (\`auth.token_env\`); never inline them in config. \`X-Devctl-Service\` is used only to label the local caller and is stripped before the proxy forwards to the vendor.
 
 ---
 

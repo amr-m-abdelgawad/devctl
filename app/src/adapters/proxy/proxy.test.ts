@@ -1906,6 +1906,24 @@ describe("proxy traffic inspect", () => {
     }
   });
 
+  test("forwards credential-shaped response headers to the client", async () => {
+    const jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    const authenticate = 'Bearer realm="https://accounts.google.com/"';
+    const { proxyPort, close } = await setupInspectProxy((_req, res) => {
+      res.setHeader("set-cookie", jwt);
+      res.setHeader("www-authenticate", authenticate);
+      res.end("ok");
+    }, { redact: true });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/invoices`);
+      expect(await resp.text()).toBe("ok");
+      expect(resp.headers.get("set-cookie")).toBe(jwt);
+      expect(resp.headers.get("www-authenticate")).toBe(authenticate);
+    } finally {
+      await close();
+    }
+  });
+
   test("strip_prefix forwards the rewritten path while inspect keeps the inbound path", async () => {
     const seen: string[] = [];
     const upstream = createServer((req, res) => {

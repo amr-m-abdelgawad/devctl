@@ -83,6 +83,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "redact": {
+          "type": "boolean",
+          "description": "Mask credentials in logs, traffic, LLM payloads, and env output. Default true. false stores and shows captured values; already masked history is not restored."
+        },
         "extra_markers": { "type": "array", "items": { "type": "string" } },
         "extra_patterns": { "type": "array", "items": { "type": "string" } }
       }

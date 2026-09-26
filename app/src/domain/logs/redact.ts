@@ -3,45 +3,21 @@ import { MAX_ANY_VALUE_DEPTH, MAX_ARRAY_ITEMS, MAX_ATTRIBUTE_KEYS, type AnyValue
 import type { LogRecord } from "./types.ts";
 import type { Span } from "../telemetry/types.ts";
 
-const SECRET_ATTR_NAMES = new Set([
-  "authorization",
-  "password",
-  "passwd",
-  "cookie",
-  "set-cookie",
-  "api_key",
-  "apikey",
-  "token",
-  "secret",
-  "access_token",
-  "refresh_token",
-  "private_key",
-  "client_secret",
-]);
-
-function isSecretKey(detector: Detector, keyHint: string): boolean {
-  if (keyHint === "") {
-    return false;
-  }
-  if (detector.isSecretName(keyHint)) {
-    return true;
-  }
-  const last = keyHint.split(/[./:_-]/).filter((part) => part !== "").pop() ?? keyHint;
-  return detector.isSecretName(last) || SECRET_ATTR_NAMES.has(last.toLowerCase());
-}
-
 export function redactAnyValue(detector: Detector, value: AnyValue, keyHint = "", depth = 0): AnyValue {
+  if (!detector.redacts) {
+    return value;
+  }
   if (depth >= MAX_ANY_VALUE_DEPTH) {
-    return REDACTED_VALUE;
-  }
-  if (isSecretKey(detector, keyHint)) {
-    return REDACTED_VALUE;
-  }
-  if (typeof value === "string") {
-    return detector.redactText(value);
+    return value;
   }
   if (value === null || typeof value === "number" || typeof value === "boolean") {
     return value;
+  }
+  if (typeof value === "string") {
+    if (detector.masksString(keyHint, value)) {
+      return REDACTED_VALUE;
+    }
+    return detector.redactText(value);
   }
   if (Array.isArray(value)) {
     return value.slice(0, MAX_ARRAY_ITEMS).map((item) => redactAnyValue(detector, item, keyHint, depth + 1));

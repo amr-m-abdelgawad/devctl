@@ -20,7 +20,7 @@ function fail(id: number | undefined, err: unknown): void {
 
 async function handle(message: WorkerRequest): Promise<void> {
   if (message.type === "init") {
-    detector = new Detector(message.config.extraMarkers, message.config.extraPatterns);
+    detector = new Detector(message.config.extraMarkers, message.config.extraPatterns, message.config.redact !== false);
     manager = new LogManager(
       message.config.max,
       undefined,
@@ -39,7 +39,7 @@ async function handle(message: WorkerRequest): Promise<void> {
     return;
   }
   if (message.type === "setSecrets") {
-    detector?.update(message.extraMarkers, message.extraPatterns);
+    detector?.update(message.extraMarkers, message.extraPatterns, message.redact);
     return;
   }
   if (message.type === "setServiceLogs") {

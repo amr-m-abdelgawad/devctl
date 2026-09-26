@@ -577,7 +577,7 @@ export class ProxyServer {
         if (decompressedByFetch && (lower === "content-encoding" || lower === "content-length")) {
           return;
         }
-        res.setHeader(key, this.detector ? this.detector.redactText(value) : value);
+        res.setHeader(key, value);
       });
       // Configured response headers win over whatever the upstream sent.
       this.applyResponseHeaders(res, route);

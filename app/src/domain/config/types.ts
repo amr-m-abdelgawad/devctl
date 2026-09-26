@@ -585,6 +585,7 @@ export type UIConfig = {
 };
 
 export type SecretsConfig = {
+  redact: boolean;
   extra_markers: string[];
   extra_patterns: string[];
 };
@@ -883,7 +884,7 @@ export function defaultConfig(): DevctlConfig {
     auth: { refresh_threshold_seconds: DEFAULT_REFRESH_THRESHOLD_SECONDS },
     shutdown: { grace_seconds: DEFAULT_GRACE_SECONDS },
     ui: { theme: "system", keymap: {} },
-    secrets: { extra_markers: [], extra_patterns: [] },
+    secrets: { redact: true, extra_markers: [], extra_patterns: [] },
     doctor: { tools: [] },
     plugins: [],
     environment: { sources: [], secrets: {}, sops: emptySops() },

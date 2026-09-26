@@ -11,6 +11,7 @@ export type WorkerLogConfig = {
   maxSessionLogs: number;
   extraMarkers: string[];
   extraPatterns: string[];
+  redact?: boolean;
 };
 
 export type WorkerRequest =
@@ -22,7 +23,7 @@ export type WorkerRequest =
   | { id: number; type: "exportTo"; path: string; filter: LogFilter }
   | { type: "setPluginPaths"; paths: string[]; repoRoot?: string }
   | { type: "setServiceLogs"; logs: Record<string, ServiceLogConfig> }
-  | { type: "setSecrets"; extraMarkers: string[]; extraPatterns: string[] }
+  | { type: "setSecrets"; extraMarkers: string[]; extraPatterns: string[]; redact?: boolean }
   | { id: number; type: "close" };
 
 export type WorkerRpcBody =

@@ -139,11 +139,11 @@ export class WorkerLogStore implements LogStore {
     this.post({ type: "setServiceLogs", logs });
   }
 
-  setSecrets(extraMarkers: string[], extraPatterns: string[]): void {
+  setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void {
     if (this.dead) {
       return;
     }
-    this.post({ type: "setSecrets", extraMarkers, extraPatterns });
+    this.post({ type: "setSecrets", extraMarkers, extraPatterns, redact });
   }
 
   async close(): Promise<void> {

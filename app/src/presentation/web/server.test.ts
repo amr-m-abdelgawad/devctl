@@ -711,7 +711,7 @@ describe("web http server", () => {
   test("GET /api/logs/sessions/:id pages redacted events and 404s unknown ids", async () => {
     const api = host();
     api.loadLogSession = () => [
-      logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret", pid: 1, seq: 1 }),
+      logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret-token-value", pid: 1, seq: 1 }),
       logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "ok", pid: 1, seq: 2 }),
       logRecord({ timestamp: "t3", service: "api", source: "stdout", level: "INFO", message: "later", pid: 1, seq: 3 }),
     ];
@@ -733,7 +733,7 @@ describe("web http server", () => {
   test("GET /api/logs/export streams redacted JSONL oldest-first", async () => {
     const api = host();
     const ev1 = logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "first", pid: 1, seq: 1 });
-    const ev2 = logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret", pid: 1, seq: 2 });
+    const ev2 = logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "INFO", message: "Authorization: Bearer super-secret-token-value", pid: 1, seq: 2 });
     api.logsPage = (req) => {
       if (!req.cursor) {
         return { events: [ev2], nextCursor: "2", prevCursor: "2", hasNext: false, hasPrev: true, sessionChanged: false };

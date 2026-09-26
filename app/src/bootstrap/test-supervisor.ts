@@ -26,7 +26,7 @@ export class Supervisor extends DaemonSupervisor {
     const orchestrator = deps.orchestrator ?? new ServiceOrchestrator(procs, clock);
     const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, [], bus, undefined, clock);
     const sessionID = deps.sessionID ?? newSessionID();
-    const detector = deps.detector ?? new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
+    const detector = deps.detector ?? new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns, cfg.secrets.redact);
     const logs = deps.logs ?? inProcessLogStore(new LogManager(
       cfg.logs.max_memory_events,
       bus,

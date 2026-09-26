@@ -16,6 +16,6 @@ export type LlmCallStore = {
   setSourceError(source: string, message: string, status?: number): void;
   clearSourceError(source: string): void;
   sourceErrors(): LlmSourceError[];
-  setSecrets(extraMarkers: string[], extraPatterns: string[]): void;
+  setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void;
   close(): void;
 };

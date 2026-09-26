@@ -765,7 +765,7 @@ describe("TUI helpers", () => {
   test("service env entries merge defaults required, sorting config-defined vars to the top", () => {
     const svc = emptyService();
     svc.environment = {
-      vars: { ZED: "9", TOKEN: "secret" },
+      vars: { ZED: "9", TOKEN: "super-secret-value-ok12" },
       defaults: { REGION: "eu" },
       required: ["TOKEN", "MISSING"],
     };
@@ -773,7 +773,7 @@ describe("TUI helpers", () => {
     // Config-defined vars (REGION, TOKEN, ZED) sort alphabetically ahead of
     // MISSING, which is only named in `required` and never actually set here.
     expect(entries.map((row) => row.key)).toEqual(["REGION", "TOKEN", "ZED", "MISSING"]);
-    expect(entries.find((row) => row.key === "TOKEN")?.value).not.toContain("secret");
+    expect(entries.find((row) => row.key === "TOKEN")?.value).not.toContain("super-secret-value-ok12");
     expect(entries.find((row) => row.key === "MISSING")?.required).toBe(true);
     // ZED/TOKEN (vars) and REGION (defaults) are set directly on this
     // service; MISSING is only named in `required`, never actually set here.

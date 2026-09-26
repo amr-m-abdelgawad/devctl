@@ -13,6 +13,6 @@ export type LogStore = {
   exportTo(path: string, filter: LogFilter): Promise<void>;
   setParsers(parsers: LogParser[], pluginPaths?: readonly string[], repoRoot?: string): void;
   setServiceLogs(logs: Record<string, ServiceLogConfig>): void;
-  setSecrets(extraMarkers: string[], extraPatterns: string[]): void;
+  setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void;
   close(): Promise<void>;
 };

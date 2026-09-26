@@ -15,6 +15,16 @@ function writeFile(dir: string, rel: string, contents: string): void {
 }
 
 describe("config load", () => {
+  test("defaults secrets.redact on and keeps an explicit false", () => {
+    const onDir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-redact-on-${Date.now()}`;
+    writeFile(onDir, ".devctl/config.yaml", "version: 1\nservices:\n  api:\n    command: [api]\n");
+    expect(load(onDir, "").secrets.redact).toBe(true);
+
+    const offDir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-redact-off-${Date.now()}`;
+    writeFile(offDir, ".devctl/config.yaml", "version: 1\nservices:\n  api:\n    command: [api]\nsecrets:\n  redact: false\n");
+    expect(load(offDir, "").secrets.redact).toBe(false);
+  });
+
   test("decodes service hooks and one-off tasks", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-tasks-${Date.now()}`;
     writeFile(dir, ".devctl/config.yaml", `

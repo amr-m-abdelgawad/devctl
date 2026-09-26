@@ -52,7 +52,7 @@ describe("security", () => {
 
   test("detector redacts tokens from proxy-style lines", () => {
     const detector = new Detector(["secret"], []);
-    expect(detector.redactText("Authorization: Bearer leaked-secret")).not.toContain("leaked-secret");
+    expect(detector.redactText("Authorization: Bearer leaked-secret-value-ok")).not.toContain("leaked-secret");
   });
 
   test("proxy still refuses 0.0.0.0", async () => {

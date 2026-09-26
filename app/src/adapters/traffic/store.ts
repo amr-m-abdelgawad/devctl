@@ -42,12 +42,12 @@ export class TrafficCallRing implements TrafficCallStore {
     this.cap = cap > 0 ? cap : DEFAULT_TRAFFIC_STORE_CAP;
   }
 
-  setSecrets(extraMarkers: string[], extraPatterns: string[]): void {
+  setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void {
     if (this.detector) {
-      this.detector.update(extraMarkers, extraPatterns);
+      this.detector.update(extraMarkers, extraPatterns, redact);
       return;
     }
-    this.detector = new Detector(extraMarkers, extraPatterns);
+    this.detector = new Detector(extraMarkers, extraPatterns, redact !== false);
   }
 
   upsert(calls: TrafficCallIngest[]): void {

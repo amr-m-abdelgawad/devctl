@@ -83,7 +83,7 @@ export function ServiceInspector(props: {
   const health = rt?.health ?? "UNKNOWN";
   const port = firstPort(rt) || servicePortsText(svc, rt);
   const envName = rt?.env ?? "";
-  const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? [], props.resolvedEnv, envName);
+  const entries = serviceEnvEntries(svc, reveal, cfg?.secrets.extra_markers ?? [], cfg?.secrets.extra_patterns ?? [], props.resolvedEnv, envName, cfg?.secrets.redact ?? true);
   const selectedEnv = serviceEnvLabel(svc, rt);
   const envPending = serviceEnvNeedsRestart(svc, rt);
   const envTone = props.envStatus === "error" ? "error" : props.envStatus === "resolved" ? "success" : props.envStatus === "loading" ? "info" : "muted";

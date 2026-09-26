@@ -590,7 +590,7 @@ export function isKnownToolName(name: string): boolean {
 }
 
 export function detectorFor(cfg: DevctlConfig): Detector {
-  return new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
+  return new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns, cfg.secrets.redact);
 }
 
 export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown {
