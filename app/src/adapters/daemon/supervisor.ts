@@ -62,7 +62,7 @@ import { ProxyTrafficSink } from "../traffic/capture.ts";
 import { llmSourceFactory } from "../llm/factory.ts";
 import { assignPorts, findPortHolder, freePort } from "../net/ports.ts";
 import { loadPluginPaths, type Registry } from "../plugins/registry.ts";
-import { type ProcessManager, sameProcess, type ProcessIdentity } from "../process/processes.ts";
+import { type ProcessManager, provenSameProcess, type ProcessIdentity } from "../process/processes.ts";
 import { callerServiceForPeer } from "../process/peer-caller.ts";
 import { getPreferenceSnapshot, loadTuiConfig, resetTuiPreferences, saveTuiPreferences } from "../config/tui-preferences.ts";
 import { hasLocalConfigPatch, patchRepoLocalConfig } from "../config/local-overlay.ts";
@@ -1135,8 +1135,8 @@ export class Supervisor {
         continue;
       }
       const observed = await this.inspectProcessFn(holder.pid);
-      if (observed === undefined || observed.command === "" || !sameProcess(expected, observed)) {
-        this.log(name, "WARN", `port ${port} is held by pid ${holder.pid}, which does not match ${name}; leaving it running`);
+      if (observed === undefined || observed.command === "" || !provenSameProcess(expected, observed)) {
+        this.log(name, "WARN", `port ${port} is held by pid ${holder.pid}, which can't be matched to ${name}; leaving it running`);
         continue;
       }
       try {

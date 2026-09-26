@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createServer } from "node:net";
 import { available } from "../net/ports.ts";
-import { ProcessManager, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
+import { ProcessManager, provenSameProcess, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { parseElapsedMillis } from "./unix.ts";
 
 function listenPort(): Promise<number> {
@@ -54,6 +54,26 @@ describe("sameProcess", () => {
         { pid: 1, command: "python main.py", cwd: "/repo", startTime: now.toISOString() },
       ),
     ).toBe(true);
+  });
+});
+
+describe("provenSameProcess", () => {
+  const now = new Date();
+  const expected = { args: ["bun", "server.ts"], workDir: "/repo", startTime: now };
+
+  test("a name-only match is not proof (Windows tasklist: no cwd, no start time)", () => {
+    expect(provenSameProcess(expected, { pid: 1, command: "bun.exe", cwd: "" })).toBe(false);
+    expect(sameProcess(expected, { pid: 1, command: "bun.exe", cwd: "" })).toBe(true);
+  });
+
+  test("a compared cwd or start time is proof", () => {
+    expect(provenSameProcess(expected, { pid: 1, command: "bun server.ts", cwd: "/repo" })).toBe(true);
+    expect(provenSameProcess({ ...expected, workDir: "" }, { pid: 1, command: "bun server.ts", cwd: "", startTime: now.toISOString() })).toBe(true);
+  });
+
+  test("still rejects what sameProcess rejects", () => {
+    expect(provenSameProcess(expected, { pid: 1, command: "bun server.ts", cwd: "/other" })).toBe(false);
+    expect(provenSameProcess(expected, { pid: 1, command: "bun server.ts", cwd: "/repo", startTime: new Date(now.getTime() + 10_000).toISOString() })).toBe(false);
   });
 });
 

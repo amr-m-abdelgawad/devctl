@@ -8,7 +8,7 @@ import { ConfigurationReloadFailed, SessionRecovered } from "../../shared/events
 import { MCP_TOOLS } from "../../presentation/mcp/tools.ts";
 import { available } from "../net/ports.ts";
 import { processAlive, readPersistedState, socketPath, writePersistedState } from "../storage/storage.ts";
-import { ProcessManager } from "../process/processes.ts";
+import { ProcessManager, inspectProcess } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
 import { mergeRestartRequired } from "./reload.ts";
 import { saveTuiPreferences } from "../config/tui-preferences.ts";
@@ -2320,7 +2320,15 @@ services:
     }
   }, 10_000);
 
-  test("stopping a removed service leaves an unrelated process on its port running", async () => {
+  // "name only" is what Windows tasklist gives: the command, no cwd, no start
+  // time, so the holder can only be matched on its executable name.
+  test.each([
+    ["full identity", inspectProcess],
+    ["name only", async (pid: number) => {
+      const found = await inspectProcess(pid);
+      return found && { pid, command: found.command, cwd: "" };
+    }],
+  ] as const)("stopping a removed service leaves an unrelated process on its port running (%s)", async (_label, inspect) => {
     const dir = tmp();
     mkdirSync(join(dir, ".devctl"), { recursive: true });
     const configPath = join(dir, ".devctl", "config.yaml");
@@ -2348,6 +2356,7 @@ services:
     cfg.shutdown.grace_seconds = 0.2;
     const sup = new Supervisor(cfg, {
       detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      inspectProcess: inspect,
     });
     let squatter: ReturnType<typeof Bun.spawn> | undefined;
     try {

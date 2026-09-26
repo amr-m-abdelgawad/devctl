@@ -296,6 +296,21 @@ export function sameProcess(expected: { args: string[]; workDir: string; startTi
   return true;
 }
 
+// sameProcess, plus proof: the working directory or the start time was
+// actually compared, not skipped for lack of data. commandMatches alone
+// accepts an executable basename, so on Windows (tasklist reports neither
+// cwd nor start time) any process of the same program would pass. Used
+// before killing a port holder, where leaving an unverifiable process
+// running is the safe outcome.
+export function provenSameProcess(expected: { args: string[]; workDir: string; startTime?: Date }, observed: ProcessIdentity): boolean {
+  if (!sameProcess(expected, observed)) {
+    return false;
+  }
+  const cwdCompared = expected.workDir !== "" && observed.cwd !== "";
+  const startCompared = timeMs(expected.startTime) !== undefined && timeMs(observed.startTime) !== undefined;
+  return cwdCompared || startCompared;
+}
+
 export function sameAdoptedProcess(expected: { args: string[]; workDir: string; startTime?: Date }, observed: ProcessIdentity): boolean {
   if (expected.workDir !== "" && observed.cwd !== "" && normalizePath(expected.workDir) !== normalizePath(observed.cwd)) {
     return false;
