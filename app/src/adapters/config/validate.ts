@@ -739,6 +739,9 @@ function validateRouteLog(route: RouteConfig, prefix: string): string[] {
     if (entry.log !== undefined && entry.log !== "info" && entry.log !== "silent") {
       issues.push(`${entryPrefix}.log must be "info" or "silent"`);
     }
+    if (entry.inspect !== undefined && typeof entry.inspect !== "boolean") {
+      issues.push(`${entryPrefix}.inspect must be a boolean`);
+    }
   });
   return issues;
 }

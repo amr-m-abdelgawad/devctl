@@ -945,12 +945,12 @@ The [web console](web.md) **Doctor** page (\`#/doctor\`) runs the same checks on
 ## What it checks
 
 - Google CLI installed
-- Application Default Credentials
+- Application Default Credentials. An \`authorized_user\` file with no \`account\` field is a warning: re-run \`gcloud auth application-default login\` in an interactive terminal, or add \`"account": "<your-email>"\`. \`gcloud config get-value account\` prints the email. The warning does not fail doctor.
 - Project (with source)
 - Live IAM Credentials / Resource Manager / IAP API reachability via Service Usage (reported, **never** auto-enabled)
 - Impersonation for each configured service account
 - IAP audiences (including SA impersonation)
-- IAP credentials file on each route that sets \`auth.credentials\` or folded \`proxy.credentials\` (exists, \`authorized_user\` JSON, \`refresh_token\`, \`client_id\` matches the route). Failures hint \`gcloud auth application-default login\` with a client secret file that matches \`client_id\` (or omit \`client_id\`); TUI \`/auth login\` or \`devctl auth login\`
+- IAP credentials file on each route that sets \`auth.credentials\` or folded \`proxy.credentials\` (exists, \`authorized_user\` JSON, \`refresh_token\`, \`client_id\` matches the route). The well-known ADC path hints \`gcloud auth application-default login\` with a client secret file that matches \`client_id\` (or omit \`client_id\`); TUI \`/auth login\` or \`devctl auth login\`. Any other path is named in the hint: regenerate that file. The gcloud ADC command writes a different file and does not update it.
 - Configured \`doctor.tools\` binaries (demo: \`python3\`, \`bun\`)
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares \`container\` (every such service in config, not only the active profile — the demo probes Docker because \`postgres\` is always declared)
 - Container image USER is not root (warns when inspect shows root; set \`container.user\`)
@@ -1494,7 +1494,7 @@ Omit \`client_id\` to keep the default ADC client. \`client_id\` is only valid o
 
 The ADC refresh token must have been issued to that OAuth client. \`gcloud auth application-default login\` uses the Cloud SDK client by default; a mismatch fails as \`unauthorized_client\`. Login with a client secret file that matches \`client_id\`, or omit \`client_id\`.
 
-When a route (or \`proxy.credentials\`) points at a separate authorized_user file, \`devctl config validate\` checks that the file exists, is JSON with \`refresh_token\` and \`client_id\`, and that the file's \`client_id\` matches the route. \`devctl status\` reports that result as \`credentials_valid\` on the route snapshot (\`true\` / \`false\` when a file is configured; omitted otherwise). \`devctl doctor\` reports the same inspect as \`IAP credentials <route>\` even when a live mint is skipped (for example a missing audience). A missing or mismatched file is an error and hints \`gcloud auth application-default login\` with a client secret file that matches \`client_id\` (or omit \`client_id\`); TUI \`/auth login\` or \`devctl auth login\`.
+When a route (or \`proxy.credentials\`) points at a separate authorized_user file, \`devctl config validate\` checks that the file exists, is JSON with \`refresh_token\` and \`client_id\`, and that the file's \`client_id\` matches the route. \`devctl status\` reports that result as \`credentials_valid\` on the route snapshot (\`true\` / \`false\` when a file is configured; omitted otherwise). \`devctl doctor\` reports the same inspect as \`IAP credentials <route>\` even when a live mint is skipped (for example a missing audience). A missing or mismatched file is an error. If that path is the well-known ADC file, the hint is \`gcloud auth application-default login\` with a client secret file that matches \`client_id\` (or omit \`client_id\`); TUI \`/auth login\` or \`devctl auth login\`. If the path is any other file, the hint names that file and says to regenerate it with the flow that created it. \`gcloud auth application-default login\` writes \`~/.config/gcloud/application_default_credentials.json\` and does not update the custom file.
 
 \`\`\`mermaid
 flowchart LR
@@ -3199,9 +3199,13 @@ custom path (not the default ADC location). Notes:
   \`authorized_user\` JSON with \`refresh_token\` and a \`client_id\` that matches the
   route, otherwise \`false\`. Routes that are not IAP or have no credentials file
   omit the field. \`devctl doctor\` reports the same inspect as
-  \`IAP credentials <route>\` and hints \`gcloud auth application-default login\`
-  with a client secret file that matches \`client_id\` (or omit \`client_id\`) when
-  the file is missing or mismatched.
+  \`IAP credentials <route>\`. When the file is the well-known ADC path, a
+  missing or mismatched file hints \`gcloud auth application-default login\`
+  with a client secret file that matches \`client_id\` (or omit \`client_id\`).
+  When the path is any other file, the hint names that path: regenerate it
+  with the flow that created it. \`gcloud auth application-default login\`
+  writes \`~/.config/gcloud/application_default_credentials.json\` and does
+  not update the custom file.
 
 ### Extra token headers
 
@@ -3359,12 +3363,18 @@ A non-zero \`grpc-status\` is a proxy error by default (WARN log and \`stats().e
           ok:
             - status: 14
               methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+              log: silent
+              inspect: false   # do not store this method+status in the traffic ring
+            - status: 0
+              methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+              log: silent
+              inspect: false   # successful polls are already non-errors; this only quiets them
             - status: 3
               methods: [RespondWorkflowTaskCompleted]
               log: info          # info (default) | silent
 \`\`\`
 
-Omit \`methods\` to apply the status to every method on that route. \`status\` is an integer from 1 to 16. A listed name matches the exact \`:path\` or a suffix that starts with \`/\` (so \`PollWorkflowTaskQueue\` matches \`/temporal.api…/PollWorkflowTaskQueue\`, not \`…/NotPollWorkflowTaskQueue\`). A matching hop is not a proxy error: no \`requestErrors++\`, and the log is INFO — or omitted when \`log: silent\`. Unlisted non-zero statuses stay WARN.
+Omit \`methods\` to apply the status to every method on that route. \`status\` is an integer from 0 to 16. A listed name matches the exact \`:path\` or a suffix that starts with \`/\` (so \`PollWorkflowTaskQueue\` matches \`/temporal.api…/PollWorkflowTaskQueue\`, not \`…/NotPollWorkflowTaskQueue\`). A matching hop with status 1–16 is not a proxy error: no \`requestErrors++\`, and the log is INFO — or omitted when \`log: silent\`. Status 0 is already a success; listing it only changes the log line and inspect capture. Unlisted non-zero statuses stay WARN. \`inspect: false\` drops that method and status from the traffic inspector ring (TUI, web, CLI, MCP). Omitted or \`true\` still captures when the route has \`inspect.enabled\`. A proxy error (client cancel, timeout) is not matched, so those hops stay in the ring. The metadata request log (last 100 hops) still records every call.
 
 ## Token endpoint
 
@@ -3421,12 +3431,14 @@ Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List
 
 Caller attribution reuses the LLM path: \`X-Devctl-Service\` or a loopback peer lookup, so the inspector can label which service issued the call. Filter that label everywhere: TUI \`/caller worker\` on the proxy screen, CLI \`devctl traffic --caller worker\`, the web console caller dropdown, and MCP \`get_traffic_calls\`'s \`caller\`. Pass \`-\` (CLI also accepts \`none\`) to show only hops with **no** known caller. On the LLM screen the same \`/caller\` command still filters LLM calls.
 
+Search is a substring of the hop (path, caller, status, redacted body). A leading \`!\` excludes that substring (\`!Poll\` hides Poll methods). A leading \`!!\` is a literal search for the rest of the string, including one \`!\` (\`!!\` matches a bang, \`!!Poll\` matches \`!Poll\`). A bare \`!\` does not exclude everything. The same string works in TUI proxy search (\`f\`), the web traffic search box, \`devctl traffic --search\`, and MCP \`get_traffic_calls\` \`search\`.
+
 | Surface | What you get |
 |---------|----------------|
-| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). \`r\` toggles. \`/caller\` filters by originating service. Enter opens the overlay tree; enter again jumps to a trace when \`traceId\` is present. |
-| Web | \`#/traffic\` and \`#/traffic/:id\`. Caller dropdown plus search. Overview request paths link here when a captured body exists. |
-| MCP | \`get_traffic_calls\` (inspect, bodies omitted) and \`get_traffic_call\` (bodies included). |
-| CLI | \`devctl traffic\` / \`devctl traffic show <id>\`. \`--caller\` filters by originating service. \`--follow\` polls. |
+| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). \`r\` toggles. \`f\` searches (\`!Poll\` excludes). \`/caller\` filters by originating service. Enter opens the overlay tree; enter again jumps to a trace when \`traceId\` is present. |
+| Web | \`#/traffic\` and \`#/traffic/:id\`. Caller dropdown plus search (\`!\` excludes). Overview request paths link here when a captured body exists. |
+| MCP | \`get_traffic_calls\` (inspect, bodies omitted) and \`get_traffic_call\` (bodies included). \`search\` supports a leading \`!\`. |
+| CLI | \`devctl traffic\` / \`devctl traffic show <id>\`. \`--caller\` filters by originating service. \`--search\` supports a leading \`!\`. \`--follow\` polls. |
 
 ## Tracing
 
@@ -4308,7 +4320,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`enter\` | Start (empty dashboard) or open service detail |
 | \`space\` | Multi-select a service |
 | \`esc\` | Back / close overlay. Twice (when nothing else is open) asks to quit |
-| \`f\` | **Logs tab only.** Focus log search. \`esc\` closes search and returns to the live stream; \`enter\` keeps the filter (\`esc\` again clears it). Remap with \`keybinds.search\` |
+| \`f\` | **Logs and proxy.** Focus search. On logs, \`esc\` closes search and returns to the live stream; \`enter\` keeps the filter (\`esc\` again clears it). On the proxy screen the query is a traffic substring (\`!Poll\` excludes; \`!!\` matches a literal \`!\`). \`esc\` clears it. Remap with \`keybinds.search\` |
 | \`z\` | Expand logs to fill the terminal. \`z\` or \`esc\` exits |
 | \`w\` | Cycle log wrap: wrap every line (default), clip with ellipsis, or unwrap only the selected row |
 | \`command+c\` / \`ctrl+c\` | Copy the highlighted selection (drag with the mouse). Remap with \`keybinds.copy\` |
@@ -4336,7 +4348,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Logs** — ANSI color codes are stripped so wrap uses visible width; messages wrap to the pane with OpenTUI word wrap. The **all** chip keeps the total across services; picking one service does not rewrite that count. \`w\` cycles wrap all / clip / wrap selected. \`\\\\\` / \`/split\` opens a second pane on the same live stream (independent service filter, shared search). \`/trace <id>\` or Enter on a log details request id jumps search to that id. See [Logs](logs.md)
 - **Identity** — user, project, source, ADC, gcloud, configured SAs, impersonation AVAILABLE/UNAVAILABLE, IAP (no tokens). \`/auth login\` suspends the TUI, runs \`gcloud auth application-default login\` on the real terminal, then restores the TUI. \`/auth logout\` revokes ADC without leaving the screen
 - **Credentials** — store backend and entry names only. Tokens stay in the OS keychain or \`~/.devctl/credentials\`
-- **Proxy** — status + routes (inspect chip when \`inspect.enabled\`); list of captured hops plus a live inspector (syntax-colored pretty JSON / raw). Request and response bodies wrap to the pane and scroll vertically. \`r\` toggles body mode. \`/caller <service>\` filters hops by originating service (\`-\` for none, empty clears) so a noisy neighbor does not bury the service you are debugging. Click a hop or \`enter\` opens the overlay with a collapsible JSON tree (\`enter\` again jumps to a trace when one is present). Click \`▸\`/\`▾\` to expand or collapse a node. The highlighted hop stays selected when newer hops arrive, without scrolling the list back to it; \`j\`/\`k\` moves and keeps the cursor on screen. Empty state explains \`inspect.enabled\` and that unproxied \`127.0.0.1\` sockets are invisible. \`n\` start / \`x\` stop. If \`proxy.listen.port\` is missing, the screen says so and \`n\` reports the bind error in the status bar instead of crashing. See [Proxy](proxy.md#inspect-bodies)
+- **Proxy** — status + routes (inspect chip when \`inspect.enabled\`); list of captured hops plus a live inspector (syntax-colored pretty JSON / raw). Request and response bodies wrap to the pane and scroll vertically. \`r\` toggles body mode. \`f\` searches hops (\`!Poll\` excludes a substring, \`esc\` clears). \`/caller <service>\` filters hops by originating service (\`-\` for none, empty clears) so a noisy neighbor does not bury the service you are debugging. Click a hop or \`enter\` opens the overlay with a collapsible JSON tree (\`enter\` again jumps to a trace when one is present). Click \`▸\`/\`▾\` to expand or collapse a node. The highlighted hop stays selected when newer hops arrive, without scrolling the list back to it; \`j\`/\`k\` moves and keeps the cursor on screen. Empty state explains \`inspect.enabled\` and that unproxied \`127.0.0.1\` sockets are invisible. \`n\` start / \`x\` stop. If \`proxy.listen.port\` is missing, the screen says so and \`n\` reports the bind error in the status bar instead of crashing. See [Proxy](proxy.md#inspect-bodies)
 - **LLM** — list of recent calls (time, status, caller, model, latency, tokens) with a live inspector for the selected row: status chips, caller / via, and a conversation transcript when the body is chat-shaped (otherwise syntax-colored JSON). \`r\` (or the conversation/json chip) switches the inspector and overlay between the transcript and the request/response JSON tree. Click selects; click again or \`enter\` opens the full overlay (payload, attributes; \`enter\` again jumps to a trace when one is present). Click \`▸\`/\`▾\` to expand or collapse a node. The highlighted call stays selected when newer calls arrive, without scrolling the list back to it. \`/caller\` filters. Usage counts are not secrets. \`/reveal\` does not unmask LLM payloads — those are redacted at ingest. See [LLM inspector](llm.md)
 - **Doctor** — re-runs on every visit; ✓ / ! / ✗ with hints. \`enter\` on a busy host port asks to stop that process; it never offers to kill the Docker or Podman daemon. \`r\` reruns
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit

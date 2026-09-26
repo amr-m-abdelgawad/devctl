@@ -505,19 +505,29 @@ describe("config validate", () => {
     expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be a number");
   });
 
-  test("rejects log.grpc.ok status outside the non-zero gRPC range", () => {
+  test("accepts log.grpc.ok status 0 and rejects values outside 0 to 16", () => {
+    const ok = withService("api");
+    ok.proxy.routes.push({
+      name: "temporal",
+      match: { host: "", path: "" },
+      upstream: { url: "http://127.0.0.1:8000" },
+      auth: emptyRouteAuth(),
+      log: { grpc: { ok: [{ status: 0, methods: ["PollWorkflowTaskQueue"], log: "silent", inspect: false }] } },
+    });
+    expect(validate(ok).filter((issue) => issue.includes("log.grpc"))).toEqual([]);
     const cfg = withService("api");
     cfg.proxy.routes.push({
       name: "temporal",
       match: { host: "", path: "" },
       upstream: { url: "http://127.0.0.1:8000" },
       auth: emptyRouteAuth(),
-      log: { grpc: { ok: [{ status: 0 }, { status: 17 }, { status: 14.5 }] } },
+      log: { grpc: { ok: [{ status: -1 }, { status: 17 }, { status: 14.5 }, { status: 0, inspect: "no" as unknown as boolean }] } },
     });
     const issues = validate(cfg);
-    expect(issues).toContain("proxy.routes[0].log.grpc.ok[0].status must be an integer from 1 to 16");
-    expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be an integer from 1 to 16");
-    expect(issues).toContain("proxy.routes[0].log.grpc.ok[2].status must be an integer from 1 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[0].status must be an integer from 0 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[1].status must be an integer from 0 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[2].status must be an integer from 0 to 16");
+    expect(issues).toContain("proxy.routes[0].log.grpc.ok[3].inspect must be a boolean");
   });
 
   test("rejects negative or non-finite timeout idle_ms / total_ms and accepts omitted or 0", () => {

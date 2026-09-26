@@ -288,6 +288,45 @@ describe("GrpcProxyServer", () => {
     }
   });
 
+  test("log.grpc.ok inspect false skips the traffic ring for status 0 and still stores other methods", async () => {
+    const up = await startStatusUpstream(() => "0");
+    const port = await reservePort();
+    const route = grpcRoute(up.url, port);
+    route.auth = { ...emptyRouteAuth(), type: "none", identity: { type: "user", service_account: "" } };
+    route.inspect = { enabled: true, max_bytes: 0 };
+    route.log = {
+      grpc: {
+        ok: [{ status: 0, methods: ["PollWorkflowTaskQueue"], log: "silent", inspect: false }],
+      },
+    };
+    const cfg = defaultConfig();
+    cfg.proxy.enabled = true;
+    cfg.proxy.routes = [route];
+    const store = new TrafficCallRing();
+    const sink = new ProxyTrafficSink({ cfg: () => cfg, store });
+    const { logs, events } = memoryLogs();
+    const server = new GrpcProxyServer(route, tokens(), logs, undefined, undefined, undefined, sink);
+    await server.start();
+    try {
+      const poll = "/temporal.api.workflowservice.v1.WorkflowService/PollWorkflowTaskQueue";
+      await call(port, poll, "x");
+      await call(port, "/temporal.api.workflowservice.v1.WorkflowService/StartWorkflowExecution", "x");
+      expect(server.stats().total).toBe(2);
+      expect(server.stats().errors).toBe(0);
+      expect(events.filter((event) => event.message.includes("PollWorkflowTaskQueue"))).toEqual([]);
+      expect(events.some((event) => event.level === "INFO" && event.message.includes("StartWorkflowExecution"))).toBe(true);
+      const deadline = Date.now() + 1000;
+      while (store.queryPage({}).calls.length === 0 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      const captured = store.queryPage({}).calls;
+      expect(captured.map((call) => call.path)).toEqual(["/temporal.api.workflowservice.v1.WorkflowService/StartWorkflowExecution"]);
+    } finally {
+      await server.stop();
+      await up.close();
+    }
+  });
+
   test("log.grpc.ok silent omits the hop log; omit methods applies to every method", async () => {
     const up = await startStatusUpstream(() => "14");
     const port = await reservePort();

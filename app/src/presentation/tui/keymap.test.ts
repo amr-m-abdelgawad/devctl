@@ -58,11 +58,13 @@ describe("tui keymap", () => {
     expect(isClearLogsKey({ name: "l", ctrl: process.platform === "darwin" })).toBe(false);
   });
 
-  test("log search is logs-tab only and esc returns to the live stream", () => {
+  test("log search opens on logs and proxy, and esc clears the filter", () => {
     const tui = defaultTuiConfig();
     expect(isSearchChord({ name: "f" }, tui)).toBe(true);
     expect(logSearchAction({ screen: "dashboard", focused: false, query: "", keyName: "f", searchChord: true })).toBe("none");
-    expect(logSearchAction({ screen: "proxy", focused: false, query: "error", keyName: "escape", searchChord: false })).toBe("none");
+    expect(logSearchAction({ screen: "proxy", focused: false, query: "", keyName: "f", searchChord: true })).toBe("open");
+    expect(logSearchAction({ screen: "proxy", focused: false, query: "!Poll", keyName: "escape", searchChord: false })).toBe("close-live");
+    expect(logSearchAction({ screen: "proxy", focused: true, query: "!Poll", keyName: "return", searchChord: false })).toBe("keep-filter");
     expect(logSearchAction({ screen: "logs", focused: false, query: "", keyName: "f", searchChord: true })).toBe("open");
     expect(logSearchAction({ screen: "logs", focused: true, query: "auth", keyName: "escape", searchChord: false })).toBe("close-live");
     expect(logSearchAction({ screen: "logs", focused: true, query: "auth", keyName: "return", searchChord: false })).toBe("keep-filter");

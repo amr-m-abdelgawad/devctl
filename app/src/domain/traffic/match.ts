@@ -33,10 +33,31 @@ export function matchesTrafficCall(filter: TrafficCallFilter, call: TrafficCall)
     return false;
   }
   if (filter.search) {
-    const needle = filter.search.toLowerCase();
-    return trafficCallSearchText(call).toLowerCase().includes(needle);
+    return matchesTrafficSearch(filter.search, call);
   }
   return true;
+}
+
+function matchesTrafficSearch(search: string, call: TrafficCall): boolean {
+  const raw = search.trim();
+  if (raw === "" || raw === "!") {
+    return true;
+  }
+  if (raw.startsWith("!!")) {
+    return includesSearch(call, raw.slice(1));
+  }
+  if (raw.startsWith("!")) {
+    const needle = raw.slice(1).trim();
+    if (needle === "") {
+      return true;
+    }
+    return !includesSearch(call, needle);
+  }
+  return includesSearch(call, raw);
+}
+
+function includesSearch(call: TrafficCall, needle: string): boolean {
+  return trafficCallSearchText(call).toLowerCase().includes(needle.toLowerCase());
 }
 
 export function trafficCallSearchText(call: TrafficCall): string {

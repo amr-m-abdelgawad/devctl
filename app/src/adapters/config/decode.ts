@@ -493,6 +493,9 @@ function decodeRouteGrpcOkEntry(value: unknown): RouteGrpcOkEntry {
   if (value.log !== undefined) {
     entry.log = decodeRouteGrpcOkLog(value.log);
   }
+  if (value.inspect !== undefined) {
+    entry.inspect = value.inspect as boolean;
+  }
   return entry;
 }
 

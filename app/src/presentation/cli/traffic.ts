@@ -72,7 +72,7 @@ export function addTraffic(root: Command, runtime: ClientRuntime): void {
     .option("--method <method>", "filter by HTTP method")
     .option("--status <status>", "HTTP status, grpc-status, ok, or error")
     .option("--transport <kind>", "http or grpc")
-    .option("--search <text>", "substring search")
+    .option("--search <text>", "substring search; a leading ! excludes (!Poll). !! is a literal !")
     .option("--since <timestamp>", "only calls at or after this ISO timestamp")
     .option("--until <timestamp>", "only calls at or before this ISO timestamp")
     .option("--json", "JSONL output")

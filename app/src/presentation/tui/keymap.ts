@@ -40,7 +40,7 @@ export function isSearchChord(key: KeyLike, tui: TuiConfig): boolean {
 
 export type LogSearchAction = "open" | "keep-filter" | "close-live" | "none";
 
-/** Search lives on the logs tab only. Esc always returns to the live stream. */
+/** Search lives on the logs and proxy tabs. Esc clears the filter. */
 export function logSearchAction(opts: {
   readonly screen: string;
   readonly focused: boolean;
@@ -48,7 +48,7 @@ export function logSearchAction(opts: {
   readonly keyName: string;
   readonly searchChord: boolean;
 }): LogSearchAction {
-  if (opts.screen !== "logs") {
+  if (opts.screen !== "logs" && opts.screen !== "proxy") {
     return "none";
   }
   if (opts.focused) {

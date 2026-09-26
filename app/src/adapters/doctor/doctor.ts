@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import "../google/gcp-env.ts";
 import { type DevctlConfig, validate } from "../config/index.ts";
 import { versionLine } from "../../version.ts";
@@ -6,11 +8,12 @@ import { DevctlError, humanMessage } from "../../shared/errors.ts";
 import { inspectIapOAuthClientFile, type IapOAuthClientInspectIssue } from "../../domain/config/iap-credentials.ts";
 import { envRefsIn } from "../../domain/config/env-ref.ts";
 import type { RouteAuthConfig } from "../../domain/config/types.ts";
-import { adcQuotaProject, detectGoogle, hasCommand, hasLocalAdcMaterial, type GoogleStatus } from "../google/google.ts";
+import { adcQuotaProject, adcUserAccount, detectGoogle, hasCommand, hasLocalAdcMaterial, type AdcUserAccount, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { isImageUserRoot } from "../../domain/service/container-limits.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
+import { resolveUserPath } from "../storage/storage.ts";
 import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
@@ -29,6 +32,7 @@ export type DoctorHost = {
   portAvailable(port: number): Promise<boolean>;
   hasLocalAdc?: () => boolean;
   adcQuotaProject?: () => string;
+  adcUserAccount?: () => AdcUserAccount;
   liveDeadlineMs?: number;
   mintToken?: (identity: string, audience: string, oauth?: OAuthClientRef) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
@@ -49,6 +53,7 @@ export function createDoctorHost(deps?: { tokens?: TokenManager }): DoctorHost {
     portAvailable: available,
     hasLocalAdc: hasLocalAdcMaterial,
     adcQuotaProject,
+    adcUserAccount,
     mintToken: async (identity, audience, oauth) => {
       await manager().get(identity, audience, [], oauth);
     },
@@ -217,6 +222,14 @@ export async function runDoctor(
       severity: needsCloudFeatures(cfg) ? "error" : "warn",
       message: "ADC unavailable",
       hint: "run `gcloud auth application-default login`",
+    });
+  }
+  if ((host.adcUserAccount ?? adcUserAccount)().state === "missing") {
+    add({
+      name: "ADC account",
+      severity: "warn",
+      message: "ADC is missing the `account` field",
+      hint: "re-run `gcloud auth application-default login` in an interactive terminal, or add `\"account\": \"<your-email>\"` manually. Run `gcloud config get-value account` to retrieve your email.",
     });
   }
   if (st.projectID !== "") {
@@ -461,7 +474,7 @@ function addIapCredentialsFileChecks(
     }
     const name = `IAP credentials ${route.name}`;
     checking(name);
-    add(iapCredentialsFileCheck(name, path, route.auth.client_id));
+    add(iapCredentialsFileCheck(name, path, route.auth.client_id, cfg.repoRoot));
   }
 }
 
@@ -478,28 +491,52 @@ function iapCredentialsPath(auth: RouteAuthConfig, proxyCredentials: string): st
   return proxyCredentials;
 }
 
-function iapCredentialsFileCheck(name: string, path: string, clientId: string): Check {
+function iapCredentialsFileCheck(name: string, path: string, clientId: string, repoRoot: string): Check {
   let raw: string;
   try {
     raw = readFileSync(path, "utf8");
   } catch {
-    return iapCredentialsFailure(name, `file not found: ${path}`);
+    return iapCredentialsFailure(name, `file not found: ${path}`, path, repoRoot);
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return iapCredentialsFailure(name, `file is not valid JSON: ${path}`);
+    return iapCredentialsFailure(name, `file is not valid JSON: ${path}`, path, repoRoot);
   }
   const result = inspectIapOAuthClientFile(parsed, clientId);
   if (result.ok) {
     return { name, severity: "ok", message: "authorized_user file matches client_id" };
   }
-  return iapCredentialsFailure(name, iapCredentialsIssueMessage(result.issue, path));
+  return iapCredentialsFailure(name, iapCredentialsIssueMessage(result.issue, path), path, repoRoot);
 }
 
-function iapCredentialsFailure(name: string, message: string): Check {
-  return { name, severity: "error", message, hint: IAP_CREDENTIALS_LOGIN_HINT };
+function iapCredentialsFailure(name: string, message: string, path: string, repoRoot: string): Check {
+  return { name, severity: "error", message, hint: iapCredentialsFileHint(path, repoRoot) };
+}
+
+// The gcloud ADC login command rewrites the well-known ADC file. A route that
+// points at any other credentials file needs that file regenerated instead.
+export function iapCredentialsFileHint(path: string, repoRoot = ""): string {
+  const resolved = resolveUserPath(path, repoRoot !== "" ? repoRoot : process.cwd());
+  if (isDefaultAdcPath(resolved)) {
+    return IAP_CREDENTIALS_LOGIN_HINT;
+  }
+  return `regenerate ${resolved} with the OAuth flow that created it so its client_id matches the route; \`gcloud auth application-default login\` writes ~/.config/gcloud/application_default_credentials.json and does not update this file`;
+}
+
+function isDefaultAdcPath(resolved: string): boolean {
+  const wanted = resolve(resolved);
+  return defaultAdcPaths().some((candidate) => resolve(candidate) === wanted);
+}
+
+function defaultAdcPaths(): string[] {
+  const paths = [join(homedir(), ".config", "gcloud", "application_default_credentials.json")];
+  const appData = process.env.APPDATA;
+  if (appData && appData.trim() !== "") {
+    paths.push(join(appData, "gcloud", "application_default_credentials.json"));
+  }
+  return paths;
 }
 
 function iapCredentialsIssueMessage(issue: IapOAuthClientInspectIssue, path: string): string {

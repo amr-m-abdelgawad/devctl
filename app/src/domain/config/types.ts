@@ -378,6 +378,9 @@ export type RouteGrpcOkEntry = {
   status: number;
   methods?: string[];
   log?: RouteGrpcOkLog;
+  // false skips the traffic inspector ring for this method and status.
+  // Omitted or true still captures when the route has inspect.enabled.
+  inspect?: boolean;
 };
 
 export type RouteLogGrpcConfig = {
@@ -431,8 +434,9 @@ export type RouteConfig = {
   // match.path is empty (host-based expose routes). Inspector and proxy logs
   // keep the inbound path.
   strip_prefix?: boolean;
-  // Per-route log policy. log.grpc.ok lists non-zero gRPC statuses that are
-  // not proxy errors (no stats().errors increment; INFO or silent).
+  // Per-route log policy. log.grpc.ok lists gRPC statuses that are not proxy
+  // errors (no stats().errors increment; INFO or silent). Status 0 is already
+  // a success; listing it only customizes the log line and inspect capture.
   log?: RouteLogConfig;
   // Opt-in idle/total deadlines. 0 or omitted = unlimited.
   timeout?: RouteTimeoutConfig;

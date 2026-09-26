@@ -23,12 +23,12 @@ The [web console](web.md) **Doctor** page (`#/doctor`) runs the same checks on v
 ## What it checks
 
 - Google CLI installed
-- Application Default Credentials
+- Application Default Credentials. An `authorized_user` file with no `account` field is a warning: re-run `gcloud auth application-default login` in an interactive terminal, or add `"account": "<your-email>"`. `gcloud config get-value account` prints the email. The warning does not fail doctor.
 - Project (with source)
 - Live IAM Credentials / Resource Manager / IAP API reachability via Service Usage (reported, **never** auto-enabled)
 - Impersonation for each configured service account
 - IAP audiences (including SA impersonation)
-- IAP credentials file on each route that sets `auth.credentials` or folded `proxy.credentials` (exists, `authorized_user` JSON, `refresh_token`, `client_id` matches the route). Failures hint `gcloud auth application-default login` with a client secret file that matches `client_id` (or omit `client_id`); TUI `/auth login` or `devctl auth login`
+- IAP credentials file on each route that sets `auth.credentials` or folded `proxy.credentials` (exists, `authorized_user` JSON, `refresh_token`, `client_id` matches the route). The well-known ADC path hints `gcloud auth application-default login` with a client secret file that matches `client_id` (or omit `client_id`); TUI `/auth login` or `devctl auth login`. Any other path is named in the hint: regenerate that file. The gcloud ADC command writes a different file and does not update it.
 - Configured `doctor.tools` binaries (demo: `python3`, `bun`)
 - Docker or Podman CLI installed, and that daemon reachable, when any service declares `container` (every such service in config, not only the active profile — the demo probes Docker because `postgres` is always declared)
 - Container image USER is not root (warns when inspect shows root; set `container.user`)

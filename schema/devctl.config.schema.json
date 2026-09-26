@@ -587,7 +587,7 @@
       "properties": {
         "ok": {
           "type": "array",
-          "description": "Non-zero gRPC statuses that are not proxy errors. Matching hops log INFO (or are omitted when log is silent) and do not increment stats().errors.",
+          "description": "gRPC statuses that are not proxy errors. Matching hops log INFO (or are omitted when log is silent) and do not increment stats().errors. Status 0 is already a success; list it to silence the log line or skip inspect capture.",
           "items": { "$ref": "#/$defs/routeLogGrpcOk" }
         }
       }
@@ -599,9 +599,9 @@
       "properties": {
         "status": {
           "type": "integer",
-          "minimum": 1,
+          "minimum": 0,
           "maximum": 16,
-          "description": "Non-zero gRPC status code treated as a non-error on this route (1-16, e.g. 14 for Temporal long-poll)."
+          "description": "gRPC status code on this route (0-16). 1-16 are treated as non-errors (e.g. 14 for Temporal long-poll). 0 customizes logging and inspect capture for an already-successful RPC."
         },
         "methods": {
           "type": "array",
@@ -612,6 +612,10 @@
           "type": "string",
           "enum": ["info", "silent"],
           "description": "info (default): log the hop at INFO. silent: omit the proxy log line."
+        },
+        "inspect": {
+          "type": "boolean",
+          "description": "false: do not store this method and status in the traffic inspector ring. Omitted or true: capture when the route has inspect.enabled."
         }
       }
     },

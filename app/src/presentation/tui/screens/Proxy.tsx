@@ -160,6 +160,9 @@ export function ProxyScreen(props: {
   page: TrafficCallPage;
   error: string;
   caller?: string;
+  search?: string;
+  searchFocused?: boolean;
+  onSearch?: (value: string) => void;
   selected: number;
   width: number;
   bodyMode: TrafficBodyMode;
@@ -168,7 +171,7 @@ export function ProxyScreen(props: {
   onOpen: (call: TrafficCall) => void;
   onSelectRoute?: (route: RouteDetailInfo) => void;
 }) {
-  const { palette, cfg, snap, page, error, caller = "", selected, width, bodyMode, onToggleBody, onPick, onOpen, onSelectRoute } = props;
+  const { palette, cfg, snap, page, error, caller = "", search = "", searchFocused = false, onSearch, selected, width, bodyMode, onToggleBody, onPick, onOpen, onSelectRoute } = props;
   const routes = snap?.proxy.routes ?? [];
   const listenConfigured = hasListenPort(cfg?.proxy.listen);
   const routeCfgByName = new Map((cfg?.proxy.routes ?? []).map((r) => [r.name, r]));
@@ -186,6 +189,7 @@ export function ProxyScreen(props: {
   const preview = selectedCall ? trafficPreview(selectedCall) : "";
   const showInspector = calls.length > 0;
   const filterLabel = callerFilterLabel(caller);
+  const searchLabel = search.trim();
 
   const trafficList = (
     <box
@@ -209,15 +213,32 @@ export function ProxyScreen(props: {
           { text: `${calls.length} hop${calls.length === 1 ? "" : "s"}`, tone: "info" },
           { text: `${inspectCount} inspect`, tone: inspectCount > 0 ? "accent" : "idle" },
           ...(filterLabel !== "" ? [{ text: filterLabel, tone: "accent" as const }] : []),
+          ...(searchLabel !== "" ? [{ text: `search ${searchLabel}`, tone: "accent" as const }] : []),
         ]}
-        hints={[{ key: "enter", label: "detail" }, { key: "r", label: "raw" }, { key: "/caller", label: "filter" }, { key: "n", label: "start" }, { key: "x", label: "stop" }]}
+        hints={[{ key: "f", label: "search" }, { key: "enter", label: "detail" }, { key: "r", label: "raw" }, { key: "/caller", label: "filter" }, { key: "n", label: "start" }, { key: "x", label: "stop" }]}
       />
+      {searchFocused ? (
+        <box height={1} paddingLeft={1} backgroundColor={palette.highlight} overflow="hidden">
+          <input
+            focused
+            value={search}
+            placeholder="esc clear · enter keep filter · !Poll excludes"
+            onInput={onSearch}
+            backgroundColor={palette.highlight}
+            focusedBackgroundColor={palette.highlight}
+            textColor={palette.text}
+            cursorColor={palette.primary}
+          />
+        </box>
+      ) : null}
       {error ? <text fg={palette.error} wrapMode="word">{error}</text> : null}
       {calls.length === 0 ? (
         <EmptyState
           palette={palette}
-          title={filterLabel !== "" ? "No hops match this filter" : inspectCount === 0 ? "Traffic inspector is off" : "No captured hops yet"}
-          body={filterLabel !== ""
+          title={filterLabel !== "" || searchLabel !== "" ? "No hops match this filter" : inspectCount === 0 ? "Traffic inspector is off" : "No captured hops yet"}
+          body={searchLabel !== ""
+            ? `No proxy hops match ${searchLabel}. A leading ! excludes that text. Clear with esc.`
+            : filterLabel !== ""
             ? `No proxy hops with ${filterLabel}. Clear with /caller.`
             : inspectCount === 0
               ? "Set inspect.enabled: true on a proxy.routes hop (HTTP listen or gRPC listen). Direct 127.0.0.1 sockets that never hit the proxy are invisible. Callers should use ${services.<name>.url} or the gRPC listen port."

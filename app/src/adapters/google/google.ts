@@ -42,16 +42,69 @@ export function ensureFetchShim(): void {
 }
 
 export function adcQuotaProject(): string {
-  const path = process.env.GOOGLE_APPLICATION_CREDENTIALS || join(homedir(), ".config", "gcloud", "application_default_credentials.json");
-  if (!existsSync(path)) {
+  const parsed = readAdcJson();
+  if (!parsed) {
     return "";
+  }
+  return typeof parsed.quota_project_id === "string" ? parsed.quota_project_id : "";
+}
+
+export type AdcUserAccount =
+  | { state: "absent" }
+  | { state: "other" }
+  | { state: "missing" }
+  | { state: "present"; account: string };
+
+// authorized_user ADC written by a non-interactive `gcloud auth application-default login`
+// can omit `account`. Callers that need the user email then fail later.
+export function adcUserAccount(): AdcUserAccount {
+  const parsed = readAdcJson();
+  if (!parsed) {
+    return { state: "absent" };
+  }
+  if (parsed.type !== "authorized_user") {
+    return { state: "other" };
+  }
+  const account = typeof parsed.account === "string" ? parsed.account.trim() : "";
+  if (account === "") {
+    return { state: "missing" };
+  }
+  return { state: "present", account };
+}
+
+function readAdcJson(): { type?: unknown; account?: unknown; quota_project_id?: unknown } | undefined {
+  const path = adcCredentialsPath();
+  if (!existsSync(path)) {
+    return undefined;
   }
   try {
-    const parsed = JSON.parse(readFileSync(path, "utf8")) as { quota_project_id?: unknown };
-    return typeof parsed.quota_project_id === "string" ? parsed.quota_project_id : "";
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { type?: unknown; account?: unknown; quota_project_id?: unknown };
+    if (typeof parsed !== "object" || parsed === null) {
+      return undefined;
+    }
+    return parsed;
   } catch {
-    return "";
+    return undefined;
   }
+}
+
+function adcCredentialsPath(): string {
+  const fromEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim() ?? "";
+  if (fromEnv !== "") {
+    return fromEnv;
+  }
+  const unix = join(homedir(), ".config", "gcloud", "application_default_credentials.json");
+  if (existsSync(unix)) {
+    return unix;
+  }
+  const appData = process.env.APPDATA?.trim() ?? "";
+  if (appData !== "") {
+    const windows = join(appData, "gcloud", "application_default_credentials.json");
+    if (existsSync(windows)) {
+      return windows;
+    }
+  }
+  return unix;
 }
 
 export async function detectGoogle(configuredProject: string): Promise<GoogleStatus> {

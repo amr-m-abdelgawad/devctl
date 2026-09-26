@@ -48,6 +48,13 @@ describe("traffic domain", () => {
     expect(matchesTrafficCall({ caller: "-" }, row)).toBe(false);
     expect(matchesTrafficCall({ caller: "-" }, call({ caller: undefined }))).toBe(true);
     expect(matchesTrafficCall({ search: "hello" }, row)).toBe(true);
+    expect(matchesTrafficCall({ search: "!Poll" }, call({ path: "/temporal.api.workflowservice.v1.WorkflowService/PollWorkflowTaskQueue" }))).toBe(false);
+    expect(matchesTrafficCall({ search: "!Poll" }, row)).toBe(true);
+    expect(matchesTrafficCall({ search: "!" }, row)).toBe(true);
+    expect(matchesTrafficCall({ search: "!!" }, call({ path: "/say!hello" }))).toBe(true);
+    expect(matchesTrafficCall({ search: "!!" }, row)).toBe(false);
+    expect(matchesTrafficCall({ search: "!!Poll" }, call({ path: "/svc/!Poll" }))).toBe(true);
+    expect(matchesTrafficCall({ search: "!!Poll" }, call({ path: "/svc/Poll" }))).toBe(false);
     expect(matchesTrafficCall({ requestId: "req-1" }, row)).toBe(true);
     expect(matchesTrafficCall({ status: "ok" }, row)).toBe(true);
     expect(matchesTrafficCall({ status: "error" }, row)).toBe(false);

@@ -44,6 +44,12 @@ type Options = {
   mcp: Pick<ReturnType<typeof useMcpControls>, "applyMcpPortDraft" | "toggleMcp" | "toggleMcpTool" | "copyFocusedMcpSnippet" | "persistMcpPort" | "restartMcpOnPort" | "setMcpPortDraft">;
   preferences: Pick<ReturnType<typeof usePreferences>, "settingRows" | "activateSetting" | "applyFont" | "applyReset" | "fontSize" | "revertThemePreview" | "setThemeName" | "leaderMs" | "cycleSetting" | "toggleMouse" | "applyLogTimestamps" | "applyLogMetadata">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "doctor" | "refreshAuth" | "refreshPort" | "setDoctorTick">;
+  trafficSearch: {
+    search: string;
+    focused: boolean;
+    setSearch: (value: string) => void;
+    setFocused: (focused: boolean) => void;
+  };
   refs: KeyboardRefs;
 };
 
@@ -58,6 +64,7 @@ export function useAppKeyboard({
   mcp,
   preferences,
   diagnostics,
+  trafficSearch,
   refs,
 }: Options): void {
   const {
@@ -280,32 +287,50 @@ export function useAppKeyboard({
     }, key)) {
       return;
     }
+    const searchingProxy = screen === "proxy";
     const searchAct = logSearchAction({
       screen,
-      focused: logSearchFocused,
-      query: logSearch,
+      focused: searchingProxy ? trafficSearch.focused : logSearchFocused,
+      query: searchingProxy ? trafficSearch.search : logSearch,
       keyName: name,
       searchChord: isSearchChord(key, tui),
     });
     if (searchAct === "open") {
-      setLogSearchFocused(true);
-      setStatus("esc live stream · enter keep filter");
+      if (searchingProxy) {
+        trafficSearch.setFocused(true);
+        setStatus("esc clear · enter keep filter");
+      } else {
+        setLogSearchFocused(true);
+        setStatus("esc live stream · enter keep filter");
+      }
       return;
     }
     if (searchAct === "keep-filter") {
-      setLogSearchFocused(false);
-      const needle = logSearch.trim();
-      setStatus(needle === "" ? "Search closed" : `Matches for ${needle} · esc live stream`);
+      if (searchingProxy) {
+        trafficSearch.setFocused(false);
+        const needle = trafficSearch.search.trim();
+        setStatus(needle === "" ? "Search closed" : `Matches for ${needle} · esc clears`);
+      } else {
+        setLogSearchFocused(false);
+        const needle = logSearch.trim();
+        setStatus(needle === "" ? "Search closed" : `Matches for ${needle} · esc live stream`);
+      }
       return;
     }
     if (searchAct === "close-live") {
-      setLogSearchFocused(false);
-      setLogSearch("");
-      jumpToLatestLogs();
-      setStatus("Live logs");
+      if (searchingProxy) {
+        trafficSearch.setFocused(false);
+        trafficSearch.setSearch("");
+        setStatus("Traffic search cleared");
+      } else {
+        setLogSearchFocused(false);
+        setLogSearch("");
+        jumpToLatestLogs();
+        setStatus("Live logs");
+      }
       return;
     }
-    if (logSearchFocused) {
+    if (logSearchFocused || (screen === "proxy" && trafficSearch.focused)) {
       return;
     }
     if (isLeaderChord(key, tui)) {

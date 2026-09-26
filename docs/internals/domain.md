@@ -67,7 +67,7 @@ User vs service identity stay separate types. The proxy route decides which one 
 |------|------|
 | `strip-prefix.ts` | Forward-path rewrite for `strip_prefix`. |
 | `body-transform.ts` | Request-body string/regex replacement for `transform.request_body`. |
-| `grpc-ok.ts` | Listed non-zero gRPC statuses that are not proxy errors. |
+| `grpc-ok.ts` | Listed gRPC statuses that are not proxy errors, including inspect capture. |
 | `listen.ts` | Compare listener binds (`host`+`port`; empty host = `127.0.0.1`). |
 
 ## `domain/http/`

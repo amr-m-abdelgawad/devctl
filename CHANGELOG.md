@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `log.grpc.ok` accepts status `0` and `inspect: false`, so a high-volume gRPC method (Temporal `PollWorkflowTaskQueue` / `PollActivityTaskQueue` on status 0 and 14) can stay out of the traffic inspector ring and the proxy log without turning inspect off for the route. Status 0 does not change error counts. See [Proxy](docs/proxy.md#grpc-status-policy).
+- Traffic search accepts a leading `!` to exclude a substring (`!Poll`). `!!` searches for a literal `!`. The same query works in the TUI proxy screen (`f`), the web console, `devctl traffic --search`, and MCP `get_traffic_calls`. See [Proxy](docs/proxy.md#inspect-bodies).
+- `devctl doctor` warns when an `authorized_user` ADC file has no `account` field. The warning does not fail the command. See [Doctor](docs/doctor.md).
+
+### Changed
+
+- When an IAP route's credentials file is not the well-known ADC path, `devctl doctor` names that file and tells you to regenerate it. `gcloud auth application-default login` is only suggested when the route points at the ADC file itself. See [IAP](docs/iap.md).
+
 ## [0.22.0] - 2026-09-26
 
 ### Security

@@ -1,15 +1,22 @@
 import type { RouteGrpcOkEntry, RouteGrpcOkLog } from "../config/types.ts";
 
-export const GRPC_OK_STATUS_MIN = 1;
+export const GRPC_OK_STATUS_MIN = 0;
 export const GRPC_OK_STATUS_MAX = 16;
 
-// A listed non-zero gRPC status is not a proxy error when the :path suffix
-// matches (or methods is omitted — then every method on the route).
+export type GrpcOkMatch = {
+  log: RouteGrpcOkLog;
+  inspect: boolean;
+};
+
+// A listed gRPC status is not a proxy error when the :path suffix matches
+// (or methods is omitted — then every method on the route). Status 0 is
+// already a success; a rule for it only customizes log and inspect capture.
+// inspect is false only when the rule sets inspect: false.
 export function matchGrpcOk(
   rules: readonly RouteGrpcOkEntry[] | undefined,
   status: string | number,
   methodPath: string,
-): RouteGrpcOkLog | undefined {
+): GrpcOkMatch | undefined {
   if (!rules || rules.length === 0) {
     return undefined;
   }
@@ -18,13 +25,12 @@ export function matchGrpcOk(
     return undefined;
   }
   for (const rule of rules) {
-    if (rule.status !== code) {
-      continue;
+    if (rule.status === code && methodMatches(rule.methods, methodPath)) {
+      return {
+        log: rule.log === "silent" ? "silent" : "info",
+        inspect: rule.inspect !== false,
+      };
     }
-    if (!methodMatches(rule.methods, methodPath)) {
-      continue;
-    }
-    return rule.log === "silent" ? "silent" : "info";
   }
   return undefined;
 }

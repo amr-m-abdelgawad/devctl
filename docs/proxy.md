@@ -171,9 +171,13 @@ custom path (not the default ADC location). Notes:
   `authorized_user` JSON with `refresh_token` and a `client_id` that matches the
   route, otherwise `false`. Routes that are not IAP or have no credentials file
   omit the field. `devctl doctor` reports the same inspect as
-  `IAP credentials <route>` and hints `gcloud auth application-default login`
-  with a client secret file that matches `client_id` (or omit `client_id`) when
-  the file is missing or mismatched.
+  `IAP credentials <route>`. When the file is the well-known ADC path, a
+  missing or mismatched file hints `gcloud auth application-default login`
+  with a client secret file that matches `client_id` (or omit `client_id`).
+  When the path is any other file, the hint names that path: regenerate it
+  with the flow that created it. `gcloud auth application-default login`
+  writes `~/.config/gcloud/application_default_credentials.json` and does
+  not update the custom file.
 
 ### Extra token headers
 
@@ -331,12 +335,18 @@ A non-zero `grpc-status` is a proxy error by default (WARN log and `stats().erro
           ok:
             - status: 14
               methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+              log: silent
+              inspect: false   # do not store this method+status in the traffic ring
+            - status: 0
+              methods: [PollWorkflowTaskQueue, PollActivityTaskQueue]
+              log: silent
+              inspect: false   # successful polls are already non-errors; this only quiets them
             - status: 3
               methods: [RespondWorkflowTaskCompleted]
               log: info          # info (default) | silent
 ```
 
-Omit `methods` to apply the status to every method on that route. `status` is an integer from 1 to 16. A listed name matches the exact `:path` or a suffix that starts with `/` (so `PollWorkflowTaskQueue` matches `/temporal.api…/PollWorkflowTaskQueue`, not `…/NotPollWorkflowTaskQueue`). A matching hop is not a proxy error: no `requestErrors++`, and the log is INFO — or omitted when `log: silent`. Unlisted non-zero statuses stay WARN.
+Omit `methods` to apply the status to every method on that route. `status` is an integer from 0 to 16. A listed name matches the exact `:path` or a suffix that starts with `/` (so `PollWorkflowTaskQueue` matches `/temporal.api…/PollWorkflowTaskQueue`, not `…/NotPollWorkflowTaskQueue`). A matching hop with status 1–16 is not a proxy error: no `requestErrors++`, and the log is INFO — or omitted when `log: silent`. Status 0 is already a success; listing it only changes the log line and inspect capture. Unlisted non-zero statuses stay WARN. `inspect: false` drops that method and status from the traffic inspector ring (TUI, web, CLI, MCP). Omitted or `true` still captures when the route has `inspect.enabled`. A proxy error (client cancel, timeout) is not matched, so those hops stay in the ring. The metadata request log (last 100 hops) still records every call.
 
 ## Token endpoint
 
@@ -393,12 +403,14 @@ Bodies go to a separate in-memory ring (cap 2000), not the status snapshot. List
 
 Caller attribution reuses the LLM path: `X-Devctl-Service` or a loopback peer lookup, so the inspector can label which service issued the call. Filter that label everywhere: TUI `/caller worker` on the proxy screen, CLI `devctl traffic --caller worker`, the web console caller dropdown, and MCP `get_traffic_calls`'s `caller`. Pass `-` (CLI also accepts `none`) to show only hops with **no** known caller. On the LLM screen the same `/caller` command still filters LLM calls.
 
+Search is a substring of the hop (path, caller, status, redacted body). A leading `!` excludes that substring (`!Poll` hides Poll methods). A leading `!!` is a literal search for the rest of the string, including one `!` (`!!` matches a bang, `!!Poll` matches `!Poll`). A bare `!` does not exclude everything. The same string works in TUI proxy search (`f`), the web traffic search box, `devctl traffic --search`, and MCP `get_traffic_calls` `search`.
+
 | Surface | What you get |
 |---------|----------------|
-| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). `r` toggles. `/caller` filters by originating service. Enter opens the overlay tree; enter again jumps to a trace when `traceId` is present. |
-| Web | `#/traffic` and `#/traffic/:id`. Caller dropdown plus search. Overview request paths link here when a captured body exists. |
-| MCP | `get_traffic_calls` (inspect, bodies omitted) and `get_traffic_call` (bodies included). |
-| CLI | `devctl traffic` / `devctl traffic show <id>`. `--caller` filters by originating service. `--follow` polls. |
+| TUI proxy screen | List + live inspector (syntax-colored pretty JSON / raw). `r` toggles. `f` searches (`!Poll` excludes). `/caller` filters by originating service. Enter opens the overlay tree; enter again jumps to a trace when `traceId` is present. |
+| Web | `#/traffic` and `#/traffic/:id`. Caller dropdown plus search (`!` excludes). Overview request paths link here when a captured body exists. |
+| MCP | `get_traffic_calls` (inspect, bodies omitted) and `get_traffic_call` (bodies included). `search` supports a leading `!`. |
+| CLI | `devctl traffic` / `devctl traffic show <id>`. `--caller` filters by originating service. `--search` supports a leading `!`. `--follow` polls. |
 
 ## Tracing
 

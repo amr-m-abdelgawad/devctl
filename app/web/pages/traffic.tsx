@@ -106,7 +106,7 @@ export function TrafficPage(props: {
                 type="search"
                 value={draft}
                 onChange={(event) => setDraft(event.currentTarget.value)}
-                placeholder="Search hops"
+                placeholder="Search hops (! excludes)"
                 className="h-7 w-full rounded-md border border-border bg-background pl-7 pr-2 text-xs"
               />
             </label>

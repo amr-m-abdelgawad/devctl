@@ -196,7 +196,8 @@ export class GrpcProxyServer {
       const duration = Date.now() - started;
       const recordedPath = this.detector ? this.detector.redactText(method) : method;
       // A listed log.grpc.ok status is not a proxy error (Temporal long-poll
-      // 14 / workflow-task 3). Unlisted non-zero statuses stay failures.
+      // 14 / workflow-task 3, or a status-0 poll the operator chose to quiet).
+      // Unlisted non-zero statuses stay failures.
       const policy = error === undefined ? matchGrpcOk(route.log?.grpc?.ok, grpcStatus, method) : undefined;
       const treatedOk = grpcStatus === "0" || policy !== undefined;
       const failure = error ?? (treatedOk ? undefined : `grpc-status ${grpcStatus}`);
@@ -216,11 +217,13 @@ export class GrpcProxyServer {
       };
       this.requests.record(record);
       this.spans?.append(proxyRecordToSpan(record));
-      if (policy !== "silent") {
+      if (policy?.log !== "silent") {
         this.log(failure ? "WARN" : "INFO", `grpc ${method} route=${route.name} identity=${identityKey} grpc-status=${grpcStatus} duration=${duration}ms${failure ? ` error=${failure}` : ""}`, requestID, identityKey);
       }
       this.bus?.publish(newEvent(ProxyRequest, route.name, { status, request_id: requestID, duration, identity: identityKey }));
-      void this.finishCapture(recorder, status, grpcStatus, started, requestID, ctx.traceId);
+      if (policy?.inspect !== false) {
+        void this.finishCapture(recorder, status, grpcStatus, started, requestID, ctx.traceId);
+      }
     };
     const fail = (grpcStatus: string, message: string): void => {
       // Deliver the failure as a gRPC trailers-only response the client SDK

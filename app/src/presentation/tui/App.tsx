@@ -694,6 +694,12 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     mcp,
     preferences,
     diagnostics,
+    trafficSearch: {
+      search: trafficView.search,
+      focused: trafficView.searchFocused,
+      setSearch: trafficView.setSearch,
+      setFocused: trafficView.setSearchFocused,
+    },
     refs: {
       interruptArmedAt,
       leaderTimer,
@@ -892,6 +898,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             page={trafficView.page}
             error={trafficView.error}
             caller={trafficView.caller}
+            search={trafficView.search}
+            searchFocused={trafficView.searchFocused}
+            onSearch={trafficView.setSearch}
             selected={listCursor}
             width={width}
             bodyMode={trafficView.bodyMode}
@@ -1099,8 +1108,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           errorOnly={errorOnly}
           width={width}
           copyKey={copyKey}
-          searchFocused={logSearchFocused}
-          searchQuery={logSearch}
+          searchFocused={screen === "proxy" ? trafficView.searchFocused : logSearchFocused}
+          searchQuery={screen === "proxy" ? trafficView.search : logSearch}
         />
       )}
     </box>

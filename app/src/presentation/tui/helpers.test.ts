@@ -447,6 +447,8 @@ describe("TUI helpers", () => {
     expect(applied[0]).toEqual({ key: "esc", label: "clear search" });
     expect(applied.some((h) => h.key === "f" && h.label === "edit search")).toBe(true);
     expect(applied.some((h) => h.key === "f" && h.label === "search")).toBe(false);
+    expect(footerHints("proxy", "none", defaultCopyKeybind(), "editing")[0]).toEqual({ key: "esc", label: "clear" });
+    expect(footerHints("proxy", "none")[0]).toEqual({ key: "f", label: "search" });
   });
 
   test("dashboard footer includes jump to latest logs", () => {

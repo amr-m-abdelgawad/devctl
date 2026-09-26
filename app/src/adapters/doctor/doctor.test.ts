@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
-import { createDoctorRunner, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
+import { createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 
 const IAP_CLIENT_ID = "desktop.apps.googleusercontent.com";
@@ -52,6 +53,7 @@ function offlineHost(): DoctorHost {
     hasCommand: async () => false,
     portAvailable: async () => true,
     hasLocalAdc: () => false,
+    adcUserAccount: () => ({ state: "absent" }),
     mintToken: async () => {
       throw new Error("offline");
     },
@@ -219,7 +221,7 @@ describe("doctor", () => {
     expect(report.checks.some((c) => c.name === "IAP credentials billing")).toBe(false);
   });
 
-  test("flags a missing IAP credentials file with the documented login command", async () => {
+  test("flags a missing custom IAP credentials file without the gcloud ADC login hint", async () => {
     const cfg = localCfg();
     cfg.google.project_id = "demo";
     cfg.proxy.routes.push(iapRoute({ credentials: "/no/such/devctl-iap-doctor.json" }));
@@ -227,13 +229,81 @@ describe("doctor", () => {
     const check = report.checks.find((c) => c.name === "IAP credentials billing");
     expect(check?.severity).toBe("error");
     expect(check?.message).toContain("file not found");
-    expect(check?.hint).toContain(IAP_LOGIN_COMMAND);
-    expect(check?.hint).toContain("client secret file that matches `client_id`");
-    expect(check?.hint).toContain("/auth login");
-    expect(check?.hint).toContain("devctl auth login");
+    expect(check?.hint).toContain("/no/such/devctl-iap-doctor.json");
+    expect(check?.hint).toContain("does not update this file");
+    expect(check?.hint).not.toContain("/auth login");
   });
 
-  test("flags an IAP credentials client_id mismatch with the documented login command", async () => {
+  test("keeps the gcloud ADC login hint for the well-known ADC path", () => {
+    const adc = join(homedir(), ".config", "gcloud", "application_default_credentials.json");
+    const hint = iapCredentialsFileHint(adc);
+    expect(hint).toContain(IAP_LOGIN_COMMAND);
+    expect(hint).toContain("client secret file that matches `client_id`");
+    expect(hint).toContain("/auth login");
+    const appData = process.env.APPDATA;
+    if (appData && appData.trim() !== "") {
+      expect(iapCredentialsFileHint(join(appData, "gcloud", "application_default_credentials.json"))).toContain(IAP_LOGIN_COMMAND);
+    }
+  });
+
+  test("warns when authorized_user ADC has no account field", async () => {
+    const path = writeIapCredentialsFile("no-account", {
+      type: "authorized_user",
+      client_id: IAP_CLIENT_ID,
+      refresh_token: "rt-1",
+    });
+    const previous = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = path;
+    try {
+      const host = offlineHost();
+      host.adcUserAccount = undefined;
+      const report = await runDoctor(localCfg(), host);
+      const check = report.checks.find((item) => item.name === "ADC account");
+      expect(check?.severity).toBe("warn");
+      expect(check?.message).toBe("ADC is missing the `account` field");
+      expect(check?.hint).toContain("gcloud auth application-default login");
+      expect(check?.hint).toContain("gcloud config get-value account");
+      expect(report.issues).toBe(0);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      } else {
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = previous;
+      }
+      unlinkSync(path);
+    }
+  });
+
+  test("does not warn when ADC account is present or the file is not authorized_user", async () => {
+    const withAccount = writeIapCredentialsFile("with-account", {
+      type: "authorized_user",
+      account: "dev@example.com",
+      client_id: IAP_CLIENT_ID,
+      refresh_token: "rt-1",
+    });
+    const serviceAccount = writeIapCredentialsFile("sa-key", { type: "service_account", client_email: "sa@example.com" });
+    const previous = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    try {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = withAccount;
+      const present = offlineHost();
+      present.adcUserAccount = undefined;
+      expect((await runDoctor(localCfg(), present)).checks.some((item) => item.name === "ADC account")).toBe(false);
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccount;
+      const other = offlineHost();
+      other.adcUserAccount = undefined;
+      expect((await runDoctor(localCfg(), other)).checks.some((item) => item.name === "ADC account")).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+      } else {
+        process.env.GOOGLE_APPLICATION_CREDENTIALS = previous;
+      }
+      unlinkSync(withAccount);
+      unlinkSync(serviceAccount);
+    }
+  });
+
+  test("flags an IAP credentials client_id mismatch on a custom file", async () => {
     const path = writeIapCredentialsFile("mismatch", {
       type: "authorized_user",
       client_id: "other.apps.googleusercontent.com",
@@ -247,8 +317,9 @@ describe("doctor", () => {
       const check = report.checks.find((c) => c.name === "IAP credentials billing");
       expect(check?.severity).toBe("error");
       expect(check?.message).toContain("client_id does not match");
-      expect(check?.hint).toContain(IAP_LOGIN_COMMAND);
-      expect(check?.hint).toContain("or omit `client_id`");
+      expect(check?.hint).toContain(path);
+      expect(check?.hint).toContain("does not update this file");
+      expect(check?.hint).not.toContain("or omit `client_id`");
     } finally {
       unlinkSync(path);
     }

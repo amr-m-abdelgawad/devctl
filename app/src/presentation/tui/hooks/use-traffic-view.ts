@@ -18,6 +18,8 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
   const [error, setError] = useState("");
   // Active caller filter: "" = all, "-" = hops with no caller, else a service.
   const [caller, setCaller] = useState("");
+  const [search, setSearch] = useState("");
+  const [searchFocused, setSearchFocused] = useState(false);
   const [bodyMode, setBodyMode] = useState<TrafficBodyMode>("json");
   const toggleBodyMode = useCallback(() => {
     setBodyMode(toggleTrafficBodyMode);
@@ -29,7 +31,12 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
       return;
     }
     try {
-      const next = await controller.trafficCallsPage({ limit: PAGE_LIMIT, caller: caller === "" ? undefined : caller });
+      const needle = search.trim();
+      const next = await controller.trafficCallsPage({
+        limit: PAGE_LIMIT,
+        caller: caller === "" ? undefined : caller,
+        search: needle === "" ? undefined : needle,
+      });
       setPage({
         calls: next?.calls ?? [],
         nextCursor: next?.nextCursor ?? "",
@@ -39,7 +46,7 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
     } catch (err) {
       setError(humanMessage(err));
     }
-  }, [controller, caller]);
+  }, [controller, caller, search]);
 
   useEffect(() => {
     if (screen !== "proxy" || !controller) {
@@ -70,6 +77,10 @@ export function useTrafficView(opts: { controller?: Controller; screen: Screen }
     refresh,
     caller,
     setCaller,
+    search,
+    setSearch,
+    searchFocused,
+    setSearchFocused,
     bodyMode,
     toggleBodyMode,
     selectedIndex: selection.selectedIndex,

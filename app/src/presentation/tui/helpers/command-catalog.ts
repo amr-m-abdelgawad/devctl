@@ -216,7 +216,7 @@ export function footerHints(screen: Screen, overlay: Overlay, copyKey = defaultC
   }
   if (logSearch === "editing") {
     return [
-      { key: "esc", label: "close · live" },
+      { key: "esc", label: screen === "proxy" ? "clear" : "close · live" },
       { key: "enter", label: "keep filter" },
     ];
   }
@@ -296,7 +296,17 @@ function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode =
     case "profiles":
       return [{ key: "space", label: "set current" }, { key: "enter", label: "set and start" }, { key: "j/k", label: "move" }, ...common];
     case "proxy":
-      return [{ key: "n", label: "start proxy" }, { key: "x", label: "stop proxy" }, { key: "enter", label: "detail" }, { key: "r", label: "raw" }, { key: "j/k", label: "move" }, ...common];
+      return [
+        ...(logSearch === "applied"
+          ? [{ key: "esc", label: "clear search" }, { key: "f", label: "edit search" }]
+          : [{ key: "f", label: "search" }]),
+        { key: "n", label: "start proxy" },
+        { key: "x", label: "stop proxy" },
+        { key: "enter", label: "detail" },
+        { key: "r", label: "raw" },
+        { key: "j/k", label: "move" },
+        ...common,
+      ];
     case "llm":
       return [{ key: "enter", label: "detail" }, { key: "r", label: "json" }, { key: "j/k", label: "move" }, ...common];
     case "mcp":

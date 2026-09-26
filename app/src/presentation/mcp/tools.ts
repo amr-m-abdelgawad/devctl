@@ -249,7 +249,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         caller: { type: "string", description: "Service that originated the call; use \"-\" for calls with no known caller" },
         method: { type: "string" },
         status: { type: "string", description: "HTTP status, grpc-status, ok, or error" },
-        search: { type: "string" },
+        search: { type: "string", description: "Substring match. A leading ! excludes that substring (!Poll hides Poll methods). A leading !! is a literal search (!! matches !, !!Poll matches !Poll)." },
         since: { type: "string" },
         until: { type: "string" },
         cursor: { type: "string", description: "Opaque cursor from a previous next_cursor" },
