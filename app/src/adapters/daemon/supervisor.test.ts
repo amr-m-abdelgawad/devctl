@@ -2320,6 +2320,75 @@ services:
     }
   }, 10_000);
 
+  test("stopping a removed service leaves an unrelated process on its port running", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const port = await freePort();
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: release-test
+services:
+  api:
+    command: [echo, ok]
+  web:
+    command:
+      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+    ports:
+      http: ${port}
+`,
+    );
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    let squatter: ReturnType<typeof Bun.spawn> | undefined;
+    try {
+      await sup.start({ services: ["web"] });
+      const webPid = sup.snapshot().services.web?.pid ?? 0;
+      expect(webPid).toBeGreaterThan(0);
+      // Not web's process: started later (past the 2 s start-time tolerance)
+      // from another directory, it takes web's port (web never binds it).
+      await Bun.sleep(2_500);
+      const child = Bun.spawn(
+        [process.execPath, "-e", `require("net").createServer().listen(${port}, "127.0.0.1", () => console.log("up")); setInterval(() => {}, 1000)`],
+        { cwd: tmp(), stdout: "pipe" },
+      );
+      squatter = child;
+      const reader = child.stdout.getReader();
+      await reader.read();
+      reader.releaseLock();
+
+      writeConfig(
+        configPath,
+        `version: 1
+project:
+  name: release-test
+services:
+  api:
+    command: [echo, ok]
+`,
+      );
+      await sup.reload();
+      expect(sup.snapshot().services.web?.orphaned).toBe(true);
+
+      await sup.stop(["web"]);
+      expect(processAlive(webPid)).toBe(false);
+      // The squatter doesn't match web's recorded process, so release leaves it.
+      expect(processAlive(squatter.pid)).toBe(true);
+    } finally {
+      squatter?.kill("SIGKILL");
+      await sup.stop([]).catch(() => {});
+    }
+  }, 15_000);
+
   test("reload rejects a candidate config with an unresolvable plugin health type, keeping the previous config", async () => {
     const dir = tmp();
     mkdirSync(join(dir, ".devctl"), { recursive: true });

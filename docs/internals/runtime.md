@@ -70,7 +70,7 @@ If `service.container.image` is set, `startContainer` (Docker or Podman). Port m
 
 ## Port assignment
 
-`adapters/net/ports.ts` `assignPorts`. Duplicate configured ports fail validation. In-use ports fail at assign/start (doctor also reports them). Auto ports pick a free loopback port and inject `SERVICE_PORT` / named values into env. Each auto port is reserved with an exclusive listening socket until every port in the batch is chosen; those sockets then close so the service can bind. A candidate already recorded for another service is skipped and another port is chosen.
+`adapters/net/ports.ts` `assignPorts`. Duplicate configured ports fail validation. In-use ports fail at assign/start (doctor also reports them). `freePort` re-checks the holder before SIGTERM and again before the SIGKILL, and stops only the pid it was given. When a service stops, `Supervisor.releasePorts` frees its ports only if the holder matches the service's command, cwd and start time; for a service a reload removed, it matches against the last `processMeta` recorded for it, and without one it leaves the holder running. Auto ports pick a free loopback port and inject `SERVICE_PORT` / named values into env. Each auto port is reserved with an exclusive listening socket until every port in the batch is chosen; those sockets then close so the service can bind. A candidate already recorded for another service is skipped and another port is chosen.
 
 ## Persistence
 

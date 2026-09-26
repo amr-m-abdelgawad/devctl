@@ -123,14 +123,20 @@ export function useAppKeyboard({
       if (!holder) {
         return;
       }
+      // freePort re-checks the holder first: the Doctor row may be stale.
+      // Refresh that row whatever happened, so it shows the port's real state.
       void freePort(holder)
-        .then(() => diagnostics.refreshPort(holder.port))
-        .then(() => {
-          setStatus(`Stopped ${holder.command} (pid ${holder.pid}) on port ${holder.port}`);
+        .then((result) => {
+          setStatus(
+            result === "already-free"
+              ? `Port ${holder.port} is already free; pid ${holder.pid} no longer holds it`
+              : `Stopped ${holder.command} (pid ${holder.pid}) on port ${holder.port}`,
+          );
         })
         .catch((err: unknown) => {
           setStatus(humanMessage(err));
-        });
+        })
+        .finally(() => diagnostics.refreshPort(holder.port));
       return;
     }
     closeOverlay();

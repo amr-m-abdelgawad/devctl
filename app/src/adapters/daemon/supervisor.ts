@@ -1118,32 +1118,31 @@ export class Supervisor {
       return;
     }
     const meta = this.processMeta.get(name);
+    // What the holder must look like to be stopped: the configured service,
+    // or for one a reload removed, the process devctl last recorded for it.
+    const expected = svc
+      ? { args: meta?.command ?? [...svc.command.args], workDir: meta?.cwd ?? this.serviceWorkDir(svc), startTime: meta?.startTime }
+      : meta
+        ? { args: meta.command, workDir: meta.cwd, startTime: meta.startTime }
+        : undefined;
     for (const port of Object.values(ports)) {
       const holder = await findPortHolder(port);
       if (!holder || holder.pid === process.pid) {
         continue;
       }
-      if (svc) {
-        const observed = await this.inspectProcessFn(holder.pid);
-        const identityOk =
-          observed !== undefined &&
-          observed.command !== "" &&
-          sameProcess(
-            {
-              args: meta?.command ?? [...svc.command.args],
-              workDir: meta?.cwd ?? this.serviceWorkDir(svc),
-              startTime: meta?.startTime,
-            },
-            observed,
-          );
-        if (!identityOk) {
-          this.log(name, "WARN", `port ${port} is held by pid ${holder.pid}, which does not match ${name}; leaving it running`);
-          continue;
-        }
+      if (!expected) {
+        this.log(name, "WARN", `port ${port} is held by pid ${holder.pid}; not stopping a process devctl can't match to ${name}`);
+        continue;
+      }
+      const observed = await this.inspectProcessFn(holder.pid);
+      if (observed === undefined || observed.command === "" || !sameProcess(expected, observed)) {
+        this.log(name, "WARN", `port ${port} is held by pid ${holder.pid}, which does not match ${name}; leaving it running`);
+        continue;
       }
       try {
-        await freePort(holder);
-        this.log(name, "INFO", `released port ${port} (pid ${holder.pid})`);
+        if ((await freePort(holder)) === "stopped") {
+          this.log(name, "INFO", `released port ${port} (pid ${holder.pid})`);
+        }
       } catch (err) {
         this.log(name, "WARN", humanMessage(err));
       }
