@@ -241,6 +241,31 @@ jobs:
         working-directory: app
         run: bun test
 
+  e2e:
+    name: E2E (${{ matrix.os }})
+    needs: setup
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Install pinned OpenTelemetry exporters
+        working-directory: app
+        run: bun run e2e:setup
+      - name: End-to-end scenarios (app/e2e)
+        working-directory: app
+        run: bun run e2e
+
   audit:
     name: Audit
     needs: setup
@@ -287,7 +312,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, architecture, hygiene, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, audit, codeql, dependency-review]
+    needs: [tests, typecheck, architecture, hygiene, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, e2e, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -303,6 +328,7 @@ jobs:
           NPM_BUILD: ${{ needs.npm-package-build.result }}
           NPM_SMOKE: ${{ needs.npm-package-smoke.result }}
           WINDOWS: ${{ needs.windows-tests.result }}
+          E2E: ${{ needs.e2e.result }}
           AUDIT: ${{ needs.audit.result }}
           CODEQL: ${{ needs.codeql.result }}
           DEPS: ${{ needs.dependency-review.result }}
@@ -317,6 +343,7 @@ jobs:
           test "$NPM_BUILD" = success
           test "$NPM_SMOKE" = success
           test "$WINDOWS" = success
+          test "$E2E" = success
           test "$AUDIT" = success
           test "$CODEQL" = success
           test "$DEPS" = success -o "$DEPS" = skipped
