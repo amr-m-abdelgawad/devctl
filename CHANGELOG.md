@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-09-26
+
+### Security
+
+- A service no longer starts against a proxy or token endpoint that another process holds. When the proxy's port was taken, for example by a second checkout of the same config, `devctl start` logged the bind error and launched the services anyway. Those services got `DEVCTL_PROXY_URL` and `DEVCTL_TOKEN_URL` pointing at the configured port, so their requests and `DEVCTL_INTERNAL_TOKEN` went to whatever process held it. Now services in that start are blocked with `proxy failed to start (…)`, and services already running keep running. A proxy that binds only part of its listeners releases them all. `DEVCTL_PROXY_URL`, `DEVCTL_TOKEN_URL`, and `DEVCTL_HTTP_<NAME>_URL` are set only while this checkout's own listener is bound, so after `devctl proxy stop` they are omitted. See [Proxy](docs/proxy.md#when-the-proxy-cannot-bind). ([GHSA-jwfq-4q9p-2jcr](https://github.com/amr-m-abdelgawad/devctl/security/advisories/GHSA-jwfq-4q9p-2jcr))
+
 ### Added
 
 - `secrets.redact: false` turns redaction off for newly captured logs, spans, traffic, LLM payloads, env output, and MCP results. The default stays on. Values already stored as `********` are not restored, and with redaction off those secrets can be written to `~/.devctl/logs`. See [Security](docs/security.md#secrets-and-reveal).
@@ -25,7 +31,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Starting several `ports: auto` services together could fail with `duplicate port <n> used by <a> and <b>`. Allocation bound a loopback port, read the number, and closed the socket before the next service was assigned, so the kernel could issue that same port again. Those probe sockets now stay open until every port in the batch is chosen, then close so each service can bind its own port. A port already recorded for another service is skipped. See [Runtime](docs/internals/runtime.md#port-assignment).
-- A service no longer starts against a proxy or token endpoint that another process holds. When the proxy's port was taken, for example by a second checkout of the same config, `devctl start` logged the bind error and launched the services anyway. Those services got `DEVCTL_PROXY_URL` and `DEVCTL_TOKEN_URL` pointing at the configured port, so their requests and `DEVCTL_INTERNAL_TOKEN` went to whatever process held it. Now services in that start are blocked with `proxy failed to start (…)`, and services already running keep running. A proxy that binds only part of its listeners releases them all. `DEVCTL_PROXY_URL`, `DEVCTL_TOKEN_URL`, and `DEVCTL_HTTP_<NAME>_URL` are set only while this checkout's own listener is bound, so after `devctl proxy stop` they are omitted. See [Proxy](docs/proxy.md#when-the-proxy-cannot-bind).
 - `devctl down` (with or without `--keep-services`) now ends the supervisor process. Before, it stopped the services and closed the socket, so `status` reported the supervisor gone, but the Bun process kept running until killed by hand. The event-loop watchdog worker, plus at least one other handle left open after shutdown, kept it alive. The supervisor now exits once teardown finishes, as it already did on `SIGTERM` / `SIGINT`. If teardown fails, the supervisor reports the error and exits with status 1. On Windows, `down --keep-services` still leaves the supervisor running, because services there are not spawned detached and would exit with it; a later `SIGTERM` / `SIGINT` ends it. (#132)
 - An `http` or `grpc` health check can target a `ports: auto` service. `${services.<name>.…}` in `health.url` and `health.address` now expands from the currently assigned ports before every probe, instead of being passed to the probe literally (which left the service `UNHEALTHY` forever). `devctl config validate` rejects a reference in those fields that could never expand, and names the field. See [Services](docs/services.md#health). (#111)
 - A plain-text log line that ends with a JSON object or Python dict, such as `upload failed: 400, reason: {"error": "quota exceeded"}`, keeps the whole line as its message. The object's fields, including its severity, request id, trace ids, and time, go into attributes. Before, the object replaced the message, and the text before it survived only in `raw`. A logger preamble (timestamp, level, logger name, bracketed tag) before the object is still stripped as before. (#113)
@@ -688,7 +693,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.21.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.22.0...HEAD
+[0.22.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.21.0...v0.22.0
 [0.21.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.20.0...v0.21.0
 [0.20.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.1...v0.20.0
 [0.19.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.19.0...v0.19.1
