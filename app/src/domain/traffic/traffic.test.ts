@@ -71,7 +71,7 @@ describe("traffic domain", () => {
 
   test("redacts secrets inside base64 data, including gRPC-JSON frames", () => {
     const detector = new Detector(["api_key"], []);
-    const jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0In0.sig";
+    const jwt = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
     const binary = httpTrafficPayload(Buffer.concat([Buffer.from([0x00]), Buffer.from(jwt)]), "application/octet-stream", {});
     expect(binary.encoding).toBe("base64");
     const redactedHttp = redactTrafficCall(detector, call({ request: binary }));

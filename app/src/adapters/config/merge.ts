@@ -212,6 +212,9 @@ export function applyRoot(
     }
   }
   if (isRecord(raw.secrets)) {
+    if (raw.secrets.redact !== undefined) {
+      cfg.secrets.redact = asBoolean(raw.secrets.redact);
+    }
     if (raw.secrets.extra_markers !== undefined) {
       cfg.secrets.extra_markers = asStringArray(raw.secrets.extra_markers);
     }

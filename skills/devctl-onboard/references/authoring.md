@@ -77,7 +77,7 @@ complete allowlists.
 | `auth` | `refresh_threshold_seconds` |
 | `shutdown` | `stop_services_on_exit` `grace_seconds` |
 | `ui` | `theme` `keymap` |
-| `secrets` | `extra_markers` `extra_patterns` |
+| `secrets` | `redact` `extra_markers` `extra_patterns` |
 | `doctor` | `tools` (each `{ name, command }`) |
 | `plugins[]` | `path` |
 | `environment` | `sources` `secrets` `sops` |

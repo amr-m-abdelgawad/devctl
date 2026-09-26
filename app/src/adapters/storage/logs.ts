@@ -541,7 +541,7 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
     setServiceLogs: (logs) => {
       mgr.setServiceLogs(logs);
     },
-    setSecrets: (_extraMarkers, _extraPatterns) => {
+    setSecrets: (_extraMarkers, _extraPatterns, _redact) => {
       // The supervisor updates the same Detector instance this manager holds.
     },
     close: () => mgr.close(),

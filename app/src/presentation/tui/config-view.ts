@@ -178,7 +178,7 @@ export function formatConfigDiffText(cfg: DevctlConfig, reveal: boolean): string
   if (entries.length === 0) {
     return "No provenance recorded for this configuration.";
   }
-  const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
+  const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns, cfg.secrets.redact);
   return entries
     .map((entry) => {
       const serialized = typeof entry.value === "string" ? entry.value : JSON.stringify(entry.value);
@@ -197,11 +197,12 @@ export function configExtraFacts(cfg: DevctlConfig): ConfigFact[] {
   const plugins = cfg.plugins.map((plugin) => plugin.path).filter((path) => path !== "");
   const keymap = Object.keys(cfg.ui.keymap);
   const secrets = [...cfg.secrets.extra_markers, ...cfg.secrets.extra_patterns];
+  const secretValue = cfg.secrets.redact ? (secrets.length > 0 ? secrets.join(", ") : "defaults") : "off";
   return [
     { label: "doctor", value: tools.join(", ") || "—", tone: tools.length > 0 ? "text" : "muted" },
     { label: "plugins", value: plugins.join(", ") || "—", tone: plugins.length > 0 ? "text" : "muted" },
     { label: "keymap", value: keymap.length > 0 ? `${keymap.length} override${keymap.length === 1 ? "" : "s"}` : "defaults", tone: keymap.length > 0 ? "text" : "muted" },
-    { label: "secrets", value: secrets.length > 0 ? secrets.join(", ") : "defaults", tone: secrets.length > 0 ? "text" : "muted" },
+    { label: "secrets", value: secretValue, tone: !cfg.secrets.redact || secrets.length > 0 ? "text" : "muted" },
   ];
 }
 

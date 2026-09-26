@@ -52,14 +52,29 @@ describe("llm domain", () => {
   test("redacts secrets in bodies and attributes and can drop bodies", () => {
     const detector = new Detector(["api_key"], []);
     const redacted = redactLlmCall(detector, call({
-      request: { api_key: "sk-live", messages: [{ content: "ok" }] },
+      request: { api_key: "sk-live", access_token: "access-secret-value", messages: [{ content: "ok" }] },
       attributes: { authorization: "Bearer hunter2" },
       error: "token=abcd",
     }));
     expect(JSON.stringify(redacted)).not.toContain("sk-live");
+    expect(JSON.stringify(redacted)).not.toContain("access-secret-value");
     expect(JSON.stringify(redacted)).not.toContain("hunter2");
     expect(redacted.attributes.authorization).toBe(REDACTED_VALUE);
     expect(stripLlmBodies(redacted).request).toBeUndefined();
+  });
+
+  test("keeps logprob pieces and token_type", () => {
+    const detector = new Detector([], []);
+    const redacted = redactLlmCall(detector, call({
+      response: {
+        choices: [{ logprobs: { content: [{ token: "Hello", logprob: -0.2 }] } }],
+        token_type: "Bearer",
+      },
+    }));
+    expect(redacted.response).toEqual({
+      choices: [{ logprobs: { content: [{ token: "Hello", logprob: -0.2 }] } }],
+      token_type: "Bearer",
+    });
   });
 
   test("keeps usage and max_tokens counts in redacted bodies", () => {

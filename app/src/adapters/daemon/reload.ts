@@ -323,8 +323,8 @@ export async function reloadSupervisor(host: ReloadHost): Promise<ReloadResult> 
   }
   host.syncServiceWatchers();
   if (secretsChanged) {
-    host.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns);
-    host.logs.setSecrets(next.secrets.extra_markers, next.secrets.extra_patterns);
+    host.detector.update(next.secrets.extra_markers, next.secrets.extra_patterns, next.secrets.redact);
+    host.logs.setSecrets(next.secrets.extra_markers, next.secrets.extra_patterns, next.secrets.redact);
   }
   host.llm?.setFactory(llmSourceFactory(host.registry?.llmSources ?? []));
   if (llmChanged) {

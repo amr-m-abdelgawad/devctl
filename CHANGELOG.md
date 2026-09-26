@@ -9,12 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `secrets.redact: false` turns redaction off for newly captured logs, spans, traffic, LLM payloads, env output, and MCP results. The default stays on. Values already stored as `********` are not restored, and with redaction off those secrets can be written to `~/.devctl/logs`. See [Security](docs/security.md#secrets-and-reveal).
 - The OTLP receiver accepts `application/x-protobuf` on `POST /v1/logs` and `POST /v1/traces`, and `Content-Encoding: gzip`. Stock exporters that send protobuf, such as Python's `opentelemetry-exporter-otlp-proto-http`, now reach devctl with no per-service configuration. Before, every batch got `400 {"error":"invalid json"}` and no spans or logs arrived. Other content types and encodings get `415` naming the accepted ones. See [Telemetry](docs/telemetry.md#otlp-receiver). (#112)
 - A service can set `environment.terraform` to a `.tf` file or directory and take literal environment values from that Terraform (`env` blocks and `environment_variables` / `env_vars` / `env` maps). `resource` limits the read to one resource or module. Interpolations and secret refs are skipped. An explicit YAML env key still overrides, so local-only values stay in YAML. See [Environment](docs/environment.md#terraform).
 - `get_setup_guide` section `debug` is the procedure for diagnosing a service devctl is already running (status, logs, print-env, proxy traffic). It does not author `.devctl` YAML. Same text as [skills/devctl-debug](skills/devctl-debug/SKILL.md).
 
 ### Changed
 
+- Secret redaction no longer blanks ordinary data in logs, traffic, and LLM payloads. Objects are walked instead of replaced wholesale; numbers, booleans, and null stay. Metadata such as `token_type`, `page_token`, `token_count`, `secret_name`, and `DEVCTL_TOKEN_URL` stays visible. A field named exactly `token` is masked only when the value looks like a credential, so logprob pieces stay. `Bearer` is masked only when the next token looks like a credential, and short `eyJ…` lookalikes are left alone. Credential names (`password`, `api_key`, `access_token`, `authorization`, `cookie`, …), real JWTs, `ya29.` tokens, and `access_token=` / `id_token=` assignments are still masked. See [Security](docs/security.md).
+- Proxy response headers are forwarded to the client unchanged. A JWT in `Set-Cookie`, `Location`, or `WWW-Authenticate` is no longer rewritten to `********` on the way through. Redaction still applies to stored request-log paths and traffic-inspector bodies. See [Proxy](docs/proxy.md#live-request-log).
 - Freeing a busy port from the TUI Doctor screen rechecks that port only. It no longer reruns the full doctor. See [Doctor](docs/doctor.md).
 
 ### Fixed

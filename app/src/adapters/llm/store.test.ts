@@ -21,14 +21,14 @@ describe("LlmCallManager", () => {
   test("upserts by id, redacts, and pages newest first", () => {
     const store = new LlmCallManager(new Detector(["token"], []));
     store.upsert([
-      ingest("a", { timestamp: "2026-01-01T00:00:01.000Z", request: { token: "secret-a" } }),
+      ingest("a", { timestamp: "2026-01-01T00:00:01.000Z", request: { token: "secret-a-0123456789abcd" } }),
       ingest("b", { timestamp: "2026-01-01T00:00:02.000Z" }),
     ]);
     store.upsert([ingest("a", { timestamp: "2026-01-01T00:00:03.000Z", model: "gpt-4o-mini" })]);
     const page = store.queryPage({});
     expect(page.calls.map((call) => call.id)).toEqual(["a", "b"]);
     expect(page.calls[0]?.model).toBe("gpt-4o-mini");
-    expect(JSON.stringify(store.get("a"))).not.toContain("secret-a");
+    expect(JSON.stringify(store.get("a"))).not.toContain("secret-a-0123456789abcd");
     const next = store.queryPage({}, { cursor: page.nextCursor, limit: 1 });
     expect(next.calls).toHaveLength(0);
     expect(next.hasNext).toBe(false);
@@ -41,10 +41,10 @@ describe("LlmCallManager", () => {
     store.clearSourceError("platform");
     expect(store.sourceErrors()).toEqual([]);
     store.setSecrets(["token"], []);
-    store.upsert([ingest("ok"), ingest("err", { status: LLM_STATUS_ERROR, model: "gpt-4o-mini", request: { token: "still-secret" } })]);
+    store.upsert([ingest("ok"), ingest("err", { status: LLM_STATUS_ERROR, model: "gpt-4o-mini", request: { token: "still-secret-0123456789" } })]);
     expect(store.facets({}).total).toBe(2);
     expect(store.facets({}).errors).toBe(1);
     expect(store.facets({}).byModel["gpt-4o"]).toBe(1);
-    expect(JSON.stringify(store.get("err"))).not.toContain("still-secret");
+    expect(JSON.stringify(store.get("err"))).not.toContain("still-secret-0123456789");
   });
 });

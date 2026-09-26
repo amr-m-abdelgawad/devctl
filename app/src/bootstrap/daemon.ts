@@ -61,7 +61,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
   const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), bus, undefined, clock);
   const orchestrator = new ServiceOrchestrator(processes, clock);
   const sessionID = newSessionID();
-  const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns);
+  const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns, cfg.secrets.redact);
   const standalone = Bun.isStandaloneExecutable === true;
   const { logs, usingWorker } = await createDaemonLogStore(
     {
@@ -73,6 +73,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
       maxSessionLogs: cfg.logs.persistence.max_session_logs,
       extraMarkers: cfg.secrets.extra_markers,
       extraPatterns: cfg.secrets.extra_patterns,
+      redact: cfg.secrets.redact,
     },
     bus,
     detector,

@@ -99,7 +99,7 @@ describe("LogManager persistence", () => {
       service: "api",
       source: "stdout",
       level: "INFO",
-      message: "Authorization: Bearer super-secret-token",
+      message: "Authorization: Bearer super-secret-token-value",
       pid: 1,
     });
     // Persistence is asynchronous now (no more blocking appendFileSync per
