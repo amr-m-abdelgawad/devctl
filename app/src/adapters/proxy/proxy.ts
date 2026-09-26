@@ -256,6 +256,13 @@ export class ProxyServer {
       socket.destroy();
     }
     this.upgradedSockets.clear();
+    if (!server.listening) {
+      // listen() failed (e.g. EADDRINUSE): nothing to close. close() on a
+      // server that never bound crashes Bun on Windows.
+      this.server = undefined;
+      this.running = false;
+      return Promise.resolve();
+    }
     return new Promise((resolve) => {
       server.close(() => {
         this.running = false;
@@ -1269,6 +1276,11 @@ export class TokenEndpoint {
   stop(): Promise<void> {
     const server = this.server;
     if (!server) {
+      return Promise.resolve();
+    }
+    if (!server.listening) {
+      // See ProxyServer.stop: a server whose listen() failed is not closed.
+      this.server = undefined;
       return Promise.resolve();
     }
     return new Promise((resolve) => server.close(() => resolve()));
