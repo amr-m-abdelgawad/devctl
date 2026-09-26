@@ -2,7 +2,7 @@
 // port slot 0 (configured ports); the second takes slot 1 (every fixed port
 // and listener +100). Both share one DEVCTL_HOME, where the slot registry is.
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { processAlive, readRepoLock } from "../src/adapters/storage/storage.ts";
@@ -40,6 +40,12 @@ services:
       type: tcp
       interval_seconds: 0.2
 `;
+}
+
+// The checkout path as the supervisor and services see it: macOS's /tmp is a
+// symlink to /private/tmp.
+function real(box: Sandbox): string {
+  return realpathSync(box.dir);
 }
 
 type InstanceRow = { slot: number; offset: number; repoRoot: string; status: string; ports?: Record<string, number> };
@@ -84,7 +90,7 @@ describeE2E("parallel checkouts (#117)", () => {
       const port = svc.ports.http ?? 0;
       ports.push(port);
       // Each listener answers for its own checkout.
-      expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe(box.dir);
+      expect(await (await fetch(`http://127.0.0.1:${port}/`)).text()).toBe(real(box));
     }
     expect(ports[1]).toBe((ports[0] ?? 0) + 100);
 
@@ -94,8 +100,8 @@ describeE2E("parallel checkouts (#117)", () => {
 
     const rows = JSON.parse((await a.cli(["instances", "--json"])).stdout) as InstanceRow[];
     expect(rows.map((row) => [row.slot, row.repoRoot, row.status])).toEqual([
-      [0, a.dir, "running"],
-      [1, b.dir, "running"],
+      [0, real(a), "running"],
+      [1, real(b), "running"],
     ]);
     expect((rows[1]?.ports?.proxy ?? 0) - (rows[0]?.ports?.proxy ?? 0)).toBe(100);
 
@@ -117,9 +123,11 @@ describeE2E("parallel checkouts (#117)", () => {
       const status = await gone.status();
       return (status.services.web?.pid ?? 0) > 0 ? status.services.web : undefined;
     });
+    const goneDir = real(gone);
+    const keepDir = real(keep);
     const previousHome = process.env.DEVCTL_HOME;
     process.env.DEVCTL_HOME = home;
-    const supervisorPid = readRepoLock(gone.dir)?.pid ?? 0;
+    const supervisorPid = readRepoLock(goneDir)?.pid ?? 0;
     if (previousHome === undefined) {
       delete process.env.DEVCTL_HOME;
     } else {
@@ -130,12 +138,12 @@ describeE2E("parallel checkouts (#117)", () => {
     // The worktree is deleted while its stack is still up.
     rmSync(gone.dir, { recursive: true, force: true });
     const listed = JSON.parse((await keep.cli(["instances", "--json"])).stdout) as InstanceRow[];
-    expect(listed.find((row) => row.repoRoot === gone.dir)?.status).toBe("missing");
+    expect(listed.find((row) => row.repoRoot === goneDir)?.status).toBe("missing");
 
     const pruned = await keep.cli(["instances", "prune"]);
-    expect(pruned.stdout).toContain(`pruned slot 1 (${gone.dir}); stopped its services and supervisor`);
+    expect(pruned.stdout).toContain(`pruned slot 1 (${goneDir}); stopped its services and supervisor`);
     await waitFor("the deleted checkout's service and supervisor to exit", async () => !processAlive(goneService.pid) && !processAlive(supervisorPid));
     const remaining = JSON.parse((await keep.cli(["instances", "--json"])).stdout) as InstanceRow[];
-    expect(remaining.map((row) => row.repoRoot)).toEqual([keep.dir]);
+    expect(remaining.map((row) => row.repoRoot)).toEqual([keepDir]);
   }, SCENARIO_TIMEOUT_MS);
 });
