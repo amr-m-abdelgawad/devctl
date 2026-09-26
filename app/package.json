@@ -21,6 +21,8 @@
     "dev": "bun run src/bin.ts",
     "start": "bun run src/bin.ts",
     "test": "bun test",
+    "e2e": "DEVCTL_E2E=1 bun test e2e",
+    "e2e:setup": "bash e2e/setup.sh",
     "check:coverage": "bun scripts/check-coverage.ts",
     "test:npm-launcher": "node --test ../packaging/npm/devctl.test.cjs",
     "typecheck": "bunx tsc --noEmit && bun run typecheck:web",

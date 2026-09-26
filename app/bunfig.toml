@@ -6,6 +6,7 @@ coverageSkipTestFiles = true
 # OpenTUI screens/hooks need a terminal renderer. Their logic lives in helpers/.
 # Generated guide text and plugin fixtures are not the unit-test surface.
 coveragePathIgnorePatterns = [
+  "e2e/**",
   "**/*.generated.ts",
   "**/.watch-*/**",
   "src/adapters/google/testdata/**",

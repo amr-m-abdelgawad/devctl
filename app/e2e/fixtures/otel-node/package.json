@@ -1,0 +1,15 @@
+{
+  "name": "devctl-e2e-otel-node",
+  "private": true,
+  "type": "module",
+  "description": "Stock OpenTelemetry Node exporter for the devctl e2e suite; versions pinned on purpose",
+  "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/api-logs": "0.222.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "0.222.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "0.222.0",
+    "@opentelemetry/resources": "2.11.0",
+    "@opentelemetry/sdk-logs": "0.222.0",
+    "@opentelemetry/sdk-trace-node": "2.11.0"
+  }
+}
