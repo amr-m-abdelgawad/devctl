@@ -30,6 +30,7 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
         writeOut("no instances to prune\n");
         return;
       }
+      const kept: string[] = [];
       for (const row of stale) {
         const { client } = await runtime.findDaemon("", row.repoRoot);
         if (client) {
@@ -41,10 +42,35 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
           }
           await waitUntilUnreachable(runtime, row.repoRoot, timeout);
         }
+        // The slot's ports are free only once nothing of the stack is left:
+        // a supervisor that outlived its shutdown deadline, or services a
+        // `down --keep-services` left running with no supervisor at all.
+        const blocker = await stillRunning(runtime, row.repoRoot);
+        if (blocker !== undefined) {
+          kept.push(`slot ${row.slot} (${row.repoRoot}): ${blocker}`);
+          continue;
+        }
         runtime.releaseInstance(row.repoRoot);
         writeOut(`pruned slot ${row.slot} (${row.repoRoot})${client ? "; stopped its services and supervisor" : ""}\n`);
       }
+      if (kept.length > 0) {
+        throw new Error(`kept ${kept.length === 1 ? "a port slot" : `${kept.length} port slots`} whose stack is still running:\n  ${kept.join("\n  ")}`);
+      }
     });
+}
+
+/** Why a pruned checkout's slot can't be freed yet, or undefined once its stack is gone. */
+export async function stillRunning(runtime: Pick<ClientRuntime, "tryDial" | "readPersistedState" | "processAlive">, repoRoot: string): Promise<string | undefined> {
+  const client = await runtime.tryDial(repoRoot);
+  if (client) {
+    client.close();
+    return "its supervisor did not stop in time; run `devctl instances prune` again";
+  }
+  const alive = (runtime.readPersistedState(repoRoot)?.processes ?? []).filter((proc) => proc.pid > 0 && runtime.processAlive(proc.pid));
+  if (alive.length > 0) {
+    return `services still running (${alive.map((proc) => `${proc.name} pid ${proc.pid}`).join(", ")}); stop them, then prune again`;
+  }
+  return undefined;
 }
 
 async function instanceRows(runtime: ClientRuntime): Promise<InstanceRow[]> {

@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { formatInstances } from "./instances.ts";
+import type { ClientRuntime } from "../../application/client-runtime.ts";
+import type { PersistedProcess } from "../../domain/session/session.ts";
+import { formatInstances, stillRunning } from "./instances.ts";
+
+function runtime(opts: { daemon?: boolean; processes?: Pick<PersistedProcess, "name" | "pid">[]; alive?: number[] }) {
+  return {
+    tryDial: () => Promise.resolve(opts.daemon ? ({ close: () => undefined } as unknown as Awaited<ReturnType<ClientRuntime["tryDial"]>>) : undefined),
+    readPersistedState: () =>
+      opts.processes === undefined ? undefined : ({ session_id: "", repo_root: "/gone", profile: "", processes: opts.processes as PersistedProcess[] }),
+    processAlive: (pid: number) => (opts.alive ?? []).includes(pid),
+  };
+}
 
 describe("devctl instances", () => {
   test("lists slots with their offset, checkout, listener ports and status", () => {
@@ -15,5 +26,15 @@ describe("devctl instances", () => {
 
   test("says so when no checkout holds a slot", () => {
     expect(formatInstances([])).toBe("no checkouts hold a port slot\n");
+  });
+
+  test("prune frees a slot only once the supervisor and its services are gone", async () => {
+    expect(await stillRunning(runtime({}), "/gone")).toBeUndefined();
+    expect(await stillRunning(runtime({ processes: [{ name: "api", pid: 41 }], alive: [] }), "/gone")).toBeUndefined();
+    expect(await stillRunning(runtime({ daemon: true }), "/gone")).toContain("its supervisor did not stop in time");
+    // `down --keep-services` then the checkout was deleted: no supervisor, services still up.
+    expect(await stillRunning(runtime({ processes: [{ name: "api", pid: 41 }, { name: "web", pid: 42 }], alive: [42] }), "/gone")).toBe(
+      "services still running (web pid 42); stop them, then prune again",
+    );
   });
 });

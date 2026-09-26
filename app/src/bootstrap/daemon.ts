@@ -21,7 +21,7 @@ import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
 import { createDaemonLogStore } from "../adapters/storage/worker-log-store.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID, persistedConfigOverlay } from "../adapters/storage/storage.ts";
-import { claimSlot, recordInstancePorts, releaseSlot } from "../adapters/storage/instances.ts";
+import { recordInstancePorts, releaseSlot, startWithSlot } from "../adapters/storage/instances.ts";
 import { listenerPorts } from "../domain/net/port-slots.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
 import { McpHttpServer } from "../presentation/mcp/server.ts";
@@ -135,10 +135,11 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   // Parallel stacks (#117): take this checkout's port slot before loading,
   // so every fixed port and listener is shifted for it. Sticky until a full
   // `down` below (or `devctl instances prune`).
-  const slot = claimSlot(root);
-  const cfg = loadOrEmpty(repoRoot, configPath, { overlay, slot });
-  recordInstancePorts(cfg.repoRoot, listenerPorts(cfg));
-  const { supervisor: sup } = await createDaemon(cfg);
+  const { cfg, supervisor: sup } = await startWithSlot(root, async (slot) => {
+    const loaded = loadOrEmpty(repoRoot, configPath, { overlay, slot });
+    recordInstancePorts(loaded.repoRoot, listenerPorts(loaded));
+    return { cfg: loaded, ...(await createDaemon(loaded)) };
+  });
   // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
   // but it can also receive a signal directly (system shutdown, an
   // admin `kill`, a container orchestrator). Without a handler, Node's
@@ -155,15 +156,16 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
     watchdog.stop();
     // A full stop frees the port slot; with --keep-services the services
     // still run on the slot's ports, so it stays with this checkout.
-    if (servicesStopped && failure === undefined) {
+    let failed = failure;
+    if (servicesStopped && failed === undefined) {
       try {
         releaseSlot(cfg.repoRoot);
-      } catch {
-        // the slot is freed by `devctl instances prune` instead
+      } catch (err) {
+        failed = new Error(`could not free port slot ${cfg.instance.slot}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
-    if (failure !== undefined) {
-      process.stderr.write(`devctl: shutdown failed: ${failure instanceof Error ? failure.message : String(failure)}\n`);
+    if (failed !== undefined) {
+      process.stderr.write(`devctl: shutdown failed: ${failed instanceof Error ? failed.message : String(failed)}\n`);
       process.exit(1);
     }
     process.exit(0);

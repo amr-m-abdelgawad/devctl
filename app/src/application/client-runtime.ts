@@ -96,6 +96,7 @@ export type ClientRuntime = {
   // Parallel stacks (#117): the port-slot registry under DEVCTL_HOME.
   listInstances(): InstanceSlot[];
   releaseInstance(repoRoot: string): void;
+  processAlive(pid: number): boolean;
   tryDial(repoRoot: string): Promise<DaemonClient | undefined>;
   assertMethodAllowed(client: DaemonClient, method: string): void;
   readPersistedState(repoRoot: string): PersistedState | undefined;

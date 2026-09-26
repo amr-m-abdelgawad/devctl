@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MAX_PORT_SLOTS } from "../../domain/net/port-slots.ts";
 import { loadPath } from "../config/index.ts";
-import { claimSlot, currentSlot, instancesPath, readInstances, recordInstancePorts, releaseSlot } from "./instances.ts";
+import { claimSlot, currentSlot, instancesPath, readInstances, recordInstancePorts, releaseSlot, startWithSlot } from "./instances.ts";
 
 let previousHome: string | undefined;
 
@@ -23,11 +23,11 @@ afterEach(() => {
 
 describe("instance slot registry", () => {
   test("the first checkout takes slot 0, the next slot 1, and each keeps its slot", () => {
-    expect(claimSlot("/src/app")).toBe(0);
-    expect(claimSlot("/src/app-review")).toBe(1);
-    expect(claimSlot("/src/app")).toBe(0);
+    expect(claimSlot("/src/app").slot).toBe(0);
+    expect(claimSlot("/src/app-review").slot).toBe(1);
+    expect(claimSlot("/src/app").slot).toBe(0);
     // Same checkout, different spelling: still one entry.
-    expect(claimSlot("/src/app-review/")).toBe(1);
+    expect(claimSlot("/src/app-review/").slot).toBe(1);
     // Stored resolved (D:\src\app on Windows).
     expect(readInstances().map((entry) => [entry.slot, entry.repoRoot])).toEqual([
       [0, resolve("/src/app")],
@@ -37,11 +37,30 @@ describe("instance slot registry", () => {
     expect(currentSlot("/src/unknown")).toBe(0);
   });
 
+  test("claimed is true only for the call that created the claim", () => {
+    expect(claimSlot("/a")).toEqual({ slot: 0, claimed: true });
+    expect(claimSlot("/a")).toEqual({ slot: 0, claimed: false });
+  });
+
+  test("a failed start gives back the slot it claimed", async () => {
+    await expect(startWithSlot("/a", () => Promise.reject(new Error("invalid config")))).rejects.toThrow("invalid config");
+    expect(readInstances()).toEqual([]);
+    expect(await startWithSlot("/b", (slot) => Promise.resolve(slot))).toBe(0);
+    expect(readInstances().map((entry) => entry.slot)).toEqual([0]);
+  });
+
+  test("a failed start keeps a slot the checkout already held", async () => {
+    claimSlot("/a");
+    claimSlot("/b");
+    await expect(startWithSlot("/b", () => Promise.reject(new Error("invalid config")))).rejects.toThrow("invalid config");
+    expect(currentSlot("/b")).toBe(1);
+  });
+
   test("a freed slot is reused by the next checkout", () => {
     claimSlot("/a");
     claimSlot("/b");
     releaseSlot("/a");
-    expect(claimSlot("/c")).toBe(0);
+    expect(claimSlot("/c").slot).toBe(0);
     expect(currentSlot("/b")).toBe(1);
   });
 
@@ -64,7 +83,7 @@ describe("instance slot registry", () => {
     writeFileSync(lock, "");
     const old = new Date(Date.now() - 60_000);
     utimesSync(lock, old, old);
-    expect(claimSlot("/a")).toBe(0);
+    expect(claimSlot("/a").slot).toBe(0);
     expect(existsSync(lock)).toBe(false);
   });
 
@@ -72,7 +91,7 @@ describe("instance slot registry", () => {
     mkdirSync(process.env.DEVCTL_HOME ?? "", { recursive: true });
     writeFileSync(instancesPath(), "{not json");
     expect(readInstances()).toEqual([]);
-    expect(claimSlot("/a")).toBe(0);
+    expect(claimSlot("/a").slot).toBe(0);
   });
 
   test("loading a checkout's config applies its slot", () => {

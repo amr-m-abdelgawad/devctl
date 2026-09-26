@@ -5,7 +5,7 @@
 // test is `bun src/bin.ts` unless DEVCTL_E2E_BIN names a compiled binary.
 
 import { describe } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { processAlive, readRepoLock } from "../src/adapters/storage/storage.ts";
 
@@ -141,11 +141,16 @@ export class Sandbox {
   /**
    * Teardown: `devctl down`, then fail if the supervisor or any service it
    * started is still running (they are killed first so nothing leaks past
-   * the test). Removes the sandbox.
+   * the test). Removes the sandbox. Before removing a shared home, call it
+   * for every sandbox that used it.
    */
   async down(): Promise<void> {
     await this.trackPids().catch(() => undefined);
-    await this.cli(["down"], { allowFail: true });
+    // A test may delete the checkout (a removed worktree); its tracked pids
+    // are still checked and killed below.
+    if (existsSync(this.dir)) {
+      await this.cli(["down"], { allowFail: true });
+    }
     const deadline = Date.now() + EXIT_WAIT_MS;
     let alive = [...this.pids].filter((pid) => processAlive(pid));
     while (alive.length > 0 && Date.now() < deadline) {

@@ -116,7 +116,9 @@ describeE2E("parallel checkouts (#117)", () => {
     const cfg = await config();
     const keep = Sandbox.create("prune-keep", { "web.js": SERVER, ".devctl/config.yaml": cfg }, { home });
     const gone = Sandbox.create("prune-gone", { "web.js": SERVER, ".devctl/config.yaml": cfg }, { home });
-    sandboxes.push(keep);
+    // Both are torn down before the shared home goes, so a failure before
+    // prune finishes still stops the deleted checkout's stack.
+    sandboxes.push(keep, gone);
     await keep.start(["web"]);
     await gone.start(["web"]);
     const goneService = await waitFor("web running in the checkout to delete", async () => {

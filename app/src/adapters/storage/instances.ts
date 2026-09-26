@@ -29,14 +29,17 @@ export function currentSlot(repoRoot: string): number {
   return readRegistry().instances.find((entry) => repoID(entry.repoRoot) === id)?.slot ?? 0;
 }
 
-/** This checkout's slot, claiming the lowest free one if it has none. */
-export function claimSlot(repoRoot: string, now = new Date()): number {
+/**
+ * This checkout's slot, claiming the lowest free one if it has none.
+ * `claimed` is true only when this call created the claim.
+ */
+export function claimSlot(repoRoot: string, now = new Date()): { slot: number; claimed: boolean } {
   return withRegistry((registry) => {
     const root = resolve(repoRoot);
     const id = repoID(root);
     const own = registry.instances.find((entry) => repoID(entry.repoRoot) === id);
     if (own) {
-      return own.slot;
+      return { slot: own.slot, claimed: false };
     }
     const slot = pickSlot(registry.instances, root);
     if (slot === undefined) {
@@ -47,8 +50,26 @@ export function claimSlot(repoRoot: string, now = new Date()): number {
       );
     }
     registry.instances.push({ slot, repoRoot: root, claimedAt: now.toISOString() });
-    return slot;
+    return { slot, claimed: true };
   });
+}
+
+/**
+ * Claim this checkout's slot for a start. If the start fails, a slot this
+ * attempt claimed is given back: a start that never got going holds no
+ * ports. One the checkout already held stays, since its services may still
+ * run from before (`down --keep-services`).
+ */
+export async function startWithSlot<T>(repoRoot: string, start: (slot: number) => Promise<T>): Promise<T> {
+  const { slot, claimed } = claimSlot(repoRoot);
+  try {
+    return await start(slot);
+  } catch (err) {
+    if (claimed) {
+      releaseSlot(repoRoot);
+    }
+    throw err;
+  }
 }
 
 export function recordInstancePorts(repoRoot: string, ports: Record<string, number>): void {
