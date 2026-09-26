@@ -85,7 +85,7 @@ devctl logs telemetry
 devctl logs --source otlp
 ```
 
-Copy a trace identifier from the console and pass it to `devctl logs --trace <trace-id>`. In your own application, deeper spans require instrumentation and the supported OTLP/HTTP+JSON exporter. See [Telemetry](telemetry.md) and the [web console tour](web.md).
+Copy a trace identifier from the console and pass it to `devctl logs --trace <trace-id>`. In your own application, deeper spans require instrumentation and an OTLP/HTTP exporter (JSON or protobuf). See [Telemetry](telemetry.md) and the [web console tour](web.md).
 
 ## Traffic inspector and LLM stub
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The OTLP receiver accepts `application/x-protobuf` on `POST /v1/logs` and `POST /v1/traces`, and `Content-Encoding: gzip`. Stock exporters that send protobuf, such as Python's `opentelemetry-exporter-otlp-proto-http`, now reach devctl with no per-service configuration. Before, every batch got `400 {"error":"invalid json"}` and no spans or logs arrived. Other content types and encodings get `415` naming the accepted ones. See [Telemetry](docs/telemetry.md#otlp-receiver). (#112)
 - A service can set `environment.terraform` to a `.tf` file or directory and take literal environment values from that Terraform (`env` blocks and `environment_variables` / `env_vars` / `env` maps). `resource` limits the read to one resource or module. Interpolations and secret refs are skipped. An explicit YAML env key still overrides, so local-only values stay in YAML. See [Environment](docs/environment.md#terraform).
 - `get_setup_guide` section `debug` is the procedure for diagnosing a service devctl is already running (status, logs, print-env, proxy traffic). It does not author `.devctl` YAML. Same text as [skills/devctl-debug](skills/devctl-debug/SKILL.md).
 

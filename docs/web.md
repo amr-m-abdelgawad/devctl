@@ -60,7 +60,7 @@ The overview counters use lifetime totals for the current supervisor, while tabl
 3. Inspect the correlated logs for the same trace to see what the service reported.
 4. Make your change, restart the affected service if needed, and repeat the request.
 
-The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP+JSON**, not protobuf or gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
+The proxy emits request spans. Deeper application spans require your services to emit trace data; opening the console alone does not instrument them. The optional receiver accepts **OTLP/HTTP** as JSON or protobuf, not gRPC. See [Telemetry](telemetry.md) for setup, or use the [tracing example](examples.md#follow-a-distributed-trace) to explore a working session.
 
 ## Read logs, LLM calls, and traffic
 
@@ -89,7 +89,7 @@ The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector
 | Browser cannot connect | Run `devctl web status`, then `devctl web start --print-url`; use the address it prints. |
 | Pages load but controls fail | Reopen the access link from `devctl web start --print-url` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
-| No application traces | Check your instrumentation and OTLP/HTTP+JSON exporter configuration in [Telemetry](telemetry.md). |
+| No application traces | Check your instrumentation and OTLP/HTTP exporter configuration in [Telemetry](telemetry.md). |
 | Cannot bind the listener | Check for a port conflict with `devctl doctor` or `#/doctor` and choose an unused loopback port. |
 | ADC missing | Open Identity from the header chip, then `devctl auth login` or TUI `/auth login`. |
 
