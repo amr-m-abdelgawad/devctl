@@ -236,16 +236,31 @@ async function lsofPortHolder(port: number): Promise<PortHolder | undefined> {
 }
 
 async function fuserPortHolder(port: number): Promise<PortHolder | undefined> {
-  const fuserText = await commandOutput(["fuser", "-n", "tcp", String(port)], true);
-  if (fuserText === "") {
-    return undefined;
+  const pid = parseFuser(await commandOutput(["fuser", "-n", "tcp", String(port)], false), port);
+  return pid === undefined ? undefined : { port, pid, command: "process" };
+}
+
+// psmisc fuser prints the pids on stdout and its "<port>/tcp:" label on
+// stderr, so only stdout is parsed: with stderr mixed in, a holder fuser can't
+// see (another user's process) or an error (macOS fuser has no `-n tcp`) left
+// the port number as the only number, and it was reported as the pid. Some
+// builds put the label on stdout; it is skipped, but a pid that happens to
+// equal the port is still a real pid.
+export function parseFuser(stdout: string, port: number): number | undefined {
+  let text = stdout.trim();
+  const label = `${port}/tcp:`;
+  if (text.startsWith(label)) {
+    text = text.slice(label.length);
   }
-  const match = fuserText.match(/(\d+)/);
-  const pid = match ? Number(match[1]) : 0;
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return undefined;
+  for (const token of text.trim().split(/\s+/)) {
+    if (/^\d+$/.test(token)) {
+      const pid = Number(token);
+      if (pid > 0) {
+        return pid;
+      }
+    }
   }
-  return { port, pid, command: "process" };
+  return undefined;
 }
 
 export function parseNetstat(text: string, port: number): PortHolder | undefined {

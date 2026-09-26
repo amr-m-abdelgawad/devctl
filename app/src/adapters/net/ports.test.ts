@@ -1,7 +1,19 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
-import { assignPorts, available, findPortHolder, occupiedFixedPorts, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
+import { assignPorts, available, occupiedFixedPorts, parseFuser, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
+
+// findPortHolder in a child process started with PATH=bin: Bun resolves
+// executables from the PATH it started with, so changing process.env.PATH
+// in this process would not reach stub (or missing) binaries.
+function findPortHolderWithPath(bin: string, port: number): unknown {
+  const script = `const { findPortHolder } = await import(${JSON.stringify(join(import.meta.dir, "ports.ts"))}); console.log(JSON.stringify((await findPortHolder(${port})) ?? null));`;
+  const child = Bun.spawnSync([process.execPath, "-e", script], { env: { PATH: bin } });
+  return JSON.parse(child.stdout.toString()) as unknown;
+}
 
 function listen(port = 0): Promise<{ port: number; close: () => Promise<void> }> {
   return new Promise((resolve, reject) => {
@@ -56,13 +68,50 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
   });
 
   test.skipIf(process.platform === "win32")("findPortHolder degrades to undefined when lsof/fuser are missing from $PATH", async () => {
-    const originalPath = process.env.PATH;
-    process.env.PATH = "";
+    const empty = mkdtempSync(join(tmpdir(), "devctl-nobin-"));
     try {
-      await expect(findPortHolder(18081)).resolves.toBeUndefined();
+      expect(findPortHolderWithPath(empty, 18081)).toBeNull();
     } finally {
-      process.env.PATH = originalPath;
+      rmSync(empty, { recursive: true, force: true });
     }
+  });
+
+  test.skipIf(process.platform === "win32")("the fuser fallback never reports the port number as the holder pid", async () => {
+    // lsof finds nothing; fuser prints only its "<port>/tcp:" label (on stderr),
+    // as it does when the holder belongs to another user, or an error such as
+    // macOS fuser's usage text.
+    const dirs: string[] = [];
+    const withFuser = (fuser: string): unknown => {
+      const bin = mkdtempSync(join(tmpdir(), "devctl-fuser-"));
+      dirs.push(bin);
+      for (const [name, body] of [["lsof", "exit 1"], ["fuser", fuser]] as const) {
+        writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
+        chmodSync(join(bin, name), 0o755);
+      }
+      return findPortHolderWithPath(bin, 18082);
+    };
+    try {
+      expect(withFuser('echo "18082/tcp:" >&2')).toBeNull();
+      expect(withFuser('echo "fuser: illegal option -- n" >&2; echo "usage: fuser [-cfu] file ..." >&2; exit 1')).toBeNull();
+      // psmisc: pids on stdout, the label on stderr.
+      expect(withFuser('echo "18082/tcp:" >&2; echo "   4321  4400"')).toEqual({ port: 18082, pid: 4321, command: "process" });
+    } finally {
+      for (const dir of dirs) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("parseFuser reads pids from fuser's stdout only", () => {
+    expect(parseFuser("   685\n", 18779)).toBe(685);
+    expect(parseFuser(" 685 700\n", 18779)).toBe(685);
+    expect(parseFuser("18779/tcp:   685\n", 18779)).toBe(685);
+    expect(parseFuser("", 18779)).toBeUndefined();
+    expect(parseFuser("18779/tcp:\n", 18779)).toBeUndefined();
+    // A pid equal to the port is still a pid once the label is gone.
+    expect(parseFuser("18779\n", 18779)).toBe(18779);
+    expect(parseFuser("18779/tcp:  18779\n", 18779)).toBe(18779);
+    expect(parseFuser("0\n", 18779)).toBeUndefined();
   });
 
   test("occupiedFixedPorts reports when every fixed port is taken", async () => {
