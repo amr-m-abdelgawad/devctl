@@ -1,9 +1,21 @@
 import { mkdirSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { load } from "../config/index.ts";
 import { Supervisor } from "../../bootstrap/test-supervisor.ts";
+
+function unusedPort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = createServer();
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      server.close(() => resolve(typeof addr === "object" && addr ? addr.port : 0));
+    });
+  });
+}
 
 describe("demo-platform integration", () => {
   // Bun 1.4.2 on Windows can segfault while spawning this demo service
@@ -19,6 +31,12 @@ describe("demo-platform integration", () => {
     for (const svc of Object.values(cfg.services)) {
       svc.identity = { type: "", mode: "", service_account: "" };
     }
+    // The demo pins identity to 18001, which a locally running demo already
+    // holds; move it to a free port so the test doesn't depend on that.
+    const identity = cfg.services.identity!;
+    const port = await unusedPort();
+    identity.ports = identity.ports.map((p) => (p.name === "http" ? { ...p, value: port } : p));
+    identity.health.url = identity.health.url.replace(":18001", `:${port}`);
     const sup = new Supervisor(cfg, {
       detectGoogle: async () => ({
         gcloudInstalled: false,
