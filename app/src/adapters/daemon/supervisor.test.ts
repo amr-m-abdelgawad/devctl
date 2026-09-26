@@ -8,7 +8,7 @@ import { ConfigurationReloadFailed, SessionRecovered } from "../../shared/events
 import { MCP_TOOLS } from "../../presentation/mcp/tools.ts";
 import { available } from "../net/ports.ts";
 import { processAlive, readPersistedState, socketPath, writePersistedState } from "../storage/storage.ts";
-import { ProcessManager } from "../process/processes.ts";
+import { ProcessManager, inspectProcess } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
 import { mergeRestartRequired } from "./reload.ts";
 import { saveTuiPreferences } from "../config/tui-preferences.ts";
@@ -2319,6 +2319,88 @@ services:
       await sup.stop([]).catch(() => {});
     }
   }, 10_000);
+
+  // "name only" is what Windows tasklist gives: the command, no cwd, no start
+  // time, so the holder can only be matched on its executable name.
+  test.each([
+    ["full identity", inspectProcess],
+    ["name only", async (pid: number) => {
+      const found = await inspectProcess(pid);
+      return found && { pid, command: found.command, cwd: "" };
+    }],
+  ] as const)("stopping a removed service leaves an unrelated process on its port running (%s)", async (_label, inspect) => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    const configPath = join(dir, ".devctl", "config.yaml");
+    const port = await freePort();
+    writeConfig(
+      configPath,
+      `version: 1
+project:
+  name: release-test
+services:
+  api:
+    command: [echo, ok]
+  web:
+    command:
+      - ${JSON.stringify(process.execPath)}
+      - -e
+      - "setInterval(() => {}, 1000)"
+    working_dir: web
+    ports:
+      http: ${port}
+`,
+    );
+    // web's own directory, so its recorded cwd differs from the squatter's.
+    mkdirSync(join(dir, "web"), { recursive: true });
+    const { load } = await import("../config/index.ts");
+    const cfg = load(dir, "");
+    cfg.logs.persistence.enabled = false;
+    cfg.shutdown.grace_seconds = 0.2;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      inspectProcess: inspect,
+    });
+    let squatter: ReturnType<typeof Bun.spawn> | undefined;
+    try {
+      await sup.start({ services: ["web"] });
+      const webPid = sup.snapshot().services.web?.pid ?? 0;
+      expect(webPid).toBeGreaterThan(0);
+      // Not web's process: started from another directory, and well past the
+      // 2 s start-time tolerance (macOS ps reports start times in whole
+      // seconds), it takes web's port (web never binds it).
+      await Bun.sleep(4_000);
+      const child = Bun.spawn(
+        [process.execPath, "-e", `require("net").createServer().listen(${port}, "127.0.0.1", () => console.log("up")); setInterval(() => {}, 1000)`],
+        { cwd: tmp(), stdout: "pipe" },
+      );
+      squatter = child;
+      const reader = child.stdout.getReader();
+      await reader.read();
+      reader.releaseLock();
+
+      writeConfig(
+        configPath,
+        `version: 1
+project:
+  name: release-test
+services:
+  api:
+    command: [echo, ok]
+`,
+      );
+      await sup.reload();
+      expect(sup.snapshot().services.web?.orphaned).toBe(true);
+
+      await sup.stop(["web"]);
+      expect(processAlive(webPid)).toBe(false);
+      // The squatter doesn't match web's recorded process, so release leaves it.
+      expect(processAlive(squatter.pid)).toBe(true);
+    } finally {
+      squatter?.kill("SIGKILL");
+      await sup.stop([]).catch(() => {});
+    }
+  }, 20_000);
 
   test("reload rejects a candidate config with an unresolvable plugin health type, keeping the previous config", async () => {
     const dir = tmp();

@@ -102,7 +102,8 @@ export type ClientRuntime = {
   resolveExportPath(input?: string): string;
   writeLogExport(path: string, events: LogEvent[]): void;
   openInFileManager(path: string): void;
-  freePort(holder: PortHolder): Promise<void>;
+  // Re-checks the holder first; "already-free" when nothing holds the port now.
+  freePort(holder: PortHolder): Promise<"stopped" | "already-free">;
   createStarterConfig(repo: string, name?: string, project?: string, profile?: string, force?: boolean): string;
   runSetup(startDir: string, explicitConfig?: string, force?: boolean): Promise<void>;
   readTextFile(path: string): string;

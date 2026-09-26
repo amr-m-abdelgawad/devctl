@@ -82,7 +82,7 @@ export type KeyboardUi = {
   setSelected: Dispatch<SetStateAction<number>>;
   setChecked: Dispatch<SetStateAction<string[]>>;
   setConfigEditError: Dispatch<SetStateAction<string>>;
-  freePort: (holder: PortHolder) => Promise<void>;
+  freePort: (holder: PortHolder) => Promise<"stopped" | "already-free">;
   openEnvPicker: (service?: string) => void;
   envOptions: { name: string; description: string; current: boolean; started: boolean }[];
   envIndex: number;

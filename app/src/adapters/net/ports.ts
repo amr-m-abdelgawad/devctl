@@ -295,22 +295,51 @@ async function findPortHolderWindows(port: number): Promise<PortHolder | undefin
 
 const FREE_WAIT_MS = 400;
 
-export async function freePort(holder: PortHolder): Promise<void> {
+export type FreePortResult = "stopped" | "already-free";
+
+export type FreePortDeps = {
+  lookup?: (port: number) => Promise<PortHolder | undefined>;
+  kill?: (pid: number, signal: NodeJS.Signals) => void;
+  waitMs?: number;
+};
+
+// Stops the process holding `holder.port`, but only while it is still
+// `holder.pid`: the holder may have been looked up long before (a Doctor row
+// the user acts on minutes later), and the pid may since have exited and been
+// reused. Checked again before the follow-up SIGKILL, so a process that let
+// go of the port on SIGTERM is left alone.
+export async function freePort(holder: PortHolder, deps: FreePortDeps = {}): Promise<FreePortResult> {
+  const lookup = deps.lookup ?? findPortHolder;
+  const kill = deps.kill ?? ((pid: number, signal: NodeJS.Signals) => void process.kill(pid, signal));
   if (holder.pid === process.pid) {
     throw hintError(KindProcessStart, `port ${holder.port} is held by this TUI`, "stop the proxy from the proxy screen, or quit the TUI");
   }
+  const current = await lookup(holder.port);
+  if (!current) {
+    return "already-free";
+  }
+  if (current.pid !== holder.pid) {
+    throw hintError(
+      KindProcessStart,
+      `port ${holder.port} is now held by ${current.command} (pid ${current.pid}), not pid ${holder.pid}; not stopping it`,
+      "refresh Doctor and check the new holder before freeing the port",
+    );
+  }
   try {
-    process.kill(holder.pid, "SIGTERM");
+    kill(holder.pid, "SIGTERM");
   } catch (err) {
     throw wrapError(KindProcessStart, `could not stop pid ${holder.pid} on port ${holder.port}`, err);
   }
-  await sleep(FREE_WAIT_MS);
-  try {
-    process.kill(holder.pid, 0);
-    process.kill(holder.pid, "SIGKILL");
-  } catch {
-    return;
+  await sleep(deps.waitMs ?? FREE_WAIT_MS);
+  if ((await lookup(holder.port))?.pid !== holder.pid) {
+    return "stopped";
   }
+  try {
+    kill(holder.pid, "SIGKILL");
+  } catch {
+    // exited between the check and the signal
+  }
+  return "stopped";
 }
 
 function sleep(ms: number): Promise<void> {

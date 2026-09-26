@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyService } from "../../domain/config/types.ts";
-import { assignPorts, available, occupiedFixedPorts, parseFuser, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
+import { assignPorts, available, freePort, occupiedFixedPorts, parseFuser, parseLsof, parseNetstat, portBusyErrorFromHolder } from "./ports.ts";
 
 // findPortHolder in a child process started with PATH=bin: Bun resolves
 // executables from the PATH it started with, so changing process.env.PATH
@@ -112,6 +112,60 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
     expect(parseFuser("18779\n", 18779)).toBe(18779);
     expect(parseFuser("18779/tcp:  18779\n", 18779)).toBe(18779);
     expect(parseFuser("0\n", 18779)).toBeUndefined();
+  });
+
+  describe("freePort re-checks the holder before each signal", () => {
+    const holder = { port: 18090, pid: 4242, command: "node" };
+    function harness(lookups: Array<{ port: number; pid: number; command: string } | undefined>) {
+      const signals: Array<[number, string]> = [];
+      const queue = [...lookups];
+      return {
+        signals,
+        deps: {
+          lookup: async () => queue.shift(),
+          kill: (pid: number, signal: NodeJS.Signals) => {
+            signals.push([pid, signal]);
+          },
+          waitMs: 0,
+        },
+      };
+    }
+
+    test("a port now held by another pid is left alone", async () => {
+      const h = harness([{ port: 18090, pid: 5151, command: "python3" }]);
+      await expect(freePort(holder, h.deps)).rejects.toThrow("port 18090 is now held by python3 (pid 5151), not pid 4242; not stopping it");
+      expect(h.signals).toEqual([]);
+    });
+
+    test("a port nobody holds any more is reported as already free", async () => {
+      const h = harness([undefined]);
+      expect(await freePort(holder, h.deps)).toBe("already-free");
+      expect(h.signals).toEqual([]);
+    });
+
+    test("no SIGKILL once SIGTERM released the port", async () => {
+      const h = harness([holder, undefined]);
+      expect(await freePort(holder, h.deps)).toBe("stopped");
+      expect(h.signals).toEqual([[4242, "SIGTERM"]]);
+    });
+
+    test("no SIGKILL when a different pid holds the port after SIGTERM", async () => {
+      const h = harness([holder, { port: 18090, pid: 6161, command: "other" }]);
+      expect(await freePort(holder, h.deps)).toBe("stopped");
+      expect(h.signals).toEqual([[4242, "SIGTERM"]]);
+    });
+
+    test("SIGKILL when the same pid still holds the port", async () => {
+      const h = harness([holder, holder]);
+      expect(await freePort(holder, h.deps)).toBe("stopped");
+      expect(h.signals).toEqual([[4242, "SIGTERM"], [4242, "SIGKILL"]]);
+    });
+
+    test("refuses to stop this process", async () => {
+      const h = harness([]);
+      await expect(freePort({ ...holder, pid: process.pid }, h.deps)).rejects.toThrow("held by this TUI");
+      expect(h.signals).toEqual([]);
+    });
   });
 
   test("occupiedFixedPorts reports when every fixed port is taken", async () => {
