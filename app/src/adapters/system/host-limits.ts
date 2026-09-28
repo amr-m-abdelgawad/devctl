@@ -74,6 +74,9 @@ function readFirstNumber(paths: string[]): number {
 }
 
 function readDisk(path: string): { free: number; total: number } {
+  if (process.platform === "win32") {
+    return { free: 0, total: 0 };
+  }
   try {
     const stats = statfsSync(path);
     return { free: stats.bavail * stats.bsize, total: stats.blocks * stats.bsize };

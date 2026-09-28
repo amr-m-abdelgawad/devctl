@@ -296,11 +296,14 @@ export class WorkerLogStore implements LogStore {
       this.rejectReady(error);
     }
     this.rejectAll(error);
-    try {
-      this.worker.terminate();
-    } catch {
-      // already gone
-    }
+    const worker = this.worker;
+    setTimeout(() => {
+      try {
+        void worker.terminate();
+      } catch {
+        // already gone
+      }
+    }, 0);
   }
 
   private rejectAll(error: Error): void {
