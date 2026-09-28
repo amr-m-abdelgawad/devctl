@@ -30,6 +30,7 @@ async function handle(message: WorkerRequest): Promise<void> {
       message.config.sessionID,
       message.config.retentionDays,
       message.config.maxSessionLogs,
+      { repoKey: message.config.repoKey, maxMemoryBytes: message.config.maxMemoryBytes },
     );
     manager.setParsers([defaultLogParser()]);
     manager.setOnRecord((event) => {

@@ -1,4 +1,8 @@
+import { existsSync, readFileSync } from "node:fs";
 import { clearInterval as clearWatchInterval, setInterval as setWatchInterval } from "node:timers";
+import { readRpcToken, socketPath } from "../storage/storage.ts";
+import { resolveWorkerUrl } from "../storage/worker-resolver.ts";
+import { heartbeatPath, restartRequestPath, writeHeartbeatAtomic, type HeartbeatFile } from "./heartbeat.ts";
 
 export const WATCHDOG_TICK_MS = 1_000;
 export const WATCHDOG_STALL_TICKS = 20;
@@ -16,24 +20,124 @@ export function watchdogTickAdvanced(elapsedMs: number, minGapMs = WATCHDOG_MIN_
   return elapsedMs >= minGapMs;
 }
 
-export function startEventLoopWatchdog(): { stop: () => void } {
-  if (Bun.isStandaloneExecutable === true) {
-    return { stop: () => undefined };
-  }
-  const worker = new Worker(new URL("./event-loop-watchdog-worker.ts", import.meta.url), { name: "devctl-watchdog" });
+export type WatchdogHandle = {
+  stop: () => void;
+  markListening: () => void;
+  noteRestartRequest: (onRestart: () => void) => void;
+};
+
+export type WatchdogOptions = {
+  repoRoot: string;
+  session: string;
+  identity: string;
+};
+
+export function startEventLoopWatchdog(options: WatchdogOptions): WatchdogHandle {
+  let stopped = false;
+  let listening = false;
+  let worker: Worker | undefined;
+  let lastBeatAt = Date.now();
+  let onRestart: (() => void) | undefined;
   const beat = (): void => {
-    worker.postMessage({ type: "beat" });
+    const now = Date.now();
+    if (!watchdogTickAdvanced(now - lastBeatAt) && listening) {
+      return;
+    }
+    lastBeatAt = now;
+    const message = {
+      type: listening ? "beat" : "beat",
+      repoRoot: options.repoRoot,
+      session: options.session,
+      identity: options.identity,
+      socket: socketPath(options.repoRoot),
+      token: readToken(options.repoRoot),
+    };
+    try {
+      worker?.postMessage(listening ? { ...message, type: "listening" } : message);
+    } catch {
+      worker = undefined;
+    }
   };
-  beat();
-  const timer = setWatchInterval(beat, WATCHDOG_TICK_MS);
-  timer.unref();
-  worker.addEventListener("error", (event) => {
-    event.stopImmediatePropagation();
-  });
+  const spawnWorker = (): void => {
+    if (stopped) {
+      return;
+    }
+    try {
+      worker = new Worker(resolveWorkerUrl("event-loop-watchdog-worker", new URL("./event-loop-watchdog-worker.ts", import.meta.url)), { name: "devctl-watchdog" });
+      worker.addEventListener("error", (event) => {
+        event.stopImmediatePropagation();
+        worker = undefined;
+        writeDegraded(options);
+      });
+      beat();
+    } catch {
+      worker = undefined;
+      writeDegraded(options);
+    }
+  };
+  spawnWorker();
+  const timer = setWatchInterval(() => {
+    if (worker === undefined) {
+      writeDegraded(options);
+      spawnWorker();
+    }
+    beat();
+    if (existsSync(restartRequestPath(options.repoRoot))) {
+      onRestart?.();
+    }
+  }, WATCHDOG_TICK_MS);
+  timer.unref?.();
   return {
     stop: () => {
+      stopped = true;
       clearWatchInterval(timer);
-      void worker.terminate();
+      void worker?.terminate();
+    },
+    markListening: () => {
+      listening = true;
+      beat();
+    },
+    noteRestartRequest: (handler) => {
+      onRestart = handler;
     },
   };
+}
+
+function readToken(repoRoot: string): string {
+  try {
+    return readRpcToken(repoRoot);
+  } catch {
+    return "";
+  }
+}
+
+function writeDegraded(options: WatchdogOptions): void {
+  const previous = readPrevious(options.repoRoot);
+  const beat: HeartbeatFile = {
+    pid: process.pid,
+    identity: options.identity,
+    session: options.session,
+    workerTick: previous?.workerTick ?? 0,
+    mainStallTicks: 0,
+    rpcOkAgeTicks: previous?.rpcOkAgeTicks ?? 0,
+    degraded: true,
+    writtenAtMs: Date.now(),
+  };
+  try {
+    writeHeartbeatAtomic(options.repoRoot, beat);
+  } catch {
+    // a full disk must not look like a frozen daemon
+  }
+}
+
+function readPrevious(repoRoot: string): HeartbeatFile | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(heartbeatPath(repoRoot), "utf8")) as HeartbeatFile;
+    if (typeof parsed.workerTick === "number") {
+      return parsed;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
 }

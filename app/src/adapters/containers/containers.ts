@@ -1,6 +1,6 @@
 import { spawn, type Subprocess } from "bun";
 import { KindProcessStart, newError, wrapError } from "../../shared/errors.ts";
-import type { LineHandler } from "../process/processes.ts";
+import { pumpLines, type LineHandler } from "../process/output-pump.ts";
 
 import { emptyContainer } from "../../domain/config/types.ts";
 import { resolvedContainerLimits } from "../../domain/service/container-limits.ts";
@@ -82,8 +82,8 @@ function attachControl(
 ): ContainerControl {
   let alive = true;
   const logs = spawn({ cmd: [runtime, "logs", "--follow", id], stdout: "pipe", stderr: "pipe", stdin: "ignore" });
-  void pump(logs.stdout, "stdout", onLine);
-  void pump(logs.stderr, "stderr", onLine);
+  void pumpLines(logs.stdout, "stdout", onLine, { yieldEveryRead: true });
+  void pumpLines(logs.stderr, "stderr", onLine, { yieldEveryRead: true });
   const waiter = spawn({ cmd: [runtime, "wait", id], stdout: "pipe", stderr: "pipe", stdin: "ignore" });
   const done = Promise.all([new Response(waiter.stdout as ReadableStream).text(), waiter.exited]).then(async ([text, waitCode]) => {
     alive = false;
@@ -158,20 +158,4 @@ async function runCaptured(runtime: string, args: string[], env: Record<string, 
   } catch (err) {
     throw wrapError(KindProcessStart, `unable to run ${runtime}`, err);
   }
-}
-
-async function pump(stream: ReadableStream<Uint8Array> | number | undefined, kind: "stdout" | "stderr", handler?: LineHandler): Promise<void> {
-  if (!stream || typeof stream === "number" || !handler) return;
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  for (;;) {
-    const item = await reader.read();
-    if (item.done) break;
-    buffer += decoder.decode(item.value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    for (const line of lines) handler(kind, line.replace(/\r$/, ""));
-  }
-  if (buffer !== "") handler(kind, buffer);
 }

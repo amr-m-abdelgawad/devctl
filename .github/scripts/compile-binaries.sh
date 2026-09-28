@@ -28,3 +28,25 @@ compile bun-darwin-x64 devctl-darwin-x64
 compile bun-linux-x64 devctl-linux-x64
 compile bun-linux-arm64 devctl-linux-arm64
 compile bun-windows-x64 devctl-windows-x64.exe
+
+compile_worker() {
+  local target="$1"
+  local entry="$2"
+  local out="$3"
+  local args=(build --compile --target="$target" --define "process.env.DEVCTL_VERSION=\"${VERSION}\"")
+  case "$target" in
+    bun-linux-*) args+=(--define "process.env.OPENTUI_LIBC=\"glibc\"") ;;
+  esac
+  echo "compile ${target} ${entry} -> ${OUTDIR}/${out}"
+  bun "${args[@]}" --outfile "${OUTDIR}/${out}" "$entry"
+}
+
+for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64 bun-windows-x64; do
+  ext=""
+  if [[ "$target" == "bun-windows-x64" ]]; then
+    ext=".exe"
+  fi
+  suffix="${target#bun-}"
+  compile_worker "$target" src/adapters/storage/log-worker.ts "log-worker-${suffix}${ext}"
+  compile_worker "$target" src/adapters/daemon/event-loop-watchdog-worker.ts "event-loop-watchdog-worker-${suffix}${ext}"
+done

@@ -98,6 +98,25 @@ devctl logs --dedupe-request-id    # collapse nearby events that share a request
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 ```
 
+## Resource limits
+
+Every buffer has a byte budget. Overflow is queued, then written to an ordered spool, and only then does devctl stop reading a service — the service blocks in its write, the way it would on a slow terminal. Lines are not dropped.
+
+| Key | Default |
+|-----|---------|
+| `logs.max_memory_events` | 50000 records in the live window |
+| `logs.max_memory_bytes` | `0` — 8% of cgroup or host memory, clamped to 96–384 MiB |
+| `logs.spool.max_bytes` | `0` — 1 GiB of not-yet-parsed output (mode 0600, deleted once consumed) |
+| `logs.persistence.max_session_bytes` | `0` — 1 GiB per session |
+| `logs.persistence.max_total_bytes` | `0` — 2 GiB across closed sessions |
+| `logs.persistence.max_session_logs` | `0` — unlimited; when set, counts sessions **for this repository** |
+| `llm.store_max_bytes` / `proxy.inspect_store_max_bytes` | `0` — 128 MiB of captured bodies. Metadata for the newest 2,000 calls stays; a missing body is marked evicted |
+| `supervisor.reap_orphans` | `false`. Prefer a reaping PID 1 (`"init": true`) |
+
+With persistence off, a very large line shrinks the in-memory window below 50,000 records instead of exhausting RAM. A full disk stops persistence and counts the loss; the live window is kept. Health probes log when status changes, plus a periodic reminder while a service stays unhealthy.
+
+`devctl down --force` stops a daemon that has no heartbeat, including one left running by an older devctl. A busy daemon is not killed.
+
 ## Related
 
 - [TUI](tui.md)

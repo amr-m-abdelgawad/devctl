@@ -15,4 +15,6 @@ export type LogStore = {
   setServiceLogs(logs: Record<string, ServiceLogConfig>): void;
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void;
   close(): Promise<void>;
+  /** True when the pipeline cannot accept more bytes until the spool drains. */
+  ingestPaused?(): boolean;
 };

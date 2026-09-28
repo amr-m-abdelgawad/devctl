@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, type WriteStream } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { type Bus, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { ensureDir, exportsDir, logsDir, resolveUserPath } from "./storage.ts";
+import { LogRing } from "./log-ring.ts";
+import { SessionLogWriter } from "./log-persist.ts";
+import { HISTORY_SCAN_BYTES } from "../../domain/logs/budgets.ts";
 
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import {
@@ -84,22 +87,26 @@ function withoutFilterDimension(filter: LogFilter, dimension: "services" | "leve
   return copy;
 }
 
+export type LogManagerOptions = {
+  /** 0 keeps the historical count-only ring. */
+  maxMemoryBytes?: number;
+  pendingLimitBytes?: number;
+  /** When set, `max_session_logs` counts only this repository's sessions. */
+  repoKey?: string;
+};
+
 export class LogManager {
-  private events: LogRecord[] = [];
-  private eventStart = 0;
   private nextSeq = 1;
   private recorded = 0;
   private errorCount = 0;
-  private ringErrors = 0;
-  private readonly ringCounts: Record<string, number> = {};
+  private readonly ring: LogRing;
   private readonly max: number;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
   private readonly persistDir: string;
   private readonly persist: boolean;
   private readonly sessionID: string;
-  private readonly streams = new Map<string, WriteStream>();
-  private readonly lastWrite = new Map<string, Promise<void>>();
+  private writer?: SessionLogWriter;
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
@@ -117,8 +124,10 @@ export class LogManager {
     sessionID: string,
     retentionDays = 0,
     maxSessionLogs = 0,
+    options: LogManagerOptions = {},
   ) {
     this.max = max > 0 ? max : DEFAULT_MAX_EVENTS;
+    this.ring = new LogRing(this.max, options.maxMemoryBytes ?? 0);
     this.bus = bus;
     this.detector = detector;
     this.sessionID = sessionID;
@@ -128,7 +137,9 @@ export class LogManager {
     if (this.persist) {
       mkdirSync(this.persistDir, { recursive: true, mode: 0o700 });
       writeFileSync(join(this.persistDir, SESSION_FORMAT_FILE), `${SESSION_FORMAT_JSONL}\n`, { mode: 0o600 });
-      pruneSessions(root, retentionDays, maxSessionLogs);
+      writeFileSync(join(this.persistDir, "manifest.json"), `${JSON.stringify({ repo: options.repoKey ?? "", retentionDays, bytes: 0 })}\n`, { mode: 0o600 });
+      this.writer = new SessionLogWriter(this.persistDir, options.pendingLimitBytes);
+      pruneSessions(root, retentionDays, maxSessionLogs, options.repoKey);
     }
   }
 
@@ -163,7 +174,19 @@ export class LogManager {
 
   async flush(): Promise<void> {
     this.flushPending();
-    await Promise.all([...this.lastWrite.values()]);
+    await this.writer?.flush();
+  }
+
+  setMemoryBudget(maxBytes: number): void {
+    this.ring.setMaxBytes(maxBytes);
+  }
+
+  persistenceLoss(): number {
+    return this.writer?.loss ?? 0;
+  }
+
+  persistencePaused(): boolean {
+    return this.writer?.paused === true;
   }
 
   private parseLine(line: string): ParsedLog {
@@ -181,30 +204,9 @@ export class LogManager {
     return out;
   }
 
-  private streamFor(key: string): WriteStream {
-    let stream = this.streams.get(key);
-    if (stream === undefined) {
-      stream = createWriteStream(join(this.persistDir, `${key}.jsonl`), { flags: "a", mode: 0o600 });
-      stream.on("error", () => {
-        // disk full / file removed; ingest must not crash the daemon
-      });
-      this.streams.set(key, stream);
-    }
-    return stream;
-  }
-
   async close(): Promise<void> {
     await this.flush();
-    await Promise.all(
-      [...this.streams.values()].map(
-        (stream) =>
-          new Promise<void>((resolve) => {
-            stream.end(() => resolve());
-          }),
-      ),
-    );
-    this.streams.clear();
-    this.lastWrite.clear();
+    await this.writer?.close();
   }
 
   query(filter: LogFilter): LogRecord[] {
@@ -292,22 +294,16 @@ export class LogManager {
 
   snapshot(): LogSnapshot {
     return {
-      total: this.events.length,
-      errors: this.ringErrors,
-      counts: { ...this.ringCounts },
+      total: this.ring.length,
+      errors: this.ring.errors,
+      counts: { ...this.ring.counts },
       seen: this.recorded,
       seenErrors: this.errorCount,
     };
   }
 
   private forEachEvent(visit: (event: LogRecord) => void): void {
-    const count = this.events.length;
-    for (let offset = 0; offset < count; offset += 1) {
-      const event = this.events[(this.eventStart + offset) % count];
-      if (event) {
-        visit(event);
-      }
-    }
+    this.ring.forEach(visit);
   }
 
   exportTo(path: string, filter: LogFilter): void {
@@ -378,14 +374,7 @@ export class LogManager {
   }
 
   private replaceRecord(seq: number, updated: LogRecord): void {
-    const count = this.events.length;
-    for (let offset = 0; offset < count; offset += 1) {
-      const index = (this.eventStart + offset) % count;
-      if (this.events[index]?.seq === seq) {
-        this.events[index] = updated;
-        break;
-      }
-    }
+    this.ring.replace(seq, updated);
     this.recentCorrelate = this.recentCorrelate.map((row) =>
       row.event.seq === seq ? { event: updated, arrivedMs: row.arrivedMs } : row,
     );
@@ -402,54 +391,18 @@ export class LogManager {
   }
 
   private pushRing(event: LogRecord): void {
-    if (this.events.length < this.max) {
-      this.events.push(event);
-      this.addRingCounts(event);
-      return;
-    }
-    const evicted = this.events[this.eventStart];
-    if (evicted) {
-      this.removeRingCounts(evicted);
-    }
-    this.events[this.eventStart] = event;
-    this.addRingCounts(event);
-    this.eventStart = (this.eventStart + 1) % this.max;
-  }
-
-  private addRingCounts(event: LogRecord): void {
-    this.ringCounts[event.service] = (this.ringCounts[event.service] ?? 0) + 1;
-    if (isErrorSeverity(event.severityNumber)) {
-      this.ringErrors += 1;
-    }
-  }
-
-  private removeRingCounts(event: LogRecord): void {
-    const remaining = (this.ringCounts[event.service] ?? 0) - 1;
-    if (remaining <= 0) {
-      delete this.ringCounts[event.service];
-    } else {
-      this.ringCounts[event.service] = remaining;
-    }
-    if (isErrorSeverity(event.severityNumber) && this.ringErrors > 0) {
-      this.ringErrors -= 1;
-    }
+    this.ring.push(event);
   }
 
   private publishRecord(event: LogRecord): void {
     this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
     this.onRecord?.(event);
-    if (!this.persist) {
+    if (!this.writer) {
       return;
     }
     const text = `${JSON.stringify(event)}\n`;
     const key = safeServiceFile(event.service);
-    const stream = this.streamFor(key);
-    this.lastWrite.set(
-      key,
-      new Promise((resolve) => {
-        stream.write(text, () => resolve());
-      }),
-    );
+    this.writer.write(key, text);
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {
@@ -545,6 +498,7 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
       // The supervisor updates the same Detector instance this manager holds.
     },
     close: () => mgr.close(),
+    ingestPaused: () => mgr.persistencePaused(),
   };
 }
 
@@ -611,6 +565,48 @@ export function loadSessionEvents(sessionName: string, root = logsDir()): LogRec
     return loadJsonlSession(dir);
   }
   return loadLegacySession(dir);
+}
+
+/** Reads at most `maxBytes` from the end of each session file, then keeps the newest `maxRecords`. */
+export function loadSessionTail(sessionName: string, root = logsDir(), maxRecords = 50_000, maxBytes = HISTORY_SCAN_BYTES): LogRecord[] {
+  const dir = join(root, sessionName);
+  if (!existsSync(dir)) {
+    return [];
+  }
+  if (!isJsonlSessionDir(dir)) {
+    return loadSessionEvents(sessionName, root).slice(-maxRecords);
+  }
+  const records: LogRecord[] = [];
+  let read = 0;
+  for (const name of readdirSync(dir)) {
+    if (name.endsWith(".jsonl") && read < maxBytes) {
+      const tail = readTail(join(dir, name), maxBytes - read);
+      read += Buffer.byteLength(tail);
+      for (const line of tail.split("\n")) {
+        const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
+        if (record) {
+          records.push(record);
+        }
+      }
+    }
+  }
+  records.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
+  return records.slice(-maxRecords);
+}
+
+function readTail(path: string, maxBytes: number): string {
+  const size = statSync(path).size;
+  const start = Math.max(0, size - maxBytes);
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(size - start);
+    readSync(fd, buf, 0, buf.length, start);
+    const text = buf.toString("utf8");
+    const newline = start === 0 ? -1 : text.indexOf("\n");
+    return newline < 0 ? text : text.slice(newline + 1);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 function loadJsonlSession(dir: string): LogRecord[] {
@@ -685,7 +681,7 @@ export function safeServiceFile(service: string): string {
   return cleaned === "" ? "service" : cleaned;
 }
 
-export function pruneSessions(root: string, retentionDays: number, maxSessionLogs: number): void {
+export function pruneSessions(root: string, retentionDays: number, maxSessionLogs: number, repoKey?: string): void {
   if (!existsSync(root)) {
     return;
   }
@@ -694,15 +690,29 @@ export function pruneSessions(root: string, retentionDays: number, maxSessionLog
     .map((name) => {
       const path = join(root, name);
       const st = statSync(path);
-      return { path, mtime: st.mtimeMs };
+      return { path, mtime: st.mtimeMs, repo: readSessionRepo(path) };
     })
     .sort((a, b) => b.mtime - a.mtime);
   const cutoff = retentionDays > 0 ? Date.now() - retentionDays * 86_400_000 : 0;
+  const counted = repoKey === undefined ? sessions : sessions.filter((session) => session.repo === repoKey);
+  const countedPaths = new Set(counted.map((session) => session.path));
   sessions.forEach((session, index) => {
-    const tooOld = cutoff > 0 && session.mtime < cutoff;
-    const overCap = maxSessionLogs > 0 && index >= maxSessionLogs;
+    const inCount = repoKey === undefined || countedPaths.has(session.path);
+    const countIndex = repoKey === undefined ? index : counted.findIndex((row) => row.path === session.path);
+    const tooOld = cutoff > 0 && session.mtime < cutoff && (repoKey === undefined || session.repo === repoKey || session.repo === "");
+    const overCap = inCount && maxSessionLogs > 0 && countIndex >= maxSessionLogs;
     if (tooOld || overCap) {
       rmSync(session.path, { recursive: true, force: true });
     }
   });
+}
+
+function readSessionRepo(dir: string): string {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    const repo = (parsed as { repo?: unknown }).repo;
+    return typeof repo === "string" ? repo : "";
+  } catch {
+    return "";
+  }
 }

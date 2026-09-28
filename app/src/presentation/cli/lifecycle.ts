@@ -243,9 +243,15 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
     .description("stop the daemon (and, by default, its services)")
     .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--keep-services", "stop only the daemon; its services keep running, detached")
-    .action(async (opts: { repo?: string; keepServices?: boolean }) => {
+    .option("--force", "stop a daemon that has no heartbeat, including one left running by an older devctl")
+    .action(async (opts: { repo?: string; keepServices?: boolean; force?: boolean }) => {
       const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
       if (!client) {
+        if (opts.force === true) {
+          const stopped = runtime.forceStopDaemon(repoRoot);
+          writeOut(stopped ? `stopped the supervisor for ${repoRoot}\n` : `no supervisor is running for ${repoRoot}\n`);
+          return;
+        }
         writeOut(`no supervisor is running for ${repoRoot}\n`);
         return;
       }

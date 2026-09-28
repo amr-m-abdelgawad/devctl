@@ -13,6 +13,8 @@ export type ProcessSpec = {
   captureStdout?: boolean;
   captureStderr?: boolean;
   onLine?: ProcessLineHandler;
+  /** When true, stdout/stderr reads pause so a full spool can backpressure the child. */
+  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 

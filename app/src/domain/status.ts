@@ -197,6 +197,13 @@ export type StatusSnapshot = {
   // Per-service CPU%/memoryKB trend over the same window as stats_series, keyed
   // by service name. Absent until the sampler has recorded at least one tick.
   service_series?: Record<string, StatsSeries>;
+  /** Present when the daemon reports its own resource use. */
+  daemon?: {
+    rssBytes: number;
+    heapBytes: number;
+    memoryLimitBytes?: number;
+    nonReapingPid1?: boolean;
+  };
 };
 
 export type LogsResponse = {

@@ -127,6 +127,11 @@ export class OtlpHttpServer {
       writeJson(res, 400, { error: encoding === "json" ? "invalid json" : "invalid protobuf" });
       return;
     }
+    if (path === "/v1/logs" && this.opts.logs.ingestPaused?.() === true) {
+      res.setHeader("retry-after", "1");
+      writeJson(res, 503, { error: "log pipeline is rate limited" });
+      return;
+    }
     const service = this.opts.fallbackService ?? "otlp";
     if (path === "/v1/logs") {
       for (const record of mapOtlpLogs(body, service)) {

@@ -149,11 +149,11 @@ describe("WorkerLogStore", () => {
 });
 
 describe("createDaemonLogStore", () => {
-  test("uses in-process logging for compiled standalone binaries", async () => {
+  test("starts the log worker even when the process is a compiled binary", async () => {
     const bus = new Bus(16);
     const detector = new Detector([], []);
     const { logs, usingWorker } = await createDaemonLogStore(config(), bus, detector, { standalone: true });
-    expect(usingWorker).toBe(false);
+    expect(usingWorker).toBe(true);
     try {
       logs.append({
         timestamp: "2026-08-30T00:00:00.000Z",

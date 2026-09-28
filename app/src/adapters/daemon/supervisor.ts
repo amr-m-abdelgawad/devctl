@@ -195,8 +195,8 @@ export class Supervisor {
     this.detector = deps.detector;
     this.logs = deps.logs;
     this.spans = new SpanManager(undefined, this.detector);
-    this.llmStore = new LlmCallManager(this.detector);
-    this.trafficStore = new TrafficCallRing(this.detector);
+    this.llmStore = new LlmCallManager(this.detector, 0, cfg.llm.store_max_bytes);
+    this.trafficStore = new TrafficCallRing(this.detector, 0, cfg.proxy.inspect_store_max_bytes);
     this.llmFactory = llmSourceFactory([]);
     this.llmCapture = new ProxyCaptureSink({
       cfg: () => this.cfg,
@@ -502,7 +502,7 @@ export class Supervisor {
     const rec = isRecord(params) ? params : {};
     switch (method) {
       case "ping":
-        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION };
+        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION, features: ["log_batch.v1"] };
       case "start":
         return this.commands.startService.execute({
           services: asStringArray(rec.services),

@@ -5,7 +5,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { runForeground } from "../adapters/process/foreground.ts";
 import { archiveDirectory } from "../adapters/storage/archive.ts";
 import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
-import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents } from "../adapters/storage/logs.ts";
+import { forceStopDaemon } from "../adapters/daemon/force-down.ts";
+import { resolveExportPath, writeLogExport, openInFileManager, listSessions, loadSessionEvents, loadSessionTail } from "../adapters/storage/logs.ts";
 import { readInstances, releaseSlot } from "../adapters/storage/instances.ts";
 import { freePort } from "../adapters/net/ports.ts";
 import { createStarterConfig, runSetup } from "../presentation/cli/setup.ts";
@@ -24,12 +25,13 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
   const doctorHost = deps?.doctorHost ?? createDoctorHost({ tokens });
   const updates = githubUpdate();
   const client: ClientRuntime = {
-    loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath, patchRepoLocalConfig, listSessions, loadSessionEvents,
+    loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath, patchRepoLocalConfig, listSessions, loadSessionEvents, loadSessionTail,
     loadPath, validateConfigText, discover, configDiff,
     openTui, findDaemon, tryDial, assertMethodAllowed,
     listInstances: readInstances,
     releaseInstance: releaseSlot,
     processAlive,
+    forceStopDaemon,
     readPersistedState, rotateMcpToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
     createStarterConfig,
     runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),

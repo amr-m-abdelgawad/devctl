@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Log ingest yields between reads, respects writer backpressure, and spills to a capped on-disk spool so a fast service cannot freeze or OOM the daemon. The live window stays the last `logs.max_memory_events` records, also bounded by `logs.max_memory_bytes`.
+- `devctl down --force` stops a daemon that has no heartbeat, including one still running after an upgrade. A daemon that is making progress is not replaced.
+- `supervisor.reap_orphans` (off by default) asks Linux to reap zombies parented by the daemon. `devctl doctor` warns when PID 1 does not reap.
+- The log worker and the event-loop watchdog ship in the npm package and as compiled entrypoints.
+
+### Changed
+
+- `logs.persistence.max_session_logs` counts sessions for the current repository. One checkout no longer deletes another checkout's sessions in a shared logs directory.
+- Health checks record a log line when status changes, and remind while a service stays unhealthy, instead of once per probe.
+- LLM and proxy capture keep metadata for 2,000 calls and evict bodies past `llm.store_max_bytes` and `proxy.inspect_store_max_bytes` (128 MiB when unset).
+- With persistence disabled, very large lines shrink the in-memory window below 50,000 records instead of exhausting RAM.
+- A compiled daemon's watchdog restarts it only after a proven 60 second wedge. Clients wait while a daemon is busy or stopped (`SIGSTOP`).
+- After the stop grace period, devctl SIGKILLs process-group members that are still alive. A zombie is not treated as running.
+
 ## [0.25.0] - 2026-09-28
 
 ### Changed

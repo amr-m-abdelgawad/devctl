@@ -11,6 +11,8 @@ import { instanceStatusLine, type IdentitySnapshot, type LogSnapshot, type Servi
 import type { McpListener } from "../../ports/mcp-host.ts";
 import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
+import { readHostLimits } from "../system/host-limits.ts";
+import { emptyDaemonMetrics } from "../../ports/daemon-metrics.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
 
 export type SnapshotHost = {
@@ -168,6 +170,19 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
     // Omit until at least one service has samples, so consumers can tell an
     // unavailable series from an empty service set (matches the type contract).
     service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
+    daemon: daemonResource(),
+  };
+}
+
+function daemonResource(): StatusSnapshot["daemon"] {
+  const memory = process.memoryUsage();
+  const limits = readHostLimits();
+  const baseline = emptyDaemonMetrics();
+  return {
+    rssBytes: memory.rss || baseline.rssBytes,
+    heapBytes: memory.heapUsed,
+    memoryLimitBytes: limits.memoryBytes > 0 ? limits.memoryBytes : undefined,
+    nonReapingPid1: limits.nonReapingPid1 || undefined,
   };
 }
 

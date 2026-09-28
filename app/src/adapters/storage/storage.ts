@@ -9,6 +9,8 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
+import { processState } from "../process/liveness.ts";
+import { acquireLockFile } from "./lock.ts";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
@@ -248,28 +250,8 @@ export type LockFile = {
 };
 
 export function acquireLock(repoRoot: string, socket: string): { release: () => void } {
-  const path = lockPath(repoRoot);
-  if (existsSync(path)) {
-    const existing = readLock(path);
-    if (existing && processAlive(existing.pid)) {
-      throw new Error(`supervisor already running (pid ${existing.pid})`);
-    }
-    try {
-      unlinkSync(path);
-    } catch {
-      // stale lock file; overwrite below
-    }
-  }
-  writeFileSecure(path, JSON.stringify({ pid: process.pid, socket }));
-  return {
-    release: () => {
-      try {
-        unlinkSync(path);
-      } catch {
-        // lock already released
-      }
-    },
-  };
+  const held = acquireLockFile(lockPath(repoRoot), socket);
+  return { release: () => held.release() };
 }
 
 export function readRepoLock(repoRoot: string): LockFile | undefined {
@@ -311,12 +293,7 @@ export function processAlive(pid: number): boolean {
   if (process.platform === "win32") {
     return processAliveWindows(pid);
   }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+  return processState(pid) === "alive";
 }
 
 export function windowsTasklistLine(pid: number): string {

@@ -14,13 +14,17 @@ import type { FileSystem } from "../ports/filesystem.ts";
 import { ServiceOrchestrator } from "../application/orchestrator.ts";
 import { commandsForHost } from "../application/commands.ts";
 import { startEventLoopWatchdog } from "../adapters/daemon/event-loop-watchdog.ts";
+import { installCrashHandlers } from "../adapters/daemon/crash.ts";
+import { autoRingBytes } from "../domain/logs/budgets.ts";
+import { readHostLimits } from "../adapters/system/host-limits.ts";
+import { enableChildSubreaper } from "../adapters/process/subreaper.ts";
 import { Supervisor } from "../adapters/daemon/supervisor.ts";
 import type { TokenManager as Tokens } from "../adapters/google/token.ts";
 import type { ProcessManager as Processes } from "../adapters/process/processes.ts";
 import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
 import { createDaemonLogStore } from "../adapters/storage/worker-log-store.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
-import { acquireLock, newSessionID, persistedConfigOverlay } from "../adapters/storage/storage.ts";
+import { acquireLock, newSessionID, persistedConfigOverlay, socketPath, bootstrapLogPath, repoID } from "../adapters/storage/storage.ts";
 import { recordInstancePorts, releaseSlot, startWithSlot } from "../adapters/storage/instances.ts";
 import { listenerPorts } from "../domain/net/port-slots.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
@@ -41,6 +45,7 @@ export type DaemonDeps = {
   detectGoogle?: (project: string, repoRoot?: string) => Promise<GoogleStatus>;
   createMcpListener?: McpListenerFactory;
   createWebListener?: WebListenerFactory;
+  heldLock?: { release: () => void };
 };
 
 export type DaemonRuntime = {
@@ -48,6 +53,7 @@ export type DaemonRuntime = {
   orchestrator: ServiceOrchestrator;
   clock: Clock;
   fs: FileSystem;
+  sessionID: string;
 };
 
 export const defaultMcpListener: McpListenerFactory = (opts): McpListener =>
@@ -77,6 +83,8 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
       extraMarkers: cfg.secrets.extra_markers,
       extraPatterns: cfg.secrets.extra_patterns,
       redact: cfg.secrets.redact,
+      repoKey: repoID(cfg.repoRoot),
+      maxMemoryBytes: cfg.logs.max_memory_bytes > 0 ? cfg.logs.max_memory_bytes : autoRingBytes(readHostLimits(cfg.repoRoot).memoryBytes),
     },
     bus,
     detector,
@@ -92,13 +100,14 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
       pid: 0,
     });
   }
+  const held = deps.heldLock;
   const supervisor = new Supervisor(cfg, {
     healthCheckers: deps.healthCheckers ?? healthCheckerFactory([]),
     detectGoogle: deps.detectGoogle ?? detectGoogle,
     tokens,
     inspectProcess,
     processAlive,
-    acquireLock,
+    acquireLock: held ? () => held : acquireLock,
     socketExists: existsSync,
     unlinkSocket: unlinkSync,
     procs: processes,
@@ -114,12 +123,11 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
     isKnownTool: isKnownToolName,
     createCommands: (host) => commandsForHost(host, createDoctorRunner(createDoctorHost({ tokens })), orchestrator),
   });
-  return { supervisor, orchestrator, clock, fs };
+  return { supervisor, orchestrator, clock, fs, sessionID };
 }
 
 /** Entry used by the CLI’s internal daemon command. */
 export async function runDaemon(repoRoot: string, configPath: string): Promise<void> {
-  const watchdog = startEventLoopWatchdog();
   // loadOrEmpty, not load: a daemon is only ever spawned because a client
   // already decided one should exist, so a missing configuration here means
   // setup mode (see `devctl mcp --on`), not an error worth dying over. An
@@ -132,48 +140,60 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
   } catch {
     overlay = undefined;
   }
-  // Parallel stacks (#117): take this checkout's port slot before loading,
-  // so every fixed port and listener is shifted for it. Sticky until a full
-  // `down` below (or `devctl instances prune`).
-  const { cfg, supervisor: sup } = await startWithSlot(root, async (slot) => {
-    const loaded = loadOrEmpty(repoRoot, configPath, { overlay, slot });
-    recordInstancePorts(loaded.repoRoot, listenerPorts(loaded));
-    return { cfg: loaded, ...(await createDaemon(loaded)) };
+  // Take the lock before the log store is built, pruned, or replayed.
+  const held = acquireLock(root, socketPath(root));
+  installCrashHandlers({
+    logPath: bootstrapLogPath(root),
+    flush: async () => undefined,
+    release: () => held.release(),
+    record: (message) => {
+      process.stderr.write(`devctl: ${message}\n`);
+    },
   });
-  // This daemon normally stops via the "shutdown" RPC (`devctl stop`),
-  // but it can also receive a signal directly (system shutdown, an
-  // admin `kill`, a container orchestrator). Without a handler, Node's
-  // default action skips shutdown() entirely — including flushing the
-  // now-asynchronous log writes — so register one as a safety net.
-  // Both the shutdown RPC and a signal end here. The watchdog worker (and
-  // any handle a subsystem failed to close) would otherwise keep the process
-  // alive after the socket is gone, so exit once teardown has finished.
-  // Services are spawned detached on every platform, so this holds for
-  // `down --keep-services` too: they keep running after this process exits.
-  // A teardown failure is reported and exits 1, so `down` never looks clean
-  // when cleanup did not finish.
-  void sup.stopped.then(({ servicesStopped, failure }) => {
-    watchdog.stop();
-    // A full stop frees the port slot; with --keep-services the services
-    // still run on the slot's ports, so it stays with this checkout.
-    let failed = failure;
-    if (servicesStopped && failed === undefined) {
-      try {
-        releaseSlot(cfg.repoRoot);
-      } catch (err) {
-        failed = new Error(`could not free port slot ${cfg.instance.slot}: ${err instanceof Error ? err.message : String(err)}`);
+  let watchdog: ReturnType<typeof startEventLoopWatchdog> | undefined;
+  try {
+    const { cfg, supervisor: sup, sessionID } = await startWithSlot(root, async (slot) => {
+      const loaded = loadOrEmpty(repoRoot, configPath, { overlay, slot });
+      recordInstancePorts(loaded.repoRoot, listenerPorts(loaded));
+      return { cfg: loaded, ...(await createDaemon(loaded, { heldLock: held })) };
+    });
+    watchdog = startEventLoopWatchdog({
+      repoRoot: cfg.repoRoot,
+      session: sessionID,
+      identity: String(process.pid),
+    });
+    watchdog.noteRestartRequest(() => {
+      sup.shutdown(false).catch(() => undefined);
+    });
+    if (cfg.supervisor.reap_orphans) {
+      void enableChildSubreaper();
+    }
+    void sup.stopped.then(({ servicesStopped, failure }) => {
+      watchdog?.stop();
+      let failed = failure;
+      if (servicesStopped && failed === undefined) {
+        try {
+          releaseSlot(cfg.repoRoot);
+        } catch (err) {
+          failed = new Error(`could not free port slot ${cfg.instance.slot}: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
-    }
-    if (failed !== undefined) {
-      process.stderr.write(`devctl: shutdown failed: ${failed instanceof Error ? failed.message : String(failed)}\n`);
-      process.exit(1);
-    }
-    process.exit(0);
-  });
-  const onSignal = (): void => {
-    sup.shutdown(stopOnExit(cfg.shutdown)).catch(() => undefined);
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-  await sup.run();
+      if (failed !== undefined) {
+        process.stderr.write(`devctl: shutdown failed: ${failed instanceof Error ? failed.message : String(failed)}\n`);
+        process.exit(1);
+      }
+      process.exit(0);
+    });
+    const onSignal = (): void => {
+      sup.shutdown(stopOnExit(cfg.shutdown)).catch(() => undefined);
+    };
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+    await sup.run();
+    watchdog.markListening();
+  } catch (err) {
+    watchdog?.stop();
+    held.release();
+    throw err;
+  }
 }

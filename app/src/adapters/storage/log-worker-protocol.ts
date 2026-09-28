@@ -12,6 +12,8 @@ export type WorkerLogConfig = {
   extraMarkers: string[];
   extraPatterns: string[];
   redact?: boolean;
+  repoKey?: string;
+  maxMemoryBytes?: number;
 };
 
 export type WorkerRequest =

@@ -1,14 +1,19 @@
 import type { ProcessRuntime } from "../../ports/process-runtime.ts";
 import { spawn, type Subprocess } from "bun";
 import { KindProcessStart, newError, wrapError } from "../../shared/errors.ts";
+import { RUN_ONCE_DRAIN_GRACE_MS, SPLIT_MAX_BYTES } from "../../domain/logs/budgets.ts";
+import { MAX_LOG_LINE_CHARS } from "../../domain/logs/logs.ts";
 import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./windows.ts";
 import { processAlive } from "../storage/storage.ts";
+import { groupHasLiveMembers } from "./liveness.ts";
+import { pumpLines, type LineHandler, type StreamName } from "./output-pump.ts";
 import { adoptContainer, startContainer, containerEnvironment, type ContainerControl, type ContainerLaunchSpec } from "../containers/containers.ts";
 
 const DEFAULT_GRACE_MS = 10_000;
 const KILL_WAIT_MS = 2_000;
 const ADOPT_POLL_MS = 500;
+const GROUP_POLL_MS = 50;
 // Cap per-stream captured output for a transient run (tasks, exec_service) so a
 // noisy command cannot grow supervisor memory without bound. Live logging via
 // `onLine` is untouched — only the returned string is capped, with a marker.
@@ -19,8 +24,8 @@ const CAPTURE_TRUNCATED_MARKER = "\n...[truncated]\n";
 // both transient captures and long-running service streaming.
 const MAX_LINE_BYTES = 1024 * 1024;
 
-export type Stream = "stdout" | "stderr";
-export type LineHandler = (stream: Stream, line: string) => void;
+export type Stream = StreamName;
+export type { LineHandler };
 
 export type ProcessSpec = {
   name: string;
@@ -32,6 +37,8 @@ export type ProcessSpec = {
   captureStdout?: boolean;
   captureStderr?: boolean;
   onLine?: LineHandler;
+  /** When true, the pump stops reading so a full spool can apply backpressure. */
+  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 
@@ -102,8 +109,9 @@ export class ProcessManager implements ProcessRuntime {
       proc,
       done: Promise.resolve({ code: 0 }),
     };
-    void pumpLines(proc.stdout, "stdout", spec.onLine);
-    void pumpLines(proc.stderr, "stderr", spec.onLine);
+    const livePump = { paused: spec.paused, maxLineBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS };
+    void pumpLines(proc.stdout, "stdout", spec.onLine, livePump);
+    void pumpLines(proc.stderr, "stderr", spec.onLine, livePump);
     handle.done = proc.exited.then((code) => {
       const exitCode = typeof code === "number" ? code : 0;
       const err = exitCode === 0 ? undefined : new Error(`exited with code ${exitCode}`);
@@ -148,9 +156,15 @@ export class ProcessManager implements ProcessRuntime {
       }
       spec.onLine?.(stream, line);
     };
-    const pumps = [pumpLines(proc.stdout, "stdout", collect), pumpLines(proc.stderr, "stderr", collect)];
+    const pumps = [
+      pumpLines(proc.stdout, "stdout", collect, { maxLineBytes: MAX_LINE_BYTES }),
+      pumpLines(proc.stderr, "stderr", collect, { maxLineBytes: MAX_LINE_BYTES }),
+    ];
     const code = await proc.exited;
-    await Promise.all(pumps);
+    await Promise.race([
+      Promise.all(pumps),
+      sleep(RUN_ONCE_DRAIN_GRACE_MS),
+    ]);
     return { code: typeof code === "number" ? code : 0, stdout: caps.stdout.text, stderr: caps.stderr.text };
   }
 
@@ -221,10 +235,10 @@ export class ProcessManager implements ProcessRuntime {
       return;
     }
     await killProcessTree(handle.pid, "SIGTERM");
-    const finished = await raceDone(handle.done, grace);
+    const finished = await raceGroup(handle.pid, handle.done, grace);
     if (!finished) {
       await killProcessTree(handle.pid, "SIGKILL");
-      const killed = await raceDone(handle.done, KILL_WAIT_MS);
+      const killed = await raceGroup(handle.pid, handle.done, KILL_WAIT_MS);
       if (!killed) {
         throw newError(KindProcessStart, `process ${name} did not exit after SIGKILL`);
       }
@@ -355,44 +369,21 @@ async function pollAdopted(pid: number): Promise<number> {
   return 0;
 }
 
-async function pumpLines(stream: ReadableStream<Uint8Array> | number | undefined, kind: Stream, handler?: LineHandler): Promise<void> {
-  if (!stream || typeof stream === "number" || !handler) {
-    return;
+async function raceGroup(pid: number, done: Promise<unknown>, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  let leaderDone = false;
+  void done.then(() => {
+    leaderDone = true;
+  });
+  while (Date.now() < deadline) {
+    const live = groupHasLiveMembers(pid);
+    if (live === false || (live === undefined && leaderDone)) {
+      return true;
+    }
+    await sleep(GROUP_POLL_MS);
   }
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) {
-      if (buf !== "") {
-        handler(kind, buf);
-      }
-      return;
-    }
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    for (const line of lines) {
-      handler(kind, line.replace(/\r$/, ""));
-    }
-    // Force a break on a pathologically long unterminated line so `buf` cannot
-    // grow without bound before a newline arrives. Shared with the long-running
-    // service path, so this only affects a single >1 MiB line with no newline.
-    if (Buffer.byteLength(buf, "utf8") >= MAX_LINE_BYTES) {
-      handler(kind, buf.replace(/\r$/, ""));
-      buf = "";
-    }
-  }
-}
-
-async function raceDone(done: Promise<unknown>, ms: number): Promise<boolean> {
-  return Promise.race([
-    done.then(() => true),
-    new Promise<boolean>((resolve) => {
-      setTimeout(() => resolve(false), ms);
-    }),
-  ]);
+  const live = groupHasLiveMembers(pid);
+  return live === false || (live === undefined && leaderDone);
 }
 
 function sleep(ms: number): Promise<void> {
