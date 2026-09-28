@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-09-28
+
 ### Changed
 
 - `${identity.user}` and `${user.identity}` in service env and Helm YAML resolve to the developer email shown on the TUI identity screen. Detection is the Google ADC email (or the ADC `account` field), then `gcloud` `core/account`, then `git config user.email`. The same address is injected as `DEVCTL_USER_EMAIL`. See [Environment](docs/environment.md).
@@ -733,7 +735,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.24.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...HEAD
+[0.25.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.22.0...v0.23.0
 [0.22.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.21.0...v0.22.0
