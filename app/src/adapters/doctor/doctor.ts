@@ -27,7 +27,7 @@ const LIVE_PROBE_MS = 4_000;
 const LIVE_SECTION_MS = 8_000;
 
 export type DoctorHost = {
-  detectGoogle(project: string): Promise<GoogleStatus>;
+  detectGoogle(project: string, repoRoot?: string): Promise<GoogleStatus>;
   hasCommand(name: string): Promise<boolean>;
   portAvailable(port: number): Promise<boolean>;
   hasLocalAdc?: () => boolean;
@@ -213,7 +213,7 @@ export async function runDoctor(
     });
   }
   checking("Google environment");
-  const st = await host.detectGoogle(cfg.google.project_id);
+  const st = await host.detectGoogle(cfg.google.project_id, cfg.repoRoot);
   if (st.adcAvailable) {
     add({ name: "Google authentication available", severity: "ok", message: "Application Default Credentials found" });
   } else {

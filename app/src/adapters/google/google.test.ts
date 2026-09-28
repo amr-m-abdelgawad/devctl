@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { adcUserAccount, classifyGoogle, COMMAND_PROBE_MS, hasCommand } from "./google.ts";
+import { adcUserAccount, classifyGoogle, COMMAND_PROBE_MS, hasCommand, normalizeGitEmail, selectDeveloperEmail } from "./google.ts";
 
 describe("google probes", () => {
   test("hasCommand returns false quickly for a missing binary", async () => {
@@ -44,6 +44,16 @@ function writeAdc(body: Record<string, unknown>): string {
   writeFileSync(path, JSON.stringify(body));
   return path;
 }
+
+describe("developer email selection", () => {
+  test("uses the first detected address and ignores blanks", () => {
+    expect(selectDeveloperEmail(["", "  ", "(unset)", "dev@example.com", "other@example.com"])).toBe("dev@example.com");
+    expect(selectDeveloperEmail(["", "(unset)"])).toBe("");
+    expect(normalizeGitEmail(" dev@example.com ")).toBe("dev@example.com");
+    expect(normalizeGitEmail("not an email")).toBe("");
+    expect(normalizeGitEmail("(unset)")).toBe("");
+  });
+});
 
 describe("Google error classification", () => {
   test("disabled IAM Credentials API is not mislabeled as a role failure", () => {

@@ -35,6 +35,7 @@ export type RecoverHost = {
   readonly proxy?: ProxyServer;
   readonly boundTokenURL: string;
   readonly internalTok: string;
+  readonly userEmail: string;
   readonly bus: Bus;
   inspectProcessFn(pid: number): Promise<ProcessIdentity | undefined>;
   processAliveFn(pid: number): boolean;
@@ -54,7 +55,7 @@ export async function resolveAdoptedHealthEnv(
 ): Promise<Record<string, string>> {
   // Only listeners this daemon bound; see EnvironmentBridge.resolveServiceExecution.
   const proxyURL = host.proxy?.isRunning() ? `http://${host.proxy.address()}` : "";
-  const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, host.cfg.project.name);
+  const runtimeEnv = runtimeForService(name, "127.0.0.1", assigned, proxyURL, host.cfg.project.name, host.userEmail);
   runtimeEnv.DEVCTL_INTERNAL_TOKEN = host.internalTok;
   if (host.cfg.proxy.token_endpoint.enabled && host.boundTokenURL !== "") {
     runtimeEnv.DEVCTL_TOKEN_URL = host.boundTokenURL;
@@ -69,6 +70,7 @@ export async function resolveAdoptedHealthEnv(
       profileEnv: host.serviceProfileEnv.get(name) ?? host.profileEnv,
       assignedPorts: assigned,
       runtime: runtimeEnv,
+      userEmail: host.userEmail,
       cfg: host.cfg,
       http: undefined,
       sourceValues: { sops: host.sopsValues },

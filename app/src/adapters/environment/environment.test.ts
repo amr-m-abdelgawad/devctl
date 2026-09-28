@@ -417,6 +417,52 @@ describe("environment precedence", () => {
     expect(env.DEVCTL_USER_EMAIL).toBe("dev@example.com");
   });
 
+  test("resolves ${identity.user} and ${user.identity} in Helm YAML to the same email", async () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-helm-id-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    const identityUser = '${identity.user}';
+    const userIdentity = '${user.identity}';
+    const literalRef = '${NOT_EXPANDED}';
+    writeFileSync(
+      join(dir, "deploy.yaml"),
+      [
+        "kind: Deployment",
+        "metadata:",
+        "  name: api",
+        "spec:",
+        "  template:",
+        "    spec:",
+        "      containers:",
+        "        - name: api",
+        "          env:",
+        `            - name: LOCAL_USER_EMAIL`,
+        `              value: ${identityUser}`,
+        `            - name: USER_IDENTITY`,
+        `              value: ${userIdentity}`,
+        `            - name: LITERAL_REF`,
+        `              value: ${literalRef}`,
+      ].join("\n"),
+    );
+    const svc = emptyService();
+    svc.environment.helm = { path: "deploy.yaml", resource: "Deployment/api" };
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.services.api = svc;
+    const env = await resolveEnvironment(dir, {
+      service: "api",
+      profile: "",
+      serviceCfg: svc,
+      profileEnv: {},
+      assignedPorts: {},
+      runtime: runtimeForService("api", "127.0.0.1", {}, "", "dev", "dev@example.com"),
+      userEmail: "dev@example.com",
+      cfg,
+    });
+    expect(env.LOCAL_USER_EMAIL).toBe("dev@example.com");
+    expect(env.USER_IDENTITY).toBe("dev@example.com");
+    expect(env.LITERAL_REF).toBe("${NOT_EXPANDED}");
+  });
+
   test("secrets.env interpolates ${env.NAME} in service YAML without a shell export", async () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-secrets-svc-${Date.now()}`;
     const home = join(dir, "home");

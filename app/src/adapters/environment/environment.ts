@@ -3,7 +3,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import { ConfigDirName } from "../../domain/config/paths.ts";
 import { resolveEnvMap, type DevctlConfig, type EnvConfig, type HelmEnvConfig, type ServiceConfig, type TerraformEnvConfig } from "../config/index.ts";
-import type { HttpValueMap } from "../config/refs.ts";
+import { substituteUserIdentityMap, type HttpValueMap } from "../config/refs.ts";
 import {
   DevctlError,
   KindAuthentication,
@@ -25,8 +25,8 @@ export type EnvRequest = {
   profileEnv: Record<string, string>;
   assignedPorts: Record<string, number>;
   runtime: Record<string, string>;
-  // The detected developer identity, resolved for ${identity.user} references
-  // in configured environment values. Empty when no identity is detected.
+  // Developer email from the same detection as the TUI identity screen.
+  // Resolved for ${identity.user} and ${user.identity}. Empty when none is detected.
   userEmail?: string;
   cfg?: DevctlConfig;
   sourceValues?: Partial<Record<string, Record<string, string>>>;
@@ -166,7 +166,9 @@ export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Pro
     // Terraform literals are already concrete. Do not expand ${} in them:
     // $${ in HCL is a literal ${...}, not a devctl reference.
     terraform: loadTerraformEnvironment(repoRoot, terraform.prefix, terraform.spec),
-    helm: loadHelmEnvironment(repoRoot, helm.prefix, helm.spec),
+    // Helm keeps other ${...} literals. The developer-email placeholders resolve
+    // here, with the same address the identity screen shows.
+    helm: substituteUserIdentityMap(loadHelmEnvironment(repoRoot, helm.prefix, helm.spec), userEmail),
     vars: resolveMaybe(req.serviceCfg.environment.vars, req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     profile_service: resolveMaybe(flattenEnvConfig(req.profileServiceEnv), req.cfg, assignedAll, userEmail, req.http, interpolationEnv),
     runtime: req.runtime,
@@ -406,10 +408,9 @@ export function runtimeForService(
   if (proxyURL !== "") {
     out.DEVCTL_PROXY_URL = proxyURL;
   }
-  // The developer's own detected Google identity (gcloud/ADC), so a service
-  // can key on the person running it without a hardcoded, team-unfriendly
-  // value. Empty (omitted) when no identity is detected. Also reachable in
-  // config as ${identity.user} for mapping onto a custom-named variable.
+  // Same developer email as the TUI identity screen (Google account, else git
+  // user.email). Empty (omitted) when none is detected. Also reachable in
+  // config as ${identity.user} or ${user.identity}.
   if (userEmail !== "") {
     out.DEVCTL_USER_EMAIL = userEmail;
   }

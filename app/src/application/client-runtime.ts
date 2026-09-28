@@ -80,7 +80,7 @@ export type ClientRuntime = {
   validateConfigText(repoRoot: string, configPath: string, text: string): string[];
   discover(startDir: string, explicit: string): { repoRoot: string; configPath: string };
   configDiff(cfg: DevctlConfig): ConfigDiffEntry[];
-  detectGoogle(project: string): Promise<GoogleStatus>;
+  detectGoogle(project: string, repoRoot?: string): Promise<GoogleStatus>;
   loginGoogle(): Promise<void>;
   logoutGoogle(): Promise<void>;
   refreshUserToken(identity?: string): Promise<{ identity: string; expiresAt: Date }>;

@@ -38,7 +38,7 @@ export type DaemonDeps = {
   fs?: FileSystem;
   processes?: Processes;
   tokens?: Tokens;
-  detectGoogle?: (project: string) => Promise<GoogleStatus>;
+  detectGoogle?: (project: string, repoRoot?: string) => Promise<GoogleStatus>;
   createMcpListener?: McpListenerFactory;
   createWebListener?: WebListenerFactory;
 };

@@ -4,6 +4,29 @@ import { firstPort, namedPort, type DevctlConfig, type HealthCheckConfig, type S
 
 export type HttpValueMap = Record<string, Record<string, string>>;
 
+const USER_IDENTITY_PLACEHOLDER = /\$\{(?:identity\.user|user\.identity)\}/g;
+
+// `${identity.user}` and `${user.identity}` are the same developer email:
+// the value shown on the TUI identity screen.
+export function isUserIdentityRef(ref: string): boolean {
+  return ref === "identity.user" || ref === "user.identity";
+}
+
+export function substituteUserIdentity(value: string, userEmail: string): string {
+  if (!value.includes("${identity.user}") && !value.includes("${user.identity}")) {
+    return value;
+  }
+  return value.replace(USER_IDENTITY_PLACEHOLDER, () => userEmail);
+}
+
+export function substituteUserIdentityMap(input: Record<string, string>, userEmail: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    out[key] = substituteUserIdentity(value, userEmail);
+  }
+  return out;
+}
+
 export type ResolveExtras = {
   http?: HttpValueMap;
   token?: string;
@@ -69,10 +92,10 @@ function resolveRef(
     }
     return extras.token;
   }
+  if (isUserIdentityRef(ref)) {
+    return userEmail;
+  }
   if (parts[0] === "identity") {
-    if (parts.length === 2 && parts[1] === "user") {
-      return userEmail;
-    }
     throw new Error(`unsupported reference \${${ref}}`);
   }
   if (parts[0] === "http") {
@@ -265,8 +288,11 @@ export function refResolvable(ref: string, cfg: DevctlConfig, opts: { allowProce
   if (ref === "token") {
     return opts.allowToken === true;
   }
+  if (isUserIdentityRef(ref)) {
+    return true;
+  }
   if (parts[0] === "identity") {
-    return parts.length === 2 && parts[1] === "user";
+    return false;
   }
   if (parts[0] === "http") {
     const parsed = parseHttpRef(ref);

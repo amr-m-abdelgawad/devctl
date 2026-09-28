@@ -133,6 +133,17 @@ describe("config validate", () => {
     expect(validate(warned)).toContain(
       "warning: proxy.routes[0].auth.headers.X-User contains ${identity. which is not resolved on proxy headers (only service env at start)",
     );
+    const alias = withService("api");
+    alias.proxy.routes.push({
+      name: "billing",
+      match: { host: "billing.local", path: "" },
+      upstream: { url: "https://example.com" },
+      auth: iapUserAuth({ headers: { "X-User": "${user.identity}" } }),
+    });
+    expect(validate(alias)).toContain(
+      "warning: proxy.routes[0].auth.headers.X-User contains ${user.identity} which is not resolved on proxy headers (only service env at start)",
+    );
+    expect(validate(alias).some((issue) => issue.includes("unresolvable reference"))).toBe(false);
 
     const clean = withService("api");
     clean.proxy.routes.push({

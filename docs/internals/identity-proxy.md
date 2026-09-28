@@ -35,7 +35,7 @@ Doctor uses the same probes with more IAM/API granularity (`adapters/doctor/doct
 
 - `DEVCTL_PROXY_URL` (only while `ProxyCoordinator` is running)
 - `DEVCTL_TOKEN_URL` (only when the token endpoint is bound: `boundTokenURL`) + `DEVCTL_INTERNAL_TOKEN`
-- `DEVCTL_USER_EMAIL` when known
+- `DEVCTL_USER_EMAIL` when known (same address as the TUI identity screen: Google account, else git `user.email`)
 - `DEVCTL_HTTP_<NAME>_URL` for exposed recipes
 
 Containers omit token URL/internal token (they cannot reach host loopback). `recover.ts` `resolveAdoptedHealthEnv` follows the same rule. Never fall back to the configured listen address: another checkout's proxy, or any local process, may hold that port. Prefer proxy/recipe URLs over stuffing bearer tokens into env.

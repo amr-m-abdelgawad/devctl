@@ -129,7 +129,7 @@ export class Supervisor {
   private detached = false;
   private readonly identity: IdentityCoordinator;
   private readonly rpc: RpcServer;
-  private readonly detectGoogleFn: (project: string) => Promise<GoogleStatus>;
+  private readonly detectGoogleFn: (project: string, repoRoot?: string) => Promise<GoogleStatus>;
   private readonly inspectProcessFn: (pid: number) => Promise<ProcessIdentity | undefined>;
   private readonly processAliveFn: (pid: number) => boolean;
   private readonly acquireLockFn: (repoRoot: string, socket: string) => { release: () => void };
@@ -157,7 +157,7 @@ export class Supervisor {
     cfg: DevctlConfig,
     deps: {
       healthCheckers: HealthCheckerFactory;
-      detectGoogle: (project: string) => Promise<GoogleStatus>;
+      detectGoogle: (project: string, repoRoot?: string) => Promise<GoogleStatus>;
       tokens: TokenManager;
       inspectProcess: (pid: number) => Promise<ProcessIdentity | undefined>;
       processAlive: (pid: number) => boolean;
@@ -287,7 +287,7 @@ export class Supervisor {
     this.identity = new IdentityCoordinator({
       cfg: () => this.cfg,
       tokens: this.tokens,
-      detectGoogle: (project) => this.detectGoogleFn(project),
+      detectGoogle: (project, repoRoot) => this.detectGoogleFn(project, repoRoot),
       clock: this.clock,
       bus: this.bus,
       logs: this.logs,
@@ -439,6 +439,7 @@ export class Supervisor {
       get proxy() { return self.proxy.instance; },
       get boundTokenURL() { return self.proxy.boundTokenURL; },
       get internalTok() { return self.internalTok; },
+      get userEmail() { return self.identity.identityCache.user; },
       get bus() { return self.bus; },
       inspectProcessFn: (pid) => self.inspectProcessFn(pid),
       processAliveFn: (pid) => self.processAliveFn(pid),
@@ -472,12 +473,14 @@ export class Supervisor {
     assertPluginLlmSourceTypes(this.registry, this.cfg);
     assertPluginInspectDecoders(this.registry, this.cfg);
     await this.env.refreshSops();
+    // Resolve the developer email before anything reads environment YAML, so
+    // ${identity.user} matches the address the identity screen will show.
+    await this.refreshIdentity();
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());
     this.persistState();
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
-    void this.refreshIdentity();
     this.resources.start();
     await this.telemetry.start();
     await this.llm.start();
@@ -725,7 +728,7 @@ export class Supervisor {
           await self.recipes.ensure(recipeName);
         }
       },
-      detectGoogle: (project) => self.detectGoogleFn(project),
+      detectGoogle: (project) => self.detectGoogleFn(project, self.cfg.repoRoot),
       startProxy: () => self.startProxy(),
       fail: (name, err) => self.fail(name, err),
       claimIfAlreadyUp: (name) => self.claimIfAlreadyUp(name),

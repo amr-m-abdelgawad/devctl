@@ -9,12 +9,15 @@ export function addAuth(root: Command, runtime: ClientRuntime): void {
     .option("--json", "machine-readable output")
     .action(async (opts: { json?: boolean }) => {
       let project = "";
+      let repoRoot = "";
       try {
-        project = runtime.load("", configFlag(root)).google.project_id;
+        const cfg = runtime.load("", configFlag(root));
+        project = cfg.google.project_id;
+        repoRoot = cfg.repoRoot;
       } catch {
         project = "";
       }
-      const st = await runtime.detectGoogle(project);
+      const st = await runtime.detectGoogle(project, repoRoot);
       if (opts.json) {
         writeOut(JSON.stringify(st, null, 2) + "\n");
         return;

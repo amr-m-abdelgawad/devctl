@@ -107,7 +107,7 @@ function adcCredentialsPath(): string {
   return unix;
 }
 
-export async function detectGoogle(configuredProject: string): Promise<GoogleStatus> {
+export async function detectGoogle(configuredProject: string, repoRoot = ""): Promise<GoogleStatus> {
   const st: GoogleStatus = {
     gcloudInstalled: await hasCommand("gcloud"),
     adcAvailable: false,
@@ -139,10 +139,65 @@ export async function detectGoogle(configuredProject: string): Promise<GoogleSta
       st.error = classifyGoogle(err);
     }
   }
-  if (st.userEmail === "" && st.gcloudInstalled) {
-    st.userEmail = await gcloudConfig("core/account");
-  }
+  st.userEmail = await resolveDetectedUserEmail(st.userEmail, st.gcloudInstalled, repoRoot);
   return st;
+}
+
+// The email the TUI identity screen shows, and the value `${identity.user}` /
+// `${user.identity}` expand to. First non-empty wins: ADC credential email,
+// the ADC `account` field, `gcloud` core/account, then git user.email.
+export function selectDeveloperEmail(candidates: readonly string[]): string {
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (trimmed !== "" && trimmed !== "(unset)") {
+      return trimmed;
+    }
+  }
+  return "";
+}
+
+export function normalizeGitEmail(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === "(unset)" || /\s/.test(trimmed) || !trimmed.includes("@")) {
+    return "";
+  }
+  return trimmed;
+}
+
+async function resolveDetectedUserEmail(current: string, gcloudInstalled: boolean, repoRoot: string): Promise<string> {
+  if (current.trim() !== "") {
+    return current.trim();
+  }
+  const account = adcUserAccount();
+  const adcAccount = account.state === "present" ? account.account : "";
+  const gcloudAccount = adcAccount === "" && gcloudInstalled ? await gcloudConfig("core/account") : "";
+  const gitEmail = adcAccount === "" && gcloudAccount === "" ? await gitUserEmail(repoRoot) : "";
+  return selectDeveloperEmail([adcAccount, gcloudAccount, gitEmail]);
+}
+
+async function gitUserEmail(repoRoot: string): Promise<string> {
+  if (!(await hasCommand("git"))) {
+    return "";
+  }
+  if (repoRoot !== "") {
+    const local = normalizeGitEmail(await gitConfig(["git", "-C", repoRoot, "config", "--get", "user.email"]));
+    if (local !== "") {
+      return local;
+    }
+  }
+  return normalizeGitEmail(await gitConfig(["git", "config", "--global", "--get", "user.email"]));
+}
+
+async function gitConfig(cmd: string[]): Promise<string> {
+  try {
+    const result = await spawnTimed(cmd, COMMAND_PROBE_MS);
+    if (result.code !== 0) {
+      return "";
+    }
+    return result.stdout.trim();
+  } catch {
+    return "";
+  }
 }
 
 async function fillAdc(st: GoogleStatus): Promise<void> {
@@ -199,8 +254,8 @@ function emailFromJwt(token: string): string {
   }
 }
 
-export async function detectIdentity(configuredProject: string): Promise<Identity> {
-  const st = await detectGoogle(configuredProject);
+export async function detectIdentity(configuredProject: string, repoRoot = ""): Promise<Identity> {
+  const st = await detectGoogle(configuredProject, repoRoot);
   return emptyIdentity({
     kind: "user",
     email: st.userEmail,

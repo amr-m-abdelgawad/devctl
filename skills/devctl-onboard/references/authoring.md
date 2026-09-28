@@ -121,8 +121,8 @@ belong under `service.container`, not directly on the service.
 ## References
 
 `${services.<name>.ports.<portname>}`, `${services.<name>.port}`,
-`${services.<name>.url}`, `${services.<name>.host}`, `${identity.user}` (the
-running developer's detected Google email), `${http.<name>.<output>}`
+`${services.<name>.url}`, `${services.<name>.host}`, `${identity.user}` and `${user.identity}` (the same developer email the TUI
+identity screen shows: Google account, otherwise git `user.email`), `${http.<name>.<output>}`
 (a named HTTP recipe snapshot — reserved outputs are `body`, `url`, `status`),
 and `${NAME}` / `${env.NAME}` (supervisor process env plus `.devctl/secrets.env`)
 are the supported forms in service/task/profile env. `${project.name}` still
@@ -155,8 +155,9 @@ request or mint time. `${token}` in `auth.headers` and in `transform.request_bod
 routes (the same minted token as `Authorization`). On `auth.type: none`,
 `${token}` in a body transform fails validate. Proxy
 `auth.headers` are **not** run through full `resolveEnvMap` — `${identity.user}`
-there stays literal. `devctl config validate` warns if `${identity.` appears in
-those header values or in `transform.request_body` `replace` / `with`.
+and `${user.identity}` there stay literal. `devctl config validate` warns if
+`${identity.` or `${user.identity}` appears in those header values or in
+`transform.request_body` `replace` / `with`.
 
 ## Named service environments
 
@@ -505,7 +506,9 @@ field is set.
   and must stay inside the repo. A chart directory reads `values.yaml`,
   `values/*`, then `templates/**`. Optional `resource` is `Kind` or
   `Kind/name` (`Deployment/api`). A string is shorthand for `path`. Go
-  template actions and `valueFrom` are skipped. `charts/` is not read. The
+  template actions and `valueFrom` are skipped. `${identity.user}` and
+  `${user.identity}` in a literal value resolve to the TUI identity email;
+  other `${...}` stay literal. `charts/` is not read. The
   path must contain at least one literal or validate fails. Helm wins over
   Terraform; explicit YAML keys, named overlays, and `service_environment`
   still win. A `helm` path on `profiles.<name>.service_environment.<svc>`
@@ -514,7 +517,7 @@ field is set.
 Runtime values devctl injects: `SERVICE_PORT`, `SERVICE_HOST`,
 `DEVCTL_PROXY_URL`, `DEVCTL_SERVICE_NAME`, `DEVCTL_ENVIRONMENT`,
 `DEVCTL_SERVICE_ENV` (the selected named overlay; omitted when the service
-has none), `DEVCTL_USER_EMAIL` (omitted when no Google identity is detected),
+has none), `DEVCTL_USER_EMAIL` (the TUI identity email: Google account, else git `user.email`; omitted when neither is set),
 `DEVCTL_TOKEN_URL`, `DEVCTL_INTERNAL_TOKEN`, and `DEVCTL_HTTP_<NAME>_URL` for
 each exposed HTTP recipe (host services only). When `telemetry.otlp.enabled`,
 host services also get `OTEL_EXPORTER_OTLP_ENDPOINT` /

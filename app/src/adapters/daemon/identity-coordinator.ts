@@ -33,7 +33,7 @@ export type CredentialEntry = {
 export type IdentityCoordinatorDeps = {
   cfg: () => DevctlConfig;
   tokens: TokenManager;
-  detectGoogle: (project: string) => Promise<GoogleStatus>;
+  detectGoogle: (project: string, repoRoot?: string) => Promise<GoogleStatus>;
   clock: Clock;
   bus: Bus;
   logs: LogStore;
@@ -95,7 +95,11 @@ export class IdentityCoordinator {
     let ident = fromConfig(svc.identity);
     if (ident.kind !== "none") {
       try {
-        ident = await resolveIdentity(svc.identity, () => detectIdentity(this.deps.cfg().google.project_id), this.deps.identityProviders());
+        ident = await resolveIdentity(
+          svc.identity,
+          () => detectIdentity(this.deps.cfg().google.project_id, this.deps.cfg().repoRoot),
+          this.deps.identityProviders(),
+        );
         if (ident.kind === "service_account") {
           await this.deps.tokens.get(tokenIdentityKey(ident), "", []);
           // First real use of this identity — cache the result so status
@@ -140,7 +144,7 @@ export class IdentityCoordinator {
   async refreshIdentity(opts?: { probeServiceAccounts?: boolean }): Promise<void> {
     try {
       const cfg = this.deps.cfg();
-      const st = await this.deps.detectGoogle(cfg.google.project_id);
+      const st = await this.deps.detectGoogle(cfg.google.project_id, cfg.repoRoot);
       if (opts?.probeServiceAccounts) {
         for (const email of configuredServiceAccounts(cfg)) {
           await this.probeServiceAccount(email);

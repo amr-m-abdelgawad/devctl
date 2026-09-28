@@ -6,7 +6,7 @@ import { terraformConfigIssues } from "../environment/terraform.ts";
 import { helmConfigIssues } from "../environment/helm.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { inspectIapOAuthClientFile } from "../../domain/config/iap-credentials.ts";
-import { HEALTH_TEMPLATE_FIELDS, findRefs, healthRefResolvable, refResolvable } from "./refs.ts";
+import { HEALTH_TEMPLATE_FIELDS, findRefs, healthRefResolvable, isUserIdentityRef, refResolvable } from "./refs.ts";
 import { envRefsIn, isWholeEnvRef } from "../../domain/config/env-ref.ts";
 import { invalidBodyReplacement } from "../../domain/proxy/body-transform.ts";
 import { volumeConfigIssues } from "../../domain/service/container-volumes.ts";
@@ -589,11 +589,7 @@ function validateRouteUpstream(route: RouteConfig, prefix: string, cfg: DevctlCo
 function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
   const issues = validateAuthConfig(route.auth, prefix);
   for (const [name, value] of Object.entries(route.auth.headers ?? {})) {
-    if (value.includes("${identity.")) {
-      issues.push(
-        `warning: ${prefix}.auth.headers.${name} contains \${identity. which is not resolved on proxy headers (only service env at start)`,
-      );
-    }
+    issues.push(...unresolvedUserIdentityWarnings(value, `${prefix}.auth.headers.${name}`, "proxy headers"));
     issues.push(...validateInterpolatedString(`${prefix}.auth.headers.${name}`, value, { allowToken: true }));
   }
   for (const [name, value] of Object.entries(route.response_headers ?? {})) {
@@ -601,6 +597,17 @@ function validateRouteAuth(route: RouteConfig, prefix: string): string[] {
   }
   if ((route.upstream.url ?? "") !== "") {
     issues.push(...validateInterpolatedString(`${prefix}.upstream.url`, route.upstream.url));
+  }
+  return issues;
+}
+
+function unresolvedUserIdentityWarnings(value: string, path: string, where: "proxy headers" | "a request body transform"): string[] {
+  const issues: string[] = [];
+  if (value.includes("${identity.")) {
+    issues.push(`warning: ${path} contains \${identity. which is not resolved on ${where} (only service env at start)`);
+  }
+  if (value.includes("${user.identity}")) {
+    issues.push(`warning: ${path} contains \${user.identity} which is not resolved on ${where} (only service env at start)`);
   }
   return issues;
 }
@@ -614,7 +621,7 @@ function validateInterpolatedString(path: string, value: string, opts: { allowTo
       }
       continue;
     }
-    if (ref.startsWith("identity.")) {
+    if (ref.startsWith("identity.") || isUserIdentityRef(ref)) {
       continue;
     }
     if (isProcessEnvRef(ref)) {
@@ -695,11 +702,7 @@ function validateBodyReplacement(
 
 function validateBodyReplacementField(value: string, path: string, allowToken: boolean): string[] {
   const issues: string[] = [];
-  if (value.includes("${identity.")) {
-    issues.push(
-      `warning: ${path} contains \${identity. which is not resolved on a request body transform (only service env at start)`,
-    );
-  }
+  issues.push(...unresolvedUserIdentityWarnings(value, path, "a request body transform"));
   if (!allowToken && value.includes("${token}")) {
     issues.push(`${path}: \${token} requires auth.type iap or service_account`);
   }

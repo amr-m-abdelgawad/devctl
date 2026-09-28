@@ -268,7 +268,7 @@ export function useCommandDispatcher({
               setStatus("starting gcloud ADC login…");
               try {
                 await withSuspendedRenderer(renderer, () => loginGoogle());
-                setGoogle(await detectGoogle(cfg?.google.project_id ?? ""));
+                setGoogle(await detectGoogle(cfg?.google.project_id ?? "", cfg?.repoRoot ?? ""));
                 await refreshAuth();
                 setStatus("ADC login complete");
               } catch (err) {
@@ -281,7 +281,7 @@ export function useCommandDispatcher({
               setStatus("revoking ADC…");
               try {
                 await logoutGoogle();
-                setGoogle(await detectGoogle(cfg?.google.project_id ?? ""));
+                setGoogle(await detectGoogle(cfg?.google.project_id ?? "", cfg?.repoRoot ?? ""));
                 await refreshAuth();
                 setStatus("ADC revoked");
               } catch (err) {

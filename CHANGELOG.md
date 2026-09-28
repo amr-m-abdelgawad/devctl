@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `${identity.user}` and `${user.identity}` in service env and Helm YAML resolve to the developer email shown on the TUI identity screen. Detection is the Google ADC email (or the ADC `account` field), then `gcloud` `core/account`, then `git config user.email`. The same address is injected as `DEVCTL_USER_EMAIL`. See [Environment](docs/environment.md).
+
 ## [0.24.0] - 2026-09-27
 
 ### Added

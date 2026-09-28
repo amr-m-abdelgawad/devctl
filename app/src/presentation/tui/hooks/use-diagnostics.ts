@@ -64,12 +64,12 @@ export function useDiagnostics({
   }, [controller]);
 
   useEffect(() => {
-    void detectGoogle(cfg?.google.project_id ?? "")
+    void detectGoogle(cfg?.google.project_id ?? "", cfg?.repoRoot ?? "")
       .then(setGoogle)
       .catch((err: unknown) => {
         setStatus(humanMessage(err));
       });
-  }, [cfg?.google.project_id, snap?.identity.project]);
+  }, [cfg?.google.project_id, cfg?.repoRoot, snap?.identity.project]);
 
   useEffect(() => {
     if (screen !== "doctor" || !cfg) {

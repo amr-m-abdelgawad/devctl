@@ -13,8 +13,9 @@ import { effectiveServiceEnv, resolveEnvironmentName, profileServiceEnvConfig } 
 export type EnvironmentBridgeDeps = {
   cfg: () => DevctlConfig;
   ports: () => Map<string, Record<string, number>>;
-  // The detected developer identity (gcloud/ADC email), injected as
-  // DEVCTL_USER_EMAIL and resolved for ${identity.user}. "" when undetected.
+  // Developer email from the TUI identity screen's detection, injected as
+  // DEVCTL_USER_EMAIL and resolved for ${identity.user} / ${user.identity}.
+  // "" when undetected.
   userEmail: () => string;
   proxy: () => { isRunning(): boolean; address(): string } | undefined;
   boundTokenURL: () => string;

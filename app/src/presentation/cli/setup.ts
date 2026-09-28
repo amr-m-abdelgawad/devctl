@@ -68,7 +68,7 @@ export async function runSetup(client: Pick<ClientRuntime, "detectGoogle" | "log
   const answers: StarterAnswers = defaultStarterAnswers(repo, "");
   const name = await ask(`${nextStep()}. ${SETUP_FIELDS[1]?.prompt}`, basename(repo));
   answers.name = name;
-  const st = await client.detectGoogle("");
+  const st = await client.detectGoogle("", repo);
   const gproj = await ask(`${nextStep()}. ${SETUP_FIELDS[2]?.prompt}`, st.projectID);
   answers.project = gproj;
   writeLine(`${nextStep()}. ${SETUP_FIELDS[3]?.title}`);

@@ -85,16 +85,24 @@ describe("config refs", () => {
   test("resolves ${identity.user} to the detected developer email, empty when absent", () => {
     const cfg = defaultConfig();
     expect(resolveString("${identity.user}", cfg, {}, "dev@example.com")).toBe("dev@example.com");
+    expect(resolveString("${user.identity}", cfg, {}, "dev@example.com")).toBe("dev@example.com");
     expect(resolveString("LOCAL_USER_EMAIL=${identity.user}", cfg, {}, "dev@example.com")).toBe("LOCAL_USER_EMAIL=dev@example.com");
+    expect(resolveString("id=${user.identity}", cfg, {}, "dev@example.com")).toBe("id=dev@example.com");
     expect(resolveString("${identity.user}", cfg, {})).toBe("");
-    expect(resolveEnvMap({ LOCAL_USER_EMAIL: "${identity.user}" }, cfg, {}, "dev@example.com")).toEqual({ LOCAL_USER_EMAIL: "dev@example.com" });
+    expect(resolveString("${user.identity}", cfg, {})).toBe("");
+    expect(resolveEnvMap({ LOCAL_USER_EMAIL: "${identity.user}", USER: "${user.identity}" }, cfg, {}, "dev@example.com")).toEqual({
+      LOCAL_USER_EMAIL: "dev@example.com",
+      USER: "dev@example.com",
+    });
   });
 
   test("rejects an unknown identity reference", () => {
     const cfg = defaultConfig();
     expect(() => resolveString("${identity.project}", cfg, {}, "x")).toThrow(/unsupported/);
     expect(refResolvable("identity.user", cfg)).toBe(true);
+    expect(refResolvable("user.identity", cfg)).toBe(true);
     expect(refResolvable("identity.project", cfg)).toBe(false);
+    expect(refResolvable("user.email", cfg)).toBe(false);
   });
 
   test("resolveEnvMap interpolates each value", () => {

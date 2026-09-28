@@ -44,7 +44,7 @@ export function useSetupWizard({
     setAnswers(initial);
     setDraft(setupWizardDraft("repo", initial, repo));
     setOverlay("setup-wizard");
-    void workspace.detectGoogle("").then((st) => {
+    void workspace.detectGoogle("", repo).then((st) => {
       setAnswers((current) => ({ ...current, project: st.projectID || current.project }));
       setAuthStatus(
         st.adcAvailable
@@ -80,7 +80,7 @@ export function useSetupWizard({
     }
     let nextAnswers = applySetupDraft(field.id, answers, draft, repo);
     if (field.id === "auth") {
-      const st = await workspace.detectGoogle(nextAnswers.project);
+      const st = await workspace.detectGoogle(nextAnswers.project, repo);
       if (!st.adcAvailable) {
         try {
           await withSuspendedRenderer(renderer, () => workspace.loginGoogle());
