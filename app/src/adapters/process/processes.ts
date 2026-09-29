@@ -1,17 +1,15 @@
 import type { ProcessRuntime } from "../../ports/process-runtime.ts";
 import { spawn, type Subprocess } from "bun";
 import { KindProcessStart, newError, wrapError } from "../../shared/errors.ts";
-import { RUN_ONCE_DRAIN_GRACE_MS, SPLIT_MAX_BYTES } from "../../domain/logs/budgets.ts";
+import { DEFAULT_LOG_CAP_BYTES, RUN_ONCE_DRAIN_GRACE_MS, SPLIT_MAX_BYTES } from "../../domain/logs/budgets.ts";
 import { MAX_LOG_LINE_CHARS } from "../../domain/logs/logs.ts";
 import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./windows.ts";
 import { processAlive } from "../storage/storage.ts";
 import { groupHasLiveMembers } from "./liveness.ts";
-import { closeSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { pumpChunks, pumpLines, type ChunkHandler, type LineHandler, type StreamName } from "./output-pump.ts";
 import { LineSplitter } from "../storage/ingest/line-splitter.ts";
-import { openServiceStdio, resumeServiceStdio } from "./fifo-stdio.ts";
+import { FifoStdio, type ServiceFifos, type StdioHandlerFor } from "./fifo-stdio.ts";
 import { forgetManagedPid, rememberManagedPid } from "./peer-caller.ts";
 import { adoptContainer, startContainer, containerEnvironment, type ContainerControl, type ContainerLaunchSpec } from "../containers/containers.ts";
 
@@ -55,8 +53,6 @@ export type AdoptSpec = {
   args: string[];
   workDir: string;
   startTime: Date;
-  onChunk?: ChunkHandler;
-  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 
@@ -72,7 +68,13 @@ export type Handle = {
 };
 
 export class ProcessManager implements ProcessRuntime {
-  constructor(private readonly options: { stdioRoot?: string; spoolMaxBytes?: number } = {}) {}
+  private readonly fifos: FifoStdio | undefined;
+
+  constructor(options: { stdioRoot?: string; spoolMaxBytes?: number } = {}) {
+    this.fifos = options.stdioRoot === undefined || options.stdioRoot === "" || process.platform === "win32"
+      ? undefined
+      : new FifoStdio(options.stdioRoot, options.spoolMaxBytes ?? DEFAULT_LOG_CAP_BYTES);
+  }
 
   isRunning(name: string): boolean {
     const handle = this.running.get(name);
@@ -91,13 +93,18 @@ export class ProcessManager implements ProcessRuntime {
       throw newError(KindProcessStart, "empty command");
     }
     const cmd = spec.shell ? shellCommand(spec.args) : spec.args;
-    const stdio = this.options.stdioRoot === undefined ? undefined : openServiceStdio(this.options.stdioRoot, spec.name, this.options.spoolMaxBytes);
+    const fifos = await this.fifos?.open(spec.name, { stdout: spec.captureStdout !== false, stderr: spec.captureStderr !== false });
+    const raced = this.running.get(spec.name);
+    if (raced && handleStillRunning(raced)) {
+      fifos?.abandon();
+      return raced;
+    }
     let proc: Subprocess;
-    let usingFifo = stdio !== undefined;
+    let usingFifo = fifos !== undefined;
     try {
-      proc = spawnService(spec, cmd, usingFifo ? stdio : undefined);
+      proc = spawnService(spec, cmd, fifos);
     } catch (err) {
-      stdio?.releaseParentEnds();
+      fifos?.abandon();
       if (!usingFifo) {
         throw wrapError(KindProcessStart, `failed to start ${spec.name}`, err);
       }
@@ -118,13 +125,8 @@ export class ProcessManager implements ProcessRuntime {
       done: Promise.resolve({ code: 0 }),
     };
     rememberManagedPid(handle.pid);
-    let followStop = false;
-    if (usingFifo && stdio) {
-      closeQuiet(stdio.stdoutFd);
-      closeQuiet(stdio.stderrFd);
-      stdio.releaseParentEnds();
-      const deliver = chunkDeliver(spec, handle.pid);
-      void stdio.follow(deliver, spec.paused, () => followStop);
+    if (usingFifo && fifos) {
+      fifos.attach(handle.pid, chunkDeliver(spec, handle.pid), spec.paused);
     } else {
       const livePump = { paused: spec.paused, maxLineBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS };
       if (spec.onChunk) {
@@ -140,9 +142,6 @@ export class ProcessManager implements ProcessRuntime {
       const exitCode = typeof code === "number" ? code : 0;
       const err = exitCode === 0 ? undefined : new Error(`exited with code ${exitCode}`);
       forgetManagedPid(handle.pid);
-      setTimeout(() => {
-        followStop = true;
-      }, RUN_ONCE_DRAIN_GRACE_MS);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -222,18 +221,26 @@ export class ProcessManager implements ProcessRuntime {
     return handle;
   }
 
-  /** Marks a keep-services shutdown so the next daemon keeps reading the FIFOs. */
-  handoff(): void {
-    const root = this.options.stdioRoot;
-    if (root === undefined) {
-      return;
-    }
-    try {
-      mkdirSync(root, { recursive: true, mode: 0o700 });
-      writeFileSync(join(root, "_drain"), `${Date.now()}\n`, { mode: 0o600 });
-    } catch {
-      // the detached drainer already holds the read end
-    }
+  /**
+   * For a shutdown that leaves services running: stops reading their FIFOs
+   * once what was read is delivered. The sentinel drains them from then on.
+   */
+  async handoff(): Promise<void> {
+    await this.fifos?.handoff();
+  }
+
+  /**
+   * Reads again the FIFOs a previous daemon left running services on. What
+   * its drainer spooled is replayed first. `replayed` settles once that is
+   * done and live reading has started.
+   */
+  async takeOverStdio(handlerFor: StdioHandlerFor, paused?: () => boolean): Promise<{ replayed: Promise<void> }> {
+    return (await this.fifos?.takeOver(handlerFor, paused)) ?? { replayed: Promise.resolve() };
+  }
+
+  /** True when `pid`'s stdout or stderr is read from a FIFO. */
+  followsOutput(pid: number): boolean {
+    return this.fifos?.follows(pid) === true;
   }
 
   adopt(spec: AdoptSpec): Handle {
@@ -253,19 +260,8 @@ export class ProcessManager implements ProcessRuntime {
       done: Promise.resolve({ code: 0 }),
     };
     rememberManagedPid(spec.pid);
-    let followStop = false;
-    const onChunk = spec.onChunk;
-    const resumed = this.options.stdioRoot === undefined || onChunk === undefined
-      ? undefined
-      : resumeServiceStdio(this.options.stdioRoot, spec.name);
-    if (resumed && onChunk) {
-      void resumed.follow((stream, bytes, meta) => onChunk(stream, bytes, { ...meta, pid: spec.pid }), spec.paused, () => followStop);
-    }
     handle.done = pollAdopted(spec.pid).then((code) => {
       forgetManagedPid(spec.pid);
-      setTimeout(() => {
-        followStop = true;
-      }, RUN_ONCE_DRAIN_GRACE_MS);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -406,7 +402,7 @@ function timeMs(value: Date | string | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-function spawnService(spec: ProcessSpec, cmd: string[], stdio: { stdoutFd: number; stderrFd: number } | undefined): Subprocess {
+function spawnService(spec: ProcessSpec, cmd: string[], stdio: Pick<ServiceFifos, "stdoutFd" | "stderrFd"> | undefined): Subprocess {
   return spawn({
     cmd,
     cwd: spec.workDir === "" ? undefined : spec.workDir,
@@ -458,14 +454,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function closeQuiet(fd: number): void {
-  try {
-    closeSync(fd);
-  } catch {
-    // already closed
-  }
 }
 
 // Tags every chunk with the pid that wrote it: output read after the process

@@ -86,11 +86,27 @@ export async function resolveAdoptedHealthEnv(
 }
 
 function outputChunk(host: RecoverHost, name: string, pid: number): ProcessChunkHandler | undefined {
-  if (!host.logs.ingestChunk) {
-    return undefined;
-  }
+  return host.logs.ingestChunk ? ingestAs(host, name, pid) : undefined;
+}
+
+// Replayed output carries the time it was read; live output is stamped now.
+function ingestAs(host: RecoverHost, name: string, pid: number): ProcessChunkHandler {
   return (stream, bytes, meta) =>
-    host.logs.ingestChunk?.({ service: name, stream, pid: meta?.pid ?? pid, readAtMs: host.clock.unixMs(), bytes, end: meta?.end }) ?? false;
+    host.logs.ingestChunk?.({ service: name, stream, pid: meta?.pid ?? pid, readAtMs: meta?.readAtMs ?? host.clock.unixMs(), bytes, end: meta?.end }) ?? false;
+}
+
+// Before anything else: stops the previous daemon's drainer, replays what it
+// spooled with the original read times, then reads the FIFOs of every service
+// it left running, adopted below or not. Output of a service that exited in
+// the meantime is kept too.
+async function takeOverStdio(host: RecoverHost): Promise<void> {
+  if (!host.logs.ingestChunk) {
+    return;
+  }
+  await host.procs.takeOverStdio(
+    (service, pid) => ingestAs(host, service, pid),
+    () => host.logs.ingestPaused?.() === true,
+  );
 }
 
 export function attachProcess(host: RecoverHost, name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
@@ -102,14 +118,11 @@ export function attachProcess(host: RecoverHost, name: string, pid: number, args
   }
   const gen = host.orchestrator.health.bumpGeneration(name);
   try {
-    const onChunk = outputChunk(host, name, pid);
     host.procs.adopt({
       name,
       pid,
       args,
       workDir,
-      onChunk,
-      paused: () => host.logs.ingestPaused?.() === true,
       startTime,
       onExit: (code, err) => {
         host.orchestrator.health.onExit(name, gen, code, err);
@@ -206,6 +219,7 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
 }
 
 export async function recoverSession(host: RecoverHost): Promise<void> {
+  await takeOverStdio(host);
   const persisted = readPersistedState(host.cfg.repoRoot);
   if (!persisted) {
     return;
@@ -273,7 +287,9 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
     const healthEnv = await resolveAdoptedHealthEnv(host, rec.name, svc, rec.ports);
       host.orchestrator.health.startHealth(rec.name, svc, rec.pid, rec.ports, workDir, healthEnv, gen);
     }
-    host.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
+    host.log(rec.name, "INFO", host.procs.followsOutput(rec.pid)
+      ? "adopted leftover process; its output continues from where the last daemon stopped"
+      : "adopted leftover process; stdout/stderr from before adopt are not captured");
     adopted.push(rec.name);
   }
   if (adopted.length > 0) {

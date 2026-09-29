@@ -1,4 +1,4 @@
-import { readSync } from "node:fs";
+import { closeSync, readSync } from "node:fs";
 
 const READ_BYTES = 64 * 1024;
 // One wakeup reads at most this much before yielding, so a busy FIFO cannot
@@ -63,6 +63,14 @@ function readBatch(fd: number, buf: Buffer): Uint8Array | undefined | "eof" {
     total += n;
   }
   return total > 0 ? Buffer.concat(parts, total) : undefined;
+}
+
+export function closeQuiet(fd: number): void {
+  try {
+    closeSync(fd);
+  } catch {
+    // already closed
+  }
 }
 
 export function sleepMs(ms: number): Promise<void> {
