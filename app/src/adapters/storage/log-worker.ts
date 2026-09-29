@@ -30,6 +30,14 @@ async function handle(message: WorkerRequest): Promise<void> {
       message.config.sessionID,
       message.config.retentionDays,
       message.config.maxSessionLogs,
+      {
+        repoKey: message.config.repoKey,
+        maxMemoryBytes: message.config.maxMemoryBytes,
+        maxSessionBytes: message.config.maxSessionBytes,
+        maxSpoolBytes: message.config.maxSpoolBytes,
+        maxTotalBytes: message.config.maxTotalBytes,
+        spoolDir: message.config.spoolDir,
+      },
     );
     manager.setParsers([defaultLogParser()]);
     manager.setOnRecord((event) => {
@@ -61,6 +69,24 @@ async function handle(message: WorkerRequest): Promise<void> {
     manager.append(message.event);
     return;
   }
+  if (message.type === "chunk") {
+    const accepted = manager.acceptChunk(message);
+    reply({ id: message.id, type: "chunkAck", accepted, stats: manager.snapshot() });
+    return;
+  }
+  if (message.type === "setMemoryBudget") {
+    manager.setMemoryBudget(message.bytes);
+    return;
+  }
+  if (message.type === "setIngestShed") {
+    manager.setIngestShed(message.shed);
+    return;
+  }
+  if (message.type === "flush") {
+    await manager.flush();
+    reply({ id: message.id, type: "result", result: null });
+    return;
+  }
   if (message.type === "query") {
     reply({ id: message.id, type: "result", result: manager.query(message.filter) });
     return;
@@ -83,8 +109,13 @@ async function handle(message: WorkerRequest): Promise<void> {
 }
 
 addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
-  chain = chain.then(() => handle(event.data)).catch((err: unknown) => {
-    const data = event.data;
+  const data = event.data;
+  // Budget and shed must not wait behind a flood of chunks.
+  if (data.type === "setMemoryBudget" || data.type === "setIngestShed") {
+    void handle(data);
+    return;
+  }
+  chain = chain.then(() => handle(data)).catch((err: unknown) => {
     fail("id" in data ? data.id : undefined, err);
   });
 });

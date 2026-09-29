@@ -1,0 +1,28 @@
+name: Soak
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+  pull_request:
+    types: [labeled]
+
+jobs:
+  soak:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'soak'
+    name: Resource soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install
+        working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Soak subset
+        working-directory: app
+        run: DEVCTL_SOAK=1 bun test e2e/soak
+        env:
+          DEVCTL_SOAK_QUICK: ${{ github.event_name == 'pull_request' && '1' || '0' }}

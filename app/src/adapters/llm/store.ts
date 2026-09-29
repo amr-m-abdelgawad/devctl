@@ -1,4 +1,6 @@
 import { Detector } from "../secrets/detector.ts";
+import { BodyStore } from "../capture/body-store.ts";
+import { captureStoreBytes } from "../../domain/logs/budgets.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
 import {
   clampLlmPageSize,
@@ -33,6 +35,8 @@ function decodeCursor(raw: string): LlmCursor | undefined {
   return undefined;
 }
 
+export const LLM_BODY_SEARCH = Symbol.for("devctl.llmBodySearch");
+
 export class LlmCallManager implements LlmCallStore {
   private items: LlmCall[] = [];
   private byId = new Map<string, LlmCall>();
@@ -40,10 +44,12 @@ export class LlmCallManager implements LlmCallStore {
   private readonly cap: number;
   private detector?: Detector;
   private readonly errors = new Map<string, LlmSourceError>();
+  private readonly bodies: BodyStore;
 
-  constructor(detector?: Detector, cap: number = DEFAULT_LLM_STORE_CAP) {
+  constructor(detector?: Detector, cap: number = DEFAULT_LLM_STORE_CAP, maxBytes = 0) {
     this.detector = detector;
     this.cap = cap > 0 ? cap : DEFAULT_LLM_STORE_CAP;
+    this.bodies = new BodyStore(captureStoreBytes(maxBytes));
   }
 
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void {
@@ -69,11 +75,15 @@ export class LlmCallManager implements LlmCallStore {
     this.nextSeq += 1;
     const built: LlmCall = { ...incoming, seq };
     const stored = this.detector ? redactLlmCall(this.detector, built) : built;
+    const search = `${stringifySearch(stored.request)}\n${stringifySearch(stored.response)}`;
+    const evicted = this.bodies.put(stored.id, search);
+    Object.defineProperty(stored, LLM_BODY_SEARCH, { value: search, enumerable: false });
     this.byId.set(stored.id, stored);
     if (existing) {
       this.items = this.items.filter((item) => item.id !== stored.id);
     }
     this.items.push(stored);
+    this.markEvicted(evicted);
   }
 
   queryPage(filter: LlmCallFilter, page?: LlmCallPageRequest): LlmCallPage {
@@ -126,6 +136,10 @@ export class LlmCallManager implements LlmCallStore {
     return [...this.errors.values()];
   }
 
+  shedBodies(): void {
+    this.markEvicted(this.bodies.shedAll());
+  }
+
   close(): void {
     this.items = [];
     this.byId.clear();
@@ -140,6 +154,33 @@ export class LlmCallManager implements LlmCallStore {
     const removed = this.items.splice(0, drop);
     for (const call of removed) {
       this.byId.delete(call.id);
+      this.bodies.drop(call.id);
     }
+  }
+
+  private markEvicted(ids: string[]): void {
+    for (const id of ids) {
+      const call = this.byId.get(id);
+      if (call) {
+        call.request = undefined;
+        call.response = undefined;
+        Object.defineProperty(call, LLM_BODY_SEARCH, { value: "", enumerable: false });
+        call.attributes = { ...call.attributes, body: "evicted" };
+      }
+    }
+  }
+}
+
+function stringifySearch(value: unknown): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value) ?? "";
+  } catch {
+    return "";
   }
 }

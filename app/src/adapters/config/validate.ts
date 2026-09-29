@@ -126,6 +126,21 @@ export function validate(cfg: DevctlConfig): string[] {
   if (cfg.logs.max_memory_events < 0) {
     issues.push("logs.max_memory_events must be >= 0");
   }
+  if (cfg.logs.max_memory_bytes < 0) {
+    issues.push("logs.max_memory_bytes must be >= 0");
+  }
+  if (cfg.logs.spool.max_bytes < 0) {
+    issues.push("logs.spool.max_bytes must be >= 0");
+  }
+  if (cfg.logs.persistence.max_session_bytes < 0 || cfg.logs.persistence.max_total_bytes < 0) {
+    issues.push("logs.persistence byte caps must be >= 0");
+  }
+  if (cfg.llm.store_max_bytes < 0) {
+    issues.push("llm.store_max_bytes must be >= 0");
+  }
+  if (cfg.proxy.inspect_store_max_bytes < 0) {
+    issues.push("proxy.inspect_store_max_bytes must be >= 0");
+  }
   issues.push(...sopsConfigIssues(cfg));
   issues.push(...terraformConfigIssues(cfg));
   issues.push(...helmConfigIssues(cfg));

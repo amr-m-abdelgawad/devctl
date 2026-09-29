@@ -10,7 +10,11 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, persistedConfigOverlay, processAlive, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, persistedConfigOverlay, processAlive, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, lockPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { lockIsLive, readLockFile } from "../storage/lock.ts";
+import { processState } from "../process/liveness.ts";
+import { decideLiveness, heartbeatWorkerAdvanced, LEGACY_DAEMON_MESSAGE } from "../../domain/daemon/liveness.ts";
+import { readHeartbeat, writeRestartRequest } from "../daemon/heartbeat.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -226,7 +230,7 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
 async function handshake(client: Client, timeoutMs: number): Promise<boolean> {
   let raw: unknown;
   try {
-    raw = await client.call("ping", null, timeoutMs);
+    raw = await client.call("ping", { features: ["log_batch.v1"] }, timeoutMs);
   } catch {
     return false;
   }
@@ -287,19 +291,52 @@ async function connectSupervisor(repoRoot: string): Promise<Client | undefined> 
 // accept, and the child processes still hold their ports. Replace it so
 // the next supervisor can adopt those processes.
 async function takeOverUnresponsive(repoRoot: string): Promise<Client | undefined> {
-  const lock = readRepoLock(repoRoot);
-  if (!lock || !processAlive(lock.pid)) {
+  const action = livenessAction(repoRoot);
+  if (action === undefined) {
     return undefined;
   }
-  try {
-    return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
-  } catch {
-    if (processAlive(lock.pid)) {
+  if (action === "leave-legacy") {
+    throw new Error(LEGACY_DAEMON_MESSAGE);
+  }
+  if (action === "wait-busy" || action === "wait-frozen") {
+    try {
+      return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
+    } catch {
+      throw new Error(`devctl is ${action === "wait-frozen" ? "paused" : "busy"} and was not replaced. Wait for it to catch up.`);
+    }
+  }
+  if (action === "graceful-restart") {
+    writeRestartRequest(repoRoot);
+    try {
+      return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
+    } catch {
+      return undefined;
+    }
+  }
+  if (action === "replace-wedge") {
+    const lock = readRepoLock(repoRoot);
+    if (lock && processAlive(lock.pid)) {
       killRepoSupervisor(repoRoot);
       await waitForExit(lock.pid, REAP_WAIT_MS);
     }
+  }
+  return undefined;
+}
+
+function livenessAction(repoRoot: string, nowMs = Date.now()): ReturnType<typeof decideLiveness> | undefined {
+  const lock = readRepoLock(repoRoot);
+  if (!lock || processState(lock.pid) === "dead") {
     return undefined;
   }
+  const record = readLockFile(lockPath(repoRoot));
+  const heartbeat = readHeartbeat(repoRoot);
+  return decideLiveness({
+    process: processState(lock.pid) === "zombie" ? "zombie" : "alive",
+    identityMatches: record === undefined || lockIsLive(record),
+    lockGeneration: record?.v === 2 ? 2 : 1,
+    heartbeat,
+    workerAdvanced: heartbeatWorkerAdvanced(heartbeat, nowMs),
+  });
 }
 
 function waitForExit(pid: number, timeoutMs: number): Promise<void> {
@@ -628,7 +665,7 @@ export class Controller {
       const previous = this.lastResumeMark;
       this.lastResumeMark = now;
       if (hostClockJumped(previous, now)) {
-        void this.recoverSupervisor();
+        void this.redial();
       }
     }, RESUME_POLL_MS);
     this.resumeTimer.unref();
@@ -650,6 +687,22 @@ export class Controller {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async redial(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+    const repo = this.attachedRepo || this.cfg.repoRoot;
+    this.detachBus?.();
+    this.detachBus = undefined;
+    this.client?.close();
+    this.client = undefined;
+    try {
+      this.attachClient(await dial(repo, REDIAL_MS), repo);
+    } catch {
+      // Resume only redials. A sleeping daemon is not replaced.
     }
   }
 
@@ -676,12 +729,19 @@ export class Controller {
       this.attachClient(await dial(repo, REDIAL_MS), repo);
       return;
     } catch {
-      // The socket is still dead. Replace the supervisor below.
+      // The socket is still dead. Decide from the daemon's own heartbeat.
     }
-    const lock = readRepoLock(repo);
-    if (lock && processAlive(lock.pid)) {
-      killRepoSupervisor(repo);
-      await waitForExit(lock.pid, REAP_WAIT_MS);
+    try {
+      const replaced = await connectSupervisor(repo);
+      if (replaced) {
+        this.attachClient(replaced, repo);
+        return;
+      }
+    } catch (err) {
+      if (this.closed) {
+        return;
+      }
+      throw err;
     }
     if (this.closed) {
       return;
@@ -728,7 +788,7 @@ function warnIfVersionMismatch(client: Client | undefined): void {
 // is deliberately independent of local config parsing, via
 // resolveDaemonTarget's discovery-then-state-scan fallback, so a deleted
 // .devctl directory can never make a still-live daemon unreachable.
-export async function findDaemon(startDir: string, explicitRepo: string, explicitConfig = ""): Promise<{ repoRoot: string; client?: Client }> {
+export async function findDaemon(startDir: string, explicitRepo: string, explicitConfig = ""): Promise<{ repoRoot: string; client?: Client; notice?: string }> {
   const target = resolveDaemonTarget(startDir, explicitRepo, explicitConfig);
   if (!target) {
     throw hintError(
@@ -739,7 +799,23 @@ export async function findDaemon(startDir: string, explicitRepo: string, explici
   }
   const client = await tryDial(target.repoRoot);
   warnIfVersionMismatch(client);
-  return { repoRoot: target.repoRoot, client };
+  const notice = client ? undefined : unreachableDaemonNotice(target.repoRoot);
+  return { repoRoot: target.repoRoot, client, notice };
+}
+
+/** Explains a live daemon that did not answer, including an older build with no heartbeat. */
+function unreachableDaemonNotice(repoRoot: string, nowMs = Date.now()): string | undefined {
+  const action = livenessAction(repoRoot, nowMs);
+  if (action === "leave-legacy") {
+    return LEGACY_DAEMON_MESSAGE;
+  }
+  if (action === "wait-frozen") {
+    return "devctl is paused and was not replaced. Wait for it to catch up, or stop it with `devctl down --force`.";
+  }
+  if (action === "wait-busy" || action === "graceful-restart" || action === "replace-wedge") {
+    return "devctl is running but not answering. Wait for it to catch up.";
+  }
+  return undefined;
 }
 
 function overlayFromPersisted(startDir: string, configPath: string): string | undefined {

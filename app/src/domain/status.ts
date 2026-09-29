@@ -126,6 +126,13 @@ export type LogSnapshot = {
   seen: number;
   /** Error/fatal events ingested this daemon lifetime. */
   seenErrors: number;
+  pipeline?: {
+    inFlightBytes: number;
+    spooledBytes: number;
+    paused: boolean;
+    loss: number;
+    ringBytes: number;
+  };
 };
 
 export type CredentialEntrySnapshot = {
@@ -197,6 +204,15 @@ export type StatusSnapshot = {
   // Per-service CPU%/memoryKB trend over the same window as stats_series, keyed
   // by service name. Absent until the sampler has recorded at least one tick.
   service_series?: Record<string, StatsSeries>;
+  /** Present when the daemon reports its own resource use. */
+  daemon?: {
+    rssBytes: number;
+    heapBytes: number;
+    memoryLimitBytes?: number;
+    nonReapingPid1?: boolean;
+    eventLoopLagMs?: number;
+    logs?: LogSnapshot["pipeline"];
+  };
 };
 
 export type LogsResponse = {

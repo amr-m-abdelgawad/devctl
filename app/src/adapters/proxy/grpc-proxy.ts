@@ -226,8 +226,10 @@ export class GrpcProxyServer {
       }
     };
     const fail = (grpcStatus: string, message: string): void => {
-      // Deliver the failure as a gRPC trailers-only response the client SDK
-      // understands, rather than resetting the stream.
+      if (clientGone || front.closed) {
+        finish(499, grpcStatus, message);
+        return;
+      }
       try {
         front.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": grpcStatus, "grpc-message": message }, { endStream: true });
       } catch {
@@ -256,13 +258,30 @@ export class GrpcProxyServer {
       }
     });
 
+    let clientGone = false;
+    const onClientGone = (): void => {
+      clientGone = true;
+      try {
+        upReq?.close(http2.constants.NGHTTP2_CANCEL);
+      } catch {
+        upReq?.destroy();
+      }
+    };
+    front.on("close", onClientGone);
+    front.on("error", onClientGone);
     let out: Record<string, string>;
     try {
       out = this.buildUpstreamHeaders(headers, route);
       applyTraceHeaders(out, ctx, REQUEST_ID_HEADER);
       await injectIdentityHeaders(route, out, this.tokens);
     } catch (err) {
-      fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
+      if (!clientGone) {
+        fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
+      }
+      return;
+    }
+    if (clientGone || front.closed) {
+      finish(499, GRPC_CANCELLED, "client closed before completion");
       return;
     }
 

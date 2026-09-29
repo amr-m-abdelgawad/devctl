@@ -73,6 +73,7 @@ export type ClientRuntime = {
   patchRepoLocalConfig(repoRoot: string, patch: LocalWebPatch): string;
   listSessions(root?: string): string[];
   loadSessionEvents(session: string, root?: string): LogEvent[];
+  loadSessionTail(session: string, root?: string, maxRecords?: number, maxBytes?: number): LogEvent[];
   load(startDir: string, explicit: string, opts?: { overlay?: string; candidateText?: string }): DevctlConfig;
   loadOrEmpty(startDir: string, explicit: string, opts?: { overlay?: string; candidateText?: string }): DevctlConfig;
   loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string; overlay?: string }): DevctlConfig;
@@ -92,12 +93,14 @@ export type ClientRuntime = {
   openController(startDir: string, configPath: string, startSupervisor: boolean, opts?: { allowMissingConfig?: boolean }): Promise<Controller>;
   openAttach(startDir: string, configPath: string): Promise<Controller>;
   openTui(startDir: string, configPath: string): Promise<Controller>;
-  findDaemon(startDir: string, explicitRepo: string, explicitConfig?: string): Promise<{ repoRoot: string; client?: DaemonClient }>;
+  findDaemon(startDir: string, explicitRepo: string, explicitConfig?: string): Promise<{ repoRoot: string; client?: DaemonClient; notice?: string }>;
   // Parallel stacks (#117): the port-slot registry under DEVCTL_HOME.
   listInstances(): InstanceSlot[];
   releaseInstance(repoRoot: string): void;
   processAlive(pid: number): boolean;
   tryDial(repoRoot: string): Promise<DaemonClient | undefined>;
+  /** Signal a lock holder that did not answer, including an older daemon. */
+  forceStopDaemon(repoRoot: string): boolean;
   assertMethodAllowed(client: DaemonClient, method: string): void;
   readPersistedState(repoRoot: string): PersistedState | undefined;
   rotateMcpToken(repoRoot: string): string;

@@ -40,6 +40,7 @@ export function matchesLlmCall(filter: LlmCallFilter, call: LlmCall): boolean {
 }
 
 export function llmCallSearchText(call: LlmCall): string {
+  const cached = (call as LlmCall & { [key: symbol]: string | undefined })[Symbol.for("devctl.llmBodySearch")];
   const parts = [
     call.id,
     call.source,
@@ -48,8 +49,7 @@ export function llmCallSearchText(call: LlmCall): string {
     call.routedModel ?? "",
     call.error ?? "",
     call.status,
-    stringifyUnknown(call.request),
-    stringifyUnknown(call.response),
+    typeof cached === "string" ? cached : `${stringifyUnknown(call.request)} ${stringifyUnknown(call.response)}`,
   ];
   return parts.join(" ");
 }

@@ -4,6 +4,7 @@ export const ServiceFailed = "ServiceFailed";
 export const ServiceStateChanged = "ServiceStateChanged";
 export const ServiceHealthChanged = "ServiceHealthChanged";
 export const LogReceived = "LogReceived";
+export const LogBatch = "LogBatch";
 export const TokenRefreshed = "TokenRefreshed";
 export const TokenRefreshFailed = "TokenRefreshFailed";
 export const AuthenticationChanged = "AuthenticationChanged";
@@ -21,6 +22,7 @@ export type EventType =
   | typeof ServiceStateChanged
   | typeof ServiceHealthChanged
   | typeof LogReceived
+  | typeof LogBatch
   | typeof TokenRefreshed
   | typeof TokenRefreshFailed
   | typeof AuthenticationChanged
@@ -53,11 +55,11 @@ export function newEvent(type: EventType, service: string, payload?: Record<stri
 export class Bus {
   private readonly subs = new Map<number, { types: Set<EventType>; handler: EventHandler }>();
   private nextID = 0;
-  private buffer: BusEvent[] = [];
-  private readonly maxBuf: number;
 
   constructor(maxBuffer: number) {
-    this.maxBuf = maxBuffer > 0 ? maxBuffer : 1024;
+    if (!Number.isFinite(maxBuffer)) {
+      throw new Error("event bus size must be a finite number");
+    }
   }
 
   subscribe(handler: EventHandler, types: EventType[] = []): () => void {
@@ -71,18 +73,10 @@ export class Bus {
 
   publish(event: BusEvent): void {
     const ev = event.timestamp === "" ? { ...event, timestamp: new Date().toISOString() } : event;
-    if (this.buffer.length >= this.maxBuf) {
-      this.buffer = this.buffer.slice(1);
-    }
-    this.buffer.push(ev);
     for (const sub of this.subs.values()) {
       if (sub.types.size === 0 || sub.types.has(ev.type)) {
         sub.handler(ev);
       }
     }
-  }
-
-  recent(): BusEvent[] {
-    return [...this.buffer];
   }
 }

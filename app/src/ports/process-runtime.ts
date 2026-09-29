@@ -2,6 +2,7 @@ import type { VolumeSeed } from "../domain/service/container-volumes.ts";
 import type { ContainerLimits } from "../domain/service/container-limits.ts";
 
 export type ProcessLineHandler = (stream: "stdout" | "stderr", line: string) => void;
+export type ProcessChunkHandler = (stream: "stdout" | "stderr", bytes: Uint8Array) => boolean;
 
 export type ProcessSpec = {
   name: string;
@@ -13,6 +14,10 @@ export type ProcessSpec = {
   captureStdout?: boolean;
   captureStderr?: boolean;
   onLine?: ProcessLineHandler;
+  /** Raw service output. Returning false retries the same chunk. */
+  onChunk?: ProcessChunkHandler;
+  /** When true, stdout/stderr reads pause so a full spool can backpressure the child. */
+  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 
@@ -40,6 +45,8 @@ export type ContainerLaunchSpec = {
   workDir: string;
   limits?: ContainerLimits;
   onLine?: ProcessLineHandler;
+  onChunk?: ProcessChunkHandler;
+  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 

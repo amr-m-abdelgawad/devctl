@@ -14,7 +14,7 @@ complete allowlists.
 
 **Top level:** `version` `project` `google` `profiles` `templates` `services`
 `tasks` `http` `proxy` `logs` `auth` `shutdown` `ui` `secrets` `doctor` `plugins`
-`environment` `telemetry` `web` `llm`
+`environment` `telemetry` `web` `llm` `supervisor`
 
 **Service** (and `templates.<name>`, same shape): `extends` `description`
 `command` `shell` `working_dir` `dependencies` `ports` `environment`
@@ -41,7 +41,7 @@ complete allowlists.
 | `service.environment.helm` | `path` `resource`, or a string path |
 | `service.environments.<name>` | same shape as `service.environment` |
 | `service.expose` | `enabled` `host` `port` (or the `true` shorthand) |
-| `proxy` | `enabled` `inspect_max_bytes` `gateway` `credentials` `listen` `token_endpoint` `routes` |
+| `proxy` | `enabled` `inspect_max_bytes` `inspect_store_max_bytes` `gateway` `credentials` `listen` `token_endpoint` `routes` |
 | `proxy.listen` | `host` `port` |
 | `proxy.token_endpoint` | `enabled` `host` `port` |
 | `route` | `name` `transport` `listen` `match` `upstream` `auth` `response_headers` `inspect` `strip_prefix` `log` `timeout` `transform` |
@@ -63,12 +63,14 @@ complete allowlists.
 | `http.<name>.request` | `method` `url` `headers` `body` `form` `auth` `timeout_seconds` |
 | `http.<name>.cache` | `jwt` `expires_in` |
 | `http.<name>.expose` | `enabled` `host` `response_headers` `allow_token_body` (or the `true`/`false` shorthand) |
-| `logs` | `max_memory_events` `persistence` |
-| `logs.persistence` | `enabled` `directory` `retention_days` `max_session_logs` |
+| `logs` | `max_memory_events` `max_memory_bytes` `persistence` `spool` |
+| `logs.persistence` | `enabled` `directory` `retention_days` `max_session_logs` `max_session_bytes` `max_total_bytes` |
+| `logs.spool` | `max_bytes` |
+| `supervisor` | `reap_orphans` |
 | `telemetry` | `otlp` |
 | `telemetry.otlp` | `enabled` `listen` |
 | `web` | `enabled` `listen` |
-| `llm` | `enabled` `capture_max_bytes` `sources` |
+| `llm` | `enabled` `capture_max_bytes` `store_max_bytes` `sources` |
 | `llm.sources[]` | `name` `type` `service` `port` `endpoint` `path_prefix` `headers` `via` `management_endpoint` `management_service` `management_port` `auth` `capture` `poll_seconds` `cost_per_token` |
 | `llm.sources[].auth` | `type` `token_env` `header` |
 | `llm.sources[].via` | `route` `routes` |

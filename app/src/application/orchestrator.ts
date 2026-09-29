@@ -366,12 +366,25 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       if (!this.health.isCurrentGeneration(name, gen)) {
         return;
       }
-      const onLine = (stream: "stdout" | "stderr", line: string): void => {
-        s.logs.append({
-          timestamp: this.clock.isoNow(), service: name, source: stream, stream,
-          level: "", message: line, pid: handle.pid,
-        });
-      };
+      const onChunk = s.logs.ingestChunk
+        ? (stream: "stdout" | "stderr", bytes: Uint8Array): boolean =>
+            s.logs.ingestChunk?.({
+              service: name,
+              stream,
+              pid: this.processes.get(name)?.pid ?? 0,
+              readAtMs: this.clock.unixMs(),
+              bytes,
+            }) ?? false
+        : undefined;
+      const onLine = onChunk
+        ? undefined
+        : (stream: "stdout" | "stderr", line: string): void => {
+            s.logs.append({
+              timestamp: this.clock.isoNow(), service: name, source: stream, stream,
+              level: "", message: line, pid: handle.pid,
+            });
+          };
+      const paused = (): boolean => s.logs.ingestPaused?.() === true;
       const onExit = (code: number, err?: Error): void => this.health.onExit(name, gen, code, err);
       const mounts = svc.container ? scopeVolumes(svc.container, s.containerPrefix) : undefined;
       handle = svc.container
@@ -389,6 +402,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             workDir,
             limits: resolvedContainerLimits(svc.container),
             onLine,
+            onChunk,
+            paused,
             onExit,
           })
         : await this.processes.start({
@@ -401,6 +416,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             captureStdout: captureStdout(svc),
             captureStderr: captureStderr(svc),
             onLine,
+            onChunk,
+            paused,
             onExit,
           });
     } catch (err) {

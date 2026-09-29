@@ -1,4 +1,6 @@
 import { Detector } from "../secrets/detector.ts";
+import { BodyStore } from "../capture/body-store.ts";
+import { captureStoreBytes } from "../../domain/logs/budgets.ts";
 import type { TrafficCallStore } from "../../ports/traffic-call-store.ts";
 import {
   clampTrafficPageSize,
@@ -36,10 +38,12 @@ export class TrafficCallRing implements TrafficCallStore {
   private nextSeq = 1;
   private readonly cap: number;
   private detector?: Detector;
+  private readonly bodies: BodyStore;
 
-  constructor(detector?: Detector, cap: number = DEFAULT_TRAFFIC_STORE_CAP) {
+  constructor(detector?: Detector, cap: number = DEFAULT_TRAFFIC_STORE_CAP, maxBytes = 0) {
     this.detector = detector;
     this.cap = cap > 0 ? cap : DEFAULT_TRAFFIC_STORE_CAP;
+    this.bodies = new BodyStore(captureStoreBytes(maxBytes));
   }
 
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void {
@@ -65,11 +69,22 @@ export class TrafficCallRing implements TrafficCallStore {
     this.nextSeq += 1;
     const built: TrafficCall = { ...incoming, seq };
     const stored = this.detector ? redactTrafficCall(this.detector, built) : built;
+    const blob = `${stored.request?.text ?? ""}\n${stored.response?.text ?? ""}`;
+    const evicted = this.bodies.put(stored.id, blob);
     this.byId.set(stored.id, stored);
     if (existing) {
       this.items = this.items.filter((item) => item.id !== stored.id);
     }
     this.items.push(stored);
+    for (const id of evicted) {
+      const call = this.byId.get(id);
+      if (call?.request) {
+        call.request = { ...call.request, text: undefined, omitted: true };
+      }
+      if (call?.response) {
+        call.response = { ...call.response, text: undefined, omitted: true };
+      }
+    }
   }
 
   queryPage(filter: TrafficCallFilter, page?: TrafficCallPageRequest): TrafficCallPage {
@@ -92,6 +107,18 @@ export class TrafficCallRing implements TrafficCallStore {
     return this.byId.get(id);
   }
 
+  shedBodies(): void {
+    for (const id of this.bodies.shedAll()) {
+      const call = this.byId.get(id);
+      if (call?.request) {
+        call.request = { ...call.request, text: undefined, omitted: true };
+      }
+      if (call?.response) {
+        call.response = { ...call.response, text: undefined, omitted: true };
+      }
+    }
+  }
+
   close(): void {
     this.items = [];
     this.byId.clear();
@@ -105,6 +132,7 @@ export class TrafficCallRing implements TrafficCallStore {
     const removed = this.items.splice(0, drop);
     for (const call of removed) {
       this.byId.delete(call.id);
+      this.bodies.drop(call.id);
     }
   }
 }

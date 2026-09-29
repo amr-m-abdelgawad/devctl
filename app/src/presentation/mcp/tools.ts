@@ -713,6 +713,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
       ? { running: snap.web.running, address: snap.web.address, port: snap.web.port }
       : { running: false },
     stats_series: snap.stats_series,
+    ...(snap.daemon ? { daemon: snap.daemon } : {}),
   };
 }
 

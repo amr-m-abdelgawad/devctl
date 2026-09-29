@@ -4,7 +4,15 @@ import { join, relative, resolve } from "node:path";
 
 export const NPM_PACKAGE_NAME = "@amr-m-abdelgawad/devctl";
 export const BUNDLED_BUN_VERSION = "1.4.2";
-export const GENERATED_PACKAGE_FILES = ["LICENSE", "README.md", "bin/devctl.cjs", "dist/devctl.js", "package.json"] as const;
+export const GENERATED_PACKAGE_FILES = [
+  "LICENSE",
+  "README.md",
+  "bin/devctl.cjs",
+  "dist/devctl.js",
+  "dist/log-worker.js",
+  "dist/event-loop-watchdog-worker.js",
+  "package.json",
+] as const;
 // Native packages that must exist on disk (dlopen). Kept external from the bundle
 // and published pinned to the exact version installed at build time: the frozen
 // bundle is only ever validated against that build, so a floating range could
@@ -217,6 +225,28 @@ export async function buildNpmPackage(repoRoot: string, requestedVersion: string
     outdir: join(outputRoot, "dist"),
     naming: "devctl.js",
   });
+  if (!result.success) {
+    const messages = result.logs.map((log) => log.message).join("\n");
+    throw new Error(`failed to bundle npm package${messages ? `:\n${messages}` : ""}`);
+  }
+  const workers = await Bun.build({
+    entrypoints: [
+      join(appRoot, "src", "adapters", "storage", "log-worker.ts"),
+      join(appRoot, "src", "adapters", "daemon", "event-loop-watchdog-worker.ts"),
+    ],
+    target: "bun",
+    minify: true,
+    external: [...PUBLISHED_APP_DEPENDENCIES],
+    define: {
+      "process.env.DEVCTL_VERSION": JSON.stringify(releaseVersion),
+    },
+    outdir: join(outputRoot, "dist"),
+    naming: "[name].js",
+  });
+  if (!workers.success) {
+    const messages = workers.logs.map((log) => log.message).join("\n");
+    throw new Error(`failed to bundle workers${messages ? `:\n${messages}` : ""}`);
+  }
   if (!result.success) {
     const messages = result.logs.map((log) => log.message).join("\n");
     throw new Error(`failed to bundle npm package${messages ? `:\n${messages}` : ""}`);

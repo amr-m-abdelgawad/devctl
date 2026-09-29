@@ -12,11 +12,21 @@ export type WorkerLogConfig = {
   extraMarkers: string[];
   extraPatterns: string[];
   redact?: boolean;
+  repoKey?: string;
+  maxMemoryBytes?: number;
+  maxSessionBytes?: number;
+  maxSpoolBytes?: number;
+  maxTotalBytes?: number;
+  spoolDir?: string;
 };
 
 export type WorkerRequest =
   | { type: "init"; config: WorkerLogConfig }
   | { type: "append"; event: LogIngest }
+  | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array }
+  | { type: "setMemoryBudget"; bytes: number }
+  | { type: "setIngestShed"; shed: boolean }
+  | { id: number; type: "flush" }
   | { id: number; type: "query"; filter: LogFilter }
   | { id: number; type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
   | { id: number; type: "queryFacets"; filter: LogFilter }
@@ -31,10 +41,12 @@ export type WorkerRpcBody =
   | { type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
   | { type: "queryFacets"; filter: LogFilter }
   | { type: "exportTo"; path: string; filter: LogFilter }
-  | { type: "close" };
+  | { type: "close" }
+  | { type: "flush" };
 
 export type WorkerResponse =
   | { type: "ready" }
   | { type: "appended"; event: LogRecord; stats: LogSnapshot }
+  | { id: number; type: "chunkAck"; accepted: boolean; stats: LogSnapshot }
   | { id: number; type: "result"; result: LogRecord[] | LogPage | LogFacets | null }
   | { id: number; type: "error"; error: string };

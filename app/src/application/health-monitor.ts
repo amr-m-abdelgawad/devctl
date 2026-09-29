@@ -24,6 +24,10 @@ export class HealthMonitor {
   // blip (Vite HMR, optimizeDeps, a one-shot 500) must not kill the process
   // — crash restart still comes from onExit.
   private readonly readyOnce = new Map<string, boolean>();
+  private readonly startPeriodLogged = new Set<string>();
+  private readonly lastHealth = new Map<string, { health: ServiceHealth; message: string }>();
+  private readonly remindedAt = new Map<string, number>();
+  private static readonly REMIND_MS = 5 * 60 * 1000;
 
   constructor(
     private readonly host: () => HealthHost,
@@ -159,18 +163,24 @@ export class HealthMonitor {
             return;
           }
           if (res.status === HealthUnhealthy && this.clock.unixMs() - startedAt < graceMs) {
-            this.host().logs.append({ timestamp: this.clock.isoNow(), service: name, source: "health", level: "INFO", message: `health check still in start period: ${res.message}`, pid });
+            if (!this.startPeriodLogged.has(name)) {
+              this.startPeriodLogged.add(name);
+              this.host().logs.append({ timestamp: this.clock.isoNow(), service: name, source: "health", level: "INFO", message: `health check still in start period: ${res.message}`, pid });
+            }
             return;
           }
-          this.setHealth(name, res.status, res.message);
-          this.host().logs.append({
-            timestamp: this.clock.isoNow(),
-            service: name,
-            source: "health",
-            level: healthLevel(res.status),
-            message: `health ${res.status} ${res.message}`,
-            pid,
-          });
+          const changed = this.rememberHealth(name, res.status, res.message);
+          this.setHealth(name, res.status, res.message, changed);
+          if (changed || this.shouldRemind(name, res.status)) {
+            this.host().logs.append({
+              timestamp: this.clock.isoNow(),
+              service: name,
+              source: "health",
+              level: healthLevel(res.status),
+              message: `health ${res.status} ${res.message}`,
+              pid,
+            });
+          }
           this.maybeRestartUnhealthy(name, svc, res.status, gen);
         })
         .finally(() => {
@@ -265,7 +275,7 @@ export class HealthMonitor {
     this.restartTimers.clear();
   }
 
-  private setHealth(name: string, health: ServiceHealth, message: string): void {
+  private setHealth(name: string, health: ServiceHealth, message: string, changed = true): void {
     const rt = this.host().runtimes.get(name);
     if (!rt || healthResultIgnored(rt.state)) {
       return;
@@ -277,7 +287,34 @@ export class HealthMonitor {
     if (rt.state === StateRunning || rt.state === StateHealthy || rt.state === StateUnhealthy) {
       rt.state = health === HealthHealthy ? StateHealthy : health === HealthUnhealthy ? StateUnhealthy : rt.state;
     }
-    this.host().bus.publish(newEvent(ServiceHealthChanged, name, { health, message }));
+    if (changed) {
+      this.host().bus.publish(newEvent(ServiceHealthChanged, name, { health, message }));
+    }
+  }
+
+  private rememberHealth(name: string, health: ServiceHealth, message: string): boolean {
+    const prev = this.lastHealth.get(name);
+    const changed = prev === undefined || prev.health !== health || prev.message !== message;
+    this.lastHealth.set(name, { health, message });
+    return changed;
+  }
+
+  private shouldRemind(name: string, health: ServiceHealth): boolean {
+    if (health !== HealthUnhealthy) {
+      this.remindedAt.delete(name);
+      return false;
+    }
+    const now = this.clock.unixMs();
+    const last = this.remindedAt.get(name);
+    if (last === undefined) {
+      this.remindedAt.set(name, now);
+      return false;
+    }
+    if (now - last < HealthMonitor.REMIND_MS) {
+      return false;
+    }
+    this.remindedAt.set(name, now);
+    return true;
   }
 
   private maybeRestartUnhealthy(name: string, svc: ServiceConfig, health: ServiceHealth, gen: number): void {

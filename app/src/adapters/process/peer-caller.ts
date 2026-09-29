@@ -183,23 +183,43 @@ async function ownerPidForPortProc(port: number): Promise<number | undefined> {
   return pidOwningSocketInode(inodes);
 }
 
+const managedPids = new Set<number>();
+
+/** Service pids are scanned before every other /proc entry. */
+export function rememberManagedPid(pid: number): void {
+  if (pid > 0) {
+    managedPids.add(pid);
+  }
+}
+
+export function forgetManagedPid(pid: number): void {
+  managedPids.delete(pid);
+}
+
 async function pidOwningSocketInode(inodes: ReadonlySet<string>): Promise<number | undefined> {
   const targets = new Set([...inodes].map((inode) => `socket:[${inode}]`));
+  const preferred = [...managedPids].map((pid) => String(pid));
+  const found = await scanPidFds(preferred, targets);
+  if (found !== undefined) {
+    return found;
+  }
   let names: string[];
   try {
     names = await readdir("/proc");
   } catch {
     return undefined;
   }
-  for (const name of names) {
-    if (!/^[0-9]+$/.test(name)) {
-      continue;
-    }
+  const rest = names.filter((name) => /^[0-9]+$/.test(name) && !managedPids.has(Number(name)));
+  return scanPidFds(rest, targets);
+}
+
+async function scanPidFds(pids: readonly string[], targets: ReadonlySet<string>): Promise<number | undefined> {
+  for (const name of pids) {
     let fds: string[];
     try {
       fds = await readdir(`/proc/${name}/fd`);
     } catch {
-      continue; // process exited, or its fds are not ours to read — skip
+      continue;
     }
     for (const fd of fds) {
       try {

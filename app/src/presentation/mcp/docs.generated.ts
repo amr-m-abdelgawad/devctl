@@ -2270,6 +2270,27 @@ devctl logs --dedupe-request-id    # collapse nearby events that share a request
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 \`\`\`
 
+## Resource limits
+
+Every buffer has a byte budget. Overflow is queued, then written to an ordered spool, and only then does devctl stop reading a service — the service blocks in its write, the way it would on a slow terminal. Lines are not dropped.
+
+| Key | Default |
+|-----|---------|
+| \`logs.max_memory_events\` | 50000 records in the live window |
+| \`logs.max_memory_bytes\` | \`0\` — 8% of cgroup or host memory, clamped to 96–384 MiB |
+| \`logs.spool.max_bytes\` | \`0\` — 1 GiB of not-yet-parsed output (mode 0600, deleted once consumed) |
+| \`logs.persistence.max_session_bytes\` | \`0\` — 1 GiB per session |
+| \`logs.persistence.max_total_bytes\` | \`0\` — 2 GiB across closed sessions |
+| \`logs.persistence.max_session_logs\` | \`0\` — unlimited; when set, counts sessions **for this repository** |
+| \`llm.store_max_bytes\` / \`proxy.inspect_store_max_bytes\` | \`0\` — 128 MiB of captured bodies. Metadata for the newest 2,000 calls stays; a missing body is marked evicted |
+| \`supervisor.reap_orphans\` | \`false\`. Prefer a reaping PID 1 (\`"init": true\`) |
+
+With persistence off, a very large line shrinks the in-memory window below 50,000 records instead of exhausting RAM. With persistence on, \`logs\` pages read session files when the byte budget has evicted records, so the last \`logs.max_memory_events\` lines stay reachable. A full disk, a session over its byte cap, or free space under 1 GiB and 5% stops persistence and counts the loss; the live window is kept. Health probes log when status changes, plus a periodic reminder while a service stays unhealthy.
+
+On Linux and macOS, long-running services write stdout and stderr to FIFOs held by a detached drainer. A daemon restart keeps reading those segments. Windows, and any host where FIFO setup fails, uses pipes. The not-yet-parsed spool is removed as it is consumed and is capped at \`logs.spool.max_bytes\`.
+
+\`devctl down --force\` stops a daemon that has no heartbeat, including one left running by an older devctl. A busy daemon is not killed. A daemon is replaced only after the watchdog has recorded a 60 second wedge and released its lock. \`status\` and \`down\` say when a live daemon is busy, paused, or left by an older build.
+
 ## Related
 
 - [TUI](tui.md)
@@ -4274,7 +4295,8 @@ trace, and read the responsible service's span and logs — all redacted.
 | TUI says **Configuration error** but \`devctl config validate\` is clean | The supervisor failed to start (often \`EADDRINUSE\`). The TUI now shows **Supervisor failed to start** with the bootstrap-log line. \`devctl daemon logs\` has the same text |
 | Supervisor will not start | \`devctl daemon logs\` or TUI \`/daemon\` is the bootstrap stderr, not the service log bus. \`unable to listen … (EADDRINUSE)\` means a leftover already holds that port — Doctor names the holder |
 | TUI stale / not updating | TUI follows the event bus (20–50ms batch). Quit and let a new supervisor start if an old one is still listening |
-| \`status\` or \`logs_page timed out after 30000ms\` after sleep, and restart or quit hangs | Common after a Windows sleep while devctl runs in WSL or a VS Code dev container. Quit returns without waiting on the dead connection. Start again: an unresponsive supervisor is replaced and services that are still listening are adopted |
+| \`status\` or \`logs_page timed out after 30000ms\` after sleep, and restart or quit hangs | A daemon that is still making progress (heartbeat worker ticking, RPC younger than 60s) is left alone. Quit returns without waiting on the dead connection. A daemon with no heartbeat — one left running by an older devctl — is not replaced automatically; stop it with \`devctl down --force\`, then start again. A proven 60s wedge is replaced and services that are still listening are adopted |
+| Dev container fills disk or the daemon freezes under a log flood | Logs are queued, then spilled to a 1 GiB spool, then the service is paused instead of killed. Persistence stops if the disk is full; the live window stays. Health lines are recorded on state changes, not every probe. See [Logs](logs.md#resource-limits) |
 | Reload needs a restart | \`devctl reload\` and \`/reload\` list services whose command, env, ports, or identity changed |
 | Configuration invalid | \`devctl config validate\` — unknown fields, cycles, and missing refs fail closed. TUI \`v\` / \`/buffer\` validates before write |
 | Config on disk is broken but the TUI still opens fine | Expected: it attached to an already-running daemon and is showing its \`config_snapshot\` (last-known-good), not a fresh reparse of the broken file. Fix the file and \`/reload\` |

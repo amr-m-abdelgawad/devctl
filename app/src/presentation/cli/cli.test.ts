@@ -162,6 +162,12 @@ services:
       // way a full `down` leaves it) — that's what makes it adoptable.
       expect(afterDown?.processes.find((p) => p.name === "api")?.pid).toBe(pid);
       expect(processAlive(pid)).toBe(true);
+
+      const again = await run(["--config", configFile(dir), "start", "api"]);
+      expect(again).not.toContain("blocked");
+      const adopted = readPersistedState(dir);
+      expect(adopted?.processes.find((p) => p.name === "api")?.pid).toBe(pid);
+      expect(processAlive(pid)).toBe(true);
     } finally {
       await stopSpawned(dir, originalArgv1);
       // The lock is gone after `down`, so stopSpawned can't find what's
@@ -176,7 +182,7 @@ services:
         }
       }
     }
-  }, 20_000);
+  }, 30_000);
 });
 
 describe("devctl start --detach", () => {

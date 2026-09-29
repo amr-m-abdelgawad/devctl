@@ -82,8 +82,13 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { listSessions, loadSessionEvents } from "../storage/logs.ts";
-import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { listSessions, loadSessionTail } from "../storage/logs.ts";
+import { autoRingBytes } from "../../domain/logs/budgets.ts";
+import { nextMemoryGuard, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
+import { readHostLimits } from "../system/host-limits.ts";
+import { summarizeLlmCall } from "../../domain/llm/llm.ts";
+import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
+import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -117,6 +122,10 @@ export class Supervisor {
   private readonly mcp: McpCoordinator;
   private readonly web: WebCoordinator;
   private readonly resources: ResourceSampler;
+  private ringLimited = false;
+  /** False until recovery has read state.json. Earlier writes must not erase leftover processes. */
+  private processesLoaded = false;
+  private memoryGuard: MemoryPressure = "ok";
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
@@ -195,8 +204,8 @@ export class Supervisor {
     this.detector = deps.detector;
     this.logs = deps.logs;
     this.spans = new SpanManager(undefined, this.detector);
-    this.llmStore = new LlmCallManager(this.detector);
-    this.trafficStore = new TrafficCallRing(this.detector);
+    this.llmStore = new LlmCallManager(this.detector, 0, cfg.llm.store_max_bytes);
+    this.trafficStore = new TrafficCallRing(this.detector, 0, cfg.proxy.inspect_store_max_bytes);
     this.llmFactory = llmSourceFactory([]);
     this.llmCapture = new ProxyCaptureSink({
       cfg: () => this.cfg,
@@ -359,7 +368,10 @@ export class Supervisor {
       get serviceSeries() {
         return self.resources.serviceSeries();
       },
-      logs: { snapshot: () => self.logs.snapshot() },
+      logs: {
+        snapshot: () => self.logs.snapshot(),
+        pipelineStats: () => self.logs.pipelineStats?.() ?? self.logs.snapshot().pipeline,
+      },
       tokens: { storeBackend: () => self.tokens.storeBackend() },
       traceDurationMs: (traceId) => self.spans.envelopeMs(traceId),
     };
@@ -432,7 +444,11 @@ export class Supervisor {
       get serviceStartedEnv() { return self.serviceStartedEnv; },
       get orchestrator() { return self.orchestrator; },
       get procs() { return self.procs; },
-      logs: { append: (event) => self.logs.append(event) },
+      logs: {
+        append: (event) => self.logs.append(event),
+        ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
+        ingestPaused: () => self.logs.ingestPaused?.() === true,
+      },
       get clock() { return self.clock; },
       get tokens() { return self.tokens; },
       get registry() { return self.registry; },
@@ -476,6 +492,7 @@ export class Supervisor {
     // Resolve the developer email before anything reads environment YAML, so
     // ${identity.user} matches the address the identity screen will show.
     await this.refreshIdentity();
+    this.processesLoaded = true;
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());
@@ -502,7 +519,7 @@ export class Supervisor {
     const rec = isRecord(params) ? params : {};
     switch (method) {
       case "ping":
-        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION };
+        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION, features: ["log_batch.v1"] };
       case "start":
         return this.commands.startService.execute({
           services: asStringArray(rec.services),
@@ -558,6 +575,7 @@ export class Supervisor {
           ...asLlmCallFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+          summary: rec.summary === true,
         });
       case "get_llm_call":
         return this.queryLlmCall(typeof rec.id === "string" ? rec.id : "");
@@ -566,6 +584,7 @@ export class Supervisor {
           ...asTrafficCallFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+          summary: rec.summary === true,
         });
       case "get_traffic_call":
         return this.queryTrafficCall(typeof rec.id === "string" ? rec.id : "");
@@ -717,7 +736,11 @@ export class Supervisor {
         },
       },
       resolveHealthConfig: (name, health, assigned) => resolveHealthConfig(health, self.cfg, name, assigned, self.ports),
-      logs: { append: (event) => self.logs.append(event) },
+      logs: {
+        append: (event) => self.logs.append(event),
+        ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
+        ingestPaused: () => self.logs.ingestPaused?.() === true,
+      },
       bus: self.bus,
       processMeta: self.processMeta,
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot, self.cfg.instance.name)}-`; },
@@ -971,6 +994,8 @@ export class Supervisor {
     this.persistState();
     if (stopServices) {
       await this.stop([]);
+    } else {
+      this.procs.handoff();
     }
     this.orchestrator.health.dispose();
     this.recipes.stop();
@@ -1038,7 +1063,11 @@ export class Supervisor {
   }
 
   queryLlmCallsPage(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage {
-    return this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    if (req.summary !== true) {
+      return page;
+    }
+    return { ...page, calls: page.calls.map((call) => summarizeLlmCall(call)) };
   }
 
   queryLlmCall(id: string): LlmCall | undefined {
@@ -1046,7 +1075,57 @@ export class Supervisor {
   }
 
   queryTrafficCallsPage(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage {
-    return this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    if (req.summary !== true) {
+      return page;
+    }
+    return { ...page, calls: page.calls.map((call) => summarizeTrafficCall(call)) };
+  }
+
+  recordCrash(message: string): void {
+    this.logs.append({
+      timestamp: this.clock.isoNow(),
+      service: "devctl",
+      source: "devctl",
+      level: "ERROR",
+      message,
+      pid: process.pid,
+    });
+  }
+
+  async flushLogs(): Promise<void> {
+    await this.logs.flush?.();
+  }
+
+  servicePids(): number[] {
+    return this.procs.all().map((handle) => handle.pid).filter((pid) => pid > 0);
+  }
+
+  applyMemoryPressure(rssBytes: number, limitBytes: number): void {
+    const ratio = limitBytes > 0 ? rssBytes / limitBytes : 0;
+    const pressure = nextMemoryGuard(this.memoryGuard, ratio);
+    this.memoryGuard = pressure;
+    const shrinkFloorBytes = 8 * 1024 * 1024;
+    const full = this.cfg.logs.max_memory_bytes > 0
+      ? this.cfg.logs.max_memory_bytes
+      : autoRingBytes(readHostLimits(this.cfg.repoRoot).memoryBytes);
+    if (pressure === "ok") {
+      if (this.ringLimited) {
+        this.logs.setMemoryBudget?.(full);
+        this.ringLimited = false;
+      }
+      this.logs.setIngestShed?.(false);
+      return;
+    }
+    if (!this.ringLimited) {
+      this.logs.setMemoryBudget?.(Math.max(shrinkFloorBytes, Math.floor(full / 2)));
+      this.ringLimited = true;
+    }
+    this.logs.setIngestShed?.(pressure === "shed");
+    if (pressure === "shed") {
+      this.llmStore.shedBodies?.();
+      this.trafficStore.shedBodies?.();
+    }
   }
 
   queryTrafficCall(id: string): TrafficCall | undefined {
@@ -1062,7 +1141,7 @@ export class Supervisor {
     if (!id.startsWith("session-") || id.includes("/") || id.includes("\\") || id.includes("..")) {
       return [];
     }
-    return loadSessionEvents(id, this.logSessionsRoot());
+    return loadSessionTail(id, this.logSessionsRoot());
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {
@@ -1202,19 +1281,28 @@ export class Supervisor {
         env: this.serviceStartedEnv.get(handle.name) ?? this.serviceEnv.get(handle.name),
       });
     }
-    const service_environments: Record<string, string> = {};
+    const prior = this.processesLoaded ? undefined : readPersistedState(this.cfg.repoRoot);
+    const names = new Set(processes.map((proc) => proc.name));
+    for (const rec of prior?.processes ?? []) {
+      if (!names.has(rec.name) && rec.pid > 0 && this.processAliveFn(rec.pid)) {
+        processes.push(rec);
+      }
+    }
+    const service_environments: Record<string, string> = { ...(prior?.service_environments ?? {}) };
     for (const [name, envName] of this.serviceEnv) {
       if (envName !== "") {
         service_environments[name] = envName;
       }
     }
+    const profile = this.profile !== "" ? this.profile : (prior?.profile ?? "");
+    const configOverlay = this.configOverlay ?? prior?.config_overlay;
     writePersistedState(this.cfg.repoRoot, {
       session_id: this.sessionID,
       repo_root: this.cfg.repoRoot,
-      profile: this.profile,
+      profile,
       processes,
       service_environments,
-      config_overlay: this.configOverlay,
+      config_overlay: configOverlay,
     });
   }
 

@@ -16,6 +16,7 @@ import { openCredentialStore } from "../storage/credentials.ts";
 import { resolveUserPath } from "../storage/storage.ts";
 import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
+import { readPid1 } from "../system/host-limits.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
 export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
 
@@ -159,6 +160,16 @@ export async function runDoctor(
         });
       }
     }
+  }
+  const pid1 = readPid1();
+  if (pid1.nonReaping) {
+    checking("container init");
+    add({
+      name: "container init",
+      severity: "warn",
+      message: `PID 1 is ${pid1.command || "not a reaping init"}`,
+      hint: 'set "init": true on the dev container (or compose init: true, or docker run --init) so exited processes are reaped',
+    });
   }
   if (cfg.plugins.length > 0) {
     checking("Config plugins");

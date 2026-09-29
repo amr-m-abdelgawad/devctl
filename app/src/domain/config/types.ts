@@ -461,6 +461,8 @@ export type ProxyConfig = {
   // Default body cap for inspect-enabled routes whose inspect.max_bytes is 0.
   // 0 means the 1 MiB product default. A route that sets max_bytes > 0 wins.
   inspect_max_bytes: number;
+  /** Byte budget for retained inspect bodies. 0 uses 128 MiB. Metadata stays. */
+  inspect_store_max_bytes: number;
   // When true, every HTTP-capable service (one with a port named "http") is
   // exposed through the proxy as if it declared `expose: true`, unless a
   // hand-written route already claims its name. Sugar over per-service
@@ -477,15 +479,26 @@ export type ProxyConfig = {
   routes: RouteConfig[];
 };
 
+export type SpoolConfig = {
+  max_bytes: number;
+};
+
 export type PersistenceConfig = {
   enabled: boolean;
   directory: string;
   retention_days: number;
   max_session_logs: number;
+  /** 0 uses the 1 GiB default. Counted per session. */
+  max_session_bytes: number;
+  /** 0 uses the 2 GiB default across closed sessions. */
+  max_total_bytes: number;
 };
 
 export type LogConfig = {
   max_memory_events: number;
+  /** 0 selects a byte budget from host memory (96–384 MiB). */
+  max_memory_bytes: number;
+  spool: SpoolConfig;
   persistence: PersistenceConfig;
 };
 
@@ -702,10 +715,17 @@ export type LlmSourceConfig = {
   cost_per_token?: LlmCostPerTokenConfig;
 };
 
+export type SupervisorConfig = {
+  /** When true, reap zombies parented by the daemon that are not service leaders. Off by default. */
+  reap_orphans: boolean;
+};
+
 export type LlmConfig = {
   enabled: boolean;
   // Default body cap for sources whose capture.max_bytes is 0. 0 means 1 MiB.
   capture_max_bytes: number;
+  /** Byte budget for retained LLM bodies. 0 uses 128 MiB. Metadata for 2,000 calls stays. */
+  store_max_bytes: number;
   sources: LlmSourceConfig[];
 };
 
@@ -761,7 +781,7 @@ export function emptyLlmSource(): LlmSourceConfig {
 }
 
 export function emptyLlm(): LlmConfig {
-  return { enabled: false, capture_max_bytes: 0, sources: [] };
+  return { enabled: false, capture_max_bytes: 0, store_max_bytes: 0, sources: [] };
 }
 
 export function llmAuthHeader(auth: LlmAuthConfig): string {
@@ -808,6 +828,7 @@ export type DevctlConfig = {
   plugins: PluginConfig[];
   environment: ProjectEnvironmentConfig;
   llm: LlmConfig;
+  supervisor: SupervisorConfig;
   provenance: ConfigProvenance;
   repoRoot: string;
   configPath: string;
@@ -889,6 +910,7 @@ export function defaultConfig(): DevctlConfig {
     proxy: {
       enabled: false,
       inspect_max_bytes: 0,
+      inspect_store_max_bytes: 0,
       gateway: false,
       credentials: "",
       listen: { host: LOCALHOST, port: 0 },
@@ -897,11 +919,15 @@ export function defaultConfig(): DevctlConfig {
     },
     logs: {
       max_memory_events: DEFAULT_MAX_MEMORY_EVENTS,
+      max_memory_bytes: 0,
+      spool: { max_bytes: 0 },
       persistence: {
         enabled: true,
         directory: "~/.devctl/logs",
         retention_days: DEFAULT_RETENTION_DAYS,
         max_session_logs: 0,
+        max_session_bytes: 0,
+        max_total_bytes: 0,
       },
     },
     telemetry: {
@@ -922,6 +948,7 @@ export function defaultConfig(): DevctlConfig {
     plugins: [],
     environment: { sources: [], secrets: {}, sops: emptySops() },
     llm: emptyLlm(),
+    supervisor: { reap_orphans: false },
     provenance: {},
     repoRoot: "",
     configPath: "",

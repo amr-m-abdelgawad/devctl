@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Log ingest yields between reads, coalesces output, and spills to a capped on-disk spool so a fast service cannot freeze or OOM the daemon. The live window stays the last `logs.max_memory_events` records. Session files, the not-yet-parsed spool, and the logs directory are capped (`logs.persistence.max_session_bytes`, `logs.spool.max_bytes`, `logs.persistence.max_total_bytes`).
+- POSIX services keep stdout and stderr across a daemon restart by writing FIFOs that a detached drainer holds open. Windows uses pipes.
+- The daemon sheds capture bodies and shrinks the log ring when its own memory use crosses 90% and 75% of the cgroup limit. `status` includes event-loop lag and log pipeline counters.
+- `devctl down --force` stops a daemon that has no heartbeat, including one still running after an upgrade. A daemon that is making progress is not replaced.
+- `supervisor.reap_orphans` (off by default) asks Linux to reap zombies parented by the daemon. `devctl doctor` warns when PID 1 does not reap.
+- The log worker and the event-loop watchdog ship in the npm package and as compiled entrypoints.
+
+### Changed
+
+- `logs.persistence.max_session_logs` counts sessions for the current repository. One checkout no longer deletes another checkout's sessions in a shared logs directory.
+- Health checks record a log line when status changes, and remind while a service stays unhealthy, instead of once per probe.
+- LLM and proxy capture keep metadata for 2,000 calls and evict bodies past `llm.store_max_bytes` and `proxy.inspect_store_max_bytes` (128 MiB when unset).
+- With persistence disabled, very large lines shrink the in-memory window below 50,000 records instead of exhausting RAM.
+- The watchdog replaces a daemon only after a proven 60 second wedge. It writes a wedge marker and releases the lock first. Clients wait while a daemon is busy or stopped (`SIGSTOP`). `status` and `down` explain a live daemon that does not answer, including one left by an older devctl.
+- `llm_calls_page` and `traffic_calls_page` accept `summary: true` to list rows without bodies. The default response is unchanged.
+- After the stop grace period, devctl SIGKILLs process-group members that are still alive. A zombie is not treated as running.
+
 ## [0.25.0] - 2026-09-28
 
 ### Changed

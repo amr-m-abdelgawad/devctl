@@ -176,6 +176,12 @@ export function applyRoot(
     if (raw.logs.max_memory_events !== undefined) {
       cfg.logs.max_memory_events = asNumber(raw.logs.max_memory_events);
     }
+    if (raw.logs.max_memory_bytes !== undefined) {
+      cfg.logs.max_memory_bytes = asNumber(raw.logs.max_memory_bytes);
+    }
+    if (isRecord(raw.logs.spool) && raw.logs.spool.max_bytes !== undefined) {
+      cfg.logs.spool.max_bytes = asNumber(raw.logs.spool.max_bytes);
+    }
     if (isRecord(raw.logs.persistence)) {
       const persistence = raw.logs.persistence;
       if (persistence.enabled !== undefined) {
@@ -189,6 +195,12 @@ export function applyRoot(
       }
       if (persistence.max_session_logs !== undefined) {
         cfg.logs.persistence.max_session_logs = asNumber(persistence.max_session_logs);
+      }
+      if (persistence.max_session_bytes !== undefined) {
+        cfg.logs.persistence.max_session_bytes = asNumber(persistence.max_session_bytes);
+      }
+      if (persistence.max_total_bytes !== undefined) {
+        cfg.logs.persistence.max_total_bytes = asNumber(persistence.max_total_bytes);
       }
     }
   }
@@ -251,6 +263,9 @@ export function applyRoot(
   if (isRecord(raw.llm)) {
     applyLlm(cfg.llm, raw.llm);
   }
+  if (isRecord(raw.supervisor) && raw.supervisor.reap_orphans !== undefined) {
+    cfg.supervisor.reap_orphans = asBoolean(raw.supervisor.reap_orphans);
+  }
 }
 
 function applySops(sops: SopsConfig, raw: Record<string, unknown>): void {
@@ -303,6 +318,9 @@ export function applyLlm(llm: LlmConfig, raw: Record<string, unknown>): void {
   }
   if (raw.capture_max_bytes !== undefined) {
     llm.capture_max_bytes = decodeStrictNumber(raw.capture_max_bytes);
+  }
+  if (raw.store_max_bytes !== undefined) {
+    llm.store_max_bytes = decodeStrictNumber(raw.store_max_bytes);
   }
   if (!Array.isArray(raw.sources)) {
     return;
@@ -390,6 +408,9 @@ export function applyProxy(proxy: ProxyConfig, raw: Record<string, unknown>): vo
   }
   if (raw.inspect_max_bytes !== undefined) {
     proxy.inspect_max_bytes = decodeStrictNumber(raw.inspect_max_bytes);
+  }
+  if (raw.inspect_store_max_bytes !== undefined) {
+    proxy.inspect_store_max_bytes = decodeStrictNumber(raw.inspect_store_max_bytes);
   }
   if (raw.gateway !== undefined) {
     proxy.gateway = asBoolean(raw.gateway);
