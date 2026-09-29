@@ -136,6 +136,10 @@ export class LlmCallManager implements LlmCallStore {
     return [...this.errors.values()];
   }
 
+  shedBodies(): void {
+    this.markEvicted(this.bodies.shedAll());
+  }
+
   close(): void {
     this.items = [];
     this.byId.clear();

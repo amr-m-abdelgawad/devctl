@@ -107,6 +107,18 @@ export class TrafficCallRing implements TrafficCallStore {
     return this.byId.get(id);
   }
 
+  shedBodies(): void {
+    for (const id of this.bodies.shedAll()) {
+      const call = this.byId.get(id);
+      if (call?.request) {
+        call.request = { ...call.request, text: undefined, omitted: true };
+      }
+      if (call?.response) {
+        call.response = { ...call.response, text: undefined, omitted: true };
+      }
+    }
+  }
+
   close(): void {
     this.items = [];
     this.byId.clear();

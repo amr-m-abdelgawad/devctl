@@ -118,7 +118,45 @@ export function readStamp(pid: number): ProcessStamp {
       // bind-mounted namespaces may be unreadable; callers fall back to a socket probe
     }
   }
+  if (process.platform === "darwin") {
+    stamp.bootId = darwinBootTime();
+    stamp.lstart = foreignStart(pid, ["ps", "-o", "lstart=", "-p", String(pid)]);
+  }
+  if (process.platform === "win32") {
+    stamp.lstart = foreignStart(pid, ["powershell.exe", "-NoProfile", "-Command", `(Get-Process -Id ${pid} -ErrorAction SilentlyContinue).StartTime.ToFileTimeUtc()`]);
+  }
   return stamp;
+}
+
+let cachedDarwinBoot: string | undefined;
+
+function darwinBootTime(): string | undefined {
+  if (cachedDarwinBoot !== undefined) {
+    return cachedDarwinBoot;
+  }
+  cachedDarwinBoot = commandText(["sysctl", "-n", "kern.boottime"]);
+  return cachedDarwinBoot;
+}
+
+function foreignStart(pid: number, cmd: string[]): string | undefined {
+  if (pid <= 0) {
+    return undefined;
+  }
+  return commandText(cmd);
+}
+
+function commandText(cmd: string[]): string | undefined {
+  const bin = cmd[0];
+  if (bin === undefined) {
+    return undefined;
+  }
+  try {
+    const result = spawnSync(bin, cmd.slice(1), { encoding: "utf8", timeout: 1_000 });
+    const text = result.stdout?.trim();
+    return text === "" || text === undefined ? undefined : text;
+  } catch {
+    return undefined;
+  }
 }
 
 export function sameStamp(held: ProcessStamp, observed: ProcessStamp): boolean {

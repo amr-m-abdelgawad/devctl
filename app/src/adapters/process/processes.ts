@@ -7,7 +7,12 @@ import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResource
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./windows.ts";
 import { processAlive } from "../storage/storage.ts";
 import { groupHasLiveMembers } from "./liveness.ts";
-import { pumpLines, type LineHandler, type StreamName } from "./output-pump.ts";
+import { closeSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { pumpChunks, pumpLines, type ChunkHandler, type LineHandler, type StreamName } from "./output-pump.ts";
+import { LineSplitter } from "../storage/ingest/line-splitter.ts";
+import { openServiceStdio, resumeServiceStdio } from "./fifo-stdio.ts";
+import { forgetManagedPid, rememberManagedPid } from "./peer-caller.ts";
 import { adoptContainer, startContainer, containerEnvironment, type ContainerControl, type ContainerLaunchSpec } from "../containers/containers.ts";
 
 const DEFAULT_GRACE_MS = 10_000;
@@ -37,6 +42,8 @@ export type ProcessSpec = {
   captureStdout?: boolean;
   captureStderr?: boolean;
   onLine?: LineHandler;
+  /** Raw stdout/stderr. Returning false keeps the chunk until the pipeline has room. */
+  onChunk?: ChunkHandler;
   /** When true, the pump stops reading so a full spool can apply backpressure. */
   paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
@@ -48,6 +55,8 @@ export type AdoptSpec = {
   args: string[];
   workDir: string;
   startTime: Date;
+  onChunk?: ChunkHandler;
+  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 
@@ -63,6 +72,8 @@ export type Handle = {
 };
 
 export class ProcessManager implements ProcessRuntime {
+  constructor(private readonly options: { stdioRoot?: string } = {}) {}
+
   isRunning(name: string): boolean {
     const handle = this.running.get(name);
     return handle !== undefined && handleStillRunning(handle);
@@ -80,25 +91,22 @@ export class ProcessManager implements ProcessRuntime {
       throw newError(KindProcessStart, "empty command");
     }
     const cmd = spec.shell ? shellCommand(spec.args) : spec.args;
+    const stdio = this.options.stdioRoot === undefined ? undefined : openServiceStdio(this.options.stdioRoot, spec.name);
     let proc: Subprocess;
+    let usingFifo = stdio !== undefined;
     try {
-      proc = spawn({
-        cmd,
-        cwd: spec.workDir === "" ? undefined : spec.workDir,
-        env: spec.env,
-        stdout: spec.captureStdout === false ? "ignore" : "pipe",
-        stderr: spec.captureStderr === false ? "ignore" : "pipe",
-        stdin: "ignore",
-        // Services outlive the supervisor (`down --keep-services`, daemon
-        // replacement). POSIX: setsid, so stop signals the group. Windows:
-        // outside the job object that kills children when the parent exits;
-        // windowsHide keeps console windows from opening for the service or
-        // console programs it starts. Stop uses `taskkill /T` there.
-        detached: true,
-        windowsHide: true,
-      });
+      proc = spawnService(spec, cmd, usingFifo ? stdio : undefined);
     } catch (err) {
-      throw wrapError(KindProcessStart, `failed to start ${spec.name}`, err);
+      stdio?.releaseParentEnds();
+      if (!usingFifo) {
+        throw wrapError(KindProcessStart, `failed to start ${spec.name}`, err);
+      }
+      usingFifo = false;
+      try {
+        proc = spawnService(spec, cmd, undefined);
+      } catch (fallback) {
+        throw wrapError(KindProcessStart, `failed to start ${spec.name}`, fallback);
+      }
     }
     const handle: Handle = {
       name: spec.name,
@@ -109,12 +117,31 @@ export class ProcessManager implements ProcessRuntime {
       proc,
       done: Promise.resolve({ code: 0 }),
     };
-    const livePump = { paused: spec.paused, maxLineBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS };
-    void pumpLines(proc.stdout, "stdout", spec.onLine, livePump);
-    void pumpLines(proc.stderr, "stderr", spec.onLine, livePump);
+    rememberManagedPid(handle.pid);
+    let followStop = false;
+    if (usingFifo && stdio) {
+      closeQuiet(stdio.stdoutFd);
+      closeQuiet(stdio.stderrFd);
+      stdio.releaseParentEnds();
+      const deliver = chunkDeliver(spec);
+      void stdio.follow(deliver, spec.paused, () => followStop);
+    } else {
+      const livePump = { paused: spec.paused, maxLineBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS };
+      if (spec.onChunk) {
+        void pumpChunks(proc.stdout, "stdout", spec.onChunk, livePump);
+        void pumpChunks(proc.stderr, "stderr", spec.onChunk, livePump);
+      } else {
+        void pumpLines(proc.stdout, "stdout", spec.onLine, livePump);
+        void pumpLines(proc.stderr, "stderr", spec.onLine, livePump);
+      }
+    }
     handle.done = proc.exited.then((code) => {
       const exitCode = typeof code === "number" ? code : 0;
       const err = exitCode === 0 ? undefined : new Error(`exited with code ${exitCode}`);
+      forgetManagedPid(handle.pid);
+      setTimeout(() => {
+        followStop = true;
+      }, RUN_ONCE_DRAIN_GRACE_MS);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -186,12 +213,26 @@ export class ProcessManager implements ProcessRuntime {
   async adoptContainer(spec: Omit<ContainerLaunchSpec, "image" | "command" | "env" | "ports" | "targetPorts" | "volumes">): Promise<Handle | undefined> {
     const existing = this.running.get(spec.name);
     if (existing && handleStillRunning(existing)) return existing;
-    const control = await adoptContainer(spec.runtime, spec.containerName, spec.onLine, spec.onExit);
+    const control = await adoptContainer(spec.runtime, spec.containerName, spec.onLine, spec.onExit, spec.onChunk, spec.paused);
     if (!control) return undefined;
     const handle: Handle = { name: spec.name, pid: 0, startTime: new Date(), workDir: spec.workDir, args: [], done: control.done, container: control };
     control.done.finally(() => { if (this.running.get(spec.name) === handle) this.running.delete(spec.name); });
     this.running.set(spec.name, handle);
     return handle;
+  }
+
+  /** Marks a keep-services shutdown so the next daemon keeps reading the FIFOs. */
+  handoff(): void {
+    const root = this.options.stdioRoot;
+    if (root === undefined) {
+      return;
+    }
+    try {
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      writeFileSync(join(root, "_drain"), `${Date.now()}\n`, { mode: 0o600 });
+    } catch {
+      // the detached drainer already holds the read end
+    }
   }
 
   adopt(spec: AdoptSpec): Handle {
@@ -210,7 +251,20 @@ export class ProcessManager implements ProcessRuntime {
       args: [...spec.args],
       done: Promise.resolve({ code: 0 }),
     };
+    rememberManagedPid(spec.pid);
+    let followStop = false;
+    const onChunk = spec.onChunk;
+    const resumed = this.options.stdioRoot === undefined || onChunk === undefined
+      ? undefined
+      : resumeServiceStdio(this.options.stdioRoot, spec.name);
+    if (resumed && onChunk) {
+      void resumed.follow(onChunk, spec.paused, () => followStop);
+    }
     handle.done = pollAdopted(spec.pid).then((code) => {
+      forgetManagedPid(spec.pid);
+      setTimeout(() => {
+        followStop = true;
+      }, RUN_ONCE_DRAIN_GRACE_MS);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -351,6 +405,19 @@ function timeMs(value: Date | string | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function spawnService(spec: ProcessSpec, cmd: string[], stdio: { stdoutFd: number; stderrFd: number } | undefined): Subprocess {
+  return spawn({
+    cmd,
+    cwd: spec.workDir === "" ? undefined : spec.workDir,
+    env: spec.env,
+    stdout: spec.captureStdout === false ? "ignore" : stdio?.stdoutFd ?? "pipe",
+    stderr: spec.captureStderr === false ? "ignore" : stdio?.stderrFd ?? "pipe",
+    stdin: "ignore",
+    detached: true,
+    windowsHide: true,
+  });
+}
+
 function shellCommand(args: string[]): string[] {
   if (process.platform === "win32") {
     return ["cmd.exe", "/c", args.join(" ")];
@@ -390,4 +457,27 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function closeQuiet(fd: number): void {
+  try {
+    closeSync(fd);
+  } catch {
+    // already closed
+  }
+}
+
+function chunkDeliver(spec: ProcessSpec): ChunkHandler {
+  const stdout = new LineSplitter({ maxBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS });
+  const stderr = new LineSplitter({ maxBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS });
+  return (stream, bytes) => {
+    if (spec.onChunk) {
+      return spec.onChunk(stream, bytes);
+    }
+    const splitter = stream === "stdout" ? stdout : stderr;
+    for (const line of splitter.push(bytes)) {
+      spec.onLine?.(stream, line);
+    }
+    return true;
+  };
 }

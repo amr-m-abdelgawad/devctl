@@ -17,4 +17,10 @@ export type LogStore = {
   close(): Promise<void>;
   /** True when the pipeline cannot accept more bytes until the spool drains. */
   ingestPaused?(): boolean;
+  /** Raw service output. False means the caller must retry this chunk. */
+  ingestChunk?(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array }): boolean;
+  flush?(): Promise<void>;
+  setMemoryBudget?(bytes: number): void;
+  setIngestShed?(shed: boolean): void;
+  pipelineStats?(): LogSnapshot["pipeline"];
 };

@@ -82,7 +82,11 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { listSessions, loadSessionEvents } from "../storage/logs.ts";
+import { listSessions, loadSessionTail } from "../storage/logs.ts";
+import { autoRingBytes } from "../../domain/logs/budgets.ts";
+import { readHostLimits } from "../system/host-limits.ts";
+import { summarizeLlmCall } from "../../domain/llm/llm.ts";
+import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
 import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
@@ -117,6 +121,7 @@ export class Supervisor {
   private readonly mcp: McpCoordinator;
   private readonly web: WebCoordinator;
   private readonly resources: ResourceSampler;
+  private ringLimited = false;
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
@@ -558,6 +563,7 @@ export class Supervisor {
           ...asLlmCallFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+          summary: rec.summary === true,
         });
       case "get_llm_call":
         return this.queryLlmCall(typeof rec.id === "string" ? rec.id : "");
@@ -566,6 +572,7 @@ export class Supervisor {
           ...asTrafficCallFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+          summary: rec.summary === true,
         });
       case "get_traffic_call":
         return this.queryTrafficCall(typeof rec.id === "string" ? rec.id : "");
@@ -971,6 +978,8 @@ export class Supervisor {
     this.persistState();
     if (stopServices) {
       await this.stop([]);
+    } else {
+      this.procs.handoff();
     }
     this.orchestrator.health.dispose();
     this.recipes.stop();
@@ -1038,7 +1047,11 @@ export class Supervisor {
   }
 
   queryLlmCallsPage(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage {
-    return this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    if (req.summary !== true) {
+      return page;
+    }
+    return { ...page, calls: page.calls.map((call) => summarizeLlmCall(call)) };
   }
 
   queryLlmCall(id: string): LlmCall | undefined {
@@ -1046,7 +1059,54 @@ export class Supervisor {
   }
 
   queryTrafficCallsPage(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage {
-    return this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    if (req.summary !== true) {
+      return page;
+    }
+    return { ...page, calls: page.calls.map((call) => summarizeTrafficCall(call)) };
+  }
+
+  recordCrash(message: string): void {
+    this.logs.append({
+      timestamp: this.clock.isoNow(),
+      service: "devctl",
+      source: "devctl",
+      level: "ERROR",
+      message,
+      pid: process.pid,
+    });
+  }
+
+  async flushLogs(): Promise<void> {
+    await this.logs.flush?.();
+  }
+
+  servicePids(): number[] {
+    return this.procs.all().map((handle) => handle.pid).filter((pid) => pid > 0);
+  }
+
+  applyMemoryPressure(pressure: "ok" | "shrink" | "shed"): void {
+    const shrinkFloorBytes = 8 * 1024 * 1024;
+    const full = this.cfg.logs.max_memory_bytes > 0
+      ? this.cfg.logs.max_memory_bytes
+      : autoRingBytes(readHostLimits(this.cfg.repoRoot).memoryBytes);
+    if (pressure === "ok") {
+      if (this.ringLimited) {
+        this.logs.setMemoryBudget?.(full);
+        this.ringLimited = false;
+      }
+      this.logs.setIngestShed?.(false);
+      return;
+    }
+    if (!this.ringLimited) {
+      this.logs.setMemoryBudget?.(Math.max(shrinkFloorBytes, Math.floor(full / 2)));
+      this.ringLimited = true;
+    }
+    if (pressure === "shed") {
+      this.logs.setIngestShed?.(true);
+      this.llmStore.shedBodies?.();
+      this.trafficStore.shedBodies?.();
+    }
   }
 
   queryTrafficCall(id: string): TrafficCall | undefined {
@@ -1062,7 +1122,7 @@ export class Supervisor {
     if (!id.startsWith("session-") || id.includes("/") || id.includes("\\") || id.includes("..")) {
       return [];
     }
-    return loadSessionEvents(id, this.logSessionsRoot());
+    return loadSessionTail(id, this.logSessionsRoot());
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {

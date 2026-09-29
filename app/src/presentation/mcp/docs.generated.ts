@@ -2285,9 +2285,11 @@ Every buffer has a byte budget. Overflow is queued, then written to an ordered s
 | \`llm.store_max_bytes\` / \`proxy.inspect_store_max_bytes\` | \`0\` — 128 MiB of captured bodies. Metadata for the newest 2,000 calls stays; a missing body is marked evicted |
 | \`supervisor.reap_orphans\` | \`false\`. Prefer a reaping PID 1 (\`"init": true\`) |
 
-With persistence off, a very large line shrinks the in-memory window below 50,000 records instead of exhausting RAM. A full disk stops persistence and counts the loss; the live window is kept. Health probes log when status changes, plus a periodic reminder while a service stays unhealthy.
+With persistence off, a very large line shrinks the in-memory window below 50,000 records instead of exhausting RAM. With persistence on, \`logs\` pages read session files when the byte budget has evicted records, so the last \`logs.max_memory_events\` lines stay reachable. A full disk, a session over its byte cap, or free space under 1 GiB and 5% stops persistence and counts the loss; the live window is kept. Health probes log when status changes, plus a periodic reminder while a service stays unhealthy.
 
-\`devctl down --force\` stops a daemon that has no heartbeat, including one left running by an older devctl. A busy daemon is not killed.
+On Linux and macOS, long-running services write stdout and stderr to FIFOs held by a detached drainer. A daemon restart keeps reading those segments. Windows, and any host where FIFO setup fails, uses pipes. The not-yet-parsed spool is removed as it is consumed and is capped at \`logs.spool.max_bytes\`.
+
+\`devctl down --force\` stops a daemon that has no heartbeat, including one left running by an older devctl. A busy daemon is not killed. A daemon is replaced only after the watchdog has recorded a 60 second wedge and released its lock. \`status\` and \`down\` say when a live daemon is busy, paused, or left by an older build.
 
 ## Related
 

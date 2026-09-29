@@ -5,13 +5,15 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readSync,
   statSync,
   unlinkSync,
   type WriteStream,
 } from "node:fs";
 import { join } from "node:path";
-import { SPILL_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
+import { statfsSync } from "node:fs";
+import { DEFAULT_LOG_CAP_BYTES, diskReserveBytes, SPILL_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
 
 const SPOOL_READ_BYTES = 256 * 1024;
 
@@ -38,12 +40,25 @@ export class SessionLogWriter {
   private spoolRemainder = "";
   loss = 0;
   paused = false;
+  private sessionBytes = 0;
+  private diskOk = true;
+  private writesSinceDiskCheck = 0;
+  private readonly maxSessionBytes: number;
+  private readonly maxSpoolBytes: number;
 
   constructor(
     private readonly directory: string,
     private readonly pendingLimit = SPILL_TOTAL_BYTES,
+    caps?: { maxSessionBytes?: number; maxSpoolBytes?: number },
   ) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
+    this.maxSessionBytes = caps?.maxSessionBytes && caps.maxSessionBytes > 0 ? caps.maxSessionBytes : DEFAULT_LOG_CAP_BYTES;
+    this.maxSpoolBytes = caps?.maxSpoolBytes && caps.maxSpoolBytes > 0 ? caps.maxSpoolBytes : DEFAULT_LOG_CAP_BYTES;
+    this.sessionBytes = jsonlBytes(directory);
+  }
+
+  sessionByteCount(): number {
+    return this.sessionBytes;
   }
 
   pendingBytes(): number {
@@ -52,15 +67,23 @@ export class SessionLogWriter {
 
   write(key: string, line: string): void {
     const bytes = Buffer.byteLength(line);
+    if (this.paused || !this.roomFor(bytes)) {
+      this.loss += 1;
+      this.paused = true;
+      return;
+    }
     if (this.pending + bytes > this.pendingLimit) {
       if (!this.spill(key, line)) {
         this.loss += 1;
         this.paused = true;
+        return;
       }
+      this.sessionBytes += bytes;
       return;
     }
     this.queue.push({ key, line, bytes });
     this.pending += bytes;
+    this.sessionBytes += bytes;
     this.pump();
   }
 
@@ -91,9 +114,29 @@ export class SessionLogWriter {
     return this.queue.length === 0 && !this.blocked && !this.pumping && this.spoolPending() === 0;
   }
 
+  private roomFor(bytes: number): boolean {
+    if (this.sessionBytes + bytes > this.maxSessionBytes) {
+      return false;
+    }
+    return this.diskAllows();
+  }
+
+  private diskAllows(): boolean {
+    this.writesSinceDiskCheck += 1;
+    if (this.writesSinceDiskCheck % 64 !== 1 && this.diskOk) {
+      return this.diskOk;
+    }
+    this.diskOk = volumeHasReserve(this.directory);
+    return this.diskOk;
+  }
+
   private spill(key: string, line: string): boolean {
+    const row = `${JSON.stringify({ key, line })}\n`;
+    if (this.spoolPending() + Buffer.byteLength(row) > this.maxSpoolBytes) {
+      return false;
+    }
     try {
-      appendFileSync(this.spoolPath(), `${JSON.stringify({ key, line })}\n`, { mode: 0o600 });
+      appendFileSync(this.spoolPath(), row, { mode: 0o600 });
       return true;
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -236,6 +279,38 @@ export class SessionLogWriter {
 
   private spoolPath(): string {
     return join(this.directory, ".persist-spool");
+  }
+}
+
+function jsonlBytes(directory: string): number {
+  try {
+    let total = 0;
+    for (const name of readdirNames(directory)) {
+      if (name.endsWith(".jsonl") || name === ".persist-spool") {
+        total += statSync(join(directory, name)).size;
+      }
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
+function readdirNames(directory: string): string[] {
+  return readdirSync(directory);
+}
+
+function volumeHasReserve(directory: string): boolean {
+  if (process.platform === "win32") {
+    return true;
+  }
+  try {
+    const stats = statfsSync(directory);
+    const free = stats.bavail * stats.bsize;
+    const total = stats.blocks * stats.bsize;
+    return free > diskReserveBytes(total);
+  } catch {
+    return true;
   }
 }
 

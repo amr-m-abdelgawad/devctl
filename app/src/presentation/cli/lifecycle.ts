@@ -160,9 +160,12 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
   // dial, not a parsed config, so a deleted .devctl must not prevent it
   // from finding a still-live daemon (findDaemon's discovery-then-
   // state-scan fallback handles that).
-  const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
+  const { repoRoot, client, notice } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
   try {
     if (!client) {
+      if (notice) {
+        writeOut(`${notice}\n`);
+      }
       const persisted = runtime.readPersistedState(repoRoot);
       if (opts.json) {
         writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
@@ -245,14 +248,14 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
     .option("--keep-services", "stop only the daemon; its services keep running, detached")
     .option("--force", "stop a daemon that has no heartbeat, including one left running by an older devctl")
     .action(async (opts: { repo?: string; keepServices?: boolean; force?: boolean }) => {
-      const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
+      const { repoRoot, client, notice } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
       if (!client) {
         if (opts.force === true) {
           const stopped = runtime.forceStopDaemon(repoRoot);
           writeOut(stopped ? `stopped the supervisor for ${repoRoot}\n` : `no supervisor is running for ${repoRoot}\n`);
           return;
         }
-        writeOut(`no supervisor is running for ${repoRoot}\n`);
+        writeOut(notice ? `${notice}\n` : `no supervisor is running for ${repoRoot}\n`);
         return;
       }
       const timeout = await shutdownTimeoutFor(client);

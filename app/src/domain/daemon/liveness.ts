@@ -6,6 +6,8 @@
 export const WEDGE_STALL_TICKS = 60;
 export const BUSY_RPC_MAX_TICKS = 60;
 export const GRACEFUL_RPC_TICKS = 30;
+/** A heartbeat newer than this is still being written. Older means the worker is stopped too. */
+export const HEARTBEAT_FRESH_MS = 5_000;
 
 export type ProcessLiveness = "alive" | "zombie" | "dead";
 
@@ -62,6 +64,27 @@ export function decideLiveness(input: LivenessInput): LivenessAction {
 
 export function livenessActionKills(action: LivenessAction): boolean {
   return action === "replace-wedge" || action === "spawn";
+}
+
+/**
+ * The watchdog worker keeps rewriting the heartbeat while the main thread is wedged.
+ * A stale file means the whole process is stopped (SIGSTOP), which must not be killed.
+ */
+export function heartbeatWorkerAdvanced(
+  heartbeat: { writtenAtMs?: number; degraded?: boolean } | undefined,
+  nowMs: number,
+): boolean | undefined {
+  if (heartbeat === undefined) {
+    return undefined;
+  }
+  if (heartbeat.degraded === true) {
+    return true;
+  }
+  const writtenAtMs = heartbeat.writtenAtMs ?? 0;
+  if (writtenAtMs <= 0) {
+    return false;
+  }
+  return nowMs - writtenAtMs < HEARTBEAT_FRESH_MS;
 }
 
 export const LEGACY_DAEMON_MESSAGE =

@@ -6,7 +6,7 @@ import { humanMessage } from "../../../shared/errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogBatch, LogReceived, type BusEvent } from "../../../shared/events.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { reloadFailureMessage } from "../helpers/chrome.ts";
-import { appendVisibleLogs } from "../helpers/logs.ts";
+import { appendVisibleLogs, mergeLoadedPage, trimLogBytes } from "../helpers/logs.ts";
 
 import type { Dispatch, SetStateAction } from "react";
 
@@ -41,12 +41,32 @@ export function useDaemonEvents({
     let statusTimer: ReturnType<typeof setTimeout> | undefined;
     let statusDirty = false;
     const pendingLogs: LogEvent[] = [];
+    let lastSeq = 0;
+    let filling = false;
     const cap = cfg && cfg.logs.max_memory_events > 0 ? cfg.logs.max_memory_events : 50_000;
+    const noteSeq = (events: LogEvent[]): void => {
+      const first = events.find((event) => event.seq > 0);
+      if (first !== undefined && lastSeq > 0 && first.seq > lastSeq + 1 && !filling) {
+        filling = true;
+        void controller.logsPage({ limit: 200 }).then((page) => {
+          setLogs((current) => trimLogBytes(mergeLoadedPage(current, page.events)));
+          filling = false;
+        }).catch(() => {
+          filling = false;
+        });
+      }
+      for (const event of events) {
+        if (event.seq > lastSeq) {
+          lastSeq = event.seq;
+        }
+      }
+    };
     const flushLogs = (): void => {
       logTimer = undefined;
       if (pendingLogs.length > 0) {
         const batch = pendingLogs.splice(0, pendingLogs.length);
-        setLogs((current) => appendVisibleLogs(current, batch, logSince, cap));
+        noteSeq(batch);
+        setLogs((current) => trimLogBytes(appendVisibleLogs(current, batch, logSince, cap)));
       }
     };
     const flushStatus = (): void => {

@@ -1,5 +1,5 @@
 import { existsSync, unlinkSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { healthCheckerFactory } from "../adapters/health/health.ts";
 import type { HealthCheckerFactory } from "../ports/health-checker.ts";
 import type { DevctlConfig } from "../domain/config/types.ts";
@@ -14,10 +14,13 @@ import type { FileSystem } from "../ports/filesystem.ts";
 import { ServiceOrchestrator } from "../application/orchestrator.ts";
 import { commandsForHost } from "../application/commands.ts";
 import { startEventLoopWatchdog } from "../adapters/daemon/event-loop-watchdog.ts";
-import { installCrashHandlers } from "../adapters/daemon/crash.ts";
-import { autoRingBytes } from "../domain/logs/budgets.ts";
+import { installCrashHandlers, updateCrashHooks } from "../adapters/daemon/crash.ts";
+import { autoRingBytes, configuredByteCap, DEFAULT_LOG_CAP_BYTES, DEFAULT_LOG_TOTAL_BYTES } from "../domain/logs/budgets.ts";
+import { memoryPressure } from "../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../adapters/system/host-limits.ts";
-import { enableChildSubreaper } from "../adapters/process/subreaper.ts";
+import { enableChildSubreaper, reapOrphanedChildren } from "../adapters/process/subreaper.ts";
+import { daemonStateDir } from "../adapters/daemon/heartbeat.ts";
+import { noteEventLoopLag } from "../adapters/daemon/resource-probe.ts";
 import { Supervisor } from "../adapters/daemon/supervisor.ts";
 import type { TokenManager as Tokens } from "../adapters/google/token.ts";
 import type { ProcessManager as Processes } from "../adapters/process/processes.ts";
@@ -65,7 +68,9 @@ export const defaultWebListener: WebListenerFactory = (opts): WebListener =>
 export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Promise<DaemonRuntime> {
   const clock = deps.clock ?? systemClock;
   const fs = deps.fs ?? osFileSystem;
-  const processes = deps.processes ?? new ProcessManager();
+  const processes = deps.processes ?? new ProcessManager({
+    stdioRoot: process.platform === "win32" ? undefined : join(daemonStateDir(cfg.repoRoot), "stdio"),
+  });
   const bus = deps.bus ?? new Bus(2048);
   const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), bus, undefined, clock);
   const orchestrator = new ServiceOrchestrator(processes, clock);
@@ -85,6 +90,10 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
       redact: cfg.secrets.redact,
       repoKey: repoID(cfg.repoRoot),
       maxMemoryBytes: cfg.logs.max_memory_bytes > 0 ? cfg.logs.max_memory_bytes : autoRingBytes(readHostLimits(cfg.repoRoot).memoryBytes),
+      maxSessionBytes: configuredByteCap(cfg.logs.persistence.max_session_bytes, DEFAULT_LOG_CAP_BYTES),
+      maxSpoolBytes: configuredByteCap(cfg.logs.spool.max_bytes, DEFAULT_LOG_CAP_BYTES),
+      maxTotalBytes: configuredByteCap(cfg.logs.persistence.max_total_bytes, DEFAULT_LOG_TOTAL_BYTES),
+      spoolDir: join(daemonStateDir(cfg.repoRoot), "log-spool"),
     },
     bus,
     detector,
@@ -165,10 +174,35 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
     watchdog.noteRestartRequest(() => {
       sup.shutdown(false).catch(() => undefined);
     });
+    const limits = readHostLimits(cfg.repoRoot);
+    if (limits.nonReapingPid1) {
+      process.stderr.write("devctl: PID 1 does not reap child processes. Set supervisor.reap_orphans: true or run under an init that reaps.\n");
+    }
     if (cfg.supervisor.reap_orphans) {
       void enableChildSubreaper();
     }
+    updateCrashHooks({
+      flush: () => sup.flushLogs(),
+      record: (message) => {
+        process.stderr.write(`devctl: ${message}\n`);
+        sup.recordCrash(message);
+      },
+    });
+    const guard = setInterval(() => {
+      const usage = process.memoryUsage().rss;
+      const host = readHostLimits(cfg.repoRoot);
+      sup.applyMemoryPressure(memoryPressure(usage, host.memoryBytes));
+      if (cfg.supervisor.reap_orphans) {
+        void reapOrphanedChildren(sup.servicePids());
+      }
+      const mark = Date.now();
+      setImmediate(() => {
+        noteEventLoopLag(Date.now() - mark);
+      });
+    }, 1_000);
+    guard.unref?.();
     void sup.stopped.then(({ servicesStopped, failure }) => {
+      clearInterval(guard);
       watchdog?.stop();
       let failed = failure;
       if (servicesStopped && failed === undefined) {

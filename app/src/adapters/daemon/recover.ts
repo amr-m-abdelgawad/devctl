@@ -28,7 +28,7 @@ export type RecoverHost = {
   readonly serviceStartedEnv: Map<string, string>;
   readonly orchestrator: ServiceOrchestratorPort;
   readonly procs: ProcessManager;
-  readonly logs: Pick<LogStore, "append">;
+  readonly logs: Pick<LogStore, "append" | "ingestChunk" | "ingestPaused">;
   readonly clock: Clock;
   readonly tokens: TokenManager;
   readonly registry?: Registry;
@@ -84,6 +84,13 @@ export async function resolveAdoptedHealthEnv(
   }
 }
 
+function outputChunk(host: RecoverHost, name: string, pid: number): ((stream: "stdout" | "stderr", bytes: Uint8Array) => boolean) | undefined {
+  if (!host.logs.ingestChunk) {
+    return undefined;
+  }
+  return (stream, bytes) => host.logs.ingestChunk?.({ service: name, stream, pid, readAtMs: host.clock.unixMs(), bytes }) ?? false;
+}
+
 export function attachProcess(host: RecoverHost, name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
   if (host.procs.get(name) && host.processAliveFn(host.procs.get(name)?.pid ?? 0)) {
     return undefined;
@@ -93,11 +100,17 @@ export function attachProcess(host: RecoverHost, name: string, pid: number, args
   }
   const gen = host.orchestrator.health.bumpGeneration(name);
   try {
+    const onChunk = host.logs.ingestChunk
+      ? (stream: "stdout" | "stderr", bytes: Uint8Array): boolean =>
+          host.logs.ingestChunk?.({ service: name, stream, pid, readAtMs: host.clock.unixMs(), bytes }) ?? false
+      : undefined;
     host.procs.adopt({
       name,
       pid,
       args,
       workDir,
+      onChunk,
+      paused: () => host.logs.ingestPaused?.() === true,
       startTime,
       onExit: (code, err) => {
         host.orchestrator.health.onExit(name, gen, code, err);
@@ -135,7 +148,9 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
       runtime,
       containerName: `devctl-${repoID(host.cfg.repoRoot, host.cfg.instance.name)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       workDir,
-      onLine: (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onLine: host.logs.ingestChunk ? undefined : (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onChunk: outputChunk(host, name, 0),
+      paused: () => host.logs.ingestPaused?.() === true,
       onExit: (code, err) => host.orchestrator.health.onExit(name, gen, code, err),
     });
     if (!handle) return false;
@@ -212,7 +227,9 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
       runtime,
       containerName: `devctl-${repoID(host.cfg.repoRoot, host.cfg.instance.name)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       workDir: host.serviceWorkDir(svc),
-      onLine: (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onLine: host.logs.ingestChunk ? undefined : (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onChunk: outputChunk(host, name, 0),
+      paused: () => host.logs.ingestPaused?.() === true,
       onExit: (code, err) => host.orchestrator.health.onExit(name, gen, code, err),
     });
     if (!handle) continue;

@@ -13,6 +13,7 @@ import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { emptyDaemonMetrics } from "../../ports/daemon-metrics.ts";
+import { eventLoopLagMs } from "./resource-probe.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
 
 export type SnapshotHost = {
@@ -39,7 +40,7 @@ export type SnapshotHost = {
   readonly restartRequired: string[];
   readonly statsSeries?: StatsSeries;
   readonly serviceSeries?: Record<string, StatsSeries>;
-  readonly logs: { snapshot(): LogSnapshot };
+  readonly logs: { snapshot(): LogSnapshot; pipelineStats?: () => LogSnapshot["pipeline"] };
   readonly tokens: { storeBackend(): string };
   readonly traceDurationMs?: (traceId: string) => number | undefined;
 };
@@ -170,11 +171,11 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
     // Omit until at least one service has samples, so consumers can tell an
     // unavailable series from an empty service set (matches the type contract).
     service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
-    daemon: daemonResource(),
+    daemon: daemonResource(host),
   };
 }
 
-function daemonResource(): StatusSnapshot["daemon"] {
+function daemonResource(host: SnapshotHost): StatusSnapshot["daemon"] {
   const memory = process.memoryUsage();
   const limits = readHostLimits();
   const baseline = emptyDaemonMetrics();
@@ -183,6 +184,8 @@ function daemonResource(): StatusSnapshot["daemon"] {
     heapBytes: memory.heapUsed,
     memoryLimitBytes: limits.memoryBytes > 0 ? limits.memoryBytes : undefined,
     nonReapingPid1: limits.nonReapingPid1 || undefined,
+    eventLoopLagMs: eventLoopLagMs(),
+    logs: host.logs.pipelineStats?.(),
   };
 }
 

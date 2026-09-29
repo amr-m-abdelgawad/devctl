@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
   CREDIT_PER_STREAM_BYTES,
   CREDIT_TOTAL_BYTES,
+  DEFAULT_LOG_CAP_BYTES,
   PROCESS_SLICE_MS,
   SPILL_PER_STREAM_BYTES,
   SPILL_TOTAL_BYTES,
@@ -70,7 +71,7 @@ export class IngestPipeline {
     this.spillTotal = limits.spillTotal ?? SPILL_TOTAL_BYTES;
     this.creditPerStream = limits.creditPerStream ?? CREDIT_PER_STREAM_BYTES;
     this.creditTotal = limits.creditTotal ?? CREDIT_TOTAL_BYTES;
-    this.spoolMaxBytes = limits.spoolMaxBytes ?? this.creditTotal;
+    this.spoolMaxBytes = limits.spoolMaxBytes ?? DEFAULT_LOG_CAP_BYTES;
     mkdirSync(spoolRoot, { recursive: true, mode: 0o700 });
   }
 

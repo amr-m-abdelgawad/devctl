@@ -10,7 +10,7 @@
     "src/adapters/daemon/event-loop-watchdog-worker.ts"
   ],
   // Host tools spawned at runtime, not npm packages.
-  "ignoreBinaries": ["explorer", "xdg-open", "vm_stat"],
+  "ignoreBinaries": ["explorer", "xdg-open", "vm_stat", "mkfifo"],
   "ignoreExportsUsedInFile": true,
   "rules": {
     "files": "error",

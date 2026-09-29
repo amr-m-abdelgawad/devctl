@@ -25,6 +25,26 @@ function config() {
 }
 
 describe("WorkerLogStore", () => {
+  test("a raw chunk is folded by the worker and published", async () => {
+    const bus = new Bus(16);
+    const store = new WorkerLogStore(config(), bus);
+    try {
+      await store.waitUntilReady();
+      expect(store.ingestChunk({
+        service: "api",
+        stream: "stdout",
+        pid: 3,
+        readAtMs: Date.parse("2026-09-28T00:00:00.000Z"),
+        bytes: Buffer.from("from-chunk\n"),
+      })).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const page = await store.queryPage({}, { limit: 10 });
+      expect(page.events.some((event) => JSON.stringify(event).includes("from-chunk"))).toBe(true);
+    } finally {
+      await store.close();
+    }
+  });
+
   test("append is visible to queryPage and publishes LogReceived", async () => {
     const bus = new Bus(16);
     const received: string[] = [];

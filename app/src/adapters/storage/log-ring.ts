@@ -31,6 +31,10 @@ export class LogRing {
     return this.bytes;
   }
 
+  oldestSeq(): number | undefined {
+    return this.events[this.eventStart]?.seq;
+  }
+
   setMaxBytes(maxBytes: number): LogRecord[] {
     this.maxBytes = maxBytes;
     return this.evictOverflow();

@@ -93,7 +93,7 @@ export type ClientRuntime = {
   openController(startDir: string, configPath: string, startSupervisor: boolean, opts?: { allowMissingConfig?: boolean }): Promise<Controller>;
   openAttach(startDir: string, configPath: string): Promise<Controller>;
   openTui(startDir: string, configPath: string): Promise<Controller>;
-  findDaemon(startDir: string, explicitRepo: string, explicitConfig?: string): Promise<{ repoRoot: string; client?: DaemonClient }>;
+  findDaemon(startDir: string, explicitRepo: string, explicitConfig?: string): Promise<{ repoRoot: string; client?: DaemonClient; notice?: string }>;
   // Parallel stacks (#117): the port-slot registry under DEVCTL_HOME.
   listInstances(): InstanceSlot[];
   releaseInstance(repoRoot: string): void;

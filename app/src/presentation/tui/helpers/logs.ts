@@ -375,6 +375,26 @@ export function isSystemLogSource(source: string): boolean {
 // is no stale cross-session data to protect against here — only `since` (the log-view boundary set
 // by an explicit clear or filter command) should ever hide events. Starting or stopping services
 // must not clear the view; see the `clear` command / Clear button for that.
+const TUI_LOG_BYTES = 8 * 1024 * 1024;
+
+export function trimLogBytes(records: LogRecord[], maxBytes = TUI_LOG_BYTES): LogRecord[] {
+  let used = 0;
+  const kept: LogRecord[] = [];
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (record !== undefined) {
+      const size = (typeof record.body === "string" ? record.body.length : 0) + record.service.length + 64;
+      if (kept.length > 0 && used + size > maxBytes) {
+        break;
+      }
+      used += size;
+      kept.push(record);
+    }
+  }
+  kept.reverse();
+  return kept;
+}
+
 export function appendVisibleLogs(current: LogRecord[], incoming: LogRecord[], since: string, cap: number): LogRecord[] {
   const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
   if (accepted.length === 0) {

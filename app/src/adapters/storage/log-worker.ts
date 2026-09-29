@@ -30,7 +30,14 @@ async function handle(message: WorkerRequest): Promise<void> {
       message.config.sessionID,
       message.config.retentionDays,
       message.config.maxSessionLogs,
-      { repoKey: message.config.repoKey, maxMemoryBytes: message.config.maxMemoryBytes },
+      {
+        repoKey: message.config.repoKey,
+        maxMemoryBytes: message.config.maxMemoryBytes,
+        maxSessionBytes: message.config.maxSessionBytes,
+        maxSpoolBytes: message.config.maxSpoolBytes,
+        maxTotalBytes: message.config.maxTotalBytes,
+        spoolDir: message.config.spoolDir,
+      },
     );
     manager.setParsers([defaultLogParser()]);
     manager.setOnRecord((event) => {
@@ -60,6 +67,24 @@ async function handle(message: WorkerRequest): Promise<void> {
   }
   if (message.type === "append") {
     manager.append(message.event);
+    return;
+  }
+  if (message.type === "chunk") {
+    const accepted = manager.acceptChunk(message);
+    reply({ id: message.id, type: "chunkAck", accepted, stats: manager.snapshot() });
+    return;
+  }
+  if (message.type === "setMemoryBudget") {
+    manager.setMemoryBudget(message.bytes);
+    return;
+  }
+  if (message.type === "setIngestShed") {
+    manager.setIngestShed(message.shed);
+    return;
+  }
+  if (message.type === "flush") {
+    await manager.flush();
+    reply({ id: message.id, type: "result", result: null });
     return;
   }
   if (message.type === "query") {

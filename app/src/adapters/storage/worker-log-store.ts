@@ -1,7 +1,9 @@
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../../domain/logs/logs.ts";
+import { LogBatcher } from "../../domain/logs/batch.ts";
+import { CREDIT_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
-import { Bus, LogReceived, newEvent } from "../../shared/events.ts";
+import { Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { Detector } from "../secrets/detector.ts";
 import { inProcessLogStore, LogManager } from "./logs.ts";
 import { resolveWorkerUrl } from "./worker-resolver.ts";
@@ -44,6 +46,11 @@ export class WorkerLogStore implements LogStore {
   private nextId = 1;
   private stats: LogSnapshot = { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 };
   private dead = false;
+  private shed = false;
+  private unacked = 0;
+  private readonly inflight = new Map<number, { bytes: number; chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array } }>();
+  private readonly batcher: LogBatcher;
+  private pipeline: LogSnapshot["pipeline"];
   private readySettled = false;
   private readonly ready: Promise<void>;
   private resolveReady: () => void = () => undefined;
@@ -62,6 +69,9 @@ export class WorkerLogStore implements LogStore {
     });
     this.worker.addEventListener("error", (event: ErrorEvent) => {
       this.failOver(new Error(event.message || "log worker failed"));
+    });
+    this.batcher = new LogBatcher(config.sessionID, () => this.stats, (payload) => {
+      this.bus?.publish(newEvent(LogBatch, payload.newest[0]?.service ?? "devctl", payload));
     });
     this.post({ type: "init", config });
   }
@@ -88,6 +98,74 @@ export class WorkerLogStore implements LogStore {
         },
       );
     });
+  }
+
+  ingestChunk(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array }): boolean {
+    if (this.fallback?.ingestChunk) {
+      return this.fallback.ingestChunk(chunk);
+    }
+    if (this.shed || this.dead) {
+      return false;
+    }
+    const size = chunk.bytes.byteLength;
+    if (this.unacked + size > CREDIT_TOTAL_BYTES) {
+      return false;
+    }
+    const id = this.nextId;
+    this.nextId += 1;
+    const copy = { ...chunk, bytes: new Uint8Array(chunk.bytes) };
+    this.unacked += size;
+    this.inflight.set(id, { bytes: size, chunk: copy });
+    try {
+      this.post({ id, type: "chunk", service: copy.service, stream: copy.stream, pid: copy.pid, readAtMs: copy.readAtMs, bytes: copy.bytes });
+    } catch (error) {
+      this.inflight.delete(id);
+      this.unacked = Math.max(0, this.unacked - size);
+      this.failOver(error instanceof Error ? error : new Error(String(error)));
+      return this.fallback?.ingestChunk?.(chunk) ?? false;
+    }
+    return true;
+  }
+
+  ingestPaused(): boolean {
+    if (this.fallback?.ingestPaused) {
+      return this.fallback.ingestPaused();
+    }
+    return this.shed || this.unacked >= CREDIT_TOTAL_BYTES || this.pipeline?.paused === true;
+  }
+
+  setMemoryBudget(bytes: number): void {
+    if (this.fallback) {
+      this.fallback.setMemoryBudget?.(bytes);
+      return;
+    }
+    if (!this.dead) {
+      this.post({ type: "setMemoryBudget", bytes });
+    }
+  }
+
+  setIngestShed(shed: boolean): void {
+    this.shed = shed;
+    if (this.fallback) {
+      this.fallback.setIngestShed?.(shed);
+      return;
+    }
+    if (!this.dead) {
+      this.post({ type: "setIngestShed", shed });
+    }
+  }
+
+  pipelineStats(): LogSnapshot["pipeline"] {
+    return this.fallback?.pipelineStats?.() ?? this.pipeline;
+  }
+
+  async flush(): Promise<void> {
+    if (this.fallback?.flush) {
+      await this.fallback.flush();
+      return;
+    }
+    await this.rpc({ type: "flush" });
+    this.batcher.flush();
   }
 
   append(event: LogIngest): void {
@@ -183,10 +261,16 @@ export class WorkerLogStore implements LogStore {
       return;
     }
     const missed = this.pendingReplay.splice(0, this.pendingReplay.length);
+    const chunks = [...this.inflight.values()].map((row) => row.chunk);
+    this.inflight.clear();
+    this.unacked = 0;
     this.markDead(error);
     this.fallback = inProcessFromConfig(this.config, this.bus ?? new Bus(1), new Detector(this.config.extraMarkers, this.config.extraPatterns, this.config.redact));
     for (const event of missed) {
       this.fallback.append(event);
+    }
+    for (const chunk of chunks) {
+      this.fallback.ingestChunk?.(chunk);
     }
     this.dead = false;
   }
@@ -239,6 +323,10 @@ export class WorkerLogStore implements LogStore {
       await store.exportTo(body.path, body.filter);
       return null;
     }
+    if (body.type === "flush") {
+      await store.flush?.();
+      return null;
+    }
     await store.close();
     return null;
   }
@@ -256,7 +344,13 @@ export class WorkerLogStore implements LogStore {
     if (message.type === "appended") {
       this.pendingReplay.shift();
       this.stats = message.stats;
+      this.pipeline = message.stats.pipeline ?? this.pipeline;
       this.bus?.publish(newEvent(LogReceived, message.event.service, { event: message.event, level: message.event.severityText }));
+      this.batcher.push(message.event);
+      return;
+    }
+    if (message.type === "chunkAck") {
+      this.onChunkAck(message.id, message.accepted, message.stats);
       return;
     }
     const pending = this.pending.get(message.id);
@@ -270,6 +364,19 @@ export class WorkerLogStore implements LogStore {
       return;
     }
     pending.resolve(message.result);
+  }
+
+  private onChunkAck(id: number, accepted: boolean, stats: LogSnapshot): void {
+    const row = this.inflight.get(id);
+    this.inflight.delete(id);
+    if (row) {
+      this.unacked = Math.max(0, this.unacked - row.bytes);
+    }
+    this.stats = stats;
+    this.pipeline = stats.pipeline ?? this.pipeline;
+    if (!accepted && row && this.fallback?.ingestChunk) {
+      this.fallback.ingestChunk(row.chunk);
+    }
   }
 
   private settleReady(): void {
@@ -337,7 +444,14 @@ function inProcessFromConfig(config: WorkerLogConfig, bus: Bus, detector: Detect
       config.sessionID,
       config.retentionDays,
       config.maxSessionLogs,
-      { repoKey: config.repoKey, maxMemoryBytes: config.maxMemoryBytes },
+      {
+        repoKey: config.repoKey,
+        maxMemoryBytes: config.maxMemoryBytes,
+        maxSessionBytes: config.maxSessionBytes,
+        maxSpoolBytes: config.maxSpoolBytes,
+        maxTotalBytes: config.maxTotalBytes,
+        spoolDir: config.spoolDir,
+      },
     ),
   );
 }
