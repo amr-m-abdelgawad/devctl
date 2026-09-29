@@ -31,7 +31,7 @@ Ingest also copies `devctl.request_id` from a proxy hop onto a nearby service st
 ## Buffer and persistence
 
 - In-memory circular buffer: `logs.max_memory_events` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status `logs.total` / `logs.errors` are how many of those lines are still in the ring; `logs.seen` / `logs.seenErrors` are lifetime ingest counts so dashboards do not freeze at the cap.
-- The live ring lives in a Bun Worker behind `LogStore`, so parse and search do not stall the supervisor event loop. Source, npm, and compiled standalone binaries all run it: a compiled binary embeds the worker. The main thread only receives page/facet/export results (and a cached snapshot for `status`). If the worker fails to start, the daemon falls back to the in-process store rather than hanging, and logs a WARN.
+- The live ring lives in a Bun Worker behind `LogStore`, so parse and search do not stall the supervisor event loop. Source, npm, and compiled standalone binaries all run it: a compiled binary embeds the worker. The main thread only receives page/facet/export results (and a cached snapshot for `status`). If the worker fails to start, the daemon falls back to the in-process store rather than hanging, logs a WARN, and `status --json` reports `daemon.logStore: "in-process"`.
 - Ingest truncates lines longer than 16 KiB and skips `JSON.parse` on payloads larger than 64 KiB. Regex search is already capped (pattern length, nested quantifiers).
 - Optional persistence under `~/.devctl/logs/` (`persistence.enabled`, `directory`, `retention_days`, `max_session_logs`).
 - Ingest is a bounded channel; UI updates batch (~30ms) so a noisy service cannot freeze the TUI.
@@ -118,6 +118,8 @@ With persistence off, a very large line shrinks the in-memory window below 50,00
 On Linux and macOS, long-running services write stdout and stderr to FIFOs held by a detached drainer. A daemon restart keeps reading those segments. Windows, and any host where FIFO setup fails, uses pipes. The not-yet-parsed spool is removed as it is consumed and is capped at `logs.spool.max_bytes`.
 
 `devctl down --force` stops a daemon that has no heartbeat, including one left running by an older devctl. A busy daemon is not killed. A daemon is replaced only after the watchdog has recorded a 60 second wedge and released its lock. `status` and `down` say when a live daemon is busy, paused, or left by an older build.
+
+If the watchdog worker cannot run, the daemon keeps serving but a wedge goes undetected. It retries the worker after 1, 2, 4 … seconds, at most a minute apart. `status` prints a `DAEMON DEGRADED` line, `status --json` reports `daemon.watchdog: "degraded"` (and `daemon.logStore: "in-process"` when the log worker is down too), and `devctl doctor` warns.
 
 ## Related
 

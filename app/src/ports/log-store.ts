@@ -23,4 +23,6 @@ export type LogStore = {
   setMemoryBudget?(bytes: number): void;
   setIngestShed?(shed: boolean): void;
   pipelineStats?(): LogSnapshot["pipeline"];
+  /** True while a worker thread holds the ring. A store without it runs on the caller's thread. */
+  usesWorker?(): boolean;
 };

@@ -13,7 +13,9 @@ import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFea
 import { isImageUserRoot } from "../../domain/service/container-limits.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
-import { resolveUserPath } from "../storage/storage.ts";
+import { lockPath, resolveUserPath } from "../storage/storage.ts";
+import { lockIsLive, readLockFile } from "../storage/lock.ts";
+import { readHeartbeat } from "../daemon/heartbeat.ts";
 import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import { readPid1 } from "../system/host-limits.ts";
@@ -109,6 +111,14 @@ export function createDoctorRunner(host: DoctorHost = createDoctorHost()): Docto
   };
 }
 
+// Only the daemon that holds the lock speaks for this repository. A degraded
+// heartbeat left by a daemon that is gone says nothing about the next one.
+function watchdogDegraded(repoRoot: string): boolean {
+  const beat = readHeartbeat(repoRoot);
+  const lock = readLockFile(lockPath(repoRoot));
+  return beat?.degraded === true && lock !== undefined && lock.pid === beat.pid && lockIsLive(lock);
+}
+
 export async function recheckPort(port: number, host: DoctorHost = defaultHost): Promise<Check> {
   const label = `Port ${port}`;
   if (await host.portAvailable(port)) {
@@ -169,6 +179,15 @@ export async function runDoctor(
       severity: "warn",
       message: `PID 1 is ${pid1.command || "not a reaping init"}`,
       hint: 'set "init": true on the dev container (or compose init: true, or docker run --init) so exited processes are reaped',
+    });
+  }
+  if (watchdogDegraded(cfg.repoRoot)) {
+    checking("daemon watchdog");
+    add({
+      name: "daemon watchdog",
+      severity: "warn",
+      message: "the watchdog worker is down, so a wedged daemon is not detected",
+      hint: "restart the daemon without stopping services (`devctl down --keep-services`, then `devctl start`); reinstall devctl if it stays down",
     });
   }
   if (cfg.plugins.length > 0) {

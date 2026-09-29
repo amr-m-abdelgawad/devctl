@@ -214,6 +214,10 @@ export type StatusSnapshot = {
     nonReapingPid1?: boolean;
     eventLoopLagMs?: number;
     logs?: LogSnapshot["pipeline"];
+    /** "in-process" when the log worker did not start or died: parsing then shares the daemon's main thread. */
+    logStore?: "worker" | "in-process";
+    /** "degraded" while the watchdog worker is down, so a wedged daemon is not detected. Absent before it starts. */
+    watchdog?: "ok" | "degraded";
   };
 };
 
@@ -236,4 +240,19 @@ export function instanceStatusLine(instance: StatusSnapshot["instance"]): string
     return undefined;
   }
   return `INSTANCE: ${name === "" ? "" : `${name}, `}slot ${slot} (ports +${instance?.port_offset ?? 0})`;
+}
+
+/** The status line for a daemon missing one of its workers; undefined while both run. */
+export function daemonStatusLine(daemon: StatusSnapshot["daemon"]): string | undefined {
+  const missing: string[] = [];
+  if (daemon?.watchdog === "degraded") {
+    missing.push("watchdog worker down");
+  }
+  if (daemon?.logStore === "in-process") {
+    missing.push("log store in-process");
+  }
+  if (missing.length === 0) {
+    return undefined;
+  }
+  return `DAEMON      DEGRADED    ${missing.join(", ")}`;
 }

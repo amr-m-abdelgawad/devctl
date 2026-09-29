@@ -173,6 +173,10 @@ export class WorkerLogStore implements LogStore {
     return this.fallback?.pipelineStats?.() ?? this.pipeline;
   }
 
+  usesWorker(): boolean {
+    return this.fallback === undefined && !this.dead;
+  }
+
   async flush(): Promise<void> {
     if (this.fallback?.flush) {
       await this.fallback.flush();

@@ -2,7 +2,7 @@ import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { Detector } from "../../shared/redaction.ts";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import { instanceStatusLine, type StatusSnapshot } from "../../domain/status.ts";
+import { daemonStatusLine, instanceStatusLine, type StatusSnapshot } from "../../domain/status.ts";
 import { displayState, formatPlan } from "../../domain/service/services.ts";
 import { type ServiceConfig } from "../../domain/config/types.ts";
 import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
@@ -198,6 +198,10 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
     writeOut(`\nPROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}\n`);
     writeOut(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}\n`);
     writeOut(`WEB         ${snap.web?.running ? "RUNNING" : "STOPPED"}     ${snap.web?.address ?? ""}\n`);
+    const daemonLine = daemonStatusLine(snap.daemon);
+    if (daemonLine !== undefined) {
+      writeOut(`${daemonLine}\n`);
+    }
     writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
     writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
   } finally {

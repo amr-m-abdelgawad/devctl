@@ -232,4 +232,22 @@ describe("createDaemonLogStore", () => {
       await logs.close();
     }
   });
+
+  test("says whether a worker holds the ring, for status", async () => {
+    const bus = new Bus(16);
+    const detector = new Detector([], []);
+    const worker = await createDaemonLogStore(config(), bus, detector);
+    const fallback = await createDaemonLogStore(config(), bus, detector, {
+      script: new URL("./no-such-worker.ts", import.meta.url),
+      initTimeoutMs: 200,
+    });
+    try {
+      expect(worker.logs.usesWorker?.()).toBe(true);
+      expect(fallback.logs.usesWorker?.() ?? false).toBe(false);
+    } finally {
+      await worker.logs.close();
+      await fallback.logs.close();
+    }
+    expect(worker.logs.usesWorker?.()).toBe(false);
+  });
 });

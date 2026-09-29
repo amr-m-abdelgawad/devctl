@@ -82,6 +82,7 @@ function publish(mainStallTicks: number): void {
     workerTick: tick,
     mainStallTicks,
     rpcOkAgeTicks: listening ? rpcOkAge : 0,
+    degraded: false,
     writtenAtMs: Date.now(),
   };
   try {
