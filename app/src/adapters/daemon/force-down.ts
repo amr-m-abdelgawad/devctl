@@ -1,28 +1,38 @@
-import { killRepoSupervisor, lockPath, processAlive, readRepoLock } from "../storage/storage.ts";
-import { lockIsLive, readLockFile } from "../storage/lock.ts";
-import { processState } from "../process/liveness.ts";
+import { lockPath } from "../storage/storage.ts";
+import { lockHolderSignalable, readLockFile, removeStaleLockFile } from "../storage/lock.ts";
+import { isDevctlSupervisor, processState } from "../process/liveness.ts";
 
 const REAP_WAIT_MS = 2_000;
 
-/** Signal a lock holder even when it has no heartbeat. Verifies v2 identity before signalling. */
+/** Signal a lock holder even when it has no heartbeat, once its pid is shown to be that daemon. */
 export function forceStopDaemon(repoRoot: string): boolean {
-  const record = readLockFile(lockPath(repoRoot));
-  const brief = readRepoLock(repoRoot);
-  const pid = record?.pid ?? brief?.pid;
-  if (pid === undefined || processState(pid) === "dead") {
+  const path = lockPath(repoRoot);
+  const record = readLockFile(path);
+  if (record === undefined) {
     return false;
   }
-  if (record?.v === 2 && !lockIsLive(record) && processState(pid) === "alive") {
-    // Pid was reused. Do not signal the new process.
+  const state = processState(record.pid);
+  if (state !== "alive") {
+    // A zombie has stopped already; it only waits for its parent to reap it.
+    return state === "zombie";
+  }
+  if (!lockHolderSignalable(record)) {
+    // The pid was reused, or names a process in another PID namespace: do not
+    // signal it. A v1 lock has no stamp, so `start` would keep sending the
+    // user back here; drop it once its pid is shown to run something else.
+    if (record.v !== 2 && isDevctlSupervisor(record.pid) === false) {
+      removeStaleLockFile(path, record);
+    }
     return false;
   }
-  if (!processAlive(pid) && processState(pid) !== "zombie") {
-    return false;
+  try {
+    process.kill(record.pid, "SIGKILL");
+  } catch {
+    // already gone
   }
-  killRepoSupervisor(repoRoot);
   const deadline = Date.now() + REAP_WAIT_MS;
-  while (processState(pid) === "alive" && Date.now() < deadline) {
+  while (processState(record.pid) === "alive" && Date.now() < deadline) {
     Bun.sleepSync(50);
   }
-  return processState(pid) !== "alive";
+  return processState(record.pid) !== "alive";
 }

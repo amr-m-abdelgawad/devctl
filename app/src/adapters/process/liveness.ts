@@ -146,6 +146,38 @@ function foreignStart(pid: number, cmd: string[]): string | undefined {
   return commandText(cmd);
 }
 
+/** The pid's arguments, or undefined when they cannot be read. */
+function processCommandLine(pid: number): string[] | undefined {
+  if (pid <= 0) {
+    return undefined;
+  }
+  if (process.platform === "linux") {
+    try {
+      const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
+      if (args.at(-1) === "") {
+        args.pop();
+      }
+      return args.length > 0 ? args : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  // Both join argv with spaces, so this split only finds whole arguments
+  // that have none, such as `_supervisor`.
+  const text = process.platform === "win32"
+    ? commandText(["powershell.exe", "-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`])
+    : commandText(["ps", "-ww", "-o", "command=", "-p", String(pid)]);
+  return text?.split(/\s+/);
+}
+
+/**
+ * Whether the pid runs the daemon subcommand every devctl has spawned
+ * (supervisorSpawnCommand). Undefined when its command line is unreadable.
+ */
+export function isDevctlSupervisor(pid: number): boolean | undefined {
+  return processCommandLine(pid)?.includes("_supervisor");
+}
+
 function commandText(cmd: string[]): string | undefined {
   const bin = cmd[0];
   if (bin === undefined) {

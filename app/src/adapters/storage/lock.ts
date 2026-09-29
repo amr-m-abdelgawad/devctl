@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
-import { processState, readSelfStamp, readStamp, sameStamp, type ProcessStamp } from "../process/liveness.ts";
+import { isDevctlSupervisor, processState, readSelfStamp, readStamp, sameStamp, type ProcessStamp } from "../process/liveness.ts";
 
 const LOCK_WAIT_MS = 2_000;
 const LOCK_STALE_MS = 5_000;
@@ -99,6 +99,22 @@ export function lockIsLive(record: LockRecord, self: ProcessStamp = readSelfStam
 }
 
 /**
+ * Whether a signal to `record.pid` reaches the daemon that took the lock.
+ * Across a PID namespace the pid names another process. A v2 lock must match
+ * its stamp; a v1 lock has none, so its pid must still run `_supervisor`, and
+ * a command line that cannot be read proves nothing.
+ */
+export function lockHolderSignalable(record: LockRecord, self: ProcessStamp = readSelfStamp()): boolean {
+  if (acrossPidNamespace(record, self) || processState(record.pid) !== "alive") {
+    return false;
+  }
+  if (record.v === 2) {
+    return sameStamp(stampOf(record), readStamp(record.pid));
+  }
+  return isDevctlSupervisor(record.pid) === true;
+}
+
+/**
  * Exclusive create under a mutex file. Stale locks are removed only while the
  * mutex is held, and release deletes the lock only when the nonce still matches.
  */
@@ -131,6 +147,15 @@ export function acquireLockFile(path: string, socket: string, hold: ProcessStamp
 }
 
 export function releaseLockFile(path: string, nonce: string): void {
+  removeLockIf(path, (current) => current.nonce === nonce);
+}
+
+/** Deletes a lock whose holder is gone, unless another holder has replaced it since it was read. */
+export function removeStaleLockFile(path: string, stale: LockRecord): void {
+  removeLockIf(path, (current) => current.pid === stale.pid && current.nonce === stale.nonce);
+}
+
+function removeLockIf(path: string, matches: (current: LockRecord) => boolean): void {
   const mutex = `${path}.mutex`;
   try {
     acquireMutex(mutex);
@@ -139,7 +164,7 @@ export function releaseLockFile(path: string, nonce: string): void {
   }
   try {
     const current = readLockFile(path);
-    if (current?.nonce === nonce) {
+    if (current !== undefined && matches(current)) {
       unlinkIfPresent(path);
     }
   } finally {

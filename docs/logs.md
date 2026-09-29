@@ -117,7 +117,7 @@ With persistence off, a very large line shrinks the in-memory window below 50,00
 
 On Linux and macOS, long-running services write stdout and stderr to FIFOs held by a detached drainer. A daemon restart keeps reading those segments. Windows, and any host where FIFO setup fails, uses pipes. The not-yet-parsed spool is removed as it is consumed and is capped at `logs.spool.max_bytes`.
 
-`devctl down --force` stops a daemon that has no heartbeat, including one left running by an older devctl. A busy daemon is not killed. A daemon is replaced only after the watchdog has recorded a 60 second wedge and released its lock. `status` and `down` say when a live daemon is busy, paused, or left by an older build.
+`devctl down --force` stops a daemon that has no heartbeat, including one left running by an older devctl. It signals only a pid that is still that daemon: one whose lock stamp matches or, for an older lock, whose command line runs `_supervisor`. A busy daemon is not killed. A daemon is replaced only after the watchdog has recorded a 60 second wedge and released its lock. `status` and `down` say when a live daemon is busy, paused, or left by an older build.
 
 If the watchdog worker cannot run, the daemon keeps serving but a wedge goes undetected. It retries the worker after 1, 2, 4 … seconds, at most a minute apart. `status` prints a `DAEMON DEGRADED` line, `status --json` reports `daemon.watchdog: "degraded"` (and `daemon.logStore: "in-process"` when the log worker is down too), and `devctl doctor` warns.
 
