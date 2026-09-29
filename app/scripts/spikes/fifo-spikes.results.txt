@@ -1,0 +1,50 @@
+S3 darwin bun 1.4.0: writer floods 1 GiB; the consumer sleeps 20 ms per chunk for 6000 ms
+{"mode":"spawn-pipe","maxChunkKiB":256,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1006,"rssMiB":23,"consumedMiB":3.2,"writtenMiB":3.8},{"ms":2004,"rssMiB":27,"consumedMiB":6.2,"writtenMiB":6.8},{"ms":3006,"rssMiB":29,"consumedMiB":9.1,"writtenMiB":9.7},{"ms":4007,"rssMiB":29,"consumedMiB":12.1,"writtenMiB":12.7},{"ms":5008,"rssMiB":30,"consumedMiB":15.1,"writtenMiB":15.7},{"ms":6003,"rssMiB":30,"consumedMiB":18.1,"writtenMiB":18.6}]}
+{"mode":"fifo-bunfile-path","maxChunkKiB":0,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1002,"rssMiB":20,"consumedMiB":0,"writtenMiB":0},{"ms":2003,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":3004,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":4006,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":5007,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":6002,"rssMiB":21,"consumedMiB":0,"writtenMiB":0}]}
+{"mode":"fifo-bunfile-fd","maxChunkKiB":0,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1003,"rssMiB":20,"consumedMiB":0,"writtenMiB":0},{"ms":2004,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":3006,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":4008,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":5009,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":6002,"rssMiB":21,"consumedMiB":0,"writtenMiB":0}]}
+{"mode":"fifo-node-stream","maxChunkKiB":8,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1001,"rssMiB":26,"consumedMiB":0.4,"writtenMiB":0.4},{"ms":2002,"rssMiB":27,"consumedMiB":0.7,"writtenMiB":0.8},{"ms":3002,"rssMiB":28,"consumedMiB":1.1,"writtenMiB":1.2},{"ms":4002,"rssMiB":28,"consumedMiB":1.5,"writtenMiB":1.5},{"ms":5003,"rssMiB":29,"consumedMiB":1.9,"writtenMiB":1.9},{"ms":6002,"rssMiB":29,"consumedMiB":2.2,"writtenMiB":2.3}]}
+{"mode":"fifo-node-stream-fd","maxChunkKiB":8,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1001,"rssMiB":26,"consumedMiB":0.4,"writtenMiB":0.4},{"ms":2001,"rssMiB":28,"consumedMiB":0.7,"writtenMiB":0.8},{"ms":3002,"rssMiB":28,"consumedMiB":1.1,"writtenMiB":1.1},{"ms":4003,"rssMiB":29,"consumedMiB":1.5,"writtenMiB":1.5},{"ms":5004,"rssMiB":29,"consumedMiB":1.9,"writtenMiB":1.9},{"ms":6000,"rssMiB":26,"consumedMiB":2.2,"writtenMiB":2.3}]}
+{"mode":"fifo-net-socket","maxChunkKiB":0,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1002,"rssMiB":20,"consumedMiB":0,"writtenMiB":0},{"ms":2003,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":3005,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":4006,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":5007,"rssMiB":21,"consumedMiB":0,"writtenMiB":0},{"ms":6002,"rssMiB":21,"consumedMiB":0,"writtenMiB":0}]}
+{"mode":"fifo-read-loop","maxChunkKiB":8,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1001,"rssMiB":21,"consumedMiB":0.4,"writtenMiB":0.4},{"ms":2001,"rssMiB":22,"consumedMiB":0.7,"writtenMiB":0.8},{"ms":3003,"rssMiB":25,"consumedMiB":1.1,"writtenMiB":1.1},{"ms":4004,"rssMiB":26,"consumedMiB":1.5,"writtenMiB":1.4},{"ms":5005,"rssMiB":26,"consumedMiB":1.9,"writtenMiB":1.8},{"ms":6002,"rssMiB":26,"consumedMiB":2.2,"writtenMiB":2.2}]}
+S3 EOF: writer prints 'a', sleeps 300 ms, prints 'b', exits
+{"mode":"fifo-bunfile-fd","text":"ab","eof":false,"note":"still waiting 2s after the writer exited"}
+{"mode":"fifo-node-stream-fd","text":"ab","eof":true,"eofAfterMs":310}
+{"mode":"fifo-read-loop","text":"ab","eof":true,"eofAfterMs":311}
+S3 thread pool: 64 idle FIFO readers, then 20 rounds of async file reads and writes
+{"mode":"fifo-node-stream-fd","idleReaders":64,"asyncFs":"starved (no result in 5s)"}
+{"mode":"fifo-bunfile-fd","idleReaders":64,"asyncFs":"ok in 10 ms"}
+{"mode":"fifo-read-loop","idleReaders":64,"asyncFs":"ok in 6 ms"}
+S3 linux bun 1.4.2: writer floods 1 GiB; the consumer sleeps 20 ms per chunk for 6000 ms
+{"mode":"spawn-pipe","maxChunkKiB":256,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1001,"rssMiB":33,"consumedMiB":10.3,"writtenMiB":10.8},{"ms":2003,"rssMiB":35,"consumedMiB":20.8,"writtenMiB":21.3},{"ms":3003,"rssMiB":39,"consumedMiB":31.1,"writtenMiB":31.5},{"ms":4004,"rssMiB":43,"consumedMiB":41.6,"writtenMiB":42},{"ms":5006,"rssMiB":42,"consumedMiB":51.9,"writtenMiB":52.3},{"ms":6003,"rssMiB":43,"consumedMiB":61.7,"writtenMiB":62.1}]}
+{"mode":"fifo-bunfile-path","maxChunkKiB":128,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1002,"rssMiB":28,"consumedMiB":2.8,"writtenMiB":2.9},{"ms":2005,"rssMiB":29,"consumedMiB":5.5,"writtenMiB":5.6},{"ms":3007,"rssMiB":32,"consumedMiB":8.2,"writtenMiB":8.3},{"ms":4009,"rssMiB":32,"consumedMiB":10.9,"writtenMiB":11.1},{"ms":5015,"rssMiB":31,"consumedMiB":13.6,"writtenMiB":13.7},{"ms":6003,"rssMiB":33,"consumedMiB":16.3,"writtenMiB":16.4}]}
+{"mode":"fifo-bunfile-fd","maxChunkKiB":128,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1007,"rssMiB":28,"consumedMiB":2.8,"writtenMiB":2.9},{"ms":2007,"rssMiB":29,"consumedMiB":5.5,"writtenMiB":5.6},{"ms":3011,"rssMiB":31,"consumedMiB":8.2,"writtenMiB":8.3},{"ms":4012,"rssMiB":31,"consumedMiB":10.9,"writtenMiB":11.1},{"ms":5014,"rssMiB":31,"consumedMiB":13.6,"writtenMiB":13.8},{"ms":6003,"rssMiB":32,"consumedMiB":16.3,"writtenMiB":16.4}]}
+{"mode":"fifo-node-stream","maxChunkKiB":64,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1002,"rssMiB":34,"consumedMiB":2.7,"writtenMiB":2.8},{"ms":2004,"rssMiB":35,"consumedMiB":5.4,"writtenMiB":5.6},{"ms":3005,"rssMiB":34,"consumedMiB":8.1,"writtenMiB":8.3},{"ms":4007,"rssMiB":35,"consumedMiB":10.8,"writtenMiB":10.9},{"ms":5009,"rssMiB":35,"consumedMiB":13.6,"writtenMiB":13.7},{"ms":6004,"rssMiB":35,"consumedMiB":16.2,"writtenMiB":16.3}]}
+{"mode":"fifo-node-stream-fd","maxChunkKiB":64,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1001,"rssMiB":34,"consumedMiB":2.8,"writtenMiB":2.9},{"ms":2002,"rssMiB":35,"consumedMiB":5.4,"writtenMiB":5.6},{"ms":3003,"rssMiB":34,"consumedMiB":8.2,"writtenMiB":8.3},{"ms":4007,"rssMiB":35,"consumedMiB":10.9,"writtenMiB":11},{"ms":5009,"rssMiB":35,"consumedMiB":13.7,"writtenMiB":13.8},{"ms":6003,"rssMiB":36,"consumedMiB":16.4,"writtenMiB":16.5}]}
+{"mode":"fifo-net-socket","maxChunkKiB":0,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1004,"rssMiB":23,"consumedMiB":0,"writtenMiB":0.1},{"ms":2008,"rssMiB":24,"consumedMiB":0,"writtenMiB":0.1},{"ms":3012,"rssMiB":24,"consumedMiB":0,"writtenMiB":0.1},{"ms":4015,"rssMiB":24,"consumedMiB":0,"writtenMiB":0.1},{"ms":5017,"rssMiB":24,"consumedMiB":0,"writtenMiB":0.1},{"ms":6006,"rssMiB":24,"consumedMiB":0,"writtenMiB":0.1}]}
+{"mode":"fifo-read-loop","maxChunkKiB":64,"writerEagain":0,"endedAtMs":-1,"samples":[{"ms":1002,"rssMiB":28,"consumedMiB":2.7,"writtenMiB":2.8},{"ms":2006,"rssMiB":29,"consumedMiB":5.4,"writtenMiB":5.4},{"ms":3006,"rssMiB":31,"consumedMiB":8.1,"writtenMiB":8.2},{"ms":4009,"rssMiB":32,"consumedMiB":10.9,"writtenMiB":10.9},{"ms":5011,"rssMiB":32,"consumedMiB":13.6,"writtenMiB":13.6},{"ms":6003,"rssMiB":32,"consumedMiB":16.3,"writtenMiB":16.3}]}
+S3 EOF: writer prints 'a', sleeps 300 ms, prints 'b', exits
+{"mode":"fifo-bunfile-fd","text":"ab","eof":true,"eofAfterMs":311}
+{"mode":"fifo-node-stream-fd","text":"ab","eof":true,"eofAfterMs":307}
+{"mode":"fifo-read-loop","text":"ab","eof":true,"eofAfterMs":312}
+S3 thread pool: 64 idle FIFO readers, then 20 rounds of async file reads and writes
+{"mode":"fifo-node-stream-fd","idleReaders":64,"asyncFs":"starved (no result in 5s)"}
+{"mode":"fifo-bunfile-fd","idleReaders":64,"asyncFs":"ok in 9 ms"}
+{"mode":"fifo-read-loop","idleReaders":64,"asyncFs":"ok in 7 ms"}
+S5 darwin bun 1.4.0
+PASS O_RDWR open works; FIFO buffer capacity {"capacityBytes":8192}
+PASS writer blocks when the FIFO is full and nobody reads {"completedWrites64KiB":0,"stillBlockedAfter500ms":true,"writerState":"S"}
+PASS no EPIPE/SIGPIPE when the reader is SIGKILLed; writer blocks again {"readerBytes":108396544,"writerBytes":108396544,"writerError":"","writerState":"S","exitCode":null}
+PASS a new reader resumes where the killed one stopped reading from the kernel {"killedEndOffset":108396544,"resumedFirstOffset":108404736,"resumedBytes":103923712,"continuous":true}
+PASS graceful reader handoff is gap-free and duplicate-free {"firstEnd":297525248,"secondStart":297525248,"secondBytes":83927040}
+PASS read fds: EAGAIN while a writer lives, data then EOF after it exits, even with a second read-only fd open {"whileWriterIdle":"EAGAIN","afterExit":{"text":"kept after exit","ending":"eof"}}
+PASS buffered bytes are discarded once the last fd closes (why the sentinel must hold read fds) {"readAfterReopen":{"text":"","ending":"eof"}}
+PASS death pipe: the sentinel sees EOF when its daemon is SIGKILLed and left a zombie, despite a later child {"detectMs":23,"daemonState":"Z","sentinelRead":"eof","fd3":"fd3 reached the exec'd drainer"}
+S5 linux bun 1.4.2
+PASS O_RDWR open works; FIFO buffer capacity {"capacityBytes":65536}
+PASS writer blocks when the FIFO is full and nobody reads {"completedWrites64KiB":1,"stillBlockedAfter500ms":true,"writerState":"S"}
+PASS no EPIPE/SIGPIPE when the reader is SIGKILLed; writer blocks again {"readerBytes":382861312,"writerBytes":382992384,"writerError":"","writerState":"S","exitCode":null}
+PASS a new reader resumes where the killed one stopped reading from the kernel {"killedEndOffset":382861312,"resumedFirstOffset":382926848,"resumedBytes":458293248,"continuous":true}
+PASS graceful reader handoff is gap-free and duplicate-free {"firstEnd":1226637312,"secondStart":1226637312,"secondBytes":339607552}
+PASS read fds: EAGAIN while a writer lives, data then EOF after it exits, even with a second read-only fd open {"whileWriterIdle":"EAGAIN","afterExit":{"text":"kept after exit","ending":"eof"}}
+PASS buffered bytes are discarded once the last fd closes (why the sentinel must hold read fds) {"readAfterReopen":{"text":"","ending":"eof"}}
+PASS death pipe: the sentinel sees EOF when its daemon is SIGKILLed and left a zombie, despite a later child {"detectMs":11,"daemonState":"Z","sentinelRead":"eof","fd3":"fd3 reached the exec'd drainer"}
