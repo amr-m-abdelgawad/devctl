@@ -192,7 +192,7 @@ describe("chunk ingest", () => {
 });
 
 describe("stdio handoff", () => {
-  test("a detached drainer keeps a service line for the daemon to read", async () => {
+  test.skipIf(process.platform === "win32")("a detached drainer keeps a service line for the daemon to read", async () => {
     const dir = mkdtempSync(join(tmpdir(), "devctl-stdio-"));
     try {
       const stdio = openServiceStdio(dir, "api");
@@ -230,7 +230,7 @@ describe("reaper and lag", () => {
 });
 
 describe("fifo drain", () => {
-  test("keeps stdout bytes after the writer closes", async () => {
+  test.skipIf(process.platform === "win32")("keeps stdout bytes after the writer closes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "devctl-fifo-"));
     try {
       const fifo = join(dir, "fifo");

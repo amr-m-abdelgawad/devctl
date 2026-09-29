@@ -72,7 +72,13 @@ export function cgroupDirFromProc(text: string, mount = "/sys/fs/cgroup"): strin
     return mount;
   }
   const cleaned = relative.startsWith("/") ? relative.slice(1) : relative;
-  return join(mount, cleaned);
+  return cgroupPath(mount, cleaned);
+}
+
+/** cgroup paths are always POSIX, including when the test host is Windows. */
+function cgroupPath(mount: string, relative: string): string {
+  const base = mount.endsWith("/") ? mount.slice(0, -1) : mount;
+  return relative === "" ? base : `${base}/${relative}`;
 }
 
 function readOwnCgroupDir(): string | undefined {
