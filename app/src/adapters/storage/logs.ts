@@ -362,13 +362,15 @@ export class LogManager {
   }
 
   snapshot(): LogSnapshot {
-    return {
+    const base: LogSnapshot = {
       total: this.ring.length,
       errors: this.ring.errors,
       counts: { ...this.ring.counts },
       seen: this.recorded,
       seenErrors: this.errorCount,
     };
+    const pipeline = this.pipelineStats();
+    return pipeline === undefined ? base : { ...base, pipeline };
   }
 
   private forEachEvent(visit: (event: LogRecord) => void): void {

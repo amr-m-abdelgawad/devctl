@@ -72,7 +72,7 @@ export type Handle = {
 };
 
 export class ProcessManager implements ProcessRuntime {
-  constructor(private readonly options: { stdioRoot?: string } = {}) {}
+  constructor(private readonly options: { stdioRoot?: string; spoolMaxBytes?: number } = {}) {}
 
   isRunning(name: string): boolean {
     const handle = this.running.get(name);
@@ -91,7 +91,7 @@ export class ProcessManager implements ProcessRuntime {
       throw newError(KindProcessStart, "empty command");
     }
     const cmd = spec.shell ? shellCommand(spec.args) : spec.args;
-    const stdio = this.options.stdioRoot === undefined ? undefined : openServiceStdio(this.options.stdioRoot, spec.name);
+    const stdio = this.options.stdioRoot === undefined ? undefined : openServiceStdio(this.options.stdioRoot, spec.name, this.options.spoolMaxBytes);
     let proc: Subprocess;
     let usingFifo = stdio !== undefined;
     try {

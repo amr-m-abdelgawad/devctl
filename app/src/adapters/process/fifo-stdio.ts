@@ -19,13 +19,13 @@ export type ServiceStdio = {
 };
 
 /** POSIX FIFO stdio with a detached drainer. Undefined on Windows or when setup fails. */
-export function openServiceStdio(root: string, service: string): ServiceStdio | undefined {
+export function openServiceStdio(root: string, service: string, spoolMaxBytes = DEFAULT_LOG_CAP_BYTES): ServiceStdio | undefined {
   if (process.platform === "win32" || root === "") {
     return undefined;
   }
   try {
-    const stdout = openStream(root, service, "stdout");
-    const stderr = openStream(root, service, "stderr");
+    const stdout = openStream(root, service, "stdout", spoolMaxBytes);
+    const stderr = openStream(root, service, "stderr", spoolMaxBytes);
     return {
       stdoutFd: stdout.writeFd,
       stderrFd: stderr.writeFd,
@@ -60,15 +60,17 @@ type StreamEnds = {
   release: () => void;
 };
 
-function openStream(root: string, service: string, stream: "stdout" | "stderr"): StreamEnds {
+function openStream(root: string, service: string, stream: "stdout" | "stderr", spoolMaxBytes: number): StreamEnds {
   const dir = streamDir(root, service, stream);
   ensureStdioDir(dir);
   const fifo = join(dir, "fifo");
   ensureFifo(fifo);
   const holder = openSync(fifo, constants.O_RDWR);
-  const child = spawnDrain(fifo, dir);
+  const child = spawnDrain(fifo, dir, spoolMaxBytes);
   waitForReader(dir);
-  const writeFd = openSync(fifo, constants.O_WRONLY | (constants.O_NONBLOCK ?? 0));
+  // Blocking write end. O_NONBLOCK here is inherited by the service and turns a
+  // full FIFO into EAGAIN, which kills Python and Node instead of pausing them.
+  const writeFd = openSync(fifo, constants.O_WRONLY);
   writeFileSync(join(dir, "sentinel"), `${JSON.stringify({ pid: child.pid ?? 0, at: Date.now() })}\n`, { mode: 0o600 });
   return {
     dir,
@@ -84,8 +86,8 @@ function streamDir(root: string, service: string, stream: "stdout" | "stderr"): 
   return join(serviceStdioDir(root, service), stream);
 }
 
-function spawnDrain(fifo: string, dir: string): ReturnType<typeof spawn> {
-  const max = String(DEFAULT_LOG_CAP_BYTES);
+function spawnDrain(fifo: string, dir: string, spoolMaxBytes: number): ReturnType<typeof spawn> {
+  const max = String(spoolMaxBytes > 0 ? spoolMaxBytes : DEFAULT_LOG_CAP_BYTES);
   const cmd = Bun.isStandaloneExecutable === true
     ? [process.execPath, "_fifo_drain", fifo, dir, max]
     : [process.execPath, "-e", drainEval(), fifo, dir, max];
