@@ -28,7 +28,7 @@ describe("liveness decision", () => {
     expect(decideLiveness({ process: "zombie", identityMatches: true, lockGeneration: 2 })).toBe("spawn");
     expect(decideLiveness({ process: "alive", identityMatches: true, lockGeneration: 1 })).toBe("leave-legacy");
     expect(LEGACY_DAEMON_MESSAGE).toContain("devctl down --force");
-    expect(logBatchWire({ session: "s", firstSeq: 1, lastSeq: 1, newest: [], replaced: [], stats: { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 } })).toContain("\"session\":\"s\"");
+    expect(logBatchWire({ session: "s", firstSeq: 1, lastSeq: 1, newest: [], replaced: [], skipped: 0, stats: { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 } })).toContain("\"session\":\"s\"");
   });
 
   test("a ticking daemon with a slow socket is waited on, and a 60s stall is a wedge", () => {
@@ -103,8 +103,10 @@ describe("ordered spool", () => {
         { readAtMs: 1, bytes: Buffer.from("one") },
         { readAtMs: 2, bytes: Buffer.from("two") },
       ])).toBe("ok");
-      const frames = spool.consume();
-      expect(frames.map((frame) => frame.bytes.toString("utf8"))).toEqual(["one", "two"]);
+      const segment = spool.consumeNext();
+      expect(segment?.header?.service).toBe("api");
+      expect(segment?.frames.map((frame) => frame.bytes.toString("utf8"))).toEqual(["one", "two"]);
+      expect(spool.consumeNext()).toBeUndefined();
       expect(spool.size()).toBe(0);
       const encoded = encodeSegment({ session: "s", service: "api", stream: "stdout", pid: 1 }, [{ readAtMs: 5, bytes: Buffer.from("z") }]);
       expect(decodeSegment(encoded)[0]?.bytes.toString("utf8")).toBe("z");
@@ -155,14 +157,17 @@ describe("ring budget", () => {
 });
 
 describe("session cap", () => {
-  test("stops persisting once the session byte cap is reached", () => {
+  test("keeps persisting past the session byte cap by dropping the oldest part", async () => {
     const dir = mkdtempSync(join(tmpdir(), "devctl-cap-"));
     try {
-      const writer = new SessionLogWriter(dir, 1024, { maxSessionBytes: 16, maxSpoolBytes: 16 });
+      const writer = new SessionLogWriter(dir, 1024, { maxSessionBytes: 16 });
       writer.write("api", "0123456789\n");
-      writer.write("api", "0123456789\n");
-      expect(writer.paused).toBe(true);
-      expect(writer.loss).toBeGreaterThan(0);
+      writer.write("api", "abcdefghij\n");
+      await writer.flush();
+      await writer.close();
+      expect(writer.loss).toBe(0);
+      expect(writer.degraded).toBeUndefined();
+      expect(writer.sessionByteCount()).toBeLessThanOrEqual(16 + 11);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

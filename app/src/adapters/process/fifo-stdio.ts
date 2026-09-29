@@ -5,11 +5,13 @@ import { join } from "node:path";
 import { DEFAULT_LOG_CAP_BYTES } from "../../domain/logs/budgets.ts";
 import { ensureFifo } from "./fifo-drain.ts";
 import { ensureStdioDir, readySequences, segmentPath, serviceStdioDir } from "./fifo-segments.ts";
+import { deliverEnd } from "./output-pump.ts";
+import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
 
 const READER_WAIT_MS = 1_000;
 const FOLLOW_IDLE_MS = 5;
 
-export type StdioChunk = (stream: "stdout" | "stderr", bytes: Uint8Array) => boolean;
+export type StdioChunk = ProcessChunkHandler;
 
 export type ServiceStdio = {
   stdoutFd: number;
@@ -122,8 +124,8 @@ async function followBoth(
   done?: () => boolean,
 ): Promise<void> {
   await Promise.all([
-    followDir(stdoutDir, (bytes) => onChunk("stdout", bytes), paused, done),
-    followDir(stderrDir, (bytes) => onChunk("stderr", bytes), paused, done),
+    followDir(stdoutDir, (bytes) => onChunk("stdout", bytes), paused, done).then(() => deliverEnd("stdout", onChunk)),
+    followDir(stderrDir, (bytes) => onChunk("stderr", bytes), paused, done).then(() => deliverEnd("stderr", onChunk)),
   ]);
 }
 
@@ -133,25 +135,27 @@ async function followDir(
   paused?: () => boolean,
   done?: () => boolean,
 ): Promise<void> {
-  const consumed = new Set<number>();
+  // Segments that were delivered but could not be deleted. Everything else is
+  // deleted once delivered, so nothing needs remembering per segment.
+  const stuck = new Set<number>();
   while (done?.() !== true) {
-    const progressed = await consumeReady(dir, consumed, onBytes, paused);
+    const progressed = await consumeReady(dir, stuck, onBytes, paused);
     if (!progressed) {
       await sleep(FOLLOW_IDLE_MS);
     }
   }
-  await consumeReady(dir, consumed, onBytes, paused);
+  await consumeReady(dir, stuck, onBytes, paused);
 }
 
 async function consumeReady(
   dir: string,
-  consumed: Set<number>,
+  stuck: Set<number>,
   onBytes: (bytes: Uint8Array) => boolean,
   paused?: () => boolean,
 ): Promise<boolean> {
   let progressed = false;
   for (const seq of readySequences(dir)) {
-    if (consumed.has(seq)) {
+    if (stuck.has(seq)) {
       continue;
     }
     const path = segmentPath(dir, seq);
@@ -169,10 +173,14 @@ async function consumeReady(
         await sleep(FOLLOW_IDLE_MS);
       }
     }
-    unlinkQuiet(path);
+    if (!unlinkQuiet(path)) {
+      stuck.add(seq);
+    }
     unlinkQuiet(join(dir, `ready-${String(seq).padStart(8, "0")}`));
-    consumed.add(seq);
     progressed = true;
+    // One segment per turn, so a service that keeps writing cannot starve
+    // timers, RPC, and health checks on this event loop.
+    await nextTurn();
   }
   return progressed;
 }
@@ -185,12 +193,19 @@ function closeQuiet(fd: number): void {
   }
 }
 
-function unlinkQuiet(path: string): void {
+function unlinkQuiet(path: string): boolean {
   try {
     unlinkSync(path);
-  } catch {
-    // already consumed
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "ENOENT";
   }
+}
+
+function nextTurn(): Promise<void> {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
 }
 
 function sleep(ms: number): Promise<void> {

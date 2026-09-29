@@ -29,7 +29,7 @@ import {
   type ServiceState,
 } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
-import type { ProcessRuntime } from "../ports/process-runtime.ts";
+import type { ProcessChunkMeta, ProcessRuntime } from "../ports/process-runtime.ts";
 import type { StartRequest } from "../domain/status.ts";
 import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
 import type { LifecycleSession } from "../ports/lifecycle-session.ts";
@@ -367,13 +367,14 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
         return;
       }
       const onChunk = s.logs.ingestChunk
-        ? (stream: "stdout" | "stderr", bytes: Uint8Array): boolean =>
+        ? (stream: "stdout" | "stderr", bytes: Uint8Array, meta?: ProcessChunkMeta): boolean =>
             s.logs.ingestChunk?.({
               service: name,
               stream,
-              pid: this.processes.get(name)?.pid ?? 0,
+              pid: meta?.pid ?? 0,
               readAtMs: this.clock.unixMs(),
               bytes,
+              end: meta?.end,
             }) ?? false
         : undefined;
       const onLine = onChunk

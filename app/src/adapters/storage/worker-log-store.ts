@@ -1,7 +1,7 @@
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogParser, LogRecord } from "../../domain/logs/logs.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
-import { CREDIT_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
+import { CREDIT_PER_STREAM_BYTES, CREDIT_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { Detector } from "../secrets/detector.ts";
@@ -10,6 +10,8 @@ import { resolveWorkerUrl } from "./worker-resolver.ts";
 import type { WorkerLogConfig, WorkerRequest, WorkerResponse, WorkerRpcBody } from "./log-worker-protocol.ts";
 
 export type { WorkerLogConfig } from "./log-worker-protocol.ts";
+
+type WorkerChunk = { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean };
 
 export const WORKER_INIT_TIMEOUT_MS = 500;
 export const WORKER_RPC_TIMEOUT_MS = 10_000;
@@ -48,7 +50,8 @@ export class WorkerLogStore implements LogStore {
   private dead = false;
   private shed = false;
   private unacked = 0;
-  private readonly inflight = new Map<number, { bytes: number; chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array } }>();
+  private readonly unackedByStream = new Map<string, number>();
+  private readonly inflight = new Map<number, { bytes: number; key: string; chunk: WorkerChunk }>();
   private readonly batcher: LogBatcher;
   private pipeline: LogSnapshot["pipeline"];
   private readySettled = false;
@@ -100,7 +103,12 @@ export class WorkerLogStore implements LogStore {
     });
   }
 
-  ingestChunk(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array }): boolean {
+  /**
+   * Posts raw output to the worker within a credit window per stream and in
+   * total. The worker acks a chunk only once its pipeline has taken it, so
+   * unacked bytes are exactly what the worker still holds for us.
+   */
+  ingestChunk(chunk: WorkerChunk): boolean {
     if (this.fallback?.ingestChunk) {
       return this.fallback.ingestChunk(chunk);
     }
@@ -108,19 +116,25 @@ export class WorkerLogStore implements LogStore {
       return false;
     }
     const size = chunk.bytes.byteLength;
-    if (this.unacked + size > CREDIT_TOTAL_BYTES) {
+    const key = `${chunk.service}\0${chunk.stream}\0${chunk.pid}`;
+    const streamUnacked = this.unackedByStream.get(key) ?? 0;
+    // A window that holds nothing yet takes one chunk of any size, so an
+    // oversized chunk cannot wait forever.
+    const overStream = streamUnacked > 0 && streamUnacked + size > CREDIT_PER_STREAM_BYTES;
+    const overTotal = this.unacked > 0 && this.unacked + size > CREDIT_TOTAL_BYTES;
+    if (size > 0 && (overStream || overTotal)) {
       return false;
     }
     const id = this.nextId;
     this.nextId += 1;
     const copy = { ...chunk, bytes: new Uint8Array(chunk.bytes) };
     this.unacked += size;
-    this.inflight.set(id, { bytes: size, chunk: copy });
+    this.unackedByStream.set(key, streamUnacked + size);
+    this.inflight.set(id, { bytes: size, key, chunk: copy });
     try {
-      this.post({ id, type: "chunk", service: copy.service, stream: copy.stream, pid: copy.pid, readAtMs: copy.readAtMs, bytes: copy.bytes });
+      this.post({ id, type: "chunk", service: copy.service, stream: copy.stream, pid: copy.pid, readAtMs: copy.readAtMs, bytes: copy.bytes, end: copy.end });
     } catch (error) {
-      this.inflight.delete(id);
-      this.unacked = Math.max(0, this.unacked - size);
+      this.release(id);
       this.failOver(error instanceof Error ? error : new Error(String(error)));
       return this.fallback?.ingestChunk?.(chunk) ?? false;
     }
@@ -264,6 +278,7 @@ export class WorkerLogStore implements LogStore {
     const chunks = [...this.inflight.values()].map((row) => row.chunk);
     this.inflight.clear();
     this.unacked = 0;
+    this.unackedByStream.clear();
     this.markDead(error);
     this.fallback = inProcessFromConfig(this.config, this.bus ?? new Bus(1), new Detector(this.config.extraMarkers, this.config.extraPatterns, this.config.redact));
     for (const event of missed) {
@@ -367,16 +382,28 @@ export class WorkerLogStore implements LogStore {
   }
 
   private onChunkAck(id: number, accepted: boolean, stats: LogSnapshot): void {
-    const row = this.inflight.get(id);
-    this.inflight.delete(id);
-    if (row) {
-      this.unacked = Math.max(0, this.unacked - row.bytes);
-    }
+    const row = this.release(id);
     this.stats = stats;
     this.pipeline = stats.pipeline ?? this.pipeline;
     if (!accepted && row && this.fallback?.ingestChunk) {
       this.fallback.ingestChunk(row.chunk);
     }
+  }
+
+  private release(id: number): { bytes: number; key: string; chunk: WorkerChunk } | undefined {
+    const row = this.inflight.get(id);
+    if (row === undefined) {
+      return undefined;
+    }
+    this.inflight.delete(id);
+    this.unacked = Math.max(0, this.unacked - row.bytes);
+    const left = (this.unackedByStream.get(row.key) ?? 0) - row.bytes;
+    if (left > 0) {
+      this.unackedByStream.set(row.key, left);
+    } else {
+      this.unackedByStream.delete(row.key);
+    }
+    return row;
   }
 
   private settleReady(): void {

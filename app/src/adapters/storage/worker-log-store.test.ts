@@ -45,6 +45,25 @@ describe("WorkerLogStore", () => {
     }
   });
 
+  test("an end marker makes the worker emit the stream's last unterminated line", async () => {
+    const store = new WorkerLogStore(config(), new Bus(16));
+    try {
+      await store.waitUntilReady();
+      const chunk = { service: "api", stream: "stdout", pid: 9, readAtMs: Date.parse("2026-09-28T00:00:00.000Z") };
+      expect(store.ingestChunk({ ...chunk, bytes: Buffer.from("whole\nno newline at exit") })).toBe(true);
+      expect(store.ingestChunk({ ...chunk, bytes: new Uint8Array(0), end: true })).toBe(true);
+      let messages: string[] = [];
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline && !messages.includes("no newline at exit")) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        messages = (await store.queryPage({}, { limit: 10 })).events.map((event) => logMessage(event));
+      }
+      expect(messages).toEqual(["whole", "no newline at exit"]);
+    } finally {
+      await store.close();
+    }
+  });
+
   test("append is visible to queryPage and publishes LogReceived", async () => {
     const bus = new Bus(16);
     const received: string[] = [];

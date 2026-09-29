@@ -1,10 +1,11 @@
 import { MAX_LOG_LINE_CHARS } from "../../domain/logs/types.ts";
 import { COALESCE_BYTES, COALESCE_MS, SPLIT_MAX_BYTES } from "../../domain/logs/budgets.ts";
 import { LineSplitter } from "../storage/ingest/line-splitter.ts";
+import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
 
 export type StreamName = "stdout" | "stderr";
 export type LineHandler = (stream: StreamName, line: string) => void;
-export type ChunkHandler = (stream: StreamName, bytes: Uint8Array) => boolean;
+export type ChunkHandler = ProcessChunkHandler;
 
 const MAX_LINE_BYTES = 1024 * 1024;
 const PAUSE_POLL_MS = 5;
@@ -167,6 +168,7 @@ export async function pumpChunks(
     // The child exited and cancelled the pipe. Deliver whatever was already read.
   }
   await deliverChunk(kind, handler, options, take());
+  await deliverEnd(kind, handler);
 }
 
 async function nextPumpStep(
@@ -198,6 +200,15 @@ async function deliverChunk(
     if (!accepted) {
       await sleepMs(PAUSE_POLL_MS);
     }
+  }
+}
+
+const NO_BYTES = new Uint8Array(0);
+
+/** Tells the handler the stream is finished, so it can emit a last line that had no newline. */
+export async function deliverEnd(kind: StreamName, handler: ChunkHandler): Promise<void> {
+  while (handler(kind, NO_BYTES, { end: true }) === false) {
+    await sleepMs(PAUSE_POLL_MS);
   }
 }
 

@@ -23,7 +23,7 @@ export type WorkerLogConfig = {
 export type WorkerRequest =
   | { type: "init"; config: WorkerLogConfig }
   | { type: "append"; event: LogIngest }
-  | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array }
+  | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean }
   | { type: "setMemoryBudget"; bytes: number }
   | { type: "setIngestShed"; shed: boolean }
   | { id: number; type: "flush" }

@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { clearInterval as clearWatchInterval, setInterval as setWatchInterval } from "node:timers";
 import { readRpcToken, socketPath } from "../storage/storage.ts";
 import { resolveWorkerUrl } from "../storage/worker-resolver.ts";
-import { heartbeatPath, restartRequestPath, writeHeartbeatAtomic, type HeartbeatFile } from "./heartbeat.ts";
+import { claimRestartRequest, heartbeatPath, writeHeartbeatAtomic, type HeartbeatFile } from "./heartbeat.ts";
 
 export const WATCHDOG_TICK_MS = 1_000;
 export const WATCHDOG_STALL_TICKS = 20;
@@ -82,7 +82,7 @@ export function startEventLoopWatchdog(options: WatchdogOptions): WatchdogHandle
       spawnWorker();
     }
     beat();
-    if (existsSync(restartRequestPath(options.repoRoot))) {
+    if (claimRestartRequest(options.repoRoot, { pid: process.pid, session: options.session })) {
       onRestart?.();
     }
   }, WATCHDOG_TICK_MS);

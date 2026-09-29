@@ -132,6 +132,8 @@ export type LogSnapshot = {
     paused: boolean;
     loss: number;
     ringBytes: number;
+    /** Why persistence is dropping lines right now ("disk-low", "write-error", "backlog"). Clears on its own. */
+    degraded?: string;
   };
 };
 

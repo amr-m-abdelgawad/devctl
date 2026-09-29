@@ -14,6 +14,7 @@ import type { ProxyServer } from "../proxy/proxy.ts";
 import { readPersistedState, repoID } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
 
 export type RecoverHost = {
   cfg: DevctlConfig;
@@ -84,11 +85,12 @@ export async function resolveAdoptedHealthEnv(
   }
 }
 
-function outputChunk(host: RecoverHost, name: string, pid: number): ((stream: "stdout" | "stderr", bytes: Uint8Array) => boolean) | undefined {
+function outputChunk(host: RecoverHost, name: string, pid: number): ProcessChunkHandler | undefined {
   if (!host.logs.ingestChunk) {
     return undefined;
   }
-  return (stream, bytes) => host.logs.ingestChunk?.({ service: name, stream, pid, readAtMs: host.clock.unixMs(), bytes }) ?? false;
+  return (stream, bytes, meta) =>
+    host.logs.ingestChunk?.({ service: name, stream, pid: meta?.pid ?? pid, readAtMs: host.clock.unixMs(), bytes, end: meta?.end }) ?? false;
 }
 
 export function attachProcess(host: RecoverHost, name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
@@ -100,10 +102,7 @@ export function attachProcess(host: RecoverHost, name: string, pid: number, args
   }
   const gen = host.orchestrator.health.bumpGeneration(name);
   try {
-    const onChunk = host.logs.ingestChunk
-      ? (stream: "stdout" | "stderr", bytes: Uint8Array): boolean =>
-          host.logs.ingestChunk?.({ service: name, stream, pid, readAtMs: host.clock.unixMs(), bytes }) ?? false
-      : undefined;
+    const onChunk = outputChunk(host, name, pid);
     host.procs.adopt({
       name,
       pid,

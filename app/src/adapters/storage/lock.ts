@@ -135,6 +135,33 @@ function stampOf(record: LockRecord): ProcessStamp {
   return { startTicks: record.startTicks, bootId: record.bootId, pidNs: record.pidNs, lstart: record.lstart };
 }
 
+/**
+ * Takes a `"wx"` mutex without waiting. Returns its release, or undefined
+ * while another process holds it. A mutex older than the stale limit belonged
+ * to a process that died holding it and is taken over.
+ */
+export function tryMutex(lock: string): (() => void) | undefined {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      closeSync(openSync(lock, "wx", 0o600));
+      return () => unlinkIfPresent(lock);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        return undefined;
+      }
+    }
+    try {
+      if (Date.now() - statMtime(lock) <= LOCK_STALE_MS) {
+        return undefined;
+      }
+      unlinkIfPresent(lock);
+    } catch {
+      // released between the attempts
+    }
+  }
+  return undefined;
+}
+
 function acquireMutex(lock: string): void {
   const deadline = Date.now() + LOCK_WAIT_MS;
   for (;;) {

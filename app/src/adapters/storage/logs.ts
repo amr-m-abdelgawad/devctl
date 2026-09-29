@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { type Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
@@ -9,7 +9,10 @@ import { LogRing } from "./log-ring.ts";
 import { SessionLogWriter } from "./log-persist.ts";
 import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
-import { IngestPipeline, type PipelineChunk } from "./ingest/pipeline.ts";
+import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLine } from "./ingest/pipeline.ts";
+import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
+import { tryMutex } from "./lock.ts";
+import { processState, readSelfStamp, readStamp, sameStamp, type ProcessStamp } from "../process/liveness.ts";
 
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import {
@@ -17,7 +20,9 @@ import {
   clampLogPageSize,
   createLogMatcher,
   createSearchMatcher,
+  decodeLogCursor,
   dedupeLogsByRequestId,
+  encodeLogCursor,
   isErrorSeverity,
   PROXY_HOP_CORRELATE_WINDOW_MS,
   requestIdAttribute,
@@ -47,37 +52,22 @@ import {
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
+const PRUNE_INTERVAL_MS = 5 * 60_000;
+const PRUNE_ON_ROTATE_MIN_MS = 30_000;
+// A session with no owner stamp (written by an older daemon) counts as live
+// while any of its files changed this recently.
+const UNOWNED_LIVE_MS = 10 * 60_000;
+
+/** The daemon writing a session. The pruner never deletes a session whose owner still runs. */
+type SessionOwner = { pid: number } & ProcessStamp;
 const SESSION_PREFIX = "session-";
 const SESSION_FORMAT_FILE = "FORMAT";
 const SESSION_FORMAT_JSONL = "jsonl";
-
-type LogCursor = { session: string; seq: number };
 
 type CorrelateCandidate = {
   readonly event: LogRecord;
   readonly arrivedMs: number;
 };
-
-function encodeLogCursor(c: LogCursor): string {
-  return Buffer.from(JSON.stringify(c), "utf8").toString("base64url");
-}
-
-function decodeLogCursor(raw: string): LogCursor | undefined {
-  try {
-    const parsed: unknown = JSON.parse(Buffer.from(raw, "base64url").toString("utf8"));
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      typeof (parsed as { session?: unknown }).session === "string" &&
-      typeof (parsed as { seq?: unknown }).seq === "number"
-    ) {
-      return parsed as LogCursor;
-    }
-  } catch {
-    // malformed cursor — treated as absent by callers
-  }
-  return undefined;
-}
 
 function accessLineKey(service: string, pid: number): string {
   return `${service}\0${pid}`;
@@ -132,6 +122,13 @@ export class LogManager {
   private readonly retentionDays: number;
   private readonly spoolDir: string;
   private readonly maxSpoolBytes: number;
+  private readonly maxSessionLogs: number;
+  private readonly maxTotalBytes: number;
+  private pruneTimer?: ReturnType<typeof setInterval>;
+  private lastPruneAt = 0;
+  private owner?: SessionOwner;
+  private closing = false;
+  private readonly replay: Promise<void>;
 
   constructor(
     max: number,
@@ -158,18 +155,76 @@ export class LogManager {
     this.persist = persist && sessionID !== "";
     this.persistDir = this.persist ? join(root, `${SESSION_PREFIX}${sessionID}`) : "";
     this.spoolDir = options.spoolDir ?? "";
+    this.maxSessionLogs = maxSessionLogs;
+    this.maxTotalBytes = options.maxTotalBytes ?? 0;
+    // Taken before this daemon's pipeline creates spool directories of its own.
+    // A store that takes over this session (worker failover) continues the
+    // session's own spool directories through its pipeline instead.
+    const own = sessionSpoolPrefix(sessionID);
+    const leftovers = leftoverSpoolDirs(this.spoolDir).filter((dir) => !basename(dir).startsWith(own));
     if (this.persist) {
       mkdirSync(this.persistDir, { recursive: true, mode: 0o700 });
       writeFileSync(join(this.persistDir, SESSION_FORMAT_FILE), `${SESSION_FORMAT_JSONL}\n`, { mode: 0o600 });
       this.writer = new SessionLogWriter(this.persistDir, options.pendingLimitBytes, {
         maxSessionBytes: options.maxSessionBytes,
-        maxSpoolBytes: options.maxSpoolBytes,
+        onRotate: () => this.prune(PRUNE_ON_ROTATE_MIN_MS),
       });
       this.writeManifest(false);
-      pruneSessions(root, retentionDays, maxSessionLogs, options.repoKey, {
-        maxTotalBytes: options.maxTotalBytes ?? 0,
+      this.prune(0);
+      this.pruneTimer = setInterval(() => this.prune(0), PRUNE_INTERVAL_MS);
+      this.pruneTimer.unref?.();
+    }
+    this.replay = leftovers.length === 0 ? Promise.resolve() : this.replayLeftovers(leftovers);
+  }
+
+  /** Settles once leftover spools from an earlier daemon are replayed, or replay stopped at close. */
+  replayDone(): Promise<void> {
+    return this.replay;
+  }
+
+  // Output a crashed daemon had read but not parsed goes into that daemon's own
+  // session history (or, without persistence, into this one's live window).
+  private async replayLeftovers(dirs: string[]): Promise<void> {
+    // Let the owner install parsers and service settings first.
+    await new Promise((resolve) => setImmediate(resolve));
+    const sink = this.persist
+      ? sessionHistorySink(
+          (session) => join(this.logRoot, `${SESSION_PREFIX}${session}`),
+          (service) => `${safeServiceFile(service)}.jsonl`,
+          (line, seq) => this.replayRecord(line, seq),
+        )
+      : (_header: unknown, lines: ReplayLine[]): void => {
+          for (const line of lines) {
+            this.appendLine(line);
+          }
+        };
+    try {
+      await replayLeftoverSpools(dirs, sink, () => this.closing);
+    } catch {
+      // Whatever was not replayed stays on disk for the next daemon.
+    }
+  }
+
+  private replayRecord(line: ReplayLine, seq: number): LogRecord {
+    const built = buildLogRecord(outputLineIngest(line), this.parseLine(truncateLogLine(line.line)), seq);
+    return this.detector ? redactLogRecord(this.detector, built) : built;
+  }
+
+  // Keeps closed sessions within retention and the shared byte cap. Runs at
+  // start, every few minutes, and (throttled) whenever a service file rolls.
+  private prune(minIntervalMs: number): void {
+    const now = Date.now();
+    if (!this.persist || this.closing || now - this.lastPruneAt < minIntervalMs) {
+      return;
+    }
+    this.lastPruneAt = now;
+    try {
+      pruneSessions(this.logRoot, this.retentionDays, this.maxSessionLogs, this.repoKey === "" ? undefined : this.repoKey, {
+        maxTotalBytes: this.maxTotalBytes,
         liveDir: this.persistDir,
       });
+    } catch {
+      // a session another process removed mid-scan; the next round retries
     }
   }
 
@@ -189,29 +244,48 @@ export class LogManager {
     this.onRecord = handler;
   }
 
-  acceptChunk(chunk: Omit<PipelineChunk, "session" | "bytes"> & { bytes: Uint8Array }): boolean {
-    if (this.ingestShed) {
+  /**
+   * Raw service output in read order. False means the pipeline is full and
+   * the caller must offer the same chunk again. `end` (with no bytes) marks
+   * the stream finished so its last unterminated line is emitted.
+   */
+  acceptChunk(chunk: Omit<PipelineChunk, "session" | "bytes"> & { bytes: Uint8Array; end?: boolean }, force = false): boolean {
+    if (this.ingestShed && !force) {
       return false;
     }
     const pipeline = this.ensurePipeline();
-    const accepted = pipeline.enqueueChunk({
-      session: this.sessionID,
-      service: chunk.service,
-      stream: chunk.stream,
-      pid: chunk.pid,
-      readAtMs: chunk.readAtMs,
-      bytes: Buffer.from(chunk.bytes),
-    });
+    if (chunk.bytes.byteLength > 0) {
+      const accepted = pipeline.enqueueChunk({
+        session: this.sessionID,
+        service: chunk.service,
+        stream: chunk.stream,
+        pid: chunk.pid,
+        readAtMs: chunk.readAtMs,
+        bytes: Buffer.from(chunk.bytes),
+      }, force);
+      if (!accepted) {
+        this.scheduleDrain();
+        return false;
+      }
+    }
+    if (chunk.end === true) {
+      pipeline.endStream(chunk);
+    }
     this.scheduleDrain();
-    return accepted;
+    return true;
   }
 
   setIngestShed(shed: boolean): void {
     this.ingestShed = shed;
   }
 
+  /**
+   * True when readers must stop: the pipeline refused bytes because both its
+   * memory window and its spool are full. Persistence never pauses ingest;
+   * a lagging writer only slows parsing while the spool absorbs the output.
+   */
   ingestPaused(): boolean {
-    return this.ingestShed || this.persistencePaused() || this.pipeline?.paused === true;
+    return this.ingestShed || this.pipeline?.paused === true;
   }
 
   pipelineStats(): LogSnapshot["pipeline"] {
@@ -224,6 +298,7 @@ export class LogManager {
       paused: this.ingestPaused(),
       loss: (this.pipeline?.loss ?? 0) + (this.writer?.loss ?? 0),
       ringBytes: this.ring.byteSize(),
+      degraded: this.writer?.degraded ?? (this.pipeline?.diskFull === true ? "disk-low" : undefined),
     };
   }
 
@@ -255,9 +330,6 @@ export class LogManager {
     return this.writer?.loss ?? 0;
   }
 
-  persistencePaused(): boolean {
-    return this.writer?.paused === true;
-  }
 
   private parseLine(line: string): ParsedLog {
     let out: ParsedLog = parseLogLine(line);
@@ -275,10 +347,18 @@ export class LogManager {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
+    if (this.pruneTimer !== undefined) {
+      clearInterval(this.pruneTimer);
+      this.pruneTimer = undefined;
+    }
+    await this.replay;
     if (this.drainTimer !== undefined) {
       clearTimeout(this.drainTimer);
       this.drainTimer = undefined;
     }
+    // Bytes next in line are parsed now; newer ones stay spooled for the next daemon to replay.
+    this.pipeline?.drainForClose(this.appendLine);
     await this.flush();
     this.writeManifest(true);
     await this.writer?.close();
@@ -549,21 +629,23 @@ export class LogManager {
     if (pipeline === undefined) {
       return;
     }
-    const more = pipeline.processSlice((line) => {
-      this.append({
-        timestamp: new Date(line.readAtMs).toISOString(),
-        service: line.service,
-        source: line.stream,
-        stream: line.stream,
-        level: "",
-        message: line.line,
-        pid: line.pid,
-      });
-    });
+    // While writes lag, output waits in the ordered spool instead of piling
+    // up in the writer, so the persisted session stays gap-free.
+    if (this.writer?.backpressured() === true) {
+      if (pipeline.pending()) {
+        this.scheduleDrain();
+      }
+      return;
+    }
+    const more = pipeline.processSlice(this.appendLine);
     if (more) {
       this.scheduleDrain();
     }
   }
+
+  private readonly appendLine = (line: PipelineLine): void => {
+    this.append(outputLineIngest(line));
+  };
 
   private noteBatch(event: LogRecord): void {
     if (this.bus === undefined) {
@@ -611,14 +693,29 @@ export class LogManager {
     if (!this.persist) {
       return;
     }
+    this.owner ??= { pid: process.pid, ...readSelfStamp() };
     const body = {
       repo: this.repoKey,
       retentionDays: this.retentionDays,
       bytes: this.writer?.sessionByteCount() ?? 0,
+      owner: this.owner,
       closedAt: closed ? new Date().toISOString() : undefined,
     };
     writeFileSync(join(this.persistDir, "manifest.json"), `${JSON.stringify(body)}\n`, { mode: 0o600 });
   }
+}
+
+// A line of service output, stamped with the time it was read from the pipe.
+function outputLineIngest(line: PipelineLine): LogIngest {
+  return {
+    timestamp: new Date(line.readAtMs).toISOString(),
+    service: line.service,
+    source: line.stream,
+    stream: line.stream,
+    level: "",
+    message: line.line,
+    pid: line.pid,
+  };
 }
 
 function shouldFoldProcessLine(ev: LogIngest): boolean {
@@ -863,31 +960,98 @@ type PruneOptions = {
   liveDir?: string;
 };
 
+/**
+ * Deletes sessions past retention, past the per-repo count, and oldest-first
+ * past the shared byte cap. A session whose owning daemon is still running is
+ * never deleted, whichever repo it belongs to. Runs under a root-wide mutex;
+ * when another daemon is already pruning this root, this call does nothing.
+ */
 export function pruneSessions(root: string, retentionDays: number, maxSessionLogs: number, repoKey?: string, options: PruneOptions = {}): void {
   if (!existsSync(root)) {
     return;
   }
+  const release = tryMutex(join(root, PRUNE_MUTEX));
+  if (release === undefined) {
+    return;
+  }
+  try {
+    pruneSessionsLocked(root, retentionDays, maxSessionLogs, repoKey, options);
+  } finally {
+    release();
+  }
+}
+
+function pruneSessionsLocked(root: string, retentionDays: number, maxSessionLogs: number, repoKey: string | undefined, options: PruneOptions): void {
   const sessions = readdirSync(root)
     .filter((name) => name.startsWith(SESSION_PREFIX))
     .map((name) => {
       const path = join(root, name);
       const st = statSync(path);
-      return { path, mtime: st.mtimeMs, repo: readSessionRepo(path) };
+      const manifest = readSessionManifest(path);
+      return {
+        path,
+        mtime: st.mtimeMs,
+        repo: typeof manifest?.repo === "string" ? manifest.repo : "",
+        retentionDays: typeof manifest?.retentionDays === "number" ? manifest.retentionDays : 0,
+      };
     })
     .sort((a, b) => b.mtime - a.mtime);
-  const cutoff = retentionDays > 0 ? Date.now() - retentionDays * 86_400_000 : 0;
+  const now = Date.now();
   const counted = repoKey === undefined ? sessions : sessions.filter((session) => session.repo === repoKey);
   const countedPaths = new Set(counted.map((session) => session.path));
   sessions.forEach((session, index) => {
     const inCount = repoKey === undefined || countedPaths.has(session.path);
     const countIndex = repoKey === undefined ? index : counted.findIndex((row) => row.path === session.path);
-    const tooOld = cutoff > 0 && session.mtime < cutoff && (repoKey === undefined || session.repo === repoKey || session.repo === "");
+    // This repo's sessions (and unlabeled ones) follow this daemon's retention;
+    // another repo's sessions follow the retention recorded when they were written.
+    const ownRules = repoKey === undefined || session.repo === repoKey || session.repo === "";
+    const days = ownRules ? retentionDays : session.retentionDays;
+    const tooOld = days > 0 && session.mtime < now - days * 86_400_000;
     const overCap = inCount && maxSessionLogs > 0 && countIndex >= maxSessionLogs;
-    if ((tooOld || overCap) && session.path !== options.liveDir) {
+    if ((tooOld || overCap) && session.path !== options.liveDir && !sessionOwnerRunning(session.path)) {
       rmSync(session.path, { recursive: true, force: true });
     }
   });
   pruneSessionBytes(root, options.maxTotalBytes ?? 0, options.liveDir);
+}
+
+const PRUNE_MUTEX = ".prune.lock";
+
+function sessionOwnerRunning(dir: string): boolean {
+  const manifest = readSessionManifest(dir);
+  if (manifest === undefined || typeof manifest.closedAt === "string") {
+    return false;
+  }
+  const owner = manifest.owner;
+  if (typeof owner !== "object" || owner === null || typeof (owner as { pid?: unknown }).pid !== "number") {
+    return newestFileAgeMs(dir) < UNOWNED_LIVE_MS;
+  }
+  const held = owner as SessionOwner;
+  if (processState(held.pid) !== "alive") {
+    return false;
+  }
+  return sameStamp(held, held.pid === process.pid ? readSelfStamp() : readStamp(held.pid));
+}
+
+function readSessionManifest(dir: string): Record<string, unknown> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+    return isPlainObject(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function newestFileAgeMs(dir: string): number {
+  let newest = 0;
+  try {
+    for (const name of readdirSync(dir)) {
+      newest = Math.max(newest, statSync(join(dir, name)).mtimeMs);
+    }
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+  return Date.now() - newest;
 }
 
 function pruneSessionBytes(root: string, maxTotalBytes: number, liveDir?: string): void {
@@ -909,6 +1073,9 @@ function pruneSessionBytes(root: string, maxTotalBytes: number, liveDir?: string
   for (const session of sessions) {
     if (total <= maxTotalBytes) {
       return;
+    }
+    if (sessionOwnerRunning(session.path)) {
+      continue;
     }
     rmSync(session.path, { recursive: true, force: true });
     total -= session.bytes;
@@ -949,14 +1116,4 @@ function scanSessionBefore(dir: string, windowStart: number, oldest: number): Lo
     }
   }
   return records;
-}
-
-function readSessionRepo(dir: string): string {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
-    const repo = (parsed as { repo?: unknown }).repo;
-    return typeof repo === "string" ? repo : "";
-  } catch {
-    return "";
-  }
 }

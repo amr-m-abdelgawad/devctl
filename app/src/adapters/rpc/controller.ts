@@ -306,7 +306,13 @@ async function takeOverUnresponsive(repoRoot: string): Promise<Client | undefine
     }
   }
   if (action === "graceful-restart") {
-    writeRestartRequest(repoRoot);
+    const heartbeat = readHeartbeat(repoRoot);
+    if (heartbeat === undefined) {
+      return undefined;
+    }
+    // Addressed to the daemon that wrote the heartbeat, so a successor never
+    // mistakes it for its own restart.
+    writeRestartRequest(repoRoot, { pid: heartbeat.pid, session: heartbeat.session });
     try {
       return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
     } catch {

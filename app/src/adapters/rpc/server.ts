@@ -4,6 +4,7 @@ import { humanMessage, serializeError } from "../../shared/errors.ts";
 import type { Envelope } from "../../types.ts";
 import { KindAuthorization } from "../../shared/errors.ts";
 import { secretMatches } from "../../shared/bearer.ts";
+import { OutboundQueue } from "./outbound-queue.ts";
 
 export type RpcDispatch = (method: string, params: unknown) => Promise<unknown>;
 
@@ -16,7 +17,6 @@ export type RpcServerDeps = {
   token: string;
 };
 
-const MAX_QUEUED_EVENTS = 2000;
 // Cap the inbound line buffer so a local peer cannot grow supervisor memory
 // without bound by streaming bytes with no newline — the buffer accumulates
 // before any token check, since auth runs per complete line in dispatchLine.
@@ -69,23 +69,24 @@ export class RpcServer {
     let buf = "";
     let authed = false;
     let unsub = (): void => undefined;
-    // Bound the outgoing queue so a slow reader under a high-frequency log
-    // stream can't grow memory without limit. Only pure event pushes (no
-    // `id`) are droppable — an RPC response always carries an `id` and the
-    // client would hang forever waiting for it, so those are never dropped.
-    const queue: Envelope[] = [];
+    // The outgoing queue stays bounded while a client is slow or suspended:
+    // live log batches merge, legacy per-record events drop their oldest,
+    // and responses (which a client waits on by `id`) are never dropped.
+    const queue = new OutboundQueue();
     let waitingForDrain = false;
+    let closed = false;
     let logBatch = false;
     const pump = (): void => {
-      while (queue.length > 0 && !waitingForDrain) {
-        const lines: string[] = [];
-        while (queue.length > 0 && lines.length < COALESCE_LINES) {
-          const env = queue.shift();
-          if (env) {
-            lines.push(`${JSON.stringify(env)}\n`);
-          }
+      while (!waitingForDrain && !closed) {
+        const envs = queue.drain(COALESCE_LINES);
+        if (envs.length === 0) {
+          return;
         }
-        const ok = socketConn.write(lines.join(""));
+        let lines = "";
+        for (const env of envs) {
+          lines += `${JSON.stringify(env)}\n`;
+        }
+        const ok = socketConn.write(lines);
         if (!ok) {
           waitingForDrain = true;
           socketConn.once("drain", () => {
@@ -96,6 +97,9 @@ export class RpcServer {
       }
     };
     const write = (env: Envelope): void => {
+      if (closed) {
+        return;
+      }
       const eventType = eventTypeOf(env);
       if (logBatch && eventType === LogReceived) {
         return;
@@ -103,16 +107,13 @@ export class RpcServer {
       if (!logBatch && eventType === LogBatch) {
         return;
       }
-      const droppable = env.id === undefined && eventType === LogReceived;
-      if (droppable && queue.length >= MAX_QUEUED_EVENTS) {
-        const i = queue.findIndex((entry) => entry.id === undefined && eventTypeOf(entry) === LogReceived);
-        if (i >= 0) {
-          queue.splice(i, 1);
-        } else {
-          return;
-        }
+      if (!queue.push(env)) {
+        this.deps.log("devctl", "WARN", "client stopped reading replies; closing its connection");
+        closed = true;
+        queue.clear();
+        socketConn.destroy();
+        return;
       }
-      queue.push(env);
       if (!waitingForDrain) {
         pump();
       }
@@ -153,7 +154,11 @@ export class RpcServer {
         }
       }
     });
-    socketConn.on("close", () => unsub());
+    socketConn.on("close", () => {
+      closed = true;
+      queue.clear();
+      unsub();
+    });
   }
 
   private async dispatchLine(

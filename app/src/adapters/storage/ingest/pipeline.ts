@@ -9,7 +9,7 @@ import {
   SPILL_TOTAL_BYTES,
 } from "../../../domain/logs/budgets.ts";
 import { LineSplitter } from "./line-splitter.ts";
-import { OrderedSpool, type SpoolAppendResult, type SpoolFrame, type SpoolHeader } from "./spool.ts";
+import { OrderedSpool, type SpoolFrame, type SpoolHeader } from "./spool.ts";
 
 export type PipelineChunk = {
   session: string;
@@ -20,22 +20,35 @@ export type PipelineChunk = {
   bytes: Buffer;
 };
 
+export type PipelineStreamKey = Pick<PipelineChunk, "service" | "stream" | "pid">;
+
 export type PipelineLine = {
   service: string;
   stream: string;
   pid: number;
   readAtMs: number;
   line: string;
-  priority: boolean;
 };
 
+/**
+ * One output stream's bytes, oldest first: `head` frames in memory, then the
+ * spooled segments on disk, then `tail` frames in memory. Once anything is
+ * spooled, newer bytes queue in `tail` behind it, so the splitter always sees
+ * the stream in read order.
+ */
 type StreamState = {
+  key: string;
   header: SpoolHeader;
-  memory: SpoolFrame[];
-  memoryBytes: number;
+  head: SpoolFrame[];
+  headIndex: number;
+  headBytes: number;
+  tail: SpoolFrame[];
+  tailBytes: number;
   splitter: LineSplitter;
-  spool: OrderedSpool;
+  spool: OrderedSpool | undefined;
   servedBytes: number;
+  lastReadAtMs: number;
+  ended: boolean;
 };
 
 export type PipelineLimits = {
@@ -43,6 +56,7 @@ export type PipelineLimits = {
   spillTotal?: number;
   creditPerStream?: number;
   creditTotal?: number;
+  /** One budget for every stream's spool together. */
   spoolMaxBytes?: number;
 };
 
@@ -53,15 +67,19 @@ export type PipelineLimits = {
  */
 export class IngestPipeline {
   private readonly streams = new Map<string, StreamState>();
-  private readonly priority: PipelineLine[] = [];
   private memoryBytes = 0;
+  private spooledTotal = 0;
   private readonly spillPerStream: number;
   private readonly spillTotal: number;
   private readonly creditPerStream: number;
   private readonly creditTotal: number;
   private readonly spoolMaxBytes: number;
+  /** Spooled segments that could not be read back. */
   loss = 0;
+  /** True from a refused chunk until the pipeline next makes progress. */
   paused = false;
+  /** True while the last spool write failed for lack of disk space. */
+  diskFull = false;
 
   constructor(
     private readonly spoolRoot: string,
@@ -80,173 +98,268 @@ export class IngestPipeline {
   }
 
   spooledBytes(): number {
-    let total = 0;
-    for (const stream of this.streams.values()) {
-      total += stream.spool.size();
-    }
-    return total;
-  }
-
-  enqueuePriority(line: PipelineLine): void {
-    this.priority.push(line);
+    return this.spooledTotal;
   }
 
   /**
-   * Accepts a chunk into memory, spilling to disk once the spill threshold
-   * is crossed. Returns false only when the spool cannot take the bytes and
-   * the credit window is already full — the caller keeps the chunk.
+   * Takes a chunk in read order. Returns false only when the chunk fits
+   * neither the credit window nor the spool budget; the caller keeps it and
+   * offers it again, which is what stops the reader. `force` takes it anyway,
+   * for bytes that would otherwise be lost at shutdown.
    */
-  enqueueChunk(chunk: PipelineChunk): boolean {
-    const state = this.streamFor(chunk);
+  enqueueChunk(chunk: PipelineChunk, force = false): boolean {
     const incoming = chunk.bytes.byteLength;
-    if (this.wouldExceedCredit(state, incoming) && !this.canSpill(state, incoming)) {
-      this.paused = true;
-      return false;
+    if (incoming === 0) {
+      return true;
     }
-    state.memory.push({ readAtMs: chunk.readAtMs, bytes: chunk.bytes });
-    state.memoryBytes += incoming;
+    const state = this.streamFor(chunk);
+    state.ended = false;
+    const frame: SpoolFrame = { readAtMs: chunk.readAtMs, bytes: chunk.bytes };
+    if (!spilling(state) && state.headBytes + incoming <= this.spillPerStream && this.memoryBytes + incoming <= this.spillTotal) {
+      state.head.push(frame);
+      state.headBytes += incoming;
+      this.memoryBytes += incoming;
+      return true;
+    }
+    const overCredit = state.headBytes + state.tailBytes + incoming > this.creditPerStream || this.memoryBytes + incoming > this.creditTotal;
+    state.tail.push(frame);
+    state.tailBytes += incoming;
     this.memoryBytes += incoming;
-    this.spillIfNeeded(state);
-    this.paused = this.memoryBytes >= this.creditTotal;
+    if (overCredit || state.tailBytes >= this.spillPerStream || this.memoryBytes >= this.spillTotal) {
+      const flushed = this.flushTail(state);
+      if (overCredit && !flushed && !force) {
+        state.tail.pop();
+        state.tailBytes -= incoming;
+        this.memoryBytes -= incoming;
+        this.paused = true;
+        return false;
+      }
+    }
     return true;
   }
 
-  /** Drain priority lines, then byte-fair stream data, for up to `sliceMs`. */
+  /**
+   * Marks a stream finished. Its last unterminated line is emitted once its
+   * queued bytes are processed, and its state and spool directory are freed.
+   */
+  endStream(key: PipelineStreamKey): void {
+    const state = this.streams.get(streamKey(key));
+    if (state !== undefined) {
+      state.ended = true;
+    }
+  }
+
+  /** Processes byte-fair stream data for up to `sliceMs`. Returns true while more is queued. */
   processSlice(emit: (line: PipelineLine) => void, sliceMs = PROCESS_SLICE_MS, now = Date.now()): boolean {
     const deadline = now + sliceMs;
-    this.drainPriority(emit);
+    let progressed = false;
     while (Date.now() < deadline) {
       const state = this.fairest();
-      if (state === undefined) {
-        this.paused = false;
-        return false;
-      }
-      if (!this.emitOne(state, emit)) {
+      if (state === undefined || !this.emitOne(state, emit)) {
         break;
       }
+      progressed = true;
     }
-    this.paused = this.memoryBytes >= this.creditTotal && this.spooledBytes() === 0;
+    this.retireEnded(emit);
+    if (progressed) {
+      this.paused = false;
+    }
     return this.pending();
   }
 
-  pending(): boolean {
-    if (this.priority.length > 0) {
-      return true;
-    }
+  /**
+   * Prepares for shutdown: in-memory bytes that are next in line are
+   * processed, newer ones are written behind the spool for the next daemon
+   * to replay, and streams with nothing spooled emit their last partial line.
+   */
+  drainForClose(emit: (line: PipelineLine) => void): void {
     for (const state of this.streams.values()) {
-      if (state.memory.length > 0 || state.spool.size() > 0) {
+      if (state.spool === undefined || state.spool.segmentCount() === 0) {
+        while (this.emitOne(state, emit)) {
+          // a stream with nothing spooled is processed to its end
+        }
+        this.emitRest(state, emit);
+        continue;
+      }
+      while (state.headIndex < state.head.length) {
+        this.emitOne(state, emit);
+      }
+      // What the splitter holds would otherwise precede bytes it can no longer meet.
+      this.emitRest(state, emit);
+      // Past the budget if need be: the tail is at most one credit window, and dropping it loses lines.
+      this.flushTail(state, Number.POSITIVE_INFINITY);
+    }
+  }
+
+  pending(): boolean {
+    for (const state of this.streams.values()) {
+      if (hasData(state) || state.ended) {
         return true;
       }
     }
     return false;
   }
 
-  private drainPriority(emit: (line: PipelineLine) => void): void {
-    const pending = this.priority.splice(0, this.priority.length);
-    for (const line of pending) {
-      emit(line);
-    }
-  }
-
   private emitOne(state: StreamState, emit: (line: PipelineLine) => void): boolean {
-    this.hydrate(state);
-    const frame = state.memory[0];
-    if (frame === undefined) {
+    if (state.headIndex >= state.head.length && !this.hydrate(state)) {
       return false;
     }
-    const lines = state.splitter.push(frame.bytes);
-    state.servedBytes += frame.bytes.byteLength;
-    state.memory.shift();
-    state.memoryBytes -= frame.bytes.byteLength;
-    this.memoryBytes -= frame.bytes.byteLength;
-    for (const line of lines) {
-      emit({
-        service: state.header.service,
-        stream: state.header.stream,
-        pid: state.header.pid,
-        readAtMs: frame.readAtMs,
-        line,
-        priority: false,
-      });
+    const frame = state.head[state.headIndex]!;
+    state.headIndex += 1;
+    if (state.headIndex === state.head.length) {
+      state.head = [];
+      state.headIndex = 0;
+    }
+    const size = frame.bytes.byteLength;
+    state.headBytes -= size;
+    this.memoryBytes -= size;
+    state.servedBytes += size;
+    state.lastReadAtMs = frame.readAtMs;
+    for (const line of state.splitter.push(frame.bytes)) {
+      emit({ service: state.header.service, stream: state.header.stream, pid: state.header.pid, readAtMs: frame.readAtMs, line });
     }
     return true;
   }
 
-  private hydrate(state: StreamState): void {
-    if (state.memory.length > 0 || state.spool.size() === 0) {
-      return;
+  // Refills an empty head: the oldest spooled segment first, then the tail.
+  private hydrate(state: StreamState): boolean {
+    while (state.spool !== undefined && state.spool.segmentCount() > 0) {
+      const segment = state.spool.consumeNext();
+      if (segment === undefined) {
+        break;
+      }
+      this.spooledTotal -= segment.bytes;
+      if (segment.frames.length === 0) {
+        this.loss += 1;
+        continue;
+      }
+      let bytes = 0;
+      for (const frame of segment.frames) {
+        bytes += frame.bytes.byteLength;
+      }
+      state.head = segment.frames;
+      state.headIndex = 0;
+      state.headBytes = bytes;
+      this.memoryBytes += bytes;
+      return true;
     }
-    const frames = state.spool.consume();
-    for (const frame of frames) {
-      state.memory.push(frame);
-      state.memoryBytes += frame.bytes.byteLength;
-      this.memoryBytes += frame.bytes.byteLength;
+    if (state.tail.length === 0) {
+      return false;
+    }
+    state.head = state.tail;
+    state.headIndex = 0;
+    state.headBytes = state.tailBytes;
+    state.tail = [];
+    state.tailBytes = 0;
+    return true;
+  }
+
+  // Writes the tail as the newest spool segment within the shared budget.
+  private flushTail(state: StreamState, room = this.spoolMaxBytes - this.spooledTotal): boolean {
+    if (state.tail.length === 0) {
+      return true;
+    }
+    const spool = this.spoolFor(state);
+    const before = spool.size();
+    const result = spool.append(state.header, state.tail, room);
+    if (result !== "ok") {
+      this.diskFull = result === "disk";
+      return false;
+    }
+    this.diskFull = false;
+    this.spooledTotal += spool.size() - before;
+    this.memoryBytes -= state.tailBytes;
+    state.tail = [];
+    state.tailBytes = 0;
+    return true;
+  }
+
+  private emitRest(state: StreamState, emit: (line: PipelineLine) => void): void {
+    for (const line of state.splitter.finish()) {
+      emit({ service: state.header.service, stream: state.header.stream, pid: state.header.pid, readAtMs: state.lastReadAtMs, line });
+    }
+  }
+
+  private retireEnded(emit: (line: PipelineLine) => void): void {
+    for (const state of this.streams.values()) {
+      if (!state.ended || hasData(state)) {
+        continue;
+      }
+      this.emitRest(state, emit);
+      state.spool?.remove();
+      this.streams.delete(state.key);
     }
   }
 
   private fairest(): StreamState | undefined {
     let best: StreamState | undefined;
     for (const state of this.streams.values()) {
-      const hasData = state.memory.length > 0 || state.spool.size() > 0;
-      const fairer = best === undefined || state.servedBytes < best.servedBytes;
-      if (hasData && fairer) {
+      if (hasData(state) && (best === undefined || state.servedBytes < best.servedBytes)) {
         best = state;
       }
     }
     return best;
   }
 
-  private wouldExceedCredit(state: StreamState, incoming: number): boolean {
-    return state.memoryBytes + incoming > this.creditPerStream || this.memoryBytes + incoming > this.creditTotal;
-  }
-
-  private canSpill(state: StreamState, incoming: number): boolean {
-    return state.spool.size() + state.memoryBytes + incoming <= this.spoolMaxBytes;
-  }
-
-  private spillIfNeeded(state: StreamState): void {
-    const overStream = state.memoryBytes >= this.spillPerStream;
-    const overTotal = this.memoryBytes >= this.spillTotal;
-    if (!overStream && !overTotal) {
-      return;
+  private spoolFor(state: StreamState): OrderedSpool {
+    if (state.spool === undefined) {
+      state.spool = new OrderedSpool(join(this.spoolRoot, `${sessionSpoolPrefix(state.header.session)}${safeKey(state.key)}`));
     }
-    const frames = state.memory.splice(0, state.memory.length);
-    const result = this.writeSpool(state, frames);
-    if (result === "ok") {
-      this.memoryBytes -= state.memoryBytes;
-      state.memoryBytes = 0;
-      return;
-    }
-    state.memory = frames;
-    if (result === "disk") {
-      this.loss += 1;
-    }
-  }
-
-  private writeSpool(state: StreamState, frames: SpoolFrame[]): SpoolAppendResult {
-    if (frames.length === 0) {
-      return "ok";
-    }
-    return state.spool.append(state.header, frames);
+    return state.spool;
   }
 
   private streamFor(chunk: PipelineChunk): StreamState {
-    const key = `${chunk.service}\0${chunk.stream}\0${chunk.pid}`;
+    const key = streamKey(chunk);
     const existing = this.streams.get(key);
     if (existing) {
       return existing;
     }
     const created: StreamState = {
+      key,
       header: { session: chunk.session, service: chunk.service, stream: chunk.stream, pid: chunk.pid },
-      memory: [],
-      memoryBytes: 0,
+      head: [],
+      headIndex: 0,
+      headBytes: 0,
+      tail: [],
+      tailBytes: 0,
       splitter: new LineSplitter(),
-      spool: new OrderedSpool(join(this.spoolRoot, safeKey(key)), this.spoolMaxBytes),
-      servedBytes: 0,
+      spool: undefined,
+      servedBytes: this.leastServed(),
+      lastReadAtMs: chunk.readAtMs,
+      ended: false,
     };
     this.streams.set(key, created);
     return created;
   }
+
+  // A new stream starts level with the least-served one instead of at zero,
+  // so it shares the pipeline fairly rather than monopolizing it.
+  private leastServed(): number {
+    let least: number | undefined;
+    for (const state of this.streams.values()) {
+      if (hasData(state) && (least === undefined || state.servedBytes < least)) {
+        least = state.servedBytes;
+      }
+    }
+    return least ?? 0;
+  }
+}
+
+function spilling(state: StreamState): boolean {
+  return state.tail.length > 0 || (state.spool !== undefined && state.spool.segmentCount() > 0);
+}
+
+function hasData(state: StreamState): boolean {
+  return state.headIndex < state.head.length || state.tail.length > 0 || (state.spool !== undefined && state.spool.segmentCount() > 0);
+}
+
+function streamKey(key: PipelineStreamKey): string {
+  return `${key.service}\0${key.stream}\0${key.pid}`;
+}
+
+/** Every spool directory a session's pipeline creates starts with this. */
+export function sessionSpoolPrefix(session: string): string {
+  return `${safeKey(session)}_`;
 }
 
 function safeKey(key: string): string {

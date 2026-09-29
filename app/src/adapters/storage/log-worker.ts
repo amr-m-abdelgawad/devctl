@@ -2,10 +2,36 @@ import { Detector } from "../secrets/detector.ts";
 import { loadPluginPaths } from "../plugins/registry.ts";
 import { defaultLogParser, LogManager } from "./logs.ts";
 import type { WorkerRequest, WorkerResponse } from "./log-worker-protocol.ts";
+import { ChunkHoldQueue } from "./chunk-hold.ts";
 
 let manager: LogManager | undefined;
 let detector: Detector | undefined;
 let chain = Promise.resolve();
+
+type ChunkMessage = Extract<WorkerRequest, { type: "chunk" }>;
+
+const HELD_RETRY_MS = 5;
+let hold: ChunkHoldQueue<ChunkMessage> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+function holdFor(mgr: LogManager): ChunkHoldQueue<ChunkMessage> {
+  hold ??= new ChunkHoldQueue<ChunkMessage>(
+    (message, force) => mgr.acceptChunk(message, force),
+    (message) => reply({ id: message.id, type: "chunkAck", accepted: true, stats: mgr.snapshot() }),
+  );
+  return hold;
+}
+
+function scheduleRetry(): void {
+  if (retryTimer !== undefined || hold?.holding !== true) {
+    return;
+  }
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined;
+    hold?.retry();
+    scheduleRetry();
+  }, HELD_RETRY_MS);
+}
 
 function reply(message: WorkerResponse): void {
   postMessage(message);
@@ -70,8 +96,9 @@ async function handle(message: WorkerRequest): Promise<void> {
     return;
   }
   if (message.type === "chunk") {
-    const accepted = manager.acceptChunk(message);
-    reply({ id: message.id, type: "chunkAck", accepted, stats: manager.snapshot() });
+    if (!holdFor(manager).offer(message)) {
+      scheduleRetry();
+    }
     return;
   }
   if (message.type === "setMemoryBudget") {
@@ -83,6 +110,7 @@ async function handle(message: WorkerRequest): Promise<void> {
     return;
   }
   if (message.type === "flush") {
+    hold?.retry();
     await manager.flush();
     reply({ id: message.id, type: "result", result: null });
     return;
@@ -104,6 +132,8 @@ async function handle(message: WorkerRequest): Promise<void> {
     reply({ id: message.id, type: "result", result: null });
     return;
   }
+  // Held chunks go in past the budget rather than being lost at shutdown.
+  hold?.retry(true);
   await manager.close();
   reply({ id: message.id, type: "result", result: null });
 }

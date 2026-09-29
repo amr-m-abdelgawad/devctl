@@ -123,13 +123,14 @@ export class ProcessManager implements ProcessRuntime {
       closeQuiet(stdio.stdoutFd);
       closeQuiet(stdio.stderrFd);
       stdio.releaseParentEnds();
-      const deliver = chunkDeliver(spec);
+      const deliver = chunkDeliver(spec, handle.pid);
       void stdio.follow(deliver, spec.paused, () => followStop);
     } else {
       const livePump = { paused: spec.paused, maxLineBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS };
       if (spec.onChunk) {
-        void pumpChunks(proc.stdout, "stdout", spec.onChunk, livePump);
-        void pumpChunks(proc.stderr, "stderr", spec.onChunk, livePump);
+        const deliver = chunkDeliver(spec, handle.pid);
+        void pumpChunks(proc.stdout, "stdout", deliver, livePump);
+        void pumpChunks(proc.stderr, "stderr", deliver, livePump);
       } else {
         void pumpLines(proc.stdout, "stdout", spec.onLine, livePump);
         void pumpLines(proc.stderr, "stderr", spec.onLine, livePump);
@@ -258,7 +259,7 @@ export class ProcessManager implements ProcessRuntime {
       ? undefined
       : resumeServiceStdio(this.options.stdioRoot, spec.name);
     if (resumed && onChunk) {
-      void resumed.follow(onChunk, spec.paused, () => followStop);
+      void resumed.follow((stream, bytes, meta) => onChunk(stream, bytes, { ...meta, pid: spec.pid }), spec.paused, () => followStop);
     }
     handle.done = pollAdopted(spec.pid).then((code) => {
       forgetManagedPid(spec.pid);
@@ -467,15 +468,18 @@ function closeQuiet(fd: number): void {
   }
 }
 
-function chunkDeliver(spec: ProcessSpec): ChunkHandler {
+// Tags every chunk with the pid that wrote it: output read after the process
+// exits, or after a restart, still belongs to this process's stream.
+function chunkDeliver(spec: ProcessSpec, pid: number): ChunkHandler {
   const stdout = new LineSplitter({ maxBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS });
   const stderr = new LineSplitter({ maxBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS });
-  return (stream, bytes) => {
+  return (stream, bytes, meta) => {
     if (spec.onChunk) {
-      return spec.onChunk(stream, bytes);
+      return spec.onChunk(stream, bytes, { ...meta, pid });
     }
     const splitter = stream === "stdout" ? stdout : stderr;
-    for (const line of splitter.push(bytes)) {
+    const lines = meta?.end === true ? splitter.finish() : splitter.push(bytes);
+    for (const line of lines) {
       spec.onLine?.(stream, line);
     }
     return true;

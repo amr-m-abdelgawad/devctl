@@ -1,10 +1,12 @@
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 
 const MAGIC = Buffer.from("DVSP");
 const HEADER_BYTES = 4;
 const UINT32 = 4;
 const UINT64_PLACE = 8;
+const SEGMENT_SUFFIX = ".spool";
+const SEGMENT_DIGITS = 8;
 
 export type SpoolHeader = {
   session: string;
@@ -18,81 +20,118 @@ export type SpoolFrame = {
   bytes: Buffer;
 };
 
+export type SpoolSegment = {
+  header: SpoolHeader | undefined;
+  frames: SpoolFrame[];
+  /** Bytes the segment took on disk. */
+  bytes: number;
+};
+
 export type SpoolAppendResult = "ok" | "full" | "disk";
 
 /**
- * Ordered per-stream spill. Files are mode 0600 and removed once consumed.
- * Payload is the not-yet-redacted chunk the daemon has not parsed yet.
+ * Ordered per-stream spill: one file per appended segment, read back oldest
+ * first one segment at a time, so draining never holds more than a segment in
+ * memory. Files are mode 0600 and deleted as they are read. The payload is the
+ * not-yet-redacted output the daemon has not parsed yet.
  */
 export class OrderedSpool {
   private bytes = 0;
-  private seq = 0;
+  private nextIndex = 0;
+  private readonly segments: { path: string; bytes: number }[] = [];
   readonly directory: string;
 
   constructor(
     directory: string,
-    private readonly maxBytes: number,
+    private readonly maxBytes = Number.POSITIVE_INFINITY,
   ) {
     this.directory = directory;
     mkdirSync(directory, { recursive: true, mode: 0o700 });
+    // A directory an earlier owner left behind is read back in order too.
+    for (const name of segmentNames(directory)) {
+      const path = join(directory, name);
+      const size = fileSize(path);
+      this.segments.push({ path, bytes: size });
+      this.bytes += size;
+      this.nextIndex = Math.max(this.nextIndex, Number.parseInt(name, 10) + 1);
+    }
   }
 
   size(): number {
     return this.bytes;
   }
 
-  append(header: SpoolHeader, frames: readonly SpoolFrame[]): SpoolAppendResult {
+  segmentCount(): number {
+    return this.segments.length;
+  }
+
+  /**
+   * Writes the frames as the newest segment. `room` is what the caller's own
+   * budget still allows; a segment that does not fit is refused whole.
+   */
+  append(header: SpoolHeader, frames: readonly SpoolFrame[], room = Number.POSITIVE_INFINITY): SpoolAppendResult {
     const payload = encodeSegment(header, frames);
-    if (this.bytes + payload.length > this.maxBytes) {
+    if (payload.length > room || this.bytes + payload.length > this.maxBytes) {
       return "full";
     }
-    const path = join(this.directory, `${String(this.seq).padStart(8, "0")}.spool`);
-    this.seq += 1;
+    const path = join(this.directory, `${String(this.nextIndex).padStart(SEGMENT_DIGITS, "0")}${SEGMENT_SUFFIX}`);
+    this.nextIndex += 1;
     try {
       const fd = openSync(path, "wx", 0o600);
       try {
         writeSync(fd, payload);
-        fsyncSync(fd);
       } finally {
         closeSync(fd);
       }
     } catch (err) {
+      removeQuiet(path);
       const code = (err as NodeJS.ErrnoException).code;
       if (code === "ENOSPC" || code === "EDQUOT") {
         return "disk";
       }
       throw err;
     }
+    this.segments.push({ path, bytes: payload.length });
     this.bytes += payload.length;
     return "ok";
   }
 
-  /** Frames in write order. Segments are deleted as they are read. */
-  consume(): SpoolFrame[] {
-    const frames: SpoolFrame[] = [];
-    const names = this.segmentNames();
-    for (const name of names) {
-      const path = join(this.directory, name);
-      const decoded = decodeSegment(readFileSync(path));
-      frames.push(...decoded);
-      unlinkSync(path);
+  /** Reads and deletes the oldest segment. A segment that cannot be read comes back with no frames. */
+  consumeNext(): SpoolSegment | undefined {
+    const segment = this.peekNext();
+    this.dropNext();
+    return segment;
+  }
+
+  /** Reads the oldest segment and leaves it in place, for a caller that deletes it only once its contents are safe. */
+  peekNext(): SpoolSegment | undefined {
+    const next = this.segments[0];
+    if (next === undefined) {
+      return undefined;
     }
-    this.bytes = 0;
-    return frames;
-  }
-
-  discard(): void {
-    rmSync(this.directory, { recursive: true, force: true });
-    mkdirSync(this.directory, { recursive: true, mode: 0o700 });
-    this.bytes = 0;
-  }
-
-  private segmentNames(): string[] {
+    let decoded: { header: SpoolHeader | undefined; frames: SpoolFrame[] } = { header: undefined, frames: [] };
     try {
-      return readdirSync(this.directory).filter((name) => name.endsWith(".spool")).sort();
+      decoded = readSegment(readFileSync(next.path));
     } catch {
-      return [];
+      // deleted or unreadable: counted by the caller as a segment with no frames
     }
+    return { ...decoded, bytes: next.bytes };
+  }
+
+  dropNext(): void {
+    const next = this.segments.shift();
+    if (next === undefined) {
+      return;
+    }
+    this.bytes -= next.bytes;
+    removeQuiet(next.path);
+  }
+
+  /** Deletes the directory and everything still in it. */
+  remove(): void {
+    rmSync(this.directory, { recursive: true, force: true });
+    this.segments.length = 0;
+    this.bytes = 0;
   }
 }
 
@@ -106,12 +145,18 @@ export function encodeSegment(header: SpoolHeader, frames: readonly SpoolFrame[]
 }
 
 export function decodeSegment(buf: Buffer): SpoolFrame[] {
-  if (buf.length < HEADER_BYTES || !buf.subarray(0, HEADER_BYTES).equals(MAGIC)) {
-    return [];
+  return readSegment(buf).frames;
+}
+
+function readSegment(buf: Buffer): { header: SpoolHeader | undefined; frames: SpoolFrame[] } {
+  if (buf.length < HEADER_BYTES + UINT32 || !buf.subarray(0, HEADER_BYTES).equals(MAGIC)) {
+    return { header: undefined, frames: [] };
   }
   let offset = HEADER_BYTES;
   const headerLen = buf.readUInt32BE(offset);
-  offset += UINT32 + headerLen;
+  offset += UINT32;
+  const header = parseHeader(buf.subarray(offset, offset + headerLen));
+  offset += headerLen;
   const frames: SpoolFrame[] = [];
   while (offset + UINT32 + UINT64_PLACE <= buf.length) {
     const len = buf.readUInt32BE(offset);
@@ -124,7 +169,45 @@ export function decodeSegment(buf: Buffer): SpoolFrame[] {
     frames.push({ readAtMs, bytes: Buffer.from(buf.subarray(offset, offset + len)) });
     offset += len;
   }
-  return frames;
+  return { header, frames };
+}
+
+function parseHeader(raw: Buffer): SpoolHeader | undefined {
+  try {
+    const parsed = JSON.parse(raw.toString("utf8")) as Partial<SpoolHeader>;
+    if (typeof parsed.session === "string" && typeof parsed.service === "string" && typeof parsed.stream === "string") {
+      return { session: parsed.session, service: parsed.service, stream: parsed.stream, pid: typeof parsed.pid === "number" ? parsed.pid : 0 };
+    }
+  } catch {
+    // corrupt header: the frames are still usable by a caller that knows the stream
+  }
+  return undefined;
+}
+
+function segmentNames(directory: string): string[] {
+  try {
+    return readdirSync(directory)
+      .filter((name) => name.endsWith(SEGMENT_SUFFIX) && /^\d+\.spool$/.test(name))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function fileSize(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
+}
+
+function removeQuiet(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    // already gone
+  }
 }
 
 function uint32(value: number): Buffer {

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LogManager, logMessage } from "../storage/logs.ts";
 import { available } from "../net/ports.ts";
 import { ProcessManager, provenSameProcess, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { parseElapsedMillis } from "./unix.ts";
@@ -262,4 +266,54 @@ test("runOnce bounds a single unterminated line without dropping callbacks", asy
   expect(result.stdout.length).toBeLessThan(1024 * 1024 + 128 * 1024);
   // The forced line break(s) still reached onLine at least once.
   expect(onLineCalls).toBeGreaterThan(0);
+});
+
+describe("service output end", () => {
+  async function lastLineThrough(stdioRoot: string | undefined): Promise<{ pid: number; lines: { message: string; pid: unknown }[] }> {
+    const dir = mkdtempSync(join(tmpdir(), "devctl-tail-"));
+    const mgr = new LogManager(100, undefined, undefined, false, dir, "tail");
+    const procs = new ProcessManager({ stdioRoot });
+    try {
+      const handle = await procs.start({
+        name: "tail",
+        args: ["sh", "-c", "printf 'first\\nlast line no newline'"],
+        shell: false,
+        workDir: dir,
+        env: process.env as Record<string, string>,
+        graceMs: 1_000,
+        onChunk: (stream, bytes, meta) => mgr.acceptChunk({ service: "tail", stream, pid: meta?.pid ?? 0, readAtMs: Date.now(), bytes, end: meta?.end }),
+      });
+      await handle.done;
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && !mgr.query({}).some((event) => logMessage(event) === "last line no newline")) {
+        await sleep(20);
+      }
+      const lines = mgr.query({}).map((event) => ({ message: logMessage(event), pid: event.resource["process.pid"] }));
+      return { pid: handle.pid, lines };
+    } finally {
+      await mgr.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test.skipIf(process.platform === "win32")("a last line without a newline is logged with the pid that wrote it", async () => {
+    const { pid, lines } = await lastLineThrough(undefined);
+    expect(lines).toEqual([
+      { message: "first", pid },
+      { message: "last line no newline", pid },
+    ]);
+  });
+
+  test.skipIf(process.platform === "win32")("the same holds when output goes through FIFO stdio", async () => {
+    const root = mkdtempSync(join(tmpdir(), "devctl-tail-fifo-"));
+    try {
+      const { pid, lines } = await lastLineThrough(root);
+      expect(lines).toEqual([
+        { message: "first", pid },
+        { message: "last line no newline", pid },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
 });

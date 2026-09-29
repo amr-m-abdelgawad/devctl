@@ -2,7 +2,9 @@ import type { VolumeSeed } from "../domain/service/container-volumes.ts";
 import type { ContainerLimits } from "../domain/service/container-limits.ts";
 
 export type ProcessLineHandler = (stream: "stdout" | "stderr", line: string) => void;
-export type ProcessChunkHandler = (stream: "stdout" | "stderr", bytes: Uint8Array) => boolean;
+/** `pid` is the process that wrote the bytes, when the reader knows it. `end` marks the stream finished; its bytes are empty. */
+export type ProcessChunkMeta = { pid?: number; end?: boolean };
+export type ProcessChunkHandler = (stream: "stdout" | "stderr", bytes: Uint8Array, meta?: ProcessChunkMeta) => boolean;
 
 export type ProcessSpec = {
   name: string;
