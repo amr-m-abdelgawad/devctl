@@ -7,23 +7,36 @@ const ENTRY_OVERHEAD_BYTES = 16;
 // so sizing one record stays cheap however deep its body is.
 const WALK_BUDGET = 512;
 const UNWALKED_BYTES = 16 * 1024;
+// Shorter strings are counted at one byte per unit without a width check:
+// the error is a few bytes, and sizing runs for every record ingested.
+const WIDTH_CHECK_MIN_CHARS = 64;
 
 /**
- * Approximate size of a record in memory and on the wire. Strings count one
- * byte per UTF-16 unit, which is exact for ASCII and within a small factor
- * otherwise; structured bodies and attributes are walked up to a fixed budget.
+ * Approximate size of a record in memory and on the wire. An ASCII string
+ * counts one byte per UTF-16 unit, which is exact in memory and in UTF-8. A
+ * longer string with anything beyond ASCII counts two: JSC stores it as
+ * UTF-16 once any unit is above 0xFF, and its UTF-8 form is at least that
+ * large for CJK text. Structured bodies and attributes are walked up to a
+ * fixed budget.
  */
 export function approxRecordBytes(record: LogRecord): number {
   const budget = { left: WALK_BUDGET };
   return (
     RECORD_OVERHEAD_BYTES +
-    record.service.length +
-    record.source.length +
-    (record.raw?.length ?? 0) +
+    stringBytes(record.service) +
+    stringBytes(record.source) +
+    (record.raw === undefined ? 0 : stringBytes(record.raw)) +
     valueBytes(record.body, budget) +
     attributesBytes(record.attributes, budget) +
     attributesBytes(record.resource, budget)
   );
+}
+
+function stringBytes(value: string): number {
+  if (value.length < WIDTH_CHECK_MIN_CHARS || Buffer.byteLength(value, "utf8") === value.length) {
+    return value.length;
+  }
+  return 2 * value.length;
 }
 
 function attributesBytes(attributes: Attributes | undefined, budget: { left: number }): number {
@@ -46,7 +59,7 @@ function valueBytes(value: AnyValue, budget: { left: number }): number {
     return UNWALKED_BYTES;
   }
   if (typeof value === "string") {
-    return value.length;
+    return stringBytes(value);
   }
   if (value === null || typeof value !== "object") {
     return 8;
