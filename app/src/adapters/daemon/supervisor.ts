@@ -82,7 +82,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { listSessions, loadSessionTail } from "../storage/logs.ts";
+import { listSessions, loadSessionTail } from "../storage/session-files.ts";
 import { autoRingBytes } from "../../domain/logs/budgets.ts";
 import { nextMemoryGuard, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";

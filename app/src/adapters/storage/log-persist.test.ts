@@ -6,7 +6,9 @@ import { readSelfStamp } from "../process/liveness.ts";
 import { OrderedSpool } from "./ingest/spool.ts";
 import { sessionSpoolPrefix } from "./ingest/pipeline.ts";
 import { SessionLogWriter } from "./log-persist.ts";
-import { loadSessionEvents, LogManager, pruneSessions } from "./logs.ts";
+import { LogManager } from "./logs.ts";
+import { loadSessionEvents } from "./session-files.ts";
+import { pruneSessions } from "./session-prune.ts";
 
 const dirs: string[] = [];
 

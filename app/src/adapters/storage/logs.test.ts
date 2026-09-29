@@ -8,10 +8,7 @@ import {
   clampLogPageSize,
   compileLogSearch,
   DEFAULT_LOG_PAGE_SIZE,
-  defaultExportPath,
   defaultLogParser,
-  isJsonlSessionDir,
-  loadSessionEvents,
   LogManager,
   MAX_JSON_LOG_BYTES,
   MAX_LOG_LINE_CHARS,
@@ -25,10 +22,10 @@ import {
   REQUEST_ID_ATTR,
   SeverityError,
   SeverityWarn,
-  pruneSessions,
-  resolveExportPath,
-  writeLogExport,
 } from "./logs.ts";
+import { defaultExportPath, resolveExportPath, writeLogExport } from "./log-export.ts";
+import { isJsonlSessionDir, loadSessionEvents } from "./session-files.ts";
+import { pruneSessions } from "./session-prune.ts";
 import { exportsDir } from "./storage.ts";
 
 function tmp(): string {

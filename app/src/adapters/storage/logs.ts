@@ -1,18 +1,19 @@
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, openSync, readSync, closeSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { type Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
-import { ensureDir, exportsDir, logsDir, resolveUserPath } from "./storage.ts";
+import { logsDir } from "./storage.ts";
 import { LogRing } from "./log-ring.ts";
 import { SessionLogWriter } from "./log-persist.ts";
-import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
+import { PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
 import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLine } from "./ingest/pipeline.ts";
 import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
-import { tryMutex } from "./lock.ts";
-import { processState, readSelfStamp, readStamp, sameStamp, type ProcessStamp } from "../process/liveness.ts";
+import { readSelfStamp } from "../process/liveness.ts";
+import { writeLogExport } from "./log-export.ts";
+import { safeServiceFile, scanSessionBefore, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
+import { pruneSessions, type SessionOwner } from "./session-prune.ts";
 
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import {
@@ -28,11 +29,9 @@ import {
   requestIdAttribute,
   shouldTagServiceLogWithProxyHop,
   withRequestId,
-  isPlainObject,
   isProcessLogSource,
   matchesLogDimensions,
   MultilineAssembler,
-  parseJSONLogLine,
   parseLogLine,
   redactLogRecord,
   shouldDropAccessLine,
@@ -54,15 +53,6 @@ export * from "../../domain/logs/logs.ts";
 const DEFAULT_MAX_EVENTS = 50_000;
 const PRUNE_INTERVAL_MS = 5 * 60_000;
 const PRUNE_ON_ROTATE_MIN_MS = 30_000;
-// A session with no owner stamp (written by an older daemon) counts as live
-// while any of its files changed this recently.
-const UNOWNED_LIVE_MS = 10 * 60_000;
-
-/** The daemon writing a session. The pruner never deletes a session whose owner still runs. */
-type SessionOwner = { pid: number } & ProcessStamp;
-const SESSION_PREFIX = "session-";
-const SESSION_FORMAT_FILE = "FORMAT";
-const SESSION_FORMAT_JSONL = "jsonl";
 
 type CorrelateCandidate = {
   readonly event: LogRecord;
@@ -774,346 +764,4 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
     },
     pipelineStats: () => mgr.pipelineStats(),
   };
-}
-
-export function defaultExportPath(now = new Date()): string {
-  const stamp = now.toISOString().replace(/[:.]/g, "-");
-  return join(exportsDir(), `devctl-logs-${stamp}.jsonl`);
-}
-
-export function resolveExportPath(input = ""): string {
-  if (input === "") {
-    return defaultExportPath();
-  }
-  return resolveUserPath(input, process.cwd());
-}
-
-export function writeLogExport(path: string, events: LogRecord[]): void {
-  ensureDir(dirname(path));
-  const lines = events.map((ev) => JSON.stringify(ev));
-  writeFileSync(path, `${lines.join("\n")}\n`, { mode: 0o600 });
-}
-
-export function openInFileManager(target: string): void {
-  const folder = existsSync(target) && statSync(target).isDirectory() ? target : dirname(target);
-  ensureDir(folder);
-  if (process.platform === "darwin") {
-    const args = existsSync(target) && statSync(target).isFile() ? ["-R", target] : [folder];
-    spawn("open", args, { detached: true, stdio: "ignore" }).unref();
-    return;
-  }
-  if (process.platform === "win32") {
-    spawn("explorer", [folder], { detached: true, stdio: "ignore" }).unref();
-    return;
-  }
-  spawn("xdg-open", [folder], { detached: true, stdio: "ignore" }).unref();
-}
-
-export function listSessions(root = logsDir()): string[] {
-  if (!existsSync(root)) {
-    return [];
-  }
-  return readdirSync(root)
-    .filter((name) => name.startsWith(SESSION_PREFIX))
-    .sort()
-    .reverse();
-}
-
-export function isJsonlSessionDir(dir: string): boolean {
-  const marker = join(dir, SESSION_FORMAT_FILE);
-  if (existsSync(marker)) {
-    return readFileSync(marker, "utf8").trim() === SESSION_FORMAT_JSONL;
-  }
-  if (!existsSync(dir)) {
-    return false;
-  }
-  return readdirSync(dir).some((name) => name.endsWith(".jsonl"));
-}
-
-export function loadSessionEvents(sessionName: string, root = logsDir()): LogRecord[] {
-  const dir = join(root, sessionName);
-  if (!existsSync(dir)) {
-    return [];
-  }
-  if (isJsonlSessionDir(dir)) {
-    return loadJsonlSession(dir);
-  }
-  return loadLegacySession(dir);
-}
-
-/** Reads at most `maxBytes` from the end of each session file, then keeps the newest `maxRecords`. */
-export function loadSessionTail(sessionName: string, root = logsDir(), maxRecords = 50_000, maxBytes = HISTORY_SCAN_BYTES): LogRecord[] {
-  const dir = join(root, sessionName);
-  if (!existsSync(dir)) {
-    return [];
-  }
-  if (!isJsonlSessionDir(dir)) {
-    return loadSessionEvents(sessionName, root).slice(-maxRecords);
-  }
-  const records: LogRecord[] = [];
-  let read = 0;
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith(".jsonl") && read < maxBytes) {
-      const tail = readTail(join(dir, name), maxBytes - read);
-      read += Buffer.byteLength(tail);
-      for (const line of tail.split("\n")) {
-        const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
-        if (record) {
-          records.push(record);
-        }
-      }
-    }
-  }
-  records.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
-  return records.slice(-maxRecords);
-}
-
-function readTail(path: string, maxBytes: number): string {
-  const size = statSync(path).size;
-  const start = Math.max(0, size - maxBytes);
-  const fd = openSync(path, "r");
-  try {
-    const buf = Buffer.alloc(size - start);
-    readSync(fd, buf, 0, buf.length, start);
-    const text = buf.toString("utf8");
-    const newline = start === 0 ? -1 : text.indexOf("\n");
-    return newline < 0 ? text : text.slice(newline + 1);
-  } finally {
-    closeSync(fd);
-  }
-}
-
-function loadJsonlSession(dir: string): LogRecord[] {
-  const bySeq = new Map<number, LogRecord>();
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".jsonl")) {
-      continue;
-    }
-    const text = readFileSync(join(dir, name), "utf8");
-    for (const line of text.split("\n")) {
-      if (line.trim() === "") {
-        continue;
-      }
-      const record = parseStoredLogRecord(line);
-      if (record) {
-        bySeq.set(record.seq, record);
-      }
-    }
-  }
-  return [...bySeq.values()].sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
-}
-
-function loadLegacySession(dir: string): LogRecord[] {
-  const events: LogRecord[] = [];
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".log")) {
-      continue;
-    }
-    const text = readFileSync(join(dir, name), "utf8");
-    for (const line of text.split("\n")) {
-      if (line.trim() === "") {
-        continue;
-      }
-      const parts = line.split(" ");
-      const rawMessage = parts.slice(3).join(" ");
-      const structured = parseJSONLogLine(rawMessage);
-      events.push(buildLogRecord(
-        {
-          timestamp: parts[0] ?? "",
-          service: parts[1] ?? name.replace(/\.log$/, ""),
-          source: "history",
-          pid: 0,
-          level: parts[2] ?? "INFO",
-          message: rawMessage,
-        },
-        structured ?? { body: rawMessage, raw: rawMessage },
-        0,
-      ));
-    }
-  }
-  const sorted = events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-  sorted.forEach((ev, i) => {
-    ev.seq = i + 1;
-  });
-  return sorted;
-}
-
-export function parseStoredLogRecord(line: string): LogRecord | undefined {
-  try {
-    const value: unknown = JSON.parse(line);
-    if (!isPlainObject(value) || typeof value.service !== "string" || typeof value.seq !== "number") {
-      return undefined;
-    }
-    return value as LogRecord;
-  } catch {
-    return undefined;
-  }
-}
-
-export function safeServiceFile(service: string): string {
-  const cleaned = service.replace(/[^A-Za-z0-9._-]+/g, "_");
-  return cleaned === "" ? "service" : cleaned;
-}
-
-type PruneOptions = {
-  maxTotalBytes?: number;
-  liveDir?: string;
-};
-
-/**
- * Deletes sessions past retention, past the per-repo count, and oldest-first
- * past the shared byte cap. A session whose owning daemon is still running is
- * never deleted, whichever repo it belongs to. Runs under a root-wide mutex;
- * when another daemon is already pruning this root, this call does nothing.
- */
-export function pruneSessions(root: string, retentionDays: number, maxSessionLogs: number, repoKey?: string, options: PruneOptions = {}): void {
-  if (!existsSync(root)) {
-    return;
-  }
-  const release = tryMutex(join(root, PRUNE_MUTEX));
-  if (release === undefined) {
-    return;
-  }
-  try {
-    pruneSessionsLocked(root, retentionDays, maxSessionLogs, repoKey, options);
-  } finally {
-    release();
-  }
-}
-
-function pruneSessionsLocked(root: string, retentionDays: number, maxSessionLogs: number, repoKey: string | undefined, options: PruneOptions): void {
-  const sessions = readdirSync(root)
-    .filter((name) => name.startsWith(SESSION_PREFIX))
-    .map((name) => {
-      const path = join(root, name);
-      const st = statSync(path);
-      const manifest = readSessionManifest(path);
-      return {
-        path,
-        mtime: st.mtimeMs,
-        repo: typeof manifest?.repo === "string" ? manifest.repo : "",
-        retentionDays: typeof manifest?.retentionDays === "number" ? manifest.retentionDays : 0,
-      };
-    })
-    .sort((a, b) => b.mtime - a.mtime);
-  const now = Date.now();
-  const counted = repoKey === undefined ? sessions : sessions.filter((session) => session.repo === repoKey);
-  const countedPaths = new Set(counted.map((session) => session.path));
-  sessions.forEach((session, index) => {
-    const inCount = repoKey === undefined || countedPaths.has(session.path);
-    const countIndex = repoKey === undefined ? index : counted.findIndex((row) => row.path === session.path);
-    // This repo's sessions (and unlabeled ones) follow this daemon's retention;
-    // another repo's sessions follow the retention recorded when they were written.
-    const ownRules = repoKey === undefined || session.repo === repoKey || session.repo === "";
-    const days = ownRules ? retentionDays : session.retentionDays;
-    const tooOld = days > 0 && session.mtime < now - days * 86_400_000;
-    const overCap = inCount && maxSessionLogs > 0 && countIndex >= maxSessionLogs;
-    if ((tooOld || overCap) && session.path !== options.liveDir && !sessionOwnerRunning(session.path)) {
-      rmSync(session.path, { recursive: true, force: true });
-    }
-  });
-  pruneSessionBytes(root, options.maxTotalBytes ?? 0, options.liveDir);
-}
-
-const PRUNE_MUTEX = ".prune.lock";
-
-function sessionOwnerRunning(dir: string): boolean {
-  const manifest = readSessionManifest(dir);
-  if (manifest === undefined || typeof manifest.closedAt === "string") {
-    return false;
-  }
-  const owner = manifest.owner;
-  if (typeof owner !== "object" || owner === null || typeof (owner as { pid?: unknown }).pid !== "number") {
-    return newestFileAgeMs(dir) < UNOWNED_LIVE_MS;
-  }
-  const held = owner as SessionOwner;
-  if (processState(held.pid) !== "alive") {
-    return false;
-  }
-  return sameStamp(held, held.pid === process.pid ? readSelfStamp() : readStamp(held.pid));
-}
-
-function readSessionManifest(dir: string): Record<string, unknown> | undefined {
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
-    return isPlainObject(parsed) ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function newestFileAgeMs(dir: string): number {
-  let newest = 0;
-  try {
-    for (const name of readdirSync(dir)) {
-      newest = Math.max(newest, statSync(join(dir, name)).mtimeMs);
-    }
-  } catch {
-    return Number.POSITIVE_INFINITY;
-  }
-  return Date.now() - newest;
-}
-
-function pruneSessionBytes(root: string, maxTotalBytes: number, liveDir?: string): void {
-  if (maxTotalBytes <= 0 || !existsSync(root)) {
-    return;
-  }
-  const sessions = readdirSync(root)
-    .filter((name) => name.startsWith(SESSION_PREFIX))
-    .map((name) => {
-      const path = join(root, name);
-      return { path, mtime: statSync(path).mtimeMs, bytes: directorySize(path) };
-    })
-    .filter((session) => session.path !== liveDir)
-    .sort((a, b) => a.mtime - b.mtime);
-  let total = sessions.reduce((sum, session) => sum + session.bytes, 0);
-  if (liveDir !== undefined && existsSync(liveDir)) {
-    total += directorySize(liveDir);
-  }
-  for (const session of sessions) {
-    if (total <= maxTotalBytes) {
-      return;
-    }
-    if (sessionOwnerRunning(session.path)) {
-      continue;
-    }
-    rmSync(session.path, { recursive: true, force: true });
-    total -= session.bytes;
-  }
-}
-
-function directorySize(dir: string): number {
-  let total = 0;
-  for (const name of readdirSync(dir)) {
-    const path = join(dir, name);
-    const st = statSync(path);
-    total += st.isDirectory() ? directorySize(path) : st.size;
-  }
-  return total;
-}
-
-function scanSessionBefore(dir: string, windowStart: number, oldest: number): LogRecord[] {
-  const started = Date.now();
-  const records: LogRecord[] = [];
-  let read = 0;
-  let names: string[] = [];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  for (const name of names) {
-    const inBudget = name.endsWith(".jsonl") && read < HISTORY_SCAN_BYTES && Date.now() - started <= HISTORY_SCAN_MS;
-    if (inBudget) {
-    const tail = readTail(join(dir, name), HISTORY_SCAN_BYTES - read);
-    read += Buffer.byteLength(tail);
-    for (const line of tail.split("\n")) {
-      const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
-      if (record && record.seq >= windowStart && record.seq < oldest) {
-        records.push(record);
-      }
-    }
-    }
-  }
-  return records;
 }
