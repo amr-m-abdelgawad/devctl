@@ -65,7 +65,7 @@ function readBatch(fd: number, buf: Buffer): Uint8Array | undefined | "eof" {
   return total > 0 ? Buffer.concat(parts, total) : undefined;
 }
 
-function sleepMs(ms: number): Promise<void> {
+export function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });

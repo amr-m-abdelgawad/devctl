@@ -3,7 +3,7 @@ import type { ContainerLimits } from "../domain/service/container-limits.ts";
 
 export type ProcessLineHandler = (stream: "stdout" | "stderr", line: string) => void;
 /** `pid` is the process that wrote the bytes, when the reader knows it. `end` marks the stream finished; its bytes are empty. */
-export type ProcessChunkMeta = { pid?: number; end?: boolean };
+export type ProcessChunkMeta = { pid?: number; end?: boolean; readAtMs?: number };
 export type ProcessChunkHandler = (stream: "stdout" | "stderr", bytes: Uint8Array, meta?: ProcessChunkMeta) => boolean;
 
 export type ProcessSpec = {
