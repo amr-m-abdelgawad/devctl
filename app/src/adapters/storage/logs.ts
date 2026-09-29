@@ -5,6 +5,7 @@ import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { logsDir } from "./storage.ts";
 import { LogRing } from "./log-ring.ts";
+import { indexedSource, pageSource, seqIndexed, stackedSource, type SeqSource } from "./log-page.ts";
 import { SessionLogWriter } from "./log-persist.ts";
 import { PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
@@ -41,6 +42,7 @@ import {
   type LogFacets,
   type LogFilter,
   type LogIngest,
+  type LogMatcher,
   type LogPage,
   type LogPageDirection,
   type LogPageRequest,
@@ -106,7 +108,6 @@ export class LogManager {
   private drainTimer?: ReturnType<typeof setTimeout>;
   private batcher?: LogBatcher;
   private ingestShed = false;
-  private readonly byteBudget: number;
   private readonly logRoot: string;
   private readonly repoKey: string;
   private readonly retentionDays: number;
@@ -132,8 +133,7 @@ export class LogManager {
     options: LogManagerOptions = {},
   ) {
     this.max = max > 0 ? max : DEFAULT_MAX_EVENTS;
-    this.byteBudget = options.maxMemoryBytes ?? 0;
-    this.ring = new LogRing(this.max, this.byteBudget);
+    this.ring = new LogRing(this.max, options.maxMemoryBytes ?? 0);
     this.bus = bus;
     this.detector = detector;
     this.sessionID = sessionID;
@@ -366,6 +366,12 @@ export class LogManager {
     return out;
   }
 
+  /**
+   * One page of the window next to a cursor. The ring is searched by seq and
+   * walked only until the page is full; records older than the ring are read
+   * from the session files only when the page reaches below it, so a forward
+   * poll at the head never touches disk.
+   */
   queryPage(filter: LogFilter, page: LogPageRequest = {}): LogPage {
     this.flushPending();
     const limit = clampLogPageSize(page.limit);
@@ -373,30 +379,20 @@ export class LogManager {
     const sessionChanged = requested !== undefined && requested.session !== this.sessionID;
     const cursor = sessionChanged ? undefined : requested;
     const direction: LogPageDirection = cursor ? (page.direction ?? "backward") : "backward";
-
-    const matches = this.collectMatches(createLogMatcher(filter));
-
-    let windowed: LogRecord[];
-    if (!cursor) {
-      windowed = matches.slice(Math.max(0, matches.length - limit));
-    } else if (direction === "forward") {
-      windowed = matches.filter((ev) => ev.seq > cursor.seq).slice(0, limit);
-    } else {
-      const before = matches.filter((ev) => ev.seq < cursor.seq);
-      windowed = before.slice(Math.max(0, before.length - limit));
-    }
-
-    const firstSeq = windowed[0]?.seq;
-    const lastSeq = windowed[windowed.length - 1]?.seq;
-    const hasPrev = firstSeq !== undefined && matches.some((ev) => ev.seq < firstSeq);
-    const hasNext = lastSeq !== undefined && matches.some((ev) => ev.seq > lastSeq);
-
+    const matches = createLogMatcher(filter);
+    const ring = indexedSource(this.ring, matches);
+    const window = this.windowSource(ring, matches);
+    const boundary = this.ring.oldestSeq() ?? this.nextSeq;
+    // A forward page that starts in the ring looks no further back than the ring.
+    const result = pageSource(window, { cursor: cursor?.seq, direction, limit }, (first) => (first >= boundary ? ring : window));
+    const firstSeq = result.events[0]?.seq;
+    const lastSeq = result.events[result.events.length - 1]?.seq;
     return {
-      events: windowed,
-      prevCursor: encodeLogCursor({ session: this.sessionID, seq: firstSeq ?? cursor?.seq ?? 0 }),
-      nextCursor: encodeLogCursor({ session: this.sessionID, seq: lastSeq ?? cursor?.seq ?? this.nextSeq - 1 }),
-      hasNext,
-      hasPrev,
+      events: result.events,
+      prevCursor: encodeLogCursor({ session: this.sessionID, seq: firstSeq ?? result.prevFrontier ?? cursor?.seq ?? 0 }),
+      nextCursor: encodeLogCursor({ session: this.sessionID, seq: lastSeq ?? result.nextFrontier ?? cursor?.seq ?? this.nextSeq - 1 }),
+      hasNext: result.hasNext,
+      hasPrev: result.hasPrev,
       sessionChanged,
     };
   }
@@ -650,33 +646,21 @@ export class LogManager {
     this.batcher.push(event);
   }
 
-  private collectMatches(matchesFilter: (event: LogRecord) => boolean): LogRecord[] {
-    const matches: LogRecord[] = [];
-    for (const event of this.recordsInWindow()) {
-      if (matchesFilter(event)) {
-        matches.push(event);
-      }
-    }
-    return matches;
-  }
-
-  private recordsInWindow(): LogRecord[] {
-    const inMemory: LogRecord[] = [];
-    this.forEachEvent((event) => inMemory.push(event));
+  // The ring, and below its oldest record the part of the logical window
+  // (the last `max` seqs) that only the session files still hold.
+  private windowSource(ring: SeqSource, matches: LogMatcher): SeqSource {
     const oldest = this.ring.oldestSeq();
     const windowStart = Math.max(1, this.nextSeq - this.max);
-    if (!this.persist || this.byteBudget <= 0 || oldest === undefined || oldest <= windowStart) {
-      return inMemory;
+    if (!this.persist || oldest === undefined || oldest <= windowStart) {
+      return ring;
     }
-    const older = scanSessionBefore(this.persistDir, windowStart, oldest);
-    if (older.length === 0) {
-      return inMemory;
-    }
-    const seen = new Set(inMemory.map((event) => event.seq));
-    const merged = older.filter((event) => !seen.has(event.seq));
-    merged.push(...inMemory);
-    merged.sort((a, b) => a.seq - b.seq);
-    return merged;
+    let evicted: SeqSource | undefined;
+    const older = (): SeqSource =>
+      (evicted ??= indexedSource(seqIndexed(scanSessionBefore(this.persistDir, windowStart, oldest).sort((a, b) => a.seq - b.seq)), matches));
+    return stackedSource(ring, oldest, {
+      walkDown: (before, visit) => older().walkDown(before, visit),
+      walkUp: (from, visit) => older().walkUp(from, visit),
+    });
   }
 
   private writeManifest(closed: boolean): void {
