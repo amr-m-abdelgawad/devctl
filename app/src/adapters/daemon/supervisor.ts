@@ -87,7 +87,7 @@ import { autoRingBytes } from "../../domain/logs/budgets.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
 import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
-import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -122,6 +122,8 @@ export class Supervisor {
   private readonly web: WebCoordinator;
   private readonly resources: ResourceSampler;
   private ringLimited = false;
+  /** False until recovery has read state.json. Earlier writes must not erase leftover processes. */
+  private processesLoaded = false;
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
@@ -484,6 +486,7 @@ export class Supervisor {
     // Resolve the developer email before anything reads environment YAML, so
     // ${identity.user} matches the address the identity screen will show.
     await this.refreshIdentity();
+    this.processesLoaded = true;
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());
@@ -1265,19 +1268,28 @@ export class Supervisor {
         env: this.serviceStartedEnv.get(handle.name) ?? this.serviceEnv.get(handle.name),
       });
     }
-    const service_environments: Record<string, string> = {};
+    const prior = this.processesLoaded ? undefined : readPersistedState(this.cfg.repoRoot);
+    const names = new Set(processes.map((proc) => proc.name));
+    for (const rec of prior?.processes ?? []) {
+      if (!names.has(rec.name) && rec.pid > 0 && this.processAliveFn(rec.pid)) {
+        processes.push(rec);
+      }
+    }
+    const service_environments: Record<string, string> = { ...(prior?.service_environments ?? {}) };
     for (const [name, envName] of this.serviceEnv) {
       if (envName !== "") {
         service_environments[name] = envName;
       }
     }
+    const profile = this.profile !== "" ? this.profile : (prior?.profile ?? "");
+    const configOverlay = this.configOverlay ?? prior?.config_overlay;
     writePersistedState(this.cfg.repoRoot, {
       session_id: this.sessionID,
       repo_root: this.cfg.repoRoot,
-      profile: this.profile,
+      profile,
       processes,
       service_environments,
-      config_overlay: this.configOverlay,
+      config_overlay: configOverlay,
     });
   }
 
