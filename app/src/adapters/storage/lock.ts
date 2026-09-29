@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -53,12 +54,40 @@ export function readLockFile(path: string): LockRecord | undefined {
   }
 }
 
-export function lockIsLive(record: LockRecord, self: ProcessStamp = readSelfStamp(), probe?: () => boolean): boolean {
-  if (record.pidNs !== undefined && self.pidNs !== undefined && record.pidNs !== self.pidNs) {
-    if (probe) {
-      return probe();
-    }
-    return processState(record.pid) === "alive";
+/** True when the lock was taken in another PID namespace, where its pid names a different process. */
+function acrossPidNamespace(record: LockRecord, self: ProcessStamp): boolean {
+  return record.pidNs !== undefined && self.pidNs !== undefined && record.pidNs !== self.pidNs;
+}
+
+// Bun has no synchronous connect, and a lock check runs under the lock
+// mutex, so a child connects: the running Bun from source or npm, or the
+// compiled binary acting as Bun (BUN_BE_BUN). The kernel accepts into the
+// listen backlog even while the holder's event loop is wedged, so a connect
+// means the holder is alive.
+const SOCKET_PROBE_MS = 500;
+const SOCKET_PROBE_SOURCE = `const s = require("node:net").connect(process.env.DEVCTL_PROBE_SOCKET); s.on("connect", () => process.exit(0)); s.on("error", () => process.exit(1));`;
+
+export function socketAccepts(socket: string): boolean {
+  if (socket === "") {
+    return false;
+  }
+  try {
+    const result = spawnSync(process.execPath, ["-e", SOCKET_PROBE_SOURCE], {
+      env: { ...process.env, BUN_BE_BUN: "1", DEVCTL_PROBE_SOCKET: socket },
+      stdio: "ignore",
+      timeout: SOCKET_PROBE_MS,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+export function lockIsLive(record: LockRecord, self: ProcessStamp = readSelfStamp(), probe = (): boolean => socketAccepts(record.socket)): boolean {
+  if (acrossPidNamespace(record, self)) {
+    // The pid means nothing here. A holder in another container that shares
+    // this state directory still answers on the socket.
+    return probe();
   }
   if (processState(record.pid) !== "alive") {
     return false;

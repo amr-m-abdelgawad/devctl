@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, readlinkSync } from "node:fs";
 
 export type ProcState = "alive" | "zombie" | "dead";
 
@@ -113,9 +113,10 @@ export function readStamp(pid: number): ProcessStamp {
       stamp.bootId = undefined;
     }
     try {
-      stamp.pidNs = readFileSync(`/proc/${pid}/ns/pid`, "utf8");
+      // A symlink to `pid:[inode]`; reading through it fails with EINVAL.
+      stamp.pidNs = readlinkSync(`/proc/${pid}/ns/pid`);
     } catch {
-      // bind-mounted namespaces may be unreadable; callers fall back to a socket probe
+      // another user's process, or /proc mounted without it: compare the other fields
     }
   }
   if (process.platform === "darwin") {

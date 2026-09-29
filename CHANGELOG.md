@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The watchdog replaces a daemon only after a proven 60 second wedge. It writes a wedge marker and releases the lock first. Clients wait while a daemon is busy or stopped (`SIGSTOP`). `status` and `down` explain a live daemon that does not answer, including one left by an older devctl.
 - `llm_calls_page` and `traffic_calls_page` accept `summary: true` to list rows without bodies. The default response is unchanged.
 - After the stop grace period, devctl SIGKILLs process-group members that are still alive. A zombie is not treated as running.
+- On Linux the daemon lock records the holder's PID namespace (it was never read before). A lock held from another PID namespace, such as another container sharing the devctl home, is judged by whether its socket accepts, not by a pid that names a different process here.
 - A watchdog worker that fails is retried after 1, 2, 4 … seconds, at most a minute apart, instead of every second. `status`, `status --json` (`daemon.watchdog`, `daemon.logStore`), and `devctl doctor` say when the daemon runs without its watchdog or log worker.
 
 ## [0.25.0] - 2026-09-28
