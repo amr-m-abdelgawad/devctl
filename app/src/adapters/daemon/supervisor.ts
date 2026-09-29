@@ -371,6 +371,7 @@ export class Supervisor {
       logs: {
         snapshot: () => self.logs.snapshot(),
         pipelineStats: () => self.logs.pipelineStats?.() ?? self.logs.snapshot().pipeline,
+        usesWorker: () => self.logs.usesWorker?.() === true,
       },
       tokens: { storeBackend: () => self.tokens.storeBackend() },
       traceDurationMs: (traceId) => self.spans.envelopeMs(traceId),
