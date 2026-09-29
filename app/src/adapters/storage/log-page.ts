@@ -11,13 +11,14 @@ export type Walk = {
 
 /**
  * Matching records in seq order, walked either way from a seq. `visit` sees
- * each match and returns false to stop the walk there.
+ * each match and returns false to stop the walk there. `want` is how many
+ * matches the caller expects to take, a hint for sources that read ahead.
  */
 export type SeqSource = {
   /** Matches with seq below `before`, newest first. */
-  walkDown(before: number, visit: (event: LogRecord) => boolean): Walk;
+  walkDown(before: number, visit: (event: LogRecord) => boolean, want?: number): Walk;
   /** Matches with seq at or above `from`, oldest first. */
-  walkUp(from: number, visit: (event: LogRecord) => boolean): Walk;
+  walkUp(from: number, visit: (event: LogRecord) => boolean, want?: number): Walk;
 };
 
 export type SourcePageRequest = {
@@ -96,21 +97,23 @@ export function seqIndexed(records: readonly LogRecord[]): SeqIndexed {
  */
 export function stackedSource(ring: SeqSource, boundary: number, older: SeqSource): SeqSource {
   return {
-    walkDown(before, visit) {
+    walkDown(before, visit, want) {
       let stopped = false;
+      let taken = 0;
       const top = ring.walkDown(before, (event) => {
+        taken += 1;
         stopped = !visit(event);
         return !stopped;
       });
-      return stopped ? top : older.walkDown(Math.min(before, boundary), visit);
+      return stopped ? top : older.walkDown(Math.min(before, boundary), visit, want === undefined ? undefined : Math.max(1, want - taken));
     },
-    walkUp(from, visit) {
+    walkUp(from, visit, want) {
       if (from < boundary) {
         let stopped = false;
         const bottom = older.walkUp(from, (event) => {
           stopped = !visit(event);
           return !stopped;
-        });
+        }, want);
         if (stopped || bottom.truncated) {
           return bottom;
         }
@@ -142,11 +145,11 @@ export function pageSource(
       }
       more = true;
       return false;
-    });
+    }, limit + 1);
     const first = events[0]?.seq;
     return {
       events,
-      hasPrev: first !== undefined && hasMatch((visit) => olderFor(first).walkDown(first, visit)),
+      hasPrev: first !== undefined && hasMatch((visit, want) => olderFor(first).walkDown(first, visit, want)),
       hasNext: more || walk.truncated,
       nextFrontier: walk.truncated ? walk.frontier : undefined,
     };
@@ -160,10 +163,10 @@ export function pageSource(
     }
     more = true;
     return false;
-  });
+  }, limit + 1);
   const events = newestFirst.reverse();
   // Nothing newer than the newest page can match; past a cursor, the cursor's own side can.
-  const hasNext = cursor !== undefined && events.length > 0 && hasMatch((visit) => source.walkUp(cursor, visit));
+  const hasNext = cursor !== undefined && events.length > 0 && hasMatch((visit, want) => source.walkUp(cursor, visit, want));
   return {
     events,
     hasPrev: more || walk.truncated,
@@ -173,11 +176,11 @@ export function pageSource(
 }
 
 // True when a walk finds any match, or runs out of budget before it can tell.
-function hasMatch(walk: (visit: (event: LogRecord) => boolean) => Walk): boolean {
+function hasMatch(walk: (visit: (event: LogRecord) => boolean, want: number) => Walk): boolean {
   let found = false;
   const result = walk(() => {
     found = true;
     return false;
-  });
+  }, 1);
   return found || result.truncated;
 }

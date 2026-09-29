@@ -1,6 +1,6 @@
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS } from "../../domain/logs/budgets.ts";
+import { HISTORY_SCAN_BYTES } from "../../domain/logs/budgets.ts";
 import { buildLogRecord, isPlainObject, parseJSONLogLine, type LogRecord } from "../../domain/logs/logs.ts";
 import { logsDir } from "./storage.ts";
 
@@ -152,31 +152,4 @@ export function parseStoredLogRecord(line: string): LogRecord | undefined {
 export function safeServiceFile(service: string): string {
   const cleaned = service.replace(/[^A-Za-z0-9._-]+/g, "_");
   return cleaned === "" ? "service" : cleaned;
-}
-
-/** Records of the logical window the ring has evicted, read back from the session files within a scan budget. */
-export function scanSessionBefore(dir: string, windowStart: number, oldest: number): LogRecord[] {
-  const started = Date.now();
-  const records: LogRecord[] = [];
-  let read = 0;
-  let names: string[] = [];
-  try {
-    names = readdirSync(dir);
-  } catch {
-    return [];
-  }
-  for (const name of names) {
-    const inBudget = name.endsWith(".jsonl") && read < HISTORY_SCAN_BYTES && Date.now() - started <= HISTORY_SCAN_MS;
-    if (inBudget) {
-      const tail = readTail(join(dir, name), HISTORY_SCAN_BYTES - read);
-      read += Buffer.byteLength(tail);
-      for (const line of tail.split("\n")) {
-        const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
-        if (record && record.seq >= windowStart && record.seq < oldest) {
-          records.push(record);
-        }
-      }
-    }
-  }
-  return records;
 }

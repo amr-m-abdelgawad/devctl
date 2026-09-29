@@ -1,19 +1,20 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { type Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { logsDir } from "./storage.ts";
 import { LogRing } from "./log-ring.ts";
-import { indexedSource, pageSource, seqIndexed, stackedSource, type SeqSource } from "./log-page.ts";
+import { indexedSource, pageSource, stackedSource, type SeqSource } from "./log-page.ts";
 import { SessionLogWriter } from "./log-persist.ts";
-import { PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
+import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
 import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLine } from "./ingest/pipeline.ts";
 import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
 import { readSelfStamp } from "../process/liveness.ts";
 import { writeLogExport } from "./log-export.ts";
-import { safeServiceFile, scanSessionBefore, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
+import { safeServiceFile, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
+import { readBudget, SessionReader } from "./session-reader.ts";
 import { pruneSessions, type SessionOwner } from "./session-prune.ts";
 
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
@@ -83,6 +84,10 @@ export type LogManagerOptions = {
   /** 0 skips the cross-session byte prune. The daemon passes the 2 GiB default. */
   maxTotalBytes?: number;
   spoolDir?: string;
+  /** Bytes one query may read from the session files. Defaults to HISTORY_SCAN_BYTES. */
+  historyScanBytes?: number;
+  /** Time one query may spend reading the session files. Defaults to HISTORY_SCAN_MS. */
+  historyScanMs?: number;
 };
 
 export class LogManager {
@@ -97,6 +102,10 @@ export class LogManager {
   private readonly persist: boolean;
   private readonly sessionID: string;
   private writer?: SessionLogWriter;
+  // Reads the part of the window the ring has evicted back from this session's files.
+  private evicted?: SessionReader;
+  private readonly scanBytes: number;
+  private readonly scanMs: number;
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
@@ -145,6 +154,8 @@ export class LogManager {
     this.persist = persist && sessionID !== "";
     this.persistDir = this.persist ? join(root, `${SESSION_PREFIX}${sessionID}`) : "";
     this.spoolDir = options.spoolDir ?? "";
+    this.scanBytes = options.historyScanBytes ?? HISTORY_SCAN_BYTES;
+    this.scanMs = options.historyScanMs ?? HISTORY_SCAN_MS;
     this.maxSessionLogs = maxSessionLogs;
     this.maxTotalBytes = options.maxTotalBytes ?? 0;
     // Taken before this daemon's pipeline creates spool directories of its own.
@@ -154,6 +165,10 @@ export class LogManager {
     const leftovers = leftoverSpoolDirs(this.spoolDir).filter((dir) => !basename(dir).startsWith(own));
     if (this.persist) {
       mkdirSync(this.persistDir, { recursive: true, mode: 0o700 });
+      // Files already here belong to an earlier store of this session (a
+      // worker that failed over), whose seqs restarted from 1; they are not
+      // part of this store's window.
+      this.evicted = new SessionReader(this.persistDir, new Set(readdirSync(this.persistDir)));
       writeFileSync(join(this.persistDir, SESSION_FORMAT_FILE), `${SESSION_FORMAT_JSONL}\n`, { mode: 0o600 });
       this.writer = new SessionLogWriter(this.persistDir, options.pendingLimitBytes, {
         maxSessionBytes: options.maxSessionBytes,
@@ -381,7 +396,7 @@ export class LogManager {
     const direction: LogPageDirection = cursor ? (page.direction ?? "backward") : "backward";
     const matches = createLogMatcher(filter);
     const ring = indexedSource(this.ring, matches);
-    const window = this.windowSource(ring, matches);
+    const window = this.windowSource(ring, filter, matches);
     const boundary = this.ring.oldestSeq() ?? this.nextSeq;
     // A forward page that starts in the ring looks no further back than the ring.
     const result = pageSource(window, { cursor: cursor?.seq, direction, limit }, (first) => (first >= boundary ? ring : window));
@@ -647,20 +662,21 @@ export class LogManager {
   }
 
   // The ring, and below its oldest record the part of the logical window
-  // (the last `max` seqs) that only the session files still hold.
-  private windowSource(ring: SeqSource, matches: LogMatcher): SeqSource {
+  // (the last `max` seqs) that only the session files still hold, read within
+  // one query's budget.
+  private windowSource(ring: SeqSource, filter: LogFilter, matches: LogMatcher): SeqSource {
     const oldest = this.ring.oldestSeq();
     const windowStart = Math.max(1, this.nextSeq - this.max);
-    if (!this.persist || oldest === undefined || oldest <= windowStart) {
+    if (this.evicted === undefined || oldest === undefined || oldest <= windowStart) {
       return ring;
     }
-    let evicted: SeqSource | undefined;
-    const older = (): SeqSource =>
-      (evicted ??= indexedSource(seqIndexed(scanSessionBefore(this.persistDir, windowStart, oldest).sort((a, b) => a.seq - b.seq)), matches));
-    return stackedSource(ring, oldest, {
-      walkDown: (before, visit) => older().walkDown(before, visit),
-      walkUp: (from, visit) => older().walkUp(from, visit),
-    });
+    const budget = readBudget(this.scanBytes, this.scanMs);
+    return stackedSource(ring, oldest, this.evicted.source({ matches, services: filter.services }, windowStart, oldest, budget));
+  }
+
+  /** Bytes read back from this session's files for queries so far. */
+  evictedBytesRead(): number {
+    return this.evicted?.bytesRead ?? 0;
   }
 
   private writeManifest(closed: boolean): void {
