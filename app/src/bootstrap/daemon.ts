@@ -18,7 +18,7 @@ import { installCrashHandlers, updateCrashHooks } from "../adapters/daemon/crash
 import { autoRingBytes, configuredByteCap, DEFAULT_LOG_CAP_BYTES, DEFAULT_LOG_TOTAL_BYTES } from "../domain/logs/budgets.ts";
 import { readHostLimits } from "../adapters/system/host-limits.ts";
 import { enableChildSubreaper, reapOrphanedChildren } from "../adapters/process/subreaper.ts";
-import { clearRestartRequest, daemonStateDir } from "../adapters/daemon/heartbeat.ts";
+import { claimRestartRequest, clearRestartRequest, daemonStateDir } from "../adapters/daemon/heartbeat.ts";
 import { noteEventLoopLag } from "../adapters/daemon/resource-probe.ts";
 import { Supervisor } from "../adapters/daemon/supervisor.ts";
 import type { TokenManager as Tokens } from "../adapters/google/token.ts";
@@ -220,7 +220,11 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
       process.exit(0);
     });
     const onSignal = (): void => {
-      sup.shutdown(stopOnExit(cfg.shutdown)).catch(() => undefined);
+      // A client replacing this daemon as wedged asks for a hand-off before
+      // it sends SIGTERM. If the loop recovers in time, the services keep
+      // running for the next daemon to adopt.
+      const handOff = claimRestartRequest(cfg.repoRoot, { pid: process.pid, session: sessionID });
+      sup.shutdown(handOff ? false : stopOnExit(cfg.shutdown)).catch(() => undefined);
     };
     process.on("SIGINT", onSignal);
     process.on("SIGTERM", onSignal);

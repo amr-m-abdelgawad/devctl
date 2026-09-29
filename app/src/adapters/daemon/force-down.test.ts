@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -7,7 +7,8 @@ import { spawn, type Subprocess } from "bun";
 import { lockHolderSignalable, type LockRecord } from "../storage/lock.ts";
 import { lockPath } from "../storage/storage.ts";
 import { processState } from "../process/liveness.ts";
-import { forceStopDaemon } from "./force-down.ts";
+import { forceStopDaemon, replaceWedgedDaemon } from "./force-down.ts";
+import { restartRequestPath, writeHeartbeatAtomic } from "./heartbeat.ts";
 
 let root = "";
 let repo = "";
@@ -96,5 +97,52 @@ describe("down --force", () => {
     const record: LockRecord = { pid: other.pid, socket: join(root, "sock"), pidNs: "pid:[4026531836]" };
     expect(lockHolderSignalable(record, { pidNs: "pid:[4026532695]" })).toBe(false);
     expect(lockHolderSignalable(record, {})).toBe(true);
+  });
+});
+
+describe("wedge replacement", () => {
+  // A daemon whose loop never gets to run its SIGTERM handler.
+  async function deaf(): Promise<Subprocess<"ignore", "pipe", "ignore">> {
+    const child = spawn({
+      cmd: [process.execPath, "-e", `process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000)`, "_supervisor"],
+      stdout: "pipe",
+      stderr: "ignore",
+      stdin: "ignore",
+    });
+    children.push(child);
+    const reader = child.stdout.getReader();
+    await reader.read();
+    reader.releaseLock();
+    return child;
+  }
+
+  test.skipIf(process.platform === "win32")("SIGKILLs a daemon that ignores SIGTERM once the grace runs out", async () => {
+    const daemon = await deaf();
+    writeLock({ pid: daemon.pid, socket: join(root, "sock") });
+    const started = Date.now();
+    await replaceWedgedDaemon(repo, 300);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    await daemon.exited;
+    expect(daemon.signalCode).toBe("SIGKILL");
+  });
+
+  test.skipIf(process.platform === "win32")("stops at SIGTERM for a daemon that exits, after asking it to hand its services over", async () => {
+    const daemon = sleeper("_supervisor");
+    writeLock({ pid: daemon.pid, socket: join(root, "sock") });
+    writeHeartbeatAtomic(repo, { pid: daemon.pid, identity: String(daemon.pid), session: "wedged", workerTick: 90, mainStallTicks: 60, rpcOkAgeTicks: 60, degraded: false, writtenAtMs: Date.now() });
+    const started = Date.now();
+    await replaceWedgedDaemon(repo, 5_000);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    await daemon.exited;
+    expect(daemon.signalCode).toBe("SIGTERM");
+    expect(JSON.parse(readFileSync(restartRequestPath(repo), "utf8"))).toMatchObject({ pid: daemon.pid, session: "wedged" });
+  });
+
+  test.skipIf(process.platform === "win32")("does not signal a pid that is not the daemon", async () => {
+    const other = sleeper();
+    writeLock({ pid: other.pid, socket: join(root, "sock") });
+    await replaceWedgedDaemon(repo, 100);
+    await Bun.sleep(100);
+    expect(processState(other.pid)).toBe("alive");
   });
 });

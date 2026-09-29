@@ -10,11 +10,12 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, persistedConfigOverlay, processAlive, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, lockPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogHint, bootstrapLogPath, persistedConfigOverlay, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, lockPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
 import { lockIsLive, readLockFile } from "../storage/lock.ts";
 import { processState } from "../process/liveness.ts";
 import { decideLiveness, heartbeatWorkerAdvanced, LEGACY_DAEMON_MESSAGE } from "../../domain/daemon/liveness.ts";
 import { readHeartbeat, writeRestartRequest } from "../daemon/heartbeat.ts";
+import { replaceWedgedDaemon } from "../daemon/force-down.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -32,7 +33,6 @@ const RPC_CALL_TIMEOUT_MS = 30_000;
 const PING_PROBE_MS = 1_000;
 const REDIAL_MS = 3_000;
 const QUIT_RPC_MS = 3_000;
-const REAP_WAIT_MS = 2_000;
 const RESUME_POLL_MS = 1_000;
 export const RESUME_GAP_MS = 15_000;
 const COMMAND_RPC_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -320,11 +320,7 @@ async function takeOverUnresponsive(repoRoot: string): Promise<Client | undefine
     }
   }
   if (action === "replace-wedge") {
-    const lock = readRepoLock(repoRoot);
-    if (lock && processAlive(lock.pid)) {
-      killRepoSupervisor(repoRoot);
-      await waitForExit(lock.pid, REAP_WAIT_MS);
-    }
+    await replaceWedgedDaemon(repoRoot);
   }
   return undefined;
 }
@@ -342,20 +338,6 @@ function livenessAction(repoRoot: string, nowMs = Date.now()): ReturnType<typeof
     lockGeneration: record?.v === 2 ? 2 : 1,
     heartbeat,
     workerAdvanced: heartbeatWorkerAdvanced(heartbeat, nowMs),
-  });
-}
-
-function waitForExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  return new Promise((resolve) => {
-    const tick = (): void => {
-      if (!processAlive(pid) || Date.now() >= deadline) {
-        resolve();
-        return;
-      }
-      setTimeout(tick, DIAL_RETRY_MS);
-    };
-    tick();
   });
 }
 
