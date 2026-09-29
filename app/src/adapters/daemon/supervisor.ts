@@ -84,6 +84,7 @@ import {
 } from "../../domain/service/services.ts";
 import { listSessions, loadSessionTail } from "../storage/logs.ts";
 import { autoRingBytes } from "../../domain/logs/budgets.ts";
+import { nextMemoryGuard, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
 import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
@@ -124,6 +125,7 @@ export class Supervisor {
   private ringLimited = false;
   /** False until recovery has read state.json. Earlier writes must not erase leftover processes. */
   private processesLoaded = false;
+  private memoryGuard: MemoryPressure = "ok";
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
@@ -442,7 +444,11 @@ export class Supervisor {
       get serviceStartedEnv() { return self.serviceStartedEnv; },
       get orchestrator() { return self.orchestrator; },
       get procs() { return self.procs; },
-      logs: { append: (event) => self.logs.append(event) },
+      logs: {
+        append: (event) => self.logs.append(event),
+        ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
+        ingestPaused: () => self.logs.ingestPaused?.() === true,
+      },
       get clock() { return self.clock; },
       get tokens() { return self.tokens; },
       get registry() { return self.registry; },
@@ -730,7 +736,11 @@ export class Supervisor {
         },
       },
       resolveHealthConfig: (name, health, assigned) => resolveHealthConfig(health, self.cfg, name, assigned, self.ports),
-      logs: { append: (event) => self.logs.append(event) },
+      logs: {
+        append: (event) => self.logs.append(event),
+        ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
+        ingestPaused: () => self.logs.ingestPaused?.() === true,
+      },
       bus: self.bus,
       processMeta: self.processMeta,
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot, self.cfg.instance.name)}-`; },
@@ -1091,7 +1101,10 @@ export class Supervisor {
     return this.procs.all().map((handle) => handle.pid).filter((pid) => pid > 0);
   }
 
-  applyMemoryPressure(pressure: "ok" | "shrink" | "shed"): void {
+  applyMemoryPressure(rssBytes: number, limitBytes: number): void {
+    const ratio = limitBytes > 0 ? rssBytes / limitBytes : 0;
+    const pressure = nextMemoryGuard(this.memoryGuard, ratio);
+    this.memoryGuard = pressure;
     const shrinkFloorBytes = 8 * 1024 * 1024;
     const full = this.cfg.logs.max_memory_bytes > 0
       ? this.cfg.logs.max_memory_bytes
@@ -1108,8 +1121,8 @@ export class Supervisor {
       this.logs.setMemoryBudget?.(Math.max(shrinkFloorBytes, Math.floor(full / 2)));
       this.ringLimited = true;
     }
+    this.logs.setIngestShed?.(pressure === "shed");
     if (pressure === "shed") {
-      this.logs.setIngestShed?.(true);
       this.llmStore.shedBodies?.();
       this.trafficStore.shedBodies?.();
     }

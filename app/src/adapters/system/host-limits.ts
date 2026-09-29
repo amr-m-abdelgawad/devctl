@@ -1,5 +1,6 @@
 import { readFileSync, statfsSync } from "node:fs";
 import { freemem, totalmem } from "node:os";
+import { join } from "node:path";
 import type { HostLimits } from "../../ports/host-limits.ts";
 
 export function readHostLimits(path = "."): HostLimits {
@@ -42,8 +43,9 @@ function readMemoryLimit(): { limit: number; used?: number } {
 }
 
 function readCgroupMemory(): { limit: number; used?: number } {
-  const limit = readFirstNumber(["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]);
-  const used = readFirstNumber(["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"]);
+  const dir = readOwnCgroupDir();
+  const limit = readFirstNumber(cgroupFiles(dir, ["memory.max", "memory.limit_in_bytes"], ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]));
+  const used = readFirstNumber(cgroupFiles(dir, ["memory.current", "memory.usage_in_bytes"], ["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"]));
   if (limit <= 0 || limit > 1e15) {
     return { limit: 0, used: used > 0 ? used : undefined };
   }
@@ -51,8 +53,39 @@ function readCgroupMemory(): { limit: number; used?: number } {
 }
 
 function readPidsMax(): number | undefined {
-  const value = readFirstNumber(["/sys/fs/cgroup/pids.max", "/sys/fs/cgroup/pids/pids.max"]);
+  const dir = readOwnCgroupDir();
+  const value = readFirstNumber(cgroupFiles(dir, ["pids.max"], ["/sys/fs/cgroup/pids.max", "/sys/fs/cgroup/pids/pids.max"]));
   return value > 0 && value < 1e15 ? value : undefined;
+}
+
+/** Directory of this process's cgroup, from `/proc/self/cgroup`. */
+export function cgroupDirFromProc(text: string, mount = "/sys/fs/cgroup"): string | undefined {
+  const line = text.split("\n").map((row) => row.trim()).find((row) => {
+    const parts = row.split(":");
+    return parts.length >= 3 && (parts[0] === "0" || parts[1] === "");
+  });
+  if (line === undefined) {
+    return undefined;
+  }
+  const relative = line.split(":").slice(2).join(":");
+  if (relative === "" || relative === "/") {
+    return mount;
+  }
+  const cleaned = relative.startsWith("/") ? relative.slice(1) : relative;
+  return join(mount, cleaned);
+}
+
+function readOwnCgroupDir(): string | undefined {
+  try {
+    return cgroupDirFromProc(readFileSync("/proc/self/cgroup", "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function cgroupFiles(dir: string | undefined, names: string[], fallback: string[]): string[] {
+  const own = dir === undefined ? [] : names.map((name) => join(dir, name));
+  return [...own, ...fallback];
 }
 
 function readFirstNumber(paths: string[]): number {

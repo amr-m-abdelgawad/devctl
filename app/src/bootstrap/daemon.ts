@@ -16,7 +16,6 @@ import { commandsForHost } from "../application/commands.ts";
 import { startEventLoopWatchdog } from "../adapters/daemon/event-loop-watchdog.ts";
 import { installCrashHandlers, updateCrashHooks } from "../adapters/daemon/crash.ts";
 import { autoRingBytes, configuredByteCap, DEFAULT_LOG_CAP_BYTES, DEFAULT_LOG_TOTAL_BYTES } from "../domain/logs/budgets.ts";
-import { memoryPressure } from "../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../adapters/system/host-limits.ts";
 import { enableChildSubreaper, reapOrphanedChildren } from "../adapters/process/subreaper.ts";
 import { daemonStateDir } from "../adapters/daemon/heartbeat.ts";
@@ -192,7 +191,7 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
     const guard = setInterval(() => {
       const usage = process.memoryUsage().rss;
       const host = readHostLimits(cfg.repoRoot);
-      sup.applyMemoryPressure(memoryPressure(usage, host.memoryBytes));
+      sup.applyMemoryPressure(usage, host.memoryBytes);
       if (cfg.supervisor.reap_orphans) {
         void reapOrphanedChildren(sup.servicePids());
       }

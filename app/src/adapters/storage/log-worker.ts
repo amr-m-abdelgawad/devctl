@@ -109,8 +109,13 @@ async function handle(message: WorkerRequest): Promise<void> {
 }
 
 addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
-  chain = chain.then(() => handle(event.data)).catch((err: unknown) => {
-    const data = event.data;
+  const data = event.data;
+  // Budget and shed must not wait behind a flood of chunks.
+  if (data.type === "setMemoryBudget" || data.type === "setIngestShed") {
+    void handle(data);
+    return;
+  }
+  chain = chain.then(() => handle(data)).catch((err: unknown) => {
     fail("id" in data ? data.id : undefined, err);
   });
 });
