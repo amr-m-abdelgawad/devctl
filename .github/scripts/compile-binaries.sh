@@ -12,15 +12,21 @@ VERSION="${DEVCTL_VERSION:?DEVCTL_VERSION is required}"
 OUTDIR="${OUTDIR:-../dist}"
 mkdir -p "$OUTDIR"
 
+# The log and watchdog workers are extra entrypoints, so each binary embeds
+# them. `[name].[ext]` puts them at `$bunfs/root/<worker>.js`, beside the
+# entrypoint, which is the same layout as the npm package's dist/ and where
+# resolveWorkerUrl looks.
+WORKERS=(src/adapters/storage/log-worker.ts src/adapters/daemon/event-loop-watchdog-worker.ts)
+
 compile() {
   local target="$1"
   local out="$2"
-  local args=(build --compile --target="$target" --define "process.env.DEVCTL_VERSION=\"${VERSION}\"")
+  local args=(build --compile --target="$target" --entry-naming "[name].[ext]" --define "process.env.DEVCTL_VERSION=\"${VERSION}\"")
   case "$target" in
     bun-linux-*) args+=(--define "process.env.OPENTUI_LIBC=\"glibc\"") ;;
   esac
   echo "compile ${target} -> ${OUTDIR}/${out}"
-  bun "${args[@]}" --outfile "${OUTDIR}/${out}" src/bin.ts
+  bun "${args[@]}" --outfile "${OUTDIR}/${out}" src/bin.ts "${WORKERS[@]}"
 }
 
 compile bun-darwin-arm64 devctl-darwin-arm64
@@ -28,25 +34,3 @@ compile bun-darwin-x64 devctl-darwin-x64
 compile bun-linux-x64 devctl-linux-x64
 compile bun-linux-arm64 devctl-linux-arm64
 compile bun-windows-x64 devctl-windows-x64.exe
-
-compile_worker() {
-  local target="$1"
-  local entry="$2"
-  local out="$3"
-  local args=(build --compile --target="$target" --define "process.env.DEVCTL_VERSION=\"${VERSION}\"")
-  case "$target" in
-    bun-linux-*) args+=(--define "process.env.OPENTUI_LIBC=\"glibc\"") ;;
-  esac
-  echo "compile ${target} ${entry} -> ${OUTDIR}/${out}"
-  bun "${args[@]}" --outfile "${OUTDIR}/${out}" "$entry"
-}
-
-for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64 bun-windows-x64; do
-  ext=""
-  if [[ "$target" == "bun-windows-x64" ]]; then
-    ext=".exe"
-  fi
-  suffix="${target#bun-}"
-  compile_worker "$target" src/adapters/storage/log-worker.ts "log-worker-${suffix}${ext}"
-  compile_worker "$target" src/adapters/daemon/event-loop-watchdog-worker.ts "event-loop-watchdog-worker-${suffix}${ext}"
-done

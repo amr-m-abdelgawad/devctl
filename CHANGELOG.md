@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The daemon sheds capture bodies and shrinks the log ring when its own memory use crosses 90% and 75% of the cgroup limit. `status` includes event-loop lag and log pipeline counters.
 - `devctl down --force` stops a daemon that has no heartbeat, including one still running after an upgrade. A daemon that is making progress is not replaced.
 - `supervisor.reap_orphans` (off by default) asks Linux to reap zombies parented by the daemon. `devctl doctor` warns when PID 1 does not reap.
-- The log worker and the event-loop watchdog ship in the npm package and as compiled entrypoints.
+- The log worker and the event-loop watchdog run in every build. The npm package ships them beside its bundle, and each compiled binary embeds them, so release binaries no longer parse logs on the daemon's main thread.
 
 ### Changed
 

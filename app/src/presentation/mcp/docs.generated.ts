@@ -2203,7 +2203,7 @@ Ingest also copies \`devctl.request_id\` from a proxy hop onto a nearby service 
 ## Buffer and persistence
 
 - In-memory circular buffer: \`logs.max_memory_events\` (default 50,000). Retention stays O(1) per line even after the buffer fills. Status \`logs.total\` / \`logs.errors\` are how many of those lines are still in the ring; \`logs.seen\` / \`logs.seenErrors\` are lifetime ingest counts so dashboards do not freeze at the cap.
-- The live ring lives in a Bun Worker behind \`LogStore\` when running from source or npm, so parse and search do not stall the supervisor event loop. The main thread only receives page/facet/export results (and a cached snapshot for \`status\`). Compiled standalone binaries (\`bun build --compile\`) keep the ring in-process — Bun cannot resolve the worker script inside a single-file executable. If the worker fails to start, the daemon falls back to the in-process store rather than hanging.
+- The live ring lives in a Bun Worker behind \`LogStore\`, so parse and search do not stall the supervisor event loop. Source, npm, and compiled standalone binaries all run it: a compiled binary embeds the worker. The main thread only receives page/facet/export results (and a cached snapshot for \`status\`). If the worker fails to start, the daemon falls back to the in-process store rather than hanging, and logs a WARN.
 - Ingest truncates lines longer than 16 KiB and skips \`JSON.parse\` on payloads larger than 64 KiB. Regex search is already capped (pattern length, nested quantifiers).
 - Optional persistence under \`~/.devctl/logs/\` (\`persistence.enabled\`, \`directory\`, \`retention_days\`, \`max_session_logs\`).
 - Ingest is a bounded channel; UI updates batch (~30ms) so a noisy service cannot freeze the TUI.

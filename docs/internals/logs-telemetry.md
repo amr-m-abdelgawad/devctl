@@ -7,7 +7,7 @@ Three related stores, one redaction story. User pages: [logs.md](../logs.md), [t
 Production daemon: `createDaemonLogStore` (`adapters/storage/worker-log-store.ts`).
 
 - Prefers a **worker thread** (`log-worker.ts`, protocol in `log-worker-protocol.ts`) so high-volume stdout does not block RPC.
-- Falls back in-process (`LogManager`) if the worker fails; logs a WARN. Compiled standalone binaries skip the worker (`Bun.isStandaloneExecutable`).
+- Falls back in-process (`LogManager`) if the worker fails; logs a WARN. Compiled standalone binaries run the worker too: `compile-binaries.sh` embeds it beside the entrypoint, where `resolveWorkerUrl` finds it (the npm bundle ships it at the same place in `dist/`).
 - Ring size: `logs.max_memory_events`.
 - Optional persist under `logs.persistence.directory` (default `~/.devctl/logs`) with retention days and max sessions.
 

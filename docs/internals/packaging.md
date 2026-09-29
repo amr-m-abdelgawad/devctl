@@ -16,7 +16,7 @@ The Release publish job uploads those standalone files and the npm tarball **one
 Standalone binaries:
 
 - `Bun.isStandaloneExecutable` changes `_supervisor` argv (`supervisorSpawnCommand`)
-- Log worker is skipped
+- The log and watchdog workers are extra `--compile` entrypoints named `[name].[ext]`, so each binary embeds them beside its entrypoint (`resolveWorkerUrl`)
 - MCP/docs strings must be compiled in → `sync-guide` before release
 
 Smoke: `.github/scripts/smoke-test-binary.sh`.

@@ -76,7 +76,6 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
   const orchestrator = new ServiceOrchestrator(processes, clock);
   const sessionID = newSessionID();
   const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns, cfg.secrets.redact);
-  const standalone = Bun.isStandaloneExecutable === true;
   const { logs, usingWorker } = await createDaemonLogStore(
     {
       max: cfg.logs.max_memory_events,
@@ -97,9 +96,8 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
     },
     bus,
     detector,
-    { standalone },
   );
-  if (!usingWorker && !standalone) {
+  if (!usingWorker) {
     logs.append({
       timestamp: clock.isoNow(),
       service: "devctl",
