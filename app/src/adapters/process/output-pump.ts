@@ -109,9 +109,16 @@ function yieldMacrotask(): Promise<void> {
 
 type ByteStream = AsyncIterable<Uint8Array>;
 
+// A read and the time it completed, taken when the read settles rather than
+// when the pump gets to it: a pump waiting to deliver still stamps it on time.
+type StampedRead = { result: IteratorResult<Uint8Array>; readAtMs: number };
+
+type TakenChunk = { bytes: Uint8Array; readAtMs: number };
+
 /**
  * Coalesces reads up to 256 KiB or 5 ms. A handler that returns false keeps
- * the chunk; the caller retries it after the pipeline has room.
+ * the chunk; the caller retries it after the pipeline has room. Each chunk
+ * carries the time its first read completed, however late it is delivered.
  */
 export async function pumpChunks(
   stream: ReadableStream<Uint8Array> | ByteStream | number | undefined,
@@ -123,16 +130,17 @@ export async function pumpChunks(
     return;
   }
   const iterator = stream[Symbol.asyncIterator]();
-  let pendingRead = iterator.next();
+  let pendingRead = stampRead(iterator.next());
   let parts: Uint8Array[] = [];
   let pendingBytes = 0;
-  let startedAt = 0;
-  const take = (): Uint8Array | undefined => {
+  let firstReadAtMs = 0;
+  const take = (): TakenChunk | undefined => {
     const merged = mergeParts(parts, pendingBytes);
+    const readAtMs = firstReadAtMs;
     parts = [];
     pendingBytes = 0;
-    startedAt = 0;
-    return merged;
+    firstReadAtMs = 0;
+    return merged === undefined ? undefined : { bytes: merged, readAtMs };
   };
   try {
     while (true) {
@@ -141,19 +149,18 @@ export async function pumpChunks(
         await deliverChunk(kind, handler, options, take());
         continue;
       }
-      pendingRead = iterator.next();
+      pendingRead = stampRead(iterator.next());
       if (step.result.done === true) {
         break;
       }
       const owned = copyBytes(step.result.value);
-      if (startedAt === 0) {
-        startedAt = Date.now();
-      }
-      const aged = Date.now() - startedAt >= COALESCE_MS;
+      const aged = pendingBytes > 0 && step.readAtMs - firstReadAtMs >= COALESCE_MS;
       const overflow = pendingBytes > 0 && pendingBytes + owned.byteLength > COALESCE_BYTES;
-      if (pendingBytes > 0 && (aged || overflow)) {
+      if (aged || overflow) {
         await deliverChunk(kind, handler, options, take());
-        startedAt = Date.now();
+      }
+      if (pendingBytes === 0) {
+        firstReadAtMs = step.readAtMs;
       }
       parts.push(owned);
       pendingBytes += owned.byteLength;
@@ -171,15 +178,19 @@ export async function pumpChunks(
   await deliverEnd(kind, handler);
 }
 
+function stampRead(read: Promise<IteratorResult<Uint8Array>>): Promise<StampedRead> {
+  return read.then((result) => ({ result, readAtMs: Date.now() }));
+}
+
 async function nextPumpStep(
-  pendingRead: Promise<IteratorResult<Uint8Array>>,
+  pendingRead: Promise<StampedRead>,
   coalesce: boolean,
-): Promise<{ kind: "tick" } | { kind: "read"; result: IteratorResult<Uint8Array> }> {
+): Promise<{ kind: "tick" } | ({ kind: "read" } & StampedRead)> {
   if (!coalesce) {
-    return { kind: "read", result: await pendingRead };
+    return { kind: "read", ...(await pendingRead) };
   }
   return Promise.race([
-    pendingRead.then((result) => ({ kind: "read" as const, result })),
+    pendingRead.then((read) => ({ kind: "read" as const, ...read })),
     sleepMs(COALESCE_MS).then(() => ({ kind: "tick" as const })),
   ]);
 }
@@ -188,15 +199,16 @@ async function deliverChunk(
   kind: StreamName,
   handler: ChunkHandler,
   options: PumpOptions,
-  bytes: Uint8Array | undefined,
+  chunk: TakenChunk | undefined,
 ): Promise<void> {
-  if (bytes === undefined || bytes.byteLength === 0) {
+  if (chunk === undefined || chunk.bytes.byteLength === 0) {
     return;
   }
+  const meta = { readAtMs: chunk.readAtMs };
   let accepted = false;
   while (!accepted) {
     await waitUntilReadable(options.paused);
-    accepted = handler(kind, bytes) !== false;
+    accepted = handler(kind, chunk.bytes, meta) !== false;
     if (!accepted) {
       await sleepMs(PAUSE_POLL_MS);
     }

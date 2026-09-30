@@ -714,3 +714,27 @@ describe("ServiceOrchestrator proxy start failure", () => {
     expect(processes.started.map((spec) => spec.name)).toEqual(["api"]);
   });
 });
+
+describe("ServiceOrchestrator output chunks", () => {
+  test("a chunk keeps the time the pump read it, not the time it was delivered", async () => {
+    const { orch, session, processes } = harness();
+    const chunks: { pid: number; readAtMs: number; end?: boolean }[] = [];
+    Object.assign(session, {
+      logs: {
+        append: () => {},
+        ingestChunk: (chunk: { pid: number; readAtMs: number; end?: boolean }) => {
+          chunks.push(chunk);
+          return true;
+        },
+      },
+    });
+    await orch.start({ services: ["api"] });
+    const onChunk = processes.started[0]?.onChunk;
+    expect(onChunk).toBeDefined();
+    expect(onChunk!("stdout", Buffer.from("read long ago\n"), { pid: 7, readAtMs: 1_234 })).toBe(true);
+    const before = Date.now();
+    expect(onChunk!("stdout", Buffer.from("no reader stamp\n"), { pid: 7 })).toBe(true);
+    expect(chunks[0]).toMatchObject({ pid: 7, readAtMs: 1_234 });
+    expect(chunks[1]!.readAtMs).toBeGreaterThanOrEqual(before);
+  });
+});

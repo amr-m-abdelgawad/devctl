@@ -372,7 +372,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
               service: name,
               stream,
               pid: meta?.pid ?? 0,
-              readAtMs: this.clock.unixMs(),
+              // Delivery can lag the read (coalescing, a paused pipeline), so the reader's stamp wins.
+              readAtMs: meta?.readAtMs ?? this.clock.unixMs(),
               bytes,
               end: meta?.end,
             }) ?? false
