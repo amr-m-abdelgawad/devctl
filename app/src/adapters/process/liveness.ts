@@ -163,12 +163,15 @@ function processCommandLine(pid: number): string[] | undefined {
     }
   }
   // Both join argv with spaces, so this split only finds whole arguments
-  // that have none, such as `_supervisor`.
+  // that have none, such as `_supervisor`. A cold PowerShell plus a CIM
+  // query can take seconds, and a timeout would leave a stale lock in place.
   const text = process.platform === "win32"
-    ? commandText(["powershell.exe", "-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`])
+    ? commandText(["powershell.exe", "-NoProfile", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").CommandLine`], WINDOWS_QUERY_MS)
     : commandText(["ps", "-ww", "-o", "command=", "-p", String(pid)]);
   return text?.split(/\s+/);
 }
+
+const WINDOWS_QUERY_MS = 5_000;
 
 /**
  * Whether the pid runs the daemon subcommand every devctl has spawned
@@ -178,13 +181,13 @@ export function isDevctlSupervisor(pid: number): boolean | undefined {
   return processCommandLine(pid)?.includes("_supervisor");
 }
 
-function commandText(cmd: string[]): string | undefined {
+function commandText(cmd: string[], timeoutMs = 1_000): string | undefined {
   const bin = cmd[0];
   if (bin === undefined) {
     return undefined;
   }
   try {
-    const result = spawnSync(bin, cmd.slice(1), { encoding: "utf8", timeout: 1_000 });
+    const result = spawnSync(bin, cmd.slice(1), { encoding: "utf8", timeout: timeoutMs });
     const text = result.stdout?.trim();
     return text === "" || text === undefined ? undefined : text;
   } catch {

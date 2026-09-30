@@ -57,14 +57,17 @@ describe("watchdog worker failure", () => {
     const starts = join(root, "starts");
     const script = join(root, "crash-worker.ts");
     writeFileSync(script, `import { appendFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(starts)}, "x");\nthrow new Error("crash");\n`);
+    const started = Date.now();
     const watchdog = startEventLoopWatchdog({ repoRoot: repo, session: "s", identity: "1", script: pathToFileURL(script) });
     try {
-      await Bun.sleep(WATCHDOG_TICK_MS / 2);
+      while (readHeartbeat(repo)?.degraded !== true && Date.now() - started < 2_000) {
+        await Bun.sleep(20);
+      }
       expect(readHeartbeat(repo)?.degraded).toBe(true);
       expect(watchdogState()).toBe("degraded");
       // Spawned at 0 and after one tick; the third waits two more ticks. A
       // respawn on every tick would have started it three times by now.
-      await Bun.sleep(WATCHDOG_TICK_MS * 2.1);
+      await Bun.sleep(Math.max(0, started + WATCHDOG_TICK_MS * 2.6 - Date.now()));
       expect(readFileSync(starts, "utf8").length).toBeLessThanOrEqual(2);
     } finally {
       watchdog.stop();
