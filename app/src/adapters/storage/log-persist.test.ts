@@ -138,6 +138,22 @@ describe("session retention", () => {
     await mgr.close();
   });
 
+  test.skipIf(process.platform !== "linux")("a session owned from another PID namespace counts as live while it is written", () => {
+    const root = tempDir();
+    const now = Date.now();
+    const elsewhere = { pid: 1, pidNs: "pid:[1]", startTicks: "1" };
+    const writing = makeSession(root, "session-2026-09-01T00-00-00Z-gggggg", { repo: "other", owner: elsewhere }, 8 * 1024, now - 3_000_000);
+    const abandoned = makeSession(root, "session-2026-09-02T00-00-00Z-hhhhhh", { repo: "other", owner: elsewhere }, 8 * 1024, now - 2_000_000);
+    const old = new Date(now - 60 * 60_000);
+    for (const name of readdirSync(abandoned)) {
+      utimesSync(join(abandoned, name), old, old);
+    }
+    const mine = makeSession(root, "session-2026-09-03T00-00-00Z-iiiiii", { repo: "mine" }, 1024, now);
+    pruneSessions(root, 0, 0, "mine", { maxTotalBytes: 10 * 1024, liveDir: mine });
+    expect(existsSync(writing)).toBe(true);
+    expect(existsSync(abandoned)).toBe(false);
+  });
+
   test("another repo's closed session follows the retention it was written with", () => {
     const root = tempDir();
     const day = 86_400_000;
