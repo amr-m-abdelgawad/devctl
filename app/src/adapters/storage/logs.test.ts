@@ -886,7 +886,7 @@ describe("LogManager proxy hop request-id tagging", () => {
     });
     const events = mgr.query({});
     expect(events).toHaveLength(2);
-    expect(events[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
+    expect(events.find((event) => event.service === "worker")?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
   });
 
   test("re-emits and persists a reverse-order request-id update", async () => {
@@ -912,6 +912,9 @@ describe("LogManager proxy hop request-id tagging", () => {
       message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
       pid: 1,
     });
+    // A record from another source no longer closes an open fold, so the
+    // worker line is committed first explicitly, as its idle timeout would.
+    await mgr.flush();
     mgr.append({
       timestamp: "2026-09-19T00:00:00.010Z",
       service: "proxy",

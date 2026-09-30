@@ -36,8 +36,11 @@ type ResolvedMultiline = {
 type ServiceBuffer = {
   first: LogIngest;
   lines: string[];
+  /** Event time of the first and the newest line. */
   firstAt: number;
   lastAt: number;
+  /** Wall time the newest line reached the assembler. */
+  touchedAt: number;
   inTraceback: boolean;
   sawTracebackException: boolean;
   options: ResolvedMultiline;
@@ -67,31 +70,48 @@ function compilePattern(pattern: string | undefined): RegExp | undefined {
   }
 }
 
+/**
+ * Folds process lines by event time: the time each line was read, however
+ * late it reaches the assembler. Only a stream's own lines move its clock, so
+ * a stream that is far behind (spooled, replayed) folds the way it would have
+ * live. The wall clock only closes a buffer whose stream has gone quiet.
+ */
 export class MultilineAssembler {
   private readonly buffers = new Map<string, ServiceBuffer>();
 
-  push(ingest: LogIngest, nowMs: number, options?: MultilineOptions): FoldedLog[] {
-    const emitted = this.flushDue(nowMs);
+  /**
+   * Folds a line read at `atMs`. A buffer idle by its own stream's clock closes
+   * first; other streams' buffers are left alone. `touchedAt` is the wall time
+   * the line arrived, for `flushIdle`.
+   */
+  push(ingest: LogIngest, atMs: number, options?: MultilineOptions, touchedAt = atMs): FoldedLog[] {
+    const emitted: FoldedLog[] = [];
     const resolved = resolveMultilineOptions(options);
     const line = ingest.message ?? (typeof ingest.body === "string" ? ingest.body : "");
     const key = JSON.stringify([ingest.service, ingest.source, ingest.stream ?? "", ingest.pid, ingest.identity ?? ""]);
-    const current = this.buffers.get(key);
+    let current = this.buffers.get(key);
+    if (current && atMs - current.lastAt >= current.options.maxWaitMs) {
+      emitted.push(this.take(key)!);
+      current = undefined;
+    }
     if (!current) {
-      this.buffers.set(key, this.newBuffer(ingest, line, nowMs, resolved));
+      this.buffers.set(key, this.newBuffer(ingest, line, atMs, touchedAt, resolved));
       return this.emitIfFull(key, emitted);
     }
     if (this.isContinuation(line, current, resolved)) {
       current.lines.push(line);
-      current.lastAt = nowMs;
+      current.lastAt = atMs;
+      current.touchedAt = touchedAt;
       current.options = resolved;
       this.noteTracebackProgress(current, line);
       return this.emitIfFull(key, emitted);
     }
     emitted.push(this.take(key)!);
-    this.buffers.set(key, this.newBuffer(ingest, line, nowMs, resolved));
+    this.buffers.set(key, this.newBuffer(ingest, line, atMs, touchedAt, resolved));
     return this.emitIfFull(key, emitted);
   }
 
+  /** Buffers idle for their max wait at event time `nowMs`. */
   flushDue(nowMs: number): FoldedLog[] {
     const emitted: FoldedLog[] = [];
     for (const [key, buffer] of this.buffers) {
@@ -102,18 +122,36 @@ export class MultilineAssembler {
     return emitted;
   }
 
-  flushAll(): FoldedLog[] {
+  /**
+   * Buffers whose newest line arrived at least their max wait ago by the wall
+   * clock, except those whose stream `busy` says may still deliver older lines.
+   */
+  flushIdle(wallMs: number, busy: (first: LogIngest) => boolean): FoldedLog[] {
     const emitted: FoldedLog[] = [];
-    for (const key of [...this.buffers.keys()]) {
-      emitted.push(this.take(key)!);
+    for (const [key, buffer] of this.buffers) {
+      if (wallMs - buffer.touchedAt >= buffer.options.maxWaitMs && !busy(buffer.first)) {
+        emitted.push(this.take(key)!);
+      }
     }
     return emitted;
   }
 
+  /** Every buffer, or every one `keep` does not hold back. */
+  flushAll(keep?: (first: LogIngest) => boolean): FoldedLog[] {
+    const emitted: FoldedLog[] = [];
+    for (const [key, buffer] of [...this.buffers]) {
+      if (keep?.(buffer.first) !== true) {
+        emitted.push(this.take(key)!);
+      }
+    }
+    return emitted;
+  }
+
+  /** The earliest wall time a buffer can close as idle. */
   nextDeadlineMs(): number | undefined {
     let deadline: number | undefined;
     for (const buffer of this.buffers.values()) {
-      const at = buffer.lastAt + buffer.options.maxWaitMs;
+      const at = buffer.touchedAt + buffer.options.maxWaitMs;
       if (deadline === undefined || at < deadline) {
         deadline = at;
       }
@@ -121,12 +159,24 @@ export class MultilineAssembler {
     return deadline;
   }
 
-  private newBuffer(ingest: LogIngest, line: string, nowMs: number, options: ResolvedMultiline): ServiceBuffer {
+  /** Event time of the oldest line still held, which is when its fold will say it arrived. */
+  oldestFirstAt(): number | undefined {
+    let oldest: number | undefined;
+    for (const buffer of this.buffers.values()) {
+      if (oldest === undefined || buffer.firstAt < oldest) {
+        oldest = buffer.firstAt;
+      }
+    }
+    return oldest;
+  }
+
+  private newBuffer(ingest: LogIngest, line: string, atMs: number, touchedAt: number, options: ResolvedMultiline): ServiceBuffer {
     return {
       first: ingest,
       lines: [line],
-      firstAt: nowMs,
-      lastAt: nowMs,
+      firstAt: atMs,
+      lastAt: atMs,
+      touchedAt,
       inTraceback: TRACEBACK_START.test(line),
       sawTracebackException: false,
       options,

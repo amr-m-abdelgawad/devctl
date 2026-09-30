@@ -49,6 +49,8 @@ type StreamState = {
   servedBytes: number;
   lastReadAtMs: number;
   ended: boolean;
+  /** The stream's newest chunk was refused; its reader still holds it. */
+  blocked: boolean;
 };
 
 export type PipelineLimits = {
@@ -114,6 +116,7 @@ export class IngestPipeline {
     }
     const state = this.streamFor(chunk);
     state.ended = false;
+    state.blocked = false;
     const frame: SpoolFrame = { readAtMs: chunk.readAtMs, bytes: chunk.bytes };
     if (!spilling(state) && state.headBytes + incoming <= this.spillPerStream && this.memoryBytes + incoming <= this.spillTotal) {
       state.head.push(frame);
@@ -131,11 +134,33 @@ export class IngestPipeline {
         state.tail.pop();
         state.tailBytes -= incoming;
         this.memoryBytes -= incoming;
+        state.blocked = true;
         this.paused = true;
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * True while a stream may still deliver lines older than any it has
+   * emitted: it has bytes queued, an end not yet processed, or a chunk it
+   * refused that its reader will offer again.
+   */
+  streamBusy(key: PipelineStreamKey): boolean {
+    const state = this.streams.get(streamKey(key));
+    return state !== undefined && (hasData(state) || state.ended || state.blocked);
+  }
+
+  /** The read time the furthest-behind stream with queued or refused bytes has reached. */
+  lowWatermark(): number | undefined {
+    let mark: number | undefined;
+    for (const state of this.streams.values()) {
+      if ((hasData(state) || state.blocked) && (mark === undefined || state.lastReadAtMs < mark)) {
+        mark = state.lastReadAtMs;
+      }
+    }
+    return mark;
   }
 
   /**
@@ -327,6 +352,7 @@ export class IngestPipeline {
       servedBytes: this.leastServed(),
       lastReadAtMs: chunk.readAtMs,
       ended: false,
+      blocked: false,
     };
     this.streams.set(key, created);
     return created;

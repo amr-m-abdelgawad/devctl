@@ -9,7 +9,8 @@ import { indexedSource, pageSource, stackedSource, type SeqSource } from "./log-
 import { SessionLogWriter } from "./log-persist.ts";
 import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
-import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLine } from "./ingest/pipeline.ts";
+import { ProxyHopWindow } from "../../domain/logs/hop-window.ts";
+import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLimits, type PipelineLine, type PipelineStreamKey } from "./ingest/pipeline.ts";
 import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
 import { readSelfStamp } from "../process/liveness.ts";
 import { writeLogExport } from "./log-export.ts";
@@ -28,10 +29,6 @@ import {
   dedupeLogsByRequestId,
   encodeLogCursor,
   isErrorSeverity,
-  PROXY_HOP_CORRELATE_WINDOW_MS,
-  requestIdAttribute,
-  shouldTagServiceLogWithProxyHop,
-  withRequestId,
   isProcessLogSource,
   matchesLogDimensions,
   MultilineAssembler,
@@ -57,14 +54,17 @@ export * from "../../domain/logs/logs.ts";
 const DEFAULT_MAX_EVENTS = 50_000;
 const PRUNE_INTERVAL_MS = 5 * 60_000;
 const PRUNE_ON_ROTATE_MIN_MS = 30_000;
-
-type CorrelateCandidate = {
-  readonly event: LogRecord;
-  readonly arrivedMs: number;
-};
+// Output read but not yet ingested: coalescing, transit, and the drain timer.
+const IN_FLIGHT_SLACK_MS = 100;
+// How often a fold that is due but waiting on its stream's queued output is re-checked.
+const FOLD_BUSY_RECHECK_MS = 25;
 
 function accessLineKey(service: string, pid: number): string {
   return `${service}\0${pid}`;
+}
+
+function foldStreamKey(key: PipelineStreamKey): string {
+  return `${key.service}\0${key.stream}\0${key.pid}`;
 }
 
 function withoutFilterDimension(filter: LogFilter, dimension: "services" | "level" | "source"): LogFilter {
@@ -89,6 +89,8 @@ export type LogManagerOptions = {
   historyScanBytes?: number;
   /** Time one query may spend reading the session files. Defaults to HISTORY_SCAN_MS. */
   historyScanMs?: number;
+  /** Pipeline thresholds; `maxSpoolBytes` still sets the spool budget. */
+  pipelineLimits?: PipelineLimits;
 };
 
 export class LogManager {
@@ -112,8 +114,12 @@ export class LogManager {
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
   private lastByServicePid = new Map<string, LogRecord>();
-  private recentCorrelate: CorrelateCandidate[] = [];
+  private readonly hopWindow = new ProxyHopWindow();
   private idleTimer?: ReturnType<typeof setTimeout>;
+  private idleTimerAt = 0;
+  /** Streams a leftover spool is replaying; their folds close by event time only. */
+  private readonly replaying = new Set<string>();
+  private readonly pipelineLimits: PipelineLimits;
   private onRecord?: (event: LogRecord) => void;
   private pipeline?: IngestPipeline;
   private drainTimer?: ReturnType<typeof setTimeout>;
@@ -150,6 +156,7 @@ export class LogManager {
     this.repoKey = options.repoKey ?? "";
     this.retentionDays = retentionDays;
     this.maxSpoolBytes = options.maxSpoolBytes ?? 0;
+    this.pipelineLimits = options.pipelineLimits ?? {};
     const root = directory === "" || directory.startsWith("~/") ? logsDir() : directory;
     this.logRoot = root;
     this.persist = persist && sessionID !== "";
@@ -202,6 +209,8 @@ export class LogManager {
         )
       : (_header: unknown, lines: ReplayLine[]): void => {
           for (const line of lines) {
+            // Its next segment is still to come: only event time may close its fold.
+            this.replaying.add(foldStreamKey(line));
             this.appendLine(line);
           }
         };
@@ -209,6 +218,9 @@ export class LogManager {
       await replayLeftoverSpools(dirs, sink, () => this.closing);
     } catch {
       // Whatever was not replayed stays on disk for the next daemon.
+    } finally {
+      this.replaying.clear();
+      this.scheduleIdleFlush();
     }
   }
 
@@ -302,13 +314,21 @@ export class LogManager {
     };
   }
 
-  append(ev: LogIngest): LogRecord | undefined {
+  /**
+   * `atMs` is the event time: when the line was read or the record logged.
+   * Folding, proxy-hop pairing, and access-line dedupe go by it rather than by
+   * when the record gets here, so output that was spooled, replayed, or held
+   * back by a full pipeline comes out the way it would have live. Another
+   * source's record does not close a pending fold.
+   */
+  append(ev: LogIngest, atMs = Date.now()): LogRecord | undefined {
+    const now = Date.now();
+    this.flushIdleFolds(now);
     if (!shouldFoldProcessLine(ev)) {
-      this.flushPending();
-      return this.commitIngest(ev);
+      return this.commitIngest(ev, atMs);
     }
     let last: LogRecord | undefined;
-    for (const folded of this.assembler.push(ev, Date.now(), this.serviceLogs.get(ev.service)?.multiline)) {
+    for (const folded of this.assembler.push(ev, atMs, this.serviceLogs.get(ev.service)?.multiline, now)) {
       last = this.commitFolded(folded);
     }
     this.scheduleIdleFlush();
@@ -317,7 +337,7 @@ export class LogManager {
 
   async flush(): Promise<void> {
     this.drainPipeline();
-    this.flushPending();
+    this.commitAllFolds();
     this.batcher?.flush();
     await this.writer?.flush();
   }
@@ -471,14 +491,15 @@ export class LogManager {
     return this.commitIngest(ev, folded.arrivedMs);
   }
 
-  private commitIngest(ev: LogIngest, arrivedMs = Date.now()): LogRecord | undefined {
+  // `atMs` is the event time: the read time of a fold's first line, or when a record was logged.
+  private commitIngest(ev: LogIngest, atMs: number): LogRecord | undefined {
     const skipParse = ev.body !== undefined || ev.source === "otlp";
     const line = truncateLogLine(ev.message ?? (typeof ev.body === "string" ? ev.body : ""));
     const parsed = skipParse ? ingestAsParsed(ev) : this.parseLine(line);
     const built = buildLogRecord(ev, parsed, this.nextSeq);
     const redacted = this.detector ? redactLogRecord(this.detector, built) : built;
-    this.expireCorrelate(Date.now());
-    const next = this.attachProxyRequestId(redacted, arrivedMs);
+    this.expireCorrelate(atMs);
+    const next = this.hopWindow.attach(redacted, atMs);
     if (this.shouldDropAccessDuplicate(ev, next)) {
       return undefined;
     }
@@ -491,55 +512,37 @@ export class LogManager {
       this.errorCount += 1;
     }
     this.pushRing(next);
-    this.tagRecentServiceLogs(next, arrivedMs);
-    this.rememberCorrelate(next, arrivedMs);
+    for (const tagged of this.hopWindow.tagEarlier(next, atMs)) {
+      this.replaceRecord(tagged);
+    }
+    this.hopWindow.remember(next, atMs);
     this.publishRecord(next);
     return next;
   }
 
-  private attachProxyRequestId(event: LogRecord, arrivedMs: number): LogRecord {
-    if (requestIdAttribute(event) !== "") {
-      return event;
-    }
-    for (const prev of this.recentCorrelate) {
-      if (this.inCorrelateArrivalWindow(prev.arrivedMs, arrivedMs) && shouldTagServiceLogWithProxyHop(prev.event, event)) {
-        return withRequestId(event, requestIdAttribute(prev.event));
-      }
-    }
-    return event;
-  }
-
-  private tagRecentServiceLogs(event: LogRecord, arrivedMs: number): void {
-    const requestId = requestIdAttribute(event);
-    if (requestId === "") {
-      return;
-    }
-    for (const prev of this.recentCorrelate) {
-      if (this.inCorrelateArrivalWindow(prev.arrivedMs, arrivedMs) && shouldTagServiceLogWithProxyHop(event, prev.event)) {
-        this.replaceRecord(prev.event.seq, withRequestId(prev.event, requestId));
-      }
-    }
-  }
-
-  private inCorrelateArrivalWindow(prevArrivedMs: number, arrivedMs: number): boolean {
-    return Math.abs(prevArrivedMs - arrivedMs) <= PROXY_HOP_CORRELATE_WINDOW_MS;
-  }
-
-  private replaceRecord(seq: number, updated: LogRecord): void {
-    this.ring.replace(seq, updated);
-    this.recentCorrelate = this.recentCorrelate.map((row) =>
-      row.event.seq === seq ? { event: updated, arrivedMs: row.arrivedMs } : row,
-    );
+  private replaceRecord(updated: LogRecord): void {
+    this.ring.replace(updated.seq, updated);
     this.publishRecord(updated);
   }
 
-  private expireCorrelate(nowMs: number): void {
-    const cutoff = nowMs - PROXY_HOP_CORRELATE_WINDOW_MS;
-    this.recentCorrelate = this.recentCorrelate.filter((row) => row.arrivedMs >= cutoff);
-  }
-
-  private rememberCorrelate(event: LogRecord, arrivedMs = Date.now()): void {
-    this.recentCorrelate.push({ event, arrivedMs });
+  // A candidate stays while a record at most a window from it may still
+  // commit: the one committing now, a fold still open, a stream still queued
+  // or refused, or output on its way in. While readers are held back, only
+  // the window's caps apply.
+  private expireCorrelate(committingAtMs: number): void {
+    if (this.ingestShed || this.pipeline?.paused === true) {
+      return;
+    }
+    let mark = Math.min(Date.now() - IN_FLIGHT_SLACK_MS, committingAtMs);
+    const held = this.assembler.oldestFirstAt();
+    if (held !== undefined && held < mark) {
+      mark = held;
+    }
+    const behind = this.pipeline?.lowWatermark();
+    if (behind !== undefined && behind < mark) {
+      mark = behind;
+    }
+    this.hopWindow.expire(mark);
   }
 
   private pushRing(event: LogRecord): void {
@@ -575,27 +578,59 @@ export class LogManager {
     }
   }
 
+  // What a query sees: every open fold except one whose stream may still
+  // deliver older lines, which would otherwise split it at an arbitrary point.
   private flushPending(): void {
+    for (const folded of this.assembler.flushAll(this.foldBusy)) {
+      this.commitFolded(folded);
+    }
+    this.scheduleIdleFlush();
+  }
+
+  private commitAllFolds(): void {
     for (const folded of this.assembler.flushAll()) {
       this.commitFolded(folded);
     }
     this.clearIdleTimer();
   }
 
+  private flushIdleFolds(nowMs: number): void {
+    for (const folded of this.assembler.flushIdle(nowMs, this.foldBusy)) {
+      this.commitFolded(folded);
+    }
+  }
+
+  // The wall clock closes the fold of a stream that has gone quiet. A stream
+  // that may still deliver older lines (queued, refused, being replayed, or
+  // held back by a paused pipeline) is not quiet: its fold closes by event
+  // time as those lines arrive.
+  private readonly foldBusy = (first: LogIngest): boolean => {
+    if (this.ingestShed || this.pipeline?.paused === true) {
+      return true;
+    }
+    const key = { service: first.service, stream: first.stream ?? first.source, pid: first.pid };
+    return this.replaying.has(foldStreamKey(key)) || this.pipeline?.streamBusy(key) === true;
+  };
+
   private scheduleIdleFlush(): void {
-    this.clearIdleTimer();
     const deadline = this.assembler.nextDeadlineMs();
     if (deadline === undefined) {
+      this.clearIdleTimer();
       return;
     }
-    const delay = Math.max(0, deadline - Date.now());
+    const now = Date.now();
+    // A fold already due is waiting on its stream's older output: look again shortly.
+    const at = deadline > now ? deadline : now + FOLD_BUSY_RECHECK_MS;
+    if (this.idleTimer !== undefined && this.idleTimerAt <= at) {
+      return;
+    }
+    this.clearIdleTimer();
+    this.idleTimerAt = at;
     this.idleTimer = setTimeout(() => {
       this.idleTimer = undefined;
-      for (const folded of this.assembler.flushDue(Date.now())) {
-        this.commitFolded(folded);
-      }
+      this.flushIdleFolds(Date.now());
       this.scheduleIdleFlush();
-    }, delay);
+    }, at - now);
   }
 
   private clearIdleTimer(): void {
@@ -610,7 +645,10 @@ export class LogManager {
       return this.pipeline;
     }
     const dir = this.spoolDir !== "" ? this.spoolDir : join(this.persistDir !== "" ? this.persistDir : this.logRoot, `pipeline-${this.sessionID}`);
-    this.pipeline = new IngestPipeline(dir, { spoolMaxBytes: this.maxSpoolBytes > 0 ? this.maxSpoolBytes : undefined });
+    this.pipeline = new IngestPipeline(dir, {
+      ...this.pipelineLimits,
+      ...(this.maxSpoolBytes > 0 ? { spoolMaxBytes: this.maxSpoolBytes } : {}),
+    });
     return this.pipeline;
   }
 
@@ -645,7 +683,7 @@ export class LogManager {
   }
 
   private readonly appendLine = (line: PipelineLine): void => {
-    this.append(outputLineIngest(line));
+    this.append(outputLineIngest(line), line.readAtMs);
   };
 
   private noteBatch(event: LogRecord): void {

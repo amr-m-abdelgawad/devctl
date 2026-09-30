@@ -108,6 +108,36 @@ describe("ingest pipeline spool budget", () => {
   });
 });
 
+describe("ingest pipeline watermark", () => {
+  test("a refused stream stays busy until its chunk is taken, and holds the low watermark", () => {
+    // No spool room: 232 bytes of another stream leave too little credit for 30 more.
+    const pipeline = new IngestPipeline(tempDir(), { spillPerStream: 64, spillTotal: 128, creditPerStream: 1_024, creditTotal: 256, spoolMaxBytes: 1 });
+    const api = { service: "api", stream: "stdout", pid: 1 };
+    const drain = (): void => {
+      while (pipeline.pending()) {
+        pipeline.processSlice(() => {}, 1_000);
+      }
+    };
+    for (let i = 0; i < 4; i += 1) {
+      expect(pipeline.enqueueChunk(chunk("noise", Buffer.alloc(58, 0x61), 5))).toBe(true);
+    }
+    const refused = Buffer.from(`refused ${"r".repeat(21)}\n`);
+    expect(pipeline.streamBusy(api)).toBe(false);
+    expect(pipeline.enqueueChunk(chunk("api", refused, 3))).toBe(false);
+    expect(pipeline.streamBusy(api)).toBe(true);
+    expect(pipeline.lowWatermark()).toBe(3);
+    drain();
+    // Nothing of it is queued, but its reader still holds the refused chunk.
+    expect(pipeline.streamBusy(api)).toBe(true);
+    expect(pipeline.lowWatermark()).toBe(3);
+    expect(pipeline.enqueueChunk(chunk("api", refused, 3))).toBe(true);
+    expect(pipeline.streamBusy(api)).toBe(true);
+    drain();
+    expect(pipeline.streamBusy(api)).toBe(false);
+    expect(pipeline.lowWatermark()).toBeUndefined();
+  });
+});
+
 // Small deterministic PRNG so a failing interleaving can be replayed.
 function prng(seed: number): () => number {
   let state = seed >>> 0;
