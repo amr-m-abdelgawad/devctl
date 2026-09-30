@@ -52,3 +52,7 @@ PASS death pipe: the sentinel sees EOF when its daemon is SIGKILLed and left a z
 Final reader (fifoChunks, backoff capped at 100 ms), `bun scripts/spikes/fifo-spikes.ts idle`, 10 s windows:
 idle darwin bun 1.4.0: baseline 0.10% of one core, 20 idle FIFO streams 0.69% (0.58% for the readers)
 idle linux bun 1.4.2: baseline 0.59% of one core, 20 idle FIFO streams 1.10% (0.52% for the readers)
+
+Compiled binary `devctl _drain` (bun build --compile src/bin.ts), `bun scripts/spikes/fifo-spikes.ts drain-binary <binary>`:
+drain-binary darwin: exit 0, stopped marker true, 50001 lines gap-free true, drainer RSS 88 MiB
+drain-binary linux (bun-linux-arm64 binary in oven/bun:1.4.2): exit 0, stopped marker true, 50001 lines gap-free true, drainer RSS 97 MiB

@@ -5,6 +5,7 @@
  *   bun scripts/spikes/fifo-spikes.ts s3   Does a Bun reader stop reading when JS stops pulling?
  *   bun scripts/spikes/fifo-spikes.ts s5   O_RDWR FIFO semantics for the service's write end.
  *   bun scripts/spikes/fifo-spikes.ts idle Idle CPU of the shipped FifoStdio reader (imports src/).
+ *   bun scripts/spikes/fifo-spikes.ts drain-binary <devctl>  `devctl _drain` in a compiled binary (bun build --compile src/bin.ts).
  *
  * Linux: docker run --rm --memory 2g -v "$PWD/scripts/spikes:/spikes" -w /spikes oven/bun:1.4.2 bun fifo-spikes.ts s3
  * (idle needs the app: -v "$PWD:/app" -w /app ... bun scripts/spikes/fifo-spikes.ts idle)
@@ -587,6 +588,47 @@ async function runIdle(): Promise<void> {
   rmSync(root, { recursive: true, force: true });
 }
 
+/** The compiled binary's `_drain` entry: fd 3 in, SIGTERM stops it, the spool plus the FIFO hold every line. */
+async function runDrainBinary(binary: string): Promise<void> {
+  const { replayDrained } = await import(new URL("../../src/adapters/process/fifo-drain.ts", import.meta.url).href);
+  const dir = mkdtempSync(join(tmpdir(), "spike-drain-bin-"));
+  const fifo = join(dir, "api.stdout");
+  mkfifo(fifo);
+  const gate = join(dir, "go");
+  const readFd = openSync(fifo, NONBLOCK_READ);
+  const serviceEnd = openSync(fifo, constants.O_RDWR);
+  const lines = 50_000;
+  const script = `i=1; while [ $i -le ${lines} ]; do echo line-$i; i=$((i+1)); done; while [ ! -f "$1" ]; do sleep 0.02; done; echo line-$i`;
+  const service = Bun.spawn({ cmd: ["/bin/sh", "-c", script, "sh", gate], stdout: serviceEnd });
+  closeSync(serviceEnd);
+  const plan = { spoolDir: join(dir, "drain"), maxBytes: 64 * MIB, stoppedPath: join(dir, "drain.stopped"), streams: [{ fd: 3, service: "api", stream: "stdout", pid: service.pid }] };
+  const drainer = Bun.spawn({ cmd: [binary, "_drain", JSON.stringify(plan)], stdio: ["ignore", "ignore", "inherit", readFd] });
+  closeSync(readFd);
+  await waitFor(() => existsSync(join(plan.spoolDir, "00000000.spool")), 10_000);
+  await sleep(300);
+  const rss = process.platform === "linux"
+    ? (/VmRSS:\s+(\d+)/.exec(readFileSync(`/proc/${drainer.pid}/status`, "utf8"))?.[1] ?? "")
+    : spawnSync("ps", ["-o", "rss=", "-p", String(drainer.pid)], { encoding: "utf8" }).stdout.trim();
+  drainer.kill("SIGTERM");
+  const code = await drainer.exited;
+  let text = "";
+  await replayDrained(plan.spoolDir, () => (_stream: string, bytes: Uint8Array) => {
+    text += Buffer.from(bytes).toString("utf8");
+    return true;
+  });
+  writeFileSync(gate, "");
+  const rest = openSync(fifo, NONBLOCK_READ);
+  for await (const chunk of readLoop(rest)) {
+    text += Buffer.from(chunk).toString("utf8");
+  }
+  closeSync(rest);
+  const got = text.trimEnd().split("\n").map((line) => Number(line.slice("line-".length)));
+  const gapFree = got.length === lines + 1 && got.every((n, i) => n === i + 1);
+  console.log(`drain-binary ${process.platform}: exit ${code}, stopped marker ${existsSync(plan.stoppedPath)}, ${got.length} lines gap-free ${gapFree}, drainer RSS ${Math.round(Number(rss) / 1024)} MiB`);
+  service.kill("SIGKILL");
+  rmSync(dir, { recursive: true, force: true });
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "writer":
@@ -616,6 +658,9 @@ switch (command) {
   case "idle":
     await runIdle();
     break;
+  case "drain-binary":
+    await runDrainBinary(rest[0] ?? "");
+    break;
   default:
-    console.log("usage: fifo-spikes.ts s3|s5|idle");
+    console.log("usage: fifo-spikes.ts s3|s5|idle|drain-binary <compiled devctl>");
 }
