@@ -364,11 +364,15 @@ export class WorkerLogStore implements LogStore {
       return;
     }
     if (message.type === "appended") {
-      this.pendingReplay.shift();
       this.stats = message.stats;
       this.pipeline = message.stats.pipeline ?? this.pipeline;
-      this.bus?.publish(newEvent(LogReceived, message.event.service, { event: message.event, level: message.event.severityText }));
-      this.batcher.push(message.event);
+      for (const event of message.events) {
+        this.pendingReplay.shift();
+        this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
+        this.batcher.push(event);
+      }
+      // The worker already batched these; a second interval here would double the latency.
+      this.batcher.flush();
       return;
     }
     if (message.type === "chunkAck") {

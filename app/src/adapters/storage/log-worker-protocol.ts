@@ -47,7 +47,8 @@ export type WorkerRpcBody =
 
 export type WorkerResponse =
   | { type: "ready" }
-  | { type: "appended"; event: LogRecord; stats: LogSnapshot }
+  /** Records committed since the last batch, oldest first. */
+  | { type: "appended"; events: LogRecord[]; stats: LogSnapshot }
   | { id: number; type: "chunkAck"; accepted: boolean; stats: LogSnapshot }
   | { id: number; type: "result"; result: LogRecord[] | LogPage | LogFacets | null }
   | { id: number; type: "error"; error: string };

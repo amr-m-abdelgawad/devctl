@@ -1,6 +1,8 @@
 import { Detector } from "../secrets/detector.ts";
 import { loadPluginPaths } from "../plugins/registry.ts";
-import { defaultLogParser, LogManager } from "./logs.ts";
+import { RECORD_BATCH_BYTES, RECORD_BATCH_MS, RECORD_BATCH_RECORDS } from "../../domain/logs/budgets.ts";
+import { approxRecordBytes } from "../../domain/logs/size.ts";
+import { defaultLogParser, LogManager, type LogRecord } from "./logs.ts";
 import type { WorkerRequest, WorkerResponse } from "./log-worker-protocol.ts";
 import { ChunkHoldQueue } from "./chunk-hold.ts";
 
@@ -13,6 +15,38 @@ type ChunkMessage = Extract<WorkerRequest, { type: "chunk" }>;
 const HELD_RETRY_MS = 5;
 let hold: ChunkHoldQueue<ChunkMessage> | undefined;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Committed records go back in batches: at most one per RECORD_BATCH_MS, and
+// sooner only when a batch fills. A quiet stream's line leaves at once.
+let outbox: LogRecord[] = [];
+let outboxBytes = 0;
+let outboxTimer: ReturnType<typeof setTimeout> | undefined;
+let outboxSentAt = 0;
+
+function queueRecord(event: LogRecord): void {
+  outbox.push(event);
+  outboxBytes += approxRecordBytes(event);
+  if (outbox.length >= RECORD_BATCH_RECORDS || outboxBytes >= RECORD_BATCH_BYTES) {
+    sendRecords();
+    return;
+  }
+  outboxTimer ??= setTimeout(sendRecords, Math.max(0, outboxSentAt + RECORD_BATCH_MS - Date.now()));
+}
+
+function sendRecords(): void {
+  if (outboxTimer !== undefined) {
+    clearTimeout(outboxTimer);
+    outboxTimer = undefined;
+  }
+  if (outbox.length === 0 || manager === undefined) {
+    return;
+  }
+  const events = outbox;
+  outbox = [];
+  outboxBytes = 0;
+  outboxSentAt = Date.now();
+  postMessage({ type: "appended", events, stats: manager.snapshot() } satisfies WorkerResponse);
+}
 
 function holdFor(mgr: LogManager): ChunkHoldQueue<ChunkMessage> {
   hold ??= new ChunkHoldQueue<ChunkMessage>(
@@ -34,6 +68,10 @@ function scheduleRetry(): void {
 }
 
 function reply(message: WorkerResponse): void {
+  // A result must not overtake the records its caller expects to have seen.
+  if (message.type === "result" || message.type === "error") {
+    sendRecords();
+  }
   postMessage(message);
 }
 
@@ -66,9 +104,7 @@ async function handle(message: WorkerRequest): Promise<void> {
       },
     );
     manager.setParsers([defaultLogParser()]);
-    manager.setOnRecord((event) => {
-      reply({ type: "appended", event, stats: manager!.snapshot() });
-    });
+    manager.setOnRecord(queueRecord);
     reply({ type: "ready" });
     return;
   }

@@ -27,6 +27,10 @@ export const HISTORY_SCAN_MS = 50;
 export const RUN_ONCE_DRAIN_GRACE_MS = 200;
 export const COALESCE_BYTES = 256 * KIB;
 export const COALESCE_MS = 5;
+/** Records the log worker sends back: at most 20 batches a second, each capped. */
+export const RECORD_BATCH_MS = 50;
+export const RECORD_BATCH_RECORDS = 5_000;
+export const RECORD_BATCH_BYTES = 4 * MIB;
 
 export function autoRingBytes(hostMemoryBytes: number): number {
   if (!Number.isFinite(hostMemoryBytes) || hostMemoryBytes <= 0) {
