@@ -2,7 +2,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { basename, dirname, join, resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -138,6 +138,36 @@ function waitForPingReady() {
   assert.match(last, pattern);
 }
 
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// A package whose worker files are missing still serves, on the in-process
+// log store with a degraded watchdog, so ask the daemon for both.
+function assertDaemonWorkers() {
+  const snapshot = JSON.parse(devctl(["--config", config, "status", "--json"], { quiet: true }).stdout);
+  assert.equal(snapshot.daemon?.logStore, "worker", "the daemon must run the log worker, not the in-process log store");
+  assert.equal(snapshot.daemon?.watchdog, "ok", "the daemon's watchdog worker must be running");
+  // heartbeat.json sits beside devctl.lock in the repository's state directory.
+  const deadline = Date.now() + 10_000;
+  let heartbeat;
+  while (heartbeat === undefined && Date.now() < deadline) {
+    const found = readdirSync(home, { recursive: true }).find((name) => basename(String(name)) === "heartbeat.json");
+    if (found !== undefined) {
+      heartbeat = join(home, String(found));
+    } else {
+      sleepMs(100);
+    }
+  }
+  assert.ok(heartbeat, `no watchdog heartbeat under ${home}`);
+  const first = JSON.parse(readFileSync(heartbeat, "utf8"));
+  assert.equal(first.degraded, false, "the watchdog heartbeat must not be degraded");
+  sleepMs(3_000);
+  const second = JSON.parse(readFileSync(heartbeat, "utf8"));
+  assert.ok(second.workerTick > first.workerTick, `the watchdog worker stopped ticking (workerTick ${first.workerTick} -> ${second.workerTick})`);
+  console.log(`log worker running; watchdog ticking (workerTick ${first.workerTick} -> ${second.workerTick})`);
+}
+
 function removeTemporaryRoot() {
   const retryable = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -208,6 +238,7 @@ try {
 
   devctl(["--config", config, "start", "ping"]);
   assert.match(devctl(["--config", config, "status"]).stdout, /ping\s+(RUNNING|HEALTHY)/);
+  assertDaemonWorkers();
   waitForPingReady();
   const mcp = devctl(["--config", config, "mcp", "--on", "--json"]);
   assert.equal(JSON.parse(mcp.stdout).running, true);

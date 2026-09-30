@@ -142,6 +142,16 @@ jobs:
           DEVCTL_VERSION: 0.0.0-ci
           OUTDIR: /tmp/devctl-dist
         run: bash ../.github/scripts/compile-binaries.sh
+      # Only linux-x64 runs below. The rest must still carry both workers, or
+      # they fall back to the in-process log store and a degraded watchdog.
+      - name: every binary embeds the log and watchdog workers
+        run: |
+          for binary in /tmp/devctl-dist/devctl-*; do
+            for worker in log-worker event-loop-watchdog-worker; do
+              LC_ALL=C grep -aq "root/${worker}.js" "$binary" || { echo "::error::$binary does not embed ${worker}.js"; exit 1; }
+            done
+          done
+      # Also asserts the worker log store and a live, non-degraded watchdog.
       - name: end-to-end supervisor smoke test (compiled binary)
         run: bash .github/scripts/smoke-test-binary.sh /tmp/devctl-dist/devctl-linux-x64
 
@@ -207,6 +217,7 @@ jobs:
         with:
           name: devctl-npm-ci-${{ needs.npm-package-build.outputs.version }}
           path: dist
+      # Every mode also asserts the worker log store and a live, non-degraded watchdog.
       - name: Test local npm installation
         env:
           DEVCTL_TEST_TUI: ${{ matrix.os != 'windows-latest' && '1' || '0' }}

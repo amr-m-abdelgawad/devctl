@@ -19,7 +19,7 @@ Standalone binaries:
 - The log and watchdog workers are extra `--compile` entrypoints named `[name].[ext]`, so each binary embeds them beside its entrypoint (`resolveWorkerUrl`)
 - MCP/docs strings must be compiled in → `sync-guide` before release
 
-Smoke: `.github/scripts/smoke-test-binary.sh`.
+Smoke: `.github/scripts/smoke-test-binary.sh`. It, and the npm smoke, also assert that the daemon runs the worker log store (`status --json` `daemon.logStore`) and a live watchdog (`heartbeat.json` not degraded, `workerTick` advancing). CI also checks that every compiled binary embeds both workers.
 
 ## npm (`@amr-m-abdelgawad/devctl`)
 

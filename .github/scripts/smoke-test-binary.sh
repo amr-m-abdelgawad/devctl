@@ -74,6 +74,42 @@ if [ -z "$SUPERVISOR_PID" ] || ! kill -0 "$SUPERVISOR_PID" 2>/dev/null; then
 fi
 echo "supervisor pid $SUPERVISOR_PID is alive"
 
+# A compiled binary that cannot find its embedded workers still serves, on
+# the in-process log store with a degraded watchdog, so ask for both.
+echo "== daemon workers =="
+STATUS_JSON="$("$BINARY" --config "$CONFIG" status --json)"
+echo "$STATUS_JSON" | grep -Eo '"(logStore|watchdog)": "[a-z-]+"' || true
+echo "$STATUS_JSON" | grep -q '"logStore": "worker"' || {
+  echo "FAIL: the daemon runs the in-process log store, not the log worker" >&2
+  exit 1
+}
+echo "$STATUS_JSON" | grep -q '"watchdog": "ok"' || {
+  echo "FAIL: the daemon's watchdog worker is not running" >&2
+  exit 1
+}
+HEARTBEAT="$(dirname "$LOCK_FILE")/heartbeat.json"
+waited=0
+while ! grep -q '"workerTick"' "$HEARTBEAT" 2>/dev/null && [ "$waited" -lt 100 ]; do
+  sleep 0.1
+  waited=$((waited + 1))
+done
+worker_tick() {
+  grep -oE '"workerTick":[0-9]+' "$HEARTBEAT" | grep -oE '[0-9]+' || true
+}
+FIRST_BEAT="$(cat "$HEARTBEAT" 2>/dev/null || true)"
+echo "$FIRST_BEAT" | grep -q '"degraded":false' || {
+  echo "FAIL: no live watchdog heartbeat at $HEARTBEAT: $FIRST_BEAT" >&2
+  exit 1
+}
+FIRST_TICK="$(worker_tick)"
+sleep 3
+SECOND_TICK="$(worker_tick)"
+if [ "${SECOND_TICK:-0}" -le "${FIRST_TICK:-0}" ]; then
+  echo "FAIL: the watchdog worker stopped ticking (workerTick $FIRST_TICK -> $SECOND_TICK)" >&2
+  exit 1
+fi
+echo "log worker running; watchdog ticking (workerTick $FIRST_TICK -> $SECOND_TICK)"
+
 echo "== devctl stop =="
 "$BINARY" --config "$CONFIG" stop
 STOPPED_OUTPUT="$("$BINARY" --config "$CONFIG" status)"
