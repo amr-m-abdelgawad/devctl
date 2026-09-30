@@ -104,6 +104,57 @@ async function reservePort(): Promise<number> {
   return port;
 }
 
+// Stands in for the client's h2 stream when it can no longer take response
+// headers (reset, or torn down between the upstream answering and the relay).
+class ClosedFront extends PassThrough {
+  override closed = false;
+  headersSent = false;
+  closedWith: number | undefined;
+  readonly session = undefined;
+
+  constructor() {
+    // A real h2 stream stays open after the client finishes sending.
+    super({ autoDestroy: false });
+  }
+
+  respond(): void {
+    throw new Error("The stream has been destroyed");
+  }
+
+  sendTrailers(): void {
+    throw new Error("The stream has been destroyed");
+  }
+
+  close(code?: number): void {
+    this.closedWith = code;
+    this.closed = true;
+    this.destroy();
+  }
+}
+
+type Serve = { serve(front: unknown, headers: Record<string, string>): Promise<void> };
+
+async function serveThroughClosedFront(server: GrpcProxyServer, path: string): Promise<{ front: ClosedFront; escaped: unknown[] }> {
+  const escaped: unknown[] = [];
+  const onUncaught = (err: unknown): void => {
+    escaped.push(err);
+  };
+  process.on("uncaughtException", onUncaught);
+  const front = new ClosedFront();
+  try {
+    front.on("error", () => {});
+    await (server as unknown as Serve).serve(front, { ":method": "POST", ":path": path, "content-type": "application/grpc" });
+    front.end("payload");
+    for (let i = 0; i < 100 && server.stats().total === 0; i++) {
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+    await new Promise<void>((r) => setTimeout(r, 20));
+  } finally {
+    process.off("uncaughtException", onUncaught);
+  }
+  return { front, escaped };
+}
+
 // gRPC carries grpc-status in trailers normally, but in the *response headers*
 // for a trailers-only response (errors). Capture it from either place.
 type CallResult = { body: string; trailers: Record<string, string>; status: number; grpcStatus?: string };
@@ -461,6 +512,27 @@ describe("GrpcProxyServer", () => {
       client.close();
       await server.stop();
       await new Promise<void>((r) => hang.close(() => r()));
+    }
+  });
+
+  test("a response the client stream can no longer take is recorded, not thrown out of the handler", async () => {
+    const up = await startUpstream();
+    const port = await reservePort();
+    const server = new GrpcProxyServer(grpcRoute(up.url, port), tokens());
+    try {
+      const streamed = await serveThroughClosedFront(server, "/say.Hello");
+      expect(streamed.escaped).toEqual([]);
+      expect(streamed.front.closedWith).toBe(http2.constants.NGHTTP2_INTERNAL_ERROR);
+      const trailersOnly = await serveThroughClosedFront(server, "/deny");
+      expect(trailersOnly.escaped).toEqual([]);
+      const stats = server.stats();
+      expect(stats.total).toBe(2);
+      expect(stats.errors).toBe(2);
+      expect(stats.recent.map((row) => row.status)).toEqual([502, 502]);
+      expect(stats.recent.every((row) => (row.error ?? "").includes("The stream has been destroyed"))).toBe(true);
+    } finally {
+      await server.stop();
+      await up.close();
     }
   });
 

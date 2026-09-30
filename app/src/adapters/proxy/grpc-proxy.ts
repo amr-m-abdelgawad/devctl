@@ -1,5 +1,5 @@
 import * as http2 from "node:http2";
-import type { Http2Server, ServerHttp2Stream, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
+import type { Http2Server, ServerHttp2Stream, ServerStreamResponseOptions, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
 import type { RouteConfig } from "../config/index.ts";
 import { listenKey, sameListen } from "../../domain/proxy/listen.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
@@ -259,13 +259,42 @@ export class GrpcProxyServer {
     });
 
     let clientGone = false;
-    const onClientGone = (): void => {
-      clientGone = true;
+    const cancelUpstream = (): void => {
       try {
         upReq?.close(http2.constants.NGHTTP2_CANCEL);
       } catch {
         upReq?.destroy();
       }
+    };
+    const onClientGone = (): void => {
+      clientGone = true;
+      cancelUpstream();
+    };
+    // The client can reset its stream between the upstream answering and this
+    // relay. respond() then throws inside the upstream's event handler, where
+    // nothing else would catch it, so a failure records the RPC and ends both
+    // sides instead of reaching the daemon.
+    const relayResponse = (out: OutgoingHttpHeaders, options: ServerStreamResponseOptions): boolean => {
+      let failure = "client closed before completion";
+      if (front.headersSent) {
+        failure = "response headers were already sent";
+      } else if (!front.destroyed && !front.closed) {
+        try {
+          front.respond(out, options);
+          return true;
+        } catch (err) {
+          failure = `cannot relay the upstream response: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+      const gone = clientGone || front.destroyed || front.closed;
+      finish(gone ? 499 : 502, gone ? GRPC_CANCELLED : GRPC_UNAVAILABLE, failure);
+      try {
+        front.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
+      } catch {
+        // already torn down
+      }
+      cancelUpstream();
+      return false;
     };
     front.on("close", onClientGone);
     front.on("error", onClientGone);
@@ -301,13 +330,16 @@ export class GrpcProxyServer {
       // Trailers-only response (grpc-status already in the headers) — usually an
       // upstream error. Forward it verbatim and end; there is no body to pipe.
       if (uh["grpc-status"] !== undefined) {
-        front.respond(this.frontResponseHeaders(uh), { endStream: true });
-        finish(Number(uh[":status"] ?? 200), String(uh["grpc-status"]));
+        if (relayResponse(this.frontResponseHeaders(uh), { endStream: true })) {
+          finish(Number(uh[":status"] ?? 200), String(uh["grpc-status"]));
+        }
         return;
       }
       const contentType = headerString(uh, "content-type") ?? "application/grpc";
       recorder?.setResponseContentType(contentType);
-      front.respond(this.frontResponseHeaders(uh), { waitForTrailers: true });
+      if (!relayResponse(this.frontResponseHeaders(uh), { waitForTrailers: true })) {
+        return;
+      }
       front.on("wantTrailers", () => {
         try {
           front.sendTrailers(this.sanitizeTrailers(upTrailers));
