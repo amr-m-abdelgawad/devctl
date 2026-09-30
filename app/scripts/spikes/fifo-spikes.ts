@@ -4,8 +4,10 @@
  *
  *   bun scripts/spikes/fifo-spikes.ts s3   Does a Bun reader stop reading when JS stops pulling?
  *   bun scripts/spikes/fifo-spikes.ts s5   O_RDWR FIFO semantics for the service's write end.
+ *   bun scripts/spikes/fifo-spikes.ts idle Idle CPU of the shipped FifoStdio reader (imports src/).
  *
  * Linux: docker run --rm --memory 2g -v "$PWD/scripts/spikes:/spikes" -w /spikes oven/bun:1.4.2 bun fifo-spikes.ts s3
+ * (idle needs the app: -v "$PWD:/app" -w /app ... bun scripts/spikes/fifo-spikes.ts idle)
  * Recorded output is in fifo-spikes.results.txt.
  */
 import { spawnSync } from "node:child_process";
@@ -555,6 +557,36 @@ async function runS5(): Promise<void> {
   }
 }
 
+/** Idle cost of the shipped reader: 20 streams through FifoStdio whose services never write, against no readers. */
+async function runIdle(): Promise<void> {
+  const { FifoStdio } = await import(new URL("../../src/adapters/process/fifo-stdio.ts", import.meta.url).href);
+  const measure = async (): Promise<number> => {
+    const before = process.cpuUsage();
+    const started = performance.now();
+    await sleep(10_000);
+    const used = process.cpuUsage(before);
+    return ((used.user + used.system) / 1000 / (performance.now() - started)) * 100;
+  };
+  const baseline = await measure();
+  const root = mkdtempSync(join(tmpdir(), "spike-idle-"));
+  const kids: ReturnType<typeof Bun.spawn>[] = [];
+  const stdio = new FifoStdio(root, 64 * MIB);
+  for (let i = 0; i < 10; i += 1) {
+    const fifos = await stdio.open(`svc${i}`, { stdout: true, stderr: true });
+    const kid = Bun.spawn({ cmd: ["/bin/sh", "-c", "sleep 60"], stdout: fifos.stdoutFd, stderr: fifos.stderrFd });
+    fifos.attach(kid.pid, () => true);
+    kids.push(kid);
+  }
+  await sleep(1_000);
+  const readers = await measure();
+  console.log(`idle ${process.platform} bun ${Bun.version}: baseline ${baseline.toFixed(2)}% of one core, 20 idle FIFO streams ${readers.toFixed(2)}% (${(readers - baseline).toFixed(2)}% for the readers)`);
+  for (const kid of kids) {
+    kid.kill("SIGKILL");
+  }
+  await sleep(300);
+  rmSync(root, { recursive: true, force: true });
+}
+
 const [command, ...rest] = process.argv.slice(2);
 switch (command) {
   case "writer":
@@ -581,6 +613,9 @@ switch (command) {
   case "s5":
     await runS5();
     break;
+  case "idle":
+    await runIdle();
+    break;
   default:
-    console.log("usage: fifo-spikes.ts s3|s5");
+    console.log("usage: fifo-spikes.ts s3|s5|idle");
 }
