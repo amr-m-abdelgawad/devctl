@@ -996,7 +996,7 @@ export class Supervisor {
     if (stopServices) {
       await this.stop([]);
     } else {
-      this.procs.handoff();
+      await this.procs.handoff();
     }
     this.orchestrator.health.dispose();
     this.recipes.stop();

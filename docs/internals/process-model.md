@@ -84,6 +84,15 @@ Services are spawned detached on every platform (`ProcessManager.start`), which 
 
 `adapters/daemon/recover.ts` reads `state.json`, inspects PIDs (`inspectProcess` / `processAlive` / command+cwd+start time), and **adopts** still-living processes instead of killing them. A stored PID is never trusted alone. Containers are adopted through `adapters/containers`.
 
+Before adopting anything, it takes over the service FIFOs the previous daemon left (`adapters/process/fifo-stdio.ts`):
+1. Open every FIFO recorded in `streams.json`.
+2. Stop the drainer that daemon's sentinel started (`fifo-sentinel.ts`).
+3. Hold the FIFOs in this daemon's own sentinel.
+4. Replay the drain spool (`fifo-drain.ts`) with the original read times.
+5. Read the FIFOs directly (`fifo-reader.ts`).
+
+The daemon has exactly one reader for a stream at every point, so each stream stays in the order it was written. Output of a service that exited while no daemon ran is kept.
+
 ## Signals
 
 `runDaemon` registers SIGINT/SIGTERM → `supervisor.shutdown(stopOnExit(cfg.shutdown))` so an admin `kill` still flushes async log writes. RPC `shutdown` schedules `shutdown()` after 50ms so the response can leave the socket first.

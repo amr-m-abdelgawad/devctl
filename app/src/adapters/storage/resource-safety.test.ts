@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { closeSync, constants, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdtempSync, openSync, rmSync, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -13,8 +13,8 @@ import { IngestPipeline } from "./ingest/pipeline.ts";
 import { decodeSegment, encodeSegment, OrderedSpool } from "./ingest/spool.ts";
 import { parseProcPgid, parseProcPpid, parseProcStatState, procStateKind } from "../process/liveness.ts";
 import { wedgePath } from "../daemon/heartbeat.ts";
-import { ensureFifo, runFifoDrain } from "../process/fifo-drain.ts";
-import { openServiceStdio } from "../process/fifo-stdio.ts";
+import { replayDrained, startDrain } from "../process/fifo-drain.ts";
+import { FifoStdio } from "../process/fifo-stdio.ts";
 import { enableChildSubreaper, reapOrphanedChildren } from "../process/subreaper.ts";
 import { eventLoopLagMs, noteEventLoopLag } from "../daemon/resource-probe.ts";
 import { LogManager } from "./logs.ts";
@@ -197,26 +197,25 @@ describe("chunk ingest", () => {
 });
 
 describe("stdio handoff", () => {
-  test.skipIf(process.platform === "win32")("a detached drainer keeps a service line for the daemon to read", async () => {
+  test.skipIf(process.platform === "win32")("a service line written through its FIFO reaches the daemon", async () => {
     const dir = mkdtempSync(join(tmpdir(), "devctl-stdio-"));
     try {
-      const stdio = openServiceStdio(dir, "api");
+      const stdio = await new FifoStdio(dir, 1024 * 1024).open("api", { stdout: true, stderr: false });
       expect(stdio).toBeDefined();
       const lines: string[] = [];
-      const child = spawnSync("/bin/echo", ["stdio-ok"], { stdio: ["ignore", stdio!.stdoutFd, "ignore"] });
-      closeSync(stdio!.stdoutFd);
-      closeSync(stdio!.stderrFd);
-      stdio!.releaseParentEnds();
-      let stop = false;
-      const followed = stdio!.follow((stream, bytes) => {
+      let ended = false;
+      const child = spawnSync("/bin/echo", ["stdio-ok"], { stdio: ["ignore", stdio!.stdoutFd!, "ignore"] });
+      stdio!.attach(child.pid ?? 0, (stream, bytes, meta) => {
+        ended ||= meta?.end === true;
         if (stream === "stdout") {
           lines.push(Buffer.from(bytes).toString("utf8"));
         }
         return true;
-      }, () => false, () => stop);
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      stop = true;
-      await followed;
+      });
+      const deadline = Date.now() + 5_000;
+      while (!ended && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
       expect(lines.join("")).toContain("stdio-ok");
       expect(child.status).toBe(0);
     } finally {
@@ -240,19 +239,21 @@ describe("fifo drain", () => {
     try {
       const fifo = join(dir, "fifo");
       const out = join(dir, "out");
-      ensureFifo(fifo);
-      const holder = openSync(fifo, constants.O_RDWR);
-      const drained = runFifoDrain(fifo, out, 1024 * 1024);
-      const deadline = Date.now() + 1_000;
-      while (!existsSync(join(out, "reader")) && Date.now() < deadline) {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-      }
-      const writer = openSync(fifo, constants.O_WRONLY | constants.O_NONBLOCK);
+      expect(spawnSync("mkfifo", ["-m", "600", fifo]).status).toBe(0);
+      const reader = openSync(fifo, constants.O_RDONLY | constants.O_NONBLOCK);
+      const writer = openSync(fifo, constants.O_RDWR);
       writeSync(writer, Buffer.from("kept\n"));
       closeSync(writer);
-      closeSync(holder);
-      await drained;
-      expect(readFileSync(join(out, "seg-00000000"), "utf8")).toContain("kept");
+      const drained = startDrain({ spoolDir: out, maxBytes: 1024 * 1024, stoppedPath: join(dir, "stopped"), streams: [{ fd: reader, service: "api", stream: "stdout", pid: 1 }] });
+      await drained.done;
+      closeSync(reader);
+      expect(existsSync(join(dir, "stopped"))).toBe(true);
+      let text = "";
+      await replayDrained(out, () => (_stream, bytes) => {
+        text += Buffer.from(bytes).toString("utf8");
+        return true;
+      });
+      expect(text).toBe("kept\n");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

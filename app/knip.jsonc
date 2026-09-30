@@ -3,7 +3,8 @@
   // Reserved hexagonal port: adapters are expected to implement this later.
   // plugin-sdk.ts is a public entry; its re-exports have no in-repo importer.
   // e2e fixtures are programs devctl runs as services, not modules anything imports.
-  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts", "e2e/fixtures/**", "e2e/soak/**"],
+  // scripts/spikes are one-off measurement programs run by hand.
+  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts", "e2e/fixtures/**", "e2e/soak/**", "scripts/spikes/**"],
   "entry": [
     "web/main.tsx",
     "src/adapters/storage/log-worker.ts",
