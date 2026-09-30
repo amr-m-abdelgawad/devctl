@@ -22,6 +22,8 @@ let outbox: LogRecord[] = [];
 let outboxBytes = 0;
 let outboxTimer: ReturnType<typeof setTimeout> | undefined;
 let outboxSentAt = 0;
+// The newest structured append taken and not yet acked.
+let appendedUpTo: number | undefined;
 
 function queueRecord(event: LogRecord): void {
   outbox.push(event);
@@ -30,6 +32,10 @@ function queueRecord(event: LogRecord): void {
     sendRecords();
     return;
   }
+  scheduleRecords();
+}
+
+function scheduleRecords(): void {
   outboxTimer ??= setTimeout(sendRecords, Math.max(0, outboxSentAt + RECORD_BATCH_MS - Date.now()));
 }
 
@@ -38,14 +44,16 @@ function sendRecords(): void {
     clearTimeout(outboxTimer);
     outboxTimer = undefined;
   }
-  if (outbox.length === 0 || manager === undefined) {
+  if ((outbox.length === 0 && appendedUpTo === undefined) || manager === undefined) {
     return;
   }
   const events = outbox;
   outbox = [];
   outboxBytes = 0;
   outboxSentAt = Date.now();
-  postMessage({ type: "appended", events, stats: manager.snapshot() } satisfies WorkerResponse);
+  const acked = appendedUpTo;
+  appendedUpTo = undefined;
+  postMessage({ type: "appended", events, stats: manager.snapshot(), appendedUpTo: acked } satisfies WorkerResponse);
 }
 
 function holdFor(mgr: LogManager): ChunkHoldQueue<ChunkMessage> {
@@ -127,8 +135,16 @@ async function handle(message: WorkerRequest): Promise<void> {
     fail("id" in message ? message.id : undefined, new Error("log worker is not initialized"));
     return;
   }
-  if (message.type === "append") {
-    manager.append(message.event);
+  if (message.type === "appendBatch") {
+    for (const item of message.items) {
+      manager.append(item.event, item.atMs);
+    }
+    appendedUpTo = message.items.at(-1)?.id ?? appendedUpTo;
+    scheduleRecords();
+    return;
+  }
+  if (message.type === "setUpstreamPaused") {
+    manager.setUpstreamPaused(message.paused);
     return;
   }
   if (message.type === "chunk") {

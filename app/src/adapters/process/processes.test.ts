@@ -268,6 +268,35 @@ test("runOnce bounds a single unterminated line without dropping callbacks", asy
   expect(onLineCalls).toBeGreaterThan(0);
 });
 
+test("runOnce stops reading a flooding command while the log store is paused, and keeps every line", async () => {
+  const mgr = new ProcessManager();
+  let paused = true;
+  let lines = 0;
+  // Far more than the pipe holds: the command blocks in its write while reads are paused.
+  const script = "for (let i = 0; i < 200000; i++) console.log('line ' + i)";
+  const running = mgr.runOnce({
+    name: "flood",
+    args: [process.execPath, "-e", script],
+    shell: false,
+    workDir: "",
+    env: process.env as Record<string, string>,
+    graceMs: 1000,
+    onLine: () => {
+      lines += 1;
+    },
+    paused: () => paused,
+  });
+  await sleep(300);
+  const whilePaused = lines;
+  await sleep(100);
+  expect(lines).toBe(whilePaused);
+  expect(whilePaused).toBeLessThan(200_000);
+  paused = false;
+  const result = await running;
+  expect(result.code).toBe(0);
+  expect(lines).toBe(200_000);
+});
+
 describe("service output end", () => {
   async function lastLineThrough(stdioRoot: string | undefined): Promise<{ pid: number; lines: { message: string; pid: unknown }[] }> {
     const dir = mkdtempSync(join(tmpdir(), "devctl-tail-"));

@@ -27,6 +27,14 @@ export const HISTORY_SCAN_MS = 50;
 export const RUN_ONCE_DRAIN_GRACE_MS = 200;
 export const COALESCE_BYTES = 256 * KIB;
 export const COALESCE_MS = 5;
+/** Structured appends to the log worker: posted but unacked, and in one batch. */
+export const LANE_CREDIT_BYTES = 4 * MIB;
+export const LANE_BATCH_BYTES = MIB;
+export const LANE_BATCH_RECORDS = 2_000;
+/** Queued appends at which producers that can wait are told to (OTLP answers 503). */
+export const LANE_PAUSE_BYTES = 16 * MIB;
+/** Queued appends past which new ones are counted lost rather than held. */
+export const LANE_MAX_BYTES = 64 * MIB;
 /** Records the log worker sends back: at most 20 batches a second, each capped. */
 export const RECORD_BATCH_MS = 50;
 export const RECORD_BATCH_RECORDS = 5_000;

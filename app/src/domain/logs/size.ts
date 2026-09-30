@@ -1,4 +1,4 @@
-import type { AnyValue, Attributes, LogRecord } from "./types.ts";
+import type { AnyValue, Attributes, LogIngest, LogRecord } from "./types.ts";
 
 // Fixed per-record cost: seq, timestamps, severity, ids, and the JSON framing.
 const RECORD_OVERHEAD_BYTES = 256;
@@ -20,15 +20,24 @@ const WIDTH_CHECK_MIN_CHARS = 64;
  * fixed budget.
  */
 export function approxRecordBytes(record: LogRecord): number {
+  return approxBytes(record, record.body);
+}
+
+/** The same estimate for a record not built yet, whose message becomes its body. */
+export function approxIngestBytes(ingest: LogIngest): number {
+  return approxBytes(ingest, ingest.body ?? ingest.message ?? "");
+}
+
+function approxBytes(fields: Pick<LogIngest, "service" | "source" | "raw" | "attributes" | "resource">, body: AnyValue): number {
   const budget = { left: WALK_BUDGET };
   return (
     RECORD_OVERHEAD_BYTES +
-    stringBytes(record.service) +
-    stringBytes(record.source) +
-    (record.raw === undefined ? 0 : stringBytes(record.raw)) +
-    valueBytes(record.body, budget) +
-    attributesBytes(record.attributes, budget) +
-    attributesBytes(record.resource, budget)
+    stringBytes(fields.service) +
+    stringBytes(fields.source) +
+    (fields.raw === undefined ? 0 : stringBytes(fields.raw)) +
+    valueBytes(body, budget) +
+    attributesBytes(fields.attributes, budget) +
+    attributesBytes(fields.resource, budget)
   );
 }
 

@@ -124,6 +124,7 @@ export class LogManager {
   private pipeline?: IngestPipeline;
   private drainTimer?: ReturnType<typeof setTimeout>;
   private batcher?: LogBatcher;
+  private upstreamPaused = false;
   private readonly logRoot: string;
   private readonly repoKey: string;
   private readonly retentionDays: number;
@@ -289,6 +290,14 @@ export class LogManager {
     }
     this.scheduleDrain();
     return true;
+  }
+
+  /** Output is being held back before it reaches this store (the worker's sender is out of credit). */
+  setUpstreamPaused(paused: boolean): void {
+    this.upstreamPaused = paused;
+    if (!paused) {
+      this.scheduleIdleFlush();
+    }
   }
 
   /**
@@ -530,7 +539,7 @@ export class LogManager {
   // or refused, or output on its way in. While readers are held back, only
   // the window's caps apply.
   private expireCorrelate(committingAtMs: number): void {
-    if (this.ingestShed || this.pipeline?.paused === true) {
+    if (this.readersHeld()) {
       return;
     }
     let mark = Math.min(Date.now() - IN_FLIGHT_SLACK_MS, committingAtMs);
@@ -605,12 +614,17 @@ export class LogManager {
   // held back by a paused pipeline) is not quiet: its fold closes by event
   // time as those lines arrive.
   private readonly foldBusy = (first: LogIngest): boolean => {
-    if (this.ingestShed || this.pipeline?.paused === true) {
+    if (this.readersHeld()) {
       return true;
     }
     const key = { service: first.service, stream: first.stream ?? first.source, pid: first.pid };
     return this.replaying.has(foldStreamKey(key)) || this.pipeline?.streamBusy(key) === true;
   };
+
+  // Some reader may be holding output it read earlier: a full pipeline, or a full sender upstream.
+  private readersHeld(): boolean {
+    return this.upstreamPaused || this.pipeline?.paused === true;
+  }
 
   private scheduleIdleFlush(): void {
     const deadline = this.assembler.nextDeadlineMs();

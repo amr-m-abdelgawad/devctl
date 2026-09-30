@@ -26,6 +26,9 @@ const CAPTURE_TRUNCATED_MARKER = "\n...[truncated]\n";
 // newline-free flood cannot grow the pending buffer without bound. Applies to
 // both transient captures and long-running service streaming.
 const MAX_LINE_BYTES = 1024 * 1024;
+// A transient command's leftover output is waited for this long at most while the log store is paused.
+const RUN_ONCE_PAUSED_DRAIN_MS = 30_000;
+const DRAIN_POLL_MS = 10;
 
 export type Stream = StreamName;
 export type { LineHandler };
@@ -183,15 +186,15 @@ export class ProcessManager implements ProcessRuntime {
       }
       spec.onLine?.(stream, line);
     };
+    // Task and hook output goes through the log store's bounded lane line by
+    // line; while the store is backed up (`paused`), reads stop and the command
+    // blocks in its write instead of growing the lane.
     const pumps = [
-      pumpLines(proc.stdout, "stdout", collect, { maxLineBytes: MAX_LINE_BYTES }),
-      pumpLines(proc.stderr, "stderr", collect, { maxLineBytes: MAX_LINE_BYTES }),
+      pumpLines(proc.stdout, "stdout", collect, { maxLineBytes: MAX_LINE_BYTES, paused: spec.paused }),
+      pumpLines(proc.stderr, "stderr", collect, { maxLineBytes: MAX_LINE_BYTES, paused: spec.paused }),
     ];
     const code = await proc.exited;
-    await Promise.race([
-      Promise.all(pumps),
-      sleep(RUN_ONCE_DRAIN_GRACE_MS),
-    ]);
+    await drainAfterExit(Promise.all(pumps), spec.paused);
     return { code: typeof code === "number" ? code : 0, stdout: caps.stdout.text, stderr: caps.stderr.text };
   }
 
@@ -454,6 +457,25 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+// Output left in the pipes after a transient command exits. A grandchild can
+// hold them open forever, so the wait gives up after the drain grace, counting
+// only time the log store was taking output, and after a hard cap in any case.
+async function drainAfterExit(pumps: Promise<unknown>, paused?: () => boolean): Promise<void> {
+  let done = false;
+  void pumps.then(() => {
+    done = true;
+  });
+  const deadline = Date.now() + RUN_ONCE_PAUSED_DRAIN_MS;
+  let taking = 0;
+  while (!done && taking < RUN_ONCE_DRAIN_GRACE_MS && Date.now() < deadline) {
+    const started = Date.now();
+    await Promise.race([pumps, sleep(DRAIN_POLL_MS)]);
+    if (paused?.() !== true) {
+      taking += Date.now() - started;
+    }
+  }
 }
 
 // Tags every chunk with the pid that wrote it: output read after the process

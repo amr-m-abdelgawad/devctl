@@ -5,6 +5,7 @@ import { CREDIT_PER_STREAM_BYTES, CREDIT_TOTAL_BYTES } from "../../domain/logs/b
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { Detector } from "../secrets/detector.ts";
+import { AppendLane, type LaneItem } from "./append-lane.ts";
 import { inProcessLogStore, LogManager } from "./logs.ts";
 import { resolveWorkerUrl } from "./worker-resolver.ts";
 import type { WorkerLogConfig, WorkerRequest, WorkerResponse, WorkerRpcBody } from "./log-worker-protocol.ts";
@@ -43,7 +44,10 @@ export class WorkerLogStore implements LogStore {
   private readonly bus?: Bus;
   private fallback?: LogStore;
   private closing = false;
-  private readonly pendingReplay: LogIngest[] = [];
+  private readonly lane = new AppendLane((items) => this.sendAppends(items));
+  // Streams whose reader holds a chunk this store refused, and whether the worker was told.
+  private readonly refusedStreams = new Set<string>();
+  private upstreamPaused = false;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private stats: LogSnapshot = { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 };
@@ -122,6 +126,8 @@ export class WorkerLogStore implements LogStore {
     const overStream = streamUnacked > 0 && streamUnacked + size > CREDIT_PER_STREAM_BYTES;
     const overTotal = this.unacked > 0 && this.unacked + size > CREDIT_TOTAL_BYTES;
     if (size > 0 && (overStream || overTotal)) {
+      this.refusedStreams.add(key);
+      this.noteUpstream();
       return false;
     }
     const id = this.nextId;
@@ -137,6 +143,8 @@ export class WorkerLogStore implements LogStore {
       this.failOver(error instanceof Error ? error : new Error(String(error)));
       return this.fallback?.ingestChunk?.(chunk) ?? false;
     }
+    this.refusedStreams.delete(key);
+    this.noteUpstream();
     return true;
   }
 
@@ -144,7 +152,7 @@ export class WorkerLogStore implements LogStore {
     if (this.fallback?.ingestPaused) {
       return this.fallback.ingestPaused();
     }
-    return this.unacked >= CREDIT_TOTAL_BYTES || this.pipeline?.paused === true;
+    return this.unacked >= CREDIT_TOTAL_BYTES || this.pipeline?.paused === true || this.lane.backlogged();
   }
 
   setMemoryBudget(bytes: number): void {
@@ -158,7 +166,12 @@ export class WorkerLogStore implements LogStore {
   }
 
   pipelineStats(): LogSnapshot["pipeline"] {
-    return this.fallback?.pipelineStats?.() ?? this.pipeline;
+    const stats = this.fallback?.pipelineStats?.() ?? this.pipeline;
+    if (this.lane.lost === 0) {
+      return stats;
+    }
+    const base = stats ?? { inFlightBytes: 0, spooledBytes: 0, paused: false, loss: 0, ringBytes: 0 };
+    return { ...base, loss: base.loss + this.lane.lost };
   }
 
   usesWorker(): boolean {
@@ -174,20 +187,17 @@ export class WorkerLogStore implements LogStore {
     this.batcher.flush();
   }
 
+  /** Queued in the lane with the time of the call, which is the record's event time. */
   append(event: LogIngest): void {
     if (this.fallback) {
       this.fallback.append(event);
       return;
     }
-    this.pendingReplay.push(event);
     if (this.dead) {
       return;
     }
-    try {
-      this.post({ type: "append", event });
-    } catch (error) {
-      this.failOver(error instanceof Error ? error : new Error(String(error)));
-    }
+    this.lane.push(event, Date.now());
+    this.noteUpstream();
   }
 
   async query(filter: LogFilter): Promise<LogRecord[]> {
@@ -270,20 +280,24 @@ export class WorkerLogStore implements LogStore {
     }
   }
 
+  // The in-process store takes over what the worker never acked: structured
+  // appends with their event times, and the chunks it still held.
   private failOver(error: Error): void {
     if (this.fallback || this.closing) {
       this.markDead(error);
       return;
     }
-    const missed = this.pendingReplay.splice(0, this.pendingReplay.length);
+    const missed = this.lane.takeUnacked();
     const chunks = [...this.inflight.values()].map((row) => row.chunk);
     this.inflight.clear();
     this.unacked = 0;
     this.unackedByStream.clear();
+    this.refusedStreams.clear();
     this.markDead(error);
-    this.fallback = inProcessFromConfig(this.config, this.bus ?? new Bus(1), new Detector(this.config.extraMarkers, this.config.extraPatterns, this.config.redact));
-    for (const event of missed) {
-      this.fallback.append(event);
+    const manager = managerFromConfig(this.config, this.bus ?? new Bus(1), new Detector(this.config.extraMarkers, this.config.extraPatterns, this.config.redact));
+    this.fallback = inProcessLogStore(manager);
+    for (const item of missed) {
+      manager.append(item.event, item.atMs);
     }
     for (const chunk of chunks) {
       this.fallback.ingestChunk?.(chunk);
@@ -291,11 +305,42 @@ export class WorkerLogStore implements LogStore {
     this.dead = false;
   }
 
+  // Posted in lane order; a failed post leaves the batch unacked for the takeover.
+  private sendAppends(items: LaneItem[]): boolean {
+    if (this.dead || this.fallback) {
+      return false;
+    }
+    try {
+      this.post({ type: "appendBatch", items });
+      return true;
+    } catch (error) {
+      queueMicrotask(() => this.failOver(error instanceof Error ? error : new Error(String(error))));
+      return false;
+    }
+  }
+
+  // Tells the worker while output is held back here, so a fold that may still
+  // get older lines is not closed by its idle timer.
+  private noteUpstream(): void {
+    const paused = this.refusedStreams.size > 0 || this.unacked >= CREDIT_TOTAL_BYTES || this.lane.backlogged();
+    if (paused === this.upstreamPaused || this.dead || this.fallback) {
+      return;
+    }
+    this.upstreamPaused = paused;
+    try {
+      this.post({ type: "setUpstreamPaused", paused });
+    } catch {
+      // the next post fails over
+    }
+  }
+
   private rpc(body: WorkerRpcBody, timeoutMs = WORKER_RPC_TIMEOUT_MS): Promise<LogRecord[] | LogPage | LogFacets | null> {
     if (this.fallback) {
       return this.fallbackRpc(body);
     }
     this.assertAlive();
+    // A request sees every append made before it.
+    this.lane.sendAll();
     const id = this.nextId;
     this.nextId += 1;
     const message: WorkerRequest = { ...body, id };
@@ -367,12 +412,15 @@ export class WorkerLogStore implements LogStore {
       this.stats = message.stats;
       this.pipeline = message.stats.pipeline ?? this.pipeline;
       for (const event of message.events) {
-        this.pendingReplay.shift();
         this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
         this.batcher.push(event);
       }
       // The worker already batched these; a second interval here would double the latency.
       this.batcher.flush();
+      if (message.appendedUpTo !== undefined) {
+        this.lane.ack(message.appendedUpTo);
+        this.noteUpstream();
+      }
       return;
     }
     if (message.type === "chunkAck") {
@@ -399,6 +447,7 @@ export class WorkerLogStore implements LogStore {
     if (!accepted && row && this.fallback?.ingestChunk) {
       this.fallback.ingestChunk(row.chunk);
     }
+    this.noteUpstream();
   }
 
   private release(id: number): { bytes: number; key: string; chunk: WorkerChunk } | undefined {
@@ -472,25 +521,27 @@ function isLogFacets(value: LogRecord[] | LogPage | LogFacets | null): value is 
 }
 
 function inProcessFromConfig(config: WorkerLogConfig, bus: Bus, detector: Detector): LogStore {
-  return inProcessLogStore(
-    new LogManager(
-      config.max,
-      bus,
-      detector,
-      config.persist,
-      config.directory,
-      config.sessionID,
-      config.retentionDays,
-      config.maxSessionLogs,
-      {
-        repoKey: config.repoKey,
-        maxMemoryBytes: config.maxMemoryBytes,
-        maxSessionBytes: config.maxSessionBytes,
-        maxSpoolBytes: config.maxSpoolBytes,
-        maxTotalBytes: config.maxTotalBytes,
-        spoolDir: config.spoolDir,
-      },
-    ),
+  return inProcessLogStore(managerFromConfig(config, bus, detector));
+}
+
+function managerFromConfig(config: WorkerLogConfig, bus: Bus, detector: Detector): LogManager {
+  return new LogManager(
+    config.max,
+    bus,
+    detector,
+    config.persist,
+    config.directory,
+    config.sessionID,
+    config.retentionDays,
+    config.maxSessionLogs,
+    {
+      repoKey: config.repoKey,
+      maxMemoryBytes: config.maxMemoryBytes,
+      maxSessionBytes: config.maxSessionBytes,
+      maxSpoolBytes: config.maxSpoolBytes,
+      maxTotalBytes: config.maxTotalBytes,
+      spoolDir: config.spoolDir,
+    },
   );
 }
 

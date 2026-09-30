@@ -124,6 +124,24 @@ describe("event-time folding", () => {
     await mgr.close();
   });
 
+  test("a fold stays open while the sender upstream holds output back", async () => {
+    const bus = new Bus(16);
+    const received: string[] = [];
+    bus.subscribe((event) => {
+      if (event.type === LogReceived) {
+        received.push(logMessage(event.payload?.event as LogRecord));
+      }
+    });
+    const mgr = manager("fold-upstream", undefined, bus);
+    mgr.setUpstreamPaused(true);
+    mgr.append({ timestamp: new Date().toISOString(), service: "api", source: "stdout", stream: "stdout", level: "", message: "Traceback (most recent call last):", pid: 7 });
+    await Bun.sleep(150);
+    expect(received).toEqual([]);
+    mgr.setUpstreamPaused(false);
+    await until(() => received.length === 1);
+    await mgr.close();
+  });
+
   test("a query leaves a fold open while its stream still has output queued", async () => {
     const mgr = manager("fold-query");
     const now = Date.now();

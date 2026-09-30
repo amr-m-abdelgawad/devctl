@@ -830,6 +830,7 @@ export class Supervisor {
       name, args: [...command.args], shell: shell || command.shell, workDir, env,
       graceMs: graceSeconds(this.cfg.shutdown) * 1000,
       onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      paused: () => this.logs.ingestPaused?.() === true,
     });
     if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;

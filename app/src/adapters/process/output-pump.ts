@@ -37,12 +37,14 @@ export async function pumpLines(
   const maxLineBytes = options.maxLineBytes ?? MAX_LINE_BYTES;
   try {
     for await (const value of stream) {
-      await waitUntilReadable(options.paused);
       if (value.byteLength > 0) {
         const owned = new Uint8Array(value.byteLength);
         owned.set(value);
         buf = emitChunk(kind, handler, splitter, decoder, buf, owned, maxLineBytes);
       }
+      // Lines are handed on as they are read, so the handler's clock is their read
+      // time; a paused store holds off the next read instead.
+      await waitUntilReadable(options.paused);
       if (options.yieldEveryRead !== false) {
         await yieldMacrotask();
       }

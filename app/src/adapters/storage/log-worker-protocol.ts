@@ -22,9 +22,12 @@ export type WorkerLogConfig = {
 
 export type WorkerRequest =
   | { type: "init"; config: WorkerLogConfig }
-  | { type: "append"; event: LogIngest }
+  /** Structured appends in lane order, each with its event time; acked by the highest id. */
+  | { type: "appendBatch"; items: { id: number; atMs: number; event: LogIngest }[] }
   | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean }
   | { type: "setMemoryBudget"; bytes: number }
+  /** The daemon thread is holding output back (credit or lane full): a fold may still get older lines. */
+  | { type: "setUpstreamPaused"; paused: boolean }
   | { id: number; type: "flush" }
   | { id: number; type: "query"; filter: LogFilter }
   | { id: number; type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
@@ -47,8 +50,12 @@ export type WorkerRpcBody =
 
 export type WorkerResponse =
   | { type: "ready" }
-  /** Records committed since the last batch, oldest first. */
-  | { type: "appended"; events: LogRecord[]; stats: LogSnapshot }
+  /**
+   * Records committed since the last batch, oldest first. `appendedUpTo` acks
+   * every structured append up to that id; it travels with the records they
+   * produced, so an ack never outruns them.
+   */
+  | { type: "appended"; events: LogRecord[]; stats: LogSnapshot; appendedUpTo?: number }
   | { id: number; type: "chunkAck"; accepted: boolean; stats: LogSnapshot }
   | { id: number; type: "result"; result: LogRecord[] | LogPage | LogFacets | null }
   | { id: number; type: "error"; error: string };
