@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,7 +28,7 @@ function tempRoot(): string {
   return root;
 }
 
-type Delivery = { stream: string; text: string; readAtMs: number; end: boolean; replayed: boolean };
+type Delivery = { stream: string; text: string; readAtMs: number; end: boolean };
 
 function recorder(into: Delivery[]): ProcessChunkHandler {
   return (stream, bytes, meta) => {
@@ -37,7 +37,6 @@ function recorder(into: Delivery[]): ProcessChunkHandler {
       text: Buffer.from(bytes).toString("utf8"),
       readAtMs: meta?.readAtMs ?? Date.now(),
       end: meta?.end === true,
-      replayed: meta?.readAtMs !== undefined,
     });
     return true;
   };
@@ -150,7 +149,7 @@ describe.skipIf(process.platform === "win32")("fifo stdio across a daemon SIGKIL
       `const [root, record, script] = process.argv.slice(1);`,
       `const procs = new ProcessManager({ stdioRoot: root, spoolMaxBytes: 64 * 1024 * 1024 });`,
       `const handle = await procs.start({ name: "api", args: ["/bin/sh", "-c", script], shell: false, workDir: "", env: process.env, graceMs: 1000,`,
-      `  onChunk: (stream, bytes, meta) => { appendFileSync(record, JSON.stringify({ stream, text: Buffer.from(bytes).toString("utf8"), readAtMs: Date.now(), end: meta?.end === true, replayed: false }) + "\\n"); return true; } });`,
+      `  onChunk: (stream, bytes, meta) => { appendFileSync(record, JSON.stringify({ stream, text: Buffer.from(bytes).toString("utf8"), readAtMs: meta?.readAtMs ?? Date.now(), end: meta?.end === true }) + "\\n"); return true; } });`,
       `console.log("started " + handle.pid);`,
       `setInterval(() => undefined, 60_000);`,
     ].join("\n");
@@ -163,9 +162,14 @@ describe.skipIf(process.platform === "win32")("fifo stdio across a daemon SIGKIL
     return existsSync(record) ? readFileSync(record, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line) as Delivery) : [];
   }
 
+  function spoolBytes(dir: string): number {
+    return existsSync(dir) ? readdirSync(dir).reduce((sum, name) => sum + statSync(join(dir, name)).size, 0) : 0;
+  }
+
   test("output written while no daemon runs is drained, replayed in order with its read times, then read live", async () => {
     const root = tempRoot();
     const record = join(root, "first-daemon.jsonl");
+    const drain = join(root, "drain");
     const mark = (name: string): string => join(root, name);
     const script = [
       "i=1",
@@ -174,8 +178,8 @@ describe.skipIf(process.platform === "win32")("fifo stdio across a daemon SIGKIL
       `while [ ! -f "${mark("phase2")}" ]; do sleep 0.02; done`,
       "emit 100000",
       `: > "${mark("phase2-written")}"`,
-      `while [ ! -f "${mark("phase3")}" ]; do sleep 0.02; done`,
-      "emit 150000",
+      // Phase 3 runs until told to stop, through the drainer's stop and the takeover.
+      `while [ ! -f "${mark("stop")}" ]; do emit $((i + 499)); done`,
     ].join("\n");
     const first = daemon(root, record, script);
     expect(await waitFor(() => textOf(recorded(record)).includes("line-2000\n"), 15_000)).toBe(true);
@@ -185,23 +189,25 @@ describe.skipIf(process.platform === "win32")("fifo stdio across a daemon SIGKIL
     writeFileSync(mark("phase2"), "");
     // ~1.1 MB against an 8-64 KiB FIFO: the service only gets through phase 2 if the drainer took over.
     expect(await waitFor(() => existsSync(mark("phase2-written")), 20_000)).toBe(true);
-    expect(readdirSync(join(root, "drain")).length).toBeGreaterThan(0);
-    // Phase 3 keeps writing while the drainer stops and the next daemon takes over.
-    writeFileSync(mark("phase3"), "");
+    // Past what phase 2 can still have in the FIFO and in unflushed frames: the drainer is reading phase 3.
+    const atPhase2 = spoolBytes(drain);
+    expect(await waitFor(() => spoolBytes(drain) > atPhase2 + 512 * 1024, 20_000)).toBe(true);
     const next = new ProcessManager({ stdioRoot: root, spoolMaxBytes: 64 * 1024 * 1024 });
     const after: Delivery[] = [];
-    const takenAt = Date.now();
     const { replayed } = await next.takeOverStdio(() => recorder(after));
+    // The drainer has stopped: anything read later was read live by this daemon.
+    const drainerStoppedAt = Date.now();
     await replayed;
+    expect(readdirSync(drain)).toEqual([]);
+    expect(await waitFor(() => after.some((d) => !d.end && d.readAtMs > drainerStoppedAt), 20_000)).toBe(true);
+    writeFileSync(mark("stop"), "");
     expect(await waitFor(() => after.some((d) => d.end && d.stream === "stdout"), 30_000)).toBe(true);
     const all = [...recorded(record), ...after];
-    expect(numbered(textOf(all))).toEqual(range(1, 150_000));
+    const lines = numbered(textOf(all));
+    expect(lines.length).toBeGreaterThan(102_000);
+    expect(lines).toEqual(range(1, lines.length));
     const times = all.filter((d) => !d.end).map((d) => d.readAtMs);
     expect(times).toEqual([...times].sort((a, b) => a - b));
-    const spooled = after.filter((d) => d.replayed && !d.end);
-    expect(spooled.length).toBeGreaterThan(0);
-    expect(spooled.every((d) => d.readAtMs <= takenAt)).toBe(true);
-    expect(after.some((d) => !d.replayed && !d.end)).toBe(true);
-    expect(readdirSync(join(root, "drain"))).toEqual([]);
+    expect(after.some((d) => !d.end && d.readAtMs < drainerStoppedAt)).toBe(true);
   }, 60_000);
 });
