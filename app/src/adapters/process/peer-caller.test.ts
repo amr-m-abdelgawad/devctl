@@ -1,19 +1,29 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
   callerServiceForPeer,
+  managedCallers,
+  nodeProcFs,
   parseLsofLocalTcpOwner,
   parseNetstatLocalTcpOwner,
   parseProcNetTcpInode,
   parseProcPidStat,
   parsePsPidColumn,
+  PeerCallerResolver,
   type PeerCallerLookups,
+  type ProcFs,
 } from "./peer-caller.ts";
 
-const lookups = (owner: number | undefined, ancestors: number[], pgid?: number): PeerCallerLookups => ({
-  ownerPidForPort: async () => owner,
-  ancestorPids: async () => ancestors,
-  processGroupId: async () => pgid,
-});
+const lookups = (owner: number | undefined, ancestors: number[], pgid?: number): PeerCallerResolver =>
+  new PeerCallerResolver({
+    lookups: {
+      ownerPidForPort: async () => owner,
+      ancestorPids: async () => ancestors,
+      processGroupId: async () => pgid,
+    } satisfies PeerCallerLookups,
+  });
 
 describe("peer TCP owner parsers", () => {
   test("picks the process whose local port matches, not the proxy on the remote side", () => {
@@ -99,5 +109,236 @@ describe("callerServiceForPeer", () => {
     expect(await callerServiceForPeer({ address: "::1", port: 9 }, services, lookups(999, [999, 200]))).toBe("worker");
     expect(await callerServiceForPeer({ address: "127.0.0.1", port: 9 }, services, lookups(999, [999], 100))).toBe("api");
     expect(await callerServiceForPeer({ address: "127.0.0.1", port: 9 }, services, lookups(999, [999], 1))).toBeUndefined();
+  });
+});
+
+type FakeProcess = { pid: number; ppid: number; pgid?: number; sockets?: string[]; files?: number };
+
+// A /proc tree on disk: stat files, fd symlinks, and a net/tcp table.
+function fakeProc() {
+  const root = mkdtempSync(join(tmpdir(), "devctl-proc-"));
+  mkdirSync(join(root, "net"));
+  const rows: string[] = [];
+  const header = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode";
+  const writeTcp = (): void => writeFileSync(join(root, "net", "tcp"), `${[header, ...rows].join("\n")}\n`);
+  writeTcp();
+  return {
+    root,
+    add(proc: FakeProcess): void {
+      const fds = join(root, String(proc.pid), "fd");
+      mkdirSync(fds, { recursive: true });
+      writeFileSync(join(root, String(proc.pid), "stat"), `${proc.pid} (svc) S ${proc.ppid} ${proc.pgid ?? proc.pid} ${proc.pgid ?? proc.pid} 0 -1 0 0`);
+      let fd = 0;
+      for (let i = 0; i < (proc.files ?? 0); i += 1) {
+        symlinkSync("/dev/null", join(fds, String(fd++)));
+      }
+      for (const inode of proc.sockets ?? []) {
+        symlinkSync(`socket:[${inode}]`, join(fds, String(fd++)));
+      }
+    },
+    socket(port: number, inode: string, remotePort = PROXY_PORT): void {
+      const hex = (value: number): string => value.toString(16).toUpperCase().padStart(4, "0");
+      rows.push(`   ${rows.length}: 0100007F:${hex(port)} 0100007F:${hex(remotePort)} 01 00000000:00000000 00:00000000 00000000  1000        0 ${inode} 1 0000 100 0 0 10 0`);
+      writeTcp();
+    },
+    clearSockets(): void {
+      rows.length = 0;
+      writeTcp();
+    },
+    close(): void {
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+// Counts what the resolver reads, per path.
+function counting(proc: ProcFs) {
+  const listed: string[] = [];
+  const counts = { links: 0, tables: 0 };
+  const fs: ProcFs = {
+    root: proc.root,
+    readText: async (path) => {
+      if (path.endsWith("/net/tcp")) {
+        counts.tables += 1;
+      }
+      return proc.readText(path);
+    },
+    list: async (path) => {
+      listed.push(path);
+      return proc.list(path);
+    },
+    link: async (path) => {
+      counts.links += 1;
+      return proc.link(path);
+    },
+  };
+  return { fs, listed, counts };
+}
+
+const CLIENT_PORT = 0xd431;
+const PROXY_PORT = 0x43f8;
+const peer = { address: "127.0.0.1", port: CLIENT_PORT };
+const services = () => [{ name: "api", pid: 100 }];
+
+describe.skipIf(process.platform === "win32")("PeerCallerResolver on /proc", () => {
+  function world() {
+    const proc = fakeProc();
+    // The daemon holds the proxy's side of every connection and many more fds.
+    proc.add({ pid: 50, ppid: 1, files: 300, sockets: ["11111"] });
+    proc.add({ pid: 100, ppid: 50, files: 2 });
+    proc.add({ pid: 101, ppid: 100, pgid: 100, sockets: ["45678"] });
+    proc.add({ pid: 300, ppid: 1, sockets: ["77777"] });
+    proc.socket(CLIENT_PORT, "45678");
+    proc.socket(0x43f8, "11111");
+    return proc;
+  }
+
+  test("finds the socket in a managed service's child without reading any other process's fds", async () => {
+    const proc = world();
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      expect(await callerServiceForPeer(peer, services, resolver)).toBe("api");
+      expect(reads.listed).not.toContain(`${proc.root}/50/fd`);
+      expect(reads.listed).not.toContain(`${proc.root}/300/fd`);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a warm lookup on the same socket reads no fds, and a reused port resolves again", async () => {
+    const proc = world();
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      expect(await callerServiceForPeer(peer, services, resolver)).toBe("api");
+      reads.counts.links = 0;
+      reads.listed.length = 0;
+      expect(await callerServiceForPeer(peer, services, resolver)).toBe("api");
+      expect(reads.counts.links).toBe(0);
+      expect(reads.listed.filter((path) => path.endsWith("/fd"))).toEqual([]);
+      // The port now belongs to a new socket held by a process devctl does not manage.
+      proc.clearSockets();
+      proc.socket(CLIENT_PORT, "77777");
+      expect(await callerServiceForPeer(peer, services, resolver)).toBeUndefined();
+      expect(reads.listed).not.toContain(`${proc.root}/300/fd`);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("the proxy's side picks the client's connection over its socket to another destination on the same port", async () => {
+    const proc = world();
+    try {
+      proc.clearSockets();
+      // Process 300 reuses the client port for a connection elsewhere; its row comes first.
+      proc.socket(CLIENT_PORT, "77777", 0x1f90);
+      proc.socket(CLIENT_PORT, "45678");
+      const resolver = new PeerCallerResolver({ proc: nodeProcFs(proc.root), now: () => 0 });
+      expect(await callerServiceForPeer({ ...peer, proxyPort: PROXY_PORT }, services, resolver)).toBe("api");
+      expect(await callerServiceForPeer(peer, services, resolver)).toBeUndefined();
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("with the proxy's side known, a repeat lookup checks one fd link and reads no tcp table", async () => {
+    const proc = world();
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      const known = { ...peer, proxyPort: PROXY_PORT };
+      expect(await callerServiceForPeer(known, services, resolver)).toBe("api");
+      reads.counts.links = 0;
+      reads.counts.tables = 0;
+      expect(await callerServiceForPeer(known, services, resolver)).toBe("api");
+      expect(reads.counts).toEqual({ links: 1, tables: 0 });
+      // Once its holder closes the socket, the table decides again.
+      rmSync(join(proc.root, "101", "fd", "0"));
+      proc.clearSockets();
+      expect(await callerServiceForPeer(known, services, resolver)).toBeUndefined();
+      expect(reads.counts.tables).toBe(1);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("concurrent lookups for one port share one resolution", async () => {
+    const proc = world();
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      const both = await Promise.all([callerServiceForPeer(peer, services, resolver), callerServiceForPeer(peer, services, resolver)]);
+      expect(both).toEqual(["api", "api"]);
+      expect(reads.counts.tables).toBe(1);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a child started after the index was built is found on a later miss or a start signal", async () => {
+    const proc = world();
+    try {
+      let now = 0;
+      const resolver = new PeerCallerResolver({ proc: nodeProcFs(proc.root), now: () => now });
+      expect(await callerServiceForPeer(peer, services, resolver)).toBe("api");
+      proc.add({ pid: 102, ppid: 100, sockets: ["55555"] });
+      proc.socket(0xd432, "55555");
+      const late = { address: "127.0.0.1", port: 0xd432 };
+      // Too soon after the last rebuild: the miss is not cached past the next one.
+      expect(await callerServiceForPeer(late, services, resolver)).toBeUndefined();
+      now = 300;
+      expect(await callerServiceForPeer(late, services, resolver)).toBe("api");
+
+      proc.add({ pid: 103, ppid: 101, sockets: ["66666"] });
+      proc.socket(0xd433, "66666");
+      resolver.markDirty();
+      expect(await callerServiceForPeer({ address: "127.0.0.1", port: 0xd433 }, services, resolver)).toBe("api");
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("uses lsof-style lookups only when the tcp table cannot be read", async () => {
+    const proc = fakeProc();
+    try {
+      let asked = 0;
+      const lookups: PeerCallerLookups = {
+        ownerPidForPort: async () => {
+          asked += 1;
+          return 100;
+        },
+        ancestorPids: async (pid) => [pid],
+        processGroupId: async () => undefined,
+      };
+      const readable = new PeerCallerResolver({ proc: nodeProcFs(proc.root), lookups, now: () => 0 });
+      expect(await callerServiceForPeer(peer, services, readable)).toBeUndefined();
+      expect(asked).toBe(0);
+      const hidden = new PeerCallerResolver({ proc: nodeProcFs(join(proc.root, "missing")), lookups, now: () => 0 });
+      expect(await callerServiceForPeer(peer, services, hidden)).toBe("api");
+      expect(asked).toBe(1);
+    } finally {
+      proc.close();
+    }
+  });
+});
+
+describe("managedCallers", () => {
+  test("maps descendants within the ancestor walk and members of a managed process group", () => {
+    const table = new Map([
+      [100, { ppid: 1, pgid: 100 }],
+      [101, { ppid: 100, pgid: 100 }],
+      [102, { ppid: 101, pgid: 102 }],
+      [200, { ppid: 1, pgid: 100 }],
+      [300, { ppid: 1, pgid: 300 }],
+    ]);
+    const index = managedCallers(table, [{ name: "api", pid: 100 }, { name: "gone", pid: 400 }]);
+    expect([...index.entries()].sort((a, b) => a[0] - b[0])).toEqual([
+      [100, "api"],
+      [101, "api"],
+      [102, "api"],
+      [200, "api"],
+      [400, "gone"],
+    ]);
   });
 });

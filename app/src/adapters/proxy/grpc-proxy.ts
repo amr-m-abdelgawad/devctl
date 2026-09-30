@@ -551,13 +551,13 @@ export function writeWithBackpressure(src: NodeJS.ReadableStream, dest: NodeJS.W
   }
 }
 
-function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: number } | undefined {
+function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: number; proxyPort?: number } | undefined {
   const socket = stream.session?.socket;
   const port = socket?.remotePort;
   if (!Number.isInteger(port) || port === undefined || port <= 0) {
     return undefined;
   }
-  return { address: socket?.remoteAddress ?? "", port };
+  return { address: socket?.remoteAddress ?? "", port, proxyPort: socket?.localPort };
 }
 
 function headerString(headers: IncomingHttpHeaders, name: string): string | undefined {

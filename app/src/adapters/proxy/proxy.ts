@@ -1097,12 +1097,12 @@ function removeHeader(headers: Record<string, string>, name: string): void {
   }
 }
 
-function capturePeer(req: IncomingMessage): { address: string; port: number } | undefined {
+function capturePeer(req: IncomingMessage): { address: string; port: number; proxyPort?: number } | undefined {
   const port = req.socket.remotePort;
   if (!Number.isInteger(port) || port === undefined || port <= 0) {
     return undefined;
   }
-  return { address: req.socket.remoteAddress ?? "", port };
+  return { address: req.socket.remoteAddress ?? "", port, proxyPort: req.socket.localPort };
 }
 
 function stripLlmCallerHeaders(headers: Record<string, string>): void {
