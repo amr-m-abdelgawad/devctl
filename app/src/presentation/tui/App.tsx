@@ -163,7 +163,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       return undefined;
     }
   }, [controller, profile]);
-  const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
+  const logView = useLogView({ controller, tui, names, screen, refresh, setStatus, loadSessionPage: workspace.loadSessionPage });
   const preferences = usePreferences({
     tui,
     controller,

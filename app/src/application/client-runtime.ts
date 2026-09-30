@@ -74,6 +74,8 @@ export type ClientRuntime = {
   listSessions(root?: string): string[];
   loadSessionEvents(session: string, root?: string): LogEvent[];
   loadSessionTail(session: string, root?: string, maxRecords?: number, maxBytes?: number): LogEvent[];
+  /** One page of a persisted session by plain-seq cursor, read within a bounded budget. */
+  loadSessionPage(session: string, filter: LogFilter, page: LogPageRequest, root?: string): LogPage;
   load(startDir: string, explicit: string, opts?: { overlay?: string; candidateText?: string }): DevctlConfig;
   loadOrEmpty(startDir: string, explicit: string, opts?: { overlay?: string; candidateText?: string }): DevctlConfig;
   loadPath(repoRoot: string, configPath: string, opts?: { candidateText?: string; overlay?: string }): DevctlConfig;

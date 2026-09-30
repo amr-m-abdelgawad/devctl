@@ -4,10 +4,12 @@ import type { ClientRuntime } from "../application/client-runtime.ts";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { runForeground } from "../adapters/process/foreground.ts";
 import { archiveDirectory } from "../adapters/storage/archive.ts";
-import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
+import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, logsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
 import { forceStopDaemon } from "../adapters/daemon/force-down.ts";
 import { resolveExportPath, writeLogExport, openInFileManager } from "../adapters/storage/log-export.ts";
 import { listSessions, loadSessionEvents, loadSessionTail } from "../adapters/storage/session-files.ts";
+import { SessionHistory } from "../adapters/storage/session-history.ts";
+import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS } from "../domain/logs/budgets.ts";
 import { readInstances, releaseSlot } from "../adapters/storage/instances.ts";
 import { freePort } from "../adapters/net/ports.ts";
 import { createStarterConfig, runSetup } from "../presentation/cli/setup.ts";
@@ -25,8 +27,16 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
   const tokens = deps?.tokens ?? new TokenManager(60_000, googleTokenProviders(), undefined);
   const doctorHost = deps?.doctorHost ?? createDoctorHost({ tokens });
   const updates = githubUpdate();
+  // One per logs root, so paging a session keeps its index between pages.
+  const histories = new Map<string, SessionHistory>();
+  const history = (root: string): SessionHistory => {
+    const known = histories.get(root) ?? new SessionHistory(root, HISTORY_SCAN_BYTES, HISTORY_SCAN_MS);
+    histories.set(root, known);
+    return known;
+  };
   const client: ClientRuntime = {
     loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath, patchRepoLocalConfig, listSessions, loadSessionEvents, loadSessionTail,
+    loadSessionPage: (session, filter, page, root = logsDir()) => history(root).page(session, filter, page),
     loadPath, validateConfigText, discover, configDiff,
     openTui, findDaemon, tryDial, assertMethodAllowed,
     listInstances: readInstances,

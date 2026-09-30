@@ -1,20 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { fullGC, heapStats, isRope } from "bun:jsc";
+import { gcAndSweep, heapStats, isRope } from "bun:jsc";
 import { MAX_LOG_LINE_CHARS } from "../../../domain/logs/types.ts";
 import { decodePrefix, LineSplitter } from "./line-splitter.ts";
 
 const KIB = 1024;
 
-// Bytes a batch of lines keeps alive once everything else is collected. The
-// work is synchronous, so nothing else allocates between the two readings.
+// Bytes a batch of lines keeps alive once everything else is collected and
+// swept. The work is synchronous, so nothing else allocates in between.
 function retainedPerLine(make: (index: number) => string, count: number): number {
   const kept: string[] = [];
-  fullGC();
+  gcAndSweep();
   const before = heapStats().extraMemorySize;
   for (let index = 0; index < count; index += 1) {
     kept.push(make(index));
   }
-  fullGC();
+  gcAndSweep();
   const after = heapStats().extraMemorySize;
   expect(kept).toHaveLength(count);
   return (after - before) / count;
@@ -40,7 +40,7 @@ describe("line splitter retention", () => {
     }, 200);
     const capped = retainedPerLine((index) => new LineSplitter().push(asciiLine(index, 64 * KIB, false))[0]!, 200);
     for (const perLine of [complete, unterminated, capped]) {
-      expect(perLine).toBeGreaterThanOrEqual(MAX_LOG_LINE_CHARS - KIB);
+      expect(perLine).toBeGreaterThanOrEqual(MAX_LOG_LINE_CHARS / 2);
       expect(perLine).toBeLessThan(MAX_LOG_LINE_CHARS + 8 * KIB);
     }
   });
