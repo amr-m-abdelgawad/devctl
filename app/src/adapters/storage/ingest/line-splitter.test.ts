@@ -5,17 +5,30 @@ import { decodePrefix, LineSplitter } from "./line-splitter.ts";
 
 const KIB = 1024;
 
+// Memory freed late by earlier tests in the same process would skew one
+// reading, so collect until two readings agree.
+function settledExtraMemory(): number {
+  let previous = Number.NaN;
+  for (let round = 0; round < 10; round += 1) {
+    gcAndSweep();
+    const current = heapStats().extraMemorySize;
+    if (Math.abs(current - previous) < 64 * KIB) {
+      return current;
+    }
+    previous = current;
+  }
+  return previous;
+}
+
 // Bytes a batch of lines keeps alive once everything else is collected and
 // swept. The work is synchronous, so nothing else allocates in between.
 function retainedPerLine(make: (index: number) => string, count: number): number {
   const kept: string[] = [];
-  gcAndSweep();
-  const before = heapStats().extraMemorySize;
+  const before = settledExtraMemory();
   for (let index = 0; index < count; index += 1) {
     kept.push(make(index));
   }
-  gcAndSweep();
-  const after = heapStats().extraMemorySize;
+  const after = settledExtraMemory();
   expect(kept).toHaveLength(count);
   return (after - before) / count;
 }
@@ -32,13 +45,13 @@ describe("line splitter retention", () => {
   test("a long line keeps only the kept prefix alive, on every path out", () => {
     // 40 KiB lines are under the 48 KiB byte cap but past the 16 KiB char cap.
     // Slicing a whole-line decode kept all 40 KiB alive behind each 16 KiB line.
-    const complete = retainedPerLine((index) => new LineSplitter().push(asciiLine(index, 40 * KIB, true))[0]!, 200);
+    const complete = retainedPerLine((index) => new LineSplitter().push(asciiLine(index, 40 * KIB, true))[0]!, 400);
     const unterminated = retainedPerLine((index) => {
       const splitter = new LineSplitter();
       expect(splitter.push(asciiLine(index, 40 * KIB, false))).toEqual([]);
       return splitter.finish()[0]!;
-    }, 200);
-    const capped = retainedPerLine((index) => new LineSplitter().push(asciiLine(index, 64 * KIB, false))[0]!, 200);
+    }, 400);
+    const capped = retainedPerLine((index) => new LineSplitter().push(asciiLine(index, 64 * KIB, false))[0]!, 400);
     for (const perLine of [complete, unterminated, capped]) {
       expect(perLine).toBeGreaterThanOrEqual(MAX_LOG_LINE_CHARS / 2);
       expect(perLine).toBeLessThan(MAX_LOG_LINE_CHARS + 8 * KIB);
