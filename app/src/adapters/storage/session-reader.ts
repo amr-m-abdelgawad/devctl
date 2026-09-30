@@ -27,15 +27,25 @@ const MAX_SPAN = 16_384;
 const NEWLINE = 0x0a;
 const SEQ_PREFIX = Buffer.from('{"seq":');
 
-/** Bytes and time one query may spend reading session files. */
-export type ReadBudget = { bytesLeft: number; readonly deadline: number };
+/**
+ * Bytes and time one query may spend reading session files. The clock
+ * starts at the query's first read, so time spent walking the ring first
+ * does not count against the files.
+ */
+export type ReadBudget = { bytesLeft: number; readonly ms: number; deadline?: number; progressed: boolean };
 
 export function readBudget(bytes: number, ms: number): ReadBudget {
-  return { bytesLeft: bytes, deadline: performance.now() + ms };
+  return { bytesLeft: bytes, ms, progressed: false };
 }
 
+// Out of bytes, or out of time once the query has finished a span: its
+// first span always finishes, so every query moves the walk on.
 function spent(budget: ReadBudget): boolean {
-  return budget.bytesLeft <= 0 || performance.now() > budget.deadline;
+  return budget.bytesLeft <= 0 || (budget.progressed && late(budget));
+}
+
+function late(budget: ReadBudget): boolean {
+  return budget.deadline !== undefined && performance.now() > budget.deadline;
 }
 
 /** What a walk over session files keeps, and which service files it can skip. */
@@ -176,7 +186,8 @@ export class SessionReader {
       let found = 0;
       let end: Walk | undefined;
       while (end === undefined && (down ? edge > lo : edge < hi)) {
-        const span = this.spanFor((want ?? FIRST_SPAN) - found, found, covered, budget);
+        // A query already out of time reads only the smallest span, to make progress.
+        const span = !budget.progressed && late(budget) ? MIN_SPAN : this.spanFor((want ?? FIRST_SPAN) - found, found, covered, budget);
         const planned = down ? [Math.max(lo, edge - span), edge] : [edge, Math.min(hi, edge + span)];
         const [bottom, top] = alignToCache(planned[0]!, planned[1]!, lo, hi, down, cached, this.affordable(budget));
         const inCache = cached !== undefined && bottom >= cached.lo && top <= cached.hi;
@@ -191,6 +202,8 @@ export class SessionReader {
         covered += top - bottom;
         edge = down ? bottom : top;
         end = step.end;
+        // Only new ground counts: a query that has read only cached matches has not moved the walk on.
+        budget.progressed ||= !inCache && (end === undefined || !end.truncated);
       }
       if (query.key !== undefined && run !== undefined) {
         this.cache.remember(query.key, run);
@@ -416,6 +429,7 @@ export class SessionReader {
   }
 
   private read(part: OpenPart, position: number, length: number, budget: ReadBudget): Buffer {
+    budget.deadline ??= performance.now() + budget.ms;
     const buf = Buffer.alloc(Math.max(0, length));
     const got = buf.length > 0 ? readSync(part.fd, buf, 0, buf.length, position) : 0;
     this.bytesRead += got;

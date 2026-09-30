@@ -196,6 +196,31 @@ describe("remembering a selective filter's matches", () => {
   });
 });
 
+describe("the read budget's clock", () => {
+  test("a query that is out of time before it reaches disk still moves the walk on", async () => {
+    // With no time at all, each poll finishes one span and the cache keeps it.
+    const mgr = await filled(1_500, { maxMemoryBytes: 64 * 1024, historyScanMs: 0 });
+    let page = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+    let polls = 1;
+    while (page.hasPrev && polls < 200) {
+      page = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+      polls += 1;
+    }
+    expect(lineNumbers(page.events)).toEqual(range(1, 1_500).filter((i) => i % 50 === 0));
+    await mgr.close();
+  });
+
+  test("starts at the first read, not when the query began", () => {
+    // A slow walk of the ring comes first; it must not spend the files' time.
+    const dir = tmp();
+    writeLines(dir, "api.jsonl", range(1, 2_000).map((seq) => logRecord({ seq, service: "api", message: `line ${seq} ${PAD}` })));
+    const budget = readBudget(64 * 1024 * 1024, 50);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 80);
+    const page = pageSource(new SessionReader(dir).source({ matches: () => true }, 1, 2_001, budget), { direction: "backward", limit: 400 });
+    expect(page.events.map((event) => event.seq)).toEqual(range(1_601, 2_000));
+  });
+});
+
 describe("paging a past session's history", () => {
   async function closedSession(count: number, services: string[]): Promise<string> {
     const mgr = await filled(count, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 16 * 1024 * 1024 }, services, "past");
