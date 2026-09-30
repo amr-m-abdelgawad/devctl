@@ -1,3 +1,5 @@
+import { stringBytes } from "../../domain/logs/size.ts";
+
 /**
  * Byte ledger for capture bodies under one budget. The stores hold each body
  * once; this tracks its size in arrival order and names the oldest ids that
@@ -59,14 +61,11 @@ export class BodyBudget {
   }
 }
 
-// One char outside Latin-1 makes the engine store the whole string at two
-// bytes per char, so a UTF-8 count would undercount such a body by half.
-const WIDE_CHAR = /[^\u0000-ÿ]/;
-
-/** Heap bytes a body string occupies. */
+/**
+ * Heap bytes a body string occupies, by the log ring's rule. One character
+ * outside Latin-1 makes the engine store the whole string at two bytes per
+ * unit, so a UTF-8 count would undercount such a body by up to half.
+ */
 export function textBytes(text: string | undefined): number {
-  if (text === undefined || text === "") {
-    return 0;
-  }
-  return WIDE_CHAR.test(text) ? text.length * 2 : text.length;
+  return text === undefined ? 0 : stringBytes(text);
 }

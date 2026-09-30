@@ -40,11 +40,11 @@ describe("BodyBudget", () => {
 });
 
 describe("textBytes", () => {
-  test("counts two bytes per unit once a string holds a character outside Latin-1", () => {
+  test("counts a body with one wide character at two bytes per unit, as the ring does", () => {
+    const ascii = "x".repeat(100);
     expect(textBytes(undefined)).toBe(0);
     expect(textBytes("")).toBe(0);
-    expect(textBytes("plain ascii")).toBe(11);
-    expect(textBytes("café")).toBe(4);
-    expect(textBytes("it’s")).toBe(8);
+    expect(textBytes(ascii)).toBe(100);
+    expect(textBytes(`${ascii}’`)).toBe(202);
   });
 });

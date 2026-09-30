@@ -32,7 +32,8 @@ export function approxRecordBytes(record: LogRecord): number {
   );
 }
 
-function stringBytes(value: string): number {
+/** Approximate heap size of one string, by the rule above. The capture stores size bodies with it too. */
+export function stringBytes(value: string): number {
   if (value.length < WIDTH_CHECK_MIN_CHARS || Buffer.byteLength(value, "utf8") === value.length) {
     return value.length;
   }
