@@ -82,7 +82,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { listSessions, loadSessionTail } from "../storage/session-files.ts";
+import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
 import { autoRingBytes } from "../../domain/logs/budgets.ts";
 import { nextMemoryGuard, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";
@@ -906,6 +906,7 @@ export class Supervisor {
       logsStats: (req) => this.queryLogsFacets(req),
       listLogSessions: () => listSessions(this.logSessionsRoot()),
       loadLogSession: (id) => this.loadPersistedLogSession(id),
+      logSessionPage: this.logs.historyPage === undefined ? undefined : (id, req) => this.queryLogSessionPage(id, req),
       config: () => this.cfg,
       validateConfigText: (text) => validateConfigText(this.cfg.repoRoot, this.cfg.configPath, text),
       start: (req) => this.commands.startService.execute(req),
@@ -1139,10 +1140,19 @@ export class Supervisor {
   }
 
   private loadPersistedLogSession(id: string): LogEvent[] {
-    if (!id.startsWith("session-") || id.includes("/") || id.includes("\\") || id.includes("..")) {
+    if (!isSessionName(id)) {
       return [];
     }
     return loadSessionTail(id, this.logSessionsRoot());
+  }
+
+  // A page of a persisted session, read by the log store (on the log worker
+  // when it runs) rather than by a tail read on this thread.
+  private async queryLogSessionPage(id: string, req: LogFilter & LogPageRequest): Promise<LogPage> {
+    if (!isSessionName(id) || this.logs.historyPage === undefined) {
+      return { events: [], prevCursor: "0", nextCursor: "0", hasNext: false, hasPrev: false, sessionChanged: false };
+    }
+    return this.logs.historyPage(id, this.logFilter(req), { cursor: req.cursor, direction: req.direction, limit: req.limit });
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {

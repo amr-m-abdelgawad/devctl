@@ -123,6 +123,10 @@ async function handle(message: WorkerRequest): Promise<void> {
     reply({ id: message.id, type: "result", result: manager.queryPage(message.filter, message.page) });
     return;
   }
+  if (message.type === "historyPage") {
+    reply({ id: message.id, type: "result", result: manager.historyPage(message.session, message.filter, message.page) });
+    return;
+  }
   if (message.type === "queryFacets") {
     reply({ id: message.id, type: "result", result: manager.queryFacets(message.filter) });
     return;

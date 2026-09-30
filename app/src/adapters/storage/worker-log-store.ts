@@ -218,6 +218,15 @@ export class WorkerLogStore implements LogStore {
     return result;
   }
 
+  /** Served by the worker, so reading a session's files never blocks the daemon's thread. */
+  async historyPage(session: string, filter: LogFilter, page?: LogPageRequest): Promise<LogPage> {
+    const result = await this.rpc({ type: "historyPage", session, filter, page });
+    if (!isLogPage(result)) {
+      throw new Error("log worker historyPage returned an unexpected payload");
+    }
+    return result;
+  }
+
   async queryFacets(filter: LogFilter): Promise<LogFacets> {
     const result = await this.rpc({ type: "queryFacets", filter });
     if (!isLogFacets(result)) {
@@ -334,6 +343,12 @@ export class WorkerLogStore implements LogStore {
     }
     if (body.type === "queryPage") {
       return store.queryPage(body.filter, body.page);
+    }
+    if (body.type === "historyPage") {
+      if (store.historyPage === undefined) {
+        throw new Error("log store has no session history");
+      }
+      return store.historyPage(body.session, body.filter, body.page);
     }
     if (body.type === "queryFacets") {
       return store.queryFacets(body.filter);

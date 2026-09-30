@@ -9,6 +9,8 @@ import { pageSource } from "./log-page.ts";
 import { LogManager, type LogManagerOptions } from "./logs.ts";
 import { MatchCache } from "./match-cache.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
+import { createDaemonLogStore } from "./worker-log-store.ts";
+import { Bus } from "../../shared/events.ts";
 
 const dirs: string[] = [];
 
@@ -191,6 +193,70 @@ describe("remembering a selective filter's matches", () => {
     expect(polls).toBeLessThan(60);
     expect(lineNumbers(page.events)).toEqual(errors(3_000));
     await mgr.close();
+  });
+});
+
+describe("paging a past session's history", () => {
+  async function closedSession(count: number, services: string[]): Promise<string> {
+    const mgr = await filled(count, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 16 * 1024 * 1024 }, services, "past");
+    await mgr.close();
+    return join(mgr.sessionDir(), "..");
+  }
+
+  test("pages back by cursor from the newest records to the first, past what one budget reads", async () => {
+    const root = await closedSession(4_000, ["api", "worker"]);
+    // The next daemon's store, with a per-query budget under half the session.
+    const reader = new LogManager(100, undefined, undefined, false, root, "next", 0, 0, { historyScanBytes: 4 * 1024 * 1024 });
+    const first = reader.historyPage("session-past", {}, { limit: 400 });
+    expect(lineNumbers(first.events)).toEqual(range(3_601, 4_000));
+    expect(first.prevCursor).toBe("3601");
+    expect(first.hasPrev).toBe(true);
+    expect(first.hasNext).toBe(false);
+    const seen = lineNumbers(first.events);
+    let page = first;
+    while (page.hasPrev) {
+      page = reader.historyPage("session-past", {}, { cursor: page.prevCursor, direction: "backward", limit: 400 });
+      seen.unshift(...lineNumbers(page.events));
+    }
+    expect(seen).toEqual(range(1, 4_000));
+    const forward = reader.historyPage("session-past", { services: ["api"], level: "ERROR" }, { cursor: "0", direction: "forward", limit: 5 });
+    expect(lineNumbers(forward.events)).toEqual([50, 100, 150, 200, 250]);
+    expect(forward.hasNext).toBe(true);
+    await reader.close();
+  });
+
+  test("unknown, unsafe, and legacy session names page safely", async () => {
+    const root = tmp();
+    const legacy = join(root, "session-legacy");
+    mkdirSync(legacy);
+    writeFileSync(join(legacy, "api.log"), "2026-01-01T00:00:01Z api INFO one\n2026-01-01T00:00:02Z api INFO two\n2026-01-01T00:00:03Z api INFO three\n");
+    const reader = new LogManager(100, undefined, undefined, false, root, "next", 0, 0);
+    const page = reader.historyPage("session-legacy", {}, { limit: 2 });
+    expect(page.events.map((event) => logMessage(event))).toEqual(["two", "three"]);
+    expect(reader.historyPage("session-legacy", {}, { cursor: page.prevCursor, direction: "backward" }).events.map((event) => logMessage(event))).toEqual(["one"]);
+    for (const name of ["session-missing", "../session-legacy", "session-../x", "other"]) {
+      expect(reader.historyPage(name, {}, {}).events).toEqual([]);
+    }
+    await reader.close();
+  });
+
+  test("the log worker and its in-process fallback serve the same pages", async () => {
+    const root = await closedSession(1_200, ["api"]);
+    const config = { max: 100, persist: false, directory: root, sessionID: "next", retentionDays: 0, maxSessionLogs: 0, extraMarkers: [], extraPatterns: [] };
+    const worker = await createDaemonLogStore(config, new Bus(16), new Detector([], []));
+    const fallback = await createDaemonLogStore(config, new Bus(16), new Detector([], []), { script: new URL("./no-such-worker.ts", import.meta.url), initTimeoutMs: 200 });
+    try {
+      expect(worker.usingWorker).toBe(true);
+      expect(fallback.usingWorker).toBe(false);
+      const request = { cursor: "700", direction: "backward" as const, limit: 50 };
+      const fromWorker = await worker.logs.historyPage!("session-past", { level: "INFO" }, request);
+      const inProcess = await fallback.logs.historyPage!("session-past", { level: "INFO" }, request);
+      expect(lineNumbers(fromWorker.events)).toEqual(range(650, 699));
+      expect(fromWorker).toEqual(inProcess);
+    } finally {
+      await worker.logs.close();
+      await fallback.logs.close();
+    }
   });
 });
 

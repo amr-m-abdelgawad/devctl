@@ -18,6 +18,11 @@ export function listSessions(root = logsDir()): string[] {
     .reverse();
 }
 
+/** A session directory name as `listSessions` gives it, safe to join under the logs root. */
+export function isSessionName(name: string): boolean {
+  return name.length > SESSION_PREFIX.length && name.startsWith(SESSION_PREFIX) && !name.includes("/") && !name.includes("\\") && !name.includes("..");
+}
+
 export function isJsonlSessionDir(dir: string): boolean {
   const marker = join(dir, SESSION_FORMAT_FILE);
   if (existsSync(marker)) {

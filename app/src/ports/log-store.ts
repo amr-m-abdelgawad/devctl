@@ -8,6 +8,8 @@ export type LogStore = {
   append(event: LogIngest): void;
   query(filter: LogFilter): Promise<LogRecord[]>;
   queryPage(filter: LogFilter, page?: LogPageRequest): Promise<LogPage>;
+  /** One page of a persisted session's history, by plain-seq cursors. With no cursor, its newest matches. */
+  historyPage?(session: string, filter: LogFilter, page?: LogPageRequest): Promise<LogPage>;
   queryFacets(filter: LogFilter): Promise<LogFacets>;
   snapshot(): LogSnapshot;
   exportTo(path: string, filter: LogFilter): Promise<void>;

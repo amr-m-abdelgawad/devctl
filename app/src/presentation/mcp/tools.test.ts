@@ -6,7 +6,7 @@ import { logRecord } from "../../domain/logs/logs.ts";
 import { REDACTED_VALUE } from "../../adapters/secrets/detector.ts";
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
-import { callMcpTool, isWebControlTool, iterateLogsExport, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
+import { callMcpTool, getLogSession, isWebControlTool, iterateLogsExport, listServices, MCP_LOG_CAP, type McpHost } from "./tools.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -497,6 +497,44 @@ describe("mcp tools", () => {
     expect(lines.join("\n")).not.toContain("super-secret");
     expect(JSON.parse(lines[0] as string).seq).toBe(1);
     expect(JSON.parse(lines[1] as string).seq).toBe(2);
+  });
+
+  test("iterateLogsExport keeps going past pages a read budget cut short and left empty", async () => {
+    const host = stubHost();
+    const ev1 = logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "first", pid: 1, seq: 1 });
+    const ev3 = logRecord({ timestamp: "t3", service: "api", source: "stdout", level: "INFO", message: "third", pid: 1, seq: 3 });
+    const page = (events: typeof ev1[], prevCursor: string, hasPrev: boolean, nextCursor: string, hasNext: boolean): LogPage => ({ events, prevCursor, hasPrev, nextCursor, hasNext, sessionChanged: false });
+    host.logsPage = (req) => {
+      if (!req.cursor) {
+        return page([ev3], "3", true, "3", false);
+      }
+      if (req.direction === "backward") {
+        return req.cursor === "3" ? page([], "2", true, "3", true) : page([ev1], "1", false, "1", true);
+      }
+      return req.cursor === "1" ? page([], "1", true, "2", true) : page([ev3], "3", true, "3", false);
+    };
+    const seqs: number[] = [];
+    for await (const line of iterateLogsExport(host, {})) {
+      seqs.push(JSON.parse(line).seq);
+    }
+    expect(seqs).toEqual([1, 3]);
+  });
+
+  test("a session with a paging host is paged there, cursors and filter included", async () => {
+    const host = stubHost();
+    let seen: (LogFilter & LogPageRequest) | undefined;
+    host.logSessionPage = (_id, req) => {
+      seen = req;
+      return { events: [logRecord({ seq: 7, service: "api", message: "older", level: "INFO" })], prevCursor: "7", nextCursor: "7", hasPrev: true, hasNext: true, sessionChanged: false };
+    };
+    host.loadLogSession = () => {
+      throw new Error("the whole-session loader must not run");
+    };
+    const body = await getLogSession(host, "session-one", { cursor: "9", direction: "backward", limit: "2", level: "INFO" }) as { events: Array<{ seq: number }>; prev_cursor: string; truncated: boolean };
+    expect(body.events.map((event) => event.seq)).toEqual([7]);
+    expect(body.prev_cursor).toBe("7");
+    expect(body.truncated).toBe(true);
+    expect(seen).toMatchObject({ cursor: "9", direction: "backward", limit: 2, level: "INFO" });
   });
 
   test("start_services forwards profile and does not invent a service list", async () => {

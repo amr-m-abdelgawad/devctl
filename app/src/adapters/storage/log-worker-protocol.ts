@@ -29,6 +29,7 @@ export type WorkerRequest =
   | { id: number; type: "flush" }
   | { id: number; type: "query"; filter: LogFilter }
   | { id: number; type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
+  | { id: number; type: "historyPage"; session: string; filter: LogFilter; page?: LogPageRequest }
   | { id: number; type: "queryFacets"; filter: LogFilter }
   | { id: number; type: "exportTo"; path: string; filter: LogFilter }
   | { type: "setPluginPaths"; paths: string[]; repoRoot?: string }
@@ -39,6 +40,7 @@ export type WorkerRequest =
 export type WorkerRpcBody =
   | { type: "query"; filter: LogFilter }
   | { type: "queryPage"; filter: LogFilter; page?: LogPageRequest }
+  | { type: "historyPage"; session: string; filter: LogFilter; page?: LogPageRequest }
   | { type: "queryFacets"; filter: LogFilter }
   | { type: "exportTo"; path: string; filter: LogFilter }
   | { type: "close" }

@@ -1,11 +1,11 @@
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { type Bus, LogBatch, LogReceived, newEvent } from "../../shared/events.ts";
 import { type Detector } from "../secrets/detector.ts";
 import type { LogSnapshot, LogStore } from "../../ports/log-store.ts";
 import { logsDir } from "./storage.ts";
 import { LogRing } from "./log-ring.ts";
-import { indexedSource, pageSource, stackedSource, type SeqSource } from "./log-page.ts";
+import { indexedSource, pageSource, seqIndexed, stackedSource, type SeqSource } from "./log-page.ts";
 import { SessionLogWriter } from "./log-persist.ts";
 import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
@@ -13,7 +13,7 @@ import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLi
 import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
 import { readSelfStamp } from "../process/liveness.ts";
 import { writeLogExport } from "./log-export.ts";
-import { safeServiceFile, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
+import { isJsonlSessionDir, isSessionName, loadSessionEvents, safeServiceFile, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
 import { pruneSessions, type SessionOwner } from "./session-prune.ts";
 
@@ -54,6 +54,8 @@ import {
 export * from "../../domain/logs/logs.ts";
 
 const DEFAULT_MAX_EVENTS = 50_000;
+// Sessions whose history is being paged keep their reader, index and cache.
+const HISTORY_READERS = 2;
 const PRUNE_INTERVAL_MS = 5 * 60_000;
 const PRUNE_ON_ROTATE_MIN_MS = 30_000;
 
@@ -106,6 +108,7 @@ export class LogManager {
   private evicted?: SessionReader;
   private readonly scanBytes: number;
   private readonly scanMs: number;
+  private readonly historyReaders = new Map<string, SessionReader>();
   private parsers: LogParser[] = [];
   private readonly assembler = new MultilineAssembler();
   private serviceLogs = new Map<string, ServiceLogConfig>();
@@ -412,6 +415,52 @@ export class LogManager {
     };
   }
 
+  /**
+   * One page of a persisted session's history, read by seq from its files
+   * within the same per-query budget as the evicted part of the window. With
+   * no cursor it is the session's newest matches. History cursors are plain
+   * seqs.
+   */
+  historyPage(session: string, filter: LogFilter, page: LogPageRequest = {}): LogPage {
+    const limit = clampLogPageSize(page.limit);
+    const cursor = historyCursorSeq(page.cursor);
+    const direction: LogPageDirection = cursor === undefined ? "backward" : (page.direction ?? "backward");
+    const result = pageSource(this.historySource(session, filter), { cursor, direction, limit });
+    const firstSeq = result.events[0]?.seq;
+    const lastSeq = result.events[result.events.length - 1]?.seq;
+    return {
+      events: result.events,
+      prevCursor: String(firstSeq ?? result.prevFrontier ?? cursor ?? 0),
+      nextCursor: String(lastSeq ?? result.nextFrontier ?? cursor ?? 0),
+      hasNext: result.hasNext,
+      hasPrev: result.hasPrev,
+      sessionChanged: false,
+    };
+  }
+
+  private historySource(session: string, filter: LogFilter): SeqSource {
+    const matches = createLogMatcher(filter);
+    const dir = join(this.logRoot, session);
+    if (!isSessionName(session) || !existsSync(dir)) {
+      return indexedSource(seqIndexed([]), matches);
+    }
+    if (!isJsonlSessionDir(dir)) {
+      return indexedSource(seqIndexed(loadSessionEvents(session, this.logRoot)), matches);
+    }
+    let reader = this.historyReaders.get(dir);
+    this.historyReaders.delete(dir);
+    reader ??= new SessionReader(dir);
+    this.historyReaders.set(dir, reader);
+    for (const oldest of this.historyReaders.keys()) {
+      if (this.historyReaders.size <= HISTORY_READERS) {
+        break;
+      }
+      this.historyReaders.delete(oldest);
+    }
+    const budget = readBudget(this.scanBytes, this.scanMs);
+    return reader.source({ matches, services: filter.services, key: matchCacheKey(filter) }, 1, reader.lastSeq(budget) + 1, budget);
+  }
+
   queryFacets(filter: LogFilter): LogFacets {
     this.flushPending();
     const withoutServices = withoutFilterDimension(filter, "services");
@@ -708,6 +757,16 @@ function outputLineIngest(line: PipelineLine): LogIngest {
   };
 }
 
+// History pages have always returned plain seqs as cursors; a live-window
+// cursor is taken for its seq.
+function historyCursorSeq(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+  const seq = Number(raw);
+  return Number.isInteger(seq) ? seq : decodeLogCursor(raw)?.seq;
+}
+
 // Names a filter that keeps only some records of the files it reads, so its
 // matches are worth remembering. A filter by service alone reads just that
 // service's files, where every record matches.
@@ -751,6 +810,7 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
     },
     query: async (filter) => mgr.query(filter),
     queryPage: async (filter, page) => mgr.queryPage(filter, page),
+    historyPage: async (session, filter, page) => mgr.historyPage(session, filter, page),
     queryFacets: async (filter) => mgr.queryFacets(filter),
     snapshot: () => mgr.snapshot(),
     exportTo: async (path, filter) => {
