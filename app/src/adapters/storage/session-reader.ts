@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { LogMatcher } from "../../domain/logs/filter.ts";
 import type { LogRecord } from "../../domain/logs/logs.ts";
 import type { SeqSource, Walk } from "./log-page.ts";
+import { firstAtOrAbove, MatchCache, type LineLocation, type ScannedRange } from "./match-cache.ts";
 import { parseStoredLogRecord, safeServiceFile } from "./session-files.ts";
 
 const KIB = 1024;
@@ -41,6 +42,8 @@ function spent(budget: ReadBudget): boolean {
 export type SessionQuery = {
   readonly matches: LogMatcher;
   readonly services?: readonly string[];
+  /** Names the filter when its matches are few enough to cache. */
+  readonly key?: string;
 };
 
 /**
@@ -105,6 +108,7 @@ class PartIndex {
 type SeqSpan = { low: number; high: number };
 
 type PartFile = {
+  readonly name: string;
   readonly key: string;
   readonly part: number;
   readonly index: PartIndex;
@@ -116,6 +120,12 @@ type PartFile = {
 
 type OpenPart = { file: PartFile; fd: number; size: number };
 
+type Line = { text: string; location: LineLocation };
+
+// How visiting one span went: the matches it visited, the walk's end when
+// it ended there, and (for a scanned span) where every match in it is.
+type Step = { visited: number; end?: Walk; matches?: readonly LineLocation[] };
+
 /**
  * Reads records of one session directory by seq range across every
  * service's part files, without reading any file whole. It keeps a sparse
@@ -125,7 +135,8 @@ type OpenPart = { file: PartFile; fd: number; size: number };
 export class SessionReader {
   bytesRead = 0;
   private readonly parts = new Map<string, PartFile>();
-  // Bytes read per seq of range covered, learned from earlier spans.
+  private readonly cache = new MatchCache();
+  // Bytes read per seq of range scanned, learned from earlier spans.
   private perSeq = 0;
 
   constructor(
@@ -153,57 +164,113 @@ export class SessionReader {
   }
 
   // Walks [lo, hi) one span of seqs at a time, newest first when `down`.
+  // A span inside the range this query has scanned before reads only the
+  // cached matches' lines; what the walk scans is folded into that range.
   private walk(query: SessionQuery, lo: number, hi: number, down: boolean, visit: (event: LogRecord) => boolean, want: number | undefined, budget: ReadBudget): Walk {
-    return this.withParts(query.services, (open): Walk => {
+    return this.withParts(query.services, (open, byName): Walk => {
+      const cached = query.key === undefined ? undefined : this.cache.get(query.key, lo);
+      let run: ScannedRange | undefined;
       // The edge of what has been read so far.
       let edge = down ? hi : lo;
       let covered = 0;
       let found = 0;
-      while (down ? edge > lo : edge < hi) {
+      let end: Walk | undefined;
+      while (end === undefined && (down ? edge > lo : edge < hi)) {
         const span = this.spanFor((want ?? FIRST_SPAN) - found, found, covered, budget);
-        const bottom = down ? Math.max(lo, edge - span) : edge;
-        const top = down ? edge : Math.min(hi, edge + span);
-        const before = this.bytesRead;
-        const records = spent(budget) ? undefined : this.readRange(open, query, bottom, top, budget);
-        this.learn(top - bottom, this.bytesRead - before, records !== undefined);
-        if (records === undefined) {
-          return { truncated: true, frontier: down ? edge : edge - 1 };
+        const planned = down ? [Math.max(lo, edge - span), edge] : [edge, Math.min(hi, edge + span)];
+        const [bottom, top] = alignToCache(planned[0]!, planned[1]!, lo, hi, down, cached, this.affordable(budget));
+        const inCache = cached !== undefined && bottom >= cached.lo && top <= cached.hi;
+        const step = inCache
+          ? this.visitCached(byName, cached.matches, bottom, top, down, query, visit, budget)
+          : this.visitScanned(open, query, bottom, top, down, visit, budget);
+        const matches = inCache ? cached.matches.slice(firstAtOrAbove(cached.matches, bottom), firstAtOrAbove(cached.matches, top)) : step.matches;
+        if (matches !== undefined) {
+          run = extendRun(run, bottom, top, matches, down);
         }
-        for (const event of down ? records.reverse() : records) {
-          found += 1;
-          if (!visit(event)) {
-            return { truncated: false, frontier: event.seq };
-          }
-        }
+        found += step.visited;
         covered += top - bottom;
         edge = down ? bottom : top;
+        end = step.end;
       }
-      return { truncated: false, frontier: down ? lo : hi - 1 };
+      if (query.key !== undefined && run !== undefined) {
+        this.cache.remember(query.key, run);
+      }
+      return end ?? { truncated: false, frontier: down ? lo : hi - 1 };
     });
+  }
+
+  private visitScanned(open: readonly OpenPart[], query: SessionQuery, bottom: number, top: number, down: boolean, visit: (event: LogRecord) => boolean, budget: ReadBudget): Step {
+    const before = this.bytesRead;
+    const scanned = spent(budget) ? undefined : this.readRange(open, query, bottom, top, budget);
+    this.learn(top - bottom, scanned?.lineBytes, this.bytesRead - before);
+    if (scanned === undefined) {
+      return { visited: 0, end: { truncated: true, frontier: down ? top : bottom - 1 } };
+    }
+    let visited = 0;
+    for (const event of down ? [...scanned.records].reverse() : scanned.records) {
+      visited += 1;
+      if (!visit(event)) {
+        return { visited, end: { truncated: false, frontier: event.seq }, matches: scanned.matches };
+      }
+    }
+    return { visited, matches: scanned.matches };
+  }
+
+  // Reads each cached match's line where the cache says it is.
+  private visitCached(byName: ReadonlyMap<string, OpenPart>, matches: readonly LineLocation[], bottom: number, top: number, down: boolean, query: SessionQuery, visit: (event: LogRecord) => boolean, budget: ReadBudget): Step {
+    const from = firstAtOrAbove(matches, bottom);
+    const to = firstAtOrAbove(matches, top);
+    let visited = 0;
+    for (let at = down ? to - 1 : from; down ? at >= from : at < to; at += down ? -1 : 1) {
+      const location = matches[at]!;
+      if (spent(budget)) {
+        return { visited, end: { truncated: true, frontier: down ? location.seq + 1 : location.seq - 1 } };
+      }
+      const part = byName.get(location.part);
+      const record = part === undefined ? undefined : parseStoredLogRecord(this.read(part, location.offset, location.length, budget).toString("utf8"));
+      if (record?.seq === location.seq && query.matches(record)) {
+        visited += 1;
+        if (!visit(record)) {
+          return { visited, end: { truncated: false, frontier: record.seq } };
+        }
+      }
+    }
+    return { visited };
+  }
+
+  // Seqs a span may cover for half the budget left, at the bytes a seq's lines have taken.
+  private affordable(budget: ReadBudget): number {
+    return this.perSeq > 0 ? Math.floor(budget.bytesLeft / 2 / this.perSeq) : MAX_SPAN;
   }
 
   // Seqs the next span covers: enough to hold what is still wanted at the
   // match rate seen so far (every seq matching until a span says otherwise),
-  // at most a quarter of the budget left at the bytes a seq has cost.
+  // and no more than the budget left affords.
   private spanFor(wanted: number, found: number, covered: number, budget: ReadBudget): number {
     const likely = covered === 0 ? Math.max(1, wanted) : found === 0 ? covered * 2 : Math.ceil((Math.max(1, wanted) * covered * 1.25) / found);
-    const affordable = this.perSeq > 0 ? Math.floor(budget.bytesLeft / 4 / this.perSeq) : MAX_SPAN;
-    return Math.max(MIN_SPAN, Math.min(MAX_SPAN, likely, affordable));
+    return Math.max(MIN_SPAN, Math.min(MAX_SPAN, likely, this.affordable(budget)));
   }
 
-  // A span the budget cut short cost more a seq than it shows.
-  private learn(covered: number, bytes: number, complete: boolean): void {
-    if (covered <= 0 || bytes <= 0) {
+  // Learns what a seq's lines take from a scanned span, leaving out the
+  // seek and look-ahead each span pays once. A first span the budget cut
+  // short, with nothing learned yet, is taken to need twice what it read.
+  private learn(covered: number, lineBytes: number | undefined, readBytes: number): void {
+    if (covered <= 0) {
       return;
     }
-    const observed = bytes / covered;
-    this.perSeq = this.perSeq <= 0 ? observed : complete ? (this.perSeq + observed) / 2 : Math.max(this.perSeq, 2 * observed);
+    if (lineBytes !== undefined && lineBytes > 0) {
+      const observed = lineBytes / covered;
+      this.perSeq = this.perSeq <= 0 ? observed : (this.perSeq + observed) / 2;
+    } else if (lineBytes === undefined && this.perSeq <= 0 && readBytes > 0) {
+      this.perSeq = (2 * readBytes) / covered;
+    }
   }
 
-  // Records with seq in [bottom, top) that the query keeps, in seq order, or
-  // undefined when the budget ran out partway.
-  private readRange(open: readonly OpenPart[], query: SessionQuery, bottom: number, top: number, budget: ReadBudget): LogRecord[] | undefined {
-    const lines = new Map<number, string>();
+  // Records with seq in [bottom, top) that the query keeps, in seq order,
+  // with where each one's line is and how many bytes the range's lines took,
+  // or undefined when the budget ran out partway.
+  private readRange(open: readonly OpenPart[], query: SessionQuery, bottom: number, top: number, budget: ReadBudget): { records: LogRecord[]; matches: LineLocation[]; lineBytes: number } | undefined {
+    const lines = new Map<number, Line>();
     for (let index = 0; index < open.length; index += 1) {
       const part = open[index]!;
       const next = open[index + 1];
@@ -215,19 +282,22 @@ export class SessionReader {
         return undefined;
       }
     }
-    const out: LogRecord[] = [];
+    const kept: Array<{ record: LogRecord; location: LineLocation }> = [];
+    let lineBytes = 0;
     for (const line of lines.values()) {
-      const record = parseStoredLogRecord(line);
+      lineBytes += line.location.length;
+      const record = parseStoredLogRecord(line.text);
       if (record !== undefined && query.matches(record)) {
-        out.push(record);
+        kept.push({ record, location: line.location });
       }
     }
-    return out.sort((a, b) => a.seq - b.seq);
+    kept.sort((a, b) => a.record.seq - b.record.seq);
+    return { records: kept.map((row) => row.record), matches: kept.map((row) => row.location), lineBytes };
   }
 
   // Collects the part's lines with seq in [bottom, top). A later copy of a
   // seq replaces an earlier one. False when the budget ran out.
-  private scanPart(part: OpenPart, bottom: number, top: number, lines: Map<number, string>, budget: ReadBudget): boolean {
+  private scanPart(part: OpenPart, bottom: number, top: number, lines: Map<number, Line>, budget: ReadBudget): boolean {
     const index = part.file.index;
     const start = this.refine(part, bottom, budget);
     let position = index.offsets[start]!;
@@ -267,7 +337,7 @@ export class SessionReader {
         const seq = lineSeq(buf, lineStart, newline);
         if (seq !== undefined) {
           if (seq >= bottom && seq < top) {
-            lines.set(seq, buf.toString("utf8", lineStart, newline));
+            lines.set(seq, { text: buf.toString("utf8", lineStart, newline), location: { seq, part: part.file.name, offset, length: newline - lineStart } });
           } else if (seq >= top && stopAt === part.size) {
             stopAt = Math.min(part.size, offset + SLACK_BYTES);
           }
@@ -355,7 +425,7 @@ export class SessionReader {
 
   // Opens the session's part files (only those of `services`, when given),
   // ordered by service and part, for the length of one walk.
-  private withParts<T>(services: readonly string[] | undefined, walk: (open: OpenPart[]) => T): T {
+  private withParts<T>(services: readonly string[] | undefined, walk: (open: OpenPart[], byName: ReadonlyMap<string, OpenPart>) => T): T {
     const keys = services !== undefined && services.length > 0 ? new Set(services.map(safeServiceFile)) : undefined;
     const names = listParts(this.dir);
     for (const name of this.parts.keys()) {
@@ -373,7 +443,7 @@ export class SessionReader {
         }
       }
       open.sort((a, b) => (a.file.key === b.file.key ? a.file.part - b.file.part : a.file.key < b.file.key ? -1 : 1));
-      return walk(open);
+      return walk(open, new Map(open.map((part) => [part.file.name, part])));
     } finally {
       for (const part of open) {
         closeSync(part.fd);
@@ -392,10 +462,43 @@ export class SessionReader {
     if (!Number.isInteger(part) || part < 0) {
       return undefined;
     }
-    const file: PartFile = { key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex() };
+    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex() };
     this.parts.set(name, file);
     return file;
   }
+}
+
+// Keeps a planned span wholly inside or wholly outside the cached range. A
+// span inside it runs to the range's edge, since only its matches are read;
+// one that stops just short of it is stretched to meet it when affordable.
+function alignToCache(bottom: number, top: number, lo: number, hi: number, down: boolean, cached: ScannedRange | undefined, affordable: number): [number, number] {
+  if (cached === undefined) {
+    return [bottom, top];
+  }
+  const reach = Math.min(MAX_SPAN, affordable);
+  if (down) {
+    if (top > cached.lo && top <= cached.hi) {
+      return [Math.max(lo, cached.lo), top];
+    }
+    if (top > cached.hi && (bottom < cached.hi || top - cached.hi <= reach)) {
+      return [cached.hi, top];
+    }
+    return [bottom, top];
+  }
+  if (bottom >= cached.lo && bottom < cached.hi) {
+    return [bottom, Math.min(hi, cached.hi)];
+  }
+  if (bottom < cached.lo && (top > cached.lo || cached.lo - bottom <= reach)) {
+    return [bottom, cached.lo];
+  }
+  return [bottom, top];
+}
+
+function extendRun(run: ScannedRange | undefined, bottom: number, top: number, matches: readonly LineLocation[], down: boolean): ScannedRange {
+  if (run === undefined) {
+    return { lo: bottom, hi: top, matches };
+  }
+  return down ? { lo: bottom, hi: run.hi, matches: [...matches, ...run.matches] } : { lo: run.lo, hi: top, matches: [...run.matches, ...matches] };
 }
 
 // Lowest and highest seq among up to `count` whole lines from `start`.

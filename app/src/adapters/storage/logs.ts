@@ -671,7 +671,7 @@ export class LogManager {
       return ring;
     }
     const budget = readBudget(this.scanBytes, this.scanMs);
-    return stackedSource(ring, oldest, this.evicted.source({ matches, services: filter.services }, windowStart, oldest, budget));
+    return stackedSource(ring, oldest, this.evicted.source({ matches, services: filter.services, key: matchCacheKey(filter) }, windowStart, oldest, budget));
   }
 
   /** Bytes read back from this session's files for queries so far. */
@@ -706,6 +706,19 @@ function outputLineIngest(line: PipelineLine): LogIngest {
     message: line.line,
     pid: line.pid,
   };
+}
+
+// Names a filter that keeps only some records of the files it reads, so its
+// matches are worth remembering. A filter by service alone reads just that
+// service's files, where every record matches.
+function matchCacheKey(filter: LogFilter): string | undefined {
+  const { level, source, search, regex, since, until, traceId, requestId, attribute } = filter;
+  const selective = [level, source, search, since, until, traceId, requestId].some((value) => value !== undefined && value !== "") || attribute !== undefined;
+  if (!selective) {
+    return undefined;
+  }
+  const services = [...(filter.services ?? [])].sort();
+  return JSON.stringify([services, level ?? "", source ?? "", search ?? "", regex === true, since ?? "", until ?? "", traceId ?? "", requestId ?? "", attribute ?? null]);
 }
 
 function shouldFoldProcessLine(ev: LogIngest): boolean {

@@ -7,6 +7,7 @@ import { logMessage, logRecord, type LogRecord } from "../../domain/logs/logs.ts
 import { encodeLogCursor } from "../../domain/logs/pagination.ts";
 import { pageSource } from "./log-page.ts";
 import { LogManager, type LogManagerOptions } from "./logs.ts";
+import { MatchCache } from "./match-cache.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
 
 const dirs: string[] = [];
@@ -148,6 +149,75 @@ describe("reading the evicted part of the window", () => {
     const page = mgr.queryPage({}, { cursor: cursorAt("reused", 51), direction: "backward", limit: 50 });
     expect(page.events.map((event) => logMessage(event).split(" ")[0])).toEqual(Array.from({ length: 50 }, () => "fresh"));
     await mgr.close();
+  });
+});
+
+describe("remembering a selective filter's matches", () => {
+  const errors = (upTo: number): number[] => range(1, upTo).filter((i) => i % 50 === 0);
+
+  test("a repeated poll reads only the matched lines, and a later one only what was evicted since", async () => {
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024 });
+    const first = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+    expect(lineNumbers(first.events)).toEqual(errors(3_000));
+    const scanned = mgr.evictedBytesRead();
+    const again = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+    expect(again.events).toEqual(first.events);
+    const repeat = mgr.evictedBytesRead() - scanned;
+    expect(repeat).toBeLessThan(scanned / 10);
+    for (let i = 3_001; i <= 3_300; i += 1) {
+      mgr.append({ timestamp: new Date().toISOString(), service: "api", source: "stdout", level: i % 50 === 0 ? "ERROR" : "INFO", message: `line ${i} ${PAD}`, pid: 1 });
+    }
+    await mgr.flush();
+    const before = mgr.evictedBytesRead();
+    const later = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+    expect(lineNumbers(later.events)).toEqual(errors(3_300).filter((i) => i > 300));
+    expect(mgr.evictedBytesRead() - before).toBeLessThan(scanned / 4);
+    await mgr.close();
+  });
+
+  test("polls the budget cuts short fill the page in over successive calls", async () => {
+    // 512 KiB a query over a 6 MiB evicted part. Each poll scans on from
+    // where the cache ends; spans sized by the seek and look-ahead each one
+    // pays (rather than by the lines they cover) shrank until a poll moved
+    // only a few dozen seqs, and 100 polls did not reach the window's start.
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024, historyScanBytes: 512 * 1024 });
+    let page = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+    let polls = 1;
+    while (page.hasPrev && polls < 100) {
+      page = mgr.queryPage({ level: "ERROR" }, { limit: 500 });
+      polls += 1;
+    }
+    expect(polls).toBeGreaterThan(1);
+    expect(polls).toBeLessThan(60);
+    expect(lineNumbers(page.events)).toEqual(errors(3_000));
+    await mgr.close();
+  });
+});
+
+describe("match cache", () => {
+  const at = (seq: number) => ({ seq, part: "api.jsonl", offset: seq * 10, length: 9 });
+
+  test("a run that touches the cached range is folded in, its own matches winning", () => {
+    const cache = new MatchCache();
+    cache.remember("k", { lo: 10, hi: 20, matches: [at(12), at(15), at(18)] });
+    cache.remember("k", { lo: 16, hi: 30, matches: [at(17), at(25)] });
+    expect(cache.get("k", 1)).toEqual({ lo: 10, hi: 30, matches: [at(12), at(15), at(17), at(25)] });
+    cache.remember("k", { lo: 2, hi: 10, matches: [at(3)] });
+    expect(cache.get("k", 1)?.matches.map((row) => row.seq)).toEqual([3, 12, 15, 17, 25]);
+    expect(cache.get("k", 13)).toEqual({ lo: 13, hi: 30, matches: [at(15), at(17), at(25)] });
+    expect(cache.get("k", 30)).toBeUndefined();
+  });
+
+  test("a run apart from the cached range replaces it, and old queries age out", () => {
+    const cache = new MatchCache();
+    cache.remember("k", { lo: 10, hi: 20, matches: [at(12)] });
+    cache.remember("k", { lo: 40, hi: 50, matches: [at(45)] });
+    expect(cache.get("k", 1)).toEqual({ lo: 40, hi: 50, matches: [at(45)] });
+    for (let key = 0; key < 9; key += 1) {
+      cache.remember(`q${key}`, { lo: 1, hi: 2, matches: [] });
+    }
+    expect(cache.get("k", 1)).toBeUndefined();
+    expect(cache.get("q8", 1)).toBeDefined();
   });
 });
 
