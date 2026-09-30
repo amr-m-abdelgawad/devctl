@@ -118,6 +118,9 @@ Two checkouts do not share a lock. `repoID` is `sha256(canonical repo root)` (16
 | Path | Mode / note |
 |------|-------------|
 | `~/.devctl/state/<repoID>/` | `state.json`, `devctl.lock`, `rpc-token`, `mcp-token`, `web-token`, and on Unix `devctl.sock`. Windows attach uses `\\.\pipe\devctl-<repoID>` plus the same `rpc-token`. MCP and web bearers last 7 days (mode `0600`) |
+| `~/.devctl/state/<repoID>/log-spool/` | Service output the daemon has read but not parsed yet, so **not redacted**. Directories `0700`, files `0600`, capped by `logs.spool.max_bytes`. Each segment is deleted as it is parsed. Segments a crashed daemon left behind are parsed (and redacted) into that daemon's session history by the next daemon, then deleted |
+| `~/.devctl/state/<repoID>/stdio/` | Unix only. Each captured service's stdout and stderr FIFOs (`0600`). While no daemon runs, `drain/` holds the output services wrote in the meantime, **not redacted**, files `0600`, capped by `logs.spool.max_bytes`; the next daemon parses it into its log and deletes it |
+| `~/.devctl/logs/session-*/` | Redacted log records (JSONL), directories `0700`, files `0600`. `manifest.json` records the owning daemon's pid and process stamp, so pruning never deletes a session that is still being written |
 | leftover `~/.devctl/sessions/` | Migrated once |
 | Stale lock from a dead PID | Replaced |
 | `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
