@@ -1022,6 +1022,8 @@ export async function getLlmCalls(host: McpHost, args: Record<string, unknown>):
     traceId: nonempty(typeof args.trace_id === "string" ? args.trace_id : ""),
     cursor,
     limit: MCP_LLM_CAP,
+    // The rows are shown without bodies, so the store need not parse them.
+    summary: true,
   });
   const detector = detectorFor(host.config());
   return {
@@ -1088,6 +1090,7 @@ export async function getTrafficCalls(host: McpHost, args: Record<string, unknow
     transport: args.transport === "http" || args.transport === "grpc" ? args.transport : undefined,
     cursor,
     limit: MCP_TRAFFIC_CAP,
+    summary: true,
   });
   const detector = detectorFor(host.config());
   return {

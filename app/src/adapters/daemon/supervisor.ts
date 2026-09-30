@@ -1065,7 +1065,7 @@ export class Supervisor {
   }
 
   queryLlmCallsPage(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage {
-    const page = this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit, summary: req.summary });
     if (req.summary !== true) {
       return page;
     }
@@ -1077,7 +1077,7 @@ export class Supervisor {
   }
 
   queryTrafficCallsPage(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage {
-    const page = this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit, summary: req.summary });
     if (req.summary !== true) {
       return page;
     }
