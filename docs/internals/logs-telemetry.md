@@ -7,6 +7,10 @@ Three related stores, one redaction story. User pages: [logs.md](../logs.md), [t
 Production daemon: `createDaemonLogStore` (`adapters/storage/worker-log-store.ts`).
 
 - Prefers a **worker thread** (`log-worker.ts`, protocol in `log-worker-protocol.ts`) so high-volume stdout does not block RPC.
+- Traffic is batched both ways. Raw chunks go within a per-stream and total credit window. Structured appends (hooks, tasks, exec, proxy, OTLP) go through `AppendLane`, at most one batch per 5 ms tick, within 4 MiB of unacked bytes; past 16 MiB held, `ingestPaused()` is true. The worker sends committed records back at most 20 times a second, and acks appends by id with them.
+- A worker lost after it was ready is restarted once with the session's settings and every unacked chunk and append; a second loss hands the same to the in-process store. Either continues the session's seqs and spool.
+- Every line carries the time it was read (`readAtMs`). Folding, proxy-hop pairing, and access-line dedupe go by it, so spooled or late output comes out as it would have live.
+- Spool segments are written and read without blocking the thread, one write and one read in flight per stream.
 - Falls back in-process (`LogManager`) if the worker fails; logs a WARN. Compiled standalone binaries run the worker too: `compile-binaries.sh` embeds it beside the entrypoint, where `resolveWorkerUrl` finds it (the npm bundle ships it at the same place in `dist/`).
 - Ring size: `logs.max_memory_events`.
 - Optional persist under `logs.persistence.directory` (default `~/.devctl/logs`) with retention days and max sessions.
@@ -24,7 +28,7 @@ process stdout/stderr
 
 TUI/MCP **history** uses `logs_page` / `queryPage` (cursors in `domain/logs/pagination.ts`), not the event stream alone.
 
-Filters: service, level, search/regex, source, since/until, request_id, trace_id, attribute key/value. Ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same method (50ms event-time and ingest-arrival match; candidates expire 50ms after ingest arrival of the first folded line; HTTP hops require a request-target). If the service line arrived first, the tagged record is re-emitted and persisted. Optional query-time `dedupeRequestId` then collapses those pairs after the page is fetched. Facets (`logs_stats`) are the cheap poll.
+Filters: service, level, search/regex, source, since/until, request_id, trace_id, attribute key/value. Ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same method (50ms timestamp match and 50ms read-time match, by `ProxyHopWindow`; candidates stay until the low watermark, the oldest read time still to commit, has passed them by 50ms; HTTP hops require a request-target). If the service line arrived first, the tagged record is re-emitted and persisted. Optional query-time `dedupeRequestId` then collapses those pairs after the page is fetched. Facets (`logs_stats`) are the cheap poll.
 
 Parsers: built-in line parser + plugin `LogParser`. Python-literal and OTLP AnyValue decoders live in domain so MCP/TUI share them.
 
