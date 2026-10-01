@@ -104,20 +104,22 @@ export function addTraffic(root: Command, runtime: ClientRuntime): void {
         const printCall = (call: TrafficCall): void => {
           writeOut(opts.json ? `${JSON.stringify(call)}\n` : formatTrafficCallLine(call));
         };
+        // A text line shows no bodies, so only --json asks for them.
+        const request = { ...filter, summary: opts.json !== true };
         if (opts.follow) {
           const abort = new AbortController();
           const onSignal = (): void => abort.abort();
           process.on("SIGINT", onSignal);
           process.on("SIGTERM", onSignal);
           try {
-            await followTrafficCalls(() => ctrl.trafficCallsPage(filter), printCall, abort.signal);
+            await followTrafficCalls(() => ctrl.trafficCallsPage(request), printCall, abort.signal);
           } finally {
             process.off("SIGINT", onSignal);
             process.off("SIGTERM", onSignal);
           }
           return;
         }
-        const page = await ctrl.trafficCallsPage(filter);
+        const page = await ctrl.trafficCallsPage(request);
         for (const call of page.calls) {
           printCall(call);
         }
