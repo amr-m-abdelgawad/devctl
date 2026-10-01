@@ -1,0 +1,10 @@
+# Only what the image build copies. Host node_modules carry darwin natives.
+*
+!package.json
+!bun.lock
+!bunfig.toml
+!tsconfig.json
+!src
+!e2e/soak/harness/driver
+**/node_modules
+**/.watch-*

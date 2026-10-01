@@ -12,6 +12,7 @@ export const GATES = {
   ws8: "Track D: services keep running and their logs resume after the daemon is SIGKILLed",
   "event-time-folding": "Track A: output parsed late (a spool backlog) folds and correlates by read time, like live output",
   "proxy-hop-order": "finding: a proxy access record committed before the service line it answers leaves that line without its request id",
+  "stale-pipeline-stats": "finding: the log worker's pipeline stats are only refreshed by the next record, so status keeps reporting spooled bytes after output stops",
 } as const;
 
 export type GateKey = keyof typeof GATES;
