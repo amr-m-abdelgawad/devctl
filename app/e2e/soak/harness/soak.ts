@@ -177,10 +177,55 @@ export class SoakContainer {
     return lock.pid;
   }
 
+  /** Waits until `service` has logged its `done` line and the daemon took in everything after it. */
+  async waitDone(service: string, opts: { search?: string; timeoutMs?: number; cwd?: string; stateDir?: string } = {}): Promise<void> {
+    const timeoutMs = opts.timeoutMs ?? 180_000;
+    const state = opts.stateDir === undefined ? [] : ["--state-dir", opts.stateDir];
+    await this.exec(["bun", "/soak/driver/wait.ts", "--service", service, "--search", opts.search ?? `${service} done`, "--timeout-ms", String(timeoutMs), ...state], { timeoutMs: timeoutMs + 20_000, cwd: opts.cwd });
+  }
+
+  /** The gap-free check over the persisted session(s) `ids`, oldest first. */
+  verifySessions(ids: string[], name: string, count: number, logsRoot = "/work/home/logs"): Promise<VerifyResult> {
+    const dirs = ids.map((id) => `${logsRoot}/session-${id}`).join(",");
+    return this.driver<VerifyResult>("verify.ts", ["--session-dir", dirs, "--name", name, "--count", String(count)], { timeoutMs: 180_000 });
+  }
+
+  /** The gap-free check over what `devctl logs <name> --all` returns. */
+  async verifyListed(name: string, count: number, cwd = REPO): Promise<VerifyResult> {
+    const out = await this.exec(["sh", "-c", `devctl logs ${name} --all --json | bun /soak/driver/verify.ts --stdin --name ${name} --count ${count}`], { timeoutMs: 180_000, cwd });
+    return JSON.parse(out.stdout.trim().split("\n").at(-1) ?? "{}") as VerifyResult;
+  }
+
+  /** The `elapsed_ms` a flood service printed with its `done` line. */
+  async floodElapsedMs(name: string, cwd = REPO): Promise<number> {
+    const out = await this.devctl(["logs", name, "--search", `${name} done`, "--json"], { cwd });
+    const match = /elapsed_ms=(\d+)/.exec(out.stdout);
+    return match === null ? Number.NaN : Number(match[1]);
+  }
+
   async rm(): Promise<void> {
     await run(["docker", "rm", "-f", this.name], { allowFail: true });
   }
 }
+
+/** A flood service's YAML, indented under `services:`. */
+export function floodService(name: string, rate: number, count: number, extra: { width?: number; stderr?: boolean } = {}): string {
+  const args = ["--rate", String(rate), "--count", String(count), "--name", name];
+  if (extra.width !== undefined) {
+    args.push("--width", String(extra.width));
+  }
+  if (extra.stderr === true) {
+    args.push("--stderr");
+  }
+  return `  ${name}:
+    command: [bun, /soak/driver/flood.ts, ${args.map((arg) => JSON.stringify(arg)).join(", ")}]
+    restart: { policy: never }
+`;
+}
+
+export const CONFIG_HEADER = `# yaml-language-server: $schema=https://raw.githubusercontent.com/amr-m-abdelgawad/devctl/main/schema/devctl.config.schema.json
+version: 1
+`;
 
 export type DaemonStatus = {
   session_id: string;

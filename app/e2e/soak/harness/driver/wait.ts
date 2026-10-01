@@ -5,7 +5,7 @@
 // It does not wait for `daemon.logs` to read zero: the worker's pipeline
 // stats go stale once output stops (test/findings/worker-pipeline-stats).
 //
-//   bun wait.ts --service flood --search "flood done" [--timeout-ms 120000]
+//   bun wait.ts --service flood --search "flood done" [--timeout-ms 120000] [--state-dir <dir>]
 import { parseArgs, RpcClient } from "./rpc.ts";
 
 const args = parseArgs(process.argv.slice(2));
@@ -19,7 +19,7 @@ const deadline = started + timeoutMs;
 type Page = { events?: unknown[] };
 type Status = { logs?: { seen?: number } };
 
-const rpc = await RpcClient.open();
+const rpc = await RpcClient.open(args["state-dir"]);
 await rpc.call("ping", { features: ["log_batch.v1"] });
 
 let foundAfterMs = -1;

@@ -48,7 +48,9 @@ export class RpcClient {
     socket.on("close", () => this.failAll(new Error("rpc socket closed")));
   }
 
-  static async open(stateDir = findStateDir()): Promise<RpcClient> {
+  /** `stateDir` defaults to the one stack running in DEVCTL_HOME. */
+  static async open(stateDir: string | undefined = undefined): Promise<RpcClient> {
+    stateDir ??= findStateDir();
     const token = readFileSync(join(stateDir, "rpc-token"), "utf8").trim();
     const socket = await new Promise<Socket>((resolve, reject) => {
       const conn = connect(join(stateDir, "devctl.sock"), () => resolve(conn));
