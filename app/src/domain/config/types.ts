@@ -149,7 +149,13 @@ export function emptyWatch(): ServiceWatchConfig {
   return { enabled: false, paths: [], debounce_ms: DEFAULT_WATCH_DEBOUNCE_MS, ignore: [...DEFAULT_WATCH_IGNORE] };
 }
 
-export type HooksConfig = { pre_start: Command; post_start: Command };
+/** A start hook: a command plus an optional environment laid over the service env. */
+export type HookConfig = {
+  command: Command;
+  environment: EnvConfig;
+};
+
+export type HooksConfig = { pre_start: HookConfig; post_start: HookConfig };
 
 export type TaskConfig = { command: Command; shell: boolean; working_dir: string; dependencies: string[]; environment: EnvConfig };
 
@@ -838,6 +844,21 @@ export function emptyEnv(): EnvConfig {
   return { vars: {}, required: [], defaults: {} };
 }
 
+export function emptyHook(): HookConfig {
+  return { command: emptyCommand(), environment: emptyEnv() };
+}
+
+/** True when a hook declares vars, defaults, required keys, Terraform, or Helm. */
+export function hookEnvActive(env: EnvConfig): boolean {
+  if (Object.keys(env.vars).length > 0 || Object.keys(env.defaults).length > 0 || env.required.length > 0) {
+    return true;
+  }
+  if (env.terraform && (env.terraform.path !== "" || env.terraform.invalid === true)) {
+    return true;
+  }
+  return Boolean(env.helm && (env.helm.path !== "" || env.helm.invalid === true));
+}
+
 export function emptyHealth(): HealthCheckConfig {
   return { type: "", url: "", address: "", grpc_service: "", command: emptyCommand(), interval_seconds: 0, timeout_seconds: 0, start_period_seconds: 0, unhealthy_threshold: 3, healthy_reset_threshold: 10 };
 }
@@ -872,7 +893,7 @@ export function emptyService(): ServiceConfig {
     expose: emptyExpose(),
     container: undefined,
     watch: emptyWatch(),
-    hooks: { pre_start: emptyCommand(), post_start: emptyCommand() },
+    hooks: { pre_start: emptyHook(), post_start: emptyHook() },
   };
 }
 

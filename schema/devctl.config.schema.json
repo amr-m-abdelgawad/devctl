@@ -168,6 +168,21 @@
         { "type": "array", "items": { "type": "string" } }
       ]
     },
+    "hook": {
+      "description": "A command, or an object with command and environment. The shorthand string or argv list is the command alone. environment is resolved and laid over the service environment for this hook only.",
+      "oneOf": [
+        { "$ref": "#/$defs/command" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command"],
+          "properties": {
+            "command": { "$ref": "#/$defs/command" },
+            "environment": { "$ref": "#/$defs/serviceEnvironment" }
+          }
+        }
+      ]
+    },
     "portValue": {
       "oneOf": [
         { "type": "integer", "minimum": 0, "maximum": 65535 },
@@ -439,8 +454,8 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "pre_start": { "$ref": "#/$defs/command" },
-            "post_start": { "$ref": "#/$defs/command" }
+            "pre_start": { "$ref": "#/$defs/hook" },
+            "post_start": { "$ref": "#/$defs/hook" }
           }
         }
       }

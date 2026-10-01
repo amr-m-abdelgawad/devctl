@@ -1,7 +1,7 @@
 import { profileId } from "../domain/ids.ts";
 import { HealthMonitor } from "./health-monitor.ts";
 import { ServiceStarted, ServiceFailed, ServiceStopped, newEvent } from "../shared/events.ts";
-import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, dependencyCondition, dependencyName, type Command } from "../domain/config/types.ts";
+import { graceSeconds, type DevctlConfig, commandEmpty, captureStdout, captureStderr, dependencyCondition, dependencyName, hookEnvActive, type Command, type EnvConfig, type HookConfig, type HooksConfig } from "../domain/config/types.ts";
 import { KindGeneral, KindHealthCheck, KindProcessStart, KindServiceNotFound, humanMessage, newError } from "../shared/errors.ts";
 import { identityBlockers } from "../domain/identity/identity.ts";
 import { canTransition, transition } from "../domain/service/lifecycle.ts";
@@ -33,7 +33,7 @@ import type { ProcessRuntime } from "../ports/process-runtime.ts";
 import type { StartRequest } from "../domain/status.ts";
 import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
 import type { LifecycleSession } from "../ports/lifecycle-session.ts";
-import { recipesNeededForEnv } from "../domain/http/recipes.ts";
+import { recipesNeededForEnvs } from "../domain/http/recipes.ts";
 import { effectiveServiceEnv, overlayEnv, profileBoundOverlay, profileServiceEnvConfig, resolveEnvironmentName } from "../domain/service/environments.ts";
 
 const HEALTH_POLL_MS = 100;
@@ -342,21 +342,22 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     let assigned: Record<string, number> = {};
     let env: Record<string, string> = {};
     let workDir = "";
+    let launchClientEnv: Record<string, string> | undefined;
     let handle!: Awaited<ReturnType<ProcessRuntime["start"]>>;
     try {
       await s.prepareServiceIdentity(name, svc);
       assigned = s.ports.get(name) ?? {};
-      const needed = recipesNeededForEnv(s.cfg, recipeEnv, launchEnv);
+      const needed = recipesNeededForEnvs(s.cfg, hookLaunchEnvs(recipeEnv, svc.hooks, runHooks), launchEnv);
       if (needed.length > 0) {
         await s.ensureHttpRecipes(needed);
       }
       const stored = s.clientEnv.get(name);
-      const launchClientEnv = extraEnv ? { ...(stored ?? {}), ...extraEnv } : stored;
+      launchClientEnv = extraEnv ? { ...(stored ?? {}), ...extraEnv } : stored;
       const resolved = await s.resolveServiceExecution(name, launchService, launchProfile, launchEnv, launchClientEnv, !svc.container, envName);
       env = resolved.env;
       workDir = resolved.workDir;
       if (runHooks) {
-        await this.runTransient(`${name}:pre_start`, svc.hooks.pre_start, svc.shell, workDir, env);
+        await this.runHook(name, "pre_start", svc.hooks.pre_start, svc.shell, workDir, env, launchClientEnv);
       }
       // Identity resolution, env resolution, and pre_start can each take long
       // enough for a stop()/restart() to land on this same name in the
@@ -429,7 +430,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     s.bus.publish(newEvent(ServiceStarted, name, { pid: handle.pid }));
     if (runHooks) {
       try {
-        await this.runTransient(`${name}:post_start`, svc.hooks.post_start, svc.shell, workDir, env);
+        await this.runHook(name, "post_start", svc.hooks.post_start, svc.shell, workDir, env, launchClientEnv);
       } catch (err) {
         await s.fail(name, err);
         throw err;
@@ -487,6 +488,21 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     throw newError(KindHealthCheck, `service ${name} did not become healthy in time`);
   }
 
+  private async runHook(
+    service: string,
+    phase: "pre_start" | "post_start",
+    hook: HookConfig,
+    shell: boolean,
+    workDir: string,
+    env: Record<string, string>,
+    clientEnv?: Record<string, string>,
+  ): Promise<void> {
+    const resolved = hookEnvActive(hook.environment)
+      ? this.host().overlayHookEnvironment(`services.${service}.hooks.${phase}`, hook.environment, env, clientEnv)
+      : env;
+    await this.runTransient(`${service}:${phase}`, hook.command, shell, workDir, resolved);
+  }
+
   private async runTransient(name: string, command: Command, shell: boolean, workDir: string, env: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
     if (commandEmpty(command)) return { code: 0, stdout: "", stderr: "" };
     this.host().log(name, "INFO", `running ${command.args.join(" ")}`);
@@ -498,6 +514,13 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
     if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;
   }
+}
+
+function hookLaunchEnvs(serviceEnv: EnvConfig, hooks: HooksConfig, runHooks: boolean): EnvConfig[] {
+  if (!runHooks) {
+    return [serviceEnv];
+  }
+  return [serviceEnv, hooks.pre_start.environment, hooks.post_start.environment];
 }
 
 function namesNeedingHealthWait(wave: string[], remaining: string[], plan: Plan): string[] {

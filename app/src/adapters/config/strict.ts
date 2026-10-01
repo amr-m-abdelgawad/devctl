@@ -12,6 +12,7 @@ import {
   knownExpose,
   knownGoogle,
   knownHealth,
+  knownHookCommand,
   knownHooks,
   knownHttp,
   knownHttpCache,
@@ -280,10 +281,26 @@ export function servicePathKnown(path: string): string[] {
       case "watch":
         return knownWatch;
       case "hooks":
-        return knownHooks;
+        return hookPathKnown(parts);
       default:
         return [];
     }
+  }
+  return [];
+}
+
+function hookPathKnown(parts: string[]): string[] {
+  const phase = parts[3] ?? "";
+  if (phase !== "pre_start" && phase !== "post_start") {
+    return knownHooks;
+  }
+  if (parts.length === 4) {
+    return knownHookCommand;
+  }
+  if (parts[4] === "environment") {
+    if (parts[5] === "terraform") return knownTerraformEnv;
+    if (parts[5] === "helm") return knownHelmEnv;
+    return knownEnvStructured;
   }
   return [];
 }

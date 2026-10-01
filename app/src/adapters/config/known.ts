@@ -88,6 +88,7 @@ export const knownSops = ["file", "input_type", "key_map"];
 export const knownContainer = ["image", "runtime", "ports", "env", "volumes", "seed_from", "shared_volumes", "user", "memory", "cpus", "read_only", "cap_drop", "pids_limit"];
 export const knownWatch = ["enabled", "paths", "debounce_ms", "ignore"];
 export const knownHooks = ["pre_start", "post_start"];
+export const knownHookCommand = ["command", "environment"];
 export const knownTask = ["command", "shell", "working_dir", "dependencies", "environment"];
 export const knownHttp = ["request", "outputs", "cache", "expose"];
 export const knownHttpRequest = ["method", "url", "headers", "body", "form", "auth", "timeout_seconds"];

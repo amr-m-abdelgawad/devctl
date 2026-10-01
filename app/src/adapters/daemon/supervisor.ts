@@ -723,6 +723,7 @@ export class Supervisor {
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot, self.cfg.instance.name)}-`; },
       prepareServiceIdentity: (name, svc) => self.identity.prepareServiceIdentity(name, svc),
       resolveServiceExecution: (name, svc, profile, env, clientEnv, includeProcess, selectedEnv) => self.env.resolveServiceExecution(name, svc, profile, env, clientEnv, includeProcess, selectedEnv),
+      overlayHookEnvironment: (label, extra, base, clientEnv) => self.env.overlayHookEnvironment(label, extra, base, clientEnv),
       ensureHttpRecipes: async (names) => {
         for (const recipeName of names) {
           await self.recipes.ensure(recipeName);

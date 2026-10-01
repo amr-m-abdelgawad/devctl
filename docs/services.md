@@ -64,6 +64,18 @@ Without `shell: true`, a command runs as argv and never goes through a shell, so
 
 `pre_start` runs to completion before an explicitly started service is spawned. A non-zero exit fails the service and prevents launch. `post_start` runs after a successful spawn; failure stops and marks the service failed. Hooks use the service's resolved environment, working directory, and `shell` setting. They do not run during automatic crash or health restarts.
 
+A hook may also be an object with `command` and `environment`. `environment` has the same shape as a service environment (`KEY: value`, `defaults`, `required`, and optional `terraform` / `helm`). Those values are resolved with the same references as service environment and laid over the service's resolved environment for that hook. A key set on the hook replaces the service value. `defaults` fill keys that are still empty. The service process keeps its own environment.
+
+```yaml
+hooks:
+  pre_start:
+    command: [python3, migrate.py]
+    environment:
+      MODE: development
+      DATABASE_URL: postgres://127.0.0.1:${services.postgres.ports.db}/app
+  post_start: [python3, warm_cache.py]
+```
+
 Top-level tasks are transient commands: they are not retained as services and do not restart. Declared service dependencies are started first, and the task uses the same layered environment resolution as services.
 
 ```yaml

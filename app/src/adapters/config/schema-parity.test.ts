@@ -10,6 +10,7 @@ import {
   knownExpose,
   knownGoogle,
   knownHealth,
+  knownHookCommand,
   knownHooks,
   knownHttp,
   knownHttpCache,
@@ -107,6 +108,7 @@ describe("config allowlist/schema parity", () => {
       ["knownWatch", knownWatch, service.properties?.watch ?? {}],
       ["knownDependency", knownDependency, defs.dependency ?? {}],
       ["knownHooks", knownHooks, service.properties?.hooks ?? {}],
+      ["knownHookCommand", knownHookCommand, (defs.hook?.oneOf ?? []).find((node) => node.properties) ?? {}],
       ["knownExpose", knownExpose, (service.properties?.expose?.oneOf ?? []).find((node) => node.properties) ?? {}],
       ["knownTask", knownTask, defs.task ?? {}],
       ["knownHttp", knownHttp, defs.httpRecipe ?? {}],
@@ -230,5 +232,14 @@ describe("config allowlist/schema parity", () => {
       expect(service.properties, `${field} is missing from schema/devctl.config.schema.json`).toHaveProperty(field);
       expect(servicePathKnown(`services.example.${field}`), `add a ${field} case to config/strict.ts`).not.toEqual([]);
     }
+  });
+
+  test("hook environment keys are allowed and unknown hook fields are rejected", () => {
+    expect(collectUnknownFields({
+      hooks: { pre_start: { command: ["migrate"], environment: { MODE: "local", required: ["MODE"] }, extra: true } },
+    }, "services.api")).toEqual(["services.api.hooks.pre_start.extra"]);
+    expect(collectUnknownFields({
+      hooks: { pre_start: ["migrate"], post_start: { command: ["warm"], environment: { MODE: "local" } } },
+    }, "services.api")).toEqual([]);
   });
 });

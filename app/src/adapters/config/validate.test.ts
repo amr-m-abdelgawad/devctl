@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { emptyService, emptyRouteAuth, emptyProfile, emptyLlmSource, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
+import { emptyService, emptyEnv, emptyRouteAuth, emptyProfile, emptyLlmSource, defaultConfig, type RouteAuthConfig, type LlmSourceConfig } from "../../domain/config/types.ts";
 import { decodeCommand, decodeRoute } from "./decode.ts";
 import { unresolvedInspectDecoders, validate, isValidationWarning } from "./validate.ts";
 
@@ -709,6 +709,21 @@ describe("config validate", () => {
     expect(validate(cfg)).toContain("proxy.routes[0].auth.client_id is only valid with identity.type user");
   });
 
+  test("rejects an unresolvable hook environment reference", () => {
+    const cfg = withService("api");
+    cfg.services.api!.hooks.pre_start = {
+      command: { args: ["migrate"], shell: false },
+      environment: { vars: { URL: "${services.missing.ports.db}" }, required: [], defaults: {} },
+    };
+    expect(validate(cfg)).toContain("services.api.hooks.pre_start.environment.URL: unresolvable reference ${services.missing.ports.db}");
+  });
+
+  test("rejects hook environment without a command", () => {
+    const cfg = withService("api");
+    cfg.services.api!.hooks.pre_start.environment = { vars: { MODE: "local" }, required: [], defaults: {} };
+    expect(validate(cfg)).toContain("services.api.hooks.pre_start.command is required when environment is set");
+  });
+
   test("rejects shell metacharacters without shell: true", () => {
     const cfg = withService("api", ["echo", "hi", "&&", "rm"]);
     expect(validate(cfg).some((issue) => issue.includes("shell metacharacters"))).toBe(true);
@@ -722,7 +737,10 @@ describe("config validate", () => {
       ["sh-free", "--flag=x&&y"],
     ]) {
       const cfg = withService("api", args);
-      cfg.services.api!.hooks = { pre_start: { args, shell: false }, post_start: { args, shell: false } };
+      cfg.services.api!.hooks = {
+        pre_start: { command: { args, shell: false }, environment: emptyEnv() },
+        post_start: { command: { args, shell: false }, environment: emptyEnv() },
+      };
       expect(validate(cfg).filter((issue) => issue.includes("shell metacharacters"))).toEqual([]);
     }
   });

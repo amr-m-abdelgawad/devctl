@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyExpose, emptyWatch, type DevctlConfig } from "../../../domain/config/types.ts";
+import { defaultConfig, emptyExpose, emptyHook, emptyWatch, type DevctlConfig } from "../../../domain/config/types.ts";
 import { buildTopology, downstreamOf, upstreamOf } from "./topology.ts";
 
 function cfg(deps: Record<string, string[]>): DevctlConfig {
@@ -23,7 +23,7 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       logs: { stdout: false, stderr: false },
       restart: { policy: "", max_retries: 0, backoff_seconds: 0 },
       startup: { wait_for_healthy: false, timeout_seconds: 0 },
-      hooks: { pre_start: { args: [], shell: false }, post_start: { args: [], shell: false } },
+      hooks: { pre_start: emptyHook(), post_start: emptyHook() },
       capabilities: [],
       proxy: [],
       expose: emptyExpose(),

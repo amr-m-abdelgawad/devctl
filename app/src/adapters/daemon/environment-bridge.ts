@@ -1,7 +1,7 @@
 import { isAbsolute, join } from "node:path";
-import type { DevctlConfig, ServiceConfig } from "../../domain/config/types.ts";
+import type { DevctlConfig, EnvConfig, ServiceConfig } from "../../domain/config/types.ts";
 import { applyOtelExporterEnv } from "../../domain/telemetry/otel-env.ts";
-import { envList, resolveEnvironment, runtimeForService, type EnvironmentSource } from "../environment/environment.ts";
+import { envList, resolveEnvironment, resolveHookOverlay, runtimeForService, type EnvironmentSource } from "../environment/environment.ts";
 import { envSignature, loadSopsEnvironment, type SopsLoadResult } from "../environment/sops.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import type { TokenManager } from "../google/token.ts";
@@ -189,6 +189,22 @@ export class EnvironmentBridge {
     return { env: envList(env), workDir };
   }
 
+  overlayHookEnvironment(
+    label: string,
+    extra: EnvConfig,
+    base: Record<string, string>,
+    clientEnv?: Record<string, string>,
+  ): Record<string, string> {
+    const cfg = this.deps.cfg();
+    return resolveHookOverlay(cfg.repoRoot, label, base, extra, {
+      cfg,
+      assigned: liveAssignedPorts(cfg, this.deps.ports()),
+      userEmail: this.deps.userEmail(),
+      http: this.httpValues(cfg),
+      clientEnv,
+    });
+  }
+
   private async loadSops(): Promise<boolean> {
     const previous = envSignature(this.sopsValues);
     let result: SopsLoadResult;
@@ -232,4 +248,22 @@ export class EnvironmentBridge {
     }
     return out;
   }
+}
+
+function liveAssignedPorts(cfg: DevctlConfig, live: ReadonlyMap<string, Record<string, number>>): Record<string, Record<string, number>> {
+  const assigned: Record<string, Record<string, number>> = {};
+  for (const [name, svc] of Object.entries(cfg.services)) {
+    const ports: Record<string, number> = {};
+    for (const port of svc.ports) {
+      if (!port.auto) {
+        ports[port.name] = port.value;
+      }
+    }
+    const running = live.get(name);
+    if (running) {
+      Object.assign(ports, running);
+    }
+    assigned[name] = ports;
+  }
+  return assigned;
 }

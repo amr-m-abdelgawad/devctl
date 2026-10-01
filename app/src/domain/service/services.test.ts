@@ -1,6 +1,6 @@
 import { profileId } from "../ids.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyExpose, emptyProfile, emptyWatch, type DevctlConfig } from "../config/types.ts";
+import { defaultConfig, emptyExpose, emptyHook, emptyProfile, emptyWatch, type DevctlConfig } from "../config/types.ts";
 import { emptyRuntime, firstProfileName, resolveProfile, resolveStartRequest, shutdownPlan, shutdownPlanExact, startPeriodWindow, startupPlan, supervisorRestartAdvice } from "./services.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -26,7 +26,7 @@ function cfg(deps: Record<string, string[]>): DevctlConfig {
       logs: { stdout: false, stderr: false },
       restart: { policy: "", max_retries: 0, backoff_seconds: 0 },
       startup: { wait_for_healthy: false, timeout_seconds: 0 },
-      hooks: { pre_start: { args: [], shell: false }, post_start: { args: [], shell: false } },
+      hooks: { pre_start: emptyHook(), post_start: emptyHook() },
       capabilities: [],
       proxy: [],
       expose: emptyExpose(),

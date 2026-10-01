@@ -33,7 +33,7 @@ Orchestrator then:
 - `startOne` per name in the wave
 - Before the **next** wave: `awaitWaveHealth` polls members that a later wave depends on with `condition: service_healthy` until healthy or `startup.timeout_seconds` (default 30s). The last wave only waits inside `startOne` when `startup.wait_for_healthy` is set.
 
-`startOne` hooks: `hooks.pre_start` / `post_start` as `ProcessRuntime.runOnce`. Empty command (`commandEmpty`) is a config error unless the service is container-only.
+`startOne` hooks: `hooks.pre_start` / `post_start` as `ProcessRuntime.runOnce`. A hook `environment` is resolved and laid over the service env for that command only. Empty command (`commandEmpty`) is a config error unless the service is container-only.
 
 ## Stop waves
 

@@ -28,6 +28,7 @@ complete allowlists.
 | `profiles.<name>` | `services` `environment` `environments` `service_environment` |
 | `service.health` | `type` `url` `address` `grpc_service` `command` `interval_seconds` `timeout_seconds` `start_period_seconds` `unhealthy_threshold` `healthy_reset_threshold` |
 | `service.hooks` | `pre_start` `post_start` |
+| `hooks.pre_start` / `hooks.post_start` | a command (string or argv), or `command` `environment` |
 | `service.container` | `image` `runtime` `ports` `env` `volumes` `seed_from` `shared_volumes` `user` `memory` `cpus` `read_only` `cap_drop` `pids_limit` |
 | `service.watch` | `enabled` `paths` `debounce_ms` `ignore` |
 | `tasks.<name>` | `command` `shell` `working_dir` `dependencies` `environment` |
@@ -125,16 +126,16 @@ belong under `service.container`, not directly on the service.
 identity screen shows: Google account, otherwise git `user.email`), `${http.<name>.<output>}`
 (a named HTTP recipe snapshot — reserved outputs are `body`, `url`, `status`),
 and `${NAME}` / `${env.NAME}` (supervisor process env plus `.devctl/secrets.env`)
-are the supported forms in service/task/profile env. `${project.name}` still
-throws there. `${token}` is rejected in service env.
+are the supported forms in service, task, profile, and hook env. `${project.name}` still
+throws there. `${token}` is rejected in service and hook env.
 
 - The referenced service must exist and the named port must be defined, or
   validation fails with *unresolvable reference*.
 - `${http.<name>.<output>}` must name a defined recipe and output (or a
   reserved output). Named outputs must not use the reserved names.
 - References resolve inside service `environment` values, `defaults`, named
-  `environments.<name>` overlays, profile environments and dotenv values,
-  before the process starts.
+  `environments.<name>` overlays, hook `environment`, profile environments and dotenv values,
+  before the process or hook starts.
 - Use them for every cross-service URL. Hard-coded ports silently break when a
   port changes or is switched to `auto`.
 - `${env.NAME}` is accepted by `devctl config validate` without the variable
@@ -487,6 +488,15 @@ field is set.
 - `environment.required` on a service fails the start if those keys are still
   empty after the whole merge — the right place to encode "this cannot run
   without X".
+- `hooks.pre_start` and `hooks.post_start` may be a command, or
+  `{ command, environment }`. `environment` uses the service environment
+  shape. It is resolved when the hook runs and laid over that service's
+  resolved environment; hook keys win, and `defaults` fill keys that are
+  still empty. The service process does not receive hook-only keys. A hook
+  with `environment` and an empty `command` fails validate. References in
+  hook environment are checked the same way as service environment.
+  `${http.<name>.<output>}` in a hook environment starts that recipe, and
+  the services it needs, before the service.
 - `environment.terraform` on a service (or a named overlay) reads literal env
   values from a `.tf` file, a `.tfvars` file, or a directory of `*.tf`. `path` is required and
   must stay inside the repo. Optional `resource` is `type.name`, `module.name`,
@@ -572,6 +582,8 @@ Every message names its path. Fix the path it names.
 | `services.X.health.url: unresolvable reference ${…} (health templates accept only ${services.<name>.…})` | unknown service or port name, or a non-`services.` reference in `health.url` / `health.address` |
 | `services.X.identity.service_account must be an email` | placeholder left unresolved |
 | `services.X.environment.K: unresolvable reference ${…}` | referenced service or port name does not exist |
+| `services.X.hooks.pre_start.command is required when environment is set` | hook `environment` needs a `command` (same wording for `post_start`) |
+| `services.X.hooks.pre_start.environment.K: unresolvable reference ${…}` | hook environment reference does not resolve |
 | `services.X.environment.terraform.path must stay inside the repository` | path escapes the repo, including via a symlink |
 | `services.X.environment.terraform.resource "…" was not found` | `resource` does not match a block in that path |
 | `services.X.environment.terraform: no literal env values` | file has only interpolations or secret refs |

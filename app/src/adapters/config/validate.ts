@@ -23,6 +23,7 @@ import {
 } from "../../domain/http/recipes.ts";
 import {
   commandEmpty,
+  hookEnvActive,
   CurrentVersion,
   effectiveRestartPolicy,
   identityKind,
@@ -39,6 +40,7 @@ import {
   type RouteAuthConfig,
   type RouteConfig,
   type RequestBodyReplacement,
+  type ServiceConfig,
   type ServiceLogConfig,
   type LlmSourceConfig,
   dependencyName,
@@ -153,8 +155,8 @@ function validateServices(cfg: DevctlConfig): string[] {
       issues.push(`${prefix}.command is required`);
     }
     issues.push(...validateShellCommand(prefix, svc.command, svc.shell));
-    issues.push(...validateShellCommand(`${prefix}.hooks.pre_start`, svc.hooks.pre_start, svc.shell));
-    issues.push(...validateShellCommand(`${prefix}.hooks.post_start`, svc.hooks.post_start, svc.shell));
+    issues.push(...validateHook(prefix, "pre_start", svc, cfg));
+    issues.push(...validateHook(prefix, "post_start", svc, cfg));
     issues.push(...validateCapabilities(prefix, svc.capabilities));
     for (const dependency of svc.dependencies) {
       const dep = dependencyName(dependency);
@@ -1150,6 +1152,17 @@ function validateTokenEndpoint(cfg: DevctlConfig): string[] {
   if (ep.port !== 0 && (ep.port < MIN_PORT || ep.port > MAX_PORT)) {
     issues.push("proxy.token_endpoint.port is invalid");
   }
+  return issues;
+}
+
+function validateHook(prefix: string, phase: "pre_start" | "post_start", svc: ServiceConfig, cfg: DevctlConfig): string[] {
+  const hook = svc.hooks[phase];
+  const hookPrefix = `${prefix}.hooks.${phase}`;
+  const issues = validateShellCommand(hookPrefix, hook.command, svc.shell);
+  if (commandEmpty(hook.command) && hookEnvActive(hook.environment)) {
+    issues.push(`${hookPrefix}.command is required when environment is set`);
+  }
+  issues.push(...validateEnvRefs(`${hookPrefix}.environment`, hook.environment, cfg));
   return issues;
 }
 

@@ -3,6 +3,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { parse as parseDotenv } from "dotenv";
 import { ConfigDirName } from "../../domain/config/paths.ts";
 import { resolveEnvMap, type DevctlConfig, type EnvConfig, type HelmEnvConfig, type ServiceConfig, type TerraformEnvConfig } from "../config/index.ts";
+import { hookEnvActive } from "../../domain/config/types.ts";
 import { substituteUserIdentityMap, type HttpValueMap } from "../config/refs.ts";
 import {
   DevctlError,
@@ -127,6 +128,47 @@ export function sourceOrder(cfg?: DevctlConfig): string[] {
     }
   }
   return order;
+}
+
+export type HookOverlayOptions = {
+  cfg: DevctlConfig;
+  assigned: Record<string, Record<string, number>>;
+  userEmail?: string;
+  http?: HttpValueMap;
+  clientEnv?: Record<string, string>;
+};
+
+/** Resolve a hook's environment and lay it over an already-resolved service env. Hook keys win. */
+export function resolveHookOverlay(
+  repoRoot: string,
+  label: string,
+  base: Record<string, string>,
+  extra: EnvConfig,
+  opts: HookOverlayOptions,
+): Record<string, string> {
+  if (!hookEnvActive(extra)) {
+    return { ...base };
+  }
+  const userEmail = opts.userEmail ?? "";
+  const interpolationEnv = envWithSecrets(opts.clientEnv ?? osEnviron(), repoRoot);
+  const out = { ...base };
+  const pendingDefaults: Record<string, string> = {};
+  for (const [key, value] of Object.entries(extra.defaults)) {
+    if ((out[key] ?? "").trim() === "") {
+      pendingDefaults[key] = value;
+    }
+  }
+  Object.assign(out, resolveMaybe(pendingDefaults, opts.cfg, opts.assigned, userEmail, opts.http, interpolationEnv));
+  const terraform = loadTerraformEnvironment(repoRoot, `${label}.environment.terraform`, extra.terraform);
+  const helm = substituteUserIdentityMap(loadHelmEnvironment(repoRoot, `${label}.environment.helm`, extra.helm), userEmail);
+  const vars = resolveMaybe(extra.vars, opts.cfg, opts.assigned, userEmail, opts.http, interpolationEnv);
+  Object.assign(out, terraform, helm, vars);
+  for (const key of extra.required) {
+    if ((out[key] ?? "").trim() === "") {
+      throw newError(KindConfiguration, `${label} missing required environment variable ${key}`);
+    }
+  }
+  return out;
 }
 
 export async function resolveEnvironment(repoRoot: string, req: EnvRequest): Promise<Record<string, string>> {
