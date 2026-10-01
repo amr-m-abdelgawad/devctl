@@ -17,6 +17,7 @@ import { startEventLoopWatchdog } from "../adapters/daemon/event-loop-watchdog.t
 import { installCrashHandlers, updateCrashHooks } from "../adapters/daemon/crash.ts";
 import { autoRingBytes, configuredByteCap, DEFAULT_LOG_CAP_BYTES, DEFAULT_LOG_TOTAL_BYTES } from "../domain/logs/budgets.ts";
 import { readHostLimits } from "../adapters/system/host-limits.ts";
+import { memoryGuardUsage } from "../domain/daemon/memory-guard.ts";
 import { enableChildSubreaper, reapOrphanedChildren } from "../adapters/process/subreaper.ts";
 import { claimRestartRequest, clearRestartRequest, daemonStateDir } from "../adapters/daemon/heartbeat.ts";
 import { noteEventLoopLag } from "../adapters/daemon/resource-probe.ts";
@@ -190,9 +191,10 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
       },
     });
     const guard = setInterval(() => {
-      const usage = process.memoryUsage().rss;
-      const host = readHostLimits(cfg.repoRoot);
-      sup.applyMemoryPressure(usage, host.memoryBytes);
+      // The container's working set against its cgroup limit, as `docker stats`
+      // shows it; with no limit, this process's RSS against host memory.
+      const usage = memoryGuardUsage(readHostLimits(cfg.repoRoot), process.memoryUsage().rss);
+      sup.applyMemoryPressure(usage.usedBytes, usage.limitBytes);
       if (cfg.supervisor.reap_orphans) {
         void reapOrphanedChildren(sup.servicePids());
       }

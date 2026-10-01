@@ -53,4 +53,28 @@ describe("memory guard", () => {
       await close();
     }
   });
+
+  test("trims the ring by level, holds it while usage falls, and restores it once", async () => {
+    const { sup, budgets, close } = harness();
+    try {
+      sup.applyMemoryPressure(50, 100);
+      expect(budgets).toEqual([]);
+      sup.applyMemoryPressure(80, 100);
+      expect(budgets).toEqual([32 * MIB]);
+      sup.applyMemoryPressure(95, 100);
+      sup.applyMemoryPressure(95, 100);
+      expect(budgets).toEqual([32 * MIB, 16 * MIB]);
+      // Shed holds while usage is above 75%, and shrink holds down to 60%.
+      sup.applyMemoryPressure(80, 100);
+      expect(budgets).toEqual([32 * MIB, 16 * MIB]);
+      sup.applyMemoryPressure(70, 100);
+      sup.applyMemoryPressure(65, 100);
+      expect(budgets).toEqual([32 * MIB, 16 * MIB, 32 * MIB]);
+      sup.applyMemoryPressure(50, 100);
+      sup.applyMemoryPressure(40, 100);
+      expect(budgets).toEqual([32 * MIB, 16 * MIB, 32 * MIB, 64 * MIB]);
+    } finally {
+      await close();
+    }
+  });
 });

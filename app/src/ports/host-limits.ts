@@ -1,7 +1,7 @@
 export type HostLimits = {
-  /** cgroup memory.max, else host MemTotal. 0 when unknown. */
+  /** The binding cgroup memory limit, else host MemTotal. 0 when unknown. */
   memoryBytes: number;
-  /** cgroup memory.current. Undefined when not in a cgroup. */
+  /** That cgroup's working set: usage less inactive file cache, as `docker stats` reports. Undefined when no cgroup limit applies. */
   memoryUsedBytes?: number;
   /** cgroup pids.max. Undefined when unlimited or unknown. */
   pidsMax?: number;

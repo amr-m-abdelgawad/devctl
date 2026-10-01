@@ -1,7 +1,10 @@
 import { readFileSync, statfsSync } from "node:fs";
-import { freemem, totalmem } from "node:os";
-import { join } from "node:path";
+import { totalmem } from "node:os";
 import type { HostLimits } from "../../ports/host-limits.ts";
+
+const CGROUP_MOUNT = "/sys/fs/cgroup";
+// cgroup v1 reports "no limit" as a huge page-aligned number rather than "max".
+const UNLIMITED_BYTES = 1e15;
 
 export function readHostLimits(path = "."): HostLimits {
   const memory = readMemoryLimit();
@@ -34,32 +37,101 @@ export function readPid1(): { command: string; nonReaping: boolean } {
   return { command, nonReaping };
 }
 
+// With no cgroup limit there is no container working set: the memory guard
+// then compares this process's RSS with host memory.
 function readMemoryLimit(): { limit: number; used?: number } {
-  const cgroup = readCgroupMemory();
-  if (cgroup.limit > 0) {
-    return cgroup;
-  }
-  return { limit: totalmem(), used: totalmem() - freemem() };
+  return cgroupMemory(CGROUP_MOUNT, readText("/proc/self/cgroup")) ?? { limit: totalmem() };
 }
 
-function readCgroupMemory(): { limit: number; used?: number } {
-  const dir = readOwnCgroupDir();
-  const limit = readFirstNumber(cgroupFiles(dir, ["memory.max", "memory.limit_in_bytes"], ["/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"]));
-  const used = readFirstNumber(cgroupFiles(dir, ["memory.current", "memory.usage_in_bytes"], ["/sys/fs/cgroup/memory.current", "/sys/fs/cgroup/memory/memory.usage_in_bytes"]));
-  if (limit <= 0 || limit > 1e15) {
-    return { limit: 0, used: used > 0 ? used : undefined };
+/**
+ * The binding cgroup memory limit and that cgroup's working set: usage less
+ * inactive file cache, as `docker stats` reports it, so reclaimable page cache
+ * from the spool and session files does not count. Every level from this
+ * process's cgroup up to the mount root is read, because a parent's limit
+ * applies too, and the level closest to its limit wins. Undefined when no
+ * level has a limit.
+ */
+export function cgroupMemory(mount: string, procSelfCgroup: string | undefined): { limit: number; used: number } | undefined {
+  let binding: { limit: number; used: number } | undefined;
+  for (const dir of cgroupLevels(mount, procSelfCgroup)) {
+    const level = cgroupLevelMemory(dir);
+    if (level !== undefined && (binding === undefined || level.used / level.limit > binding.used / binding.limit)) {
+      binding = level;
+    }
   }
-  return { limit, used: used > 0 ? used : undefined };
+  return binding;
+}
+
+function cgroupLevels(mount: string, procSelfCgroup: string | undefined): string[] {
+  const own = procSelfCgroup === undefined ? undefined : cgroupDirFromProc(procSelfCgroup, mount);
+  const levels: string[] = [];
+  for (let dir = own ?? mount; ; dir = dir.slice(0, dir.lastIndexOf("/"))) {
+    levels.push(dir);
+    if (dir.length <= mount.length || !dir.startsWith(`${mount}/`)) {
+      break;
+    }
+  }
+  // cgroup v1 keeps memory in its own hierarchy; a container sees its cgroup at that root.
+  levels.push(cgroupPath(mount, "memory"));
+  return levels;
+}
+
+function cgroupLevelMemory(dir: string): { limit: number; used: number } | undefined {
+  const v2 = readText(cgroupPath(dir, "memory.max"));
+  if (v2 !== undefined) {
+    const limit = parseLimit(v2);
+    const usage = readNumber(cgroupPath(dir, "memory.current"));
+    return limit === undefined ? undefined : { limit, used: workingSetBytes(usage, readText(cgroupPath(dir, "memory.stat")), "inactive_file") };
+  }
+  const v1 = readText(cgroupPath(dir, "memory.limit_in_bytes"));
+  const limit = v1 === undefined ? undefined : parseLimit(v1);
+  const usage = readNumber(cgroupPath(dir, "memory.usage_in_bytes"));
+  return limit === undefined ? undefined : { limit, used: workingSetBytes(usage, readText(cgroupPath(dir, "memory.stat")), "total_inactive_file") };
+}
+
+/** Usage less inactive file cache, as `docker stats` computes it. A stat read that does not fit under usage leaves usage. */
+export function workingSetBytes(usage: number, memoryStat: string | undefined, inactiveKey: string): number {
+  const inactive = statValue(memoryStat ?? "", inactiveKey);
+  return inactive !== undefined && inactive < usage ? usage - inactive : usage;
+}
+
+function statValue(stat: string, key: string): number | undefined {
+  for (const line of stat.split("\n")) {
+    const [name, value] = line.trim().split(/\s+/);
+    if (name === key) {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+  }
+  return undefined;
+}
+
+function parseLimit(text: string): number | undefined {
+  const value = Number(text.trim());
+  return Number.isFinite(value) && value > 0 && value < UNLIMITED_BYTES ? value : undefined;
+}
+
+function readText(path: string): string | undefined {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+function readNumber(path: string): number {
+  const value = Number(readText(path)?.trim() ?? "");
+  return Number.isFinite(value) ? value : 0;
 }
 
 function readPidsMax(): number | undefined {
   const dir = readOwnCgroupDir();
-  const value = readFirstNumber(cgroupFiles(dir, ["pids.max"], ["/sys/fs/cgroup/pids.max", "/sys/fs/cgroup/pids/pids.max"]));
-  return value > 0 && value < 1e15 ? value : undefined;
+  const value = readFirstNumber(cgroupFiles(dir, ["pids.max"], [cgroupPath(CGROUP_MOUNT, "pids.max"), cgroupPath(CGROUP_MOUNT, "pids/pids.max")]));
+  return value > 0 && value < UNLIMITED_BYTES ? value : undefined;
 }
 
 /** Directory of this process's cgroup, from `/proc/self/cgroup`. */
-export function cgroupDirFromProc(text: string, mount = "/sys/fs/cgroup"): string | undefined {
+export function cgroupDirFromProc(text: string, mount = CGROUP_MOUNT): string | undefined {
   const line = text.split("\n").map((row) => row.trim()).find((row) => {
     const parts = row.split(":");
     return parts.length >= 3 && (parts[0] === "0" || parts[1] === "");
@@ -82,15 +154,12 @@ function cgroupPath(mount: string, relative: string): string {
 }
 
 function readOwnCgroupDir(): string | undefined {
-  try {
-    return cgroupDirFromProc(readFileSync("/proc/self/cgroup", "utf8"));
-  } catch {
-    return undefined;
-  }
+  const text = readText("/proc/self/cgroup");
+  return text === undefined ? undefined : cgroupDirFromProc(text);
 }
 
 function cgroupFiles(dir: string | undefined, names: string[], fallback: string[]): string[] {
-  const own = dir === undefined ? [] : names.map((name) => join(dir, name));
+  const own = dir === undefined ? [] : names.map((name) => cgroupPath(dir, name));
   return [...own, ...fallback];
 }
 

@@ -19,6 +19,28 @@ export function memoryPressure(rssBytes: number, limitBytes: number): MemoryPres
   return "ok";
 }
 
+/**
+ * What the guard compares: the container's working set with its cgroup limit,
+ * or, with no cgroup limit, this process's RSS with host memory.
+ */
+export function memoryGuardUsage(limits: { readonly memoryBytes: number; readonly memoryUsedBytes?: number }, rssBytes: number): { usedBytes: number; limitBytes: number } {
+  return { usedBytes: limits.memoryUsedBytes ?? rssBytes, limitBytes: limits.memoryBytes };
+}
+
+const RING_FLOOR_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The log ring's budget at each level: full when ok, half under shrink, and a
+ * quarter while shedding, since shedding no longer pauses ingest.
+ */
+export function ringBudgetFor(pressure: MemoryPressure, fullBytes: number): number {
+  if (pressure === "ok") {
+    return fullBytes;
+  }
+  const share = Math.floor(fullBytes / (pressure === "shed" ? 4 : 2));
+  return Math.min(fullBytes, Math.max(RING_FLOOR_BYTES, share));
+}
+
 /** Below this, a shrunk ring is restored. Shrink itself drops RSS back under 75%. */
 export const MEMORY_RECOVER_RATIO = 0.6;
 

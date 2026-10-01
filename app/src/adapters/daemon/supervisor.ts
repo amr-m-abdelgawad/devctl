@@ -84,7 +84,7 @@ import {
 } from "../../domain/service/services.ts";
 import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
 import { autoRingBytes } from "../../domain/logs/budgets.ts";
-import { nextMemoryGuard, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
+import { nextMemoryGuard, ringBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
 import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
@@ -122,7 +122,8 @@ export class Supervisor {
   private readonly mcp: McpCoordinator;
   private readonly web: WebCoordinator;
   private readonly resources: ResourceSampler;
-  private ringLimited = false;
+  /** The ring budget the memory guard last set; undefined while the store keeps its configured budget. */
+  private ringBudget?: number;
   /** False until recovery has read state.json. Earlier writes must not erase leftover processes. */
   private processesLoaded = false;
   private memoryGuard: MemoryPressure = "ok";
@@ -1103,24 +1104,22 @@ export class Supervisor {
     return this.procs.all().map((handle) => handle.pid).filter((pid) => pid > 0);
   }
 
-  applyMemoryPressure(rssBytes: number, limitBytes: number): void {
-    const ratio = limitBytes > 0 ? rssBytes / limitBytes : 0;
+  /**
+   * Shrinks the ring at 75% of the limit and sheds capture bodies at 90%, with
+   * hysteresis. Shedding never stops ingest: a service blocked on a full pipe
+   * would be the harm the guard exists to prevent.
+   */
+  applyMemoryPressure(usedBytes: number, limitBytes: number): void {
+    const ratio = limitBytes > 0 ? usedBytes / limitBytes : 0;
     const pressure = nextMemoryGuard(this.memoryGuard, ratio);
     this.memoryGuard = pressure;
-    const shrinkFloorBytes = 8 * 1024 * 1024;
     const full = this.cfg.logs.max_memory_bytes > 0
       ? this.cfg.logs.max_memory_bytes
       : autoRingBytes(readHostLimits(this.cfg.repoRoot).memoryBytes);
-    if (pressure === "ok") {
-      if (this.ringLimited) {
-        this.logs.setMemoryBudget?.(full);
-        this.ringLimited = false;
-      }
-      return;
-    }
-    if (!this.ringLimited) {
-      this.logs.setMemoryBudget?.(Math.max(shrinkFloorBytes, Math.floor(full / 2)));
-      this.ringLimited = true;
+    const budget = ringBudgetFor(pressure, full);
+    if (budget !== (this.ringBudget ?? full)) {
+      this.logs.setMemoryBudget?.(budget);
+      this.ringBudget = budget;
     }
     if (pressure === "shed") {
       this.llmStore.shedBodies?.();
