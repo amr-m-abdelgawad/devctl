@@ -176,12 +176,13 @@ describe("WorkerLogStore", () => {
     expect(Date.now() - started).toBeLessThan(200);
   });
 
-  test("waitUntilReady times out when the worker never posts ready", async () => {
+  test("waitUntilReady fails when the worker never posts ready", async () => {
+    // This script exits at once, which is noticed before the timeout.
     const store = new WorkerLogStore(config(), undefined, {
       script: new URL("./log-worker-protocol.ts", import.meta.url),
     });
     const started = Date.now();
-    await expect(store.waitUntilReady(150)).rejects.toThrow(/timed out|not running|failed/);
+    await expect(store.waitUntilReady(150)).rejects.toThrow(/timed out|not running|failed|exited/);
     expect(Date.now() - started).toBeLessThan(1000);
     await store.close();
   });

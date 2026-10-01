@@ -91,6 +91,8 @@ export type LogManagerOptions = {
   historyScanMs?: number;
   /** Pipeline thresholds; `maxSpoolBytes` still sets the spool budget. */
   pipelineLimits?: PipelineLimits;
+  /** The lowest seq to assign, for a store taking over a session whose records were already published. */
+  firstSeq?: number;
 };
 
 export class LogManager {
@@ -173,12 +175,18 @@ export class LogManager {
     // session's own spool directories through its pipeline instead.
     const own = sessionSpoolPrefix(sessionID);
     const leftovers = leftoverSpoolDirs(this.spoolDir).filter((dir) => !basename(dir).startsWith(own));
+    this.nextSeq = Math.max(this.nextSeq, options.firstSeq ?? 1);
     if (this.persist) {
       mkdirSync(this.persistDir, { recursive: true, mode: 0o700 });
+      const inherited = readdirSync(this.persistDir);
+      if (inherited.length > 0) {
+        // Taking over this session: continue past every seq already written.
+        this.nextSeq = Math.max(this.nextSeq, new SessionReader(this.persistDir).lastSeq(readBudget(this.scanBytes, this.scanMs)) + 1);
+      }
       // Files already here belong to an earlier store of this session (a
       // worker that failed over), whose seqs restarted from 1; they are not
       // part of this store's window.
-      this.evicted = new SessionReader(this.persistDir, new Set(readdirSync(this.persistDir)));
+      this.evicted = new SessionReader(this.persistDir, new Set(inherited));
       writeFileSync(join(this.persistDir, SESSION_FORMAT_FILE), `${SESSION_FORMAT_JSONL}\n`, { mode: 0o600 });
       this.writer = new SessionLogWriter(this.persistDir, options.pendingLimitBytes, {
         maxSessionBytes: options.maxSessionBytes,
@@ -190,6 +198,20 @@ export class LogManager {
       this.pruneTimer.unref?.();
     }
     this.replay = leftovers.length === 0 ? Promise.resolve() : this.replayLeftovers(leftovers);
+    this.adoptSpooled();
+  }
+
+  // A store taking over this session (a replacement worker, the in-process
+  // store) reads what the one before it spooled before any output of its own.
+  private adoptSpooled(): void {
+    const root = this.pipelineRoot();
+    const prefix = sessionSpoolPrefix(this.sessionID);
+    if (!leftoverSpoolDirs(root).some((dir) => basename(dir).startsWith(prefix))) {
+      return;
+    }
+    if (this.ensurePipeline().adoptSession(this.sessionID) > 0) {
+      this.scheduleDrain();
+    }
   }
 
   /** Settles once leftover spools from an earlier daemon are replayed, or replay stopped at close. */
@@ -658,12 +680,15 @@ export class LogManager {
     if (this.pipeline) {
       return this.pipeline;
     }
-    const dir = this.spoolDir !== "" ? this.spoolDir : join(this.persistDir !== "" ? this.persistDir : this.logRoot, `pipeline-${this.sessionID}`);
-    this.pipeline = new IngestPipeline(dir, {
+    this.pipeline = new IngestPipeline(this.pipelineRoot(), {
       ...this.pipelineLimits,
       ...(this.maxSpoolBytes > 0 ? { spoolMaxBytes: this.maxSpoolBytes } : {}),
     });
     return this.pipeline;
+  }
+
+  private pipelineRoot(): string {
+    return this.spoolDir !== "" ? this.spoolDir : join(this.persistDir !== "" ? this.persistDir : this.logRoot, `pipeline-${this.sessionID}`);
   }
 
   private scheduleDrain(): void {

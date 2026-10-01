@@ -17,6 +17,8 @@ type WorkerChunk = { service: string; stream: string; pid: number; readAtMs: num
 export const WORKER_INIT_TIMEOUT_MS = 500;
 export const WORKER_RPC_TIMEOUT_MS = 10_000;
 export const WORKER_CLOSE_TIMEOUT_MS = 2_000;
+// A worker lost after it was ready is replaced this many times before the in-process store takes over.
+const WORKER_RESTARTS = 1;
 
 const DEFAULT_WORKER_SCRIPT = resolveWorkerUrl("log-worker", new URL("./log-worker.ts", import.meta.url));
 
@@ -39,10 +41,23 @@ export type CreateDaemonLogStoreOptions = {
 };
 
 export class WorkerLogStore implements LogStore {
-  private readonly worker: Worker;
+  private worker: Worker;
+  private readonly script: URL;
+  // Workers this store stopped or replaced; their late events are ignored.
+  private readonly retired = new WeakSet<Worker>();
+  private restarts = 0;
+  private restartTimer?: ReturnType<typeof setTimeout>;
   private readonly config: WorkerLogConfig;
   private readonly bus?: Bus;
   private fallback?: LogStore;
+  private fallbackDetector?: Detector;
+  // The latest of each setting, applied again to a replacement worker or the in-process store.
+  private serviceLogs?: Record<string, ServiceLogConfig>;
+  private parsers?: { parsers: LogParser[]; pluginPaths: string[]; repoRoot?: string };
+  private secrets?: { extraMarkers: string[]; extraPatterns: string[]; redact?: boolean };
+  private memoryBudget?: number;
+  // The highest seq seen, so a replacement's records sort after the ones already published.
+  private maxSeq = 0;
   private closing = false;
   private readonly lane = new AppendLane((items) => this.sendAppends(items));
   // Streams whose reader holds a chunk this store refused, and whether the worker was told.
@@ -69,17 +84,34 @@ export class WorkerLogStore implements LogStore {
       this.resolveReady = resolve;
       this.rejectReady = reject;
     });
-    this.worker = new Worker(options.script ?? DEFAULT_WORKER_SCRIPT, { name: "devctl-logs" });
-    this.worker.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
-      this.onMessage(event.data);
-    });
-    this.worker.addEventListener("error", (event: ErrorEvent) => {
-      this.failOver(new Error(event.message || "log worker failed"));
-    });
+    this.script = options.script ?? DEFAULT_WORKER_SCRIPT;
+    this.worker = this.spawn();
     this.batcher = new LogBatcher(config.sessionID, () => this.stats, (payload) => {
       this.bus?.publish(newEvent(LogBatch, payload.newest[0]?.service ?? "devctl", payload));
     });
     this.post({ type: "init", config });
+  }
+
+  private spawn(): Worker {
+    const worker = new Worker(this.script, { name: "devctl-logs" });
+    const current = (): boolean => worker === this.worker && !this.retired.has(worker);
+    worker.addEventListener("message", (event: MessageEvent<WorkerResponse>) => {
+      if (current()) {
+        this.onMessage(event.data);
+      }
+    });
+    worker.addEventListener("error", (event: ErrorEvent) => {
+      if (current()) {
+        this.lost(new Error(event.message || "log worker failed"));
+      }
+    });
+    // A worker can also exit with no error event at all (process.exit, a fatal crash).
+    worker.addEventListener("close", () => {
+      if (current()) {
+        this.lost(new Error("log worker exited"));
+      }
+    });
+    return worker;
   }
 
   waitUntilReady(timeoutMs = WORKER_INIT_TIMEOUT_MS): Promise<void> {
@@ -137,10 +169,10 @@ export class WorkerLogStore implements LogStore {
     this.unackedByStream.set(key, streamUnacked + size);
     this.inflight.set(id, { bytes: size, key, chunk: copy });
     try {
-      this.post({ id, type: "chunk", service: copy.service, stream: copy.stream, pid: copy.pid, readAtMs: copy.readAtMs, bytes: copy.bytes, end: copy.end });
+      this.post(chunkMessage(id, copy));
     } catch (error) {
       this.release(id);
-      this.failOver(error instanceof Error ? error : new Error(String(error)));
+      this.lost(error instanceof Error ? error : new Error(String(error)));
       return this.fallback?.ingestChunk?.(chunk) ?? false;
     }
     this.refusedStreams.delete(key);
@@ -156,6 +188,7 @@ export class WorkerLogStore implements LogStore {
   }
 
   setMemoryBudget(bytes: number): void {
+    this.memoryBudget = bytes;
     if (this.fallback) {
       this.fallback.setMemoryBudget?.(bytes);
       return;
@@ -244,14 +277,24 @@ export class WorkerLogStore implements LogStore {
     await this.rpc({ type: "exportTo", path, filter });
   }
 
-  setParsers(_parsers: LogParser[], pluginPaths?: readonly string[], repoRoot?: string): void {
+  setParsers(parsers: LogParser[], pluginPaths?: readonly string[], repoRoot?: string): void {
+    this.parsers = { parsers, pluginPaths: [...(pluginPaths ?? [])], repoRoot };
+    if (this.fallback) {
+      this.fallback.setParsers(parsers, pluginPaths, repoRoot);
+      return;
+    }
     if (this.dead) {
       return;
     }
-    this.post({ type: "setPluginPaths", paths: [...(pluginPaths ?? [])], repoRoot });
+    this.post({ type: "setPluginPaths", paths: this.parsers.pluginPaths, repoRoot });
   }
 
   setServiceLogs(logs: Record<string, ServiceLogConfig>): void {
+    this.serviceLogs = logs;
+    if (this.fallback) {
+      this.fallback.setServiceLogs(logs);
+      return;
+    }
     if (this.dead) {
       return;
     }
@@ -259,6 +302,11 @@ export class WorkerLogStore implements LogStore {
   }
 
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void {
+    this.secrets = { extraMarkers, extraPatterns, redact };
+    if (this.fallbackDetector) {
+      this.fallbackDetector.update(extraMarkers, extraPatterns, redact);
+      return;
+    }
     if (this.dead) {
       return;
     }
@@ -267,6 +315,7 @@ export class WorkerLogStore implements LogStore {
 
   async close(): Promise<void> {
     this.closing = true;
+    this.clearRestartTimer();
     if (this.fallback) {
       await this.fallback.close();
       return;
@@ -280,9 +329,78 @@ export class WorkerLogStore implements LogStore {
     }
   }
 
+  // A worker that fails while starting is only reported: the caller picks
+  // the in-process store. One that fails later is replaced once, and after
+  // that the in-process store takes over.
+  private lost(error: Error): void {
+    if (this.closing || this.fallback || this.dead || !this.readySettled) {
+      this.markDead(error);
+      return;
+    }
+    if (this.restarts < WORKER_RESTARTS) {
+      this.restart(error);
+      return;
+    }
+    this.failOver(error);
+  }
+
+  // The replacement gets the session's settings, then every chunk and
+  // structured append the lost worker never acked, in their order and ahead
+  // of anything new. It continues the session's seqs and spool.
+  private restart(error: Error): void {
+    this.restarts += 1;
+    this.retire(this.worker);
+    this.rejectAll(error);
+    this.worker = this.spawn();
+    this.upstreamPaused = false;
+    try {
+      this.post({ type: "init", config: { ...this.config, firstSeq: this.maxSeq + 1 } });
+      this.postSettings();
+      for (const [id, row] of this.inflight) {
+        this.post(chunkMessage(id, row.chunk));
+      }
+    } catch (err) {
+      this.failOver(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    this.noteUpstream();
+    this.lane.resend();
+    this.restartTimer = setTimeout(() => {
+      this.restartTimer = undefined;
+      this.lost(new Error("log worker restart timed out"));
+    }, WORKER_INIT_TIMEOUT_MS);
+  }
+
+  private postSettings(): void {
+    if (this.serviceLogs !== undefined) {
+      this.post({ type: "setServiceLogs", logs: this.serviceLogs });
+    }
+    if (this.parsers !== undefined) {
+      this.post({ type: "setPluginPaths", paths: this.parsers.pluginPaths, repoRoot: this.parsers.repoRoot });
+    }
+    if (this.secrets !== undefined) {
+      this.post({ type: "setSecrets", ...this.secrets });
+    }
+    if (this.memoryBudget !== undefined) {
+      this.post({ type: "setMemoryBudget", bytes: this.memoryBudget });
+    }
+    if (this.shed) {
+      this.post({ type: "setIngestShed", shed: true });
+    }
+  }
+
+  private clearRestartTimer(): void {
+    if (this.restartTimer !== undefined) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = undefined;
+    }
+  }
+
   // The in-process store takes over what the worker never acked: structured
-  // appends with their event times, and the chunks it still held.
+  // appends with their event times, and the chunks it still held. It gets
+  // the session's settings first, and continues its seqs and spool.
   private failOver(error: Error): void {
+    this.clearRestartTimer();
     if (this.fallback || this.closing) {
       this.markDead(error);
       return;
@@ -294,13 +412,26 @@ export class WorkerLogStore implements LogStore {
     this.unackedByStream.clear();
     this.refusedStreams.clear();
     this.markDead(error);
-    const manager = managerFromConfig(this.config, this.bus ?? new Bus(1), new Detector(this.config.extraMarkers, this.config.extraPatterns, this.config.redact));
-    this.fallback = inProcessLogStore(manager);
+    const secrets = this.secrets ?? { extraMarkers: this.config.extraMarkers, extraPatterns: this.config.extraPatterns, redact: this.config.redact };
+    this.fallbackDetector = new Detector(secrets.extraMarkers, secrets.extraPatterns, secrets.redact);
+    const manager = managerFromConfig({ ...this.config, firstSeq: this.maxSeq + 1 }, this.bus ?? new Bus(1), this.fallbackDetector);
+    const store = inProcessLogStore(manager);
+    if (this.serviceLogs !== undefined) {
+      store.setServiceLogs(this.serviceLogs);
+    }
+    if (this.parsers !== undefined) {
+      store.setParsers(this.parsers.parsers, this.parsers.pluginPaths, this.parsers.repoRoot);
+    }
+    if (this.memoryBudget !== undefined) {
+      store.setMemoryBudget?.(this.memoryBudget);
+    }
+    store.setIngestShed?.(this.shed);
+    this.fallback = store;
     for (const item of missed) {
       manager.append(item.event, item.atMs);
     }
     for (const chunk of chunks) {
-      this.fallback.ingestChunk?.(chunk);
+      store.ingestChunk?.(chunk);
     }
     this.dead = false;
   }
@@ -314,7 +445,7 @@ export class WorkerLogStore implements LogStore {
       this.post({ type: "appendBatch", items });
       return true;
     } catch (error) {
-      queueMicrotask(() => this.failOver(error instanceof Error ? error : new Error(String(error))));
+      queueMicrotask(() => this.lost(error instanceof Error ? error : new Error(String(error))));
       return false;
     }
   }
@@ -406,12 +537,14 @@ export class WorkerLogStore implements LogStore {
   private onMessage(message: WorkerResponse): void {
     if (message.type === "ready") {
       this.settleReady();
+      this.clearRestartTimer();
       return;
     }
     if (message.type === "appended") {
       this.stats = message.stats;
       this.pipeline = message.stats.pipeline ?? this.pipeline;
       for (const event of message.events) {
+        this.maxSeq = Math.max(this.maxSeq, event.seq);
         this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
         this.batcher.push(event);
       }
@@ -490,7 +623,12 @@ export class WorkerLogStore implements LogStore {
       this.rejectReady(error);
     }
     this.rejectAll(error);
-    const worker = this.worker;
+    this.retire(this.worker);
+  }
+
+  // Stops a worker this store no longer uses; its close event is expected.
+  private retire(worker: Worker): void {
+    this.retired.add(worker);
     setTimeout(() => {
       try {
         void worker.terminate();
@@ -507,6 +645,10 @@ export class WorkerLogStore implements LogStore {
     }
     this.pending.clear();
   }
+}
+
+function chunkMessage(id: number, chunk: WorkerChunk): WorkerRequest {
+  return { id, type: "chunk", service: chunk.service, stream: chunk.stream, pid: chunk.pid, readAtMs: chunk.readAtMs, bytes: chunk.bytes, end: chunk.end };
 }
 
 function isLogPage(value: LogRecord[] | LogPage | LogFacets | null): value is LogPage {
@@ -541,6 +683,7 @@ function managerFromConfig(config: WorkerLogConfig, bus: Bus, detector: Detector
       maxSpoolBytes: config.maxSpoolBytes,
       maxTotalBytes: config.maxTotalBytes,
       spoolDir: config.spoolDir,
+      firstSeq: config.firstSeq,
     },
   );
 }

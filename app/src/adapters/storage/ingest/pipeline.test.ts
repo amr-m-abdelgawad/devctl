@@ -108,6 +108,29 @@ describe("ingest pipeline spool budget", () => {
   });
 });
 
+describe("ingest pipeline takeover", () => {
+  test("a new owner of a session's spool emits the old owner's bytes first, even for a stream with no new output", () => {
+    const root = tempDir();
+    const limits = { spillPerStream: 8, spillTotal: 64, creditPerStream: 1 << 16, creditTotal: 1 << 17 };
+    const before = new IngestPipeline(root, limits);
+    expect(before.enqueueChunk(chunk("api", Buffer.from("old one\nold two\n"), 1))).toBe(true);
+    expect(before.enqueueChunk(chunk("quiet", Buffer.from("quiet old\n"), 1))).toBe(true);
+    expect(before.spooledBytes()).toBeGreaterThan(0);
+    // Its owner dies with that output spooled and unread.
+    const after = new IngestPipeline(root, limits);
+    expect(after.adoptSession("s")).toBe(2);
+    expect(after.spooledBytes()).toBe(before.spooledBytes());
+    expect(after.enqueueChunk(chunk("api", Buffer.from("new\n"), 2))).toBe(true);
+    const out: string[] = [];
+    while (after.pending()) {
+      after.processSlice((line) => out.push(`${line.service}: ${line.line}`), 1_000);
+    }
+    expect(out.filter((line) => line.startsWith("api:"))).toEqual(["api: old one", "api: old two", "api: new"]);
+    expect(out).toContain("quiet: quiet old");
+    expect(after.spooledBytes()).toBe(0);
+  });
+});
+
 describe("ingest pipeline watermark", () => {
   test("a refused stream stays busy until its chunk is taken, and holds the low watermark", () => {
     // No spool room: 232 bytes of another stream leave too little credit for 30 more.

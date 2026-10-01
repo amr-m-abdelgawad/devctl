@@ -18,6 +18,8 @@ export type WorkerLogConfig = {
   maxSpoolBytes?: number;
   maxTotalBytes?: number;
   spoolDir?: string;
+  /** The seq to start from when taking over a session, past every one already published. */
+  firstSeq?: number;
 };
 
 export type WorkerRequest =

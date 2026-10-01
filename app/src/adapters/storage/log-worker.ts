@@ -109,6 +109,7 @@ async function handle(message: WorkerRequest): Promise<void> {
         maxSpoolBytes: message.config.maxSpoolBytes,
         maxTotalBytes: message.config.maxTotalBytes,
         spoolDir: message.config.spoolDir,
+        firstSeq: message.config.firstSeq,
       },
     );
     manager.setParsers([defaultLogParser()]);
@@ -184,10 +185,12 @@ async function handle(message: WorkerRequest): Promise<void> {
     reply({ id: message.id, type: "result", result: null });
     return;
   }
-  // Held chunks go in past the budget rather than being lost at shutdown.
-  hold?.retry(true);
-  await manager.close();
-  reply({ id: message.id, type: "result", result: null });
+  if (message.type === "close") {
+    // Held chunks go in past the budget rather than being lost at shutdown.
+    hold?.retry(true);
+    await manager.close();
+    reply({ id: message.id, type: "result", result: null });
+  }
 }
 
 addEventListener("message", (event: MessageEvent<WorkerRequest>) => {

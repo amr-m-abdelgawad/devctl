@@ -148,8 +148,12 @@ describe("reading the evicted part of the window", () => {
       mgr.append({ timestamp: new Date().toISOString(), service: "api", source: "stdout", level: "INFO", message: `fresh ${i} ${PAD}`, pid: 1 });
     }
     await mgr.flush();
-    const page = mgr.queryPage({}, { cursor: cursorAt("reused", 51), direction: "backward", limit: 50 });
-    expect(page.events.map((event) => logMessage(event).split(" ")[0])).toEqual(Array.from({ length: 50 }, () => "fresh"));
+    // This store continues past the earlier one's seqs, and its window holds only its own records.
+    const page = mgr.queryPage({}, { limit: 500 });
+    expect(page.events.map((event) => logMessage(event).split(" ")[0])).toEqual(Array.from({ length: 200 }, () => "fresh"));
+    expect(page.events[0]?.seq).toBe(51);
+    const older = mgr.queryPage({}, { cursor: cursorAt("reused", 61), direction: "backward", limit: 50 });
+    expect(older.events.map((event) => logMessage(event).split(" ")[0])).toEqual(Array.from({ length: 10 }, () => "fresh"));
     await mgr.close();
   });
 });

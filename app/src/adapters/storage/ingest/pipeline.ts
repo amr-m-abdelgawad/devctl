@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   CREDIT_PER_STREAM_BYTES,
@@ -326,11 +326,48 @@ export class IngestPipeline {
     return best;
   }
 
-  private spoolFor(state: StreamState): OrderedSpool {
-    if (state.spool === undefined) {
-      state.spool = new OrderedSpool(join(this.spoolRoot, `${sessionSpoolPrefix(state.header.session)}${safeKey(state.key)}`));
+  /**
+   * Takes over the streams an earlier owner of this session left spooled (a
+   * log worker that died): each starts with those bytes, even one that never
+   * gets new output. Returns how many streams it took over.
+   */
+  adoptSession(session: string): number {
+    const prefix = sessionSpoolPrefix(session);
+    let adopted = 0;
+    for (const name of listDirs(this.spoolRoot)) {
+      if (!name.startsWith(prefix)) {
+        continue;
+      }
+      const first = new OrderedSpool(join(this.spoolRoot, name)).peekNext();
+      const header = first?.header;
+      if (header === undefined || header.session !== session) {
+        continue;
+      }
+      this.streamFor({ ...header, readAtMs: first?.frames[0]?.readAtMs ?? 0, bytes: Buffer.alloc(0) });
+      adopted += 1;
     }
+    return adopted;
+  }
+
+  private spoolFor(state: StreamState): OrderedSpool {
+    state.spool ??= new OrderedSpool(this.spoolPath(state.header.session, state.key));
     return state.spool;
+  }
+
+  private spoolPath(session: string, key: string): string {
+    return join(this.spoolRoot, `${sessionSpoolPrefix(session)}${safeKey(key)}`);
+  }
+
+  // A spool an earlier owner of the stream left is read first, and counts
+  // toward the shared budget from the start.
+  private inheritedSpool(session: string, key: string): OrderedSpool | undefined {
+    const path = this.spoolPath(session, key);
+    if (!existsSync(path)) {
+      return undefined;
+    }
+    const spool = new OrderedSpool(path);
+    this.spooledTotal += spool.size();
+    return spool;
   }
 
   private streamFor(chunk: PipelineChunk): StreamState {
@@ -348,7 +385,7 @@ export class IngestPipeline {
       tail: [],
       tailBytes: 0,
       splitter: new LineSplitter(),
-      spool: undefined,
+      spool: this.inheritedSpool(chunk.session, key),
       servedBytes: this.leastServed(),
       lastReadAtMs: chunk.readAtMs,
       ended: false,
@@ -368,6 +405,14 @@ export class IngestPipeline {
       }
     }
     return least ?? 0;
+  }
+}
+
+function listDirs(root: string): string[] {
+  try {
+    return readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  } catch {
+    return [];
   }
 }
 

@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { LogBatchPayload } from "../../domain/logs/batch.ts";
 import { Bus, LogBatch, LogReceived } from "../../shared/events.ts";
-import { logMessage, type LogRecord } from "./logs.ts";
+import { Detector } from "../secrets/detector.ts";
+import { LogManager, logMessage, type LogRecord } from "./logs.ts";
 import { WorkerLogStore, type WorkerLogConfig } from "./worker-log-store.ts";
 
 const dirs: string[] = [];
@@ -37,13 +38,15 @@ function config(overrides: Partial<WorkerLogConfig> = {}): WorkerLogConfig {
   };
 }
 
-type Traffic = { received: string[]; batches: LogBatchPayload[]; fromWorker: Record<string, number> };
+type Traffic = { received: string[]; records: LogRecord[]; batches: LogBatchPayload[]; fromWorker: Record<string, number> };
 
 function watch(store: WorkerLogStore, bus: Bus): Traffic {
-  const traffic: Traffic = { received: [], batches: [], fromWorker: {} };
+  const traffic: Traffic = { received: [], records: [], batches: [], fromWorker: {} };
   bus.subscribe((event) => {
     if (event.type === LogReceived) {
-      traffic.received.push(logMessage(event.payload?.event as LogRecord));
+      const record = event.payload?.event as LogRecord;
+      traffic.records.push(record);
+      traffic.received.push(logMessage(record));
     } else if (event.type === LogBatch) {
       traffic.batches.push(event.payload as unknown as LogBatchPayload);
     }
@@ -81,6 +84,10 @@ function holdAppends(store: WorkerLogStore): { held: unknown[]; counts: Record<s
       }
     },
   };
+}
+
+function workerOf(store: WorkerLogStore): Worker {
+  return (store as unknown as { worker: Worker }).worker;
 }
 
 function proxyLine(message: string) {
@@ -170,7 +177,7 @@ describe("structured append lane", () => {
     }
   });
 
-  test("a worker failure replays exactly the appends it never acked", async () => {
+  test("a lost worker's replacement gets exactly the appends it never acked", async () => {
     const bus = new Bus(16);
     const store = new WorkerLogStore(config(), bus);
     try {
@@ -186,10 +193,10 @@ describe("structured append lane", () => {
       store.append(proxyLine("unacked 1"));
       store.append(proxyLine("unacked 2"));
       await until(() => gate.held.length === 1);
-      (store as unknown as { worker: Worker }).worker.dispatchEvent(new ErrorEvent("error", { message: "log worker crashed" }));
+      workerOf(store).dispatchEvent(new ErrorEvent("error", { message: "log worker crashed" }));
       const page = await store.queryPage({}, { limit: 100 });
       expect(page.events.map((event) => logMessage(event))).toEqual(["unacked 1", "unacked 2"]);
-      expect(store.usesWorker()).toBe(false);
+      expect(store.usesWorker()).toBe(true);
     } finally {
       await store.close();
     }
@@ -216,5 +223,86 @@ describe("structured append lane", () => {
     } finally {
       await store.close();
     }
+  });
+});
+
+describe("worker restart", () => {
+  // A slow fold wait, so a store that lost the service settings would show it.
+  const slowFold = { api: { stdout: true, stderr: true, multiline: { max_wait_ms: 400 } } };
+  const seqOf = (traffic: Traffic, message: string): number | undefined => traffic.records.find((record) => logMessage(record) === message)?.seq;
+
+  async function foldsWithSlowWait(store: WorkerLogStore, traffic: Traffic, message: string): Promise<void> {
+    expect(store.ingestChunk({ service: "api", stream: "stdout", pid: 1, readAtMs: Date.now(), bytes: Buffer.from(`${message}\n`) })).toBe(true);
+    await Bun.sleep(200);
+    expect(traffic.received).not.toContain(message);
+    await until(() => traffic.received.includes(message));
+  }
+
+  test("a worker killed from outside is replaced once, with its settings, its unacked chunks, and later seqs", async () => {
+    const bus = new Bus(16);
+    const store = new WorkerLogStore(config(), bus);
+    try {
+      await store.waitUntilReady();
+      store.setServiceLogs(slowFold);
+      const traffic = watch(store, bus);
+      for (const message of ["before 1", "before 2", "before 3"]) {
+        store.append(proxyLine(message));
+      }
+      await until(() => traffic.received.length === 3);
+      const first = workerOf(store);
+      // From here the worker takes nothing, so neither of these is ever acked.
+      (first as unknown as { postMessage: (message: unknown) => void }).postMessage = () => undefined;
+      expect(store.ingestChunk({ service: "db", stream: "stdout", pid: 2, readAtMs: Date.now(), bytes: Buffer.from("held by the dead worker\n") })).toBe(true);
+      store.append(proxyLine("unacked append"));
+      await Bun.sleep(20);
+      first.terminate();
+      await until(() => traffic.received.includes("unacked append") && traffic.received.includes("held by the dead worker"));
+      expect(workerOf(store)).not.toBe(first);
+      expect(store.usesWorker()).toBe(true);
+      expect(seqOf(traffic, "unacked append")).toBeGreaterThan(seqOf(traffic, "before 3")!);
+      expect(seqOf(traffic, "held by the dead worker")).toBeGreaterThan(seqOf(traffic, "before 3")!);
+      await foldsWithSlowWait(store, traffic, "waits for a continuation");
+    } finally {
+      await store.close();
+    }
+  });
+
+  test("a second loss hands the unacked work and the settings to the in-process store", async () => {
+    const bus = new Bus(16);
+    const store = new WorkerLogStore(config(), bus);
+    try {
+      await store.waitUntilReady();
+      store.setServiceLogs(slowFold);
+      const traffic = watch(store, bus);
+      workerOf(store).dispatchEvent(new ErrorEvent("error", { message: "first loss" }));
+      store.append(proxyLine("after the restart"));
+      await until(() => traffic.received.includes("after the restart"));
+      expect(store.usesWorker()).toBe(true);
+      holdAppends(store);
+      store.append(proxyLine("never acked"));
+      await Bun.sleep(20);
+      // A worker can exit with no error event.
+      workerOf(store).dispatchEvent(new Event("close"));
+      expect(store.usesWorker()).toBe(false);
+      await until(() => traffic.received.includes("never acked"));
+      expect(seqOf(traffic, "never acked")).toBeGreaterThan(seqOf(traffic, "after the restart")!);
+      await foldsWithSlowWait(store, traffic, "in-process fold");
+    } finally {
+      await store.close();
+    }
+  });
+
+  test("a store taking over a persisted session continues its seqs", async () => {
+    const dir = tmp();
+    const first = new LogManager(100, undefined, new Detector([], []), true, dir, "takeover", 0, 0);
+    for (const message of ["one", "two", "three"]) {
+      first.append(proxyLine(message));
+    }
+    await first.flush();
+    // The first store stops without closing; the next opens the same session.
+    const next = new LogManager(100, undefined, new Detector([], []), true, dir, "takeover", 0, 0);
+    expect(next.append(proxyLine("four"))?.seq).toBe(4);
+    await next.close();
+    await first.close();
   });
 });
