@@ -1116,14 +1116,12 @@ export class Supervisor {
         this.logs.setMemoryBudget?.(full);
         this.ringLimited = false;
       }
-      this.logs.setIngestShed?.(false);
       return;
     }
     if (!this.ringLimited) {
       this.logs.setMemoryBudget?.(Math.max(shrinkFloorBytes, Math.floor(full / 2)));
       this.ringLimited = true;
     }
-    this.logs.setIngestShed?.(pressure === "shed");
     if (pressure === "shed") {
       this.llmStore.shedBodies?.();
       this.trafficStore.shedBodies?.();

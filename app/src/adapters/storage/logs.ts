@@ -118,7 +118,6 @@ export class LogManager {
   private pipeline?: IngestPipeline;
   private drainTimer?: ReturnType<typeof setTimeout>;
   private batcher?: LogBatcher;
-  private ingestShed = false;
   private readonly logRoot: string;
   private readonly repoKey: string;
   private readonly retentionDays: number;
@@ -258,9 +257,6 @@ export class LogManager {
    * the stream finished so its last unterminated line is emitted.
    */
   acceptChunk(chunk: Omit<PipelineChunk, "session" | "bytes"> & { bytes: Uint8Array; end?: boolean }, force = false): boolean {
-    if (this.ingestShed && !force) {
-      return false;
-    }
     const pipeline = this.ensurePipeline();
     if (chunk.bytes.byteLength > 0) {
       const accepted = pipeline.enqueueChunk({
@@ -283,17 +279,13 @@ export class LogManager {
     return true;
   }
 
-  setIngestShed(shed: boolean): void {
-    this.ingestShed = shed;
-  }
-
   /**
    * True when readers must stop: the pipeline refused bytes because both its
    * memory window and its spool are full. Persistence never pauses ingest;
    * a lagging writer only slows parsing while the spool absorbs the output.
    */
   ingestPaused(): boolean {
-    return this.ingestShed || this.pipeline?.paused === true;
+    return this.pipeline?.paused === true;
   }
 
   pipelineStats(): LogSnapshot["pipeline"] {
@@ -767,9 +759,6 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
     flush: () => mgr.flush(),
     setMemoryBudget: (bytes) => {
       mgr.setMemoryBudget(bytes);
-    },
-    setIngestShed: (shed) => {
-      mgr.setIngestShed(shed);
     },
     pipelineStats: () => mgr.pipelineStats(),
   };

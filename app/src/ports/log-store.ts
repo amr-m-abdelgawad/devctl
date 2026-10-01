@@ -23,7 +23,6 @@ export type LogStore = {
   ingestChunk?(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean }): boolean;
   flush?(): Promise<void>;
   setMemoryBudget?(bytes: number): void;
-  setIngestShed?(shed: boolean): void;
   pipelineStats?(): LogSnapshot["pipeline"];
   /** True while a worker thread holds the ring. A store without it runs on the caller's thread. */
   usesWorker?(): boolean;

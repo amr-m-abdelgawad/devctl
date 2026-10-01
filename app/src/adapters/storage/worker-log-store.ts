@@ -48,7 +48,6 @@ export class WorkerLogStore implements LogStore {
   private nextId = 1;
   private stats: LogSnapshot = { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 };
   private dead = false;
-  private shed = false;
   private unacked = 0;
   private readonly unackedByStream = new Map<string, number>();
   private readonly inflight = new Map<number, { bytes: number; key: string; chunk: WorkerChunk }>();
@@ -112,7 +111,7 @@ export class WorkerLogStore implements LogStore {
     if (this.fallback?.ingestChunk) {
       return this.fallback.ingestChunk(chunk);
     }
-    if (this.shed || this.dead) {
+    if (this.dead) {
       return false;
     }
     const size = chunk.bytes.byteLength;
@@ -145,7 +144,7 @@ export class WorkerLogStore implements LogStore {
     if (this.fallback?.ingestPaused) {
       return this.fallback.ingestPaused();
     }
-    return this.shed || this.unacked >= CREDIT_TOTAL_BYTES || this.pipeline?.paused === true;
+    return this.unacked >= CREDIT_TOTAL_BYTES || this.pipeline?.paused === true;
   }
 
   setMemoryBudget(bytes: number): void {
@@ -155,17 +154,6 @@ export class WorkerLogStore implements LogStore {
     }
     if (!this.dead) {
       this.post({ type: "setMemoryBudget", bytes });
-    }
-  }
-
-  setIngestShed(shed: boolean): void {
-    this.shed = shed;
-    if (this.fallback) {
-      this.fallback.setIngestShed?.(shed);
-      return;
-    }
-    if (!this.dead) {
-      this.post({ type: "setIngestShed", shed });
     }
   }
 

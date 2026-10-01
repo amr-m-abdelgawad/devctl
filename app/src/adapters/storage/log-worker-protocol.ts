@@ -25,7 +25,6 @@ export type WorkerRequest =
   | { type: "append"; event: LogIngest }
   | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean }
   | { type: "setMemoryBudget"; bytes: number }
-  | { type: "setIngestShed"; shed: boolean }
   | { id: number; type: "flush" }
   | { id: number; type: "query"; filter: LogFilter }
   | { id: number; type: "queryPage"; filter: LogFilter; page?: LogPageRequest }

@@ -105,10 +105,6 @@ async function handle(message: WorkerRequest): Promise<void> {
     manager.setMemoryBudget(message.bytes);
     return;
   }
-  if (message.type === "setIngestShed") {
-    manager.setIngestShed(message.shed);
-    return;
-  }
   if (message.type === "flush") {
     hold?.retry();
     await manager.flush();
@@ -144,8 +140,8 @@ async function handle(message: WorkerRequest): Promise<void> {
 
 addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
   const data = event.data;
-  // Budget and shed must not wait behind a flood of chunks.
-  if (data.type === "setMemoryBudget" || data.type === "setIngestShed") {
+  // The budget must not wait behind a flood of chunks.
+  if (data.type === "setMemoryBudget") {
     void handle(data);
     return;
   }
