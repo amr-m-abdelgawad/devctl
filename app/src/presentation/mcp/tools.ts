@@ -1027,11 +1027,22 @@ export async function getLlmCalls(host: McpHost, args: Record<string, unknown>):
   });
   const detector = detectorFor(host.config());
   return {
-    calls: page.calls.map((call) => mcpLlmCall(detector, call, false)),
+    calls: page.calls.map((call) => mcpLlmCall(detector, withoutOmittedMarker(call), false)),
     has_more: page.hasNext,
     next_cursor: page.nextCursor,
     errors: page.errors,
   };
+}
+
+// A summary row marks its bodies "omitted", which these rows never carried.
+// "evicted" stays: list readers saw it before whenever the store dropped a body.
+function withoutOmittedMarker(call: LlmCall): LlmCall {
+  if (call.attributes.body !== "omitted") {
+    return call;
+  }
+  const attributes = { ...call.attributes };
+  delete attributes.body;
+  return { ...call, attributes };
 }
 
 export async function getLlmCallTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {

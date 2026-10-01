@@ -672,6 +672,30 @@ describe("mcp tools", () => {
     expect(JSON.stringify(detail.request)).toContain(REDACTED_VALUE);
   });
 
+  test("get_llm_calls asks for summaries and lists rows without the summary's omitted marker", async () => {
+    const host = stubHost();
+    const row = (id: string, body: string) => ({
+      seq: 1,
+      id,
+      source: "litellm",
+      sourceType: "litellm",
+      timestamp: "2026-01-01T00:00:00.000Z",
+      status: "ok" as const,
+      model: "gpt-4o",
+      operation: "chat" as const,
+      attributes: { route: "llm", body },
+    });
+    const requests: unknown[] = [];
+    host.llmCallsPage = (req) => {
+      requests.push(req);
+      return { calls: [row("kept", "omitted"), row("dropped", "evicted")], nextCursor: "", hasNext: false, errors: [] };
+    };
+    const page = (await callMcpTool(host, "get_llm_calls", {})) as { calls: Array<{ attributes: Record<string, unknown> }> };
+    expect(requests[0]).toMatchObject({ summary: true });
+    expect(page.calls[0]?.attributes).toEqual({ route: "llm" });
+    expect(page.calls[1]?.attributes).toEqual({ route: "llm", body: "evicted" });
+  });
+
   test("get_traffic_calls omits bodies and get_traffic_call redacts them", async () => {
     const host = stubHost();
     const call = {
