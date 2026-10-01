@@ -6,6 +6,7 @@ import {
   asStringArray,
   asStringMap,
   decodeCommand,
+  decodeHook,
   decodeDependencies,
   decodeContainer,
   decodePorts,
@@ -33,6 +34,7 @@ import {
   type DevctlConfig,
   type ConfigProvenance,
   type EnvConfig,
+  type HookConfig,
   type HealthCheckConfig,
   type IdentityConfig,
   type ProfileConfig,
@@ -98,18 +100,33 @@ export function recordPresence(map: FieldPresenceMap, name: string, raw: unknown
       if (isRecord(nested)) {
         for (const key of Object.keys(nested)) {
           keys.add(`${field}.${key}`);
-          const deeper = nested[key];
-          if (field === "logs" && key === "multiline" && isRecord(deeper)) {
-            for (const inner of Object.keys(deeper)) {
-              keys.add(`${field}.${key}.${inner}`);
-            }
-          }
+          recordDeeperPresence(keys, field, key, nested[key]);
         }
       }
     }
   }
   const existing = map[name];
   map[name] = existing ? new Set([...existing, ...keys]) : keys;
+}
+
+function recordDeeperPresence(keys: Set<string>, field: string, key: string, deeper: unknown): void {
+  if (field === "logs" && key === "multiline" && isRecord(deeper)) {
+    for (const inner of Object.keys(deeper)) {
+      keys.add(`${field}.${key}.${inner}`);
+    }
+    return;
+  }
+  if (field !== "hooks" || !isRecord(deeper)) {
+    return;
+  }
+  for (const inner of Object.keys(deeper)) {
+    keys.add(`${field}.${key}.${inner}`);
+    if (inner === "environment" && isRecord(deeper.environment)) {
+      for (const envKey of Object.keys(deeper.environment)) {
+        keys.add(`${field}.${key}.environment.${envKey}`);
+      }
+    }
+  }
 }
 
 // Applies one raw config root (the main file, or a local overlay) onto an
@@ -544,7 +561,23 @@ function mergeWatch(base: ServiceConfig["watch"], raw: unknown): ServiceConfig["
 
 function mergeHooks(base: ServiceConfig["hooks"], raw: unknown): ServiceConfig["hooks"] {
   if (!isRecord(raw)) return base;
-  return { pre_start: raw.pre_start !== undefined ? decodeCommand(raw.pre_start) : base.pre_start, post_start: raw.post_start !== undefined ? decodeCommand(raw.post_start) : base.post_start };
+  return {
+    pre_start: raw.pre_start !== undefined ? mergeOneHook(base.pre_start, raw.pre_start) : base.pre_start,
+    post_start: raw.post_start !== undefined ? mergeOneHook(base.post_start, raw.post_start) : base.post_start,
+  };
+}
+
+function mergeOneHook(base: HookConfig, raw: unknown): HookConfig {
+  if (typeof raw === "string" || Array.isArray(raw)) {
+    return decodeHook(raw);
+  }
+  if (!isRecord(raw)) {
+    return base;
+  }
+  return {
+    command: Object.hasOwn(raw, "command") ? decodeCommand(raw.command) : base.command,
+    environment: Object.hasOwn(raw, "environment") ? mergeEnv(base.environment, raw.environment) : base.environment,
+  };
 }
 
 function mergeEnv(base: EnvConfig, raw: unknown): EnvConfig {
@@ -553,12 +586,14 @@ function mergeEnv(base: EnvConfig, raw: unknown): EnvConfig {
   }
   const decoded = decodeEnv(raw);
   const terraform = Object.hasOwn(raw, "terraform") ? decoded.terraform : base.terraform;
+  const helm = Object.hasOwn(raw, "helm") ? decoded.helm : base.helm;
   const merged: EnvConfig = {
     vars: { ...base.vars, ...decoded.vars },
     defaults: { ...base.defaults, ...decoded.defaults },
     required: Object.hasOwn(raw, "required") ? decoded.required : base.required,
   };
   if (terraform) merged.terraform = terraform;
+  if (helm) merged.helm = helm;
   return merged;
 }
 
@@ -840,6 +875,34 @@ function applyTemplateChain(cfg: DevctlConfig, svc: ServiceConfig, present: Set<
   return merged;
 }
 
+function mergeHookOverPresence(base: HookConfig, overlay: HookConfig, present: Set<string>, prefix: string): HookConfig {
+  const commandKey = `${prefix}.command`;
+  const envKey = `${prefix}.environment`;
+  if (!present.has(prefix) && !present.has(commandKey) && !present.has(envKey)) {
+    return base;
+  }
+  if (!present.has(commandKey) && !present.has(envKey)) {
+    return overlay;
+  }
+  return {
+    command: present.has(commandKey) ? overlay.command : base.command,
+    environment: present.has(envKey) ? mergeDecodedHookEnv(base.environment, overlay.environment, present, envKey) : base.environment,
+  };
+}
+
+function mergeDecodedHookEnv(base: EnvConfig, overlay: EnvConfig, present: Set<string>, prefix: string): EnvConfig {
+  const merged: EnvConfig = {
+    vars: { ...base.vars, ...overlay.vars },
+    defaults: { ...base.defaults, ...overlay.defaults },
+    required: present.has(`${prefix}.required`) ? overlay.required : base.required,
+  };
+  const terraform = present.has(`${prefix}.terraform`) ? overlay.terraform : base.terraform;
+  const helm = present.has(`${prefix}.helm`) ? overlay.helm : base.helm;
+  if (terraform) merged.terraform = terraform;
+  if (helm) merged.helm = helm;
+  return merged;
+}
+
 // Same field-by-field replacement mergeService does, but driven by an
 // explicit presence set instead of a raw YAML node — svc is already fully
 // decoded (and already carries base's own inherited values wherever it
@@ -897,8 +960,8 @@ function mergeServiceOverPresence(base: ServiceConfig, svc: ServiceConfig, prese
     out.watch = svc.watch;
   }
   out.hooks = {
-    pre_start: present.has("hooks.pre_start") ? svc.hooks.pre_start : base.hooks.pre_start,
-    post_start: present.has("hooks.post_start") ? svc.hooks.post_start : base.hooks.post_start,
+    pre_start: mergeHookOverPresence(base.hooks.pre_start, svc.hooks.pre_start, present, "hooks.pre_start"),
+    post_start: mergeHookOverPresence(base.hooks.post_start, svc.hooks.post_start, present, "hooks.post_start"),
   };
   out.health = {
     type: present.has("health.type") ? svc.health.type : base.health.type,

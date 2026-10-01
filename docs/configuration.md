@@ -118,7 +118,7 @@ services:
 
 ## Tasks
 
-Tasks accept `command`, `shell`, `working_dir`, `dependencies`, and `environment`. Dependencies name services and are made ready before the one-off command runs. Tasks have no ports, health checks, restart policy, or status entry; see [Services](services.md#hooks-and-one-off-tasks) for an example.
+Tasks accept `command`, `shell`, `working_dir`, `dependencies`, and `environment`. Dependencies name services and are made ready before the one-off command runs. Tasks have no ports, health checks, restart policy, or status entry. A service `hooks.pre_start` or `hooks.post_start` command can set `environment` the same way; see [Services](services.md#hooks-and-one-off-tasks).
 
 ## Validation and reload
 

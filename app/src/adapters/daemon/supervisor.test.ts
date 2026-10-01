@@ -3,7 +3,7 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { existsSync, mkdirSync, readFileSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyCommand, emptyHealth, emptyProfile, emptyService } from "../../domain/config/types.ts";
+import { defaultConfig, emptyHealth, emptyHook, emptyProfile, emptyService } from "../../domain/config/types.ts";
 import { ConfigurationReloadFailed, SessionRecovered } from "../../shared/events.ts";
 import { MCP_TOOLS } from "../../presentation/mcp/tools.ts";
 import { available } from "../net/ports.ts";
@@ -96,8 +96,8 @@ describe("supervisor snapshot", () => {
       ...emptyService(),
       command: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'service\\n'); setInterval(()=>{}, 1000)`], shell: false },
       hooks: {
-        pre_start: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'pre\\n')`], shell: false },
-        post_start: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'post\\n')`], shell: false },
+        pre_start: { command: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'pre\\n')`], shell: false }, environment: { vars: {}, required: [], defaults: {} } },
+        post_start: { command: { args: [process.execPath, "-e", `require('fs').appendFileSync(${JSON.stringify(marker)}, 'post\\n')`], shell: false }, environment: { vars: {}, required: [], defaults: {} } },
       },
     };
     cfg.tasks.check = { command: { args: [process.execPath, "-e", "console.log(process.env.TASK_VALUE)"], shell: false }, shell: false, working_dir: "", dependencies: [], environment: { vars: { TASK_VALUE: "ready" }, required: [], defaults: {} } };
@@ -110,6 +110,41 @@ describe("supervisor snapshot", () => {
       expect(order).toContain("service");
       expect(order).toContain("post");
       expect(result.stdout).toBe("ready\n");
+    } finally {
+      await sup.stop(["api"]);
+    }
+  });
+
+  test("pre_start environment overlays the service env and stays off the service process", async () => {
+    const dir = tmp();
+    const marker = join(dir, "env.txt");
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const dump = `require('fs').appendFileSync(${JSON.stringify(marker)}, ['PRE='+(process.env.PRE_ONLY||''),'SHARED='+(process.env.SHARED||''),'SERVICE='+(process.env.SERVICE_ONLY||''),'DEFAULT='+(process.env.FROM_DEFAULT||'')].join(' ')+'\\n')`;
+    cfg.services.api = {
+      ...emptyService(),
+      command: { args: [process.execPath, "-e", `${dump}; setInterval(()=>{}, 1000)`], shell: false },
+      environment: { vars: { SHARED: "service", SERVICE_ONLY: "yes" }, required: [], defaults: {} },
+      hooks: {
+        pre_start: {
+          command: { args: [process.execPath, "-e", dump], shell: false },
+          environment: { vars: { PRE_ONLY: "hook", SHARED: "hook" }, required: [], defaults: { FROM_DEFAULT: "d" } },
+        },
+        post_start: emptyHook(),
+      },
+    };
+    const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
+    try {
+      await sup.start({ services: ["api"] });
+      let text = "";
+      for (let i = 0; i < 50 && text.trim().split("\n").length < 2; i++) {
+        await sleep(20);
+        text = existsSync(marker) ? readFileSync(marker, "utf8") : "";
+      }
+      const lines = text.trim().split("\n");
+      expect(lines[0]).toBe("PRE=hook SHARED=hook SERVICE=yes DEFAULT=d");
+      expect(lines[1]).toBe("PRE= SHARED=service SERVICE=yes DEFAULT=");
     } finally {
       await sup.stop(["api"]);
     }
@@ -139,7 +174,7 @@ describe("supervisor snapshot", () => {
     const cfg = defaultConfig();
     cfg.repoRoot = dir;
     cfg.logs.persistence.enabled = false;
-    cfg.services.api = { ...emptyService(), command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'yes')`], shell: false }, hooks: { pre_start: { args: [process.execPath, "-e", "process.exit(7)"], shell: false }, post_start: { args: [], shell: false } } };
+    cfg.services.api = { ...emptyService(), command: { args: [process.execPath, "-e", `require('fs').writeFileSync(${JSON.stringify(marker)}, 'yes')`], shell: false }, hooks: { pre_start: { command: { args: [process.execPath, "-e", "process.exit(7)"], shell: false }, environment: { vars: {}, required: [], defaults: {} } }, post_start: emptyHook() } };
     const sup = new Supervisor(cfg, { detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }) });
     await expect(sup.start({ services: ["api"] })).rejects.toThrow(/failed to start/);
     expect(existsSync(marker)).toBe(false);
@@ -2852,7 +2887,7 @@ describe("stop robustness", () => {
       // A slow pre_start hook keeps startOne() in its pre-spawn phase long
       // enough to stop() it out from under itself before the real process
       // ever gets spawned.
-      hooks: { pre_start: { args: [process.execPath, "-e", "setTimeout(() => {}, 300)"], shell: false }, post_start: emptyCommand() },
+      hooks: { pre_start: { command: { args: [process.execPath, "-e", "setTimeout(() => {}, 300)"], shell: false }, environment: { vars: {}, required: [], defaults: {} } }, post_start: emptyHook() },
     };
     const sup = new Supervisor(cfg, {
       detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
