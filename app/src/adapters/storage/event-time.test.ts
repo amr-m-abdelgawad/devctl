@@ -42,6 +42,10 @@ async function drained(mgr: LogManager): Promise<void> {
   });
 }
 
+function spilledSegments(mgr: LogManager): number {
+  return (mgr as unknown as { pipeline?: { spilledSegments: number } }).pipeline?.spilledSegments ?? 0;
+}
+
 function messages(records: LogRecord[], service: string): string[] {
   return records.filter((record) => record.service === service).map((record) => logMessage(record));
 }
@@ -77,13 +81,15 @@ describe("event-time folding", () => {
       expect(offer(plain, "api", read)).toBe(true);
       expect(offer(spilled, "api", read)).toBe(true);
     }
-    expect(spilled.pipelineStats()?.spooledBytes).toBeGreaterThan(0);
     for (const mgr of [plain, spilled]) {
       await drained(mgr);
       await mgr.flush();
       expect(messages(mgr.query({}), "api")).toEqual(LIVE_FOLDS);
-      await mgr.close();
     }
+    expect(spilledSegments(plain)).toBe(0);
+    expect(spilledSegments(spilled)).toBeGreaterThan(0);
+    await plain.close();
+    await spilled.close();
   });
 
   test("a chunk refused under backpressure and accepted after the idle timeout still folds", async () => {

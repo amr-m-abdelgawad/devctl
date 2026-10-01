@@ -178,7 +178,8 @@ export async function replayDrained(
     return;
   }
   const spool = new OrderedSpool(spoolDir);
-  for (let segment = spool.peekNext(); segment !== undefined; segment = spool.peekNext()) {
+  // Reads and deletes go through the thread pool: this runs on the daemon's thread.
+  for (let segment = await spool.read(); segment !== undefined; segment = await spool.read()) {
     const header = segment.header;
     const handler = header === undefined ? undefined : handlerFor(header.service, header.pid);
     if (header !== undefined && handler !== undefined) {
@@ -191,7 +192,7 @@ export async function replayDrained(
         }
       }
     }
-    spool.dropNext();
+    await spool.drop();
     await nextTurn();
   }
 }

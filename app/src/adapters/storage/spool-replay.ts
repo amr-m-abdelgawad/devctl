@@ -49,7 +49,7 @@ export async function replayLeftoverSpools(dirs: readonly string[], sink: Replay
     let header: SpoolHeader | undefined;
     let lastReadAtMs = 0;
     while (!stopped()) {
-      const segment = spool.peekNext();
+      const segment = await spool.read();
       if (segment === undefined) {
         break;
       }
@@ -64,7 +64,7 @@ export async function replayLeftoverSpools(dirs: readonly string[], sink: Replay
       if (header !== undefined && lines.length > 0) {
         sink(header, lines);
       }
-      spool.dropNext();
+      await spool.drop();
       await nextTurn();
     }
     if (stopped()) {
@@ -74,7 +74,7 @@ export async function replayLeftoverSpools(dirs: readonly string[], sink: Replay
     if (header !== undefined && rest.length > 0) {
       sink(header, rest.map((line) => ({ service: header!.service, stream: header!.stream, pid: header!.pid, readAtMs: lastReadAtMs, line })));
     }
-    spool.remove();
+    await spool.destroy();
   }
 }
 

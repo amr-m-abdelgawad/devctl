@@ -117,17 +117,21 @@ describe("ordered spool", () => {
 });
 
 describe("ingest pipeline spill", () => {
-  test("spools a stream once its in-memory bytes reach the spill threshold", () => {
+  test("spools a stream once its in-memory bytes reach the spill threshold", async () => {
     const dir = mkdtempSync(join(tmpdir(), "devctl-pipe-"));
     try {
       const pipeline = new IngestPipeline(dir, { spillPerStream: 64, spillTotal: 128, creditPerStream: 1024, creditTotal: 2048, spoolMaxBytes: 10_000 });
       const chunk = Buffer.alloc(80, 0x61);
       chunk[79] = 0x0a;
       expect(pipeline.enqueueChunk({ session: "s", service: "api", stream: "stdout", pid: 1, readAtMs: 1, bytes: chunk })).toBe(true);
+      // The segment is written off the thread; its bytes leave memory once it settles.
+      await pipeline.settle();
       expect(pipeline.inFlightBytes()).toBe(0);
       expect(pipeline.spooledBytes()).toBeGreaterThan(0);
       expect(pipeline.paused).toBe(false);
       const lines: string[] = [];
+      pipeline.processSlice((line) => lines.push(line.line), 1_000);
+      await pipeline.settle();
       pipeline.processSlice((line) => lines.push(line.line), 1_000);
       expect(lines.join("")).toContain("a");
     } finally {

@@ -409,7 +409,7 @@ export class LogManager {
       this.drainTimer = undefined;
     }
     // Bytes next in line are parsed now; newer ones stay spooled for the next daemon to replay.
-    this.pipeline?.drainForClose(this.appendLine);
+    await this.pipeline?.drainForClose(this.appendLine);
     await this.flush();
     this.writeManifest(true);
     await this.writer?.close();
@@ -680,10 +680,15 @@ export class LogManager {
     if (this.pipeline) {
       return this.pipeline;
     }
-    this.pipeline = new IngestPipeline(this.pipelineRoot(), {
-      ...this.pipelineLimits,
-      ...(this.maxSpoolBytes > 0 ? { spoolMaxBytes: this.maxSpoolBytes } : {}),
-    });
+    this.pipeline = new IngestPipeline(
+      this.pipelineRoot(),
+      {
+        ...this.pipelineLimits,
+        ...(this.maxSpoolBytes > 0 ? { spoolMaxBytes: this.maxSpoolBytes } : {}),
+      },
+      // A spool read or write settled: what it made ready is processed on the next slice.
+      () => this.scheduleDrain(),
+    );
     return this.pipeline;
   }
 
@@ -692,7 +697,8 @@ export class LogManager {
   }
 
   private scheduleDrain(): void {
-    if (this.drainTimer !== undefined) {
+    // While closing, drainForClose decides what is processed and what stays spooled.
+    if (this.drainTimer !== undefined || this.closing) {
       return;
     }
     this.drainTimer = setTimeout(() => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -26,10 +26,29 @@ function chunk(service: string, bytes: Buffer, readAtMs: number): PipelineChunk 
   return { session: "s", service, stream: "stdout", pid: 1, readAtMs, bytes };
 }
 
+// Spool writes and reads settle on the thread pool, so draining waits for them.
+async function drainAll(pipeline: IngestPipeline, emit: (line: PipelineLine) => void): Promise<void> {
+  while (pipeline.pending()) {
+    pipeline.processSlice(emit, 1_000);
+    await pipeline.settle();
+  }
+}
+
+// A refused chunk is offered again once the writes in flight settle, as the pump does.
+async function offer(pipeline: IngestPipeline, next: PipelineChunk, attempts = 3): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (pipeline.enqueueChunk(next)) {
+      return true;
+    }
+    await pipeline.settle();
+  }
+  return false;
+}
+
 describe("ingest pipeline ordering", () => {
-  test("keeps read order and whole lines when chunks arrive while older bytes are spooled", () => {
+  test("keeps read order and whole lines when chunks arrive while older bytes are spooled", async () => {
     const pipeline = new IngestPipeline(tempDir(), {
-      spillPerStream: 256,
+      spillPerStream: 64,
       spillTotal: 1024,
       creditPerStream: 1 << 16,
       creditTotal: 1 << 17,
@@ -53,16 +72,18 @@ describe("ingest pipeline ordering", () => {
       if (reads % 5 === 0) {
         pipeline.processSlice(emit, 1_000);
       }
+      if (reads % 7 === 0) {
+        await pipeline.settle();
+      }
     }
-    while (pipeline.pending()) {
-      pipeline.processSlice(emit, 1_000);
-    }
+    await drainAll(pipeline, emit);
     expect(out).toEqual(text.trimEnd().split("\n"));
+    expect(pipeline.spilledSegments).toBeGreaterThan(0);
   });
 });
 
 describe("ingest pipeline spool budget", () => {
-  test("drains a large spool a segment at a time instead of loading it all", () => {
+  test("drains a large spool a segment at a time instead of loading it all", async () => {
     const pipeline = new IngestPipeline(tempDir(), {
       spillPerStream: 1 << 10,
       spillTotal: 1 << 12,
@@ -72,9 +93,13 @@ describe("ingest pipeline spool budget", () => {
     });
     const line = Buffer.from(`${"y".repeat(16 * 1024 - 1)}\n`);
     for (let i = 0; i < 512; i += 1) {
-      expect(pipeline.enqueueChunk(chunk("api", Buffer.from(line), i))).toBe(true);
+      expect(await offer(pipeline, chunk("api", Buffer.from(line), i))).toBe(true);
     }
+    await pipeline.settle();
     expect(pipeline.spooledBytes()).toBeGreaterThan(4 << 20);
+    // The first slice starts reading the oldest segment; the next one gets to its lines.
+    pipeline.processSlice(() => {}, 1_000);
+    await pipeline.settle();
     const stop = new Error("first line");
     try {
       pipeline.processSlice(() => {
@@ -87,7 +112,7 @@ describe("ingest pipeline spool budget", () => {
     expect(pipeline.inFlightBytes()).toBeLessThan(2 << 20);
   });
 
-  test("enforces one spool budget across streams", () => {
+  test("enforces one spool budget across streams", async () => {
     const pipeline = new IngestPipeline(tempDir(), {
       spillPerStream: 1 << 10,
       spillTotal: 1 << 12,
@@ -97,24 +122,60 @@ describe("ingest pipeline spool budget", () => {
     });
     const block = Buffer.from(`${"z".repeat(4095)}\n`);
     for (let i = 0; i < 12; i += 1) {
-      pipeline.enqueueChunk(chunk("a", Buffer.from(block), i));
+      await offer(pipeline, chunk("a", Buffer.from(block), i));
     }
+    // Refused even once every write has settled: the shared spool is full.
     let refused = false;
     for (let i = 0; i < 12 && !refused; i += 1) {
-      refused = !pipeline.enqueueChunk(chunk("b", Buffer.from(block), 100 + i));
+      refused = !(await offer(pipeline, chunk("b", Buffer.from(block), 100 + i)));
     }
     expect(refused).toBe(true);
+    await pipeline.settle();
     expect(pipeline.spooledBytes()).toBeLessThanOrEqual(64 << 10);
+    expect(pipeline.spooledBytes()).toBeGreaterThan(32 << 10);
+  });
+
+  test("a write that fails keeps its frames in memory, ahead of newer bytes", async () => {
+    // The spool root is a file, so every segment write fails.
+    const root = join(tempDir(), "not-a-directory");
+    writeFileSync(root, "x");
+    const pipeline = new IngestPipeline(root, { spillPerStream: 4, spillTotal: 1_024, creditPerStream: 1 << 16, creditTotal: 1 << 17 });
+    expect(pipeline.enqueueChunk(chunk("api", Buffer.from("one\ntwo\n"), 1))).toBe(true);
+    expect(pipeline.enqueueChunk(chunk("api", Buffer.from("three\n"), 2))).toBe(true);
+    const out: string[] = [];
+    await drainAll(pipeline, (line) => out.push(line.line));
+    expect(out).toEqual(["one", "two", "three"]);
+    expect(pipeline.spilledSegments).toBe(0);
+    expect(pipeline.inFlightBytes()).toBe(0);
+    expect(pipeline.spooledBytes()).toBe(0);
+  });
+
+  test("refuses a chunk past the credit before queuing any of it, and takes it once a write frees memory", async () => {
+    const pipeline = new IngestPipeline(tempDir(), { spillPerStream: 1 << 10, spillTotal: 1 << 12, creditPerStream: 3 << 10, creditTotal: 1 << 20 });
+    const block = (fill: string): Buffer => Buffer.from(`${fill.repeat(1023)}\n`);
+    expect(pipeline.enqueueChunk(chunk("api", block("a"), 1))).toBe(true);
+    expect(pipeline.enqueueChunk(chunk("api", block("b"), 2))).toBe(true);
+    expect(pipeline.enqueueChunk(chunk("api", block("c"), 3))).toBe(true);
+    const held = pipeline.inFlightBytes();
+    // The first block's segment is still being written, so memory is at the credit.
+    expect(pipeline.enqueueChunk(chunk("api", block("d"), 4))).toBe(false);
+    expect(pipeline.inFlightBytes()).toBe(held);
+    await pipeline.settle();
+    expect(pipeline.enqueueChunk(chunk("api", block("d"), 4))).toBe(true);
+    const out: string[] = [];
+    await drainAll(pipeline, (line) => out.push(line.line[0]!));
+    expect(out).toEqual(["a", "b", "c", "d"]);
   });
 });
 
 describe("ingest pipeline takeover", () => {
-  test("a new owner of a session's spool emits the old owner's bytes first, even for a stream with no new output", () => {
+  test("a new owner of a session's spool emits the old owner's bytes first, even for a stream with no new output", async () => {
     const root = tempDir();
     const limits = { spillPerStream: 8, spillTotal: 64, creditPerStream: 1 << 16, creditTotal: 1 << 17 };
     const before = new IngestPipeline(root, limits);
     expect(before.enqueueChunk(chunk("api", Buffer.from("old one\nold two\n"), 1))).toBe(true);
     expect(before.enqueueChunk(chunk("quiet", Buffer.from("quiet old\n"), 1))).toBe(true);
+    await before.settle();
     expect(before.spooledBytes()).toBeGreaterThan(0);
     // Its owner dies with that output spooled and unread.
     const after = new IngestPipeline(root, limits);
@@ -122,9 +183,7 @@ describe("ingest pipeline takeover", () => {
     expect(after.spooledBytes()).toBe(before.spooledBytes());
     expect(after.enqueueChunk(chunk("api", Buffer.from("new\n"), 2))).toBe(true);
     const out: string[] = [];
-    while (after.pending()) {
-      after.processSlice((line) => out.push(`${line.service}: ${line.line}`), 1_000);
-    }
+    await drainAll(after, (line) => out.push(`${line.service}: ${line.line}`));
     expect(out.filter((line) => line.startsWith("api:"))).toEqual(["api: old one", "api: old two", "api: new"]);
     expect(out).toContain("quiet: quiet old");
     expect(after.spooledBytes()).toBe(0);
@@ -171,7 +230,7 @@ function prng(seed: number): () => number {
 }
 
 describe("ingest pipeline streams", () => {
-  test("keeps each stream's order when many streams spill, refuse, and drain interleaved", () => {
+  test("keeps each stream's order when many streams spill, refuse, and drain interleaved", async () => {
     for (const seed of [1, 7, 42, 1_234]) {
       const random = prng(seed);
       const pipeline = new IngestPipeline(tempDir(), {
@@ -204,13 +263,15 @@ describe("ingest pipeline streams", () => {
         if (random() < 0.2) {
           pipeline.processSlice(emit, 1_000);
         }
+        // Spool I/O settles between reads at random, as it would under load.
+        if (random() < 0.1) {
+          await pipeline.settle();
+        }
       }
       for (const service of services) {
         pipeline.endStream({ service, stream: "stdout", pid: 1 });
       }
-      while (pipeline.pending()) {
-        pipeline.processSlice(emit, 1_000);
-      }
+      await drainAll(pipeline, emit);
       for (const service of services) {
         expect(out.get(service)).toEqual(sources.get(service)!.toString("utf8").trimEnd().split("\n"));
       }
@@ -219,30 +280,31 @@ describe("ingest pipeline streams", () => {
     }
   });
 
-  test("emits a stream's last unterminated line once the stream ends, then frees it", () => {
+  test("emits a stream's last unterminated line once the stream ends, then frees it", async () => {
     const root = tempDir();
     const pipeline = new IngestPipeline(root, { spillPerStream: 4, spillTotal: 1_024, creditPerStream: 1 << 16, creditTotal: 1 << 17 });
     const lines: string[] = [];
     expect(pipeline.enqueueChunk(chunk("api", Buffer.from("first\nlast without newline"), 1))).toBe(true);
-    pipeline.processSlice((line) => lines.push(line.line), 1_000);
+    await drainAll(pipeline, (line) => lines.push(line.line));
     expect(lines).toEqual(["first"]);
     pipeline.endStream({ service: "api", stream: "stdout", pid: 1 });
-    pipeline.processSlice((line) => lines.push(line.line), 1_000);
+    await drainAll(pipeline, (line) => lines.push(line.line));
     expect(lines).toEqual(["first", "last without newline"]);
     expect(pipeline.pending()).toBe(false);
     expect(readdirSync(root)).toEqual([]);
   });
 
-  test("at shutdown parses what is next in line and leaves newer bytes spooled for replay", () => {
+  test("at shutdown parses what is next in line and leaves newer bytes spooled for replay", async () => {
     const root = tempDir();
     const pipeline = new IngestPipeline(root, { spillPerStream: 64, spillTotal: 1_024, creditPerStream: 1 << 16, creditTotal: 1 << 17 });
     const text = numbered(40);
     pipeline.enqueueChunk(chunk("api", Buffer.from(text.slice(0, 50)), 1));
     pipeline.enqueueChunk(chunk("api", Buffer.from(text.slice(50, 700)), 2));
     pipeline.enqueueChunk(chunk("api", Buffer.from(text.slice(700, 720)), 3));
+    await pipeline.settle();
     expect(pipeline.spooledBytes()).toBeGreaterThan(0);
     const lines: string[] = [];
-    pipeline.drainForClose((line) => lines.push(line.line));
+    await pipeline.drainForClose((line) => lines.push(line.line));
     expect(lines.length).toBeGreaterThan(0);
     expect(text.startsWith(lines.join("\n"))).toBe(true);
     expect(pipeline.inFlightBytes()).toBe(0);
