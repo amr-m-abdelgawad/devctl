@@ -81,6 +81,39 @@ export class LogGapTracker {
     this.gaps = [];
   }
 
+  /**
+   * Settles what a page fetched for `range` covered and says whether to keep
+   * filling. A page the daemon's byte budget cut short still has older
+   * records behind it, so only the part it reached is settled and the rest of
+   * the gap stays open. A short page with nothing older means the daemon no
+   * longer holds the range, and older gaps are older still.
+   */
+  settle(range: SeqRange, page: { readonly events: readonly LogRecord[]; readonly hasPrev: boolean }): boolean {
+    let found = 0;
+    let lowest = Number.POSITIVE_INFINITY;
+    for (const event of page.events) {
+      if (event.seq > 0) {
+        lowest = Math.min(lowest, event.seq);
+      }
+      if (event.seq >= range.from && event.seq <= range.to) {
+        found += 1;
+      }
+    }
+    if (found >= range.to - range.from + 1) {
+      this.remove(range);
+      return true;
+    }
+    if (!page.hasPrev) {
+      this.clear();
+      return false;
+    }
+    if (lowest > range.to) {
+      return false;
+    }
+    this.remove({ from: Math.max(range.from, lowest), to: range.to });
+    return true;
+  }
+
   private clip(floor: number): void {
     if (this.gaps.length === 0 || (this.gaps[0]?.from ?? floor) >= floor) {
       return;

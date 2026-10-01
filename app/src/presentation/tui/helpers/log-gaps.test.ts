@@ -41,6 +41,42 @@ describe("log gap tracker", () => {
   });
 });
 
+describe("settling a fetched gap page", () => {
+  const range = { from: 101, to: 200 };
+  const pageOf = (from: number, to: number, hasPrev: boolean) => ({ events: rows(...Array.from({ length: to - from + 1 }, (_, i) => to - i)), hasPrev });
+
+  function tracker(): LogGapTracker {
+    const gaps = new LogGapTracker(50_000);
+    gaps.observe(rows(100, 201));
+    return gaps;
+  }
+
+  test("a full page settles the range and filling goes on", () => {
+    const gaps = tracker();
+    expect(gaps.settle(range, pageOf(101, 200, true))).toBe(true);
+    expect(gaps.pending).toBe(false);
+  });
+
+  test("a page a byte budget cut short settles only the part it reached", () => {
+    const gaps = tracker();
+    expect(gaps.settle(range, pageOf(161, 200, true))).toBe(true);
+    expect(gaps.next(undefined)).toEqual({ from: 101, to: 160 });
+  });
+
+  test("a short page with nothing older clears every gap", () => {
+    const gaps = tracker();
+    gaps.observe(rows(300));
+    expect(gaps.settle(range, pageOf(161, 200, false))).toBe(false);
+    expect(gaps.pending).toBe(false);
+  });
+
+  test("an empty page keeps the gap and stops this round", () => {
+    const gaps = tracker();
+    expect(gaps.settle(range, { events: [], hasPrev: true })).toBe(false);
+    expect(gaps.next(undefined)).toEqual(range);
+  });
+});
+
 describe("merging a gap page", () => {
   test("inserts fetched records in seq order and keeps what the view already holds", () => {
     const current = rows(1, 2, 9, 10);

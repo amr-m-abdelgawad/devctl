@@ -14,6 +14,8 @@ import {
   mergeLoadedPage,
   needsOlderLogPage,
   prependOlderPage,
+  tuiLogBytes,
+  tuiLogCap,
   type LogWrapMode,
 } from "../helpers/logs.ts";
 import { type TuiConfig } from "../tui-config.ts";
@@ -62,6 +64,8 @@ type Options = {
   setStatus: (status: string) => void;
   /** Pages a persisted session for `/history`, from this machine's session files. */
   loadSessionPage?: (session: string, filter: LogFilter, page: LogPageRequest) => LogPage;
+  /** Records the view keeps, as the daemon's window is configured. */
+  logCap?: number;
 };
 
 export function useLogView({
@@ -72,9 +76,14 @@ export function useLogView({
   refresh,
   setStatus,
   loadSessionPage,
+  logCap = tuiLogCap(undefined),
 }: Options) {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [paused, setPaused] = useState(false);
+  // True once scrolling back dropped the newest records to make room: the view
+  // no longer reaches the live tail, so live records stay out until it follows
+  // again and reloads the newest page.
+  const [logTailCut, setLogTailCut] = useState(false);
   // The persisted session `/history` is showing, or "" for the live stream.
   const [historySession, setHistorySession] = useState("");
   const [errorOnly, setErrorOnly] = useState(false);
@@ -328,6 +337,7 @@ export function useLogView({
     try {
       const page = await controller.logsPage(currentLogFilter);
       setLogs((current) => mergeLoadedPage(current, page.events));
+      setLogTailCut(false);
       setLogPrevCursor(page.prevCursor);
       setLogHasPrevPage(page.hasPrev);
       await refreshFacets();
@@ -387,10 +397,16 @@ export function useLogView({
           return;
         }
         const before = logsRef.current;
-        const merged = prependOlderPage(before, older.events);
+        const merged = prependOlderPage(before, older.events, logCap, tuiLogBytes(logCap));
         setLogs(merged);
-        const added = merged.length - before.length;
-        if (added > 0) {
+        // Rows now in front of what was on screen; the newest may have gone to make room.
+        const first = before[0];
+        const shown = first === undefined ? -1 : merged.indexOf(first);
+        const added = shown < 0 ? merged.length : shown;
+        if (before.length > 0 && merged[merged.length - 1] !== before[before.length - 1]) {
+          setLogTailCut(true);
+        }
+        if (merged !== before && added > 0) {
           if (logPinned) {
             setLogViewStart((start) => start + added);
           }
@@ -403,7 +419,14 @@ export function useLogView({
       })
       .catch((err: unknown) => setStatus(humanMessage(err)))
       .finally(() => setLoadingOlderLogs(false));
-  }, [controller, currentLogFilter, historySession, loadSessionPage, loadingOlderLogs, logHasPrevPage, logPinned, logPinnedB, logPrevCursor, logWindow.start, logWindowB.start, splitLogs]);
+  }, [controller, currentLogFilter, historySession, loadSessionPage, loadingOlderLogs, logCap, logHasPrevPage, logPinned, logPinnedB, logPrevCursor, logWindow.start, logWindowB.start, splitLogs]);
+
+  // Following again after a scroll-back cut the tail reloads the newest page.
+  useEffect(() => {
+    if (logTailCut && !logPinned && !(splitLogs && logPinnedB)) {
+      void refreshLogs();
+    }
+  }, [logPinned, logPinnedB, logTailCut, refreshLogs, splitLogs]);
 
   // `/history` shows a session's newest records with live follow paused;
   // scrolling up pages that session's older records in.
@@ -522,5 +545,6 @@ export function useLogView({
     toggleSystemLogs,
     historySession,
     showHistory,
+    logTailCut,
   };
 }

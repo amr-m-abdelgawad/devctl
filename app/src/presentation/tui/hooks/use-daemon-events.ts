@@ -6,8 +6,9 @@ import { humanMessage } from "../../../shared/errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogBatch, LogReceived, type BusEvent } from "../../../shared/events.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { reloadFailureMessage } from "../helpers/chrome.ts";
-import { appendVisibleLogs, trimLogBytes } from "../helpers/logs.ts";
+import { appendVisibleLogs, trimLogBytes, tuiLogBytes, tuiLogCap } from "../helpers/logs.ts";
 import { LogGapTracker, mergeGapPage } from "../helpers/log-gaps.ts";
+import { StatusRefresher } from "../helpers/status-refresh.ts";
 import { encodeLogCursor } from "../../../domain/logs/logs.ts";
 
 import type { Dispatch, SetStateAction } from "react";
@@ -23,6 +24,7 @@ const GAP_FILL_MAX_PAGES = 20;
 type Options = {
   controller?: Controller;
   cfg?: DevctlConfig;
+  /** True while live records must not enter the view: paused, or scrolled back past a cut tail. */
   paused: boolean;
   logSince: string;
   refresh: () => Promise<StatusSnapshot | undefined>;
@@ -48,10 +50,13 @@ export function useDaemonEvents({
       return;
     }
     let logTimer: ReturnType<typeof setTimeout> | undefined;
-    let statusTimer: ReturnType<typeof setTimeout> | undefined;
-    let statusDirty = false;
     const pendingLogs: LogEvent[] = [];
-    const cap = cfg && cfg.logs.max_memory_events > 0 ? cfg.logs.max_memory_events : 50_000;
+    const cap = tuiLogCap(cfg?.logs.max_memory_events);
+    const maxBytes = tuiLogBytes(cap);
+    // Health, CPU, and memory come from the status snapshot: re-read it soon
+    // after each event and every couple of seconds, at most four times a second.
+    const status = new StatusRefresher(refresh);
+    status.start();
     // During a flood the daemon sends only the newest records of each batch.
     // Once the stream is calm, the skipped ranges are paged in, newest first,
     // for as far back as the view still reaches.
@@ -101,15 +106,11 @@ export function useDaemonEvents({
           gaps.clear();
           return;
         }
-        gaps.remove(range);
         const found = page.events.filter((event) => event.seq >= range.from && event.seq <= range.to);
-        setLogs((current) => noteHeld(trimLogBytes(mergeGapPage(current, found, logSince, cap))));
-        // A short page means the daemon no longer holds that range; older gaps are older still.
-        if (found.length < wanted) {
-          gaps.clear();
-          return;
+        setLogs((current) => noteHeld(trimLogBytes(mergeGapPage(current, found, logSince, cap), maxBytes)));
+        if (gaps.settle(range, page)) {
+          scheduleFill(GAP_FILL_PACE_MS);
         }
-        scheduleFill(GAP_FILL_PACE_MS);
       }, () => {
         filling = false;
       });
@@ -122,25 +123,13 @@ export function useDaemonEvents({
           lastGapAt = Date.now();
           pagesLeft = GAP_FILL_MAX_PAGES;
         }
-        setLogs((current) => noteHeld(trimLogBytes(appendVisibleLogs(current, batch, logSince, cap))));
+        setLogs((current) => noteHeld(trimLogBytes(appendVisibleLogs(current, batch, logSince, cap), maxBytes)));
         fillGaps();
-      }
-    };
-    const flushStatus = (): void => {
-      statusTimer = undefined;
-      if (statusDirty) {
-        statusDirty = false;
-        void refresh();
       }
     };
     const scheduleLogs = (): void => {
       if (!logTimer) {
         logTimer = setTimeout(flushLogs, 50);
-      }
-    };
-    const scheduleStatus = (): void => {
-      if (!statusTimer) {
-        statusTimer = setTimeout(flushStatus, 2_000);
       }
     };
     const unsub = controller.onEvent((ev: BusEvent) => {
@@ -172,20 +161,17 @@ export function useDaemonEvents({
         setConfigReloadError(undefined);
         void controller.configSnapshot().then(setCfg).catch((err: unknown) => setStatus(humanMessage(err)));
       }
-      statusDirty = true;
-      scheduleStatus();
+      status.poke();
     });
     return () => {
       disposed = true;
       unsub();
+      status.stop();
       if (fillTimer) {
         clearTimeout(fillTimer);
       }
       if (logTimer) {
         clearTimeout(logTimer);
-      }
-      if (statusTimer) {
-        clearTimeout(statusTimer);
       }
     };
   }, [controller, logSince, paused, refresh]);
