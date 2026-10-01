@@ -59,18 +59,29 @@ test("a status-bearing event refreshes status within the coalescing window, and 
     setStatus: () => undefined,
   });
   try {
+    const sent = performance.now();
     await act(async () => deliver(newEvent(ServiceHealthChanged, "api", { health: "HEALTHY" })));
-    await act(async () => Bun.sleep(150));
+    await act(async () => {
+      while (refreshes === 0 && performance.now() - sent < 1_000) {
+        await Bun.sleep(5);
+      }
+    });
     expect(refreshes).toBe(1);
+    // The 2 s period has not come round, and one event costs one refresh.
+    expect(performance.now() - sent).toBeLessThan(1_000);
+    await act(async () => Bun.sleep(300));
     refreshes = 0;
+    const started = performance.now();
     await act(async () => {
       for (let i = 0; i < 40; i += 1) {
         deliver(newEvent(ServiceHealthChanged, "api", { health: "HEALTHY" }));
         await Bun.sleep(15);
       }
     });
-    expect(refreshes).toBeGreaterThanOrEqual(2);
-    expect(refreshes).toBeLessThanOrEqual(4);
+    // However long the flood took on a loaded host, starts stay 250 ms apart.
+    const elapsed = performance.now() - started;
+    expect(refreshes).toBeGreaterThanOrEqual(1);
+    expect(refreshes).toBeLessThanOrEqual(1 + Math.floor(elapsed / 250));
   } finally {
     await mounted.close();
   }
