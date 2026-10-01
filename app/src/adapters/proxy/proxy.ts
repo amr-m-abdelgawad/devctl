@@ -98,6 +98,22 @@ export type ProxyMiddlewareContext = {
   upgrade?: boolean;
 };
 
+type BoundServer = {
+  listening: boolean;
+  close: (callback?: () => void) => unknown;
+};
+
+// close() on a server that never bound, or a second close(), crashes Bun on
+// Windows. Callers drop their reference first so a later stop is a no-op.
+export function closeBoundServer(server: BoundServer | undefined): Promise<boolean> {
+  if (!server?.listening) {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    server.close(() => resolve(true));
+  });
+}
+
 export class ProxyServer {
   private cfg: ProxyConfig;
   private readonly tokens?: TokenManager;
@@ -249,6 +265,7 @@ export class ProxyServer {
 
   stop(): Promise<void> {
     const server = this.server;
+    this.server = undefined;
     if (!server) {
       return Promise.resolve();
     }
@@ -256,19 +273,13 @@ export class ProxyServer {
       socket.destroy();
     }
     this.upgradedSockets.clear();
-    if (!server.listening) {
-      // listen() failed (e.g. EADDRINUSE): nothing to close. close() on a
-      // server that never bound crashes Bun on Windows.
-      this.server = undefined;
+    // listen() failed (e.g. EADDRINUSE): nothing to close. close() on a
+    // server that never bound, or close() twice, crashes Bun on Windows.
+    return closeBoundServer(server).then((closed) => {
       this.running = false;
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      server.close(() => {
-        this.running = false;
+      if (closed) {
         this.bus?.publish(newEvent(ProxyStopped, "", {}));
-        resolve();
-      });
+      }
     });
   }
 
@@ -1275,15 +1286,8 @@ export class TokenEndpoint {
 
   stop(): Promise<void> {
     const server = this.server;
-    if (!server) {
-      return Promise.resolve();
-    }
-    if (!server.listening) {
-      // See ProxyServer.stop: a server whose listen() failed is not closed.
-      this.server = undefined;
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => server.close(() => resolve()));
+    this.server = undefined;
+    return closeBoundServer(server).then(() => undefined);
   }
 
   private async serve(req: IncomingMessage, res: ServerResponse): Promise<void> {

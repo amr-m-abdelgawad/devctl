@@ -12,7 +12,7 @@ import type { LogStore } from "../../ports/log-store.ts";
 import type { SpanStore } from "../../ports/span-store.ts";
 import { type Detector } from "../secrets/detector.ts";
 import { type TokenManager } from "../google/token.ts";
-import { injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
+import { closeBoundServer, injectIdentityHeaders, REQUEST_ID_HEADER, RequestLog, type ProxyRequestRecord } from "./proxy.ts";
 import { requireEnvInterpolation } from "../http/identity.ts";
 import { envWithSecrets } from "../environment/environment.ts";
 import { startRouteTimeout, timeoutMessage, type TimeoutKind } from "./route-timeout.ts";
@@ -128,18 +128,13 @@ export class GrpcProxyServer {
 
   stop(): Promise<void> {
     const server = this.server;
+    this.server = undefined;
     for (const session of this.clients.values()) {
       session.close();
     }
     this.clients.clear();
-    if (!server) {
-      return Promise.resolve();
-    }
-    return new Promise((resolve) => {
-      server.close(() => {
-        this.running = false;
-        resolve();
-      });
+    return closeBoundServer(server).then(() => {
+      this.running = false;
     });
   }
 

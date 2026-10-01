@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - An environment overlay that sets one key keeps `environment.helm` from the base service. Previously a modular file or local overlay that touched `environment` dropped the Helm source.
+- Stopping a proxy or gRPC listener that never bound, or stopping it twice, no longer calls `close()` again. On Windows that call crashes Bun. The HTTP proxy and token endpoint already skipped a server that had not listened; gRPC now does too, and a second stop is a no-op.
 
 ## [0.25.0] - 2026-09-28
 

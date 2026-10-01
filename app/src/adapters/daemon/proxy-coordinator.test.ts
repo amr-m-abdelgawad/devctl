@@ -52,6 +52,12 @@ async function reservePort(): Promise<number> {
   return port;
 }
 
+async function fetchStatus(url: string): Promise<number> {
+  const response = await fetch(url);
+  await response.arrayBuffer();
+  return response.status;
+}
+
 async function startHttpUpstream(): Promise<{ url: string; close: () => Promise<void> }> {
   const server = createServer((_req, res) => res.end("ok"));
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", () => resolve()));
@@ -167,16 +173,13 @@ describe("ProxyCoordinator.applyConfig", () => {
     await coord.start();
     const before = coord.instance;
     try {
-      const first = await fetch(`http://127.0.0.1:${port}/v1`);
-      expect(first.status).toBe(200);
+      expect(await fetchStatus(`http://127.0.0.1:${port}/v1`)).toBe(200);
       cfg.proxy.routes = [httpRoute("api", "/v2", up.url)];
       await coord.applyConfig();
       expect(coord.instance).toBe(before);
       expect(coord.isRunning()).toBe(true);
-      const miss = await fetch(`http://127.0.0.1:${port}/v1`);
-      expect(miss.status).toBe(404);
-      const hit = await fetch(`http://127.0.0.1:${port}/v2`);
-      expect(hit.status).toBe(200);
+      expect(await fetchStatus(`http://127.0.0.1:${port}/v1`)).toBe(404);
+      expect(await fetchStatus(`http://127.0.0.1:${port}/v2`)).toBe(200);
       expect(events.some((event) => event.source === "proxy" && event.level === "INFO" && event.message === "proxy routes reloaded")).toBe(true);
       expect(events.some((event) => event.message === "proxy restarting — config reload")).toBe(false);
     } finally {
@@ -203,8 +206,7 @@ describe("ProxyCoordinator.applyConfig", () => {
       expect(coord.instance).not.toBe(before);
       expect(coord.isRunning()).toBe(true);
       await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toThrow();
-      const hit = await fetch(`http://127.0.0.1:${nextPort}/`);
-      expect(hit.status).toBe(200);
+      expect(await fetchStatus(`http://127.0.0.1:${nextPort}/`)).toBe(200);
       const restartAt = events.findIndex((event) => event.source === "proxy" && event.message === "proxy restarting — config reload");
       expect(restartAt).toBeGreaterThanOrEqual(0);
       expect(events.some((event) => event.message === "proxy routes reloaded")).toBe(false);
@@ -322,8 +324,7 @@ describe("ProxyCoordinator.applyConfig", () => {
       cfg.proxy.enabled = true;
       await coord.applyConfig();
       expect(coord.isRunning()).toBe(true);
-      const res = await fetch(`http://127.0.0.1:${port}/`);
-      expect(res.status).toBe(200);
+      expect(await fetchStatus(`http://127.0.0.1:${port}/`)).toBe(200);
     } finally {
       await coord.stop();
       await up.close();
