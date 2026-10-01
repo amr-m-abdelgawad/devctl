@@ -13,6 +13,8 @@ export const GATES = {
   "event-time-folding": "Track A: output parsed late (a spool backlog) folds and correlates by read time, like live output",
   "proxy-hop-order": "finding: a proxy access record committed before the service line it answers leaves that line without its request id",
   "stale-pipeline-stats": "finding: the log worker's pipeline stats are only refreshed by the next record, so status keeps reporting spooled bytes after output stops",
+  "sigkill-boundary-loss": "finding: output a SIGKILLed daemon had read from a FIFO but not yet persisted (its in-memory pipeline and 100 ms writer batch) is lost",
+  "logs-all-bounded": "finding: `devctl logs --all` answers with the whole ring in one reply, so the daemon passes 400 MB and the CLI is OOM-killed on a ring of long lines",
 } as const;
 
 export type GateKey = keyof typeof GATES;

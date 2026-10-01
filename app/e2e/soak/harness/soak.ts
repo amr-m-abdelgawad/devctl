@@ -267,6 +267,7 @@ export type VerifyResult = {
   outOfOrder: number;
   done: boolean;
   lagMs: Latency;
+  bodyChars: { min: number; max: number };
 };
 
 /** The host's own load, recorded next to each measurement: other suites may share this machine. */

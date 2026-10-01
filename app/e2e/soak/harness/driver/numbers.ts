@@ -21,6 +21,8 @@ export type NumberCheck = {
   done: boolean;
   /** Stored time minus the write time the flood embedded in each line. */
   lagMs: { count: number; p50: number; p99: number; max: number };
+  /** UTF-16 length of the stored bodies of numbered lines. */
+  bodyChars: { min: number; max: number };
 };
 
 /** `rows` in storage order (one session's seq order, sessions oldest first). */
@@ -29,6 +31,8 @@ export function checkNumbers(rows: readonly StoredRow[], name: string, count: nu
   const donePattern = new RegExp(`^${name} done count=(\\d+)`);
   const numbers: number[] = [];
   const lags: number[] = [];
+  let minChars = Number.POSITIVE_INFINITY;
+  let maxChars = 0;
   let done = false;
   let other = 0;
   for (const row of rows) {
@@ -37,6 +41,8 @@ export function checkNumbers(rows: readonly StoredRow[], name: string, count: nu
     if (match !== null) {
       numbers.push(Number(match[1]));
       lags.push(Date.parse(row.timestamp ?? "") - Number(match[2]));
+      minChars = Math.min(minChars, body.length);
+      maxChars = Math.max(maxChars, body.length);
     } else if (donePattern.test(body)) {
       done = true;
     } else {
@@ -81,5 +87,6 @@ export function checkNumbers(rows: readonly StoredRow[], name: string, count: nu
     outOfOrder,
     done,
     lagMs: summarizeLatencies(lags),
+    bodyChars: { min: numbers.length > 0 ? minChars : 0, max: maxChars },
   };
 }
