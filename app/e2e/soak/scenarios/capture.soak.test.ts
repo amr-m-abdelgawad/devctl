@@ -87,11 +87,12 @@ services:
     expect(load.rssMaxBytes).toBeLessThan(RSS_MAX_BYTES);
   }, 600_000);
 
-  for (const hogFds of [0, 5_000]) {
-  const attributionName = hogFds === 0 ? "callers are attributed (control: no service holds extra fds)" : `callers are attributed while another service holds ${hogFds} file descriptors`;
-  test.skipIf(!gateEnabled("caller-attribution"))(gatedName("caller-attribution", attributionName), async () => {
+  type Attribution = { fds: number; calls: number; byCaller: Record<string, number>; p99: number; errors: number; measured: ProbeResult };
+
+  // A client service makes `count` calls through an inspected route, each on a
+  // fresh connection, while another service holds `hogFds` descriptors.
+  async function attribution(hogFds: number, upstreamDelayMs: number, count = 500): Promise<Attribution> {
     const box = await container();
-    const count = 500;
     await box.configure(`${CONFIG_HEADER}project:
   name: soak-attribution
 proxy:
@@ -106,34 +107,71 @@ services:
   fdhog:
     command: [bun, /soak/driver/fdhog.ts, "${hogFds}"]
   echo:
-    command: [bun, /soak/driver/echo.ts, "18081"]
+    command: [bun, /soak/driver/echo.ts, "18081", --delay-ms, "${upstreamDelayMs}"]
     ports: { http: 18081 }
     health: { type: http, url: "http://127.0.0.1:\${services.echo.ports.http}/health", interval_seconds: 1 }
   client:
-    command: [bun, /soak/driver/client.ts, --url, "http://127.0.0.1:${PROXY_PORT}/echo/x", --count, "${count}", --interval-ms, "20", --delay-ms, "2000"]
+    command: [bun, /soak/driver/client.ts, --url, "http://127.0.0.1:${PROXY_PORT}/echo/x", --count, "${count}", --interval-ms, "10", --delay-ms, "2000"]
     restart: { policy: never }
 `);
     await box.devctl(["start", "fdhog", "echo", "--wait", "--timeout", "60s"]);
     const hog = (await box.status()).services.fdhog!.pid;
     const fds = Number((await box.sh(`ls /proc/${hog}/fd | wc -l`)).stdout.trim());
-    const probe = box.driver<ProbeResult>("probe.ts", ["--duration-ms", "20000"], { timeoutMs: 60_000 });
+    const probe = box.driver<ProbeResult>("probe.ts", ["--duration-ms", String(6_000 + count * (10 + upstreamDelayMs))], { timeoutMs: 120_000 });
     await box.devctl(["start", "client"]);
     const measured = await probe;
     await box.waitDone("client");
     const traffic = await box.driver<{ calls: number; byCaller: Record<string, number> }>("traffic.ts");
     const summary = (await box.devctl(["logs", "client", "--search", "client done", "--json"])).stdout;
-    const p99 = Number(/p99=([\d.]+)/.exec(summary)?.[1] ?? "NaN");
-    const errors = Number(/errors=(\d+)/.exec(summary)?.[1] ?? "NaN");
-    report(`attribution, ${hogFds} fds held`, { fdhogFds: fds, traffic, clientP99Ms: p99, clientErrors: errors, rpc: measured.rpc, rssMaxMiB: Math.round(measured.rss.maxBytes / MIB) });
+    const result = {
+      fds,
+      calls: traffic.calls,
+      byCaller: traffic.byCaller,
+      p99: Number(/p99=([\d.]+)/.exec(summary)?.[1] ?? "NaN"),
+      errors: Number(/errors=(\d+)/.exec(summary)?.[1] ?? "NaN"),
+      measured,
+    };
+    report(`attribution, ${hogFds} fds held, ${upstreamDelayMs} ms upstream`, { fdhogFds: fds, traffic, clientP99Ms: result.p99, clientErrors: result.errors, rpc: measured.rpc, rssMaxMiB: Math.round(measured.rss.maxBytes / MIB) });
     await box.devctl(["down"], { allowFail: true });
-
-    expect(fds).toBeGreaterThanOrEqual(hogFds);
-    expect(errors).toBe(0);
-    expect(traffic.calls).toBeGreaterThanOrEqual(count);
-    expect(traffic.byCaller.client ?? 0).toBeGreaterThanOrEqual(Math.ceil(traffic.calls * 0.99));
-    expect(p99).toBeLessThan(PROXY_P99_MS);
-    expect(measured.rpc.p99).toBeLessThan(RPC_P99_MS);
-    expect(measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);
-  }, 300_000);
+    return result;
   }
+
+  test("callers are attributed (control: no service holds extra fds)", async () => {
+    // A 30 ms upstream: the caller's connection is still open when the lookup finishes.
+    const upstreamMs = 30;
+    const result = await attribution(0, upstreamMs);
+    expect(result.errors).toBe(0);
+    expect(result.calls).toBeGreaterThanOrEqual(500);
+    expect(result.byCaller.client ?? 0).toBeGreaterThanOrEqual(Math.ceil(result.calls * 0.99));
+    expect(result.p99 - upstreamMs).toBeLessThan(PROXY_P99_MS);
+    expect(result.measured.rpc.p99).toBeLessThan(RPC_P99_MS);
+    expect(result.measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);
+  }, 300_000);
+
+  test("callers are attributed while another service holds 5000 file descriptors, on calls that outlive the scan", async () => {
+    // A 1 s upstream. The lookup reads the other service's 5000 descriptors first; measured, that takes 120-250 ms.
+    const upstreamMs = 1_000;
+    const result = await attribution(5_000, upstreamMs, 40);
+    expect(result.fds).toBeGreaterThanOrEqual(5_000);
+    expect(result.errors).toBe(0);
+    expect(result.byCaller.client ?? 0).toBe(result.calls);
+    expect(result.p99 - upstreamMs).toBeLessThan(PROXY_P99_MS);
+    expect(result.measured.rpc.p99).toBeLessThan(RPC_P99_MS);
+    expect(result.measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);
+  }, 300_000);
+
+  test.skipIf(!gateEnabled("attribution-fd-scan"))(gatedName("attribution-fd-scan", "callers of 30 ms calls are attributed while another service holds 5000 file descriptors"), async () => {
+    const upstreamMs = 30;
+    const result = await attribution(5_000, upstreamMs);
+    expect(result.fds).toBeGreaterThanOrEqual(5_000);
+    expect(result.errors).toBe(0);
+    expect(result.byCaller.client ?? 0).toBeGreaterThanOrEqual(Math.ceil(result.calls * 0.99));
+    expect(result.p99 - upstreamMs).toBeLessThan(PROXY_P99_MS);
+  }, 300_000);
+
+  test.skipIf(!gateEnabled("attribution-short-calls"))(gatedName("attribution-short-calls", "callers of 1 ms calls on connections closed after each response are attributed"), async () => {
+    const result = await attribution(0, 0);
+    expect(result.errors).toBe(0);
+    expect(result.byCaller.client ?? 0).toBeGreaterThanOrEqual(Math.ceil(result.calls * 0.99));
+  }, 300_000);
 });

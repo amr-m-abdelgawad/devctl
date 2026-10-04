@@ -5,14 +5,16 @@
 // every read is split at once and appended with the clock at that moment, as
 // the orchestrator's onLine did. The current side is LogManager.acceptChunk +
 // IngestPipeline with `readAtMs` set to the same moment; its 8 ms drain and
-// the multiline idle flush run as fake timers, so both sides see the same
-// timeline and nothing depends on how loaded the machine is.
+// the fold flush run as fake timers, so both sides see the same timeline and
+// nothing depends on how loaded the machine is. The pipeline's spool reads
+// and writes are real file I/O, so the clock is stepped a millisecond at a
+// time and each step waits for that I/O to land.
 import { jest } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultLogParser, LogManager, type LogIngest, type LogRecord } from "../../src/adapters/storage/logs.ts";
-import { IngestPipeline, type PipelineLimits, type PipelineLine } from "../../src/adapters/storage/ingest/pipeline.ts";
+import type { IngestPipeline, PipelineLimits } from "../../src/adapters/storage/ingest/pipeline.ts";
 import type { ServiceLogConfig } from "../../src/domain/config/types.ts";
 import { defaultLogParser as preBranchDefaultParser } from "./pre-branch/domain/logs/parse.ts";
 import { PreBranchLogManager } from "./pre-branch/log-manager.oracle.ts";
@@ -23,7 +25,7 @@ export const FIXTURE_EPOCH_MS = Date.parse("2026-09-28T12:00:00.000Z");
 
 // Past the 80 ms fold wait, the 50 ms correlate window, and the 8 ms drain.
 const SETTLE_MS = 1_000;
-// How long a backlogged run holds every byte before the first parse.
+// How long after the last read a backlogged run starts parsing.
 const BACKLOG_HOLD_MS = 500;
 const RING_EVENTS = 100_000;
 const MAX_OFFER_RETRIES = 1_000;
@@ -61,9 +63,9 @@ export type IngestFixture = {
 export type CurrentVariant =
   /** Default pipeline limits: nothing spools. */
   | "live"
-  /** One-byte spill thresholds: every chunk goes through the on-disk spool. */
+  /** One-byte spill thresholds: every chunk goes through the on-disk spool, which is read back at once. */
   | "spooled"
-  /** Spooled, and nothing is parsed until well after the last read. */
+  /** Spooled, and no spool write lands until well after the last read, so everything is parsed late. */
   | "backlog";
 
 export type Diff = {
@@ -81,24 +83,6 @@ const TINY_SPILL: PipelineLimits = {
   creditTotal: 256 * 1024 * 1024,
   spoolMaxBytes: 1024 * 1024 * 1024,
 };
-
-/** Holds every byte in the spool until `releaseAtMs`, like a daemon that fell behind. */
-class HeldPipeline extends IngestPipeline {
-  constructor(
-    root: string,
-    limits: PipelineLimits,
-    private readonly releaseAtMs: number,
-  ) {
-    super(root, limits);
-  }
-
-  override processSlice(emit: (line: PipelineLine) => void, sliceMs?: number, now?: number): boolean {
-    if (Date.now() < this.releaseAtMs) {
-      return this.pending();
-    }
-    return super.processSlice(emit, sliceMs, now);
-  }
-}
 
 function bytesOf(value: string | Uint8Array): Uint8Array {
   return typeof value === "string" ? new TextEncoder().encode(value) : value;
@@ -178,35 +162,65 @@ function offer(mgr: LogManager, chunk: Parameters<LogManager["acceptChunk"]>[0])
   throw new Error(`pipeline refused a ${chunk.bytes.byteLength}-byte chunk ${MAX_OFFER_RETRIES} times`);
 }
 
+// The manager's pipeline, once the first chunk has built it. Read only to
+// wait for its spool I/O; a run that cannot reach it fails the spool check.
+function pipelineOf(mgr: LogManager): IngestPipeline | undefined {
+  return (mgr as unknown as { pipeline?: IngestPipeline }).pipeline;
+}
+
 /** This branch: LogManager.acceptChunk through its IngestPipeline. */
 export async function runCurrent(fixture: IngestFixture, variant: CurrentVariant): Promise<LogRecord[]> {
   const dir = mkdtempSync(join(tmpdir(), "devctl-oracle-"));
   jest.useFakeTimers({ now: FIXTURE_EPOCH_MS });
   try {
-    const mgr = new LogManager(RING_EVENTS, undefined, undefined, false, dir, "oracle", 0, 0, { spoolDir: join(dir, "spool") });
+    const mgr = new LogManager(RING_EVENTS, undefined, undefined, false, dir, "oracle", 0, 0, {
+      spoolDir: join(dir, "spool"),
+      ...(variant === "live" ? {} : { pipelineLimits: TINY_SPILL }),
+    });
     mgr.setParsers([defaultLogParser()]);
     mgr.setServiceLogs(fixture.logs ?? {});
     const end = lastAt(fixture.events);
-    if (variant !== "live") {
-      const root = join(dir, "spool");
-      const pipeline = variant === "backlog"
-        ? new HeldPipeline(root, TINY_SPILL, FIXTURE_EPOCH_MS + end + BACKLOG_HOLD_MS)
-        : new IngestPipeline(root, TINY_SPILL);
-      // LogManager builds its pipeline on the first chunk; one installed first is used instead.
-      (mgr as unknown as { pipeline?: IngestPipeline }).pipeline = pipeline;
+    const landed = async (): Promise<void> => {
+      await pipelineOf(mgr)?.settle();
+    };
+    // Steps the clock so spool I/O lands as it would on a daemon that keeps up.
+    const stepTo = async (at: number): Promise<void> => {
+      while (Date.now() < FIXTURE_EPOCH_MS + at) {
+        await landed();
+        jest.advanceTimersByTime(1);
+      }
+      await landed();
+    };
+    // Guards the spill thresholds: a spooled run that stops spooling is a second live run.
+    const requireSpooled = (): void => {
+      if ((mgr.pipelineStats()?.spooledBytes ?? 0) <= 0) {
+        throw new Error(`the ${variant} run did not spool its first chunk`);
+      }
+    };
+    // Guards the backlog: service output parsed before the hold ended was not parsed late.
+    const releaseAt = FIXTURE_EPOCH_MS + end + BACKLOG_HOLD_MS;
+    let early = 0;
+    if (variant === "backlog") {
+      mgr.setOnRecord((record) => {
+        if ((record.source === "stdout" || record.source === "stderr") && Date.now() < releaseAt) {
+          early += 1;
+        }
+      });
     }
-    let spoolChecked = variant === "live";
+    let spoolChecked = variant !== "spooled";
     for (const event of ordered(fixture.events)) {
-      advanceTo(event.at);
+      if (variant === "backlog") {
+        // No await between reads, so no spool write lands and nothing read is parsed yet.
+        advanceTo(event.at);
+      } else {
+        await stepTo(event.at);
+      }
       if ("chunk" in event) {
         const { bytes, ...ref } = event.chunk;
         offer(mgr, { ...ref, readAtMs: Date.now(), bytes: bytesOf(bytes) });
         if (!spoolChecked) {
-          // Guards the injection above: a spooled run that stops spooling is a second live run.
-          const spooled = mgr.pipelineStats()?.spooledBytes ?? 0;
-          if (spooled <= 0) {
-            throw new Error(`the ${variant} run did not spool its first chunk`);
-          }
+          await landed();
+          requireSpooled();
           spoolChecked = true;
         }
       } else if ("end" in event) {
@@ -215,10 +229,20 @@ export async function runCurrent(fixture: IngestFixture, variant: CurrentVariant
         mgr.append({ ...event.append, timestamp: new Date().toISOString() });
       }
     }
-    advanceTo(end + (variant === "backlog" ? BACKLOG_HOLD_MS : 0) + SETTLE_MS);
+    if (variant === "backlog") {
+      advanceTo(end + BACKLOG_HOLD_MS);
+      await landed();
+      if (fixture.events.some((event) => "chunk" in event)) {
+        requireSpooled();
+      }
+    }
+    await stepTo(end + (variant === "backlog" ? BACKLOG_HOLD_MS : 0) + SETTLE_MS);
     await mgr.flush();
     const records = mgr.query({});
     await mgr.close();
+    if (early > 0) {
+      throw new Error(`the backlog run parsed ${early} records before its hold ended`);
+    }
     return records;
   } finally {
     jest.useRealTimers();

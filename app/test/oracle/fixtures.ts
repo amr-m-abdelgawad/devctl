@@ -7,14 +7,8 @@
 // Every intended difference from main is declared on its fixture with the
 // reason. The test fails if an undeclared difference appears or a declared
 // one stops happening, so none of them can drift in silently.
-import type { GateKey } from "../../e2e/soak/gates.ts";
 import type { LogIngest } from "../../src/domain/logs/types.ts";
 import { recordAt, summarize, type FixtureEvent, type IngestFixture, type IntendedDifference, type StreamRef } from "./ingest-harness.ts";
-
-export type OracleFixture = IngestFixture & {
-  /** The live comparison pins a production bug, so it runs only when this key is required. */
-  gate?: GateKey;
-};
 
 const KIB = 1024;
 const MIB = 1024 * KIB;
@@ -79,7 +73,7 @@ const CJK_LINE = `${"你".repeat(20_000)}\n`;
 const SURROGATE_LINE = `${"a".repeat(16_383)}😀tail\n`;
 const BIG_JSON = `{"level":"warn","msg":"big","blob":"${"z".repeat(70_000)}"}\n`;
 
-export const FIXTURES: OracleFixture[] = [
+export const FIXTURES: IngestFixture[] = [
   {
     name: "python traceback split across reads",
     covers: "a traceback folded across a 30 ms gap, and split by a 120 ms gap",
@@ -187,10 +181,8 @@ export const FIXTURES: OracleFixture[] = [
   {
     name: "proxy hop re-tags a service line read 3 ms earlier",
     covers: "the proxy access record arrives 3 ms after the service line, as it does when the service logs just before it responds",
-    // Finding: main tagged this line with req-1001; this branch stores it untagged. The proxy record is committed
-    // at once, but the line waits for the 8 ms drain and then the 80 ms fold flush, by which time the proxy record
-    // has left the 50 ms correlate window. main's append flushed the pending fold before committing the proxy record.
-    gate: "proxy-hop-order",
+    // The proxy record is committed before the pipeline's 8 ms drain parses the line it answers, so the pairing
+    // has to go by read time. Before event-time pairing this line lost its request id.
     events: [
       { at: 0, chunk: { ...HOP, bytes: "GET /api/users -> handled in 2ms\n" } },
       { at: 3, append: proxyRecord("GET /api/users route=api identity= status=200 duration=3ms", "req-1001") },

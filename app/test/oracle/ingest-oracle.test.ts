@@ -6,9 +6,10 @@
 //            stored, lane by lane, except each fixture's declared differences.
 // - spooled: the same bytes forced through the on-disk spool must store
 //            exactly what the live run stored.
-// - backlog: spooled, and parsed only after every read, must still store what
-//            the live run stored. Needs event-time folding (Track A), so it is
-//            gated on DEVCTL_SOAK_REQUIRE=event-time-folding.
+// - backlog: spooled, and parsed only after every read (no spool write lands
+//            until half a second after the last one), must still store what
+//            the live run stored: folds, proxy-hop tags and dedupe go by read
+//            time, not by when the daemon got round to parsing.
 //
 // A lane is one service's source and stream; records are compared in each
 // lane's own order because the pipeline is byte-fair across streams, so the
@@ -19,7 +20,6 @@
 // pre-branch/ is main's code copied verbatim, so it duplicates src/ and keeps
 // main's unused exports by design. Do not edit it to satisfy either tool.
 import { describe, expect, test } from "bun:test";
-import { gateEnabled, gatedName } from "../../e2e/soak/gates.ts";
 import { FIXTURES } from "./fixtures.ts";
 import { declaredDiffs, diffRecords, runCurrent, runOracle, unreadTimestamps, type Diff } from "./ingest-harness.ts";
 
@@ -32,9 +32,7 @@ function sorted(diffs: Diff[]): Diff[] {
 describe("ingest oracle", () => {
   for (const fixture of FIXTURES) {
     describe(fixture.name, () => {
-      const liveName = "live output matches main except the declared differences";
-      const runLive = fixture.gate === undefined || gateEnabled(fixture.gate);
-      test.skipIf(!runLive)(fixture.gate === undefined ? liveName : gatedName(fixture.gate, liveName), async () => {
+      test("live output matches main except the declared differences", async () => {
         const oracle = runOracle(fixture);
         const current = await runCurrent(fixture, "live");
         expect(oracle.length).toBeGreaterThan(0);
@@ -49,7 +47,7 @@ describe("ingest oracle", () => {
         expect(unreadTimestamps(fixture, spooled)).toEqual([]);
       }, FIXTURE_TIMEOUT_MS);
 
-      test.skipIf(!gateEnabled("event-time-folding"))(gatedName("event-time-folding", "backlogged output matches live output"), async () => {
+      test("backlogged output matches live output", async () => {
         const live = await runCurrent(fixture, "live");
         const backlog = await runCurrent(fixture, "backlog");
         expect(diffRecords(live, backlog)).toEqual([]);

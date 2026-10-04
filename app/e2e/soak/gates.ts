@@ -1,21 +1,18 @@
-// One switch for checks that need another track's work, or that pin a
-// production bug this branch still has. `DEVCTL_SOAK_REQUIRE=key1,key2` (or
-// `all`) runs them; otherwise they are skipped and the test name says which
-// key enables them. An enabled check runs its real assertion and fails while
-// the behavior is missing. It never passes by skipping itself.
+// One switch for checks that pin a production bug the merged code still has.
+// `DEVCTL_SOAK_REQUIRE=key1,key2` (or `all`) runs them; otherwise they are
+// skipped and the test name says which key enables them. An enabled check
+// runs its real assertion and fails while the bug is there. It never passes
+// by skipping itself. Delete a key once its check passes ungated.
 //
-// Shared by the Docker soak suite (e2e/soak) and the ingest oracle
-// (test/oracle), so the lead has one knob for both.
+// Shared by the Docker soak suite (e2e/soak) and the findings pinned on the
+// host (test/findings), so there is one knob for both.
 
 export const GATES = {
-  "embedded-workers": "Track C: the compiled binary runs its log and watchdog workers instead of falling back in-process",
-  ws8: "Track D: services keep running and their logs resume after the daemon is SIGKILLed",
-  "event-time-folding": "Track A: output parsed late (a spool backlog) folds and correlates by read time, like live output",
-  "proxy-hop-order": "finding: a proxy access record committed before the service line it answers leaves that line without its request id",
   "stale-pipeline-stats": "finding: the log worker's pipeline stats are only refreshed by the next record, so status keeps reporting spooled bytes after output stops",
   "sigkill-boundary-loss": "finding: output a SIGKILLed daemon had read from a FIFO but not yet persisted (its in-memory pipeline and 100 ms writer batch) is lost",
   "logs-all-bounded": "finding: `devctl logs --all` answers with the whole ring in one reply, so the daemon passes 400 MB and the CLI is OOM-killed on a ring of long lines",
-  "caller-attribution": "finding: traffic the proxy captures from a service's own loopback connection is recorded with no caller in a container",
+  "attribution-short-calls": "finding: a call that ends within a millisecond or two on a connection its caller then closes is recorded with no caller, because the /proc lookup finishes after the socket is gone",
+  "attribution-fd-scan": "finding: the caller lookup reads every descriptor of each managed process in turn; with a service holding 5000 that takes 120-250 ms, so shorter calls on connections closed afterwards get no caller",
 } as const;
 
 export type GateKey = keyof typeof GATES;
