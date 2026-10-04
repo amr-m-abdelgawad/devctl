@@ -163,7 +163,7 @@ function offer(mgr: LogManager, chunk: Parameters<LogManager["acceptChunk"]>[0])
 }
 
 // The manager's pipeline, once the first chunk has built it. Read only to
-// wait for its spool I/O; a run that cannot reach it fails the spool check.
+// wait for its spool I/O.
 function pipelineOf(mgr: LogManager): IngestPipeline | undefined {
   return (mgr as unknown as { pipeline?: IngestPipeline }).pipeline;
 }
@@ -218,6 +218,10 @@ export async function runCurrent(fixture: IngestFixture, variant: CurrentVariant
       if ("chunk" in event) {
         const { bytes, ...ref } = event.chunk;
         offer(mgr, { ...ref, readAtMs: Date.now(), bytes: bytesOf(bytes) });
+        if (typeof pipelineOf(mgr)?.settle !== "function") {
+          // Without it nothing here waits for spool I/O, and every variant would quietly run as live.
+          throw new Error("the manager's pipeline is not reachable to wait for its spool I/O");
+        }
         if (!spoolChecked) {
           await landed();
           requireSpooled();

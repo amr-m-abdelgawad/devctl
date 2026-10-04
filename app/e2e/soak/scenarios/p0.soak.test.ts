@@ -15,7 +15,7 @@ import {
 } from "../harness/soak.ts";
 
 const RPC_P99_MS = 50;
-const RSS_MAX_BYTES = 400 * MIB;
+const RSS_MAX_BYTES = 400_000_000;
 const IDLE = `  idle:
     command: [sleep, "3600"]
 `;

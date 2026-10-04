@@ -121,7 +121,8 @@ export function oldDevctl(): Promise<OldDevctl | undefined> {
     }
     const manifest = await run(["git", "-C", repo, "show", `${sha}:app/package.json`]);
     const version = (JSON.parse(manifest.stdout) as { version: string }).version;
-    const tag = `devctl-soak-old:${sha.slice(0, 12)}`;
+    const recipe = createHash("sha256").update(readFileSync(`${DOCKERFILE}.old`)).digest("hex").slice(0, 8);
+    const tag = `devctl-soak-old:${sha.slice(0, 12)}-${recipe}`;
     const existing = await run(["docker", "image", "inspect", "--format", "{{.Id}}", tag], { allowFail: true });
     if (existing.code !== 0) {
       const context = mkdtempSync(join(tmpdir(), "devctl-soak-old-"));

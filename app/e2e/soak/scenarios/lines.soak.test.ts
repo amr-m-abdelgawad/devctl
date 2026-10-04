@@ -4,7 +4,7 @@ import { gateEnabled, gatedName } from "../gates.ts";
 import { CONFIG_HEADER, floodService, IMAGE_BUILD_TIMEOUT_MS, MIB, report, SoakContainer, soakEnabled, soakImage, soakQuick, type Latency, type ProbeResult, type VerifyResult } from "../harness/soak.ts";
 
 const RPC_P99_MS = 50;
-const RSS_MAX_BYTES = 400 * MIB;
+const RSS_MAX_BYTES = 400_000_000;
 // MAX_LOG_LINE_CHARS: a stored line keeps its first 16 Ki UTF-16 units.
 const MAX_LINE_CHARS = 16 * 1024;
 const WIDE_COUNT = 5_000;

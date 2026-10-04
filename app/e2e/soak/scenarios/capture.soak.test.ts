@@ -6,7 +6,7 @@ import { CONFIG_HEADER, IMAGE_BUILD_TIMEOUT_MS, MIB, report, SoakContainer, soak
 
 const RPC_P99_MS = 50;
 const PROXY_P99_MS = 50;
-const RSS_MAX_BYTES = 400 * MIB;
+const RSS_MAX_BYTES = 400_000_000;
 const PROXY_PORT = 18080;
 
 type LlmLoad = {
@@ -89,9 +89,10 @@ services:
 
   type Attribution = { fds: number; calls: number; byCaller: Record<string, number>; p99: number; errors: number; measured: ProbeResult };
 
-  // A client service makes `count` calls through an inspected route, each on a
-  // fresh connection, while another service holds `hogFds` descriptors.
-  async function attribution(hogFds: number, upstreamDelayMs: number, count = 500): Promise<Attribution> {
+  // A client service makes `count` calls through an inspected route while
+  // another service holds `hogFds` descriptors. Each call is on a fresh
+  // connection the client closes afterwards, unless `keepalive` reuses one.
+  async function attribution(hogFds: number, upstreamDelayMs: number, count = 500, keepalive = false): Promise<Attribution> {
     const box = await container();
     await box.configure(`${CONFIG_HEADER}project:
   name: soak-attribution
@@ -111,7 +112,7 @@ services:
     ports: { http: 18081 }
     health: { type: http, url: "http://127.0.0.1:\${services.echo.ports.http}/health", interval_seconds: 1 }
   client:
-    command: [bun, /soak/driver/client.ts, --url, "http://127.0.0.1:${PROXY_PORT}/echo/x", --count, "${count}", --interval-ms, "10", --delay-ms, "2000"]
+    command: [bun, /soak/driver/client.ts, --url, "http://127.0.0.1:${PROXY_PORT}/echo/x", --count, "${count}", --interval-ms, "10", --delay-ms, "2000"${keepalive ? ", --keepalive" : ""}]
     restart: { policy: never }
 `);
     await box.devctl(["start", "fdhog", "echo", "--wait", "--timeout", "60s"]);
@@ -131,7 +132,7 @@ services:
       errors: Number(/errors=(\d+)/.exec(summary)?.[1] ?? "NaN"),
       measured,
     };
-    report(`attribution, ${hogFds} fds held, ${upstreamDelayMs} ms upstream`, { fdhogFds: fds, traffic, clientP99Ms: result.p99, clientErrors: result.errors, rpc: measured.rpc, rssMaxMiB: Math.round(measured.rss.maxBytes / MIB) });
+    report(`attribution, ${hogFds} fds held, ${upstreamDelayMs} ms upstream${keepalive ? ", keep-alive" : ""}`, { fdhogFds: fds, traffic, clientP99Ms: result.p99, clientErrors: result.errors, rpc: measured.rpc, rssMaxMiB: Math.round(measured.rss.maxBytes / MIB) });
     await box.devctl(["down"], { allowFail: true });
     return result;
   }
@@ -155,6 +156,18 @@ services:
     expect(result.fds).toBeGreaterThanOrEqual(5_000);
     expect(result.errors).toBe(0);
     expect(result.byCaller.client ?? 0).toBe(result.calls);
+    expect(result.p99 - upstreamMs).toBeLessThan(PROXY_P99_MS);
+    expect(result.measured.rpc.p99).toBeLessThan(RPC_P99_MS);
+    expect(result.measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);
+  }, 300_000);
+
+  test("callers on a keep-alive connection are attributed while another service holds 5000 file descriptors", async () => {
+    // The connection outlives the first lookup, and later calls on it are answered from the per-port cache.
+    const upstreamMs = 30;
+    const result = await attribution(5_000, upstreamMs, 500, true);
+    expect(result.fds).toBeGreaterThanOrEqual(5_000);
+    expect(result.errors).toBe(0);
+    expect(result.byCaller.client ?? 0).toBeGreaterThanOrEqual(Math.ceil(result.calls * 0.99));
     expect(result.p99 - upstreamMs).toBeLessThan(PROXY_P99_MS);
     expect(result.measured.rpc.p99).toBeLessThan(RPC_P99_MS);
     expect(result.measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);

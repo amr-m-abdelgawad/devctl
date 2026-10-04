@@ -8,7 +8,7 @@ import { IMAGE_BUILD_TIMEOUT_MS, MIB, report, SoakContainer, soakEnabled, soakIm
 
 const RPC_P99_MS = 50;
 const PROXY_P99_MS = 50;
-const RSS_MAX_BYTES = 400 * MIB;
+const RSS_MAX_BYTES = 400_000_000;
 const PROXY_PORT = 18080;
 const ECHO_PORT = 18081;
 
