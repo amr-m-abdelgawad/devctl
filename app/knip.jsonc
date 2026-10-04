@@ -5,8 +5,8 @@
   // e2e fixtures are programs devctl runs as services, not modules anything imports.
   // scripts/spikes are one-off measurement programs run by hand.
   // test/oracle/pre-branch is main@ed58322's log append path frozen verbatim as
-  // the ingest oracle's reference; its unused exports are main's, kept unedited.
-  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts", "e2e/fixtures/**", "e2e/soak/**", "scripts/spikes/**", "test/oracle/**"],
+  // the ingest oracle's reference. knip does not scan test/, so it needs no entry here.
+  "ignore": ["src/ports/credential-provider.ts", "src/plugin-sdk.ts", "e2e/fixtures/**", "e2e/soak/**", "scripts/spikes/**"],
   "entry": [
     "web/main.tsx",
     "src/adapters/storage/log-worker.ts",

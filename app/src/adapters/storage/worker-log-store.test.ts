@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Detector } from "../secrets/detector.ts";
 import { Bus, LogReceived } from "../../shared/events.ts";
@@ -63,6 +64,32 @@ describe("WorkerLogStore", () => {
       await store.close();
     }
   });
+
+  test("pipeline stats settle once persistence has caught up and output has stopped", async () => {
+    const dir = tmp();
+    const store = new WorkerLogStore({ ...config(), max: 10_000, persist: true, directory: dir, sessionID: "stats", spoolDir: join(dir, "spool") }, new Bus(16));
+    const file = join(dir, "session-stats", "api.jsonl");
+    const persisted = (): number => (existsSync(file) ? readFileSync(file, "utf8").split("\n").filter((line) => line !== "").length : 0);
+    try {
+      await store.waitUntilReady(5_000);
+      // These commit at once, so the stats on their record batch still count the writer's pending batch.
+      for (let n = 1; n <= 200; n += 1) {
+        store.append({ timestamp: new Date().toISOString(), service: "api", source: "devctl", level: "INFO", message: `record ${n}`, pid: 0 });
+      }
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && persisted() < 200) {
+        await Bun.sleep(50);
+      }
+      expect(persisted()).toBe(200);
+      // No further record arrives to refresh the supervisor's copy.
+      await Bun.sleep(600);
+      expect(store.pipelineStats()?.spooledBytes ?? 0).toBe(0);
+      expect(store.pipelineStats()?.inFlightBytes ?? 0).toBe(0);
+      expect(store.ingestPaused()).toBe(false);
+    } finally {
+      await store.close();
+    }
+  }, 20_000);
 
   test("append is visible to queryPage and publishes LogReceived", async () => {
     const bus = new Bus(16);

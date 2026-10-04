@@ -3,6 +3,7 @@ import { loadPluginPaths } from "../plugins/registry.ts";
 import { RECORD_BATCH_BYTES, RECORD_BATCH_MS, RECORD_BATCH_RECORDS } from "../../domain/logs/budgets.ts";
 import { approxRecordBytes } from "../../domain/logs/size.ts";
 import { defaultLogParser, LogManager, type LogRecord } from "./logs.ts";
+import type { LogSnapshot } from "../../ports/log-store.ts";
 import type { WorkerRequest, WorkerResponse } from "./log-worker-protocol.ts";
 import { ChunkHoldQueue } from "./chunk-hold.ts";
 
@@ -39,6 +40,38 @@ function scheduleRecords(): void {
   outboxTimer ??= setTimeout(sendRecords, Math.max(0, outboxSentAt + RECORD_BATCH_MS - Date.now()));
 }
 
+// The supervisor reads the pipeline's state (spooled bytes, and whether
+// readers must pause) from the stats on the last ack or record batch. Once
+// output stops, nothing else would tell it that the writer caught up, the
+// spool drained, or a pause cleared. So after each message that carries
+// stats, they are sent once more whenever they have changed, until the
+// pipeline is quiet.
+const STATS_SETTLE_MS = 250;
+let statsTimer: ReturnType<typeof setTimeout> | undefined;
+let sentPipeline = "";
+
+function noteStatsSent(stats: LogSnapshot): void {
+  sentPipeline = JSON.stringify(stats.pipeline ?? null);
+  followStats();
+}
+
+function followStats(): void {
+  statsTimer ??= setTimeout(() => {
+    statsTimer = undefined;
+    if (manager === undefined) {
+      return;
+    }
+    const stats = manager.snapshot();
+    const pipeline = stats.pipeline;
+    if (JSON.stringify(pipeline ?? null) !== sentPipeline) {
+      postMessage({ type: "appended", events: [], stats } satisfies WorkerResponse);
+      noteStatsSent(stats);
+    } else if (pipeline !== undefined && (pipeline.paused || pipeline.inFlightBytes > 0 || pipeline.spooledBytes > 0)) {
+      followStats();
+    }
+  }, STATS_SETTLE_MS);
+}
+
 function sendRecords(): void {
   if (outboxTimer !== undefined) {
     clearTimeout(outboxTimer);
@@ -53,13 +86,19 @@ function sendRecords(): void {
   outboxSentAt = Date.now();
   const acked = appendedUpTo;
   appendedUpTo = undefined;
-  postMessage({ type: "appended", events, stats: manager.snapshot(), appendedUpTo: acked } satisfies WorkerResponse);
+  const stats = manager.snapshot();
+  postMessage({ type: "appended", events, stats, appendedUpTo: acked } satisfies WorkerResponse);
+  noteStatsSent(stats);
 }
 
 function holdFor(mgr: LogManager): ChunkHoldQueue<ChunkMessage> {
   hold ??= new ChunkHoldQueue<ChunkMessage>(
     (message, force) => mgr.acceptChunk(message, force),
-    (message) => reply({ id: message.id, type: "chunkAck", accepted: true, stats: mgr.snapshot() }),
+    (message) => {
+      const stats = mgr.snapshot();
+      reply({ id: message.id, type: "chunkAck", accepted: true, stats });
+      noteStatsSent(stats);
+    },
   );
   return hold;
 }
@@ -156,6 +195,8 @@ async function handle(message: WorkerRequest): Promise<void> {
   }
   if (message.type === "setMemoryBudget") {
     manager.setMemoryBudget(message.bytes);
+    // Trimming the ring changes its size with no record to carry the news.
+    followStats();
     return;
   }
   if (message.type === "flush") {

@@ -4,11 +4,9 @@
 // runs its real assertion and fails while the bug is there. It never passes
 // by skipping itself. Delete a key once its check passes ungated.
 //
-// Shared by the Docker soak suite (e2e/soak) and the findings pinned on the
-// host (test/findings), so there is one knob for both.
+// Used by the Docker soak suite (e2e/soak).
 
 export const GATES = {
-  "stale-pipeline-stats": "finding: the log worker's pipeline stats are only refreshed by the next record, so status keeps reporting spooled bytes after output stops",
   "sigkill-boundary-loss": "finding: output a SIGKILLed daemon had read from a FIFO but not yet persisted (its in-memory pipeline and 100 ms writer batch) is lost",
   "logs-all-bounded": "finding: `devctl logs --all` answers with the whole ring in one reply, so the daemon passes 400 MB and the CLI is OOM-killed on a ring of long lines",
   "attribution-short-calls": "finding: a call that ends within a millisecond or two on a connection its caller then closes is recorded with no caller, because the /proc lookup finishes after the socket is gone",
