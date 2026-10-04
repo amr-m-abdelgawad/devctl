@@ -920,6 +920,7 @@ export function mcpTrace(detector: Detector, result: TraceResponse): Record<stri
     request_id: result.requestId,
     spans: result.tree.spans.map((span) => redactSpan(detector, span)),
     logs: result.events.map((ev) => mcpLogRecord(detector, ev)),
+    logs_truncated: result.truncated,
   };
 }
 
