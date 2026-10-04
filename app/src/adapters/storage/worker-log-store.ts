@@ -384,9 +384,6 @@ export class WorkerLogStore implements LogStore {
     if (this.memoryBudget !== undefined) {
       this.post({ type: "setMemoryBudget", bytes: this.memoryBudget });
     }
-    if (this.shed) {
-      this.post({ type: "setIngestShed", shed: true });
-    }
   }
 
   private clearRestartTimer(): void {
@@ -425,7 +422,6 @@ export class WorkerLogStore implements LogStore {
     if (this.memoryBudget !== undefined) {
       store.setMemoryBudget?.(this.memoryBudget);
     }
-    store.setIngestShed?.(this.shed);
     this.fallback = store;
     for (const item of missed) {
       manager.append(item.event, item.atMs);
