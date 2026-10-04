@@ -1,15 +1,15 @@
-// One switch for checks that pin a production bug the merged code still has.
-// `DEVCTL_SOAK_REQUIRE=key1,key2` (or `all`) runs them; otherwise they are
-// skipped and the test name says which key enables them. An enabled check
-// runs its real assertion and fails while the bug is there. It never passes
-// by skipping itself. Delete a key once its check passes ungated.
+// One switch for checks the merged code does not pass. `DEVCTL_SOAK_REQUIRE=key1,key2`
+// (or `all`) runs them; otherwise they are skipped and the test name says
+// which key enables them. An enabled check runs its real assertion and fails.
+// It never passes by skipping itself. Both keys left are limits of the design,
+// written down in docs/logs.md and docs/proxy.md, not bugs waiting for a fix.
+// Delete a key if its check ever passes ungated.
 //
 // Used by the Docker soak suite (e2e/soak).
 
 export const GATES = {
-  "sigkill-boundary-loss": "finding: output a SIGKILLed daemon had read from a FIFO but not yet persisted (its in-memory pipeline and 100 ms writer batch) is lost",
-  "attribution-short-calls": "finding: a call that ends within a millisecond or two on a connection its caller then closes is recorded with no caller, because the /proc lookup finishes after the socket is gone",
-  "attribution-fd-scan": "finding: the caller lookup reads every descriptor of each managed process in turn; with a service holding 5000 that takes 120-250 ms, so shorter calls on connections closed afterwards get no caller",
+  "sigkill-boundary-loss": "known limit: output a SIGKILLed daemon had read from a FIFO but not yet persisted (its in-memory pipeline and 100 ms writer batch) is lost",
+  "attribution-short-calls": "known limit: a call that ends within a millisecond or two on a connection its caller then closes is recorded with no caller, because the /proc lookup finishes after the socket is gone",
 } as const;
 
 export type GateKey = keyof typeof GATES;

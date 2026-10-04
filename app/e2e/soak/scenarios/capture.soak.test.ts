@@ -173,7 +173,7 @@ services:
     expect(result.measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);
   }, 300_000);
 
-  test.skipIf(!gateEnabled("attribution-fd-scan"))(gatedName("attribution-fd-scan", "callers of 30 ms calls are attributed while another service holds 5000 file descriptors"), async () => {
+  test("callers of 30 ms calls are attributed while another service holds 5000 file descriptors", async () => {
     const upstreamMs = 30;
     const result = await attribution(5_000, upstreamMs);
     expect(result.fds).toBeGreaterThanOrEqual(5_000);

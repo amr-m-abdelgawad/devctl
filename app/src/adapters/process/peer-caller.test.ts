@@ -206,6 +206,39 @@ describe.skipIf(process.platform === "win32")("PeerCallerResolver on /proc", () 
     }
   });
 
+  test("reads the smallest managed process first, so one holding thousands of fds does not delay the caller", async () => {
+    const proc = fakeProc();
+    try {
+      // "hog" holds 3,000 descriptors and none of them is the peer's socket.
+      proc.add({ pid: 200, ppid: 1, files: 3_000 });
+      proc.add({ pid: 100, ppid: 1, files: 4, sockets: ["45678"] });
+      proc.socket(CLIENT_PORT, "45678");
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      const both = () => [{ name: "hog", pid: 200 }, { name: "api", pid: 100 }];
+      expect(await callerServiceForPeer(peer, both, resolver)).toBe("api");
+      // Only the small process's links were read.
+      expect(reads.counts.links).toBeLessThan(10);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("finds a socket just opened by a process that holds thousands of fds in its first batch", async () => {
+    const proc = fakeProc();
+    try {
+      // The new socket sits above 3,000 long-lived descriptors.
+      proc.add({ pid: 200, ppid: 1, files: 3_000, sockets: ["45678"] });
+      proc.socket(CLIENT_PORT, "45678");
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      expect(await callerServiceForPeer(peer, () => [{ name: "hog", pid: 200 }], resolver)).toBe("hog");
+      expect(reads.counts.links).toBeLessThanOrEqual(64);
+    } finally {
+      proc.close();
+    }
+  });
+
   test("a warm lookup on the same socket reads no fds, and a reused port resolves again", async () => {
     const proc = world();
     try {

@@ -144,16 +144,20 @@ export class PeerCallerResolver {
     return found?.caller;
   }
 
+  // The lookup races the caller closing its socket, so it reads the cheapest
+  // candidates first: each one's descriptors are listed up front (one readdir
+  // each), and processes holding the fewest are read before one that holds
+  // thousands. A caller usually holds a few dozen.
   private async findOwner(proc: ProcFs, inodes: readonly string[], index: ReadonlyMap<number, string>, scanned: Set<number>): Promise<Owner | undefined> {
     const targets = new Map(inodes.map((inode) => [`socket:[${inode}]`, inode]));
-    for (const [pid, name] of index) {
-      if (scanned.has(pid)) {
-        continue;
-      }
-      scanned.add(pid);
-      const held = await heldSocket(proc, pid, targets);
+    const pending = [...index].filter(([pid]) => !scanned.has(pid));
+    const candidates = await Promise.all(pending.map(async ([pid, name]) => ({ pid, name, fds: await proc.list(`${proc.root}/${pid}/fd`) })));
+    candidates.sort((a, b) => a.fds.length - b.fds.length || a.pid - b.pid);
+    for (const candidate of candidates) {
+      scanned.add(candidate.pid);
+      const held = await heldSocket(proc, candidate.pid, candidate.fds, targets);
       if (held !== undefined) {
-        return { ...held, pid, caller: normalizeLlmCaller(name) };
+        return { ...held, pid: candidate.pid, caller: normalizeLlmCaller(candidate.name) };
       }
     }
     return undefined;
@@ -308,13 +312,23 @@ async function socketInodes(proc: ProcFs, port: number, remotePort: number | und
   return tcp === undefined && tcp6 === undefined ? undefined : [];
 }
 
-async function heldSocket(proc: ProcFs, pid: number, targets: ReadonlyMap<string, string>): Promise<{ inode: string; fd: string } | undefined> {
+const LINK_BATCH = 64;
+
+// Reads a process's descriptors from the highest number down, a batch at a
+// time. A process that holds many long-lived descriptors gets its newest
+// socket above them, so the one just connected is in the first batch.
+async function heldSocket(proc: ProcFs, pid: number, fds: readonly string[], targets: ReadonlyMap<string, string>): Promise<{ inode: string; fd: string } | undefined> {
   const dir = `${proc.root}/${pid}/fd`;
-  for (const fd of await proc.list(dir)) {
-    const target = await proc.link(`${dir}/${fd}`);
-    const inode = target === undefined ? undefined : targets.get(target);
-    if (inode !== undefined) {
-      return { inode, fd };
+  const newestFirst = [...fds].sort((a, b) => Number(b) - Number(a));
+  for (let start = 0; start < newestFirst.length; start += LINK_BATCH) {
+    const batch = newestFirst.slice(start, start + LINK_BATCH);
+    const links = await Promise.all(batch.map((fd) => proc.link(`${dir}/${fd}`)));
+    for (let index = 0; index < batch.length; index += 1) {
+      const link = links[index];
+      const inode = link === undefined ? undefined : targets.get(link);
+      if (inode !== undefined) {
+        return { inode, fd: batch[index]! };
+      }
     }
   }
   return undefined;
