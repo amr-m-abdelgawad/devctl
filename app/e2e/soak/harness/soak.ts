@@ -6,8 +6,8 @@
 // Measurements happen inside the container (driver/probe.ts), because a
 // `docker exec` per sample costs more than the latency budgets measured.
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { loadavg } from "node:os";
+import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { loadavg, tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 export const soakEnabled = process.env.DEVCTL_SOAK === "1";
@@ -86,6 +86,60 @@ export function soakImage(): Promise<string> {
     return tag;
   })();
   return image;
+}
+
+export type OldDevctl = {
+  /** The compiled binary on this host, to copy into a container. */
+  path: string;
+  ref: string;
+  version: string;
+};
+
+let old: Promise<OldDevctl | undefined> | undefined;
+
+/**
+ * devctl compiled from an older ref, for the version-skew scenario:
+ * DEVCTL_SOAK_OLD_REF, else origin/main, else main. Undefined when this
+ * clone has none of them.
+ */
+export function oldDevctl(): Promise<OldDevctl | undefined> {
+  old ??= (async () => {
+    const repo = join(APP_DIR, "..");
+    const wanted = process.env.DEVCTL_SOAK_OLD_REF;
+    let ref = "";
+    let sha = "";
+    for (const candidate of wanted !== undefined && wanted !== "" ? [wanted] : ["origin/main", "main"]) {
+      const found = await run(["git", "-C", repo, "rev-parse", "--verify", "--quiet", `${candidate}^{commit}`], { allowFail: true });
+      if (found.code === 0) {
+        ref = candidate;
+        sha = found.stdout.trim();
+        break;
+      }
+    }
+    if (sha === "") {
+      return undefined;
+    }
+    const manifest = await run(["git", "-C", repo, "show", `${sha}:app/package.json`]);
+    const version = (JSON.parse(manifest.stdout) as { version: string }).version;
+    const tag = `devctl-soak-old:${sha.slice(0, 12)}`;
+    const existing = await run(["docker", "image", "inspect", "--format", "{{.Id}}", tag], { allowFail: true });
+    if (existing.code !== 0) {
+      const context = mkdtempSync(join(tmpdir(), "devctl-soak-old-"));
+      await run(["git", "-C", repo, "archive", "--format=tar", "-o", join(context, "tree.tar"), sha, "app/package.json", "app/bun.lock", "app/bunfig.toml", "app/tsconfig.json", "app/src"]);
+      await run(["tar", "-xf", join(context, "tree.tar"), "-C", context]);
+      await run(["docker", "build", "-f", `${DOCKERFILE}.old`, "-t", tag, "--label", "devctl-soak=1", "--build-arg", `DEVCTL_VERSION=${version}`, context], { timeoutMs: IMAGE_BUILD_TIMEOUT_MS });
+    }
+    const out = mkdtempSync(join(tmpdir(), "devctl-soak-oldbin-"));
+    const holder = `devctl-soak-old-${RUN_ID}`;
+    await run(["docker", "create", "--name", holder, tag, "/devctl"]);
+    try {
+      await run(["docker", "cp", `${holder}:/devctl`, join(out, "devctl-old")]);
+    } finally {
+      await run(["docker", "rm", "-f", holder], { allowFail: true });
+    }
+    return { path: join(out, "devctl-old"), ref, version };
+  })();
+  return old;
 }
 
 export type ContainerShape = {
@@ -201,6 +255,12 @@ export class SoakContainer {
     const out = await this.devctl(["logs", name, "--search", `${name} done`, "--json"], { cwd });
     const match = /elapsed_ms=(\d+)/.exec(out.stdout);
     return match === null ? Number.NaN : Number(match[1]);
+  }
+
+  /** Copies a file from this host to `path` in the container, executable. */
+  async install(hostPath: string, path: string): Promise<void> {
+    await run(["docker", "cp", hostPath, `${this.name}:${path}`]);
+    await this.sh(`chmod 755 ${path}`, { cwd: "/work" });
   }
 
   async rm(): Promise<void> {
