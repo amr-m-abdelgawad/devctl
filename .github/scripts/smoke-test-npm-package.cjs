@@ -10,10 +10,14 @@ const { spawnSync } = require("node:child_process");
 const tarballArgument = process.argv[2];
 const expectedVersion = process.argv[3];
 const mode = process.argv[4] ?? "local";
-if (!tarballArgument || !expectedVersion || !new Set(["local", "global", "npx"]).has(mode)) {
+if (!tarballArgument || !expectedVersion || !new Set(["local", "global", "npx", "binary"]).has(mode)) {
   console.error("usage: node smoke-test-npm-package.cjs <package.tgz> <version> [local|global|npx]");
+  console.error("       node smoke-test-npm-package.cjs <compiled devctl> <version> binary");
   process.exit(2);
 }
+// `binary` runs the same daemon checks against a compiled devctl on the
+// platform it was built for; there is no package to install or inspect.
+const packaged = mode !== "binary";
 
 const tarball = resolve(tarballArgument);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -83,6 +87,10 @@ function devctl(args, options = {}) {
 }
 
 function installPackage() {
+  if (!packaged) {
+    launcher = tarball;
+    return;
+  }
   if (mode === "npx") {
     launcher = npxCommand;
     const version = devctl(["version"], { timeout: 180_000 });
@@ -216,15 +224,19 @@ try {
   assert.match(devctl(["--config", config, "config", "validate"]).stdout, /configuration is valid/);
   devctl(["--config", config, "doctor", "--json"], { acceptedExitCodes: [0, 2] });
 
-  const publishedDeps = publishedDependencies();
-  assert.deepEqual(Object.keys(publishedDeps).sort(), ["@opentui/core", "bun", "node-fetch"]);
-  // Native/binary externals are pinned exact (frozen bundle, version-coupled ABI);
-  // pure-JS runtime imports ship as semver ranges so patches reach consumers.
-  assert.match(publishedDeps.bun, /^\d+\.\d+\.\d+$/, "the bundled Bun runtime must be pinned to an exact version");
-  assert.match(publishedDeps["@opentui/core"], /^\d+\.\d+\.\d+$/, "native @opentui/core must be pinned to an exact version");
-  assert.match(publishedDeps["node-fetch"], /^[\^~]\d+\.\d+\.\d+$/, "pure-JS runtime imports must ship as a semver range");
+  if (packaged) {
+    const publishedDeps = publishedDependencies();
+    assert.deepEqual(Object.keys(publishedDeps).sort(), ["@opentui/core", "bun", "node-fetch"]);
+    // Native/binary externals are pinned exact (frozen bundle, version-coupled ABI);
+    // pure-JS runtime imports ship as semver ranges so patches reach consumers.
+    assert.match(publishedDeps.bun, /^\d+\.\d+\.\d+$/, "the bundled Bun runtime must be pinned to an exact version");
+    assert.match(publishedDeps["@opentui/core"], /^\d+\.\d+\.\d+$/, "native @opentui/core must be pinned to an exact version");
+    assert.match(publishedDeps["node-fetch"], /^[\^~]\d+\.\d+\.\d+$/, "pure-JS runtime imports must ship as a semver range");
+  } else {
+    testTuiInPseudoTerminal();
+  }
 
-  if (mode !== "npx") {
+  if (packaged && mode !== "npx") {
     const installedRoot = packageRoot();
     const bunExecutable = require.resolve("bun/bin/bun.exe", { paths: [join(installedRoot, "bin")] });
     assert.ok(existsSync(bunExecutable), "the package-local Bun runtime is missing");
@@ -245,7 +257,7 @@ try {
   devctl(["--config", config, "mcp", "--off", "--json"]);
   devctl(["--config", config, "down"]);
 
-  console.log(`npm ${mode} package smoke test passed on ${process.platform}-${process.arch}`);
+  console.log(`${packaged ? `npm ${mode} package` : "compiled binary"} smoke test passed on ${process.platform}-${process.arch}`);
 } finally {
   if (launcher && existsSync(config)) {
     try {
