@@ -19,27 +19,57 @@ export function resolveExportPath(input = ""): string {
 // Written in batches of about this size, so a large window is never one string.
 const EXPORT_BATCH_CHARS = 1024 * 1024;
 
-export function writeLogExport(path: string, events: readonly LogRecord[]): void {
+export type LogExportFile = {
+  write(events: readonly LogRecord[]): void;
+  close(): void;
+};
+
+/** An export file that takes its records a page at a time: one JSON record per line. */
+export function openLogExport(path: string): LogExportFile {
   ensureDir(dirname(path));
   const fd = openSync(path, "w", 0o600);
-  try {
-    let batch: string[] = [];
-    let chars = 0;
-    for (const ev of events) {
-      const line = JSON.stringify(ev);
-      batch.push(line);
-      chars += line.length + 1;
-      if (chars >= EXPORT_BATCH_CHARS) {
-        writeSync(fd, `${batch.join("\n")}\n`);
-        batch = [];
-        chars = 0;
+  let wrote = false;
+  return {
+    write(events) {
+      let batch: string[] = [];
+      let chars = 0;
+      const flush = (): void => {
+        if (batch.length > 0) {
+          writeSync(fd, `${batch.join("\n")}\n`);
+          wrote = true;
+          batch = [];
+          chars = 0;
+        }
+      };
+      for (const ev of events) {
+        const line = JSON.stringify(ev);
+        batch.push(line);
+        chars += line.length + 1;
+        if (chars >= EXPORT_BATCH_CHARS) {
+          flush();
+        }
       }
-    }
-    if (batch.length > 0 || events.length === 0) {
-      writeSync(fd, `${batch.join("\n")}\n`);
-    }
+      flush();
+    },
+    close() {
+      try {
+        if (!wrote) {
+          // An empty export has always been a single newline.
+          writeSync(fd, "\n");
+        }
+      } finally {
+        closeSync(fd);
+      }
+    },
+  };
+}
+
+export function writeLogExport(path: string, events: readonly LogRecord[]): void {
+  const out = openLogExport(path);
+  try {
+    out.write(events);
   } finally {
-    closeSync(fd);
+    out.close();
   }
 }
 

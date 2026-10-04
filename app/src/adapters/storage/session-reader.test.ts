@@ -63,6 +63,27 @@ function writeLines(dir: string, name: string, records: readonly LogRecord[]): v
   writeFileSync(join(dir, name), records.map((record) => `${JSON.stringify(record)}\n`).join(""), { flag: "a" });
 }
 
+describe("exporting the window", () => {
+  test("an export includes the records the ring has evicted, in order, one per line", async () => {
+    // 2,000 records of about 1.3 KiB against a 256 KiB ring: most of the window is only on disk.
+    const mgr = await filled(2_000, { maxMemoryBytes: 256 * 1024, maxSessionBytes: 64 * 1024 * 1024 });
+    try {
+      expect(mgr.snapshot().total).toBeLessThan(500);
+      const dest = join(tmp(), "window.jsonl");
+      mgr.exportTo(dest, {});
+      const lines = readFileSync(dest, "utf8").trimEnd().split("\n");
+      const numbers = lines.map((line) => Number((JSON.parse(line) as { body: string }).body.split(" ")[1]));
+      expect(numbers).toEqual(range(1, 2_000));
+
+      const errors = join(tmp(), "errors.jsonl");
+      mgr.exportTo(errors, { level: "ERROR" });
+      expect(readFileSync(errors, "utf8").trimEnd().split("\n")).toHaveLength(40);
+    } finally {
+      await mgr.close();
+    }
+  });
+});
+
 describe("reading the evicted part of the window", () => {
   test("a page below a byte-evicted ring reads records from the session's earliest part file", async () => {
     // 5,000 records of ~2 KiB in parts of 2 MiB. The ring keeps a few dozen and

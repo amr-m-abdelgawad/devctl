@@ -13,7 +13,7 @@ import { ProxyHopWindow } from "../../domain/logs/hop-window.ts";
 import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLimits, type PipelineLine, type PipelineStreamKey } from "./ingest/pipeline.ts";
 import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
 import { readSelfStamp } from "../process/liveness.ts";
-import { writeLogExport } from "./log-export.ts";
+import { openLogExport } from "./log-export.ts";
 import { safeServiceFile, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
 import { matchCacheKey, SessionHistory } from "./session-history.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
@@ -30,6 +30,7 @@ import {
   encodeLogCursor,
   isErrorSeverity,
   isProcessLogSource,
+  MAX_LOG_PAGE_SIZE,
   matchesLogDimensions,
   MultilineAssembler,
   parseLogLine,
@@ -509,9 +510,26 @@ export class LogManager {
     this.ring.forEach(visit);
   }
 
+  /**
+   * Writes the whole matching window, oldest first, a page at a time. It
+   * reaches the part of the window the ring has evicted, like any paged read,
+   * and never holds more than one page.
+   */
   exportTo(path: string, filter: LogFilter): void {
-    const events = this.query(filter);
-    writeLogExport(path, filter.dedupeRequestId === true ? dedupeLogsByRequestId(events) : events);
+    const out = openLogExport(path);
+    try {
+      let cursor = encodeLogCursor({ session: this.sessionID, seq: 0 });
+      for (;;) {
+        const page = this.queryPage(filter, { cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
+        out.write(filter.dedupeRequestId === true ? dedupeLogsByRequestId(page.events) : page.events);
+        if (!page.hasNext || page.nextCursor === cursor) {
+          return;
+        }
+        cursor = page.nextCursor;
+      }
+    } finally {
+      out.close();
+    }
   }
 
   private commitFolded(folded: FoldedLog): LogRecord | undefined {

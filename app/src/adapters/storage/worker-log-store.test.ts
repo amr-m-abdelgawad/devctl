@@ -91,6 +91,39 @@ describe("WorkerLogStore", () => {
     }
   }, 20_000);
 
+  test("readers are released once a flood that paused them has been taken", async () => {
+    const dir = tmp();
+    // A one-byte spool budget: nothing can spill, so the pipeline refuses chunks once its memory window is full.
+    const store = new WorkerLogStore({ ...config(), max: 1_000, directory: dir, sessionID: "pause", spoolDir: join(dir, "spool"), maxSpoolBytes: 1 }, new Bus(16));
+    try {
+      await store.waitUntilReady(5_000);
+      const chunk = Buffer.from(`${"x".repeat(200)}\n`.repeat(1_200));
+      let sawPaused = false;
+      for (let sent = 0; sent < 200; ) {
+        sawPaused ||= store.ingestPaused();
+        if (store.ingestChunk({ service: "api", stream: "stdout", pid: 1, readAtMs: Date.now(), bytes: chunk })) {
+          sent += 1;
+        } else {
+          await Bun.sleep(1);
+        }
+      }
+      expect(sawPaused).toBe(true);
+      // Output has stopped. Whatever the last ack said, the pause must clear on
+      // its own, and the last line's fold closes on its idle timer.
+      const lines = 200 * 1_200;
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline && (store.ingestPaused() || store.snapshot().seen < lines)) {
+        await Bun.sleep(20);
+      }
+      expect(store.ingestPaused()).toBe(false);
+      expect(store.snapshot().seen).toBe(lines);
+      await Bun.sleep(600);
+      expect(store.pipelineStats()?.inFlightBytes ?? 0).toBe(0);
+    } finally {
+      await store.close();
+    }
+  }, 60_000);
+
   test("append is visible to queryPage and publishes LogReceived", async () => {
     const bus = new Bus(16);
     const received: string[] = [];
