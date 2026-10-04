@@ -630,7 +630,7 @@ export class LogManager {
     }
     const text = `${JSON.stringify(event)}\n`;
     const key = safeServiceFile(event.service);
-    this.writer.write(key, text);
+    this.writer.write(key, text, event.seq);
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {

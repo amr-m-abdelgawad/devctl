@@ -1,12 +1,16 @@
 import { createWriteStream, mkdirSync, readdirSync, statfsSync, statSync, unlinkSync, type WriteStream } from "node:fs";
+import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_LOG_CAP_BYTES, diskReserveBytes, SPILL_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
+import { partIndexFile, partPatchFile } from "./session-files.ts";
 
 // One write per service per batch instead of one per record.
 const BATCH_BYTES = 256 * 1024;
 const BATCH_MS = 100;
 const MAX_PART_BYTES = 64 * 1024 * 1024;
 const PARTS_PER_SESSION = 8;
+// A part's index gets a checkpoint for each this many bytes of lines.
+const CHECKPOINT_BYTES = 64 * 1024;
 const DISK_CHECK_MS = 5_000;
 const WRITE_RETRY_MS = 5_000;
 // Structured appends are not held back by the ingest pipeline, so past this
@@ -29,9 +33,24 @@ export type SessionWriterOptions = {
 type Part = {
   path: string;
   bytes: number;
+  // Bytes of the files kept beside the part. They count toward the session and go when the part goes.
+  sidecarBytes: number;
+  // Seqs of the first and last line written, 0 until a line carries one.
+  firstSeq: number;
+  lastSeq: number;
+  // An index is kept for a part whose first line carried a seq.
+  indexed: boolean;
+  // Offset of the last index checkpoint.
+  checkpointAt: number;
+  // The appends to the part's sidecars so far, in order.
+  sidecars: Promise<void>;
   // Settles once the part's stream is closed, so it can be deleted everywhere.
   closed: Promise<void>;
 };
+
+function newPart(path: string, bytes: number, sidecarBytes: number): Part {
+  return { path, bytes, sidecarBytes, firstSeq: 0, lastSeq: 0, indexed: false, checkpointAt: 0, sidecars: Promise.resolve(), closed: Promise.resolve() };
+}
 
 type KeyState = {
   key: string;
@@ -41,6 +60,8 @@ type KeyState = {
   nextPart: number;
   buffer: string[];
   sizes: number[];
+  // The seq of each buffered line, 0 when the caller gave none.
+  seqs: number[];
   bufferBytes: number;
 };
 
@@ -51,6 +72,12 @@ type KeyState = {
  * session under its byte cap, so a full session keeps its newest lines. A
  * low disk or a failed write drops lines from persistence (counted in `loss`)
  * until the condition clears; nothing here ever stops ingestion.
+ *
+ * A part whose lines carry seqs gets an index beside it, `<part>.idx`: lines
+ * of `offset bound`, where every seq written before `offset` is at most
+ * `bound`. The first is `0` with the part's first seq less one, then one each
+ * 64 KiB, and a sealed part ends with its size and last seq. A reader seeks
+ * with it instead of probing the part.
  */
 export class SessionLogWriter {
   private readonly keys = new Map<string, KeyState>();
@@ -86,7 +113,7 @@ export class SessionLogWriter {
     this.onRotate = options.onRotate ?? (() => undefined);
     for (const part of existingParts(directory)) {
       this.inherited.push(part);
-      this.sessionBytes += part.bytes;
+      this.sessionBytes += part.bytes + part.sidecarBytes;
     }
   }
 
@@ -104,7 +131,8 @@ export class SessionLogWriter {
     return this.pendingBytes() > this.pendingLimit;
   }
 
-  write(key: string, line: string): void {
+  /** `seq` is the record's, when the line is a stored record; it feeds the part's index. */
+  write(key: string, line: string, seq = 0): void {
     const bytes = Buffer.byteLength(line);
     if (!this.diskAllows() || !this.writesAllowed()) {
       this.loss += 1;
@@ -121,6 +149,7 @@ export class SessionLogWriter {
     const state = this.keyState(key);
     state.buffer.push(line);
     state.sizes.push(bytes);
+    state.seqs.push(seq);
     state.bufferBytes += bytes;
     this.buffered += bytes;
     if (state.bufferBytes >= BATCH_BYTES) {
@@ -145,7 +174,8 @@ export class SessionLogWriter {
     const closing: Promise<void>[] = [];
     for (const state of this.keys.values()) {
       if (state.stream !== undefined && state.active !== undefined) {
-        closing.push(this.seal(state).closed);
+        const part = this.seal(state);
+        closing.push(part.closed, part.sidecars);
       }
     }
     await Promise.all(closing);
@@ -179,9 +209,11 @@ export class SessionLogWriter {
     }
     const lines = state.buffer;
     const sizes = state.sizes;
+    const seqs = state.seqs;
     let total = state.bufferBytes;
     state.buffer = [];
     state.sizes = [];
+    state.seqs = [];
     state.bufferBytes = 0;
     this.buffered -= total;
     if (!this.writesAllowed()) {
@@ -206,10 +238,55 @@ export class SessionLogWriter {
         bytes += sizes[end]!;
         end += 1;
       }
+      this.indexLines(state.active!, seqs, sizes, index, end);
       this.writeBatch(state, stream, lines.slice(index, end).join(""), bytes, end - index);
       index = end;
     }
     this.evictOverCap();
+  }
+
+  // Notes where lines about to be written land in their part: its first
+  // seq, then a checkpoint each CHECKPOINT_BYTES.
+  private indexLines(part: Part, seqs: number[], sizes: number[], from: number, to: number): void {
+    let offset = part.bytes;
+    let entries = "";
+    for (let line = from; line < to; line += 1) {
+      const seq = seqs[line]!;
+      if (offset === 0) {
+        part.indexed = seq > 0;
+        entries = part.indexed ? `0 ${seq - 1}\n` : "";
+      } else if (part.indexed && offset - part.checkpointAt >= CHECKPOINT_BYTES) {
+        entries += `${offset} ${part.lastSeq}\n`;
+        part.checkpointAt = offset;
+      }
+      if (seq > 0) {
+        part.firstSeq = part.firstSeq === 0 ? seq : part.firstSeq;
+        part.lastSeq = Math.max(part.lastSeq, seq);
+      }
+      offset += sizes[line]!;
+    }
+    if (entries !== "") {
+      this.appendSidecar(part, partIndexFile(part.path), entries);
+    }
+  }
+
+  // Appends to a file beside a part, after the part's earlier sidecar
+  // appends. The bytes count toward the session. `lines` are lost if it fails.
+  private appendSidecar(part: Part, path: string, text: string, lines = 0): void {
+    const bytes = Buffer.byteLength(text);
+    part.sidecarBytes += bytes;
+    this.sessionBytes += bytes;
+    this.writing += bytes;
+    part.sidecars = part.sidecars
+      .then(() => appendFile(path, text, { mode: 0o600 }))
+      .catch(() => {
+        // A missing index entry only costs a reader a seek.
+        this.loss += lines;
+      })
+      .then(() => {
+        this.writing -= bytes;
+        this.settle();
+      });
   }
 
   private writeBatch(state: KeyState, stream: WriteStream, data: string, bytes: number, lines: number): void {
@@ -242,7 +319,7 @@ export class SessionLogWriter {
       this.noteWriteError(state, stream);
     });
     state.stream = stream;
-    state.active = { path, bytes: 0, closed: Promise.resolve() };
+    state.active = newPart(path, 0, 0);
     if (index > 0) {
       this.onRotate();
     }
@@ -254,6 +331,9 @@ export class SessionLogWriter {
     const stream = state.stream;
     state.active = undefined;
     state.stream = undefined;
+    if (part.indexed) {
+      this.appendSidecar(part, partIndexFile(part.path), `${part.bytes} ${part.lastSeq}\n`);
+    }
     part.closed = stream === undefined
       ? Promise.resolve()
       : new Promise<void>((resolve) => {
@@ -292,9 +372,9 @@ export class SessionLogWriter {
     let best: KeyState | undefined;
     let bestBytes = 0;
     for (const state of this.keys.values()) {
-      let bytes = state.active?.bytes ?? 0;
+      let bytes = state.active === undefined ? 0 : state.active.bytes + state.active.sidecarBytes;
       for (const part of state.sealed) {
-        bytes += part.bytes;
+        bytes += part.bytes + part.sidecarBytes;
       }
       if (bytes > bestBytes) {
         best = state;
@@ -305,8 +385,14 @@ export class SessionLogWriter {
   }
 
   private dropPart(part: Part): void {
-    this.sessionBytes -= part.bytes;
-    const removal = part.closed.then(() => removeQuiet(part.path));
+    this.sessionBytes -= part.bytes + part.sidecarBytes;
+    const removal = part.closed
+      .then(() => part.sidecars)
+      .then(() => {
+        removeQuiet(part.path);
+        removeQuiet(partIndexFile(part.path));
+        removeQuiet(partPatchFile(part.path));
+      });
     this.removals.add(removal);
     void removal.then(() => this.removals.delete(removal));
   }
@@ -359,26 +445,46 @@ export class SessionLogWriter {
     if (existing !== undefined) {
       return existing;
     }
-    const created: KeyState = { key, sealed: [], active: undefined, stream: undefined, nextPart: firstFreePart(this.directory, key), buffer: [], sizes: [], bufferBytes: 0 };
+    const created: KeyState = { key, sealed: [], active: undefined, stream: undefined, nextPart: firstFreePart(this.directory, key), buffer: [], sizes: [], seqs: [], bufferBytes: 0 };
     this.keys.set(key, created);
     return created;
   }
 }
 
+// Parts already in the directory, with the sidecars beside them. A sidecar
+// whose part is gone (an older devctl evicts only the part) is removed.
 function existingParts(directory: string): Part[] {
   const parts: { part: Part; mtime: number }[] = [];
-  for (const name of readdirQuiet(directory)) {
+  const names = readdirQuiet(directory);
+  const kept = new Set<string>();
+  for (const name of names) {
     if (!name.endsWith(".jsonl")) {
       continue;
     }
     try {
       const st = statSync(join(directory, name));
-      parts.push({ part: { path: join(directory, name), bytes: st.size, closed: Promise.resolve() }, mtime: st.mtimeMs });
+      const sidecars = [partIndexFile(name), partPatchFile(name)];
+      const sidecarBytes = sidecars.reduce((sum, sidecar) => sum + (names.includes(sidecar) ? fileSize(join(directory, sidecar)) : 0), 0);
+      sidecars.forEach((sidecar) => kept.add(sidecar));
+      parts.push({ part: newPart(join(directory, name), st.size, sidecarBytes), mtime: st.mtimeMs });
     } catch {
       // removed between listing and stat
     }
   }
+  for (const name of names) {
+    if ((name.endsWith(".idx") || name.endsWith(".patch")) && !kept.has(name)) {
+      removeQuiet(join(directory, name));
+    }
+  }
   return parts.sort((a, b) => a.mtime - b.mtime).map((row) => row.part);
+}
+
+function fileSize(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
+  }
 }
 
 // Part 0 keeps the historical `<service>.jsonl` name. Later parts use `~`,

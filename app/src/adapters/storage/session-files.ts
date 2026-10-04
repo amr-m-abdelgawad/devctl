@@ -8,6 +8,21 @@ export const SESSION_PREFIX = "session-";
 export const SESSION_FORMAT_FILE = "FORMAT";
 export const SESSION_FORMAT_JSONL = "jsonl";
 
+const PART_SUFFIX = ".jsonl";
+
+/**
+ * Files kept beside a part `<service>[~N].jsonl`: its seq index and the
+ * records replaced after they were written. Neither name ends in `.jsonl`,
+ * so a reader that knows only parts (an older devctl) passes over both.
+ */
+export function partIndexFile(part: string): string {
+  return `${part.slice(0, -PART_SUFFIX.length)}.idx`;
+}
+
+export function partPatchFile(part: string): string {
+  return `${part.slice(0, -PART_SUFFIX.length)}.patch`;
+}
+
 export function listSessions(root = logsDir()): string[] {
   if (!existsSync(root)) {
     return [];
