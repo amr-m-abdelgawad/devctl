@@ -169,7 +169,13 @@ export class SoakContainer {
       tag, "sleep", "infinity",
     ]);
     const container = new SoakContainer(name, shape);
-    await container.sh(`mkdir -p ${REPO}/.devctl`, { cwd: "/work" });
+    try {
+      await container.sh(`mkdir -p ${REPO}/.devctl`, { cwd: "/work" });
+    } catch (err) {
+      // Not yet handed to a test's cleanup list, so it would be left running.
+      await container.rm();
+      throw err;
+    }
     return container;
   }
 
