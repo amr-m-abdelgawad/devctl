@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Log ingest yields between reads, coalesces output, and spills to a capped on-disk spool so a fast service cannot freeze or OOM the daemon. The live window stays the last `logs.max_memory_events` records. Session files, the not-yet-parsed spool, and the logs directory are capped (`logs.persistence.max_session_bytes`, `logs.spool.max_bytes`, `logs.persistence.max_total_bytes`).
-- POSIX services keep stdout and stderr across a daemon restart by writing FIFOs that a detached drainer holds open. Windows uses pipes.
+- Log ingest yields between reads, coalesces output, and spills to a capped on-disk spool so a fast service cannot freeze or OOM the daemon. Lines are not dropped and stay in order: only when memory and the spool are both full does devctl stop reading, and the service waits in its write. The live window stays the last `logs.max_memory_events` records. Session files, the not-yet-parsed spool, and the logs directory are capped (`logs.persistence.max_session_bytes`, `logs.spool.max_bytes`, `logs.persistence.max_total_bytes`). A session over its cap rolls each service's file to numbered parts and deletes the oldest, so it keeps its newest lines. Output a crashed daemon had read but not parsed is parsed into that daemon's session by the next one.
+- On Linux and macOS, services keep stdout and stderr across a daemon restart, crash, or `kill -9`. Each captured stream is a FIFO the daemon reads directly. While no daemon runs, one drainer per repository spools the output, capped by `logs.spool.max_bytes`; the next daemon replays it with its original timestamps. A service whose output has nowhere to go waits in its write and never gets a broken pipe. Windows uses pipes.
+- Past sessions are paged. `/history` in the TUI, the web console, and MCP can reach a session's older records, not only its tail, and the read runs on the log worker instead of the daemon's main thread.
 - The daemon sheds capture bodies and shrinks the log ring when the container's working set (usage less inactive file cache, as `docker stats` shows) crosses 90% and 75% of the cgroup limit; with no limit, its own RSS against host memory. Shedding never stops reading service output. `status` includes event-loop lag and log pipeline counters.
 - `devctl down --force` stops a daemon that has no heartbeat, including one still running after an upgrade. A daemon that is making progress is not replaced. Before it signals the pid in a lock left by an older devctl, it checks that the pid still runs the devctl daemon; a lock whose pid now runs something else is removed instead.
 - `supervisor.reap_orphans` (off by default) asks Linux to reap zombies parented by the daemon. `devctl doctor` warns when PID 1 does not reap.
@@ -23,10 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LLM and proxy capture keep metadata for 2,000 calls and evict bodies past `llm.store_max_bytes` and `proxy.inspect_store_max_bytes` (128 MiB when unset).
 - With persistence disabled, very large lines shrink the in-memory window below 50,000 records instead of exhausting RAM.
 - The watchdog replaces a daemon only after a proven 60 second wedge. It writes a wedge marker and releases the lock first. A client that replaces a wedged daemon signals only a pid that is still that daemon, and sends SIGTERM two seconds before SIGKILL; a daemon that recovers in that time hands its services over instead of stopping them. Clients wait while a daemon is busy or stopped (`SIGSTOP`). `status` and `down` explain a live daemon that does not answer, including one left by an older devctl.
-- `llm_calls_page` and `traffic_calls_page` accept `summary: true` to list rows without bodies. The default response is unchanged.
+- `llm_calls_page` and `traffic_calls_page` accept `summary: true` to list rows without bodies. The default response is unchanged. The TUI, MCP and web lists, and the text output of `devctl llm` and `devctl traffic`, list this way and fetch a body only for the call being viewed.
+- Live log updates reach attached clients in batches: at most one every 50 ms, carrying the newest 500 records and a count of the rest. The TUI pages in what a flood left out once the stream is calm. A client that stops reading no longer grows the daemon's memory. Older clients keep per-record events.
+- A log line's timestamp is when devctl read it from the service, even if it then waited in a spool. Multiline folding and proxy request-id pairing go by that time, so delayed output is grouped the same as live output.
+- Each session records the daemon that writes it. Pruning never deletes a session whose daemon is still running, in any repository or container sharing the logs directory, and it applies each session's own `retention_days`.
+- A low disk or a failed write leaves lines out of the session files and counts them (`daemon.logs.loss`, `daemon.logs.degraded` in `status --json`) until it clears. It no longer stops reading service output.
+- A log worker that dies is restarted once with its unacknowledged output; a second loss falls back to the in-process store.
+- The TUI refreshes status within about 30 ms of an event (at most four times a second) and every 2 seconds while idle. Its log window is held within a byte budget sized to `logs.max_memory_events` (8 to 64 MiB).
 - After the stop grace period, devctl SIGKILLs process-group members that are still alive. A zombie is not treated as running.
 - On Linux the daemon lock records the holder's PID namespace (it was never read before). A lock held from another PID namespace, such as another container sharing the devctl home, is judged by whether its socket accepts, not by a pid that names a different process here.
 - A watchdog worker that fails is retried after 1, 2, 4 … seconds, at most a minute apart, instead of every second. `status`, `status --json` (`daemon.watchdog`, `daemon.logStore`), and `devctl doctor` say when the daemon runs without its watchdog or log worker.
+
+### Fixed
+
+- A gRPC response that the client can no longer take does not crash the daemon.
 
 ## [0.25.0] - 2026-09-28
 
