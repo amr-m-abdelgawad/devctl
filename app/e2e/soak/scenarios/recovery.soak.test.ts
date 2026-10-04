@@ -88,6 +88,45 @@ describe.skipIf(!soakEnabled || soakQuick)("recovery", () => {
     expect(union.complete).toBe(true);
   }, 300_000);
 
+  test("down --keep-services mid-flood hands the service over with no line lost", async () => {
+    const box = await container();
+    const count = 100_000;
+    await box.configure(`${CONFIG_HEADER}project:\n  name: soak-keep\nservices:\n${floodService("flood", 5_000, count)}`);
+    await box.devctl(["start", "flood"]);
+    const before = await box.status();
+    await Bun.sleep(6_000);
+    await box.devctl(["down", "--keep-services"]);
+    // No daemon runs for five seconds; the drainer holds what the service writes meanwhile.
+    await Bun.sleep(5_000);
+    const aliveAfterDown = (await box.sh(`kill -0 ${before.services.flood!.pid}`, { allowFail: true })).code === 0;
+    const drained = Number((await box.sh('ls "$DEVCTL_HOME"/state/*/stdio/drain/ 2>/dev/null | grep -c spool || true')).stdout.trim());
+    await box.devctl(["start", "flood"]);
+    const after = await box.status();
+    await box.waitDone("flood", { timeoutMs: 120_000 });
+    const s1 = await box.verifySessions([before.session_id], "flood", count);
+    const s2 = await box.verifySessions([after.session_id], "flood", count);
+    const union = await box.verifySessions([before.session_id, after.session_id], "flood", count);
+    report("down --keep-services mid-flood", {
+      aliveAfterDown,
+      pidAfterTakeover: after.services.flood?.pid,
+      drainSegments: drained,
+      s1: { first: s1.first, last: s1.last, records: s1.records },
+      s2: { first: s2.first, last: s2.last, records: s2.records, lagMs: s2.lagMs },
+      union: { complete: union.complete, missing: union.missingInside, duplicates: union.duplicates, outOfOrder: union.outOfOrder },
+    });
+    await box.devctl(["down"], { allowFail: true });
+
+    expect(aliveAfterDown).toBe(true);
+    expect(after.services.flood?.pid).toBe(before.services.flood!.pid);
+    expect(drained).toBeGreaterThan(0);
+    // Unlike a SIGKILL, a stop flushes what it read: both sessions together hold every line once.
+    expect(union.complete).toBe(true);
+    expect(union.missingInside).toBe(0);
+    expect(union.duplicates).toBe(0);
+    expect(union.outOfOrder).toBe(0);
+    expect(s2.lagMs.max).toBeLessThan(RESUMED_LAG_MAX_MS);
+  }, 300_000);
+
   for (const shape of [
     { name: "PID 1 sleep infinity with reap_orphans", init: false, reap: true },
     { name: "Docker init without reap_orphans", init: true, reap: false },
