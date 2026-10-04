@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { closeSync, constants, existsSync, mkdtempSync, openSync, readdirSync, rmSync, statSync } from "node:fs";
+import { closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -98,6 +98,49 @@ describe.skipIf(process.platform === "win32")("fifo drain", () => {
     expect(await service.proc.exited).toBe(0);
     expect(numbered(replayed.map((d) => d.text).join("") + rest)).toEqual(expected);
     expect(spoolBytes(plan.spoolDir)).toBe(0);
+  }, 30_000);
+
+  test("the drain spool and the dead daemon's ingest spool share one cap", async () => {
+    const service = serviceWritingTo(writeLines);
+    // The dead daemon left 48 KiB of unparsed output in its own spool.
+    const ingestSpoolDir = join(service.dir, "log-spool");
+    mkdirSync(join(ingestSpoolDir, "s_api_stdout_1"), { recursive: true });
+    writeFileSync(join(ingestSpoolDir, "s_api_stdout_1", "00000000.spool"), Buffer.alloc(48 * 1024));
+    const plan = { ...planFor(service, 64 * 1024), ingestSpoolDir };
+    const drain = startDrain(plan);
+    await Bun.sleep(800);
+    expect(service.proc.exitCode).toBeNull();
+    drain.stop();
+    await drain.done;
+    // 16 KiB was left for the drainer; it stops within one read batch of that, far below its own 64 KiB.
+    expect(spoolBytes(plan.spoolDir)).toBeLessThan(48 * 1024);
+    const replayed = await replayAll(plan.spoolDir);
+    const rest = await readRest(service.fifo);
+    expect(await service.proc.exited).toBe(0);
+    expect(numbered(replayed.map((d) => d.text).join("") + rest)).toEqual(expected);
+  }, 30_000);
+
+  test("replay marks its chunks and reports what the spool still holds", async () => {
+    const service = serviceWritingTo("echo one; echo two");
+    const plan = planFor(service, 1 << 20);
+    const drain = startDrain(plan);
+    await service.proc.exited;
+    await Bun.sleep(300);
+    drain.stop();
+    await drain.done;
+    const remaining: number[] = [];
+    const replayedFlags: (boolean | undefined)[] = [];
+    const handler: ProcessChunkHandler = (_stream, _bytes, meta) => {
+      if (meta?.end !== true) {
+        replayedFlags.push(meta?.replayed);
+      }
+      return true;
+    };
+    await replayDrained(plan.spoolDir, () => handler, (bytes) => remaining.push(bytes));
+    expect(replayedFlags.length).toBeGreaterThan(0);
+    expect(replayedFlags.every((flag) => flag === true)).toBe(true);
+    expect(remaining[0]).toBeGreaterThan(0);
+    expect(remaining.at(-1)).toBe(0);
   }, 30_000);
 
   test("replay keeps each chunk's read time and pid, then ends the stream", async () => {

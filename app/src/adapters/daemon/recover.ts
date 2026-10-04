@@ -29,7 +29,7 @@ export type RecoverHost = {
   readonly serviceStartedEnv: Map<string, string>;
   readonly orchestrator: ServiceOrchestratorPort;
   readonly procs: ProcessManager;
-  readonly logs: Pick<LogStore, "append" | "ingestChunk" | "ingestPaused">;
+  readonly logs: Pick<LogStore, "append" | "ingestChunk" | "ingestPaused" | "reserveSpool">;
   readonly clock: Clock;
   readonly tokens: TokenManager;
   readonly registry?: Registry;
@@ -92,7 +92,16 @@ function outputChunk(host: RecoverHost, name: string, pid: number): ProcessChunk
 // Replayed output carries the time it was read; live output is stamped now.
 function ingestAs(host: RecoverHost, name: string, pid: number): ProcessChunkHandler {
   return (stream, bytes, meta) =>
-    host.logs.ingestChunk?.({ service: name, stream, pid: meta?.pid ?? pid, readAtMs: meta?.readAtMs ?? host.clock.unixMs(), bytes, end: meta?.end }) ?? false;
+    host.logs.ingestChunk?.({
+      service: name,
+      stream,
+      pid: meta?.pid ?? pid,
+      readAtMs: meta?.readAtMs ?? host.clock.unixMs(),
+      bytes,
+      end: meta?.end,
+      // Replayed bytes are still in the drain spool, so they are never written to the ingest spool too.
+      noSpill: meta?.replayed,
+    }) ?? false;
 }
 
 // Before anything else: stops the previous daemon's drainer, replays what it
@@ -106,6 +115,7 @@ async function takeOverStdio(host: RecoverHost): Promise<void> {
   await host.procs.takeOverStdio(
     (service, pid) => ingestAs(host, service, pid),
     () => host.logs.ingestPaused?.() === true,
+    (bytes) => host.logs.reserveSpool?.(bytes),
   );
 }
 

@@ -73,10 +73,11 @@ export type Handle = {
 export class ProcessManager implements ProcessRuntime {
   private readonly fifos: FifoStdio | undefined;
 
-  constructor(options: { stdioRoot?: string; spoolMaxBytes?: number } = {}) {
+  /** `ingestSpoolDir` is the log store's spool: what it holds shares `spoolMaxBytes` with the drain spool. */
+  constructor(options: { stdioRoot?: string; spoolMaxBytes?: number; ingestSpoolDir?: string } = {}) {
     this.fifos = options.stdioRoot === undefined || options.stdioRoot === "" || process.platform === "win32"
       ? undefined
-      : new FifoStdio(options.stdioRoot, options.spoolMaxBytes ?? DEFAULT_LOG_CAP_BYTES);
+      : new FifoStdio(options.stdioRoot, options.spoolMaxBytes ?? DEFAULT_LOG_CAP_BYTES, options.ingestSpoolDir);
   }
 
   isRunning(name: string): boolean {
@@ -237,8 +238,8 @@ export class ProcessManager implements ProcessRuntime {
    * its drainer spooled is replayed first. `replayed` settles once that is
    * done and live reading has started.
    */
-  async takeOverStdio(handlerFor: StdioHandlerFor, paused?: () => boolean): Promise<{ replayed: Promise<void> }> {
-    return (await this.fifos?.takeOver(handlerFor, paused)) ?? { replayed: Promise.resolve() };
+  async takeOverStdio(handlerFor: StdioHandlerFor, paused?: () => boolean, onDrainBytes?: (bytes: number) => void): Promise<{ replayed: Promise<void> }> {
+    return (await this.fifos?.takeOver(handlerFor, paused, onDrainBytes)) ?? { replayed: Promise.resolve() };
   }
 
   /** True when `pid`'s stdout or stderr is read from a FIFO. */

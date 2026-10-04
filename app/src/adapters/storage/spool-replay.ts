@@ -42,9 +42,17 @@ export function leftoverSpoolDirs(spoolRoot: string): string[] {
  * a daemon that dies mid-replay leaves the rest for the next one. A stream's
  * last partial line (the writer died mid-line) is replayed as a line.
  */
-export async function replayLeftoverSpools(dirs: readonly string[], sink: ReplaySink, stopped: () => boolean): Promise<void> {
-  for (const dir of dirs) {
-    const spool = new OrderedSpool(dir);
+export async function replayLeftoverSpools(
+  dirs: readonly string[],
+  sink: ReplaySink,
+  stopped: () => boolean,
+  onRemaining: (bytes: number) => void = () => undefined,
+): Promise<void> {
+  // What is still to replay sits on disk and counts against the spool budget until it is parsed.
+  const spools = dirs.map((dir) => new OrderedSpool(dir));
+  let remaining = spools.reduce((sum, spool) => sum + spool.size(), 0);
+  onRemaining(remaining);
+  for (const spool of spools) {
     const splitter = new LineSplitter();
     let header: SpoolHeader | undefined;
     let lastReadAtMs = 0;
@@ -65,6 +73,8 @@ export async function replayLeftoverSpools(dirs: readonly string[], sink: Replay
         sink(header, lines);
       }
       await spool.drop();
+      remaining = Math.max(0, remaining - segment.bytes);
+      onRemaining(remaining);
       await nextTurn();
     }
     if (stopped()) {
@@ -76,6 +86,7 @@ export async function replayLeftoverSpools(dirs: readonly string[], sink: Replay
     }
     await spool.destroy();
   }
+  onRemaining(0);
 }
 
 /**

@@ -50,8 +50,9 @@ export class FifoStdio {
   constructor(
     private readonly root: string,
     spoolMaxBytes: number,
+    ingestSpoolDir?: string,
   ) {
-    this.sentinel = new StdioSentinel(root, spoolMaxBytes);
+    this.sentinel = new StdioSentinel(root, spoolMaxBytes, ingestSpoolDir);
   }
 
   /** FIFOs for the captured streams of a service about to start; undefined when none can be made. */
@@ -144,7 +145,7 @@ export class FifoStdio {
    * that are the FIFOs read, so every stream stays in the order it was
    * written.
    */
-  async takeOver(handlerFor: StdioHandlerFor, paused?: () => boolean): Promise<{ replayed: Promise<void> }> {
+  async takeOver(handlerFor: StdioHandlerFor, paused?: () => boolean, onDrainBytes?: (bytes: number) => void): Promise<{ replayed: Promise<void> }> {
     const taken: LiveStream[] = [];
     for (const record of readManifest(this.root)) {
       if (this.live.has(record.fifo)) {
@@ -164,7 +165,7 @@ export class FifoStdio {
     this.removeStrayFifos();
     this.writeManifest();
     this.refresh();
-    const replayed = replayDrained(drainSpoolDir(this.root), handlerFor).then(() => {
+    const replayed = replayDrained(drainSpoolDir(this.root), handlerFor, onDrainBytes).then(() => {
       for (const stream of taken) {
         this.follow(stream, handlerFor(stream.service, stream.pid), paused);
       }

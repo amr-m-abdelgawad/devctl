@@ -26,7 +26,8 @@ export type WorkerRequest =
   | { type: "init"; config: WorkerLogConfig }
   /** Structured appends in lane order, each with its event time; acked by the highest id. */
   | { type: "appendBatch"; items: { id: number; atMs: number; event: LogIngest }[] }
-  | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean }
+  | { id: number; type: "chunk"; service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean; noSpill?: boolean }
+  | { type: "reserveSpool"; bytes: number }
   | { type: "setMemoryBudget"; bytes: number }
   /** The daemon thread is holding output back (credit or lane full): a fold may still get older lines. */
   | { type: "setUpstreamPaused"; paused: boolean }

@@ -128,6 +128,8 @@ export class LogManager {
   private drainTimer?: ReturnType<typeof setTimeout>;
   private batcher?: LogBatcher;
   private upstreamPaused = false;
+  private externalSpoolBytes = 0;
+  private leftoverSpoolBytes = 0;
   private readonly logRoot: string;
   private readonly repoKey: string;
   private readonly retentionDays: number;
@@ -239,7 +241,10 @@ export class LogManager {
           }
         };
     try {
-      await replayLeftoverSpools(dirs, sink, () => this.closing);
+      await replayLeftoverSpools(dirs, sink, () => this.closing, (bytes) => {
+        this.leftoverSpoolBytes = bytes;
+        this.applySpoolReserve();
+      });
     } catch {
       // Whatever was not replayed stays on disk for the next daemon.
     } finally {
@@ -302,6 +307,7 @@ export class LogManager {
         pid: chunk.pid,
         readAtMs: chunk.readAtMs,
         bytes: Buffer.from(chunk.bytes),
+        noSpill: chunk.noSpill,
       }, force);
       if (!accepted) {
         this.scheduleDrain();
@@ -313,6 +319,20 @@ export class LogManager {
     }
     this.scheduleDrain();
     return true;
+  }
+
+  /**
+   * Unparsed output held on disk outside this store's own spool, such as a
+   * drain spool being replayed. It shares `logs.spool.max_bytes` with the
+   * spool, so everything not yet parsed stays within that one cap.
+   */
+  reserveSpool(bytes: number): void {
+    this.externalSpoolBytes = Math.max(0, bytes);
+    this.applySpoolReserve();
+  }
+
+  private applySpoolReserve(): void {
+    this.pipeline?.reserve(this.externalSpoolBytes + this.leftoverSpoolBytes);
   }
 
   /** Output is being held back before it reaches this store (the worker's sender is out of credit). */
@@ -710,6 +730,7 @@ export class LogManager {
       // A spool read or write settled: what it made ready is processed on the next slice.
       () => this.scheduleDrain(),
     );
+    this.applySpoolReserve();
     return this.pipeline;
   }
 
@@ -859,6 +880,9 @@ export function inProcessLogStore(mgr: LogManager): LogStore {
     },
     close: () => mgr.close(),
     ingestChunk: (chunk) => mgr.acceptChunk(chunk),
+    reserveSpool: (bytes) => {
+      mgr.reserveSpool(bytes);
+    },
     ingestPaused: () => mgr.ingestPaused(),
     flush: () => mgr.flush(),
     setMemoryBudget: (bytes) => {

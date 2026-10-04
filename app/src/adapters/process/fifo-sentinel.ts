@@ -59,6 +59,7 @@ export class StdioSentinel {
   constructor(
     private readonly root: string,
     private readonly spoolMaxBytes: number,
+    private readonly ingestSpoolDir?: string,
   ) {
     this.generation = readGeneration(root);
   }
@@ -87,6 +88,7 @@ export class StdioSentinel {
     const plan = {
       spoolDir: drainSpoolDir(this.root),
       maxBytes: this.spoolMaxBytes,
+      ingestSpoolDir: this.ingestSpoolDir,
       stoppedPath: drainStoppedPath(this.root),
       streams: streams.map((stream, index) => ({ ...stream, fd: FIRST_EXTRA_FD + index })),
     };

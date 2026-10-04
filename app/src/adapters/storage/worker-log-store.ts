@@ -12,7 +12,7 @@ import type { WorkerLogConfig, WorkerRequest, WorkerResponse, WorkerRpcBody } fr
 
 export type { WorkerLogConfig } from "./log-worker-protocol.ts";
 
-type WorkerChunk = { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean };
+type WorkerChunk = { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean; noSpill?: boolean };
 
 export const WORKER_INIT_TIMEOUT_MS = 500;
 export const WORKER_RPC_TIMEOUT_MS = 10_000;
@@ -63,6 +63,7 @@ export class WorkerLogStore implements LogStore {
   // Streams whose reader holds a chunk this store refused, and whether the worker was told.
   private readonly refusedStreams = new Set<string>();
   private upstreamPaused = false;
+  private spoolReserved = 0;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private stats: LogSnapshot = { total: 0, errors: 0, counts: {}, seen: 0, seenErrors: 0 };
@@ -185,6 +186,17 @@ export class WorkerLogStore implements LogStore {
       return this.fallback.ingestPaused();
     }
     return this.unacked >= CREDIT_TOTAL_BYTES || this.pipeline?.paused === true || this.lane.backlogged();
+  }
+
+  reserveSpool(bytes: number): void {
+    this.spoolReserved = bytes;
+    if (this.fallback) {
+      this.fallback.reserveSpool?.(bytes);
+      return;
+    }
+    if (!this.dead) {
+      this.post({ type: "reserveSpool", bytes });
+    }
   }
 
   setMemoryBudget(bytes: number): void {
@@ -384,6 +396,9 @@ export class WorkerLogStore implements LogStore {
     if (this.memoryBudget !== undefined) {
       this.post({ type: "setMemoryBudget", bytes: this.memoryBudget });
     }
+    if (this.spoolReserved > 0) {
+      this.post({ type: "reserveSpool", bytes: this.spoolReserved });
+    }
   }
 
   private clearRestartTimer(): void {
@@ -422,6 +437,7 @@ export class WorkerLogStore implements LogStore {
     if (this.memoryBudget !== undefined) {
       store.setMemoryBudget?.(this.memoryBudget);
     }
+    store.reserveSpool?.(this.spoolReserved);
     this.fallback = store;
     for (const item of missed) {
       manager.append(item.event, item.atMs);
@@ -644,7 +660,7 @@ export class WorkerLogStore implements LogStore {
 }
 
 function chunkMessage(id: number, chunk: WorkerChunk): WorkerRequest {
-  return { id, type: "chunk", service: chunk.service, stream: chunk.stream, pid: chunk.pid, readAtMs: chunk.readAtMs, bytes: chunk.bytes, end: chunk.end };
+  return { id, type: "chunk", service: chunk.service, stream: chunk.stream, pid: chunk.pid, readAtMs: chunk.readAtMs, bytes: chunk.bytes, end: chunk.end, noSpill: chunk.noSpill };
 }
 
 function isLogPage(value: LogRecord[] | LogPage | LogFacets | null): value is LogPage {

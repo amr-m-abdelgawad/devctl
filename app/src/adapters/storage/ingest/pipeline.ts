@@ -22,6 +22,8 @@ export type PipelineChunk = {
   pid: number;
   readAtMs: number;
   bytes: Buffer;
+  /** The bytes are still held in another spool on disk, so they wait there instead of being written to this one. */
+  noSpill?: boolean;
 };
 
 export type PipelineStreamKey = Pick<PipelineChunk, "service" | "stream" | "pid">;
@@ -86,6 +88,8 @@ export class IngestPipeline {
   private spooledTotal = 0;
   // Encoded bytes of writes in flight, held against the spool budget.
   private writingTotal = 0;
+  // Unparsed bytes held on disk outside this spool, held against the same budget.
+  private reserved = 0;
   private readonly io = new Set<Promise<void>>();
   // Set by drainForClose: what is still spooled stays there for the next daemon.
   private closing = false;
@@ -144,6 +148,12 @@ export class IngestPipeline {
       state.headBytes += incoming;
       this.memoryBytes += incoming;
       return true;
+    }
+    if (chunk.noSpill === true && !force) {
+      // It stays in the spool it is being replayed from until memory has
+      // room. That refusal is the replayer's alone, so readers are not paused.
+      state.blocked = true;
+      return false;
     }
     // A write frees memory only once it settles, so a chunk past the credit
     // window is refused now; the tail starts on its way to disk for the retry.
@@ -344,8 +354,17 @@ export class IngestPipeline {
     this.onReady();
   }
 
+  /**
+   * Counts unparsed output that sits on disk outside this spool (a drain
+   * spool or a crashed daemon's spool being replayed) against the one budget,
+   * so everything not yet parsed stays within `spoolMaxBytes` together.
+   */
+  reserve(bytes: number): void {
+    this.reserved = Math.max(0, bytes);
+  }
+
   private spoolRoom(): number {
-    return this.spoolMaxBytes - this.spooledTotal - this.writingTotal;
+    return this.spoolMaxBytes - this.spooledTotal - this.writingTotal - this.reserved;
   }
 
   // Writes the tail as the newest segment within the shared budget, one

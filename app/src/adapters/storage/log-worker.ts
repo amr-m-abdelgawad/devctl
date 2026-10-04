@@ -193,6 +193,10 @@ async function handle(message: WorkerRequest): Promise<void> {
     }
     return;
   }
+  if (message.type === "reserveSpool") {
+    manager.reserveSpool(message.bytes);
+    return;
+  }
   if (message.type === "setMemoryBudget") {
     manager.setMemoryBudget(message.bytes);
     // Trimming the ring changes its size with no record to carry the news.

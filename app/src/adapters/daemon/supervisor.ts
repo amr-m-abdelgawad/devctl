@@ -451,6 +451,7 @@ export class Supervisor {
         append: (event) => self.logs.append(event),
         ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
         ingestPaused: () => self.logs.ingestPaused?.() === true,
+        reserveSpool: (bytes) => self.logs.reserveSpool?.(bytes),
       },
       get clock() { return self.clock; },
       get tokens() { return self.tokens; },

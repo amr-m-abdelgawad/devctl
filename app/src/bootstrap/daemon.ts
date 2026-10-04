@@ -71,6 +71,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
   const processes = deps.processes ?? new ProcessManager({
     stdioRoot: process.platform === "win32" ? undefined : join(daemonStateDir(cfg.repoRoot), "stdio"),
     spoolMaxBytes: configuredByteCap(cfg.logs.spool.max_bytes, DEFAULT_LOG_CAP_BYTES),
+    ingestSpoolDir: join(daemonStateDir(cfg.repoRoot), "log-spool"),
   });
   const bus = deps.bus ?? new Bus(2048);
   const tokens = deps.tokens ?? new TokenManager(cfg.auth.refresh_threshold_seconds * 1000, googleTokenProviders(), bus, undefined, clock);

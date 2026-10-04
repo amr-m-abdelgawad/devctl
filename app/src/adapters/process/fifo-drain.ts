@@ -1,4 +1,5 @@
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, writeFileSync, type Dirent } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_LOG_CAP_BYTES } from "../../domain/logs/budgets.ts";
 import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
@@ -20,6 +21,11 @@ export type DrainPlan = {
   spoolDir: string;
   /** Reading stops once the spool and the frames waiting for it reach this. */
   maxBytes: number;
+  /**
+   * The dead daemon's own spool of unparsed output. What it still holds counts
+   * against `maxBytes` too, so both together stay within the one cap.
+   */
+  ingestSpoolDir?: string;
   /** Written after the last flush, so the next daemon knows the spool is complete. */
   stoppedPath: string;
   streams: DrainStream[];
@@ -70,7 +76,9 @@ export function startDrain(plan: DrainPlan): Drain {
     entry.frames = [];
     entry.bytes = 0;
   };
-  const full = (): boolean => blocked || spool.size() + pending.reduce((sum, entry) => sum + entry.bytes, 0) >= plan.maxBytes;
+  // Nothing reads the dead daemon's spool while no daemon runs, so its size is fixed.
+  const budget = plan.maxBytes - (plan.ingestSpoolDir === undefined ? 0 : directoryBytes(plan.ingestSpoolDir));
+  const full = (): boolean => blocked || spool.size() + pending.reduce((sum, entry) => sum + entry.bytes, 0) >= budget;
   const timer = setInterval(() => {
     for (const entry of pending) {
       flush(entry);
@@ -162,7 +170,31 @@ function parseDrainPlan(arg: string): DrainPlan | undefined {
   const streams = plan.streams.filter((s): s is DrainStream =>
     typeof s === "object" && s !== null && Number.isInteger(s.fd) && s.fd >= 3 && typeof s.service === "string"
     && (s.stream === "stdout" || s.stream === "stderr") && Number.isInteger(s.pid));
-  return { spoolDir: plan.spoolDir, maxBytes, stoppedPath: plan.stoppedPath, streams };
+  const ingestSpoolDir = typeof plan.ingestSpoolDir === "string" && plan.ingestSpoolDir !== "" ? plan.ingestSpoolDir : undefined;
+  return { spoolDir: plan.spoolDir, maxBytes, ingestSpoolDir, stoppedPath: plan.stoppedPath, streams };
+}
+
+function directoryBytes(dir: string): number {
+  let total = 0;
+  let entries: Dirent[] = [];
+  try {
+    entries = readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += directoryBytes(path);
+    } else {
+      try {
+        total += statSync(path).size;
+      } catch {
+        // removed meanwhile
+      }
+    }
+  }
+  return total;
 }
 
 /**
@@ -173,11 +205,14 @@ function parseDrainPlan(arg: string): DrainPlan | undefined {
 export async function replayDrained(
   spoolDir: string,
   handlerFor: (service: string, pid: number) => ProcessChunkHandler | undefined,
+  onRemaining: (bytes: number) => void = () => undefined,
 ): Promise<void> {
   if (!existsSync(spoolDir)) {
     return;
   }
   const spool = new OrderedSpool(spoolDir);
+  // What is left here is unparsed output on disk: it shares the spool budget until it is delivered.
+  onRemaining(spool.size());
   // Reads and deletes go through the thread pool: this runs on the daemon's thread.
   for (let segment = await spool.read(); segment !== undefined; segment = await spool.read()) {
     const header = segment.header;
@@ -188,16 +223,18 @@ export async function replayDrained(
         if (frame.bytes.byteLength === 0) {
           await deliverEnd(stream, handler);
         } else {
-          await offer(handler, stream, frame.bytes, { pid: header.pid, readAtMs: frame.readAtMs });
+          await offer(handler, stream, frame.bytes, { pid: header.pid, readAtMs: frame.readAtMs, replayed: true });
         }
       }
     }
     await spool.drop();
+    onRemaining(spool.size());
     await nextTurn();
   }
+  onRemaining(0);
 }
 
-async function offer(handler: ProcessChunkHandler, stream: "stdout" | "stderr", bytes: Uint8Array, meta: { pid: number; readAtMs: number }): Promise<void> {
+async function offer(handler: ProcessChunkHandler, stream: "stdout" | "stderr", bytes: Uint8Array, meta: { pid: number; readAtMs: number; replayed: true }): Promise<void> {
   while (handler(stream, bytes, meta) === false) {
     await sleepMs(RETRY_MS);
   }

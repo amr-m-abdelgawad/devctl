@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A log line's timestamp is when devctl read it from the service, even if it then waited in a spool. Multiline folding and proxy request-id pairing go by that time, so delayed output is grouped the same as live output.
 - Each session records the daemon that writes it. Pruning never deletes a session whose daemon is still running, in any repository or container sharing the logs directory, and it applies each session's own `retention_days`.
 - The proxy's caller lookup reads the managed processes holding the fewest file descriptors first, and each process's newest descriptors first. A service holding thousands no longer makes other services' calls lose their caller.
+- `logs.spool.max_bytes` is one cap for all unparsed output on disk: the daemon's spool, the drainer's spool, and what a crashed daemon left. They no longer add up to twice the cap during a takeover.
 - A low disk or a failed write leaves lines out of the session files and counts them (`daemon.logs.loss`, `daemon.logs.degraded` in `status --json`) until it clears. It no longer stops reading service output.
 - A log worker that dies is restarted once with its unacknowledged output; a second loss falls back to the in-process store.
 - The TUI refreshes status within about 30 ms of an event (at most four times a second) and every 2 seconds while idle. Its log window is held within a byte budget sized to `logs.max_memory_events` (8 to 64 MiB).

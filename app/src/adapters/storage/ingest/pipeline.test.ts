@@ -135,6 +135,52 @@ describe("ingest pipeline spool budget", () => {
     expect(pipeline.spooledBytes()).toBeGreaterThan(32 << 10);
   });
 
+  test("a chunk replayed from another spool waits there instead of being spooled again", async () => {
+    const root = tempDir();
+    const pipeline = new IngestPipeline(root, { spillPerStream: 1 << 10, spillTotal: 1 << 12, creditPerStream: 1 << 14, creditTotal: 1 << 15, spoolMaxBytes: 1 << 20 });
+    const text = numbered(200);
+    const bytes = Buffer.from(text);
+    const out: string[] = [];
+    let offset = 0;
+    let refusals = 0;
+    while (offset < bytes.length) {
+      const next = { ...chunk("api", Buffer.from(bytes.subarray(offset, offset + 700)), offset), noSpill: true };
+      if (pipeline.enqueueChunk(next)) {
+        offset += 700;
+      } else {
+        refusals += 1;
+        // The refusal is the replayer's alone: readers are not told to pause.
+        expect(pipeline.paused).toBe(false);
+        pipeline.processSlice((line) => out.push(line.line), 1_000);
+      }
+    }
+    await drainAll(pipeline, (line) => out.push(line.line));
+    expect(refusals).toBeGreaterThan(0);
+    expect(pipeline.spilledSegments).toBe(0);
+    expect(readdirSync(root)).toEqual([]);
+    expect(out).toEqual(text.trimEnd().split("\n"));
+  });
+
+  test("bytes reserved for another spool leave less room in this one", async () => {
+    const limits = { spillPerStream: 1 << 10, spillTotal: 1 << 12, creditPerStream: 1 << 14, creditTotal: 1 << 15, spoolMaxBytes: 64 << 10 };
+    const block = Buffer.from(`${"z".repeat(4095)}\n`);
+    const fill = async (reserved: number): Promise<number> => {
+      const pipeline = new IngestPipeline(tempDir(), limits);
+      pipeline.reserve(reserved);
+      for (let i = 0; i < 24; i += 1) {
+        await offer(pipeline, chunk("a", Buffer.from(block), i));
+      }
+      await pipeline.settle();
+      return pipeline.spooledBytes();
+    };
+    const alone = await fill(0);
+    const shared = await fill(40 << 10);
+    expect(alone).toBeGreaterThan(48 << 10);
+    // With 40 KiB held elsewhere, this spool stops at the 24 KiB that is left.
+    expect(shared).toBeLessThanOrEqual(24 << 10);
+    expect(shared).toBeGreaterThan(0);
+  });
+
   test("a write that fails keeps its frames in memory, ahead of newer bytes", async () => {
     // The spool root is a file, so every segment write fails.
     const root = join(tempDir(), "not-a-directory");

@@ -20,7 +20,13 @@ export type LogStore = {
   /** True when the pipeline cannot accept more bytes until the spool drains. */
   ingestPaused?(): boolean;
   /** Raw service output. False means the caller must retry this chunk. `end` (with no bytes) finishes the stream. */
-  ingestChunk?(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean }): boolean;
+  ingestChunk?(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean; noSpill?: boolean }): boolean;
+  /**
+   * Bytes of unparsed output held on disk outside the pipeline's own spool,
+   * such as a drain spool being replayed. They count against
+   * `logs.spool.max_bytes` with it.
+   */
+  reserveSpool?(bytes: number): void;
   flush?(): Promise<void>;
   setMemoryBudget?(bytes: number): void;
   pipelineStats?(): LogSnapshot["pipeline"];
