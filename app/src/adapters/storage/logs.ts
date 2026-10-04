@@ -26,7 +26,7 @@ import {
   createLogMatcher,
   createSearchMatcher,
   decodeLogCursor,
-  dedupeLogsByRequestId,
+  RequestIdDeduper,
   encodeLogCursor,
   isErrorSeverity,
   isProcessLogSource,
@@ -517,16 +517,19 @@ export class LogManager {
    */
   exportTo(path: string, filter: LogFilter): void {
     const out = openLogExport(path);
+    // Collapsed across the walk, so a pair split by a page boundary still merges.
+    const deduper = filter.dedupeRequestId === true ? new RequestIdDeduper<LogRecord>() : undefined;
     try {
       let cursor = encodeLogCursor({ session: this.sessionID, seq: 0 });
       for (;;) {
         const page = this.queryPage(filter, { cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
-        out.write(filter.dedupeRequestId === true ? dedupeLogsByRequestId(page.events) : page.events);
+        out.write(deduper === undefined ? page.events : deduper.push(page.events));
         if (!page.hasNext || page.nextCursor === cursor) {
-          return;
+          break;
         }
         cursor = page.nextCursor;
       }
+      out.write(deduper?.finish() ?? []);
     } finally {
       out.close();
     }

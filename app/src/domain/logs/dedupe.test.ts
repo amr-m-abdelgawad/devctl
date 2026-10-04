@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { REQUEST_ID_ATTR } from "./ids.ts";
 import { logRecord } from "./record.ts";
 import { NANOS_PER_MS } from "./types.ts";
-import { dedupeLogsByRequestId, requestIdAttribute } from "./dedupe.ts";
+import { dedupeLogsByRequestId, RequestIdDeduper, requestIdAttribute } from "./dedupe.ts";
 
 const T0 = Date.parse("2026-09-19T00:00:00.000Z") * NANOS_PER_MS;
 
@@ -100,5 +100,41 @@ describe("dedupeLogsByRequestId", () => {
     const out = dedupeLogsByRequestId([first, second]);
     expect(out).toHaveLength(1);
     expect(out[0]?.body).toBe("bb");
+  });
+});
+
+describe("RequestIdDeduper", () => {
+  // 300 requests 40 ms apart: a service line, then its proxy hop 5 ms later, with unrelated lines between.
+  const records = Array.from({ length: 300 }, (_, request) => [
+    ev({ seq: request * 3 + 1, requestId: `req-${request}`, offsetMs: request * 40, body: "POST /v1/thing" }),
+    ev({ seq: request * 3 + 2, offsetMs: request * 40 + 2 }),
+    ev({ seq: request * 3 + 3, requestId: `req-${request}`, offsetMs: request * 40 + 5, attributes: { "http.status": 200, "http.route": "thing" } }),
+  ]).flat();
+
+  test("collapses pairs that straddle a page boundary, exactly as one pass over everything does", () => {
+    const whole = dedupeLogsByRequestId(records);
+    expect(whole).toHaveLength(600);
+    // Page sizes that cut between a line and its hop, and inside the held stretch.
+    for (const pageSize of [1, 2, 7, 100, 899, 5_000]) {
+      const deduper = new RequestIdDeduper<(typeof records)[number]>();
+      const out = [];
+      for (let start = 0; start < records.length; start += pageSize) {
+        out.push(...deduper.push(records.slice(start, start + pageSize)));
+      }
+      out.push(...deduper.finish());
+      expect(out).toEqual(whole);
+    }
+  });
+
+  test("holds only the newest stretch, so a long walk does not accumulate", () => {
+    const deduper = new RequestIdDeduper<(typeof records)[number]>();
+    let released = 0;
+    for (let start = 0; start < records.length; start += 90) {
+      released += deduper.push(records.slice(start, start + 90)).length;
+    }
+    // Twelve seconds of records went in; about one second of them is still held.
+    const rest = deduper.finish();
+    expect(rest.length).toBeLessThan(80);
+    expect(released + rest.length).toBe(600);
   });
 });
