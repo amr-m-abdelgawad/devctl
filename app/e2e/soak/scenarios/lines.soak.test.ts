@@ -1,6 +1,5 @@
 // Long lines, and paging history back past the ring.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { gateEnabled, gatedName } from "../gates.ts";
 import { CONFIG_HEADER, floodService, IMAGE_BUILD_TIMEOUT_MS, MIB, report, SoakContainer, soakEnabled, soakImage, soakQuick, type Latency, type ProbeResult, type VerifyResult } from "../harness/soak.ts";
 
 const RPC_P99_MS = 50;
@@ -60,7 +59,7 @@ describe.skipIf(!soakEnabled || soakQuick)("lines", () => {
     expect(measured.rss.maxBytes).toBeLessThan(RSS_MAX_BYTES);
   }, 300_000);
 
-  test.skipIf(!gateEnabled("logs-all-bounded"))(gatedName("logs-all-bounded", "devctl logs --all lists a ring of 40 KB lines within the memory budget"), async () => {
+  test("devctl logs --all lists a ring of 40 KB lines within the memory budget", async () => {
     const { box } = await wideFlood();
     const probe = box.driver<ProbeResult>("probe.ts", ["--duration-ms", "20000"], { timeoutMs: 60_000 });
     await Bun.sleep(500);

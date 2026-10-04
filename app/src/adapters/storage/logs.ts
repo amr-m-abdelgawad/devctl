@@ -7,7 +7,7 @@ import { logsDir } from "./storage.ts";
 import { LogRing } from "./log-ring.ts";
 import { indexedSource, pageSource, stackedSource, type SeqSource } from "./log-page.ts";
 import { SessionLogWriter } from "./log-persist.ts";
-import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
+import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, LOG_PAGE_MAX_BYTES, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
 import { ProxyHopWindow } from "../../domain/logs/hop-window.ts";
 import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLimits, type PipelineLine, type PipelineStreamKey } from "./ingest/pipeline.ts";
@@ -445,7 +445,7 @@ export class LogManager {
     const window = this.windowSource(ring, filter, matches);
     const boundary = this.ring.oldestSeq() ?? this.nextSeq;
     // A forward page that starts in the ring looks no further back than the ring.
-    const result = pageSource(window, { cursor: cursor?.seq, direction, limit }, (first) => (first >= boundary ? ring : window));
+    const result = pageSource(window, { cursor: cursor?.seq, direction, limit, maxBytes: LOG_PAGE_MAX_BYTES }, (first) => (first >= boundary ? ring : window));
     const firstSeq = result.events[0]?.seq;
     const lastSeq = result.events[result.events.length - 1]?.seq;
     return {

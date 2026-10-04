@@ -51,7 +51,8 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
 import type { TrafficCallStore } from "../../ports/traffic-call-store.ts";
 import type { LlmSourceFactory } from "../../ports/llm-source.ts";
-import { dedupeLogsByRequestId, isTraceId, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { dedupeLogsByRequestId, isTraceId, MAX_LOG_PAGE_SIZE, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { approxRecordBytes } from "../../domain/logs/size.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { LlmCallManager } from "../llm/store.ts";
@@ -83,7 +84,7 @@ import {
   type ServiceState,
 } from "../../domain/service/services.ts";
 import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
-import { autoRingBytes } from "../../domain/logs/budgets.ts";
+import { autoRingBytes, LOGS_REPLY_MAX_BYTES } from "../../domain/logs/budgets.ts";
 import { nextMemoryGuard, ringBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
@@ -1030,19 +1031,43 @@ export class Supervisor {
     return this.identity.refreshIdentity(opts);
   }
 
-  async queryLogs(req: LogsRequest): Promise<{ events: LogEvent[] }> {
+  /**
+   * The unpaged `logs` call. An export is written by the log store and no
+   * records come back. Otherwise the reply holds the newest matches, read a
+   * page at a time, up to LOGS_REPLY_MAX_BYTES, and says when older ones were
+   * left out. A ring of long lines can be hundreds of megabytes, so a caller
+   * that wants all of it pages with `logs_page`.
+   */
+  async queryLogs(req: LogsRequest): Promise<{ events: LogEvent[]; truncated?: boolean }> {
     const filter = this.logFilter(req);
-    const events = await this.logs.query(filter);
     if (req.export) {
       await this.logs.exportTo(req.export, filter);
+      return { events: [] };
     }
-    return { events: applyRequestIdDedupe(filter, events) };
+    const pages: LogEvent[][] = [];
+    let bytes = 0;
+    let cursor: string | undefined;
+    let truncated = false;
+    for (;;) {
+      const page = await this.logs.queryPage(filter, { cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
+      pages.push(page.events);
+      for (const event of page.events) {
+        bytes += approxRecordBytes(event);
+      }
+      if (!page.hasPrev || page.prevCursor === cursor) {
+        break;
+      }
+      if (bytes >= LOGS_REPLY_MAX_BYTES) {
+        truncated = true;
+        break;
+      }
+      cursor = page.prevCursor;
+    }
+    const events = pages.reverse().flat();
+    return { events: applyRequestIdDedupe(filter, events), truncated: truncated ? true : undefined };
   }
 
-  // Bounded, cursor-paged counterpart to queryLogs() — added alongside it
-  // rather than replacing it so CLI/TUI/MCP consumers can migrate to paging
-  // one at a time; queryLogs()/the plain "logs" RPC still returns everything
-  // matching, unbounded, until every consumer has moved off it.
+  // The bounded, cursor-paged way to read logs: one page per call.
   async queryLogsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
     const filter = this.logFilter(req);
     const page = await this.logs.queryPage(filter, { cursor: req.cursor, direction: req.direction, limit: req.limit });

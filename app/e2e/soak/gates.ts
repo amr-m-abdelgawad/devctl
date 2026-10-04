@@ -8,7 +8,6 @@
 
 export const GATES = {
   "sigkill-boundary-loss": "finding: output a SIGKILLed daemon had read from a FIFO but not yet persisted (its in-memory pipeline and 100 ms writer batch) is lost",
-  "logs-all-bounded": "finding: `devctl logs --all` answers with the whole ring in one reply, so the daemon passes 400 MB and the CLI is OOM-killed on a ring of long lines",
   "attribution-short-calls": "finding: a call that ends within a millisecond or two on a connection its caller then closes is recorded with no caller, because the /proc lookup finishes after the socket is gone",
   "attribution-fd-scan": "finding: the caller lookup reads every descriptor of each managed process in turn; with a service holding 5000 that takes 120-250 ms, so shorter calls on connections closed afterwards get no caller",
 } as const;

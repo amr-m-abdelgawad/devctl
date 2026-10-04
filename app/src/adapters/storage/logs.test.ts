@@ -573,6 +573,20 @@ describe("log export paths", () => {
     }
   });
 
+  test("writeLogExport writes a large window in batches with one record per line", () => {
+    const dest = join(tmp(), "big.jsonl");
+    const events = Array.from({ length: 300 }, (_, index) => logRecord({ seq: index + 1, service: "api", message: `${index}-${"z".repeat(8_000)}` }));
+    writeLogExport(dest, events);
+    const lines = readFileSync(dest, "utf8").split("\n");
+    expect(lines.pop()).toBe("");
+    expect(lines).toHaveLength(300);
+    expect(lines.map((line) => (JSON.parse(line) as { seq: number }).seq)).toEqual(events.map((event) => event.seq));
+
+    const empty = join(tmp(), "empty.jsonl");
+    writeLogExport(empty, []);
+    expect(readFileSync(empty, "utf8")).toBe("\n");
+  });
+
   test("writeLogExport and exportTo create the parent directory", () => {
     const dest = join(tmp(), "nested", "out.jsonl");
     const exported = logRecord({

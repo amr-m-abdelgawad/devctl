@@ -93,6 +93,37 @@ describe("paging a seq source", () => {
     expect(fromOld.hasPrev && fromOld.hasNext).toBe(true);
   });
 
+  test("a page of large records ends at its byte cap and says there is more", () => {
+    const wide: LogRecord[] = [];
+    for (let seq = 1; seq <= 40; seq += 1) {
+      wide.push(logRecord({ seq, service: "api", message: "x".repeat(1_000) }));
+    }
+    const source = indexedSource(seqIndexed(wide), () => true);
+    // About 1.3 KiB a record against a 4 KiB cap: a page takes records until it passes the cap.
+    const newest = pageSource(source, { direction: "backward", limit: 500, maxBytes: 4_096 });
+    expect(newest.events.length).toBeGreaterThan(1);
+    expect(newest.events.length).toBeLessThan(8);
+    expect(newest.events.at(-1)?.seq).toBe(40);
+    expect(newest.hasPrev).toBe(true);
+
+    // Walking forward page by page still reaches every record once, in order.
+    const walked: number[] = [];
+    let cursor = 0;
+    for (;;) {
+      const page = pageSource(source, { cursor, direction: "forward", limit: 500, maxBytes: 4_096 });
+      walked.push(...seqs(page.events));
+      if (!page.hasNext) {
+        break;
+      }
+      cursor = page.events.at(-1)!.seq;
+    }
+    expect(walked).toEqual(wide.map((event) => event.seq));
+
+    // A record larger than the cap still comes back, alone.
+    const huge = indexedSource(seqIndexed([logRecord({ seq: 1, service: "api", message: "y".repeat(10_000) }), logRecord({ seq: 2, service: "api", message: "y".repeat(10_000) })]), () => true);
+    expect(seqs(pageSource(huge, { direction: "backward", limit: 500, maxBytes: 4_096 }).events)).toEqual([2]);
+  });
+
   test("a walk cut short by its budget reports where to resume", () => {
     const partial: SeqSource = {
       walkDown: (_before, visit) => {

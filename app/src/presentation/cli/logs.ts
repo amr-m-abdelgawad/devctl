@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import { formatBodySummary, type LogEvent, type LogPage } from "../../domain/logs/logs.ts";
+import { decodeLogCursor, encodeLogCursor, formatBodySummary, MAX_LOG_PAGE_SIZE, type LogEvent, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
 function formatLogLineForCli(ev: LogEvent): string {
@@ -11,6 +11,34 @@ function formatLogLineForCli(ev: LogEvent): string {
 function writeJsonLogs(events: readonly LogEvent[]): void {
   for (const ev of events) {
     writeOut(`${JSON.stringify(ev)}\n`);
+  }
+}
+
+/**
+ * Prints the whole matching window, oldest first, a page at a time. Neither
+ * the daemon nor this process ever holds more than one page, however large
+ * the window is.
+ */
+export async function printAllLogs(fetchPage: (request: LogPageRequest) => Promise<LogPage>, print: (event: LogEvent) => void): Promise<void> {
+  // The newest record's page names the session; the walk then starts before its first seq.
+  const newest = await fetchPage({ direction: "backward", limit: 1 });
+  const session = decodeLogCursor(newest.prevCursor)?.session;
+  if (session === undefined) {
+    return;
+  }
+  let cursor = encodeLogCursor({ session, seq: 0 });
+  for (;;) {
+    const page = await fetchPage({ cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
+    if (page.sessionChanged) {
+      return;
+    }
+    for (const event of page.events) {
+      print(event);
+    }
+    if (!page.hasNext || page.nextCursor === cursor) {
+      return;
+    }
+    cursor = page.nextCursor;
   }
 }
 
@@ -128,22 +156,16 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
           }
           return;
         }
-        if (exportPath || opts.all === true) {
-          const events = await ctrl.logs({
-            ...filter,
-            export: exportPath,
-          });
-          if (exportPath) {
-            writeOut(`exported ${exportPath}\n`);
-            return;
-          }
-          if (opts.json) {
-            writeJsonLogs(events);
-            return;
-          }
-          for (const ev of events) {
-            writeOut(formatLogLineForCli(ev));
-          }
+        if (exportPath) {
+          await ctrl.logs({ ...filter, export: exportPath });
+          writeOut(`exported ${exportPath}\n`);
+          return;
+        }
+        if (opts.all === true) {
+          await printAllLogs(
+            (request) => ctrl.logsPage({ ...filter, ...request }),
+            (ev) => writeOut(opts.json ? `${JSON.stringify(ev)}\n` : formatLogLineForCli(ev)),
+          );
           return;
         }
         const page = await ctrl.logsPage({

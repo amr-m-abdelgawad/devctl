@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, statSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { LogRecord } from "../../domain/logs/logs.ts";
 import { ensureDir, exportsDir, resolveUserPath } from "./storage.ts";
@@ -16,10 +16,31 @@ export function resolveExportPath(input = ""): string {
   return resolveUserPath(input, process.cwd());
 }
 
-export function writeLogExport(path: string, events: LogRecord[]): void {
+// Written in batches of about this size, so a large window is never one string.
+const EXPORT_BATCH_CHARS = 1024 * 1024;
+
+export function writeLogExport(path: string, events: readonly LogRecord[]): void {
   ensureDir(dirname(path));
-  const lines = events.map((ev) => JSON.stringify(ev));
-  writeFileSync(path, `${lines.join("\n")}\n`, { mode: 0o600 });
+  const fd = openSync(path, "w", 0o600);
+  try {
+    let batch: string[] = [];
+    let chars = 0;
+    for (const ev of events) {
+      const line = JSON.stringify(ev);
+      batch.push(line);
+      chars += line.length + 1;
+      if (chars >= EXPORT_BATCH_CHARS) {
+        writeSync(fd, `${batch.join("\n")}\n`);
+        batch = [];
+        chars = 0;
+      }
+    }
+    if (batch.length > 0 || events.length === 0) {
+      writeSync(fd, `${batch.join("\n")}\n`);
+    }
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function openInFileManager(target: string): void {

@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import { createConnection, type Socket } from "node:net";
 import { clearInterval as clearResumeInterval, setInterval as resumeInterval } from "node:timers";
 import { spawn } from "bun";
@@ -82,7 +83,11 @@ export function assertMethodAllowed(client: { compat: DaemonCompat }, method: st
 
 export class Client {
   private readonly socket: Socket;
-  private buf = "";
+  // A reply is one line, possibly megabytes long, arriving in many chunks.
+  // Its pieces are kept apart until the newline comes, so each byte is looked
+  // at once, and the decoder keeps a character split across chunks whole.
+  private readonly decoder = new StringDecoder("utf8");
+  private pieces: string[] = [];
   private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly listeners: Array<(ev: BusEvent) => void> = [];
   private nextID = 0;
@@ -96,14 +101,18 @@ export class Client {
     this.socket = socket;
     this.auth = auth;
     socket.on("data", (chunk) => {
-      this.buf += chunk.toString("utf8");
-      const lines = this.buf.split("\n");
-      this.buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.trim() === "") {
-          continue;
+      let text = this.decoder.write(chunk);
+      for (let newline = text.indexOf("\n"); newline >= 0; newline = text.indexOf("\n")) {
+        this.pieces.push(text.slice(0, newline));
+        const line = this.pieces.length === 1 ? this.pieces[0]! : this.pieces.join("");
+        this.pieces = [];
+        text = text.slice(newline + 1);
+        if (line.trim() !== "") {
+          this.onLine(line);
         }
-        this.onLine(line);
+      }
+      if (text !== "") {
+        this.pieces.push(text);
       }
     });
     socket.on("error", (err) => this.rejectPending(err instanceof Error ? err : new Error(String(err))));

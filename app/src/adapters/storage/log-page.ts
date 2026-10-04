@@ -1,5 +1,6 @@
 import type { LogMatcher } from "../../domain/logs/filter.ts";
 import type { LogPageDirection, LogRecord } from "../../domain/logs/logs.ts";
+import { approxRecordBytes } from "../../domain/logs/size.ts";
 
 /** How a walk ended. */
 export type Walk = {
@@ -25,6 +26,8 @@ export type SourcePageRequest = {
   cursor?: number;
   direction: LogPageDirection;
   limit: number;
+  /** The page also ends once its records pass about this many bytes. It always takes at least one. */
+  maxBytes?: number;
 };
 
 export type SourcePage = {
@@ -125,9 +128,10 @@ export function stackedSource(ring: SeqSource, boundary: number, older: SeqSourc
 
 /**
  * One page of matches next to a cursor: the newest `limit` before it, or
- * the oldest `limit` after it going forward. Each walk stops one match past
- * the page, which is all the prev/next flags need. `olderFor` picks where a
- * forward page looks for anything older than its first record.
+ * the oldest `limit` after it going forward. A page of very large records
+ * ends early at `maxBytes`, and its flags say there is more. Each walk stops
+ * one match past the page, which is all the prev/next flags need. `olderFor`
+ * picks where a forward page looks for anything older than its first record.
  */
 export function pageSource(
   source: SeqSource,
@@ -135,12 +139,16 @@ export function pageSource(
   olderFor: (firstSeq: number) => SeqSource = () => source,
 ): SourcePage {
   const { cursor, limit } = request;
+  const maxBytes = request.maxBytes ?? Number.POSITIVE_INFINITY;
+  let bytes = 0;
+  const room = (taken: number): boolean => taken < limit && (taken === 0 || bytes < maxBytes);
   if (request.direction === "forward" && cursor !== undefined) {
     const events: LogRecord[] = [];
     let more = false;
     const walk = source.walkUp(cursor + 1, (event) => {
-      if (events.length < limit) {
+      if (room(events.length)) {
         events.push(event);
+        bytes += approxRecordBytes(event);
         return true;
       }
       more = true;
@@ -157,8 +165,9 @@ export function pageSource(
   const newestFirst: LogRecord[] = [];
   let more = false;
   const walk = source.walkDown(cursor ?? Number.POSITIVE_INFINITY, (event) => {
-    if (newestFirst.length < limit) {
+    if (room(newestFirst.length)) {
       newestFirst.push(event);
+      bytes += approxRecordBytes(event);
       return true;
     }
     more = true;

@@ -67,6 +67,25 @@ describe("RPC client", () => {
     expect(await outcome).toContain("supervisor connection closed");
   });
 
+  test("a reply split across chunks is read whole, even inside a multi-byte character", async () => {
+    const socket = new EventEmitter() as EventEmitter & { write: () => boolean; destroy: () => void };
+    socket.write = () => true;
+    socket.destroy = () => socket.emit("close");
+    const client = new Client(socket as never);
+    const seen: string[] = [];
+    client.onEvent((event) => seen.push(String(event.payload?.text)));
+    // 3 MiB of 3-byte characters in 4,093-byte chunks: every chunk boundary cuts a character.
+    const text = "你".repeat(1024 * 1024);
+    const wire = Buffer.from(`${JSON.stringify({ event: { type: "T", timestamp: "", payload: { text } } })}\n${JSON.stringify({ event: { type: "T", timestamp: "", payload: { text: "next" } } })}\n`);
+    for (let offset = 0; offset < wire.length; offset += 4_093) {
+      socket.emit("data", wire.subarray(offset, offset + 4_093));
+    }
+    expect(seen).toHaveLength(2);
+    expect(seen[0] === text).toBe(true);
+    expect(seen[1]).toBe("next");
+    client.close();
+  });
+
   test("Controller.refreshAuth calls the daemon probe rather than refreshing only local CLI state", async () => {
     const calls: string[] = [];
     const identity = {

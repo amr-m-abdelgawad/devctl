@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { LOG_PAGE_MAX_BYTES } from "../../domain/logs/budgets.ts";
 import { clampLogPageSize, createLogMatcher, decodeLogCursor, type LogFilter, type LogPage, type LogPageDirection, type LogPageRequest } from "../../domain/logs/logs.ts";
 import { indexedSource, pageSource, seqIndexed, type SeqSource } from "./log-page.ts";
 import { isJsonlSessionDir, isSessionName, loadSessionEvents } from "./session-files.ts";
@@ -27,7 +28,7 @@ export class SessionHistory {
     const limit = clampLogPageSize(request.limit);
     const cursor = historyCursorSeq(request.cursor);
     const direction: LogPageDirection = cursor === undefined ? "backward" : (request.direction ?? "backward");
-    const result = pageSource(this.source(session, filter), { cursor, direction, limit });
+    const result = pageSource(this.source(session, filter), { cursor, direction, limit, maxBytes: LOG_PAGE_MAX_BYTES });
     const firstSeq = result.events[0]?.seq;
     const lastSeq = result.events[result.events.length - 1]?.seq;
     return {

@@ -10,6 +10,7 @@ import { available } from "../net/ports.ts";
 import { processAlive, readPersistedState, socketPath, writePersistedState } from "../storage/storage.ts";
 import { ProcessManager, inspectProcess } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
+import { inProcessLogStore, LogManager } from "../storage/logs.ts";
 import { mergeRestartRequired } from "./reload.ts";
 import { saveTuiPreferences } from "../config/tui-preferences.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
@@ -1325,6 +1326,45 @@ proxy:
       await sup.shutdown(false);
     }
   }, 15_000);
+
+  test("the unpaged logs RPC answers with a bounded reply, and an export sends no records back", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    const store = new LogManager(10_000, undefined, undefined, false, dir, "bounded");
+    // 3,000 records of about 16 KiB: about 48 MiB, past the 32 MiB reply cap.
+    const wide = "w".repeat(16_000);
+    for (let n = 1; n <= 3_000; n += 1) {
+      store.append({ timestamp: new Date().toISOString(), service: "flood", source: "stdout", level: "INFO", message: `${n} ${wide}`, pid: 1 });
+    }
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+      logs: inProcessLogStore(store),
+    });
+    try {
+      const reply = (await sup.dispatch("logs", { services: ["flood"] })) as { events: Array<{ body: string }>; truncated?: boolean };
+      expect(reply.truncated).toBe(true);
+      expect(reply.events.length).toBeLessThan(3_000);
+      // The newest records, in order, ending at the last one written.
+      const numbers = reply.events.map((event) => Number(event.body.slice(0, event.body.indexOf(" "))));
+      expect(numbers.at(-1)).toBe(3_000);
+      expect(numbers).toEqual(Array.from({ length: numbers.length }, (_, index) => 3_000 - numbers.length + 1 + index));
+      expect(numbers.length * 16_000).toBeLessThan(48 * 1024 * 1024);
+
+      const dest = join(dir, "out", "flood.jsonl");
+      const exported = (await sup.dispatch("logs", { services: ["flood"], export: dest })) as { events: unknown[] };
+      expect(exported.events).toEqual([]);
+      expect(readFileSync(dest, "utf8").trimEnd().split("\n")).toHaveLength(3_000);
+
+      // A small log still comes back whole and unmarked.
+      const small = (await sup.dispatch("logs", { services: ["nothing-here"] })) as { events: unknown[]; truncated?: boolean };
+      expect(small.events).toEqual([]);
+      expect(small.truncated).toBeUndefined();
+    } finally {
+      await store.close();
+    }
+  }, 30_000);
 
   test("logs_stats RPC returns facet counts without an event payload", async () => {
     const dir = tmp();
