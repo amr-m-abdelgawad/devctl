@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { LogMatcher } from "../../domain/logs/filter.ts";
 import type { LogRecord } from "../../domain/logs/logs.ts";
@@ -73,6 +73,9 @@ class PartIndex {
   readonly offsets: number[] = [0];
   readonly bounds: number[] = [0];
   readonly probed: boolean[] = [false];
+  // The writer's own entries, in order. Their bounds are exact, which the
+  // others (raised to stay sorted, or a probe's) need not be.
+  private readonly written: Array<[offset: number, bound: number]> = [];
 
   /** Index of the last checkpoint whose bound is below `seq`. */
   startFor(seq: number): number {
@@ -87,6 +90,30 @@ class PartIndex {
       }
     }
     return Math.max(0, lo - 1);
+  }
+
+  /** An entry of the writer's index: usable for where a range starts and where it ends. */
+  addWritten(offset: number, bound: number): void {
+    this.written.push([offset, bound]);
+    this.add(offset, bound);
+  }
+
+  /**
+   * Where the writer's index says seqs below `seq` end: the first of its
+   * entries with `seq` or higher before it. Undefined past what it covers.
+   */
+  endFor(seq: number): number | undefined {
+    let lo = 0;
+    let hi = this.written.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (this.written[mid]![1] < seq) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return this.written[lo]?.[0];
   }
 
   /** False when a checkpoint already sits close by. */
@@ -126,7 +153,9 @@ type PartFile = {
   readonly index: PartIndex;
   // How much of the writer's index beside the part has been read, and what it
   // says: the part's first seq and, once it is sealed, its size and last seq.
+  // Its checkpoints wait, as text, in `unparsed` until the part is read.
   indexBytes: number;
+  unparsed: string;
   low?: number;
   sealed?: { size: number; seq: number };
   // Seqs of the first lines, read once when there is no index to say.
@@ -139,7 +168,8 @@ type PartFile = {
   patchBytes: number;
 };
 
-type OpenPart = { file: PartFile; fd: number; size: number };
+// A part as one walk sees it: its size now, and a descriptor once it is read.
+type OpenPart = { file: PartFile; size: number; fd?: number };
 
 type Line = { text: string; location: LineLocation };
 
@@ -341,6 +371,13 @@ export class SessionReader {
   // seq replaces an earlier one. False when the budget ran out.
   private scanPart(part: OpenPart, bottom: number, top: number, lines: Map<number, Line>, budget: ReadBudget): boolean {
     const index = part.file.index;
+    for (const row of part.file.unparsed.split("\n")) {
+      const [offset, bound] = indexEntry(row);
+      if (Number.isInteger(offset) && Number.isInteger(bound)) {
+        index.addWritten(offset, bound);
+      }
+    }
+    part.file.unparsed = "";
     const start = this.refine(part, bottom, budget);
     let position = index.offsets[start]!;
     let bound = index.bounds[start]!;
@@ -352,17 +389,22 @@ export class SessionReader {
       position = midLine ? position - SLACK_BYTES : previous;
     }
     let checkpointAt = position;
-    let stopAt = part.size;
+    // An indexed part holds each seq once, in order, so its index says where
+    // the range ends. Any other part is read until a line reaches the range's
+    // end, and a little past it for a late copy of a replaced record.
+    const indexed = part.file.low !== undefined;
+    const limit = indexed ? Math.min(part.size, index.endFor(top) ?? part.size) : part.size;
+    let stopAt = limit;
     let chunk = READ_BYTES;
     while (position < stopAt) {
       if (spent(budget)) {
         return false;
       }
-      const buf = this.read(part, position, Math.min(chunk, part.size - position), budget);
+      const buf = this.read(part, position, Math.min(chunk, limit - position), budget);
       let lineStart = midLine ? buf.indexOf(NEWLINE) + 1 : 0;
       let newline = lineStart === 0 && midLine ? -1 : buf.indexOf(NEWLINE, lineStart);
       if (newline < 0) {
-        if (position + buf.length >= part.size) {
+        if (position + buf.length >= limit) {
           // The line still being written.
           return true;
         }
@@ -380,9 +422,8 @@ export class SessionReader {
         if (seq !== undefined) {
           if (seq >= bottom && seq < top) {
             lines.set(seq, { text: buf.toString("utf8", lineStart, newline), location: { seq, part: part.file.name, offset, length: newline - lineStart } });
-          } else if (seq >= top && stopAt === part.size) {
-            // An indexed part holds each seq once, in order; only an older one needs the look-ahead.
-            stopAt = Math.min(part.size, offset + (part.file.low === undefined ? SLACK_BYTES : 0));
+          } else if (seq >= top && stopAt === limit) {
+            stopAt = Math.min(limit, offset + (indexed ? 0 : SLACK_BYTES));
           }
           bound = Math.max(bound, seq);
         }
@@ -461,65 +502,76 @@ export class SessionReader {
 
   private read(part: OpenPart, position: number, length: number, budget: ReadBudget): Buffer {
     budget.deadline ??= performance.now() + budget.ms;
-    const buf = Buffer.alloc(Math.max(0, length));
-    const got = buf.length > 0 ? readSync(part.fd, buf, 0, buf.length, position) : 0;
+    part.fd ??= openQuiet(join(this.dir, part.file.name));
+    const buf = Buffer.alloc(part.fd === undefined ? 0 : Math.max(0, length));
+    const got = part.fd !== undefined && buf.length > 0 ? readSync(part.fd, buf, 0, buf.length, position) : 0;
     this.bytesRead += got;
     budget.bytesLeft -= got;
     return got === buf.length ? buf : buf.subarray(0, got);
   }
 
-  // Opens the session's part files (only those of `services`, when given),
-  // ordered by service and part, for the length of one walk.
+  // The session's part files (only those of `services`, when given), ordered
+  // by service and part, for the length of one walk. A part is opened when
+  // it is first read, and its sidecars are looked at only when the listing
+  // shows them and they can have grown.
   private withParts<T>(services: readonly string[] | undefined, walk: (open: OpenPart[], byName: ReadonlyMap<string, OpenPart>) => T): T {
     const keys = services !== undefined && services.length > 0 ? new Set(services.map(safeServiceFile)) : undefined;
-    const names = listParts(this.dir);
+    const listed = new Set(listFiles(this.dir));
     for (const name of this.parts.keys()) {
-      if (!names.includes(name)) {
+      if (!listed.has(name)) {
         this.parts.delete(name);
       }
     }
     const open: OpenPart[] = [];
     try {
-      for (const name of names) {
-        const file = this.exclude.has(name) ? undefined : this.partFile(name);
-        const fd = file === undefined || (keys !== undefined && !keys.has(file.key)) ? undefined : openQuiet(join(this.dir, name));
-        if (file !== undefined && fd !== undefined) {
-          const size = fstatSync(fd).size;
-          open.push({ file, fd, size });
-          this.loadIndex(file, size);
-          this.loadPatches(file);
+      for (const name of listed) {
+        const file = !name.endsWith(".jsonl") || this.exclude.has(name) ? undefined : this.partFile(name);
+        const size = file === undefined || (keys !== undefined && !keys.has(file.key)) ? undefined : sizeQuiet(join(this.dir, name));
+        if (file !== undefined && size !== undefined) {
+          open.push({ file, size });
+          if (file.sealed?.size !== size && listed.has(partIndexFile(name))) {
+            this.loadIndex(file, size);
+          }
+          if (listed.has(partPatchFile(name))) {
+            this.loadPatches(file);
+          }
         }
       }
       open.sort((a, b) => (a.file.key === b.file.key ? a.file.part - b.file.part : a.file.key < b.file.key ? -1 : 1));
       return walk(open, new Map(open.map((part) => [part.file.name, part])));
     } finally {
       for (const part of open) {
-        closeSync(part.fd);
+        if (part.fd !== undefined) {
+          closeSync(part.fd);
+        }
       }
     }
   }
 
   // Reads what the writer has appended to the part's index since last time:
-  // lines of `offset bound`. An entry past the part's size was written ahead
-  // of its lines and waits for them.
+  // lines of `offset bound`. Only the ends are looked at here: the first line
+  // gives the part's first seq, and a sealed part's last gives its size and
+  // last seq. The checkpoints between stay text until the part is read. An
+  // entry past the part's size was written ahead of its lines and waits.
   private loadIndex(file: PartFile, size: number): void {
-    const buf = this.appended(partIndexFile(file.name), file.indexBytes);
-    for (let lineStart = 0; lineStart < buf.length; ) {
-      const newline = buf.indexOf(NEWLINE, lineStart);
-      const [offset, bound] = buf.toString("latin1", lineStart, newline).split(" ").map(Number);
-      if (offset === undefined || bound === undefined || !Number.isInteger(offset) || !Number.isInteger(bound) || offset > size) {
-        return;
-      }
-      if (offset === 0) {
-        file.low = bound + 1;
-        file.index.bounds[0] = Math.max(file.index.bounds[0]!, bound);
-      } else {
-        file.index.add(offset, bound);
-      }
-      file.sealed = offset === size ? { size, seq: bound } : file.sealed;
-      file.indexBytes += newline + 1 - lineStart;
-      lineStart = newline + 1;
+    let text = this.appended(partIndexFile(file.name), file.indexBytes).toString("latin1");
+    let last = lastIndexEntry(text);
+    while (text !== "" && !(last.entry[0] <= size)) {
+      text = text.slice(0, last.start);
+      last = lastIndexEntry(text);
     }
+    const firstEnd = text.indexOf("\n");
+    const first = indexEntry(text.slice(0, Math.max(0, firstEnd)));
+    if (text === "" || (file.low === undefined && first[0] !== 0)) {
+      return;
+    }
+    file.indexBytes += text.length;
+    file.sealed = last.entry[0] === size ? { size, seq: last.entry[1] } : file.sealed;
+    if (first[0] === 0) {
+      file.low = first[1] + 1;
+      file.index.bounds[0] = Math.max(file.index.bounds[0]!, first[1]);
+    }
+    file.unparsed += first[0] === 0 ? text.slice(firstEnd + 1) : text;
   }
 
   // Reads what has been appended to the part's patch file since last time.
@@ -543,7 +595,7 @@ export class SessionReader {
   // The whole lines appended to a sidecar since `from` bytes of it were read.
   private appended(name: string, from: number): Buffer {
     const path = join(this.dir, name);
-    const size = sizeQuiet(path);
+    const size = sizeQuiet(path) ?? 0;
     const fd = size > from ? openQuiet(path) : undefined;
     if (fd === undefined) {
       return Buffer.alloc(0);
@@ -569,10 +621,22 @@ export class SessionReader {
     if (!Number.isInteger(part) || part < 0) {
       return undefined;
     }
-    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), indexBytes: 0, patches: new Map(), patchBytes: 0 };
+    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), indexBytes: 0, unparsed: "", patches: new Map(), patchBytes: 0 };
     this.parts.set(name, file);
     return file;
   }
+}
+
+// One line of a part's index: an offset and the highest seq before it.
+function indexEntry(row: string): [number, number] {
+  const space = row.indexOf(" ");
+  return space < 0 ? [Number.NaN, Number.NaN] : [Number(row.slice(0, space)), Number(row.slice(space + 1))];
+}
+
+// The last line of index text that ends in a newline, and where it starts.
+function lastIndexEntry(text: string): { start: number; entry: [number, number] } {
+  const start = text.lastIndexOf("\n", text.length - 2) + 1;
+  return { start, entry: indexEntry(text.slice(start, -1)) };
 }
 
 // Lays the part's patches over the lines read for [bottom, top). A patch is a
@@ -658,19 +722,20 @@ function lineSeq(buf: Buffer, start: number, end: number): number | undefined {
   return parseStoredLogRecord(buf.toString("utf8", start, end))?.seq;
 }
 
-function listParts(dir: string): string[] {
+function listFiles(dir: string): string[] {
   try {
-    return readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
+    return readdirSync(dir);
   } catch {
     return [];
   }
 }
 
-function sizeQuiet(path: string): number {
+// Undefined for a file removed since the listing (the writer's session cap evicts parts).
+function sizeQuiet(path: string): number | undefined {
   try {
     return statSync(path).size;
   } catch {
-    return 0;
+    return undefined;
   }
 }
 
@@ -678,7 +743,6 @@ function openQuiet(path: string): number | undefined {
   try {
     return openSync(path, "r");
   } catch {
-    // removed by the writer's session cap since the listing
     return undefined;
   }
 }
