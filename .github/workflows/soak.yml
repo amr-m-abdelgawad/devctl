@@ -4,9 +4,12 @@ name: Soak
 # inside oven/bun:1.4.2 and driven in containers shaped like a dev container
 # (2 GiB memory limit, PID 1 `sleep infinity`, plus `--init` variants).
 #
-# - Nightly and on demand: the full matrix.
+# - Nightly and on demand: the full matrix, with a 15 minute mixed session
+#   (`endurance`) that watches memory, descriptors, threads, zombies and
+#   FIFOs for a level that keeps climbing.
 # - On a pull request labeled `soak`: the PR subset (DEVCTL_SOAK_QUICK=1), one
-#   FIFO flood and two P0 repros, under five minutes after the image build.
+#   FIFO flood, two P0 repros and the quiet-services check, under six minutes
+#   after the image build.
 #
 # A check that pins a known production bug is skipped unless its key is in
 # DEVCTL_SOAK_REQUIRE (see app/e2e/soak/gates.ts); `all` runs every one.
