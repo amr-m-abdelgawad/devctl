@@ -79,6 +79,79 @@ describe("part index", () => {
     expect(writer.sessionByteCount()).toBeLessThanOrEqual(128 * 1024);
   });
 
+  test("a replaced record is swapped while it waits in its batch, and patched once written", async () => {
+    const dir = tmp();
+    const writer = new SessionLogWriter(dir, 64 * 1024 * 1024, { maxSessionBytes: 1024 * 1024 * 1024 });
+    writer.write("api", line(1), 1);
+    writer.write("api", line(2), 2);
+    writer.replace("api", line(1, " tagged"), 1);
+    await writer.flush();
+    expect(existsSync(join(dir, "api.patch"))).toBe(false);
+    writer.replace("api", line(2, " tagged"), 2);
+    writer.write("api", line(3), 3);
+    await writer.close();
+    // Each seq is in the part once, in order; only the late copy is a patch.
+    const written = readFileSync(join(dir, "api.jsonl"), "utf8").trimEnd().split("\n").map((row) => JSON.parse(row) as { seq: number; body: string });
+    expect(written.map((row) => row.seq)).toEqual([1, 2, 3]);
+    expect(written.map((row) => row.body.endsWith(" tagged"))).toEqual([true, false, false]);
+    expect(readFileSync(join(dir, "api.patch"), "utf8")).toBe(line(2, " tagged"));
+    expect(writer.sessionByteCount()).toBe(diskBytes(dir));
+    expect(writer.loss).toBe(0);
+  });
+
+  test("a patch sits beside the part that holds the original and goes with it", async () => {
+    const dir = tmp();
+    const writer = new SessionLogWriter(dir, 64 * 1024 * 1024, { maxSessionBytes: 128 * 1024 });
+    for (let seq = 1; seq <= 40; seq += 1) {
+      writer.write("api", line(seq), seq);
+      await writer.flush();
+    }
+    // Parts of 16 KiB hold about 15 lines: seq 5 is in part 0, seq 20 in part 1.
+    writer.replace("api", line(5, " tagged"), 5);
+    writer.replace("api", line(20, " tagged"), 20);
+    await writer.flush();
+    expect(readFileSync(join(dir, "api.patch"), "utf8")).toBe(line(5, " tagged"));
+    expect(readFileSync(join(dir, "api~1.patch"), "utf8")).toBe(line(20, " tagged"));
+    expect(writer.sessionByteCount()).toBe(diskBytes(dir));
+    for (let seq = 41; seq <= 300; seq += 1) {
+      writer.write("api", line(seq), seq);
+      if (seq % 10 === 0) {
+        await writer.flush();
+      }
+    }
+    // The first parts are evicted by now, and a copy of a record in them has nowhere to go.
+    writer.replace("api", line(6, " tagged"), 6);
+    await writer.close();
+    const names = readdirSync(dir);
+    expect(names).not.toContain("api.jsonl");
+    expect(names.filter((name) => name.endsWith(".patch"))).toEqual([]);
+    expect(writer.sessionByteCount()).toBe(diskBytes(dir));
+    expect(writer.loss).toBe(0);
+  });
+
+  test("a patch the disk refuses is a loss, and a part's patches cannot outgrow a part", async () => {
+    const dir = tmp();
+    let reserve = true;
+    let now = 0;
+    const writer = new SessionLogWriter(dir, 64 * 1024 * 1024, { maxSessionBytes: 128 * 1024, hasDiskReserve: () => reserve, now: () => now });
+    writer.write("api", line(1), 1);
+    await writer.flush();
+    reserve = false;
+    now += 10_000;
+    writer.replace("api", line(1, " tagged"), 1);
+    expect(writer.loss).toBe(1);
+    reserve = true;
+    now += 10_000;
+    // 16 KiB of patches fit beside a 16 KiB part; the copy past that is refused.
+    const wide = "w".repeat(6_000);
+    writer.replace("api", line(1, wide), 1);
+    writer.replace("api", line(1, wide), 1);
+    writer.replace("api", line(1, wide), 1);
+    await writer.close();
+    expect(writer.loss).toBe(2);
+    expect(statSync(join(dir, "api.patch")).size).toBeLessThanOrEqual(16 * 1024);
+  });
+
   test("lines without a seq get no index, and a sidecar whose part is gone is removed at start", async () => {
     const dir = tmp();
     writeFileSync(join(dir, "gone~3.idx"), "0 41\n");

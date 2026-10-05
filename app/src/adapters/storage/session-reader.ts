@@ -1,10 +1,10 @@
-import { closeSync, fstatSync, openSync, readdirSync, readSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readdirSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { LogMatcher } from "../../domain/logs/filter.ts";
 import type { LogRecord } from "../../domain/logs/logs.ts";
 import type { SeqSource, Walk } from "./log-page.ts";
 import { firstAtOrAbove, MatchCache, type LineLocation, type ScannedRange } from "./match-cache.ts";
-import { parseStoredLogRecord, safeServiceFile } from "./session-files.ts";
+import { parseStoredLogRecord, partPatchFile, safeServiceFile } from "./session-files.ts";
 
 const KIB = 1024;
 // A checkpoint every 64 KiB of a part that has been read.
@@ -126,6 +126,10 @@ type PartFile = {
   head?: SeqSpan;
   // Highest seq of the last lines, for the size it was read at.
   tail?: { size: number; seq: number };
+  // Records replaced after they were written, by seq, from the patch file
+  // beside the part, and how much of that file has been read.
+  readonly patches: Map<number, string>;
+  patchBytes: number;
 };
 
 type OpenPart = { file: PartFile; fd: number; size: number };
@@ -240,7 +244,9 @@ export class SessionReader {
         return { visited, end: { truncated: true, frontier: down ? location.seq + 1 : location.seq - 1 } };
       }
       const part = byName.get(location.part);
-      const record = part === undefined ? undefined : parseStoredLogRecord(this.read(part, location.offset, location.length, budget).toString("utf8"));
+      const patched = part?.file.patches.get(location.seq);
+      const text = patched ?? (part === undefined || location.length === 0 ? undefined : this.read(part, location.offset, location.length, budget).toString("utf8"));
+      const record = text === undefined ? undefined : parseStoredLogRecord(text);
       if (record?.seq === location.seq && query.matches(record)) {
         visited += 1;
         if (!visit(record)) {
@@ -293,6 +299,9 @@ export class SessionReader {
       const overlaps = head !== undefined && head.low < top && (nextHead === undefined || nextHead.high > bottom);
       if (overlaps && !this.scanPart(part, bottom, top, lines, budget)) {
         return undefined;
+      }
+      if (overlaps) {
+        overlayPatches(part.file, bottom, top, lines);
       }
     }
     const kept: Array<{ record: LogRecord; location: LineLocation }> = [];
@@ -454,6 +463,7 @@ export class SessionReader {
         const fd = file === undefined || (keys !== undefined && !keys.has(file.key)) ? undefined : openQuiet(join(this.dir, name));
         if (file !== undefined && fd !== undefined) {
           open.push({ file, fd, size: fstatSync(fd).size });
+          this.loadPatches(file);
         }
       }
       open.sort((a, b) => (a.file.key === b.file.key ? a.file.part - b.file.part : a.file.key < b.file.key ? -1 : 1));
@@ -462,6 +472,37 @@ export class SessionReader {
       for (const part of open) {
         closeSync(part.fd);
       }
+    }
+  }
+
+  // Reads what has been appended to the part's patch file since last time.
+  // A new patch can change which records a filter keeps, so the cache goes.
+  private loadPatches(file: PartFile): void {
+    const path = join(this.dir, partPatchFile(file.name));
+    const size = sizeQuiet(path);
+    const fd = size > file.patchBytes ? openQuiet(path) : undefined;
+    if (fd === undefined) {
+      return;
+    }
+    try {
+      const buf = Buffer.alloc(size - file.patchBytes);
+      const got = readSync(fd, buf, 0, buf.length, file.patchBytes);
+      this.bytesRead += got;
+      const whole = buf.lastIndexOf(NEWLINE, got - 1) + 1;
+      for (let lineStart = 0; lineStart < whole; ) {
+        const newline = buf.indexOf(NEWLINE, lineStart);
+        const seq = lineSeq(buf, lineStart, newline);
+        if (seq !== undefined) {
+          file.patches.set(seq, buf.toString("utf8", lineStart, newline));
+        }
+        lineStart = newline + 1;
+      }
+      file.patchBytes += whole;
+      if (whole > 0) {
+        this.cache.clear();
+      }
+    } finally {
+      closeSync(fd);
     }
   }
 
@@ -476,9 +517,21 @@ export class SessionReader {
     if (!Number.isInteger(part) || part < 0) {
       return undefined;
     }
-    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex() };
+    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), patches: new Map(), patchBytes: 0 };
     this.parts.set(name, file);
     return file;
+  }
+}
+
+// Lays the part's patches over the lines read for [bottom, top). A patch is a
+// whole record and stands on its own, so one whose line was never written
+// (the disk was full then) still shows.
+function overlayPatches(file: PartFile, bottom: number, top: number, lines: Map<number, Line>): void {
+  for (const [seq, text] of file.patches) {
+    if (seq >= bottom && seq < top) {
+      const base = lines.get(seq)?.location;
+      lines.set(seq, { text, location: base ?? { seq, part: file.name, offset: 0, length: 0 } });
+    }
   }
 }
 
@@ -558,6 +611,14 @@ function listParts(dir: string): string[] {
     return readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
   } catch {
     return [];
+  }
+}
+
+function sizeQuiet(path: string): number {
+  try {
+    return statSync(path).size;
+  } catch {
+    return 0;
   }
 }
 

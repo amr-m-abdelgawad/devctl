@@ -35,6 +35,8 @@ type Part = {
   bytes: number;
   // Bytes of the files kept beside the part. They count toward the session and go when the part goes.
   sidecarBytes: number;
+  // Bytes of the part's patch file alone; a part's patches never outgrow a part.
+  patchBytes: number;
   // Seqs of the first and last line written, 0 until a line carries one.
   firstSeq: number;
   lastSeq: number;
@@ -49,7 +51,7 @@ type Part = {
 };
 
 function newPart(path: string, bytes: number, sidecarBytes: number): Part {
-  return { path, bytes, sidecarBytes, firstSeq: 0, lastSeq: 0, indexed: false, checkpointAt: 0, sidecars: Promise.resolve(), closed: Promise.resolve() };
+  return { path, bytes, sidecarBytes, patchBytes: 0, firstSeq: 0, lastSeq: 0, indexed: false, checkpointAt: 0, sidecars: Promise.resolve(), closed: Promise.resolve() };
 }
 
 type KeyState = {
@@ -78,6 +80,11 @@ type KeyState = {
  * `bound`. The first is `0` with the part's first seq less one, then one each
  * 64 KiB, and a sealed part ends with its size and last seq. A reader seeks
  * with it instead of probing the part.
+ *
+ * A record replaced after it was written (`replace`) is not appended to its
+ * part again, so a part's seqs only rise. The new copy goes to `<part>.patch`
+ * beside the part that holds the original, and readers lay patches over the
+ * part by seq. Both sidecars count toward the session and go with their part.
  */
 export class SessionLogWriter {
   private readonly keys = new Map<string, KeyState>();
@@ -157,6 +164,44 @@ export class SessionLogWriter {
       return;
     }
     this.scheduleFlush();
+  }
+
+  /**
+   * A record written earlier, again, under the same seq. While the original
+   * still waits in its service's batch it is swapped there. Once it has been
+   * issued to a part, the copy is appended to that part's patch file; nothing
+   * is held back to wait for one. A copy whose part is already evicted is
+   * dropped with it, and one refused by the disk, a failed write, the pending
+   * bound, or a patch file as large as a part counts as a loss.
+   */
+  replace(key: string, line: string, seq: number): void {
+    const state = this.keys.get(key);
+    const bytes = Buffer.byteLength(line);
+    const waiting = state === undefined ? -1 : state.seqs.lastIndexOf(seq);
+    if (state !== undefined && waiting >= 0) {
+      const grown = bytes - state.sizes[waiting]!;
+      state.buffer[waiting] = line;
+      state.sizes[waiting] = bytes;
+      state.bufferBytes += grown;
+      this.buffered += grown;
+      return;
+    }
+    if (state === undefined || (state.active === undefined && state.sealed.length === 0)) {
+      // Nothing of this service was written: the original was dropped, and this copy stands in for it.
+      this.write(key, line, seq);
+      return;
+    }
+    const part = partHolding(state, seq);
+    if (part === undefined) {
+      return;
+    }
+    const refused = !this.diskAllows() || !this.writesAllowed() || this.pendingBytes() + bytes > this.pendingLimit * HARD_PENDING_FACTOR;
+    if (refused || part.patchBytes + bytes > this.partBytes) {
+      this.loss += 1;
+      return;
+    }
+    part.patchBytes += bytes;
+    this.appendSidecar(part, partPatchFile(part.path), line, 1);
   }
 
   async flush(): Promise<void> {
@@ -449,6 +494,18 @@ export class SessionLogWriter {
     this.keys.set(key, created);
     return created;
   }
+}
+
+// The part a seq was written to: the newest one that starts at or before it.
+function partHolding(state: KeyState, seq: number): Part | undefined {
+  const parts = state.active === undefined ? state.sealed : [...state.sealed, state.active];
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index]!;
+    if (part.firstSeq > 0 && part.firstSeq <= seq) {
+      return part;
+    }
+  }
+  return undefined;
 }
 
 // Parts already in the directory, with the sidecars beside them. A sidecar

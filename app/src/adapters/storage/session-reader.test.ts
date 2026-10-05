@@ -3,11 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Detector } from "../secrets/detector.ts";
-import { logMessage, logRecord, type LogRecord } from "../../domain/logs/logs.ts";
+import { logMessage, logRecord, REQUEST_ID_ATTR, type LogRecord } from "../../domain/logs/logs.ts";
 import { encodeLogCursor } from "../../domain/logs/pagination.ts";
 import { pageSource } from "./log-page.ts";
 import { LogManager, type LogManagerOptions } from "./logs.ts";
 import { MatchCache } from "./match-cache.ts";
+import { loadSessionEvents, loadSessionTail } from "./session-files.ts";
+import { SessionHistory } from "./session-history.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
 import { createDaemonLogStore } from "./worker-log-store.ts";
 import { Bus } from "../../shared/events.ts";
@@ -218,6 +220,111 @@ describe("remembering a selective filter's matches", () => {
     expect(polls).toBeLessThan(60);
     expect(lineNumbers(page.events)).toEqual(errors(3_000));
     await mgr.close();
+  });
+});
+
+describe("what disk serves is what the ring held", () => {
+  const HOP = "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14";
+  const POLLED = "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times";
+
+  // The whole window, oldest first, a page at a time.
+  function everything(mgr: LogManager, session: string): LogRecord[] {
+    const out: LogRecord[] = [];
+    let page = mgr.queryPage({}, { cursor: cursorAt(session, 0), direction: "forward", limit: 400 });
+    out.push(...page.events);
+    while (page.hasNext) {
+      page = mgr.queryPage({}, { cursor: page.nextCursor, direction: "forward", limit: 400 });
+      out.push(...page.events);
+    }
+    return out;
+  }
+
+  // A worker line and the proxy hop that tags it afterwards, 10 ms apart in event time.
+  function hopPair(mgr: LogManager, atMs: number, requestId: string): void {
+    mgr.append({ timestamp: new Date(atMs + 10).toISOString(), service: "proxy", source: "proxy", level: "WARN", message: HOP, pid: 0, request_id: requestId }, atMs + 10);
+  }
+
+  function workerLine(mgr: LogManager, atMs: number): void {
+    mgr.append({ timestamp: new Date(atMs).toISOString(), service: "worker", source: "stdout", level: "", message: POLLED, pid: 1 }, atMs);
+  }
+
+  test("a page read back from disk equals the same seqs read from the ring", async () => {
+    const root = tmp();
+    // Parts of 512 KiB, so the window spans several per service.
+    const mgr = new LogManager(5_000, undefined, new Detector([], []), true, root, "lossless", 0, 0, { maxMemoryBytes: 256 * 1024 * 1024, maxSessionBytes: 4 * 1024 * 1024 });
+    const at = Date.now();
+    for (let i = 1; i <= 900; i += 1) {
+      mgr.append({ timestamp: new Date(at + i).toISOString(), service: i % 2 === 0 ? "api" : "web", source: i % 5 === 0 ? "stderr" : "stdout", level: i % 50 === 0 ? "ERROR" : "INFO", message: `line ${i} ${i % 7 === 0 ? "多字节文本 ünïcödé 🎉" : ""} ${PAD}`, pid: 1 }, at);
+      if (i % 300 === 0) {
+        await mgr.flush();
+      }
+    }
+    mgr.append({
+      service: "otel", source: "otlp", pid: 0, body: { event: "checkout", nested: { ok: true, n: [1, 2.5, null] } },
+      attributes: { "http.route": "/pay/:id", attempt: 3, tags: ["a", "b"] }, resource: { "service.name": "otel", "host.name": "h1" },
+      scope: { name: "lib", version: "1.2.3" }, traceId: "0af7651916cd43dd8448eb211c80319c", spanId: "b7ad6b7169203331", traceFlags: 1,
+      severityNumber: 9, severityText: "INFO", timeUnixNano: (at + 5) * 1_000_000, observedTimeUnixNano: (at + 6) * 1_000_000, raw: "{\"k\":\"原始\"}",
+    }, at);
+    // One line re-tagged while it still waits in the writer's batch, one after
+    // it was written. The pairs are a second apart, so each hop tags its own line.
+    workerLine(mgr, at);
+    mgr.queryPage({}, { limit: 1 });
+    hopPair(mgr, at, "req-in-batch");
+    workerLine(mgr, at + 1_000);
+    await mgr.flush();
+    hopPair(mgr, at + 1_000, "req-after-write");
+    await mgr.flush();
+    const dir = mgr.sessionDir();
+    expect(readdirSync(dir).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(4);
+    expect(readdirSync(dir).filter((name) => name.endsWith(".patch"))).toEqual(["worker.patch"]);
+
+    const fromRing = everything(mgr, "lossless");
+    expect(mgr.evictedBytesRead()).toBe(0);
+    expect(fromRing).toHaveLength(905);
+    expect(fromRing.filter((event) => event.service === "worker").map((event) => event.attributes[REQUEST_ID_ATTR])).toEqual(["req-in-batch", "req-after-write"]);
+
+    mgr.setMemoryBudget(16 * 1024);
+    expect(mgr.snapshot().total).toBeLessThan(20);
+    const fromDisk = everything(mgr, "lossless");
+    expect(mgr.evictedBytesRead()).toBeGreaterThan(1024 * 1024);
+    expect(fromDisk).toEqual(fromRing);
+
+    // The other readers of a session directory agree.
+    await mgr.close();
+    expect(loadSessionEvents("session-lossless", root)).toEqual(fromRing);
+    expect(loadSessionTail("session-lossless", root)).toEqual(fromRing);
+    const history = new SessionHistory(root, 64 * 1024 * 1024, 10_000);
+    expect(history.page("session-lossless", {}, { cursor: "0", direction: "forward", limit: 5_000 }).events).toEqual(fromRing);
+  });
+
+  test("a patch that arrives after a range was scanned is seen by the next query", async () => {
+    const mgr = new LogManager(2_000, undefined, new Detector([], []), true, tmp(), "late", 0, 0, { maxMemoryBytes: 32 * 1024 });
+    const at = Date.now();
+    workerLine(mgr, at);
+    // Commits the worker line's fold, so it is seq 1 and the first evicted.
+    mgr.queryPage({}, { limit: 1 });
+    for (let i = 1; i <= 300; i += 1) {
+      mgr.append({ timestamp: new Date(at + 1).toISOString(), service: "api", source: "stdout", level: "INFO", message: `line ${i} ${PAD}`, pid: 1 }, at + 1);
+    }
+    await mgr.flush();
+    // The worker line is on disk and untagged; this scan is remembered.
+    expect(mgr.queryPage({ requestId: "req-late" }, {}).events).toEqual([]);
+    hopPair(mgr, at, "req-late");
+    await mgr.flush();
+    const tagged = mgr.queryPage({ requestId: "req-late" }, {});
+    expect(tagged.events.map((event) => `${event.service}:${event.seq}`)).toEqual(["worker:1", "proxy:302"]);
+    expect(mgr.queryPage({ requestId: "req-late" }, {}).events).toEqual(tagged.events);
+    await mgr.close();
+  });
+
+  test("a patch stands in for a line that was never written", () => {
+    const dir = tmp();
+    const record = (seq: number, body = `line ${seq}`): LogRecord => logRecord({ seq, service: "api", message: body });
+    writeLines(dir, "api.jsonl", [record(1), record(2), record(4)]);
+    writeLines(dir, "api.patch", [record(3, "patched in"), record(2, "replaced")]);
+    const reader = new SessionReader(dir);
+    const page = pageSource(reader.source({ matches: () => true }, 1, 5, readBudget(1024 * 1024, 1_000)), { cursor: 0, direction: "forward", limit: 10 });
+    expect(page.events.map((event) => `${event.seq}:${logMessage(event)}`)).toEqual(["1:line 1", "2:replaced", "3:patched in", "4:line 4"]);
   });
 });
 

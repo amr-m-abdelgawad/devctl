@@ -594,7 +594,8 @@ export class LogManager {
 
   private replaceRecord(updated: LogRecord): void {
     this.ring.replace(updated.seq, updated);
-    this.publishRecord(updated);
+    this.announce(updated);
+    this.writer?.replace(safeServiceFile(updated.service), `${JSON.stringify(updated)}\n`, updated.seq);
   }
 
   // A candidate stays while a record at most a window from it may still
@@ -622,15 +623,15 @@ export class LogManager {
   }
 
   private publishRecord(event: LogRecord): void {
+    this.announce(event);
+    this.writer?.write(safeServiceFile(event.service), `${JSON.stringify(event)}\n`, event.seq);
+  }
+
+  // Tells subscribers about a record, new or replaced.
+  private announce(event: LogRecord): void {
     this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
     this.noteBatch(event);
     this.onRecord?.(event);
-    if (!this.writer) {
-      return;
-    }
-    const text = `${JSON.stringify(event)}\n`;
-    const key = safeServiceFile(event.service);
-    this.writer.write(key, text, event.seq);
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {

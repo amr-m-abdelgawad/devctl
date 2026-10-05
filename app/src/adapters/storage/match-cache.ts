@@ -26,6 +26,11 @@ const MAX_MATCHES = 65_536;
 export class MatchCache {
   private readonly ranges = new Map<string, ScannedRange>();
 
+  /** Forgets every range: what was scanned no longer says which records match. */
+  clear(): void {
+    this.ranges.clear();
+  }
+
   /** The range cached for `key`, less anything below `lo`, now the most recent. */
   get(key: string, lo: number): ScannedRange | undefined {
     const range = this.ranges.get(key);
