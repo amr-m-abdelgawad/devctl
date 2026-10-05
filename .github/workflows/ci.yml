@@ -30,6 +30,7 @@ jobs:
     name: Tests
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -93,6 +94,7 @@ jobs:
     name: Container tests
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -125,6 +127,7 @@ jobs:
     name: Compile smoke
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Release scripts
@@ -180,6 +183,7 @@ jobs:
           - os: windows-latest
             binary: devctl-windows-x64.exe
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -202,6 +206,7 @@ jobs:
     name: npm package build
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -251,6 +256,7 @@ jobs:
           - macos-15-intel
           - windows-latest
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -284,6 +290,7 @@ jobs:
   windows-tests:
     name: Windows tests
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -298,6 +305,7 @@ jobs:
   macos-tests:
     name: macOS tests
     runs-on: macos-15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -319,6 +327,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
