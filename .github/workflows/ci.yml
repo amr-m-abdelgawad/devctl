@@ -301,17 +301,22 @@ jobs:
           bun-version: 1.4.2
       - working-directory: app
         run: bun install --frozen-lockfile
-      # Temporary, while a hang in this job is unexplained: how the synchronous
-      # process calls devctl makes behave on this runner. Never fails the job.
-      - name: Probe process calls
-        continue-on-error: true
-        timeout-minutes: 3
-        run: bun .github/scripts/probe-windows-spawn.cjs
       # The run takes three minutes. One still going after ten is stuck: the
       # wrapper prints what was running, then stops it.
       - name: bun test
         working-directory: app
         run: node ../.github/scripts/run-watched.cjs 10 bun test
+      # After the tests, so that nothing here starts PowerShell before they run:
+      # a cold first start is part of what they must cope with.
+      - name: Check that a stuck run would be reported
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          RUN_WATCHED_QUIET: "1"
+        run: |
+          node .github/scripts/run-watched.cjs 0.1 bun -e 'setInterval(String, 1000)'
+          if ($LASTEXITCODE -ne 124) { Write-Host "expected exit 124 from a stopped run, got $LASTEXITCODE"; exit 1 }
+          exit 0
 
   macos-tests:
     name: macOS tests

@@ -8,6 +8,9 @@
 // instead of running silently into the job's own limit.
 //
 // usage: node run-watched.cjs <limit-minutes> <command> [args...]
+//
+// RUN_WATCHED_QUIET=1 says the stop is expected (the check of this script
+// itself): the message is printed without marking the run as failed.
 
 const { spawn, spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
@@ -47,7 +50,8 @@ child.on("exit", (code, signal) => {
 
 const timer = setTimeout(() => {
   limitReached = true;
-  console.log(`::error::${label} was still running after ${limitMinutes} minutes and was stopped. Its log shows what was running.`);
+  const annotation = process.env.RUN_WATCHED_QUIET === "1" ? "" : "::error::";
+  console.log(`${annotation}${label} was still running after ${limitMinutes} minutes and was stopped. Its log shows what was running.`);
   if (windows) {
     reportWindows(child.pid);
   } else {
