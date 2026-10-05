@@ -189,6 +189,15 @@ export function listPackageFiles(root: string): string[] {
   return files.sort();
 }
 
+/**
+ * The generated files a package manifest's `files` leaves out. npm packs only
+ * what `files` names, so one left out is built but never reaches an install.
+ */
+export function unpackedGeneratedFiles(manifest: PackageJson): string[] {
+  const packed = Array.isArray(manifest.files) ? manifest.files : [];
+  return GENERATED_PACKAGE_FILES.filter((file) => file !== "package.json" && !packed.includes(file));
+}
+
 export function assertPackageFileAllowlist(root: string): void {
   const actual = listPackageFiles(root);
   const expected = [...GENERATED_PACKAGE_FILES].sort();
@@ -283,6 +292,10 @@ export async function buildNpmPackage(repoRoot: string, requestedVersion: string
   copyFileSync(join(templateRoot, "README.md"), join(outputRoot, "README.md"));
   copyFileSync(join(root, "LICENSE"), join(outputRoot, "LICENSE"));
   const packageJson = createPublishedPackageJson(template, appPackage, releaseVersion, resolvedExternals);
+  const unpacked = unpackedGeneratedFiles(packageJson);
+  if (unpacked.length > 0) {
+    throw new Error(`packaging/npm/package.template.json "files" must list ${unpacked.join(", ")}`);
+  }
   writeFileSync(join(outputRoot, "package.json"), `${JSON.stringify(packageJson, null, 2)}\n`, "utf8");
   assertPackageFileAllowlist(outputRoot);
   return outputRoot;
