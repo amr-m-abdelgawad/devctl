@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, s
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
+import { gcAndSweep, heapStats } from "bun:jsc";
 import { Detector } from "../secrets/detector.ts";
 import { logMessage, logRecord, REQUEST_ID_ATTR, type LogRecord } from "../../domain/logs/logs.ts";
 import { encodeLogCursor } from "../../domain/logs/pagination.ts";
@@ -316,6 +317,66 @@ describe("what disk serves is what the ring held", () => {
     expect(tagged.events.map((event) => `${event.service}:${event.seq}`)).toEqual(["worker:1", "proxy:302"]);
     expect(mgr.queryPage({ requestId: "req-late" }, {}).events).toEqual(tagged.events);
     await mgr.close();
+  });
+
+  // What the heap holds once everything else is collected and swept. Memory
+  // freed late by earlier tests would skew one reading, so collect until two agree.
+  function settledHeap(): number {
+    let previous = Number.NaN;
+    for (let round = 0; round < 10; round += 1) {
+      gcAndSweep();
+      const stats = heapStats();
+      const current = stats.heapSize + stats.extraMemorySize;
+      if (Math.abs(current - previous) < 64 * 1024) {
+        return current;
+      }
+      previous = current;
+    }
+    return previous;
+  }
+
+  test("a part's patches stay on disk: a reader keeps where they are, and reads only the stretch a range needs", () => {
+    const dir = tmp();
+    const COUNT = 20_000;
+    const record = (seq: number, body: string): LogRecord => logRecord({ seq, service: "api", message: body });
+    writeLines(dir, "api.jsonl", Array.from({ length: COUNT }, (_, i) => record(i + 1, `line ${i + 1}`)));
+    // Every second record was replaced after it was written, by a much longer copy: about 9 MiB of patches.
+    writeLines(dir, "api.patch", Array.from({ length: COUNT / 2 }, (_, i) => record(2 * (i + 1), `patched ${2 * (i + 1)} ${"x".repeat(800)}`)));
+    const patchBytes = statSync(join(dir, "api.patch")).size;
+    expect(patchBytes).toBeGreaterThan(8 * 1024 * 1024);
+    const page = (reader: SessionReader, from: number): string[] =>
+      pageSource(reader.source({ matches: () => true }, 1, COUNT + 1, readBudget(64 * 1024 * 1024, 5_000)), { cursor: from - 1, direction: "forward", limit: 100 }).events
+        .map((event) => `${event.seq}:${logMessage(event).split(" ").slice(0, 2).join(" ")}`);
+    const expected = (from: number): string[] => range(from, from + 99).map((seq) => (seq % 2 === 0 ? `${seq}:patched ${seq}` : `${seq}:line ${seq}`));
+
+    const before = settledHeap();
+    const reader = new SessionReader(dir);
+    expect(page(reader, 8_001)).toEqual(expected(8_001));
+    // Finding where the patches are read the patch file through once.
+    expect(reader.bytesRead).toBeGreaterThan(patchBytes);
+    expect(settledHeap() - before).toBeLessThan(2 * 1024 * 1024);
+
+    const readSoFar = reader.bytesRead;
+    expect(page(reader, 15_001)).toEqual(expected(15_001));
+    expect(page(reader, 301)).toEqual(expected(301));
+    // Each further page reads its own lines and the stretch or two of patches over them, not the patch file.
+    expect(reader.bytesRead - readSoFar).toBeLessThan(patchBytes / 4);
+  });
+
+  test("the tail of a session takes the patches of the records it holds, and no others", () => {
+    const root = tmp();
+    const dir = join(root, "session-tail");
+    mkdirSync(dir);
+    const record = (seq: number, body: string): LogRecord => logRecord({ seq, service: "api", message: body });
+    writeLines(dir, "api.jsonl", Array.from({ length: 3_000 }, (_, i) => record(i + 1, `line ${i + 1} ${"y".repeat(200)}`)));
+    // A patch for every record, and one of them longer than a megabyte.
+    writeLines(dir, "api.patch", Array.from({ length: 3_000 }, (_, i) => record(i + 1, `patched ${i + 1}${i + 1 === 2_990 ? ` ${"z".repeat(1_200_000)}` : ""}`)));
+    const tail = loadSessionTail("session-tail", root, 50_000, 64 * 1024);
+    expect(tail.length).toBeGreaterThan(100);
+    expect(tail.length).toBeLessThan(400);
+    expect(tail.at(-1)?.seq).toBe(3_000);
+    expect(tail.map((event) => event.seq)).toEqual(range(tail[0]!.seq, 3_000));
+    expect(tail.every((event) => logMessage(event).startsWith(`patched ${event.seq}`))).toBe(true);
   });
 
   test("a patch stands in for a line that was never written", () => {

@@ -1,4 +1,4 @@
-/** Where one stored record's line is in a session's part files. */
+/** Where one stored record's line is: in one of a session's part files, or in a part's patch file when the record was replaced after it was written. */
 export type LineLocation = {
   readonly seq: number;
   readonly part: string;

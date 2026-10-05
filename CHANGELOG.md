@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - After the stop grace period, devctl SIGKILLs process-group members that are still alive. A zombie is not treated as running.
 - On Linux the daemon lock records the holder's PID namespace (it was never read before). A lock held from another PID namespace, such as another container sharing the devctl home, is judged by whether its socket accepts, not by a pid that names a different process here.
 - A watchdog worker that fails is retried after 1, 2, 4 … seconds, at most a minute apart, instead of every second. `status`, `status --json` (`daemon.watchdog`, `daemon.logStore`), and `devctl doctor` say when the daemon runs without its watchdog or log worker.
+- Each session log part has two small files beside it. `<part>.idx` is an index the daemon seeks with, so a page far back in a long session is found without probing the part. `<part>.patch` holds a record that was re-tagged with a request id after it was written; it is no longer appended to the part a second time. Parts are still one whole record a line. Other tools and older devctl versions read them as before and show the untagged copy of a patched record. Both files count toward `logs.persistence.max_session_bytes` and are deleted with their part.
+- The filter chips' counts for service, level and source cover the whole log window, including records the in-memory ring has evicted to the session files. With a search, a time range, or a trace, request-id or attribute filter they count the records still in memory, as before.
+- A trace's log records are looked up across the whole log window, not only the part still in memory. The trace response says `truncated: true` (MCP: `logs_truncated`) when the lookup stopped before it had read the whole window.
 
 ### Fixed
 

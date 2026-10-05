@@ -11,6 +11,10 @@ export const SESSION_FORMAT_JSONL = "jsonl";
 const PART_SUFFIX = ".jsonl";
 const INDEX_SUFFIX = ".idx";
 const PATCH_SUFFIX = ".patch";
+const PATCH_READ_BYTES = 1024 * 1024;
+const NEWLINE = 0x0a;
+// A stored record starts with its seq.
+const SEQ_AT_START = /^\{"seq":(\d+)/;
 
 /**
  * Files kept beside a part `<service>[~N].jsonl`: its seq index and the
@@ -89,7 +93,7 @@ export function loadSessionTail(sessionName: string, root = logsDir(), maxRecord
           records.push(record);
         }
       }
-      applyTailPatches(records, from, loadPatches(dir, name));
+      applyTailPatches(records, from, dir, name);
     }
   }
   records.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
@@ -98,12 +102,18 @@ export function loadSessionTail(sessionName: string, root = logsDir(), maxRecord
 
 // Lays a part's patches over the records read from its tail, `records[from..]`.
 // A patch below the tail's first seq belongs to a line that was not read.
-function applyTailPatches(records: LogRecord[], from: number, patches: readonly LogRecord[]): void {
-  if (patches.length === 0 || from >= records.length) {
+function applyTailPatches(records: LogRecord[], from: number, dir: string, part: string): void {
+  if (from >= records.length) {
     return;
   }
-  const lowest = records.slice(from).reduce((low, record) => Math.min(low, record.seq), Number.POSITIVE_INFINITY);
-  const bySeq = new Map(patches.filter((patch) => patch.seq >= lowest).map((patch) => [patch.seq, patch]));
+  let lowest = Number.POSITIVE_INFINITY;
+  for (let index = from; index < records.length; index += 1) {
+    lowest = Math.min(lowest, records[index]!.seq);
+  }
+  const bySeq = new Map(loadPatches(dir, part, lowest).map((patch) => [patch.seq, patch]));
+  if (bySeq.size === 0) {
+    return;
+  }
   for (let index = from; index < records.length; index += 1) {
     const patch = bySeq.get(records[index]!.seq);
     if (patch !== undefined) {
@@ -114,18 +124,42 @@ function applyTailPatches(records: LogRecord[], from: number, patches: readonly 
   records.push(...bySeq.values());
 }
 
-// The records replaced after they were written to a part, from the patch file beside it.
-function loadPatches(dir: string, part: string): LogRecord[] {
+// The records replaced after they were written to a part, from the patch
+// file beside it, leaving out those below `fromSeq`. The file is read a
+// megabyte at a time, and only the lines that are wanted are parsed.
+function loadPatches(dir: string, part: string, fromSeq = 0): LogRecord[] {
   const path = join(dir, partPatchFile(part));
   if (!existsSync(path)) {
     return [];
   }
   const patches: LogRecord[] = [];
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
-    if (record) {
-      patches.push(record);
+  const fd = openSync(path, "r");
+  try {
+    let buf = Buffer.allocUnsafe(PATCH_READ_BYTES);
+    for (let position = 0; ; ) {
+      const got = readSync(fd, buf, 0, buf.length, position);
+      const whole = got <= 0 ? 0 : buf.lastIndexOf(NEWLINE, got - 1) + 1;
+      if (whole === 0) {
+        if (got < buf.length) {
+          break;
+        }
+        // One record longer than a read: take a longer one.
+        buf = Buffer.allocUnsafe(buf.length * 2);
+        continue;
+      }
+      for (let lineStart = 0; lineStart < whole; ) {
+        const newline = buf.indexOf(NEWLINE, lineStart);
+        const seq = SEQ_AT_START.exec(buf.toString("latin1", lineStart, Math.min(newline, lineStart + 32)));
+        const record = seq !== null && Number(seq[1]) < fromSeq ? undefined : parseStoredLogRecord(buf.toString("utf8", lineStart, newline));
+        if (record !== undefined && record.seq >= fromSeq) {
+          patches.push(record);
+        }
+        lineStart = newline + 1;
+      }
+      position += whole;
     }
+  } finally {
+    closeSync(fd);
   }
   return patches;
 }

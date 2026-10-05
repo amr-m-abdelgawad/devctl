@@ -24,6 +24,10 @@ const SLACK_BYTES = 64 * KIB;
 const MIN_SPAN = 16;
 const FIRST_SPAN = 256;
 const MAX_SPAN = 16_384;
+// A part's patch file is known as stretches of about this size, and read one stretch at a time.
+const PATCH_BLOCK_BYTES = 64 * KIB;
+// Finding those stretches reads the patch file through once, this much at a time.
+const PATCH_SCAN_BYTES = 1024 * KIB;
 const NEWLINE = 0x0a;
 const SEQ_PREFIX = Buffer.from('{"seq":');
 
@@ -146,6 +150,9 @@ class PartIndex {
 
 type SeqSpan = { low: number; high: number };
 
+// A stretch of whole lines in a part's patch file, and the seqs of the records in it.
+type PatchBlock = { offset: number; length: number; low: number; high: number };
+
 type PartFile = {
   readonly name: string;
   readonly key: string;
@@ -162,14 +169,22 @@ type PartFile = {
   head?: SeqSpan;
   // Highest seq of the last lines, for the size it was read at.
   tail?: { size: number; seq: number };
-  // Records replaced after they were written, by seq, from the patch file
-  // beside the part, and how much of that file has been read.
-  readonly patches: Map<number, string>;
+  // Where the records replaced after they were written are in the patch file
+  // beside the part, and how much of that file this covers. Their text stays
+  // on disk, so a part's patches cost memory by the stretch, not by the
+  // record. They are found the first time the part is read and kept current
+  // from then on.
+  readonly patchBlocks: PatchBlock[];
   patchBytes: number;
+  patchesTracked: boolean;
 };
 
-// A part as one walk sees it: its size now, and a descriptor once it is read.
-type OpenPart = { file: PartFile; size: number; fd?: number };
+// A part as one walk sees it: its size now, and a descriptor for it and for
+// its patch file once each is read.
+type OpenPart = { file: PartFile; size: number; fd?: number; patchFd?: number };
+
+// The file a line is read from: a part, or the patch file beside it.
+type LineSource = { part: OpenPart; patch: boolean };
 
 type Line = { text: string; location: LineLocation };
 
@@ -220,7 +235,7 @@ export class SessionReader {
   // A span inside the range this query has scanned before reads only the
   // cached matches' lines; what the walk scans is folded into that range.
   private walk(query: SessionQuery, lo: number, hi: number, down: boolean, visit: (event: LogRecord) => boolean, want: number | undefined, budget: ReadBudget): Walk {
-    return this.withParts(query.services, (open, byName): Walk => {
+    return this.withParts(query.services, (open, sources): Walk => {
       const cached = query.key === undefined ? undefined : this.cache.get(query.key, lo);
       let run: ScannedRange | undefined;
       // The edge of what has been read so far.
@@ -235,7 +250,7 @@ export class SessionReader {
         const [bottom, top] = alignToCache(planned[0]!, planned[1]!, lo, hi, down, cached, this.affordable(budget));
         const inCache = cached !== undefined && bottom >= cached.lo && top <= cached.hi;
         const step = inCache
-          ? this.visitCached(byName, cached.matches, bottom, top, down, query, visit, budget)
+          ? this.visitCached(sources, cached.matches, bottom, top, down, query, visit, budget)
           : this.visitScanned(open, query, bottom, top, down, visit, budget);
         const matches = inCache ? cached.matches.slice(firstAtOrAbove(cached.matches, bottom), firstAtOrAbove(cached.matches, top)) : step.matches;
         if (matches !== undefined) {
@@ -272,8 +287,8 @@ export class SessionReader {
     return { visited, matches: scanned.matches };
   }
 
-  // Reads each cached match's line where the cache says it is.
-  private visitCached(byName: ReadonlyMap<string, OpenPart>, matches: readonly LineLocation[], bottom: number, top: number, down: boolean, query: SessionQuery, visit: (event: LogRecord) => boolean, budget: ReadBudget): Step {
+  // Reads each cached match's line where the cache says it is: in its part, or in the part's patch file.
+  private visitCached(sources: ReadonlyMap<string, LineSource>, matches: readonly LineLocation[], bottom: number, top: number, down: boolean, query: SessionQuery, visit: (event: LogRecord) => boolean, budget: ReadBudget): Step {
     const from = firstAtOrAbove(matches, bottom);
     const to = firstAtOrAbove(matches, top);
     let visited = 0;
@@ -282,9 +297,8 @@ export class SessionReader {
       if (spent(budget)) {
         return { visited, end: { truncated: true, frontier: down ? location.seq + 1 : location.seq - 1 } };
       }
-      const part = byName.get(location.part);
-      const patched = part?.file.patches.get(location.seq);
-      const text = patched ?? (part === undefined || location.length === 0 ? undefined : this.read(part, location.offset, location.length, budget).toString("utf8"));
+      const source = sources.get(location.part);
+      const text = source === undefined ? undefined : this.read(source.part, location.offset, location.length, budget, source.patch).toString("utf8");
       const record = text === undefined ? undefined : parseStoredLogRecord(text);
       if (record?.seq === location.seq && query.matches(record)) {
         visited += 1;
@@ -333,11 +347,12 @@ export class SessionReader {
       const part = open[index]!;
       const extent = this.extent(part, budget);
       const overlaps = extent !== undefined && extent.low < top && extent.high >= bottom;
-      if (overlaps && !this.scanPart(part, bottom, top, lines, budget)) {
-        return undefined;
+      if (overlaps && !part.file.patchesTracked) {
+        part.file.patchesTracked = true;
+        this.notePatches(part.file);
       }
-      if (overlaps) {
-        overlayPatches(part.file, bottom, top, lines);
+      if (overlaps && !(this.scanPart(part, bottom, top, lines, budget) && this.overlayPatches(part, bottom, top, lines, budget))) {
+        return undefined;
       }
     }
     const kept: Array<{ record: LogRecord; location: LineLocation }> = [];
@@ -502,11 +517,38 @@ export class SessionReader {
     return seq;
   }
 
-  private read(part: OpenPart, position: number, length: number, budget: ReadBudget): Buffer {
+  // Lays the part's patches over the lines read for [bottom, top). Only the
+  // stretches of its patch file that hold a seq in that range are read. A
+  // patch is a whole record and stands on its own, so one whose line was never
+  // written (the disk was full then) still shows. Each patched line is then
+  // located in the patch file. False when the budget ran out.
+  private overlayPatches(part: OpenPart, bottom: number, top: number, lines: Map<number, Line>, budget: ReadBudget): boolean {
+    const name = partPatchFile(part.file.name);
+    for (const block of part.file.patchBlocks) {
+      if (block.low >= top || block.high < bottom) {
+        continue;
+      }
+      if (spent(budget)) {
+        return false;
+      }
+      const buf = this.read(part, block.offset, block.length, budget, true);
+      for (let lineStart = 0, newline = buf.indexOf(NEWLINE); newline >= 0; lineStart = newline + 1, newline = buf.indexOf(NEWLINE, lineStart)) {
+        const seq = lineSeq(buf, lineStart, newline);
+        if (seq !== undefined && seq >= bottom && seq < top) {
+          lines.set(seq, { text: buf.toString("utf8", lineStart, newline), location: { seq, part: name, offset: block.offset + lineStart, length: newline - lineStart } });
+        }
+      }
+    }
+    return true;
+  }
+
+  private read(part: OpenPart, position: number, length: number, budget: ReadBudget, patch = false): Buffer {
     budget.deadline ??= performance.now() + budget.ms;
-    part.fd ??= openQuiet(join(this.dir, part.file.name));
-    const buf = Buffer.alloc(part.fd === undefined ? 0 : Math.max(0, length));
-    const got = part.fd !== undefined && buf.length > 0 ? readSync(part.fd, buf, 0, buf.length, position) : 0;
+    const fd = patch
+      ? (part.patchFd ??= openQuiet(join(this.dir, partPatchFile(part.file.name))))
+      : (part.fd ??= openQuiet(join(this.dir, part.file.name)));
+    const buf = Buffer.alloc(fd === undefined ? 0 : Math.max(0, length));
+    const got = fd !== undefined && buf.length > 0 ? readSync(fd, buf, 0, buf.length, position) : 0;
     this.bytesRead += got;
     budget.bytesLeft -= got;
     return got === buf.length ? buf : buf.subarray(0, got);
@@ -515,8 +557,9 @@ export class SessionReader {
   // The session's part files (only those of `services`, when given), ordered
   // by service and part, for the length of one walk. A part is opened when
   // it is first read, and its sidecars are looked at only when the listing
-  // shows them and they can have grown.
-  private withParts<T>(services: readonly string[] | undefined, walk: (open: OpenPart[], byName: ReadonlyMap<string, OpenPart>) => T): T {
+  // shows them and they can have grown. `sources` names each part and its
+  // patch file, for the lines a cached match points at.
+  private withParts<T>(services: readonly string[] | undefined, walk: (open: OpenPart[], sources: ReadonlyMap<string, LineSource>) => T): T {
     const keys = services !== undefined && services.length > 0 ? new Set(services.map(safeServiceFile)) : undefined;
     const listed = new Set(listFiles(this.dir));
     for (const name of this.parts.keys()) {
@@ -534,17 +577,24 @@ export class SessionReader {
           if (file.sealed?.size !== size && listed.has(partIndexFile(name))) {
             this.loadIndex(file, size);
           }
-          if (listed.has(partPatchFile(name))) {
-            this.loadPatches(file);
+          if (file.patchesTracked && listed.has(partPatchFile(name))) {
+            this.notePatches(file);
           }
         }
       }
       open.sort((a, b) => (a.file.key === b.file.key ? a.file.part - b.file.part : a.file.key < b.file.key ? -1 : 1));
-      return walk(open, new Map(open.map((part) => [part.file.name, part])));
+      const sources = new Map<string, LineSource>();
+      for (const part of open) {
+        sources.set(part.file.name, { part, patch: false });
+        sources.set(partPatchFile(part.file.name), { part, patch: true });
+      }
+      return walk(open, sources);
     } finally {
       for (const part of open) {
-        if (part.fd !== undefined) {
-          closeSync(part.fd);
+        for (const fd of [part.fd, part.patchFd]) {
+          if (fd !== undefined) {
+            closeSync(fd);
+          }
         }
       }
     }
@@ -576,24 +626,50 @@ export class SessionReader {
     file.unparsed += first[0] === 0 ? text.slice(firstEnd + 1) : text;
   }
 
-  // Reads what has been appended to the part's patch file since last time.
-  // A patch can change which filters keep its record, so cached ranges that
-  // hold a patched seq are forgotten.
-  private loadPatches(file: PartFile): void {
-    const buf = this.appended(partPatchFile(file.name), file.patchBytes);
+  // Notes what has been appended to the part's patch file since last time:
+  // which stretch of the file holds which seqs. The file is read through a
+  // megabyte at a time and nothing of it is kept. A patch can change which
+  // filters keep its record, so cached ranges that hold a patched seq are
+  // forgotten.
+  private notePatches(file: PartFile): void {
+    const path = join(this.dir, partPatchFile(file.name));
+    const size = sizeQuiet(path) ?? 0;
+    const fd = size > file.patchBytes ? openQuiet(path) : undefined;
+    if (fd === undefined) {
+      return;
+    }
     let low = Number.POSITIVE_INFINITY;
     let high = 0;
-    for (let lineStart = 0; lineStart < buf.length; ) {
-      const newline = buf.indexOf(NEWLINE, lineStart);
-      const seq = lineSeq(buf, lineStart, newline);
-      if (seq !== undefined) {
-        file.patches.set(seq, buf.toString("utf8", lineStart, newline));
-        low = Math.min(low, seq);
-        high = Math.max(high, seq);
+    try {
+      let buf = Buffer.allocUnsafe(Math.min(PATCH_SCAN_BYTES, size - file.patchBytes));
+      while (file.patchBytes < size) {
+        const got = readSync(fd, buf, 0, Math.min(buf.length, size - file.patchBytes), file.patchBytes);
+        this.bytesRead += got;
+        const whole = got <= 0 ? 0 : buf.lastIndexOf(NEWLINE, got - 1) + 1;
+        if (whole === 0) {
+          if (got < buf.length || file.patchBytes + got >= size) {
+            // The line still being written, or a file that is gone.
+            break;
+          }
+          // One record longer than a read: take a longer one.
+          buf = Buffer.allocUnsafe(buf.length * 2);
+          continue;
+        }
+        for (let lineStart = 0; lineStart < whole; ) {
+          const newline = buf.indexOf(NEWLINE, lineStart);
+          const seq = lineSeq(buf, lineStart, newline);
+          notePatchLine(file.patchBlocks, file.patchBytes + lineStart, newline + 1 - lineStart, seq);
+          if (seq !== undefined) {
+            low = Math.min(low, seq);
+            high = Math.max(high, seq);
+          }
+          lineStart = newline + 1;
+        }
+        file.patchBytes += whole;
       }
-      lineStart = newline + 1;
+    } finally {
+      closeSync(fd);
     }
-    file.patchBytes += buf.length;
     if (high > 0) {
       this.cache.invalidate(low, high);
     }
@@ -628,7 +704,7 @@ export class SessionReader {
     if (!Number.isInteger(part) || part < 0) {
       return undefined;
     }
-    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), indexBytes: 0, unparsed: "", patches: new Map(), patchBytes: 0 };
+    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), indexBytes: 0, unparsed: "", patchBlocks: [], patchBytes: 0, patchesTracked: false };
     this.parts.set(name, file);
     return file;
   }
@@ -646,15 +722,19 @@ function lastIndexEntry(text: string): { start: number; entry: [number, number] 
   return { start, entry: indexEntry(text.slice(start, -1)) };
 }
 
-// Lays the part's patches over the lines read for [bottom, top). A patch is a
-// whole record and stands on its own, so one whose line was never written
-// (the disk was full then) still shows.
-function overlayPatches(file: PartFile, bottom: number, top: number, lines: Map<number, Line>): void {
-  for (const [seq, text] of file.patches) {
-    if (seq >= bottom && seq < top) {
-      const base = lines.get(seq)?.location;
-      lines.set(seq, { text, location: base ?? { seq, part: file.name, offset: 0, length: 0 } });
-    }
+// Adds one line of a patch file to the stretches it is known by: to the last
+// one while that is short of a full stretch, else to a new one. A line that
+// is no record (`seq` undefined) only takes up room.
+function notePatchLine(blocks: PatchBlock[], offset: number, length: number, seq: number | undefined): void {
+  let block = blocks.at(-1);
+  if (block === undefined || block.length >= PATCH_BLOCK_BYTES) {
+    block = { offset, length: 0, low: Number.POSITIVE_INFINITY, high: 0 };
+    blocks.push(block);
+  }
+  block.length += length;
+  if (seq !== undefined) {
+    block.low = Math.min(block.low, seq);
+    block.high = Math.max(block.high, seq);
   }
 }
 
