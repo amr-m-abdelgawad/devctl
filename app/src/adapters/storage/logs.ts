@@ -60,6 +60,9 @@ const PRUNE_ON_ROTATE_MIN_MS = 30_000;
 const IN_FLIGHT_SLACK_MS = 100;
 // How often a fold that is due but waiting on its stream's queued output is re-checked.
 const FOLD_BUSY_RECHECK_MS = 25;
+// Access-line dedupe keeps the last line of this many processes. Every
+// restart is a new pid, so without a bound a service restarted all day grows it.
+const ACCESS_LINE_PROCESSES = 256;
 
 function accessLineKey(service: string, pid: number): string {
   return `${service}\0${pid}`;
@@ -662,8 +665,18 @@ export class LogManager {
   }
 
   private rememberAccessLine(service: string, pid: number, event: LogRecord): void {
-    if (pid > 0) {
-      this.lastByServicePid.set(accessLineKey(service, pid), event);
+    if (!(pid > 0)) {
+      return;
+    }
+    const key = accessLineKey(service, pid);
+    // Set again as the newest, so the first key is the process that logged longest ago.
+    this.lastByServicePid.delete(key);
+    this.lastByServicePid.set(key, event);
+    if (this.lastByServicePid.size > ACCESS_LINE_PROCESSES) {
+      for (const oldest of this.lastByServicePid.keys()) {
+        this.lastByServicePid.delete(oldest);
+        break;
+      }
     }
   }
 

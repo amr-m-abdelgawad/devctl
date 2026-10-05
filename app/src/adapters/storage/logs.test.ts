@@ -778,6 +778,41 @@ describe("LogManager process multiline folding", () => {
 });
 
 describe("LogManager dedupe_access_line", () => {
+  test("remembers the last line of a bounded number of processes, the most recent ones", () => {
+    const mgr = new LogManager(5_000, undefined, new Detector([], []), false, tmp(), "pair-bound", 0, 0);
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, dedupe_access_line: true } });
+    const remembered = (mgr as unknown as { lastByServicePid: Map<string, unknown> }).lastByServicePid;
+    const structured = (pid: number): void => {
+      mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", pid, message: '{"method":"GET","path":"/health","status":200}' });
+    };
+    const plain = (pid: number): void => {
+      mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", pid, message: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK' });
+    };
+    // A query commits what is still folding.
+    const recordsOf = (pid: number): number => mgr.query({}).filter((event) => event.resource["process.pid"] === pid).length;
+    // A service restarted 2,000 times: each run is a new pid that logs once.
+    for (let pid = 1; pid <= 2_000; pid += 1) {
+      structured(pid);
+    }
+    expect(recordsOf(2_000)).toBe(1);
+    expect(remembered.size).toBe(256);
+    // The newest process's plain copy of its line is still dropped.
+    plain(2_000);
+    expect(recordsOf(2_000)).toBe(1);
+    // A process that keeps logging stays remembered while 255 newer ones come and go.
+    structured(7);
+    for (let pid = 3_000; pid < 3_255; pid += 1) {
+      structured(pid);
+    }
+    expect(recordsOf(7)).toBe(2);
+    expect(remembered.size).toBe(256);
+    plain(7);
+    expect(recordsOf(7)).toBe(2);
+    // One that has been pushed out is treated as never seen: its plain line is kept.
+    plain(1);
+    expect(recordsOf(1)).toBe(2);
+  });
+
   test("off by default keeps the uvicorn pair", () => {
     const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "pair-off", 0, 0);
     mgr.append({
