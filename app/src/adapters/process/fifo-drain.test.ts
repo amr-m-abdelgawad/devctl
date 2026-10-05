@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
 import { drainCommand, replayDrained, startDrain, type DrainPlan } from "./fifo-drain.ts";
-import { fifoChunks } from "./fifo-reader.ts";
+import { fifoChunks, probeFifoWatch } from "./fifo-reader.ts";
+
+// Where a watch reports FIFO writes (Linux), the plans below name the FIFO, as a daemon's plan does there.
+const probeDir = mkdtempSync(join(tmpdir(), "devctl-drain-probe-"));
+const WATCHABLE = process.platform !== "win32" && (await probeFifoWatch(probeDir));
+rmSync(probeDir, { recursive: true, force: true });
 
 const dirs: string[] = [];
 const kids: ReturnType<typeof Bun.spawn>[] = [];
@@ -40,7 +45,7 @@ function planFor(service: Service, maxBytes: number, fd = service.readFd): Drain
     spoolDir: join(service.dir, "drain"),
     maxBytes,
     stoppedPath: join(service.dir, "drain.stopped"),
-    streams: [{ fd, service: "api", stream: "stdout", pid: service.proc.pid }],
+    streams: [{ fd, service: "api", stream: "stdout", pid: service.proc.pid, fifo: WATCHABLE ? service.fifo : undefined }],
   };
 }
 
@@ -157,6 +162,37 @@ describe.skipIf(process.platform === "win32")("fifo drain", () => {
     expect(times.at(-1)! - times[0]!).toBeGreaterThanOrEqual(250);
     expect(times).toEqual([...times].sort((a, b) => a - b));
     expect(replayed.filter((d) => d.end !== true).every((d) => d.pid === service.proc.pid)).toBe(true);
+  });
+
+  test("a drainer asleep on a quiet FIFO reads the next output when it comes, and nothing once it is stopped", async () => {
+    const service = serviceWritingTo("printf a; sleep 0.6; printf b; sleep 1.2; printf late; sleep 0.2");
+    const plan = planFor(service, 1024 * 1024);
+    const drain = startDrain(plan);
+    await Bun.sleep(1_100);
+    drain.stop();
+    await drain.done;
+    expect(await service.proc.exited).toBe(0);
+    const replayed = await replayAll(plan.spoolDir);
+    expect(replayed.map((d) => d.text)).toEqual(["a", "b"]);
+    // "b" was read when it was written, after the quiet spell, not when the drainer stopped.
+    const gap = (replayed[1]?.readAtMs ?? 0) - (replayed[0]?.readAtMs ?? 0);
+    expect(gap).toBeGreaterThanOrEqual(450);
+    expect(gap).toBeLessThan(900);
+    expect(await readRest(service.fifo)).toBe("late");
+  });
+
+  test("a plan too long for one argument goes to the drainer without the FIFO paths", () => {
+    const stream = (index: number) => ({ fd: 3 + index, service: `service-${index}`, stream: "stdout" as const, pid: 40_000 + index, fifo: `/home/dev/.local/state/devctl/0123456789abcdef/stdio/fifo/service-${index}-41000-${index}.stdout` });
+    const plan = (streams: number): DrainPlan => ({ spoolDir: "/state/stdio/drain", maxBytes: 1 << 30, stoppedPath: "/state/stdio/drain.stopped", streams: Array.from({ length: streams }, (_, index) => stream(index)) });
+    const few = JSON.parse(drainCommand(plan(40)).at(-1) ?? "") as DrainPlan;
+    expect(few.streams.every((s) => typeof s.fifo === "string")).toBe(true);
+    const arg = drainCommand(plan(1_200)).at(-1) ?? "";
+    const many = JSON.parse(arg) as DrainPlan;
+    expect(many.streams).toHaveLength(1_200);
+    expect(many.streams.some((s) => s.fifo !== undefined)).toBe(false);
+    expect(many.streams[7]).toEqual({ fd: 10, service: "service-7", stream: "stdout", pid: 40_007 });
+    // Linux refuses an argument of 128 KiB or more.
+    expect(Buffer.byteLength(arg)).toBeLessThan(128 * 1024);
   });
 
   test("the _drain process writes what it read when SIGTERM stops it, and the FIFO keeps the rest", async () => {

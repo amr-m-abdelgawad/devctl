@@ -345,4 +345,45 @@ describe("service output end", () => {
       rmSync(root, { recursive: true, force: true });
     }
   }, 15_000);
+
+  test.skipIf(process.platform === "win32")("a service that exits after a quiet spell ends its FIFO streams at its exit, not at the readers' next check", async () => {
+    const root = mkdtempSync(join(tmpdir(), "devctl-exit-fifo-"));
+    const procs = new ProcessManager({ stdioRoot: root });
+    try {
+      let ends = 0;
+      let endsAtExit = -1;
+      const handle = await procs.start({
+        name: "quiet",
+        args: ["sh", "-c", "printf hi; sleep 0.6"],
+        shell: false,
+        workDir: root,
+        env: process.env as Record<string, string>,
+        graceMs: 1_000,
+        onChunk: (_stream, _bytes, meta) => {
+          if (meta?.end === true) {
+            ends += 1;
+          }
+          return true;
+        },
+        onExit: () => {
+          // Microtasks only: no timer runs meanwhile, so the readers' own check of their FIFOs has not.
+          void microtasks().then(() => {
+            endsAtExit = ends;
+          });
+        },
+      });
+      await handle.done;
+      await sleep(20);
+      // Both readers were asleep by then, and the exit woke them.
+      expect(endsAtExit).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
+
+async function microtasks(): Promise<void> {
+  for (let i = 0; i < 500; i++) {
+    await Promise.resolve();
+  }
+}

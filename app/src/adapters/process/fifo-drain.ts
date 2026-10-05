@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { DEFAULT_LOG_CAP_BYTES } from "../../domain/logs/budgets.ts";
 import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
 import { OrderedSpool, type SpoolFrame, type SpoolHeader } from "../storage/ingest/spool.ts";
-import { fifoChunks, sleepMs } from "./fifo-reader.ts";
+import { fifoChunks, sleepMs, type FifoWake } from "./fifo-reader.ts";
 import { deliverEnd } from "./output-pump.ts";
 
 // A stream's frames go to disk as one segment once they reach this size, and
@@ -13,8 +13,13 @@ const SEGMENT_BYTES = 256 * 1024;
 const FLUSH_MS = 250;
 const RETRY_MS = 5;
 const SPOOL_SESSION = "drain";
+// The plan is one argument to the drainer, and Linux caps an argument at 128
+// KiB. A plan past this size goes without the FIFO paths, and the drainer
+// checks those FIFOs on a timer instead of watching them.
+const PLAN_WITH_PATHS_MAX_BYTES = 96 * 1024;
 
-export type DrainStream = { fd: number; service: string; stream: "stdout" | "stderr"; pid: number };
+/** `fifo` is the stream's path, given where a watch on it reports writes, so the drainer's reader can sleep on one. */
+export type DrainStream = { fd: number; service: string; stream: "stdout" | "stderr"; pid: number; fifo?: string };
 
 export type DrainPlan = {
   /** One 0600 spool for every stream; the next daemon replays it and deletes each segment it delivers. */
@@ -84,9 +89,10 @@ export function startDrain(plan: DrainPlan): Drain {
       flush(entry);
     }
   }, FLUSH_MS);
+  const sleeping: FifoWake[] = plan.streams.map((source) => ({ path: source.fifo }));
   const pumps = plan.streams.map(async (source, index) => {
     const entry = pending[index]!;
-    for await (const chunk of fifoChunks(source.fd, () => stopping)) {
+    for await (const chunk of fifoChunks(source.fd, () => stopping, sleeping[index])) {
       entry.lastReadAtMs = Math.max(entry.lastReadAtMs, Date.now());
       entry.frames.push({ readAtMs: entry.lastReadAtMs, bytes: Buffer.from(chunk) });
       entry.bytes += chunk.byteLength;
@@ -110,6 +116,9 @@ export function startDrain(plan: DrainPlan): Drain {
   return {
     stop: () => {
       stopping = true;
+      for (const reader of sleeping) {
+        reader.kick?.();
+      }
       wake();
     },
     done,
@@ -139,7 +148,10 @@ export async function runDrainCommand(arg: string): Promise<void> {
 
 /** How the sentinel starts the drainer: the compiled binary, or Bun running this module from source. */
 export function drainCommand(plan: DrainPlan): string[] {
-  const arg = JSON.stringify(plan);
+  let arg = JSON.stringify(plan);
+  if (Buffer.byteLength(arg) > PLAN_WITH_PATHS_MAX_BYTES) {
+    arg = JSON.stringify({ ...plan, streams: plan.streams.map(({ fd, service, stream, pid }) => ({ fd, service, stream, pid })) });
+  }
   if (Bun.isStandaloneExecutable === true) {
     return [process.execPath, "_drain", arg];
   }
@@ -169,7 +181,7 @@ function parseDrainPlan(arg: string): DrainPlan | undefined {
   const maxBytes = typeof plan.maxBytes === "number" && plan.maxBytes > 0 ? plan.maxBytes : DEFAULT_LOG_CAP_BYTES;
   const streams = plan.streams.filter((s): s is DrainStream =>
     typeof s === "object" && s !== null && Number.isInteger(s.fd) && s.fd >= 3 && typeof s.service === "string"
-    && (s.stream === "stdout" || s.stream === "stderr") && Number.isInteger(s.pid));
+    && (s.stream === "stdout" || s.stream === "stderr") && Number.isInteger(s.pid) && (s.fifo === undefined || typeof s.fifo === "string"));
   const ingestSpoolDir = typeof plan.ingestSpoolDir === "string" && plan.ingestSpoolDir !== "" ? plan.ingestSpoolDir : undefined;
   return { spoolDir: plan.spoolDir, maxBytes, ingestSpoolDir, stoppedPath: plan.stoppedPath, streams };
 }

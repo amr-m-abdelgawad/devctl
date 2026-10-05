@@ -4,8 +4,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
+import { probeFifoWatch } from "./fifo-reader.ts";
 import { FifoStdio } from "./fifo-stdio.ts";
 import { ProcessManager } from "./processes.ts";
+
+// Whether a watch reports a write to a FIFO here: on Linux, not on macOS.
+const probeDir = mkdtempSync(join(tmpdir(), "devctl-stdio-probe-"));
+const WATCHABLE = process.platform !== "win32" && (await probeFifoWatch(probeDir));
+rmSync(probeDir, { recursive: true, force: true });
 
 const PROCESSES_MODULE = fileURLToPath(new URL("./processes.ts", import.meta.url));
 const dirs: string[] = [];
@@ -137,6 +143,35 @@ describe.skipIf(process.platform === "win32")("fifo stdio", () => {
     expect(before.some((d) => d.end)).toBe(false);
     expect(numbered(textOf(before) + textOf(after))).toEqual(range(1, 60_000));
   }, 30_000);
+});
+
+describe.skipIf(!WATCHABLE)("fifo stdio where a watch reports FIFO writes", () => {
+  // What the sentinel was started with: the drain plan is its last argument.
+  function sentinelCommand(root: string): string {
+    try {
+      const { pids } = JSON.parse(readFileSync(join(root, "sentinels.json"), "utf8")) as { pids: number[] };
+      return pids.map((pid) => readFileSync(`/proc/${pid}/cmdline`, "utf8")).join("\n");
+    } catch {
+      return "";
+    }
+  }
+
+  test("a line after a quiet spell is read within a few milliseconds, and the drainer is told the FIFO paths", async () => {
+    const root = tempRoot();
+    const stdio = new FifoStdio(root, 1024 * 1024);
+    const got: Delivery[] = [];
+    // Every line is the time it was written, in nanoseconds.
+    const proc = await startThrough(stdio, "i=0; while [ $i -lt 14 ]; do date +%s%N; sleep 0.17; i=$((i+1)); done", { stdout: true, stderr: false }, got);
+    expect(await waitFor(() => sentinelCommand(root).includes(`"fifo":"${join(root, "fifo")}/api-`), 3_000)).toBe(true);
+    expect(await proc.exited).toBe(0);
+    expect(await waitFor(() => got.some((d) => d.end), 5_000)).toBe(true);
+    const waits = got.filter((d) => !d.end).flatMap((d) => d.text.trim().split("\n").map((line) => d.readAtMs - Number(line) / 1e6));
+    expect(waits).toHaveLength(14);
+    // Past the first lines, which may come before the probe has answered. A reader left to the 100 ms sweep waits 50 ms at the median.
+    const settled = waits.slice(3).sort((a, b) => a - b);
+    expect(settled[Math.floor(settled.length / 2)]).toBeLessThan(20);
+    expect(readdirSync(root).filter((name) => name.startsWith(".watch-probe-"))).toEqual([]);
+  }, 15_000);
 });
 
 describe.skipIf(process.platform === "win32")("fifo stdio across a daemon SIGKILL", () => {

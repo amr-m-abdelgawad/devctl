@@ -93,6 +93,14 @@ Before adopting anything, it takes over the service FIFOs the previous daemon le
 
 The daemon has exactly one reader for a stream at every point, so each stream stays in the order it was written. Output of a service that exited while no daemon ran is kept.
 
+A reader with nothing to read (`fifoChunks`) retries after 1 ms, doubling, then sleeps:
+- One 100 ms timer checks every sleeping reader's FIFO with a single non-blocking read. That bounds how late output, an end of stream, or a stop is noticed, as the per-stream poll did.
+- Where `probeFifoWatch` finds that a watch reports FIFO writes (Linux inotify; kqueue and FSEvents do not), a reader sleeps after 8 ms and an `fs.watch` on the FIFO's path, held for that one sleep, wakes it at the write. Bun does not open a file to watch it on Linux, so a FIFO with no writer left cannot block the daemon there; `fifo-reader.test.ts` holds that.
+- A watch does not report a close. `ProcessManager` kicks a service's readers when its process exits, so they read the end of the stream at once; the timer finds every other end.
+- A watch that fails, or three checks in a row that find output the watch did not report (`splice(2)` into a FIFO before Linux 6.5, for one), puts that stream back on the timer alone.
+
+The drainer's readers sleep the same way. Its plan names each FIFO's path unless that would take the plan, which is one argument, past 96 KiB.
+
 ## Signals
 
 `runDaemon` registers SIGINT/SIGTERM → `supervisor.shutdown(stopOnExit(cfg.shutdown))` so an admin `kill` still flushes async log writes. RPC `shutdown` schedules `shutdown()` after 50ms so the response can leave the socket first.

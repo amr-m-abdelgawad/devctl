@@ -146,6 +146,7 @@ export class ProcessManager implements ProcessRuntime {
       const exitCode = typeof code === "number" ? code : 0;
       const err = exitCode === 0 ? undefined : new Error(`exited with code ${exitCode}`);
       forgetManagedPid(handle.pid);
+      this.fifos?.exited(handle.pid);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -266,6 +267,7 @@ export class ProcessManager implements ProcessRuntime {
     rememberManagedPid(spec.pid);
     handle.done = pollAdopted(spec.pid).then((code) => {
       forgetManagedPid(spec.pid);
+      this.fifos?.exited(spec.pid);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
