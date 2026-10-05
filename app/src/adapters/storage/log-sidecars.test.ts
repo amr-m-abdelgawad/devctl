@@ -152,6 +152,26 @@ describe("part index", () => {
     expect(statSync(join(dir, "api.patch")).size).toBeLessThanOrEqual(16 * 1024);
   });
 
+  test("a copy standing in for a dropped line is written in seq order", async () => {
+    const dir = tmp();
+    let reserve = false;
+    let now = 0;
+    const writer = new SessionLogWriter(dir, 64 * 1024 * 1024, { maxSessionBytes: 1024 * 1024, hasDiskReserve: () => reserve, now: () => now });
+    // Seq 1 is refused by a low disk; 2 and 3 wait in the batch when its re-tagged copy arrives.
+    writer.write("api", line(1), 1);
+    expect(writer.loss).toBe(1);
+    reserve = true;
+    now += 10_000;
+    writer.write("api", line(2), 2);
+    writer.write("api", line(3), 3);
+    writer.replace("api", line(1, " tagged"), 1);
+    await writer.close();
+    const seqs = readFileSync(join(dir, "api.jsonl"), "utf8").trimEnd().split("\n").map((row) => (JSON.parse(row) as { seq: number }).seq);
+    expect(seqs).toEqual([1, 2, 3]);
+    expect(checkpoints(join(dir, "api.idx"))[0]).toEqual([0, 0]);
+    expect(existsSync(join(dir, "api.patch"))).toBe(false);
+  });
+
   test("lines without a seq get no index, and a sidecar whose part is gone is removed at start", async () => {
     const dir = tmp();
     writeFileSync(join(dir, "gone~3.idx"), "0 41\n");

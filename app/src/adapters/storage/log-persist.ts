@@ -2,7 +2,7 @@ import { createWriteStream, mkdirSync, readdirSync, statfsSync, statSync, unlink
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_LOG_CAP_BYTES, diskReserveBytes, SPILL_TOTAL_BYTES } from "../../domain/logs/budgets.ts";
-import { partIndexFile, partPatchFile } from "./session-files.ts";
+import { isPartSidecar, partIndexFile, partPatchFile } from "./session-files.ts";
 
 // One write per service per batch instead of one per record.
 const BATCH_BYTES = 256 * 1024;
@@ -157,6 +157,12 @@ export class SessionLogWriter {
     state.buffer.push(line);
     state.sizes.push(bytes);
     state.seqs.push(seq);
+    // A copy standing in for a dropped line can come after later ones; a part's seqs must only rise.
+    for (let at = state.seqs.length - 1; seq > 0 && at > 0 && state.seqs[at - 1]! > seq; at -= 1) {
+      [state.buffer[at - 1], state.buffer[at]] = [state.buffer[at]!, state.buffer[at - 1]!];
+      [state.sizes[at - 1], state.sizes[at]] = [state.sizes[at]!, state.sizes[at - 1]!];
+      [state.seqs[at - 1], state.seqs[at]] = [state.seqs[at]!, state.seqs[at - 1]!];
+    }
     state.bufferBytes += bytes;
     this.buffered += bytes;
     if (state.bufferBytes >= BATCH_BYTES) {
@@ -529,7 +535,7 @@ function existingParts(directory: string): Part[] {
     }
   }
   for (const name of names) {
-    if ((name.endsWith(".idx") || name.endsWith(".patch")) && !kept.has(name)) {
+    if (isPartSidecar(name) && !kept.has(name)) {
       removeQuiet(join(directory, name));
     }
   }

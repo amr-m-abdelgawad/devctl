@@ -521,6 +521,18 @@ describe("match cache", () => {
     expect(cache.get("k", 1)).toBeUndefined();
     expect(cache.get("q8", 1)).toBeDefined();
   });
+
+  test("a changed record forgets only the ranges that hold its seq", () => {
+    const cache = new MatchCache();
+    cache.remember("old", { lo: 10, hi: 20, matches: [at(12)] });
+    cache.remember("new", { lo: 40, hi: 50, matches: [at(45)] });
+    cache.invalidate(20, 39);
+    expect(cache.get("old", 1)).toBeDefined();
+    expect(cache.get("new", 1)).toBeDefined();
+    cache.invalidate(19, 19);
+    expect(cache.get("old", 1)).toBeUndefined();
+    expect(cache.get("new", 1)).toBeDefined();
+  });
 });
 
 describe("session reader", () => {

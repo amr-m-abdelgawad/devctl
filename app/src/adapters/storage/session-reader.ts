@@ -575,20 +575,25 @@ export class SessionReader {
   }
 
   // Reads what has been appended to the part's patch file since last time.
-  // A new patch can change which records a filter keeps, so the cache goes.
+  // A patch can change which filters keep its record, so cached ranges that
+  // hold a patched seq are forgotten.
   private loadPatches(file: PartFile): void {
     const buf = this.appended(partPatchFile(file.name), file.patchBytes);
+    let low = Number.POSITIVE_INFINITY;
+    let high = 0;
     for (let lineStart = 0; lineStart < buf.length; ) {
       const newline = buf.indexOf(NEWLINE, lineStart);
       const seq = lineSeq(buf, lineStart, newline);
       if (seq !== undefined) {
         file.patches.set(seq, buf.toString("utf8", lineStart, newline));
+        low = Math.min(low, seq);
+        high = Math.max(high, seq);
       }
       lineStart = newline + 1;
     }
     file.patchBytes += buf.length;
-    if (buf.length > 0) {
-      this.cache.clear();
+    if (high > 0) {
+      this.cache.invalidate(low, high);
     }
   }
 

@@ -9,6 +9,8 @@ export const SESSION_FORMAT_FILE = "FORMAT";
 export const SESSION_FORMAT_JSONL = "jsonl";
 
 const PART_SUFFIX = ".jsonl";
+const INDEX_SUFFIX = ".idx";
+const PATCH_SUFFIX = ".patch";
 
 /**
  * Files kept beside a part `<service>[~N].jsonl`: its seq index and the
@@ -16,11 +18,16 @@ const PART_SUFFIX = ".jsonl";
  * so a reader that knows only parts (an older devctl) passes over both.
  */
 export function partIndexFile(part: string): string {
-  return `${part.slice(0, -PART_SUFFIX.length)}.idx`;
+  return `${part.slice(0, -PART_SUFFIX.length)}${INDEX_SUFFIX}`;
 }
 
 export function partPatchFile(part: string): string {
-  return `${part.slice(0, -PART_SUFFIX.length)}.patch`;
+  return `${part.slice(0, -PART_SUFFIX.length)}${PATCH_SUFFIX}`;
+}
+
+/** True for a file kept beside a part, whichever part it names. */
+export function isPartSidecar(name: string): boolean {
+  return name.endsWith(INDEX_SUFFIX) || name.endsWith(PATCH_SUFFIX);
 }
 
 export function listSessions(root = logsDir()): string[] {
