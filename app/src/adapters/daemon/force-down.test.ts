@@ -44,20 +44,49 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
+// A stand-in process says it is up by writing this file from its own code.
+// Before that its command line cannot be trusted: while a process execs,
+// /proc shows it empty, and a lock check that cannot read it decides nothing.
+const UP_SCRIPT = `require("node:fs").writeFileSync(process.env.DEVCTL_TEST_UP, ""); setInterval(() => {}, 1000)`;
+const UP_WAIT_MS = 10_000;
+let standIns = 0;
+
+function upFile(): string {
+  standIns += 1;
+  return join(root, `up-${standIns}`);
+}
+
+function awaitUp(file: string): void {
+  const deadline = Date.now() + UP_WAIT_MS;
+  while (!existsSync(file)) {
+    if (Date.now() > deadline) {
+      throw new Error("the stand-in process did not start");
+    }
+    Bun.sleepSync(5);
+  }
+}
+
 // A long-lived process whose command line carries `extra`, the way a real
 // daemon's carries `_supervisor`.
 function sleeper(...extra: string[]): Subprocess {
-  const child = spawn({ cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)", ...extra], stdout: "ignore", stderr: "ignore", stdin: "ignore" });
+  const up = upFile();
+  const child = spawn({ cmd: [process.execPath, "-e", UP_SCRIPT, ...extra], env: { ...process.env, DEVCTL_TEST_UP: up }, stdout: "ignore", stderr: "ignore", stdin: "ignore" });
   children.push(child);
+  awaitUp(up);
   return child;
 }
 
 // Like a detached daemon, it is not our child: init reaps it once it is
 // killed, instead of it lingering as our zombie.
 function orphan(...extra: string[]): number {
-  const started = spawnSync("/bin/sh", ["-c", `"$0" -e "setInterval(() => {}, 1000)" "$@" >/dev/null 2>&1 & echo $!`, process.execPath, ...extra], { encoding: "utf8" });
+  const up = upFile();
+  const started = spawnSync("/bin/sh", ["-c", `bun="$0"; script="$1"; shift; "$bun" -e "$script" "$@" >/dev/null 2>&1 & echo $!`, process.execPath, UP_SCRIPT, ...extra], {
+    encoding: "utf8",
+    env: { ...process.env, DEVCTL_TEST_UP: up },
+  });
   const pid = Number(started.stdout.trim());
   orphans.push(pid);
+  awaitUp(up);
   return pid;
 }
 
