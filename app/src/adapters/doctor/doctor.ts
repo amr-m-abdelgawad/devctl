@@ -19,6 +19,7 @@ import { readHeartbeat } from "../daemon/heartbeat.ts";
 import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import { readPid1 } from "../system/host-limits.ts";
+import { orphanReaperAvailable } from "../process/subreaper.ts";
 import type { DoctorRunner } from "../../ports/doctor-runner.ts";
 export type { Severity, PortAction, Check, Report, DoctorProgress, DoctorRuntimeContext } from "../../domain/doctor/types.ts";
 
@@ -28,6 +29,23 @@ const IAP_CREDENTIALS_LOGIN_HINT =
 
 const LIVE_PROBE_MS = 4_000;
 const LIVE_SECTION_MS = 8_000;
+
+/**
+ * What to say about a PID 1 that reaps nothing (`sleep infinity`, `tail -f`).
+ * The daemon reaps the orphans of its own services unless that is turned off
+ * or cannot be done here; only then is it a warning.
+ */
+export function containerInitCheck(command: string, reapOrphans: boolean | undefined, reaperAvailable: boolean): Check {
+  const pid1 = `PID 1 is ${command || "not a reaping init"}`;
+  const init = 'set "init": true on the dev container (or compose init: true, or docker run --init) so exited processes are reaped';
+  if (reapOrphans === false) {
+    return { name: "container init", severity: "warn", message: `${pid1}, and supervisor.reap_orphans is false`, hint: `remove supervisor.reap_orphans: false so devctl reaps the orphans of its services, or ${init}` };
+  }
+  if (!reaperAvailable) {
+    return { name: "container init", severity: "warn", message: `${pid1}, and devctl cannot reap for it on this system`, hint: init };
+  }
+  return { name: "container init", severity: "ok", message: `${pid1}; devctl reaps the orphans of its services` };
+}
 
 export type DoctorHost = {
   detectGoogle(project: string, repoRoot?: string): Promise<GoogleStatus>;
@@ -174,12 +192,7 @@ export async function runDoctor(
   const pid1 = readPid1();
   if (pid1.nonReaping) {
     checking("container init");
-    add({
-      name: "container init",
-      severity: "warn",
-      message: `PID 1 is ${pid1.command || "not a reaping init"}`,
-      hint: 'set "init": true on the dev container (or compose init: true, or docker run --init) so exited processes are reaped',
-    });
+    add(containerInitCheck(pid1.command, cfg.supervisor.reap_orphans, await orphanReaperAvailable()));
   }
   if (watchdogDegraded(cfg.repoRoot)) {
     checking("daemon watchdog");

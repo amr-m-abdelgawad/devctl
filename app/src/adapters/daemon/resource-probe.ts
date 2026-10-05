@@ -20,3 +20,15 @@ export function noteWatchdog(state: "ok" | "degraded"): void {
 export function watchdogState(): "ok" | "degraded" | undefined {
   return watchdog;
 }
+
+let orphanReaper: "on" | "unavailable" | undefined;
+
+/** "on" while this daemon reaps its services' orphans, "unavailable" when it should but cannot. */
+export function noteOrphanReaper(state: "on" | "unavailable"): void {
+  orphanReaper = state;
+}
+
+/** Undefined when the daemon was not asked to reap. */
+export function orphanReaperState(): "on" | "unavailable" | undefined {
+  return orphanReaper;
+}

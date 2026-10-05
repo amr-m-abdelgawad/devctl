@@ -15,7 +15,6 @@ import { parseProcPgid, parseProcPpid, parseProcStatState, procStateKind } from 
 import { wedgePath } from "../daemon/heartbeat.ts";
 import { replayDrained, startDrain } from "../process/fifo-drain.ts";
 import { FifoStdio } from "../process/fifo-stdio.ts";
-import { enableChildSubreaper, reapOrphanedChildren } from "../process/subreaper.ts";
 import { eventLoopLagMs, noteEventLoopLag } from "../daemon/resource-probe.ts";
 import { LogManager } from "./logs.ts";
 import { SessionLogWriter } from "./log-persist.ts";
@@ -228,10 +227,8 @@ describe("stdio handoff", () => {
   });
 });
 
-describe("reaper and lag", () => {
-  test("an empty service set reaps nothing and lag is recorded", async () => {
-    expect(await enableChildSubreaper()).toBe(process.platform === "linux");
-    expect(await reapOrphanedChildren([])).toBe(0);
+describe("event-loop lag", () => {
+  test("the last measured lag is what status reports", () => {
     noteEventLoopLag(4);
     expect(eventLoopLagMs()).toBe(4);
   });

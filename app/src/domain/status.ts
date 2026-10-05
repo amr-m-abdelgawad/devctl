@@ -212,6 +212,8 @@ export type StatusSnapshot = {
     heapBytes: number;
     memoryLimitBytes?: number;
     nonReapingPid1?: boolean;
+    /** "on" while the daemon reaps the orphans of its services; "unavailable" when it should but cannot on this system. */
+    orphanReaper?: "on" | "unavailable";
     eventLoopLagMs?: number;
     logs?: LogSnapshot["pipeline"];
     /** "in-process" when the log worker did not start or died: parsing then shares the daemon's main thread. */

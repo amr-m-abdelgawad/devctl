@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
-import { createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
+import { containerInitCheck, createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 import { writeHeartbeatAtomic } from "../daemon/heartbeat.ts";
 import { acquireLock, socketPath } from "../storage/storage.ts";
@@ -515,6 +515,25 @@ test("doctor runner preserves attached-service context and diagnostic progress",
   expect(checkedServicePort).toBe(false);
   expect(report.checks.find((check) => check.name === "Repository configuration")?.message).toBe("broken local config");
   expect(updates.at(-1)).toBe("Diagnostics complete");
+});
+
+describe("doctor container init", () => {
+  test("a PID 1 that reaps nothing is fine while the daemon reaps for it, and a warning when it does not", () => {
+    const covered = containerInitCheck("sleep infinity", undefined, true);
+    expect(covered.severity).toBe("ok");
+    expect(covered.message).toBe("PID 1 is sleep infinity; devctl reaps the orphans of its services");
+    expect(containerInitCheck("sleep infinity", true, true).severity).toBe("ok");
+
+    const turnedOff = containerInitCheck("sleep infinity", false, true);
+    expect(turnedOff.severity).toBe("warn");
+    expect(turnedOff.message).toContain("supervisor.reap_orphans is false");
+    expect(turnedOff.hint).toContain("remove supervisor.reap_orphans: false");
+
+    const cannot = containerInitCheck("tail -f /dev/null", undefined, false);
+    expect(cannot.severity).toBe("warn");
+    expect(cannot.message).toBe("PID 1 is tail -f /dev/null, and devctl cannot reap for it on this system");
+    expect(cannot.hint).toContain('"init": true');
+  });
 });
 
 describe("doctor daemon watchdog", () => {

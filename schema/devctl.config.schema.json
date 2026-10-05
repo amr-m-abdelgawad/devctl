@@ -57,7 +57,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "reap_orphans": { "type": "boolean", "description": "Reap zombies whose parent is the daemon, whose group is a service group, and which are not the service leader. Off by default. Prefer a reaping PID 1 (`init: true`) in containers." }
+        "reap_orphans": { "type": "boolean", "description": "Whether the daemon adopts and reaps the orphans its services leave (Linux with glibc). Unset: on only where PID 1 does not reap, such as `sleep infinity`. `true` turns it on everywhere, `false` off. Prefer a reaping PID 1 (`init: true`) in containers." }
       }
     },
     "auth": {

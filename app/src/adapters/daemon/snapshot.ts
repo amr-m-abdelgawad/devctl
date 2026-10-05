@@ -13,7 +13,7 @@ import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { emptyDaemonMetrics } from "../../ports/daemon-metrics.ts";
-import { eventLoopLagMs, watchdogState } from "./resource-probe.ts";
+import { eventLoopLagMs, orphanReaperState, watchdogState } from "./resource-probe.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
 
 export type SnapshotHost = {
@@ -184,6 +184,7 @@ function daemonResource(host: SnapshotHost): StatusSnapshot["daemon"] {
     heapBytes: memory.heapUsed,
     memoryLimitBytes: limits.memoryBytes > 0 ? limits.memoryBytes : undefined,
     nonReapingPid1: limits.nonReapingPid1 || undefined,
+    orphanReaper: orphanReaperState(),
     eventLoopLagMs: eventLoopLagMs(),
     logs: host.logs.pipelineStats?.(),
     logStore: host.logs.usesWorker?.() === true ? "worker" : "in-process",

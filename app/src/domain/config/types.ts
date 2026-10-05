@@ -716,8 +716,11 @@ export type LlmSourceConfig = {
 };
 
 export type SupervisorConfig = {
-  /** When true, reap zombies parented by the daemon that are not service leaders. Off by default. */
-  reap_orphans: boolean;
+  /**
+   * Whether the daemon adopts and reaps the orphans its services leave
+   * (Linux). Unset: only where PID 1 does not reap, such as `sleep infinity`.
+   */
+  reap_orphans?: boolean;
 };
 
 export type LlmConfig = {
@@ -948,7 +951,7 @@ export function defaultConfig(): DevctlConfig {
     plugins: [],
     environment: { sources: [], secrets: {}, sops: emptySops() },
     llm: emptyLlm(),
-    supervisor: { reap_orphans: false },
+    supervisor: {},
     provenance: {},
     repoRoot: "",
     configPath: "",

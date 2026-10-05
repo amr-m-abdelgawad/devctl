@@ -127,40 +127,77 @@ describe.skipIf(!soakEnabled || soakQuick)("recovery", () => {
     expect(s2.lagMs.max).toBeLessThan(RESUMED_LAG_MAX_MS);
   }, 300_000);
 
-  for (const shape of [
-    { name: "PID 1 sleep infinity with reap_orphans", init: false, reap: true },
-    { name: "Docker init without reap_orphans", init: true, reap: false },
-  ]) {
-    test(`zombies do not accumulate under ${shape.name}`, async () => {
-      const box = await container({ init: shape.init });
-      await box.configure(`${CONFIG_HEADER}project:\n  name: soak-zombies\n${shape.reap ? "supervisor:\n  reap_orphans: true\n" : ""}services:\n${ORPHANS}`);
-      await box.devctl(["start", "orphans"]);
-      const zombies = await box.driver<Zombies>("zombies.ts", ["--duration-ms", "20000"], { timeoutMs: 60_000 });
-      const doctor = await box.devctl(["doctor"], { allowFail: true });
-      const warned = /container init/.test(doctor.stdout) && /PID 1 is/.test(doctor.stdout);
-      const status = await box.status();
-      report(`zombies, ${shape.name}`, { zombies, doctorWarnsInit: warned, nonReapingPid1: status.daemon?.nonReapingPid1 ?? false });
-      await box.devctl(["down"], { allowFail: true });
-
-      // About 40 orphans a second exit; the reaper runs every second.
-      expect(zombies.max).toBeLessThan(200);
-      expect(zombies.last).toBeLessThan(200);
-      expect(warned).toBe(!shape.init);
-      expect(status.daemon?.nonReapingPid1 ?? false).toBe(!shape.init);
-    }, 120_000);
+  // What `devctl doctor` says about PID 1, and whether the daemon says it is reaping.
+  async function reaping(box: SoakContainer): Promise<{ doctor: string; reaper: string | undefined; nonReapingPid1: boolean }> {
+    const doctor = (await box.devctl(["doctor"], { allowFail: true })).stdout;
+    const daemon = (await box.status()).daemon as { orphanReaper?: string; nonReapingPid1?: boolean } | undefined;
+    return { doctor, reaper: daemon?.orphanReaper, nonReapingPid1: daemon?.nonReapingPid1 ?? false };
   }
 
-  test("without an init or reap_orphans, zombies pile up and doctor says why", async () => {
+  test("under PID 1 sleep infinity the daemon reaps a running service's orphans without being asked", async () => {
     const box = await container();
-    await box.configure(`${CONFIG_HEADER}project:\n  name: soak-zombies-off\nservices:\n${ORPHANS}`);
+    await box.configure(`${CONFIG_HEADER}project:\n  name: soak-zombies\nservices:\n${ORPHANS}`);
     await box.devctl(["start", "orphans"]);
     const zombies = await box.driver<Zombies>("zombies.ts", ["--duration-ms", "20000"], { timeoutMs: 60_000 });
-    const doctor = await box.devctl(["doctor"], { allowFail: true });
-    report("zombies, PID 1 sleep infinity without reap_orphans", { zombies, doctorWarnsInit: /container init/.test(doctor.stdout) });
+    const state = await reaping(box);
+    report("zombies, PID 1 sleep infinity, default config", { zombies, reaper: state.reaper, nonReapingPid1: state.nonReapingPid1 });
     await box.devctl(["down"], { allowFail: true });
 
-    // The control for the two cases above: the generator does make zombies.
+    // About 40 orphans a second exit; the reaper looks every second while there are any.
+    expect(zombies.max).toBeLessThan(200);
+    expect(zombies.last).toBeLessThan(200);
+    expect(state.reaper).toBe("on");
+    expect(state.nonReapingPid1).toBe(true);
+    // Doctor prints a passing check as its name alone.
+    expect(state.doctor).toContain("✓ container init");
+  }, 120_000);
+
+  test("restarting and stopping a shell-wrapped service leaves no zombie behind", async () => {
+    const box = await container();
+    // The shell dies with its child, before it can collect it: the child is orphaned dead.
+    await box.configure(`${CONFIG_HEADER}project:\n  name: soak-restarts\nservices:\n  wrapped:\n    command: "echo up $$; sleep 36000"\n    shell: true\n`);
+    await box.devctl(["start", "wrapped"]);
+    const restarts = 15;
+    for (let i = 0; i < restarts; i += 1) {
+      await box.devctl(["restart", "wrapped"], { timeoutMs: 60_000 });
+    }
+    await box.devctl(["stop", "wrapped"], { timeoutMs: 60_000 });
+    // A dead child is collected once it has stayed dead for three looks, a second apart, the first within five.
+    const zombies = await box.driver<Zombies>("zombies.ts", ["--duration-ms", "12000"], { timeoutMs: 60_000 });
+    report("zombies after restarts", { restarts, zombies });
+    await box.devctl(["down"], { allowFail: true });
+
+    expect(zombies.last).toBe(0);
+  }, 180_000);
+
+  test("under Docker's init the daemon leaves reaping to it", async () => {
+    const box = await container({ init: true });
+    await box.configure(`${CONFIG_HEADER}project:\n  name: soak-zombies-init\nservices:\n${ORPHANS}`);
+    await box.devctl(["start", "orphans"]);
+    const zombies = await box.driver<Zombies>("zombies.ts", ["--duration-ms", "20000"], { timeoutMs: 60_000 });
+    const state = await reaping(box);
+    report("zombies, Docker init", { zombies, reaper: state.reaper, nonReapingPid1: state.nonReapingPid1 });
+    await box.devctl(["down"], { allowFail: true });
+
+    expect(zombies.max).toBeLessThan(200);
+    expect(state.reaper).toBeUndefined();
+    expect(state.nonReapingPid1).toBe(false);
+    expect(state.doctor).not.toContain("container init");
+  }, 120_000);
+
+  test("with reap_orphans turned off, zombies pile up under PID 1 sleep infinity and doctor says why", async () => {
+    const box = await container();
+    await box.configure(`${CONFIG_HEADER}project:\n  name: soak-zombies-off\nsupervisor:\n  reap_orphans: false\nservices:\n${ORPHANS}`);
+    await box.devctl(["start", "orphans"]);
+    const zombies = await box.driver<Zombies>("zombies.ts", ["--duration-ms", "20000"], { timeoutMs: 60_000 });
+    const state = await reaping(box);
+    report("zombies, PID 1 sleep infinity, reap_orphans off", { zombies, reaper: state.reaper });
+    await box.devctl(["down"], { allowFail: true });
+
+    // The control for the cases above: the generator does make zombies.
     expect(zombies.last).toBeGreaterThan(400);
-    expect(doctor.stdout).toContain("container init");
+    expect(state.reaper).toBeUndefined();
+    expect(state.doctor).toContain("container init");
+    expect(state.doctor).toContain("supervisor.reap_orphans is false");
   }, 120_000);
 });

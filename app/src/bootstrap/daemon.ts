@@ -18,9 +18,9 @@ import { installCrashHandlers, updateCrashHooks } from "../adapters/daemon/crash
 import { autoRingBytes, configuredByteCap, DEFAULT_LOG_CAP_BYTES, DEFAULT_LOG_TOTAL_BYTES } from "../domain/logs/budgets.ts";
 import { readHostLimits } from "../adapters/system/host-limits.ts";
 import { memoryGuardUsage } from "../domain/daemon/memory-guard.ts";
-import { enableChildSubreaper, reapOrphanedChildren } from "../adapters/process/subreaper.ts";
+import { startOrphanReaper } from "../adapters/process/subreaper.ts";
 import { claimRestartRequest, clearRestartRequest, daemonStateDir } from "../adapters/daemon/heartbeat.ts";
-import { noteEventLoopLag } from "../adapters/daemon/resource-probe.ts";
+import { noteEventLoopLag, noteOrphanReaper } from "../adapters/daemon/resource-probe.ts";
 import { Supervisor } from "../adapters/daemon/supervisor.ts";
 import type { TokenManager as Tokens } from "../adapters/google/token.ts";
 import type { ProcessManager as Processes } from "../adapters/process/processes.ts";
@@ -181,11 +181,15 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
       sup.shutdown(false).catch(() => undefined);
     });
     const limits = readHostLimits(cfg.repoRoot);
-    if (limits.nonReapingPid1) {
-      process.stderr.write("devctl: PID 1 does not reap child processes. Set supervisor.reap_orphans: true or run under an init that reaps.\n");
+    // Unset means where it is needed: under a PID 1 that reaps nothing.
+    const reaping = cfg.supervisor.reap_orphans ?? limits.nonReapingPid1;
+    const reaper = reaping ? await startOrphanReaper() : undefined;
+    if (reaping) {
+      noteOrphanReaper(reaper === undefined ? "unavailable" : "on");
     }
-    if (cfg.supervisor.reap_orphans) {
-      void enableChildSubreaper();
+    if (limits.nonReapingPid1 && reaper === undefined) {
+      const why = cfg.supervisor.reap_orphans === false ? "supervisor.reap_orphans is false" : "devctl cannot reap for it on this system";
+      process.stderr.write(`devctl: PID 1 does not reap child processes, and ${why}. Run under an init that reaps.\n`);
     }
     updateCrashHooks({
       flush: () => sup.flushLogs(),
@@ -199,9 +203,7 @@ export async function runDaemon(repoRoot: string, configPath: string): Promise<v
       // shows it; with no limit, this process's RSS against host memory.
       const usage = memoryGuardUsage(readHostLimits(cfg.repoRoot), process.memoryUsage().rss);
       sup.applyMemoryPressure(usage.usedBytes, usage.limitBytes);
-      if (cfg.supervisor.reap_orphans) {
-        void reapOrphanedChildren(sup.servicePids());
-      }
+      reaper?.tick(sup.servicePids());
       const mark = Date.now();
       setImmediate(() => {
         noteEventLoopLag(Date.now() - mark);

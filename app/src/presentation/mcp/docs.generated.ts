@@ -2287,7 +2287,7 @@ Every buffer has a byte budget. Overflow is queued, then written to an ordered s
 | \`logs.persistence.max_total_bytes\` | \`0\` — 2 GiB across closed sessions |
 | \`logs.persistence.max_session_logs\` | \`0\` — unlimited; when set, counts sessions **for this repository** |
 | \`llm.store_max_bytes\` / \`proxy.inspect_store_max_bytes\` | \`0\` — 128 MiB of captured bodies. Metadata for the newest 2,000 calls stays; a missing body is marked evicted |
-| \`supervisor.reap_orphans\` | \`false\`. Prefer a reaping PID 1 (\`"init": true\`) |
+| \`supervisor.reap_orphans\` | unset — on where PID 1 does not reap (\`sleep infinity\`, \`tail\`, \`pause\`, \`cat\`), off elsewhere. \`true\` forces it on, \`false\` off |
 
 With persistence off, a very large line shrinks the in-memory window below 50,000 records instead of exhausting RAM. With persistence on, \`logs\` pages read session files when the byte budget has evicted records, so the last \`logs.max_memory_events\` lines stay reachable. Health probes log when status changes, plus a periodic reminder while a service stays unhealthy.
 

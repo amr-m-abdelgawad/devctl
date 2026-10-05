@@ -101,6 +101,18 @@ A reader with nothing to read (`fifoChunks`) retries after 1 ms, doubling, then 
 
 The drainer's readers sleep the same way. Its plan names each FIFO's path unless that would take the plan, which is one argument, past 96 KiB.
 
+## Orphans and zombies
+
+Stopping a service signals its whole process group. A shell-wrapped service's shell then often dies before it has collected its child, so the child is orphaned already dead. The kernel hands an orphan to the nearest child subreaper, else to PID 1, and a PID 1 such as `sleep infinity` never collects it: one zombie per restart, for the life of the container.
+
+`adapters/process/subreaper.ts` makes the daemon a child subreaper (`prctl(PR_SET_CHILD_SUBREAPER)` through `bun:ffi`) and `OrphanReaper.tick` runs from the daemon's one-second timer:
+- It reads the daemon's children from `/proc/<pid>/task/<tid>/children` (every pid in `/proc` when the kernel has no such file), every fifth tick while none is dead and every tick while one is.
+- Children Bun spawned are Bun's to collect, because it reads their exit status. A service's own pid is never collected here, also for a minute after the service is gone.
+- Any other dead child is collected with `waitpid(pid, WNOHANG)` once three scans in a row have seen it, with the same start time. Bun collects its own within one turn of its event loop, so one that is still there is not Bun's.
+- A dead member of a running service's group that is not the service itself was never spawned here and is collected at once.
+
+`supervisor.reap_orphans` unset means on where `readPid1` finds a PID 1 that does not reap (`sleep`, `tail`, `pause`, `cat`); `true` and `false` override. It works only on Linux with glibc (`libc.so.6`). A service that a restarted daemon adopted is not that daemon's descendant, so its orphans still go to PID 1. `status --json` carries `daemon.orphanReaper` (`on`, or `unavailable` when it was wanted and could not start), and `devctl doctor` warns only when nothing reaps.
+
 ## Signals
 
 `runDaemon` registers SIGINT/SIGTERM → `supervisor.shutdown(stopOnExit(cfg.shutdown))` so an admin `kill` still flushes async log writes. RPC `shutdown` schedules `shutdown()` after 50ms so the response can leave the socket first.
