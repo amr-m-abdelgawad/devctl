@@ -9,6 +9,7 @@ import { indexedSource, pageSource, stackedSource, type SeqSource } from "./log-
 import { SessionLogWriter } from "./log-persist.ts";
 import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS, LOG_PAGE_MAX_BYTES, PROCESS_SLICE_MS } from "../../domain/logs/budgets.ts";
 import { LogBatcher } from "../../domain/logs/batch.ts";
+import { FacetWindow, filtersDimensionsOnly } from "../../domain/logs/facet-window.ts";
 import { ProxyHopWindow } from "../../domain/logs/hop-window.ts";
 import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLimits, type PipelineLine, type PipelineStreamKey } from "./ingest/pipeline.ts";
 import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
@@ -101,6 +102,8 @@ export class LogManager {
   private recorded = 0;
   private errorCount = 0;
   private readonly ring: LogRing;
+  // Counts of the whole window by service, level and source, kept as records commit.
+  private readonly facetWindow: FacetWindow;
   private readonly max: number;
   private readonly bus?: Bus;
   private readonly detector?: Detector;
@@ -156,6 +159,7 @@ export class LogManager {
   ) {
     this.max = max > 0 ? max : DEFAULT_MAX_EVENTS;
     this.ring = new LogRing(this.max, options.maxMemoryBytes ?? 0);
+    this.facetWindow = new FacetWindow(this.max);
     this.bus = bus;
     this.detector = detector;
     this.sessionID = sessionID;
@@ -484,8 +488,20 @@ export class LogManager {
     return this.history.page(session, filter, page);
   }
 
+  /**
+   * Counts for the filter chips. A filter on service, level and source alone
+   * is counted over the whole logical window, from a table kept as records
+   * commit, so the counts do not shrink as the ring evicts to the session
+   * files. Any other filter (search, time range, trace, request id,
+   * attribute) needs the records themselves and counts the ones still in
+   * memory, as does every filter when nothing is persisted: what the ring
+   * evicts then is gone, and no page could show it.
+   */
   queryFacets(filter: LogFilter): LogFacets {
     this.flushPending();
+    if (this.evicted !== undefined && filtersDimensionsOnly(filter)) {
+      return this.facetWindow.facets(filter);
+    }
     const withoutServices = withoutFilterDimension(filter, "services");
     const withoutLevel = withoutFilterDimension(filter, "level");
     const withoutSource = withoutFilterDimension(filter, "source");
@@ -594,7 +610,8 @@ export class LogManager {
 
   private replaceRecord(updated: LogRecord): void {
     this.ring.replace(updated.seq, updated);
-    this.publishRecord(updated);
+    this.announce(updated);
+    this.writer?.replace(safeServiceFile(updated.service), `${JSON.stringify(updated)}\n`, updated.seq);
   }
 
   // A candidate stays while a record at most a window from it may still
@@ -619,18 +636,19 @@ export class LogManager {
 
   private pushRing(event: LogRecord): void {
     this.ring.push(event);
+    this.facetWindow.add(event);
   }
 
   private publishRecord(event: LogRecord): void {
+    this.announce(event);
+    this.writer?.write(safeServiceFile(event.service), `${JSON.stringify(event)}\n`, event.seq);
+  }
+
+  // Tells subscribers about a record, new or replaced.
+  private announce(event: LogRecord): void {
     this.bus?.publish(newEvent(LogReceived, event.service, { event, level: event.severityText }));
     this.noteBatch(event);
     this.onRecord?.(event);
-    if (!this.writer) {
-      return;
-    }
-    const text = `${JSON.stringify(event)}\n`;
-    const key = safeServiceFile(event.service);
-    this.writer.write(key, text);
   }
 
   private shouldDropAccessDuplicate(ev: LogIngest, next: LogRecord): boolean {

@@ -8,6 +8,28 @@ export const SESSION_PREFIX = "session-";
 export const SESSION_FORMAT_FILE = "FORMAT";
 export const SESSION_FORMAT_JSONL = "jsonl";
 
+const PART_SUFFIX = ".jsonl";
+const INDEX_SUFFIX = ".idx";
+const PATCH_SUFFIX = ".patch";
+
+/**
+ * Files kept beside a part `<service>[~N].jsonl`: its seq index and the
+ * records replaced after they were written. Neither name ends in `.jsonl`,
+ * so a reader that knows only parts (an older devctl) passes over both.
+ */
+export function partIndexFile(part: string): string {
+  return `${part.slice(0, -PART_SUFFIX.length)}${INDEX_SUFFIX}`;
+}
+
+export function partPatchFile(part: string): string {
+  return `${part.slice(0, -PART_SUFFIX.length)}${PATCH_SUFFIX}`;
+}
+
+/** True for a file kept beside a part, whichever part it names. */
+export function isPartSidecar(name: string): boolean {
+  return name.endsWith(INDEX_SUFFIX) || name.endsWith(PATCH_SUFFIX);
+}
+
 export function listSessions(root = logsDir()): string[] {
   if (!existsSync(root)) {
     return [];
@@ -60,16 +82,52 @@ export function loadSessionTail(sessionName: string, root = logsDir(), maxRecord
     if (name.endsWith(".jsonl") && read < maxBytes) {
       const tail = readTail(join(dir, name), maxBytes - read);
       read += Buffer.byteLength(tail);
+      const from = records.length;
       for (const line of tail.split("\n")) {
         const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
         if (record) {
           records.push(record);
         }
       }
+      applyTailPatches(records, from, loadPatches(dir, name));
     }
   }
   records.sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));
   return records.slice(-maxRecords);
+}
+
+// Lays a part's patches over the records read from its tail, `records[from..]`.
+// A patch below the tail's first seq belongs to a line that was not read.
+function applyTailPatches(records: LogRecord[], from: number, patches: readonly LogRecord[]): void {
+  if (patches.length === 0 || from >= records.length) {
+    return;
+  }
+  const lowest = records.slice(from).reduce((low, record) => Math.min(low, record.seq), Number.POSITIVE_INFINITY);
+  const bySeq = new Map(patches.filter((patch) => patch.seq >= lowest).map((patch) => [patch.seq, patch]));
+  for (let index = from; index < records.length; index += 1) {
+    const patch = bySeq.get(records[index]!.seq);
+    if (patch !== undefined) {
+      records[index] = patch;
+      bySeq.delete(patch.seq);
+    }
+  }
+  records.push(...bySeq.values());
+}
+
+// The records replaced after they were written to a part, from the patch file beside it.
+function loadPatches(dir: string, part: string): LogRecord[] {
+  const path = join(dir, partPatchFile(part));
+  if (!existsSync(path)) {
+    return [];
+  }
+  const patches: LogRecord[] = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const record = line.trim() === "" ? undefined : parseStoredLogRecord(line);
+    if (record) {
+      patches.push(record);
+    }
+  }
+  return patches;
 }
 
 function readTail(path: string, maxBytes: number): string {
@@ -89,10 +147,8 @@ function readTail(path: string, maxBytes: number): string {
 
 function loadJsonlSession(dir: string): LogRecord[] {
   const bySeq = new Map<number, LogRecord>();
-  for (const name of readdirSync(dir)) {
-    if (!name.endsWith(".jsonl")) {
-      continue;
-    }
+  const parts = readdirSync(dir).filter((name) => name.endsWith(".jsonl"));
+  for (const name of parts) {
     const text = readFileSync(join(dir, name), "utf8");
     for (const line of text.split("\n")) {
       if (line.trim() === "") {
@@ -102,6 +158,12 @@ function loadJsonlSession(dir: string): LogRecord[] {
       if (record) {
         bySeq.set(record.seq, record);
       }
+    }
+  }
+  // Patches go on last: each is the newest copy of its seq.
+  for (const name of parts) {
+    for (const patch of loadPatches(dir, name)) {
+      bySeq.set(patch.seq, patch);
     }
   }
   return [...bySeq.values()].sort((a, b) => a.seq - b.seq || a.timestamp.localeCompare(b.timestamp));

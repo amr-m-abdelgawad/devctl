@@ -11,6 +11,7 @@ import { processAlive, readPersistedState, socketPath, writePersistedState } fro
 import { ProcessManager, inspectProcess } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
 import { inProcessLogStore, LogManager } from "../storage/logs.ts";
+import { TRACE_LOOKUP_PAGES } from "../../domain/logs/budgets.ts";
 import { mergeRestartRequired } from "./reload.ts";
 import { saveTuiPreferences } from "../config/tui-preferences.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
@@ -1361,6 +1362,42 @@ proxy:
       const small = (await sup.dispatch("logs", { services: ["nothing-here"] })) as { events: unknown[]; truncated?: boolean };
       expect(small.events).toEqual([]);
       expect(small.truncated).toBeUndefined();
+    } finally {
+      await store.close();
+    }
+  }, 30_000);
+
+  test("a trace lookup reads records the ring has evicted, and stops at its page cap", async () => {
+    const dir = tmp();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    const traceId = "0af7651916cd43dd8448eb211c80319c";
+    const detectGoogle = async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" });
+    // The ring keeps a few dozen records; the trace's five are the oldest in the window.
+    const store = new LogManager(2_000, undefined, undefined, true, dir, "trace", 0, 0, { maxMemoryBytes: 64 * 1024 });
+    const wide = "w".repeat(1_000);
+    for (let n = 1; n <= 600; n += 1) {
+      store.append({ timestamp: new Date().toISOString(), service: "api", source: "stdout", level: "INFO", message: `${n} ${wide}`, pid: 1, traceId: n <= 5 ? traceId : undefined });
+    }
+    await store.flush();
+    try {
+      expect(store.query({ traceId })).toEqual([]);
+      const sup = new Supervisor(cfg, { detectGoogle, logs: inProcessLogStore(store) });
+      const found = (await sup.dispatch("get_trace", { trace_id: traceId })) as { events: Array<{ seq: number }>; truncated?: boolean };
+      expect(found.events.map((event) => event.seq)).toEqual([1, 2, 3, 4, 5]);
+      expect(found.truncated).toBeUndefined();
+
+      let pages = 0;
+      const endless = {
+        ...inProcessLogStore(store),
+        queryPage: async () => {
+          pages += 1;
+          return { events: [], prevCursor: `cursor-${pages}`, nextCursor: "", hasPrev: true, hasNext: false, sessionChanged: false };
+        },
+      };
+      const capped = await new Supervisor(cfg, { detectGoogle, logs: endless }).queryTrace(traceId);
+      expect(pages).toBe(TRACE_LOOKUP_PAGES);
+      expect(capped.truncated).toBe(true);
     } finally {
       await store.close();
     }

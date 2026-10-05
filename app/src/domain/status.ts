@@ -230,6 +230,8 @@ export type TraceResponse = {
   requestId?: string;
   tree: TraceTree;
   events: LogEvent[];
+  /** True when the lookup stopped before it had read the whole log window. */
+  truncated?: boolean;
 };
 
 /** The status line naming a stack's instance and port slot; undefined for a checkout's own stack in slot 0. */

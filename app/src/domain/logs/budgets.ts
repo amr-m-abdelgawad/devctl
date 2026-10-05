@@ -26,6 +26,8 @@ export const PROCESS_SLICE_MS = 8;
 export const LOG_PAGE_MAX_BYTES = 8 * MIB;
 /** The unpaged `logs` reply carries about this many bytes of the newest matches at most. */
 export const LOGS_REPLY_MAX_BYTES = 32 * MIB;
+/** A trace lookup reads back at most this many pages, each within one read budget. */
+export const TRACE_LOOKUP_PAGES = 16;
 export const HISTORY_SCAN_BYTES = 32 * MIB;
 export const HISTORY_SCAN_MS = 50;
 export const RUN_ONCE_DRAIN_GRACE_MS = 200;

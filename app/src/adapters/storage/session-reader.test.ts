@@ -1,14 +1,17 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Detector } from "../secrets/detector.ts";
-import { logMessage, logRecord, type LogRecord } from "../../domain/logs/logs.ts";
+import { logMessage, logRecord, REQUEST_ID_ATTR, type LogRecord } from "../../domain/logs/logs.ts";
 import { encodeLogCursor } from "../../domain/logs/pagination.ts";
 import { pageSource } from "./log-page.ts";
 import { LogManager, type LogManagerOptions } from "./logs.ts";
 import { MatchCache } from "./match-cache.ts";
+import { loadSessionEvents, loadSessionTail } from "./session-files.ts";
+import { SessionHistory } from "./session-history.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
+import { sessionHistorySink } from "./spool-replay.ts";
 import { createDaemonLogStore } from "./worker-log-store.ts";
 import { Bus } from "../../shared/events.ts";
 
@@ -221,6 +224,221 @@ describe("remembering a selective filter's matches", () => {
   });
 });
 
+describe("what disk serves is what the ring held", () => {
+  const HOP = "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14";
+  const POLLED = "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times";
+
+  // The whole window, oldest first, a page at a time.
+  function everything(mgr: LogManager, session: string): LogRecord[] {
+    const out: LogRecord[] = [];
+    let page = mgr.queryPage({}, { cursor: cursorAt(session, 0), direction: "forward", limit: 400 });
+    out.push(...page.events);
+    while (page.hasNext) {
+      page = mgr.queryPage({}, { cursor: page.nextCursor, direction: "forward", limit: 400 });
+      out.push(...page.events);
+    }
+    return out;
+  }
+
+  // A worker line and the proxy hop that tags it afterwards, 10 ms apart in event time.
+  function hopPair(mgr: LogManager, atMs: number, requestId: string): void {
+    mgr.append({ timestamp: new Date(atMs + 10).toISOString(), service: "proxy", source: "proxy", level: "WARN", message: HOP, pid: 0, request_id: requestId }, atMs + 10);
+  }
+
+  function workerLine(mgr: LogManager, atMs: number): void {
+    mgr.append({ timestamp: new Date(atMs).toISOString(), service: "worker", source: "stdout", level: "", message: POLLED, pid: 1 }, atMs);
+  }
+
+  test("a page read back from disk equals the same seqs read from the ring", async () => {
+    const root = tmp();
+    // Parts of 512 KiB, so the window spans several per service.
+    const mgr = new LogManager(5_000, undefined, new Detector([], []), true, root, "lossless", 0, 0, { maxMemoryBytes: 256 * 1024 * 1024, maxSessionBytes: 4 * 1024 * 1024 });
+    const at = Date.now();
+    for (let i = 1; i <= 900; i += 1) {
+      mgr.append({ timestamp: new Date(at + i).toISOString(), service: i % 2 === 0 ? "api" : "web", source: i % 5 === 0 ? "stderr" : "stdout", level: i % 50 === 0 ? "ERROR" : "INFO", message: `line ${i} ${i % 7 === 0 ? "多字节文本 ünïcödé 🎉" : ""} ${PAD}`, pid: 1 }, at);
+      if (i % 300 === 0) {
+        await mgr.flush();
+      }
+    }
+    mgr.append({
+      service: "otel", source: "otlp", pid: 0, body: { event: "checkout", nested: { ok: true, n: [1, 2.5, null] } },
+      attributes: { "http.route": "/pay/:id", attempt: 3, tags: ["a", "b"] }, resource: { "service.name": "otel", "host.name": "h1" },
+      scope: { name: "lib", version: "1.2.3" }, traceId: "0af7651916cd43dd8448eb211c80319c", spanId: "b7ad6b7169203331", traceFlags: 1,
+      severityNumber: 9, severityText: "INFO", timeUnixNano: (at + 5) * 1_000_000, observedTimeUnixNano: (at + 6) * 1_000_000, raw: "{\"k\":\"原始\"}",
+    }, at);
+    // One line re-tagged while it still waits in the writer's batch, one after
+    // it was written. The pairs are a second apart, so each hop tags its own line.
+    workerLine(mgr, at);
+    mgr.queryPage({}, { limit: 1 });
+    hopPair(mgr, at, "req-in-batch");
+    workerLine(mgr, at + 1_000);
+    await mgr.flush();
+    hopPair(mgr, at + 1_000, "req-after-write");
+    await mgr.flush();
+    const dir = mgr.sessionDir();
+    expect(readdirSync(dir).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(4);
+    expect(readdirSync(dir).filter((name) => name.endsWith(".patch"))).toEqual(["worker.patch"]);
+
+    const fromRing = everything(mgr, "lossless");
+    expect(mgr.evictedBytesRead()).toBe(0);
+    expect(fromRing).toHaveLength(905);
+    expect(fromRing.filter((event) => event.service === "worker").map((event) => event.attributes[REQUEST_ID_ATTR])).toEqual(["req-in-batch", "req-after-write"]);
+
+    mgr.setMemoryBudget(16 * 1024);
+    expect(mgr.snapshot().total).toBeLessThan(20);
+    const fromDisk = everything(mgr, "lossless");
+    expect(mgr.evictedBytesRead()).toBeGreaterThan(1024 * 1024);
+    expect(fromDisk).toEqual(fromRing);
+
+    // The other readers of a session directory agree.
+    await mgr.close();
+    expect(loadSessionEvents("session-lossless", root)).toEqual(fromRing);
+    expect(loadSessionTail("session-lossless", root)).toEqual(fromRing);
+    const history = new SessionHistory(root, 64 * 1024 * 1024, 10_000);
+    expect(history.page("session-lossless", {}, { cursor: "0", direction: "forward", limit: 5_000 }).events).toEqual(fromRing);
+  });
+
+  test("a patch that arrives after a range was scanned is seen by the next query", async () => {
+    const mgr = new LogManager(2_000, undefined, new Detector([], []), true, tmp(), "late", 0, 0, { maxMemoryBytes: 32 * 1024 });
+    const at = Date.now();
+    workerLine(mgr, at);
+    // Commits the worker line's fold, so it is seq 1 and the first evicted.
+    mgr.queryPage({}, { limit: 1 });
+    for (let i = 1; i <= 300; i += 1) {
+      mgr.append({ timestamp: new Date(at + 1).toISOString(), service: "api", source: "stdout", level: "INFO", message: `line ${i} ${PAD}`, pid: 1 }, at + 1);
+    }
+    await mgr.flush();
+    // The worker line is on disk and untagged; this scan is remembered.
+    expect(mgr.queryPage({ requestId: "req-late" }, {}).events).toEqual([]);
+    hopPair(mgr, at, "req-late");
+    await mgr.flush();
+    const tagged = mgr.queryPage({ requestId: "req-late" }, {});
+    expect(tagged.events.map((event) => `${event.service}:${event.seq}`)).toEqual(["worker:1", "proxy:302"]);
+    expect(mgr.queryPage({ requestId: "req-late" }, {}).events).toEqual(tagged.events);
+    await mgr.close();
+  });
+
+  test("a patch stands in for a line that was never written", () => {
+    const dir = tmp();
+    const record = (seq: number, body = `line ${seq}`): LogRecord => logRecord({ seq, service: "api", message: body });
+    writeLines(dir, "api.jsonl", [record(1), record(2), record(4)]);
+    writeLines(dir, "api.patch", [record(3, "patched in"), record(2, "replaced")]);
+    const reader = new SessionReader(dir);
+    const page = pageSource(reader.source({ matches: () => true }, 1, 5, readBudget(1024 * 1024, 1_000)), { cursor: 0, direction: "forward", limit: 10 });
+    expect(page.events.map((event) => `${event.seq}:${logMessage(event)}`)).toEqual(["1:line 1", "2:replaced", "3:patched in", "4:line 4"]);
+  });
+});
+
+describe("facets over the logical window", () => {
+  test("service, level and source counts cover what the ring has evicted, and follow the window", async () => {
+    // 3,000 records in the window, a few dozen of them still in memory.
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024 }, ["api", "worker"]);
+    const inMemory = mgr.snapshot().total;
+    expect(inMemory).toBeLessThan(100);
+    // filled() gives even lines to api, and every 50th line is an ERROR.
+    expect(mgr.queryFacets({})).toEqual({ total: 3_000, byService: { api: 1_500, worker: 1_500 }, byLevel: { INFO: 2_940, ERROR: 60 }, bySource: { stdout: 3_000 } });
+    const errors = mgr.queryFacets({ services: ["worker"], level: "ERROR" });
+    expect(errors.total).toBe(0);
+    expect(errors.byService).toEqual({ api: 60 });
+    expect(errors.byLevel).toEqual({ INFO: 1_500 });
+    // A search needs the records themselves, so it counts those still in memory.
+    const searched = mgr.queryFacets({ search: "line" });
+    expect(searched.total).toBe(mgr.snapshot().total);
+    // 500 more lines move the window on: its first 500 are no longer counted.
+    for (let i = 3_001; i <= 3_500; i += 1) {
+      mgr.append({ timestamp: new Date().toISOString(), service: "auth", source: "stderr", level: "WARN", message: `line ${i} ${PAD}`, pid: 1 });
+    }
+    expect(mgr.queryFacets({})).toEqual({ total: 3_000, byService: { api: 1_250, worker: 1_250, auth: 500 }, byLevel: { INFO: 2_450, ERROR: 50, WARN: 500 }, bySource: { stdout: 2_500, stderr: 500 } });
+    await mgr.close();
+  });
+
+  test("with nothing persisted, what the ring evicted is gone and is not counted", () => {
+    const mgr = new LogManager(3_000, undefined, new Detector([], []), false, tmp(), "memory-only", 0, 0, { maxMemoryBytes: 64 * 1024 });
+    for (let i = 1; i <= 500; i += 1) {
+      mgr.append({ timestamp: new Date().toISOString(), service: "api", source: "devctl", level: "INFO", message: `line ${i} ${PAD}`, pid: 1 });
+    }
+    const inMemory = mgr.snapshot().total;
+    expect(inMemory).toBeLessThan(100);
+    expect(mgr.queryFacets({})).toEqual({ total: inMemory, byService: { api: inMemory }, byLevel: { INFO: inMemory }, bySource: { devctl: inMemory } });
+    expect(mgr.queryPage({}, { limit: 5_000 }).events).toHaveLength(inMemory);
+  });
+});
+
+describe("the writer's index", () => {
+  function dropIndexes(dir: string): void {
+    for (const name of readdirSync(dir).filter((file) => file.endsWith(".idx"))) {
+      rmSync(join(dir, name));
+    }
+  }
+
+  test("a cold page of an indexed session is read without a probe; without the index it is probed for", async () => {
+    // Two services with one 6 MiB part each.
+    const mgr = await filled(6_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 64 * 1024 * 1024 }, ["api", "worker"], "indexed");
+    await mgr.close();
+    const dir = mgr.sessionDir();
+    const page = (reader: SessionReader) =>
+      pageSource(reader.source({ matches: () => true }, 1, 6_001, readBudget(64 * 1024 * 1024, 10_000)), { cursor: 3_001, direction: "backward", limit: 200 });
+    const indexed = new SessionReader(dir);
+    const first = page(indexed);
+    expect(first.events.map((event) => event.seq)).toEqual(range(2_801, 3_000));
+    expect(indexed.probes).toBe(0);
+    const pageBytes = first.events.reduce((sum, event) => sum + JSON.stringify(event).length, 0);
+    expect(indexed.bytesRead).toBeLessThan(3 * pageBytes);
+    expect(indexed.lastSeq(readBudget(1024 * 1024, 1_000))).toBe(6_000);
+
+    dropIndexes(dir);
+    const lazy = new SessionReader(dir);
+    expect(page(lazy).events).toEqual(first.events);
+    expect(lazy.probes).toBeGreaterThan(0);
+    expect(lazy.bytesRead).toBeGreaterThan(indexed.bytesRead);
+  });
+
+  // A part is opened when it is first read, after the walk has listed it: the
+  // session cap or the pruner can delete it in between. As root every file opens.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("a part that cannot be opened ends its scan instead of hanging the walk", async () => {
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 8 * 1024 * 1024 }, ["api"], "gone");
+    await mgr.close();
+    const blocked = join(mgr.sessionDir(), "api~1.jsonl");
+    chmodSync(blocked, 0o000);
+    try {
+      const reader = new SessionReader(mgr.sessionDir());
+      const page = pageSource(reader.source({ matches: () => true }, 1, 3_001, readBudget(64 * 1024 * 1024, 10_000)), { cursor: 0, direction: "forward", limit: 5_000 });
+      const seqs = page.events.map((event) => event.seq);
+      // Every other part is served; the one that would not open is skipped.
+      expect(seqs[0]).toBe(1);
+      expect(seqs.at(-1)).toBe(3_000);
+      expect(seqs.length).toBeGreaterThan(2_000);
+      expect(seqs.length).toBeLessThan(3_000);
+    } finally {
+      chmodSync(blocked, 0o600);
+    }
+  });
+
+  test("lines a crash replay appended to a dead session's first part are served", async () => {
+    // Parts of 1 MiB: api.jsonl, api~1.jsonl, ... The replay sink knows only
+    // `<service>.jsonl`, so its lines land after part 0's, with the highest seqs.
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 8 * 1024 * 1024 }, ["api"], "dead");
+    await mgr.close();
+    const root = join(mgr.sessionDir(), "..");
+    expect(readdirSync(mgr.sessionDir()).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(3);
+    const sink = sessionHistorySink(
+      (session) => join(root, `session-${session}`),
+      (service) => `${service}.jsonl`,
+      (line, seq) => logRecord({ seq, service: line.service, message: line.line }),
+    );
+    const replayed = ["replayed one", "replayed two"].map((line) => ({ service: "api", stream: "stdout", pid: 1, readAtMs: 1, line }));
+    sink({ session: "dead", service: "api", stream: "stdout", pid: 1 }, replayed);
+    const newest = (): string[] =>
+      new SessionHistory(root, 64 * 1024 * 1024, 10_000).page("session-dead", {}, { limit: 3 }).events.map((event) => `${event.seq}:${logMessage(event).slice(0, 12)}`);
+    expect(newest()).toEqual(["3000:line 3000 pp", "3001:replayed one", "3002:replayed two"]);
+    const older = new SessionHistory(root, 64 * 1024 * 1024, 10_000).page("session-dead", {}, { cursor: "1500", direction: "backward", limit: 2 });
+    expect(older.events.map((event) => event.seq)).toEqual([1_498, 1_499]);
+    // The same session as an older devctl would have left it.
+    dropIndexes(mgr.sessionDir());
+    expect(newest()).toEqual(["3000:line 3000 pp", "3001:replayed one", "3002:replayed two"]);
+  });
+});
+
 describe("the read budget's clock", () => {
   test("a query that is out of time before it reaches disk still moves the walk on", async () => {
     // With no time at all, each poll finishes one span and the cache keeps it.
@@ -334,6 +552,18 @@ describe("match cache", () => {
     }
     expect(cache.get("k", 1)).toBeUndefined();
     expect(cache.get("q8", 1)).toBeDefined();
+  });
+
+  test("a changed record forgets only the ranges that hold its seq", () => {
+    const cache = new MatchCache();
+    cache.remember("old", { lo: 10, hi: 20, matches: [at(12)] });
+    cache.remember("new", { lo: 40, hi: 50, matches: [at(45)] });
+    cache.invalidate(20, 39);
+    expect(cache.get("old", 1)).toBeDefined();
+    expect(cache.get("new", 1)).toBeDefined();
+    cache.invalidate(19, 19);
+    expect(cache.get("old", 1)).toBeUndefined();
+    expect(cache.get("new", 1)).toBeDefined();
   });
 });
 

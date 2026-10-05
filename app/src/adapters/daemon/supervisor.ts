@@ -84,7 +84,7 @@ import {
   type ServiceState,
 } from "../../domain/service/services.ts";
 import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
-import { autoRingBytes, LOGS_REPLY_MAX_BYTES } from "../../domain/logs/budgets.ts";
+import { autoRingBytes, LOGS_REPLY_MAX_BYTES, TRACE_LOOKUP_PAGES } from "../../domain/logs/budgets.ts";
 import { nextMemoryGuard, ringBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
@@ -1081,8 +1081,30 @@ export class Supervisor {
 
   async queryTrace(traceId: string): Promise<TraceResponse> {
     const tree = this.spans.getTrace(traceId);
-    const events = traceId === "" ? [] : await this.logs.query({ traceId });
-    return { traceId, tree, events };
+    if (traceId === "") {
+      return { traceId, tree, events: [] };
+    }
+    const logs = await this.traceLogs(traceId);
+    return { traceId, tree, events: logs.events, truncated: logs.complete ? undefined : true };
+  }
+
+  // A trace's records from the whole log window, oldest first. The ring alone
+  // misses what it has evicted, so this pages back through the window like
+  // any paged read, for at most TRACE_LOOKUP_PAGES pages and a reply's bytes.
+  private async traceLogs(traceId: string): Promise<{ events: LogEvent[]; complete: boolean }> {
+    let events: LogEvent[] = [];
+    let bytes = 0;
+    let cursor: string | undefined;
+    for (let pages = 1; ; pages += 1) {
+      const page = await this.logs.queryPage({ traceId }, { cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
+      events = page.events.concat(events);
+      bytes = page.events.reduce((sum, event) => sum + approxRecordBytes(event), bytes);
+      const stalled = page.prevCursor === cursor;
+      if (!page.hasPrev || stalled || pages >= TRACE_LOOKUP_PAGES || bytes >= LOGS_REPLY_MAX_BYTES) {
+        return { events, complete: !page.hasPrev };
+      }
+      cursor = page.prevCursor;
+    }
   }
 
   async queryTraceByRequest(requestId: string): Promise<TraceResponse> {
