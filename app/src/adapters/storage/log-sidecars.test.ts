@@ -152,6 +152,24 @@ describe("part index", () => {
     expect(statSync(join(dir, "api.patch")).size).toBeLessThanOrEqual(16 * 1024);
   });
 
+  test("a copy of a record whose service has no part left is dropped, not written as a new line", async () => {
+    const dir = tmp();
+    // The session holds one 1 KiB line: api's part is evicted to make room for web's.
+    const writer = new SessionLogWriter(dir, 64 * 1024 * 1024, { maxSessionBytes: 1_500 });
+    writer.write("api", line(1), 1);
+    await writer.flush();
+    writer.write("web", line(2), 2);
+    await writer.flush();
+    const ofApi = (): string[] => readdirSync(dir).filter((name) => name.startsWith("api"));
+    expect(ofApi()).toEqual([]);
+    // A short copy would fit, but the record it replaces went with its part.
+    writer.replace("api", `${JSON.stringify({ seq: 1, service: "api", body: "tagged" })}\n`, 1);
+    await writer.close();
+    expect(ofApi()).toEqual([]);
+    expect(writer.sessionByteCount()).toBe(diskBytes(dir));
+    expect(writer.loss).toBe(0);
+  });
+
   test("a copy standing in for a dropped line is written in seq order", async () => {
     const dir = tmp();
     let reserve = false;

@@ -2217,7 +2217,7 @@ A page also ends once its records pass about 8 MiB, so a page of very long lines
 
 Facets — the total matching count, plus per-service/level/source counts (each computed under every *other* active filter, not its own) — come from a separate, lightweight stats query with no event payload (\`logs_stats\` / MCP \`get_log_stats\` / \`GET /api/logs/stats\`). The TUI and web Logs page refresh them every two seconds while open, and immediately on a filter change, a clear, or reconnecting, so the filter chips' counts stay accurate even though the UI only ever renders a viewport into a bounded buffer.
 
-With only service, level and source filters, the counts cover the whole log window (the last \`max_memory_events\` records), including records the in-memory ring has evicted to the session files. With a search, a time range, or a trace, request-id or attribute filter, they count only the records still in memory, so they can be lower than what paging back through the window finds.
+With only service, level and source filters, the counts cover the whole log window (the last \`max_memory_events\` records), including records the in-memory ring has evicted to the session files. With a search, a time range, or a trace, request-id or attribute filter, they count only the records still in memory, so they can be lower than what paging back through the window finds. With persistence off, every count is of the records still in memory. With it on, the window counts include records the session files no longer hold or never got: lines left out while the disk was full, and the oldest parts of a session whose \`max_session_bytes\` is smaller than its window.
 
 ## TUI (Logs tab)
 

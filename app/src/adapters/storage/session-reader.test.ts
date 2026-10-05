@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -351,6 +351,17 @@ describe("facets over the logical window", () => {
     expect(mgr.queryFacets({})).toEqual({ total: 3_000, byService: { api: 1_250, worker: 1_250, auth: 500 }, byLevel: { INFO: 2_450, ERROR: 50, WARN: 500 }, bySource: { stdout: 2_500, stderr: 500 } });
     await mgr.close();
   });
+
+  test("with nothing persisted, what the ring evicted is gone and is not counted", () => {
+    const mgr = new LogManager(3_000, undefined, new Detector([], []), false, tmp(), "memory-only", 0, 0, { maxMemoryBytes: 64 * 1024 });
+    for (let i = 1; i <= 500; i += 1) {
+      mgr.append({ timestamp: new Date().toISOString(), service: "api", source: "devctl", level: "INFO", message: `line ${i} ${PAD}`, pid: 1 });
+    }
+    const inMemory = mgr.snapshot().total;
+    expect(inMemory).toBeLessThan(100);
+    expect(mgr.queryFacets({})).toEqual({ total: inMemory, byService: { api: inMemory }, byLevel: { INFO: inMemory }, bySource: { devctl: inMemory } });
+    expect(mgr.queryPage({}, { limit: 5_000 }).events).toHaveLength(inMemory);
+  });
 });
 
 describe("the writer's index", () => {
@@ -380,6 +391,27 @@ describe("the writer's index", () => {
     expect(page(lazy).events).toEqual(first.events);
     expect(lazy.probes).toBeGreaterThan(0);
     expect(lazy.bytesRead).toBeGreaterThan(indexed.bytesRead);
+  });
+
+  // A part is opened when it is first read, after the walk has listed it: the
+  // session cap or the pruner can delete it in between. As root every file opens.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)("a part that cannot be opened ends its scan instead of hanging the walk", async () => {
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 8 * 1024 * 1024 }, ["api"], "gone");
+    await mgr.close();
+    const blocked = join(mgr.sessionDir(), "api~1.jsonl");
+    chmodSync(blocked, 0o000);
+    try {
+      const reader = new SessionReader(mgr.sessionDir());
+      const page = pageSource(reader.source({ matches: () => true }, 1, 3_001, readBudget(64 * 1024 * 1024, 10_000)), { cursor: 0, direction: "forward", limit: 5_000 });
+      const seqs = page.events.map((event) => event.seq);
+      // Every other part is served; the one that would not open is skipped.
+      expect(seqs[0]).toBe(1);
+      expect(seqs.at(-1)).toBe(3_000);
+      expect(seqs.length).toBeGreaterThan(2_000);
+      expect(seqs.length).toBeLessThan(3_000);
+    } finally {
+      chmodSync(blocked, 0o600);
+    }
   });
 
   test("lines a crash replay appended to a dead session's first part are served", async () => {

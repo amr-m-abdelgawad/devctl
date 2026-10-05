@@ -491,13 +491,15 @@ export class LogManager {
   /**
    * Counts for the filter chips. A filter on service, level and source alone
    * is counted over the whole logical window, from a table kept as records
-   * commit, so the counts do not shrink as the ring evicts. Any other filter
-   * (search, time range, trace, request id, attribute) needs the records
-   * themselves and counts the ones still in memory.
+   * commit, so the counts do not shrink as the ring evicts to the session
+   * files. Any other filter (search, time range, trace, request id,
+   * attribute) needs the records themselves and counts the ones still in
+   * memory, as does every filter when nothing is persisted: what the ring
+   * evicts then is gone, and no page could show it.
    */
   queryFacets(filter: LogFilter): LogFacets {
     this.flushPending();
-    if (filtersDimensionsOnly(filter)) {
+    if (this.evicted !== undefined && filtersDimensionsOnly(filter)) {
       return this.facetWindow.facets(filter);
     }
     const withoutServices = withoutFilterDimension(filter, "services");

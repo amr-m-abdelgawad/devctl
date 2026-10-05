@@ -400,12 +400,14 @@ export class SessionReader {
       if (spent(budget)) {
         return false;
       }
-      const buf = this.read(part, position, Math.min(chunk, limit - position), budget);
+      const wanted = Math.min(chunk, limit - position);
+      const buf = this.read(part, position, wanted, budget);
       let lineStart = midLine ? buf.indexOf(NEWLINE) + 1 : 0;
       let newline = lineStart === 0 && midLine ? -1 : buf.indexOf(NEWLINE, lineStart);
       if (newline < 0) {
-        if (position + buf.length >= limit) {
-          // The line still being written.
+        if (buf.length < wanted || position + buf.length >= limit) {
+          // The line still being written, or a part that is gone or shorter
+          // than it was a moment ago (its session was evicted or pruned).
           return true;
         }
         chunk *= 2;

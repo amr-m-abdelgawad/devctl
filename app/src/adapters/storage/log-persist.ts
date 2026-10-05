@@ -60,6 +60,8 @@ type KeyState = {
   active: Part | undefined;
   stream: WriteStream | undefined;
   nextPart: number;
+  // True once this writer has issued a line of the service to a part.
+  issued: boolean;
   buffer: string[];
   sizes: number[];
   // The seq of each buffered line, 0 when the caller gave none.
@@ -192,7 +194,7 @@ export class SessionLogWriter {
       this.buffered += grown;
       return;
     }
-    if (state === undefined || (state.active === undefined && state.sealed.length === 0)) {
+    if (state === undefined || !state.issued) {
       // Nothing of this service was written: the original was dropped, and this copy stands in for it.
       this.write(key, line, seq);
       return;
@@ -364,6 +366,7 @@ export class SessionLogWriter {
     }
     const index = state.nextPart;
     state.nextPart += 1;
+    state.issued = true;
     const path = join(this.directory, partFileName(state.key, index));
     const stream = createWriteStream(path, { flags: "a", mode: 0o600 });
     stream.on("error", () => {
@@ -496,7 +499,7 @@ export class SessionLogWriter {
     if (existing !== undefined) {
       return existing;
     }
-    const created: KeyState = { key, sealed: [], active: undefined, stream: undefined, nextPart: firstFreePart(this.directory, key), buffer: [], sizes: [], seqs: [], bufferBytes: 0 };
+    const created: KeyState = { key, sealed: [], active: undefined, stream: undefined, nextPart: firstFreePart(this.directory, key), issued: false, buffer: [], sizes: [], seqs: [], bufferBytes: 0 };
     this.keys.set(key, created);
     return created;
   }
