@@ -329,6 +329,30 @@ describe("what disk serves is what the ring held", () => {
   });
 });
 
+describe("facets over the logical window", () => {
+  test("service, level and source counts cover what the ring has evicted, and follow the window", async () => {
+    // 3,000 records in the window, a few dozen of them still in memory.
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024 }, ["api", "worker"]);
+    const inMemory = mgr.snapshot().total;
+    expect(inMemory).toBeLessThan(100);
+    // filled() gives even lines to api, and every 50th line is an ERROR.
+    expect(mgr.queryFacets({})).toEqual({ total: 3_000, byService: { api: 1_500, worker: 1_500 }, byLevel: { INFO: 2_940, ERROR: 60 }, bySource: { stdout: 3_000 } });
+    const errors = mgr.queryFacets({ services: ["worker"], level: "ERROR" });
+    expect(errors.total).toBe(0);
+    expect(errors.byService).toEqual({ api: 60 });
+    expect(errors.byLevel).toEqual({ INFO: 1_500 });
+    // A search needs the records themselves, so it counts those still in memory.
+    const searched = mgr.queryFacets({ search: "line" });
+    expect(searched.total).toBe(mgr.snapshot().total);
+    // 500 more lines move the window on: its first 500 are no longer counted.
+    for (let i = 3_001; i <= 3_500; i += 1) {
+      mgr.append({ timestamp: new Date().toISOString(), service: "auth", source: "stderr", level: "WARN", message: `line ${i} ${PAD}`, pid: 1 });
+    }
+    expect(mgr.queryFacets({})).toEqual({ total: 3_000, byService: { api: 1_250, worker: 1_250, auth: 500 }, byLevel: { INFO: 2_450, ERROR: 50, WARN: 500 }, bySource: { stdout: 2_500, stderr: 500 } });
+    await mgr.close();
+  });
+});
+
 describe("the writer's index", () => {
   function dropIndexes(dir: string): void {
     for (const name of readdirSync(dir).filter((file) => file.endsWith(".idx"))) {
