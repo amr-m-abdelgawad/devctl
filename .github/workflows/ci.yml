@@ -293,14 +293,25 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - working-directory: app
         run: bun install --frozen-lockfile
+      # Temporary, while a hang in this job is unexplained: how the synchronous
+      # process calls devctl makes behave on this runner. Never fails the job.
+      - name: Probe process calls
+        continue-on-error: true
+        timeout-minutes: 3
+        run: bun .github/scripts/probe-windows-spawn.cjs
+      # The run takes three minutes. One still going after ten is stuck: the
+      # wrapper prints what was running, then stops it.
       - name: bun test
         working-directory: app
-        run: bun test
+        run: node ../.github/scripts/run-watched.cjs 10 bun test
 
   macos-tests:
     name: macOS tests
