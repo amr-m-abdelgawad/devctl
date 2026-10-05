@@ -142,7 +142,6 @@ export class LogManager {
   private readonly maxTotalBytes: number;
   private pruneTimer?: ReturnType<typeof setInterval>;
   private lastPruneAt = 0;
-  private owner?: SessionOwner;
   private closing = false;
   private readonly replay: Promise<void>;
 
@@ -826,12 +825,12 @@ export class LogManager {
     if (!this.persist) {
       return;
     }
-    this.owner ??= { pid: process.pid, ...readSelfStamp() };
     const body = {
       repo: this.repoKey,
       retentionDays: this.retentionDays,
       bytes: this.writer?.sessionByteCount() ?? 0,
-      owner: this.owner,
+      // Kept by readSelfStamp once it has a start time, so a first read that timed out is made good here.
+      owner: { pid: process.pid, ...readSelfStamp() } satisfies SessionOwner,
       closedAt: closed ? new Date().toISOString() : undefined,
     };
     writeFileSync(join(this.persistDir, "manifest.json"), `${JSON.stringify(body)}\n`, { mode: 0o600 });

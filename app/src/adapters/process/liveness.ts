@@ -98,19 +98,40 @@ export type ProcessStamp = {
 
 // A process's own stamp never changes, and reading it is slow where it
 // spawns: `ps` on macOS, PowerShell on Windows (a third of a second or more).
+// So it is read once and kept. A read that came back without a start time
+// timed out (PowerShell can need over a second on a cold machine): that one
+// is not kept and the next call reads again, up to this many times.
+const SELF_STAMP_READS = 3;
 let selfStamp: ProcessStamp | undefined;
+let selfStampReads = 0;
 
-export function readSelfStamp(): ProcessStamp {
-  selfStamp ??= readStamp(process.pid);
-  return { ...selfStamp };
+/** `read` is for tests. */
+export function readSelfStamp(read: (pid: number) => ProcessStamp = readStamp): ProcessStamp {
+  if (selfStamp !== undefined) {
+    return { ...selfStamp };
+  }
+  const stamp = read(process.pid);
+  selfStampReads += 1;
+  if (hasStart(stamp) || selfStampReads >= SELF_STAMP_READS) {
+    selfStamp = stamp;
+  }
+  return { ...stamp };
 }
 
 /**
  * For a worker thread: the stamp of its process as the main thread already
- * read it, so the worker does not read it a second time.
+ * read it, so the worker does not read it a second time. One without a start
+ * time is not taken, and the worker reads its own.
  */
 export function rememberSelfStamp(stamp: ProcessStamp): void {
-  selfStamp ??= { ...stamp };
+  if (selfStamp === undefined && hasStart(stamp)) {
+    selfStamp = { ...stamp };
+  }
+}
+
+// What tells a process from a later one that got the same pid.
+function hasStart(stamp: ProcessStamp): boolean {
+  return stamp.startTicks !== undefined || stamp.lstart !== undefined;
 }
 
 export function readStamp(pid: number): ProcessStamp {
