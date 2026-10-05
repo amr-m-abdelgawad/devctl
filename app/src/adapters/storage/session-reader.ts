@@ -4,7 +4,7 @@ import type { LogMatcher } from "../../domain/logs/filter.ts";
 import type { LogRecord } from "../../domain/logs/logs.ts";
 import type { SeqSource, Walk } from "./log-page.ts";
 import { firstAtOrAbove, MatchCache, type LineLocation, type ScannedRange } from "./match-cache.ts";
-import { parseStoredLogRecord, partPatchFile, safeServiceFile } from "./session-files.ts";
+import { parseStoredLogRecord, partIndexFile, partPatchFile, safeServiceFile } from "./session-files.ts";
 
 const KIB = 1024;
 // A checkpoint every 64 KiB of a part that has been read.
@@ -61,11 +61,13 @@ export type SessionQuery = {
  * on every seq written before it. Seqs rise through a part (a replaced
  * record is appended again later, with its old seq), so the last checkpoint
  * whose bound is below a seq is a safe place to start reading for it.
- * Checkpoints come from reads (one per 64 KiB) and from probes that bisect
- * an unread stretch. A read's bound is exact; a probe's is the highest seq
- * among the lines it saw, which fails only if every one of them was a
- * replaced copy, so reading starts one checkpoint before a probed one. A
- * writer that recorded the same pairs as it appended would have a `.idx`.
+ * Checkpoints come from the index the writer keeps beside the part
+ * (`<part>.idx`), when it has one. A part without one (an older devctl
+ * wrote it, or a crash replay appended past what the index covers) gets
+ * them from reads, one per 64 KiB, and from probes that bisect an unread
+ * stretch. A read's bound is exact; a probe's is the highest seq among the
+ * lines it saw, which fails only if every one of them was a replaced copy,
+ * so reading starts a little before a probed checkpoint.
  */
 class PartIndex {
   readonly offsets: number[] = [0];
@@ -122,7 +124,12 @@ type PartFile = {
   readonly key: string;
   readonly part: number;
   readonly index: PartIndex;
-  // Seqs of the first lines, read once.
+  // How much of the writer's index beside the part has been read, and what it
+  // says: the part's first seq and, once it is sealed, its size and last seq.
+  indexBytes: number;
+  low?: number;
+  sealed?: { size: number; seq: number };
+  // Seqs of the first lines, read once when there is no index to say.
   head?: SeqSpan;
   // Highest seq of the last lines, for the size it was read at.
   tail?: { size: number; seq: number };
@@ -148,6 +155,8 @@ type Step = { visited: number; end?: Walk; matches?: readonly LineLocation[] };
  */
 export class SessionReader {
   bytesRead = 0;
+  /** Reads made to bisect a part that has no index for the stretch. */
+  probes = 0;
   private readonly parts = new Map<string, PartFile>();
   private readonly cache = new MatchCache();
   // Bytes read per seq of range scanned, learned from earlier spans.
@@ -171,7 +180,7 @@ export class SessionReader {
     return this.withParts(undefined, (open) => {
       let last = 0;
       for (const part of open) {
-        last = Math.max(last, this.tail(part, budget));
+        last = Math.max(last, part.file.sealed?.size === part.size ? part.file.sealed.seq : this.tail(part, budget));
       }
       return last;
     });
@@ -292,11 +301,8 @@ export class SessionReader {
     const lines = new Map<number, Line>();
     for (let index = 0; index < open.length; index += 1) {
       const part = open[index]!;
-      const next = open[index + 1];
-      const head = this.head(part, budget);
-      // A part runs from its first lines up to the first lines of the service's next part.
-      const nextHead = next !== undefined && next.file.key === part.file.key ? this.head(next, budget) : undefined;
-      const overlaps = head !== undefined && head.low < top && (nextHead === undefined || nextHead.high > bottom);
+      const extent = this.extent(part, budget);
+      const overlaps = extent !== undefined && extent.low < top && extent.high >= bottom;
       if (overlaps && !this.scanPart(part, bottom, top, lines, budget)) {
         return undefined;
       }
@@ -315,6 +321,20 @@ export class SessionReader {
     }
     kept.sort((a, b) => a.record.seq - b.record.seq);
     return { records: kept.map((row) => row.record), matches: kept.map((row) => row.location), lineBytes };
+  }
+
+  // The lowest seq a part holds and a bound on its highest, judged from the
+  // part itself: a crash replay appends to a dead session's first part, so
+  // the next part's start says nothing. A sealed, indexed part gives both
+  // without a read; one still growing may hold anything above its start.
+  private extent(part: OpenPart, budget: ReadBudget): SeqSpan | undefined {
+    const file = part.file;
+    if (file.low !== undefined) {
+      return { low: file.low, high: file.sealed?.size === part.size ? file.sealed.seq : Number.POSITIVE_INFINITY };
+    }
+    const head = this.head(part, budget);
+    const high = head === undefined ? 0 : this.tail(part, budget);
+    return head === undefined ? undefined : { low: head.low, high: high > 0 ? high : Number.POSITIVE_INFINITY };
   }
 
   // Collects the part's lines with seq in [bottom, top). A later copy of a
@@ -361,7 +381,8 @@ export class SessionReader {
           if (seq >= bottom && seq < top) {
             lines.set(seq, { text: buf.toString("utf8", lineStart, newline), location: { seq, part: part.file.name, offset, length: newline - lineStart } });
           } else if (seq >= top && stopAt === part.size) {
-            stopAt = Math.min(part.size, offset + SLACK_BYTES);
+            // An indexed part holds each seq once, in order; only an older one needs the look-ahead.
+            stopAt = Math.min(part.size, offset + (part.file.low === undefined ? SLACK_BYTES : 0));
           }
           bound = Math.max(bound, seq);
         }
@@ -385,6 +406,7 @@ export class SessionReader {
       if (to - from <= REFINE_BYTES || spent(budget)) {
         return start;
       }
+      this.probes += 1;
       const probe = this.probe(part, from + Math.floor((to - from) / 2), budget);
       if (probe === undefined || probe.offset <= from || probe.offset >= to || !index.add(probe.offset, probe.seqs.high, true)) {
         return start;
@@ -462,7 +484,9 @@ export class SessionReader {
         const file = this.exclude.has(name) ? undefined : this.partFile(name);
         const fd = file === undefined || (keys !== undefined && !keys.has(file.key)) ? undefined : openQuiet(join(this.dir, name));
         if (file !== undefined && fd !== undefined) {
-          open.push({ file, fd, size: fstatSync(fd).size });
+          const size = fstatSync(fd).size;
+          open.push({ file, fd, size });
+          this.loadIndex(file, size);
           this.loadPatches(file);
         }
       }
@@ -475,32 +499,60 @@ export class SessionReader {
     }
   }
 
+  // Reads what the writer has appended to the part's index since last time:
+  // lines of `offset bound`. An entry past the part's size was written ahead
+  // of its lines and waits for them.
+  private loadIndex(file: PartFile, size: number): void {
+    const buf = this.appended(partIndexFile(file.name), file.indexBytes);
+    for (let lineStart = 0; lineStart < buf.length; ) {
+      const newline = buf.indexOf(NEWLINE, lineStart);
+      const [offset, bound] = buf.toString("latin1", lineStart, newline).split(" ").map(Number);
+      if (offset === undefined || bound === undefined || !Number.isInteger(offset) || !Number.isInteger(bound) || offset > size) {
+        return;
+      }
+      if (offset === 0) {
+        file.low = bound + 1;
+        file.index.bounds[0] = Math.max(file.index.bounds[0]!, bound);
+      } else {
+        file.index.add(offset, bound);
+      }
+      file.sealed = offset === size ? { size, seq: bound } : file.sealed;
+      file.indexBytes += newline + 1 - lineStart;
+      lineStart = newline + 1;
+    }
+  }
+
   // Reads what has been appended to the part's patch file since last time.
   // A new patch can change which records a filter keeps, so the cache goes.
   private loadPatches(file: PartFile): void {
-    const path = join(this.dir, partPatchFile(file.name));
+    const buf = this.appended(partPatchFile(file.name), file.patchBytes);
+    for (let lineStart = 0; lineStart < buf.length; ) {
+      const newline = buf.indexOf(NEWLINE, lineStart);
+      const seq = lineSeq(buf, lineStart, newline);
+      if (seq !== undefined) {
+        file.patches.set(seq, buf.toString("utf8", lineStart, newline));
+      }
+      lineStart = newline + 1;
+    }
+    file.patchBytes += buf.length;
+    if (buf.length > 0) {
+      this.cache.clear();
+    }
+  }
+
+  // The whole lines appended to a sidecar since `from` bytes of it were read.
+  private appended(name: string, from: number): Buffer {
+    const path = join(this.dir, name);
     const size = sizeQuiet(path);
-    const fd = size > file.patchBytes ? openQuiet(path) : undefined;
+    const fd = size > from ? openQuiet(path) : undefined;
     if (fd === undefined) {
-      return;
+      return Buffer.alloc(0);
     }
     try {
-      const buf = Buffer.alloc(size - file.patchBytes);
-      const got = readSync(fd, buf, 0, buf.length, file.patchBytes);
+      const buf = Buffer.alloc(size - from);
+      const got = readSync(fd, buf, 0, buf.length, from);
       this.bytesRead += got;
-      const whole = buf.lastIndexOf(NEWLINE, got - 1) + 1;
-      for (let lineStart = 0; lineStart < whole; ) {
-        const newline = buf.indexOf(NEWLINE, lineStart);
-        const seq = lineSeq(buf, lineStart, newline);
-        if (seq !== undefined) {
-          file.patches.set(seq, buf.toString("utf8", lineStart, newline));
-        }
-        lineStart = newline + 1;
-      }
-      file.patchBytes += whole;
-      if (whole > 0) {
-        this.cache.clear();
-      }
+      return buf.subarray(0, buf.lastIndexOf(NEWLINE, got - 1) + 1);
     } finally {
       closeSync(fd);
     }
@@ -517,7 +569,7 @@ export class SessionReader {
     if (!Number.isInteger(part) || part < 0) {
       return undefined;
     }
-    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), patches: new Map(), patchBytes: 0 };
+    const file: PartFile = { name, key: tilde < 0 ? stem : stem.slice(0, tilde), part, index: new PartIndex(), indexBytes: 0, patches: new Map(), patchBytes: 0 };
     this.parts.set(name, file);
     return file;
   }

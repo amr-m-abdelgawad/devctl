@@ -11,6 +11,7 @@ import { MatchCache } from "./match-cache.ts";
 import { loadSessionEvents, loadSessionTail } from "./session-files.ts";
 import { SessionHistory } from "./session-history.ts";
 import { readBudget, SessionReader } from "./session-reader.ts";
+import { sessionHistorySink } from "./spool-replay.ts";
 import { createDaemonLogStore } from "./worker-log-store.ts";
 import { Bus } from "../../shared/events.ts";
 
@@ -325,6 +326,60 @@ describe("what disk serves is what the ring held", () => {
     const reader = new SessionReader(dir);
     const page = pageSource(reader.source({ matches: () => true }, 1, 5, readBudget(1024 * 1024, 1_000)), { cursor: 0, direction: "forward", limit: 10 });
     expect(page.events.map((event) => `${event.seq}:${logMessage(event)}`)).toEqual(["1:line 1", "2:replaced", "3:patched in", "4:line 4"]);
+  });
+});
+
+describe("the writer's index", () => {
+  function dropIndexes(dir: string): void {
+    for (const name of readdirSync(dir).filter((file) => file.endsWith(".idx"))) {
+      rmSync(join(dir, name));
+    }
+  }
+
+  test("a cold page of an indexed session is read without a probe; without the index it is probed for", async () => {
+    // Two services with one 6 MiB part each.
+    const mgr = await filled(6_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 64 * 1024 * 1024 }, ["api", "worker"], "indexed");
+    await mgr.close();
+    const dir = mgr.sessionDir();
+    const page = (reader: SessionReader) =>
+      pageSource(reader.source({ matches: () => true }, 1, 6_001, readBudget(64 * 1024 * 1024, 10_000)), { cursor: 3_001, direction: "backward", limit: 200 });
+    const indexed = new SessionReader(dir);
+    const first = page(indexed);
+    expect(first.events.map((event) => event.seq)).toEqual(range(2_801, 3_000));
+    expect(indexed.probes).toBe(0);
+    const pageBytes = first.events.reduce((sum, event) => sum + JSON.stringify(event).length, 0);
+    expect(indexed.bytesRead).toBeLessThan(3 * pageBytes);
+    expect(indexed.lastSeq(readBudget(1024 * 1024, 1_000))).toBe(6_000);
+
+    dropIndexes(dir);
+    const lazy = new SessionReader(dir);
+    expect(page(lazy).events).toEqual(first.events);
+    expect(lazy.probes).toBeGreaterThan(0);
+    expect(lazy.bytesRead).toBeGreaterThan(indexed.bytesRead);
+  });
+
+  test("lines a crash replay appended to a dead session's first part are served", async () => {
+    // Parts of 1 MiB: api.jsonl, api~1.jsonl, ... The replay sink knows only
+    // `<service>.jsonl`, so its lines land after part 0's, with the highest seqs.
+    const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 8 * 1024 * 1024 }, ["api"], "dead");
+    await mgr.close();
+    const root = join(mgr.sessionDir(), "..");
+    expect(readdirSync(mgr.sessionDir()).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(3);
+    const sink = sessionHistorySink(
+      (session) => join(root, `session-${session}`),
+      (service) => `${service}.jsonl`,
+      (line, seq) => logRecord({ seq, service: line.service, message: line.line }),
+    );
+    const replayed = ["replayed one", "replayed two"].map((line) => ({ service: "api", stream: "stdout", pid: 1, readAtMs: 1, line }));
+    sink({ session: "dead", service: "api", stream: "stdout", pid: 1 }, replayed);
+    const newest = (): string[] =>
+      new SessionHistory(root, 64 * 1024 * 1024, 10_000).page("session-dead", {}, { limit: 3 }).events.map((event) => `${event.seq}:${logMessage(event).slice(0, 12)}`);
+    expect(newest()).toEqual(["3000:line 3000 pp", "3001:replayed one", "3002:replayed two"]);
+    const older = new SessionHistory(root, 64 * 1024 * 1024, 10_000).page("session-dead", {}, { cursor: "1500", direction: "backward", limit: 2 });
+    expect(older.events.map((event) => event.seq)).toEqual([1_498, 1_499]);
+    // The same session as an older devctl would have left it.
+    dropIndexes(mgr.sessionDir());
+    expect(newest()).toEqual(["3000:line 3000 pp", "3001:replayed one", "3002:replayed two"]);
   });
 });
 
