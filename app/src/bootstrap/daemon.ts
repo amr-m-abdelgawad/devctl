@@ -28,6 +28,7 @@ import { detectGoogle, type GoogleStatus } from "../adapters/google/google.ts";
 import { createDaemonLogStore } from "../adapters/storage/worker-log-store.ts";
 import { Detector } from "../adapters/secrets/detector.ts";
 import { acquireLock, newSessionID, persistedConfigOverlay, socketPath, bootstrapLogPath, repoID } from "../adapters/storage/storage.ts";
+import { readSelfStamp } from "../adapters/process/liveness.ts";
 import { recordInstancePorts, releaseSlot, startWithSlot } from "../adapters/storage/instances.ts";
 import { listenerPorts } from "../domain/net/port-slots.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
@@ -78,7 +79,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
   const orchestrator = new ServiceOrchestrator(processes, clock);
   const sessionID = newSessionID();
   const detector = new Detector(cfg.secrets.extra_markers, cfg.secrets.extra_patterns, cfg.secrets.redact);
-  const { logs, usingWorker } = await createDaemonLogStore(
+  const { logs, usingWorker, reason } = await createDaemonLogStore(
     {
       max: cfg.logs.max_memory_events,
       persist: cfg.logs.persistence.enabled,
@@ -95,6 +96,8 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
       maxSpoolBytes: configuredByteCap(cfg.logs.spool.max_bytes, DEFAULT_LOG_CAP_BYTES),
       maxTotalBytes: configuredByteCap(cfg.logs.persistence.max_total_bytes, DEFAULT_LOG_TOTAL_BYTES),
       spoolDir: join(daemonStateDir(cfg.repoRoot), "log-spool"),
+      // Already read for the lock. Reading it again in the worker would spawn PowerShell on Windows.
+      selfStamp: readSelfStamp(),
     },
     bus,
     detector,
@@ -105,7 +108,7 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
       service: "devctl",
       source: "devctl",
       level: "WARN",
-      message: "log worker failed to start; using in-process log store",
+      message: `log worker failed to start${reason === undefined ? "" : ` (${reason})`}; using in-process log store`,
       pid: 0,
     });
   }

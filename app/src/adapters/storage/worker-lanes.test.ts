@@ -286,6 +286,10 @@ describe("worker restart", () => {
       expect(store.usesWorker()).toBe(false);
       await until(() => traffic.received.includes("never acked"));
       expect(seqOf(traffic, "never acked")).toBeGreaterThan(seqOf(traffic, "after the restart")!);
+      // The store says why it gave the worker up, after the work it took over.
+      const why = "log worker lost (log worker exited); logs are now parsed on the daemon's main thread";
+      await until(() => traffic.received.includes(why));
+      expect(seqOf(traffic, why)).toBeGreaterThan(seqOf(traffic, "never acked")!);
       await foldsWithSlowWait(store, traffic, "in-process fold");
     } finally {
       await store.close();

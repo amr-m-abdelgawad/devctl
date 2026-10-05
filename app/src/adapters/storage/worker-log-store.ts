@@ -14,7 +14,13 @@ export type { WorkerLogConfig } from "./log-worker-protocol.ts";
 
 type WorkerChunk = { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean; noSpill?: boolean };
 
-export const WORKER_INIT_TIMEOUT_MS = 500;
+// How long a worker may take to answer its init. One that cannot load fails
+// at once through its error event, so this bounds only a worker that hangs.
+// It is far above the usual 50 ms because a cold start can be slow: a virus
+// scanner on every file the worker opens, or a large logs directory to prune.
+// Giving up too early leaves the daemon parsing logs on its main thread for
+// as long as it runs.
+export const WORKER_INIT_TIMEOUT_MS = 5_000;
 export const WORKER_RPC_TIMEOUT_MS = 10_000;
 export const WORKER_CLOSE_TIMEOUT_MS = 2_000;
 // A worker lost after it was ready is replaced this many times before the in-process store takes over.
@@ -445,6 +451,14 @@ export class WorkerLogStore implements LogStore {
     for (const chunk of chunks) {
       store.ingestChunk?.(chunk);
     }
+    manager.append({
+      timestamp: new Date().toISOString(),
+      service: "devctl",
+      source: "devctl",
+      level: "ERROR",
+      message: `log worker lost (${error.message}); logs are now parsed on the daemon's main thread`,
+      pid: 0,
+    });
     this.dead = false;
   }
 
@@ -705,7 +719,7 @@ export async function createDaemonLogStore(
   bus: Bus,
   detector: Detector,
   options: CreateDaemonLogStoreOptions = {},
-): Promise<{ logs: LogStore; usingWorker: boolean }> {
+): Promise<{ logs: LogStore; usingWorker: boolean; reason?: string }> {
   const standalone = options.standalone ?? false;
   if (standalone && options.script === undefined && options.forceInProcess === true) {
     return { logs: inProcessFromConfig(config, bus, detector), usingWorker: false };
@@ -714,7 +728,8 @@ export async function createDaemonLogStore(
     const store = new WorkerLogStore(config, bus, { script: options.script });
     await store.waitUntilReady(options.initTimeoutMs ?? WORKER_INIT_TIMEOUT_MS);
     return { logs: store, usingWorker: true };
-  } catch {
-    return { logs: inProcessFromConfig(config, bus, detector), usingWorker: false };
+  } catch (error) {
+    // `reason` is why the worker did not start, for the daemon's own log.
+    return { logs: inProcessFromConfig(config, bus, detector), usingWorker: false, reason: error instanceof Error ? error.message : String(error) };
   }
 }

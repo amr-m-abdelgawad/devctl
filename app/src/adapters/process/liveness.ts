@@ -96,8 +96,21 @@ export type ProcessStamp = {
   lstart?: string;
 };
 
+// A process's own stamp never changes, and reading it is slow where it
+// spawns: `ps` on macOS, PowerShell on Windows (a third of a second or more).
+let selfStamp: ProcessStamp | undefined;
+
 export function readSelfStamp(): ProcessStamp {
-  return readStamp(process.pid);
+  selfStamp ??= readStamp(process.pid);
+  return { ...selfStamp };
+}
+
+/**
+ * For a worker thread: the stamp of its process as the main thread already
+ * read it, so the worker does not read it a second time.
+ */
+export function rememberSelfStamp(stamp: ProcessStamp): void {
+  selfStamp ??= { ...stamp };
 }
 
 export function readStamp(pid: number): ProcessStamp {

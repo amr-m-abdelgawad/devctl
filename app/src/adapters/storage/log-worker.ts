@@ -1,4 +1,5 @@
 import { Detector } from "../secrets/detector.ts";
+import { rememberSelfStamp } from "../process/liveness.ts";
 import { loadPluginPaths } from "../plugins/registry.ts";
 import { RECORD_BATCH_BYTES, RECORD_BATCH_MS, RECORD_BATCH_RECORDS } from "../../domain/logs/budgets.ts";
 import { approxRecordBytes } from "../../domain/logs/size.ts";
@@ -131,6 +132,9 @@ function fail(id: number | undefined, err: unknown): void {
 
 async function handle(message: WorkerRequest): Promise<void> {
   if (message.type === "init") {
+    if (message.config.selfStamp !== undefined) {
+      rememberSelfStamp(message.config.selfStamp);
+    }
     detector = new Detector(message.config.extraMarkers, message.config.extraPatterns, message.config.redact !== false);
     manager = new LogManager(
       message.config.max,

@@ -249,6 +249,20 @@ describe("WorkerLogStore", () => {
 });
 
 describe("createDaemonLogStore", () => {
+  test("the worker takes its process's stamp from the daemon instead of reading it again", async () => {
+    // Reading it spawns `ps` on macOS and PowerShell on Windows, and the worker has a deadline to start by.
+    const directory = tmp();
+    const selfStamp = { bootId: "boot-read-on-the-main-thread", lstart: "start-read-on-the-main-thread" };
+    const { logs, usingWorker } = await createDaemonLogStore({ ...config(), persist: true, directory, sessionID: "stamped", selfStamp }, new Bus(16), new Detector([], []));
+    try {
+      expect(usingWorker).toBe(true);
+      const manifest = JSON.parse(readFileSync(join(directory, "session-stamped", "manifest.json"), "utf8")) as { owner: Record<string, unknown> };
+      expect(manifest.owner).toEqual({ pid: process.pid, ...selfStamp });
+    } finally {
+      await logs.close();
+    }
+  });
+
   test("starts the log worker even when the process is a compiled binary", async () => {
     const bus = new Bus(16);
     const detector = new Detector([], []);
@@ -270,14 +284,25 @@ describe("createDaemonLogStore", () => {
     }
   });
 
-  test("falls back to in-process logging when the worker never becomes ready", async () => {
+  test("falls back to in-process logging when the worker never becomes ready, and says why", async () => {
     const bus = new Bus(16);
     const detector = new Detector([], []);
-    const { logs, usingWorker } = await createDaemonLogStore(config(), bus, detector, {
+    const started = performance.now();
+    const { logs, usingWorker, reason } = await createDaemonLogStore(config(), bus, detector, {
       script: new URL("./no-such-worker.ts", import.meta.url),
-      initTimeoutMs: 200,
+      initTimeoutMs: 4_000,
     });
     expect(usingWorker).toBe(false);
+    // A worker that cannot load is given up on through its error, not by waiting out the time allowed.
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(reason).toBeString();
+    expect(reason).not.toBe("log worker init timed out");
+    // A worker that loads, stays alive, and never answers its init.
+    const hangs = new URL(URL.createObjectURL(new Blob(["setInterval(() => undefined, 60_000);"], { type: "application/javascript" })));
+    const hung = await createDaemonLogStore(config(), bus, detector, { script: hangs, initTimeoutMs: 150 });
+    expect(hung.usingWorker).toBe(false);
+    expect(hung.reason).toBe("log worker init timed out");
+    await hung.logs.close();
     try {
       logs.append({
         timestamp: "2026-08-30T00:00:00.000Z",

@@ -154,6 +154,10 @@ function sleepMs(ms) {
 // log store with a degraded watchdog, so ask the daemon for both.
 function assertDaemonWorkers() {
   const snapshot = JSON.parse(devctl(["--config", config, "status", "--json"], { quiet: true }).stdout);
+  if (snapshot.daemon?.logStore !== "worker" || snapshot.daemon?.watchdog !== "ok") {
+    // The daemon's own log says why a worker did not start.
+    devctl(["--config", config, "logs", "devctl"], { acceptedExitCodes: [0, 1, 2] });
+  }
   assert.equal(snapshot.daemon?.logStore, "worker", "the daemon must run the log worker, not the in-process log store");
   assert.equal(snapshot.daemon?.watchdog, "ok", "the daemon's watchdog worker must be running");
   // heartbeat.json sits beside devctl.lock in the repository's state directory.

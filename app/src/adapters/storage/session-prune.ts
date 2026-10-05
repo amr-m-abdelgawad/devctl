@@ -84,7 +84,7 @@ function sessionOwnerRunning(dir: string): boolean {
     return newestFileAgeMs(dir) < UNOWNED_LIVE_MS;
   }
   const held = owner as SessionOwner;
-  const self = selfStamp();
+  const self = readSelfStamp();
   // A daemon in another PID namespace (another container sharing this logs
   // root) cannot be checked by pid from here, so its session counts as live
   // while it is still being written.
@@ -95,14 +95,6 @@ function sessionOwnerRunning(dir: string): boolean {
     return false;
   }
   return sameStamp(held, held.pid === process.pid ? self : readStamp(held.pid));
-}
-
-// A process's own stamp never changes, and reading it can spawn `ps`.
-let ownStamp: ProcessStamp | undefined;
-
-function selfStamp(): ProcessStamp {
-  ownStamp ??= readSelfStamp();
-  return ownStamp;
 }
 
 function readSessionManifest(dir: string): Record<string, unknown> | undefined {

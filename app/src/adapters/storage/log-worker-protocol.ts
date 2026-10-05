@@ -1,6 +1,7 @@
 import type { ServiceLogConfig } from "../../domain/config/types.ts";
 import type { LogFacets, LogFilter, LogIngest, LogPage, LogPageRequest, LogRecord } from "../../domain/logs/logs.ts";
 import type { LogSnapshot } from "../../ports/log-store.ts";
+import type { ProcessStamp } from "../process/liveness.ts";
 
 export type WorkerLogConfig = {
   max: number;
@@ -20,6 +21,8 @@ export type WorkerLogConfig = {
   spoolDir?: string;
   /** The seq to start from when taking over a session, past every one already published. */
   firstSeq?: number;
+  /** The daemon's own process stamp, read once on its main thread: the worker is the same process. */
+  selfStamp?: ProcessStamp;
 };
 
 export type WorkerRequest =
