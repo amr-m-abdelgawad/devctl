@@ -44,7 +44,7 @@ export function containerInitCheck(command: string, reapOrphans: boolean | undef
   if (!reaperAvailable) {
     return { name: "container init", severity: "warn", message: `${pid1}, and devctl cannot reap for it on this system`, hint: init };
   }
-  return { name: "container init", severity: "ok", message: `${pid1}; devctl reaps the orphans of its services` };
+  return { name: "container init", severity: "ok", message: `${pid1}; devctl reaps the orphans of the services it starts` };
 }
 
 export type DoctorHost = {

@@ -521,7 +521,7 @@ describe("doctor container init", () => {
   test("a PID 1 that reaps nothing is fine while the daemon reaps for it, and a warning when it does not", () => {
     const covered = containerInitCheck("sleep infinity", undefined, true);
     expect(covered.severity).toBe("ok");
-    expect(covered.message).toBe("PID 1 is sleep infinity; devctl reaps the orphans of its services");
+    expect(covered.message).toBe("PID 1 is sleep infinity; devctl reaps the orphans of the services it starts");
     expect(containerInitCheck("sleep infinity", true, true).severity).toBe("ok");
 
     const turnedOff = containerInitCheck("sleep infinity", false, true);
