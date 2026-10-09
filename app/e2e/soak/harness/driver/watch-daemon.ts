@@ -7,6 +7,10 @@
 //
 // `--append` also writes each sample to a file as it is taken, one JSON
 // object a line, so a run of many hours can be read while it goes.
+//
+// Time is counted on a clock that stops while the machine sleeps, so a run on
+// a laptop that sleeps part-way goes on from where it was. `pausedS` is how
+// far the wall clock has run ahead of it: the time spent asleep so far.
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { daemonPid, findStateDir, parseArgs } from "./rpc.ts";
@@ -57,18 +61,20 @@ function zombies(daemon: number): { all: number; ofDaemon: number } {
   return found;
 }
 
-type Sample = { atS: number; pid: number; rssMiB: number; anonMiB: number; fileMiB: number; workingSetMiB: number; fds: number; threads: number; zombies: number; daemonZombies: number; fifos: number };
+type Sample = { atS: number; pausedS: number; pid: number; rssMiB: number; anonMiB: number; fileMiB: number; workingSetMiB: number; fds: number; threads: number; zombies: number; daemonZombies: number; fifos: number };
 
 const samples: Sample[] = [];
-const started = Date.now();
-while (Date.now() - started < durationMs) {
+const started = performance.now();
+const startedWall = Date.now();
+while (performance.now() - started < durationMs) {
   const pid = daemonPid(stateDir);
   const status = existsSync(`/proc/${pid}/status`) ? readFileSync(`/proc/${pid}/status`, "utf8") : "";
   // Resident memory, and its two parts: the process's own (anonymous) pages and pages of mapped files.
   const kib = (field: string): number => Math.round((Number(new RegExp(`${field}:\\s+(\\d+)\\s+kB`).exec(status)?.[1] ?? "0") * 1024) / MIB);
   const dead = zombies(pid);
   samples.push({
-    atS: Math.round((Date.now() - started) / 1000),
+    atS: Math.round((performance.now() - started) / 1000),
+    pausedS: Math.max(0, Math.round((Date.now() - startedWall - (performance.now() - started)) / 1000)),
     pid,
     rssMiB: kib("VmRSS"),
     anonMiB: kib("RssAnon"),

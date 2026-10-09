@@ -6,7 +6,8 @@
 //   bun flood.ts --rate 15000 --count 300000 [--width 120] [--name flood] [--stderr] [--start-at <unix ms>]
 //
 // `--rate 0` writes as fast as the reader takes it. `--width` is the whole
-// line including its newline.
+// line including its newline. The rate is kept on a clock that stops while
+// the machine sleeps, so waking up does not write the missed hours at once.
 import { writeSync } from "node:fs";
 import { parseArgs } from "./rpc.ts";
 
@@ -52,10 +53,10 @@ const startAt = args["start-at"] === undefined ? 0 : Number(args["start-at"]);
 if (startAt > Date.now()) {
   sleepSync(startAt - Date.now());
 }
-const started = Date.now();
+const started = performance.now();
 let written = 0;
 while (written < count) {
-  const due = rate <= 0 ? count : Math.min(count, Math.floor(((Date.now() - started) * rate) / 1000));
+  const due = rate <= 0 ? count : Math.min(count, Math.floor(((performance.now() - started) * rate) / 1000));
   if (due <= written) {
     sleepSync(1);
     continue;
@@ -64,6 +65,6 @@ while (written < count) {
   writeAll(lines(written + 1, last));
   written = last;
 }
-const elapsed = Date.now() - started;
+const elapsed = Math.round(performance.now() - started);
 writeAll(Buffer.from(`${name} done count=${count} elapsed_ms=${elapsed}\n`));
 setInterval(() => undefined, 1 << 30);

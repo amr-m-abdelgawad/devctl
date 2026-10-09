@@ -13,7 +13,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { CONFIG_HEADER, floodService, IMAGE_BUILD_TIMEOUT_MS, MIB, report, SoakContainer, soakEnabled, soakImage, soakQuick } from "../harness/soak.ts";
 
-type Sample = { atS: number; pid: number; rssMiB: number; anonMiB: number; fileMiB: number; workingSetMiB: number; fds: number; threads: number; zombies: number; daemonZombies: number; fifos: number };
+type Sample = { atS: number; pausedS: number; pid: number; rssMiB: number; anonMiB: number; fileMiB: number; workingSetMiB: number; fds: number; threads: number; zombies: number; daemonZombies: number; fifos: number };
 
 const MINUTES = Number(process.env.DEVCTL_SOAK_ENDURANCE_MIN ?? "15");
 const ONLY = process.env.DEVCTL_SOAK_ENDURANCE_ONLY?.split(",");
@@ -95,21 +95,22 @@ ${quiet}${RATE > 0 ? floodService("steady", STEADY_RATE, STEADY_RATE * (SECONDS 
     await box.devctl(["start", "llm", "--wait", "--timeout", "60s"], { timeoutMs: 120_000 });
     await box.devctl(["start", "churn", ...(RATE > 0 ? ["steady", "wide"] : []), ...Array.from({ length: 6 }, (_, index) => `quiet-${index}`)], { timeoutMs: 120_000 });
 
-    const floodsStartedAt = Date.now();
+    // Timed on a clock that stops while the machine sleeps, as the drivers in the container are.
+    const floodsStartedAt = performance.now();
     const watch = box.driver<{ samples: Sample[] }>("watch-daemon.ts", ["--duration-ms", String(DURATION_MS), "--interval-ms", "10000"], { timeoutMs: DURATION_MS + 120_000 });
     // What a person at the TUI and their tools do, round after round.
-    const until = Date.now() + DURATION_MS;
+    const until = performance.now() + DURATION_MS;
     let rounds = 0;
     const failed: Record<string, number> = {};
     let lastFailure = "";
-    while (Date.now() < until) {
+    while (performance.now() < until) {
       // One at a time, as one person would.
       const steps: Array<[string, () => ReturnType<SoakContainer["sh"]>]> = [
         ["restart", () => box.devctl(["restart", "churn"], { allowFail: true, timeoutMs: 60_000 })],
         ["llm calls", () => box.exec(["bun", "/soak/driver/llm-load.ts", "--url", `http://127.0.0.1:${PROXY_PORT}/v1/chat/completions`, "--count", "8", "--prompt-bytes", "65536"], { allowFail: true, timeoutMs: 120_000 })],
         ["page", () => box.sh("devctl logs wide --json > /dev/null", { allowFail: true, timeoutMs: 60_000 })],
         // A line written about twenty seconds ago: still in the window, no longer in memory.
-        ["search", () => box.sh(`devctl logs steady --search "seq=${Math.max(1, Math.floor(((Date.now() - floodsStartedAt) / 1000 - 20) * STEADY_RATE))} " --json > /dev/null`, { allowFail: true, timeoutMs: 60_000 })],
+        ["search", () => box.sh(`devctl logs steady --search "seq=${Math.max(1, Math.floor(((performance.now() - floodsStartedAt) / 1000 - 20) * STEADY_RATE))} " --json > /dev/null`, { allowFail: true, timeoutMs: 60_000 })],
         ["status", () => box.sh("devctl status --json > /dev/null", { allowFail: true, timeoutMs: 60_000 })],
       ];
       if (rounds % 10 === 9) {
@@ -147,6 +148,8 @@ ${quiet}${RATE > 0 ? floodService("steady", STEADY_RATE, STEADY_RATE * (SECONDS 
       failed,
       lastFailure,
       samples: samples.length,
+      // Above zero when the machine slept during the run.
+      pausedS: samples.at(-1)?.pausedS ?? 0,
       daemonRestarts: new Set(samples.map((sample) => sample.pid)).size - 1,
       rssMiB: { max: Math.max(...samples.map((s) => s.rssMiB)), middle: level(middle, (s) => s.rssMiB), late: level(late, (s) => s.rssMiB), perHour: perHour(settled, (s) => s.rssMiB) },
       // The process's own pages, without the pages of files it has mapped.
