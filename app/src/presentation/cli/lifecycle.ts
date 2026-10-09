@@ -163,12 +163,15 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
   const { repoRoot, client, notice } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
   try {
     if (!client) {
-      if (notice) {
-        writeOut(`${notice}\n`);
-      }
       const persisted = runtime.readPersistedState(repoRoot);
       if (opts.json) {
-        writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
+        writeOut(JSON.stringify({ running: false, ...(notice === undefined ? {} : { notice }), persisted }, null, 2) + "\n");
+        return;
+      }
+      if (notice !== undefined) {
+        // A daemon is there and did not answer. What was persisted may be
+        // behind it, so nothing is shown as stopped.
+        writeOut(`${notice}\n`);
         return;
       }
       writeOut("supervisor is not running\n");

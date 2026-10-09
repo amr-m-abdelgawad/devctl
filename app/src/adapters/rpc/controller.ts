@@ -33,6 +33,8 @@ const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
 const PING_PROBE_MS = 1_000;
 const REDIAL_MS = 3_000;
+// How long a lookup waits for a daemon that is alive and only slow to answer.
+const BUSY_DIAL_MS = 3_000;
 const QUIT_RPC_MS = 3_000;
 const RESUME_POLL_MS = 1_000;
 export const RESUME_GAP_MS = 15_000;
@@ -794,15 +796,23 @@ export async function findDaemon(startDir: string, explicitRepo: string, explici
       "run `devctl setup`, create a .devctl/config.yaml in the repository root, or pass --repo",
     );
   }
-  const client = await tryDial(target.repoRoot);
+  let client = await tryDial(target.repoRoot);
+  let notice: string | undefined;
+  if (!client) {
+    const action = livenessAction(target.repoRoot);
+    if (action === "wait-busy") {
+      // Alive and making progress, only slow to answer just now: wait for it,
+      // as the commands that start a daemon do, before calling it unreachable.
+      client = await dial(target.repoRoot, BUSY_DIAL_MS).catch(() => undefined);
+    }
+    notice = client ? undefined : unreachableDaemonNotice(action);
+  }
   warnIfVersionMismatch(client);
-  const notice = client ? undefined : unreachableDaemonNotice(target.repoRoot);
   return { repoRoot: target.repoRoot, client, notice };
 }
 
 /** Explains a live daemon that did not answer, including an older build with no heartbeat. */
-function unreachableDaemonNotice(repoRoot: string, nowMs = Date.now()): string | undefined {
-  const action = livenessAction(repoRoot, nowMs);
+function unreachableDaemonNotice(action: ReturnType<typeof livenessAction>): string | undefined {
   if (action === "leave-legacy") {
     return LEGACY_DAEMON_MESSAGE;
   }

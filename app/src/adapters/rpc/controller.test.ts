@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { Client, Controller, dial, ensureSupervisor, findDaemon, hostClockJumped, isRpcTimeout, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "../environment/environment.ts";
 import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "../../shared/errors.ts";
-import { bootstrapLogPath, killRepoSupervisor, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
+import { acquireLock, bootstrapLogPath, killRepoSupervisor, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 function tmp(): string {
@@ -27,7 +27,7 @@ function resolvedScan(path: string): string {
 // A minimal fake supervisor that answers "ping" with a fixed payload and
 // nothing else — enough to test how the client interprets a handshake
 // response without spinning up a real Supervisor.
-function fakePingServer(repoRoot: string, pingResult: unknown): { close: () => Promise<void> } {
+function fakePingServer(repoRoot: string, pingResult: unknown, delayMs = 0): { close: () => Promise<void> } {
   const path = socketPath(repoRoot);
   const server = createServer((conn: Socket) => {
     let buf = "";
@@ -41,7 +41,7 @@ function fakePingServer(repoRoot: string, pingResult: unknown): { close: () => P
         }
         const env = JSON.parse(line) as { id?: string; method?: string };
         if (env.method === "ping") {
-          conn.write(`${JSON.stringify({ id: env.id, result: pingResult })}\n`);
+          setTimeout(() => conn.write(`${JSON.stringify({ id: env.id, result: pingResult })}\n`), delayMs);
         }
       }
     });
@@ -343,6 +343,57 @@ describe("findDaemon", () => {
   test("throws a clear error when neither discovery nor a daemon can be found", async () => {
     const dir = tmp();
     await expect(findDaemon(dir, "")).rejects.toThrow(/no devctl configuration found/);
+  });
+
+  // A daemon that holds the lock and is this live process, as a busy one is.
+  function busyDaemon(dir: string): { release: () => void } {
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    return acquireLock(dir, socketPath(dir));
+  }
+
+  test("waits for a daemon that is alive and only slow to answer", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    // Slower than the quick first try, which gives up after 200 ms.
+    const server = fakePingServer(dir, { session: "slow", protocol: RPC_PROTOCOL_VERSION, version: VERSION }, 500);
+    try {
+      const { client, notice } = await findDaemon(dir, "");
+      expect(notice).toBeUndefined();
+      expect(client?.session).toBe("slow");
+      client?.close();
+    } finally {
+      await server.close();
+      held.release();
+    }
+  }, 15_000);
+
+  test("says a live daemon is not answering once it has waited, and never that none is running", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    // Accepts and never answers: the socket is open and nobody reads it.
+    const server = fakePingServer(dir, undefined, 60_000);
+    const started = Date.now();
+    try {
+      const { client, notice } = await findDaemon(dir, "");
+      expect(client).toBeUndefined();
+      expect(notice).toBe("devctl is running but not answering. Wait for it to catch up.");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(3_000);
+    } finally {
+      await server.close();
+      held.release();
+    }
+  }, 15_000);
+
+  test("does not wait when no daemon holds the lock", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const started = Date.now();
+    const { client, notice } = await findDaemon(dir, "");
+    expect(client).toBeUndefined();
+    expect(notice).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1_500);
   });
 });
 
