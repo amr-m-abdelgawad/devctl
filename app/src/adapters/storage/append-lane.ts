@@ -17,7 +17,8 @@ const COMPACT_AFTER = 1_024;
  * replacement worker or the in-process store gets exactly the unacked ones.
  */
 export class AppendLane {
-  private items: Held[] = [];
+  // A slot is cleared when its append is acked, so the lane never holds an event past that.
+  private items: Array<Held | undefined> = [];
   // items[head] is the oldest unacked; items[sent] the oldest not yet sent.
   private head = 0;
   private sent = 0;
@@ -65,6 +66,7 @@ export class AppendLane {
       const item = this.items[this.head]!;
       this.sentBytes -= item.bytes;
       this.heldBytes -= item.bytes;
+      this.items[this.head] = undefined;
       this.head += 1;
     }
     if (this.head >= COMPACT_AFTER && this.head * 2 >= this.items.length) {
@@ -78,7 +80,11 @@ export class AppendLane {
   /** Every unacked append, oldest first; the lane is left empty. */
   takeUnacked(): LaneItem[] {
     this.clearTimer();
-    const unacked = this.items.slice(this.head).map(({ id, atMs, event }) => ({ id, atMs, event }));
+    const unacked: LaneItem[] = [];
+    for (let index = this.head; index < this.items.length; index += 1) {
+      const item = this.items[index]!;
+      unacked.push({ id: item.id, atMs: item.atMs, event: item.event });
+    }
     this.items = [];
     this.head = 0;
     this.sent = 0;
@@ -133,7 +139,11 @@ export class AppendLane {
       }
       this.sentBytes += bytes;
       this.sentAt = Date.now();
-      const batch = this.items.slice(start, this.sent).map(({ id, atMs, event }) => ({ id, atMs, event }));
+      const batch: LaneItem[] = [];
+      for (let index = start; index < this.sent; index += 1) {
+        const item = this.items[index]!;
+        batch.push({ id: item.id, atMs: item.atMs, event: item.event });
+      }
       if (!this.send(batch)) {
         return;
       }

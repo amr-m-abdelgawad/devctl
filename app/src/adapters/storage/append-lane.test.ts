@@ -50,6 +50,28 @@ describe("AppendLane", () => {
     expect(sentIds()).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
+  test("an acked append is let go at once, not when the lane next compacts", async () => {
+    // Nothing here keeps what was sent, as the worker's side does not.
+    const appends = new AppendLane(() => true);
+    const refs: WeakRef<LogIngest>[] = [];
+    for (let i = 0; i < 200; i += 1) {
+      const sentEvent = event(`line ${i} ${"x".repeat(2_000)}`);
+      refs.push(new WeakRef(sentEvent));
+      appends.push(sentEvent, i);
+    }
+    await Bun.sleep(15);
+    appends.ack(200);
+    expect(appends.heldCount()).toBe(0);
+    // A WeakRef made in this turn keeps its target until the turn ends.
+    await Bun.sleep(0);
+    Bun.gc(true);
+    await Bun.sleep(0);
+    Bun.gc(true);
+    const alive = refs.filter((ref) => ref.deref() !== undefined).length;
+    // The collector may still see one or two on the stack; the lane held all 200 until its next compaction.
+    expect(alive).toBeLessThan(20);
+  });
+
   test("hands over exactly the unacked appends, oldest first", async () => {
     const { lane: appends } = lane();
     for (let i = 1; i <= 5; i += 1) {
