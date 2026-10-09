@@ -1,0 +1,49 @@
+name: Windows runtime probe
+
+# Temporary. Bun 1.4.2 has crashed and hung in the Windows unit job on this
+# branch; its two crash reports both end in the JIT finishing a background
+# compilation. This repeats the unit suite under different runtime settings
+# to see which one makes it stop. Remove it, and
+# .github/scripts/repeat-tests.cjs, once that is settled.
+#
+# Runs when a pull request is given the `win-probe` label.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.label.name == 'win-probe'
+    name: ${{ matrix.leg }}
+    runs-on: windows-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - leg: as it is
+            args: ""
+          - leg: no background JIT
+            args: "--env BUN_JSC_useConcurrentJIT=0"
+          - leg: no optimizing JIT
+            args: "--env BUN_JSC_useDFGJIT=0"
+          - leg: no worker tests
+            args: "--without-workers"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      # Twelve runs of about two minutes each. A run still going after six is stopped and counted as hung.
+      - name: Repeat the unit suite
+        working-directory: app
+        run: node ../.github/scripts/repeat-tests.cjs 12 6 ${{ matrix.args }}
