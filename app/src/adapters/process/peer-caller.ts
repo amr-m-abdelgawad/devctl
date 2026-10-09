@@ -432,7 +432,10 @@ function parseTcpRow(line: string, port: number, remotePort: number | undefined)
   if (!/^[0-9]+$/.test(inode) || inode === "0") {
     return undefined;
   }
-  return { inode, established: (cols[3] ?? "").toUpperCase() === "01" };
+  // The resolver caches this for as long as the connection lives. Cut from
+  // the table it would keep the whole table text alive, one per cached socket;
+  // a copy stands on its own.
+  return { inode: Buffer.from(inode, "latin1").toString("latin1"), established: (cols[3] ?? "").toUpperCase() === "01" };
 }
 
 function addressPort(address: string): number {

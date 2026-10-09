@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { gcAndSweep, heapStats } from "bun:jsc";
 import {
   callerServiceForPeer,
   managedCallers,
@@ -87,6 +88,48 @@ describe("proc parsers (lsof/ps-free path)", () => {
     // comm renamed with spaces and an embedded ')': fields still read after the last ')'.
     expect(parseProcPidStat("4242 (uv run (py)) S 4200 4100 4100 0 -1 0 0")).toEqual({ ppid: 4200, pgid: 4100 });
     expect(parseProcPidStat("garbage-without-parens")).toBeUndefined();
+  });
+});
+
+describe("what a parsed inode keeps alive", () => {
+  // Memory freed late by earlier tests would skew one reading, so collect until two agree.
+  function settledHeap(): number {
+    let previous = Number.NaN;
+    for (let round = 0; round < 10; round += 1) {
+      gcAndSweep();
+      const current = heapStats().heapSize;
+      if (Math.abs(current - previous) < 64 * 1024) {
+        return current;
+      }
+      previous = current;
+    }
+    return previous;
+  }
+
+  // /proc/net/tcp for a host with `rows` sockets; the last row is the one asked for.
+  function table(rows: number, port: number, inode: number): string {
+    let text = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n";
+    for (let row = 0; row < rows; row += 1) {
+      const last = row === rows - 1;
+      const local = (last ? port : 20_000 + row).toString(16).toUpperCase().padStart(4, "0");
+      text += `${String(row).padStart(4)}: 0100007F:${local} 0100007F:${(40_000 + row).toString(16).toUpperCase()} 01 00000000:00000000 00:00000000 00000000  1000        0 ${last ? inode : 900_000 + row} 1 0000000000000000 20 4 30 10 -1\n`;
+    }
+    return text;
+  }
+
+  test("the inode stands on its own: keeping it does not keep the socket table it was read from", () => {
+    // The resolver keeps one inode per cached socket, up to 4,096 of them.
+    const kept: string[] = [];
+    const tableBytes = table(600, 30_000, 1).length;
+    expect(tableBytes).toBeGreaterThan(64 * 1024);
+    const before = settledHeap();
+    for (let index = 0; index < 300; index += 1) {
+      kept.push(parseProcNetTcpInode(table(600, 30_000 + index, 500_000 + index), 30_000 + index) ?? "");
+    }
+    const grew = settledHeap() - before;
+    expect(kept).toEqual(Array.from({ length: 300 }, (_, index) => String(500_000 + index)));
+    // Cut from the table, each inode kept its 77 KiB table: 22 MiB for these 300.
+    expect(grew).toBeLessThan(4 * 1024 * 1024);
   });
 });
 
