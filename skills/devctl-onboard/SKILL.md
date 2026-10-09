@@ -298,7 +298,7 @@ need a shell:
 | Instead of | Use |
 |---|---|
 | `devctl status` | `list_services`, `get_status` |
-| `devctl logs …` | `get_logs` (200/page; page with `cursor` from `next_cursor`; filters: `trace_id`, `request_id`, `attribute_key` + `attribute_value`) |
+| `devctl logs …` | `get_logs` (200/page; page with `cursor` from `next_cursor`; filters: `levels` such as `["info", "warn"]`, `hide_health`, `trace_id`, `request_id`, `attribute_key` + `attribute_value`) |
 | error-only logs | `recent_errors` |
 | `devctl logs --trace` / `--request-id` | `get_trace`, `trace_request`, `get_requests` |
 | `devctl doctor` | `run_doctor` |

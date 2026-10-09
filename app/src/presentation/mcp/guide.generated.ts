@@ -303,7 +303,7 @@ need a shell:
 | Instead of | Use |
 |---|---|
 | \`devctl status\` | \`list_services\`, \`get_status\` |
-| \`devctl logs …\` | \`get_logs\` (200/page; page with \`cursor\` from \`next_cursor\`; filters: \`trace_id\`, \`request_id\`, \`attribute_key\` + \`attribute_value\`) |
+| \`devctl logs …\` | \`get_logs\` (200/page; page with \`cursor\` from \`next_cursor\`; filters: \`levels\` such as \`["info", "warn"]\`, \`hide_health\`, \`trace_id\`, \`request_id\`, \`attribute_key\` + \`attribute_value\`) |
 | error-only logs | \`recent_errors\` |
 | \`devctl logs --trace\` / \`--request-id\` | \`get_trace\`, \`trace_request\`, \`get_requests\` |
 | \`devctl doctor\` | \`run_doctor\` |
@@ -1323,7 +1323,10 @@ first.
 
 1. **Errors for that service.** MCP \`recent_errors\` with the service, or
    \`get_logs\` with \`service\`, \`level: error\` (this is a minimum, so fatal
-   is included), \`source: stderr\` for a crash. CLI:
+   is included), \`source: stderr\` for a crash. Pass \`hide_health: true\` on
+   either tool to drop supervisor probes and HTTP/gRPC health-endpoint
+   request lines. \`get_logs\` \`levels\` (for example \`["warn", "error"]\`)
+   shows only those severities and replaces \`level\`. CLI:
    \`devctl logs <svc> --level error\`. One page is not the whole history.
    MCP pages default to 200 (\`limit\` max 5000); pass \`cursor\` from
    \`next_cursor\` for newer lines and \`prev_cursor\` with \`direction=backward\`

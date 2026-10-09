@@ -86,6 +86,15 @@ The [web console](web.md) Logs page is the same ring and paging, not a 200-row t
 
 History loads a persisted session (same store as TUI `/history`). Export downloads JSONL for the current filters — the full match set, not one page.
 
+## MCP
+
+`get_logs` and `get_log_stats` take the same choices as the TUI and web Logs pages:
+
+- `levels`: `["info", "warn"]`, `["warn", "error"]`, and the other combinations of `trace`, `debug`, `info`, `warn`, `error`, and `fatal`. A comma-separated string works too. Omit it to show every level. `level` stays a minimum and is ignored when `levels` is set.
+- `hide_health`: `true` hides supervisor health probes and the REST and gRPC health-endpoint request lines, from the service and from the proxy.
+
+`recent_errors` stays error and fatal, and accepts `hide_health`.
+
 ## CLI
 
 ```bash
