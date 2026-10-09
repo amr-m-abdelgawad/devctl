@@ -354,7 +354,10 @@ describe("what disk serves is what the ring held", () => {
     expect(page(reader, 8_001)).toEqual(expected(8_001));
     // Finding where the patches are read the patch file through once.
     expect(reader.bytesRead).toBeGreaterThan(patchBytes);
-    expect(settledHeap() - before).toBeLessThan(2 * 1024 * 1024);
+    // Holding the patches costs about twice their bytes, 19 MiB here. Keeping where
+    // they are costs a fraction of a megabyte, and what earlier tests free late can
+    // add a megabyte or two to the reading, so the limit sits well clear of both.
+    expect(settledHeap() - before).toBeLessThan(patchBytes / 2);
 
     const readSoFar = reader.bytesRead;
     expect(page(reader, 15_001)).toEqual(expected(15_001));
