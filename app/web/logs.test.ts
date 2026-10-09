@@ -21,8 +21,11 @@ import {
   rowOffsets,
   sessionIdsFrom,
   visibleIndexRange,
+  facetLevelCount,
   filterLogRows,
+  isHealthCheckRow,
   isSystemLog,
+  toggleListedLevel,
   logIdentity,
   logWrapLabel,
 } from "./logs.ts";
@@ -124,6 +127,22 @@ describe("log filters and wrap", () => {
     expect(isSystemLog(rows[0]!)).toBe(true);
   });
 
+  test("hides health-check rows and keeps the chosen levels", () => {
+    const rows = [
+      ev(1, { source: "health", message: "health HEALTHY 200" }),
+      ev(2, { level: "INFO", severityText: "INFO", severityNumber: 9, message: "ready" }),
+      ev(3, { level: "WARN", severityText: "WARN", severityNumber: 13, message: "slow" }),
+      ev(4, { level: "INFO", severityText: "INFO", severityNumber: 9, message: 'INFO:     127.0.0.1:1 - "GET /health HTTP/1.1" 200 OK' }),
+      ev(5, { source: "proxy", level: "INFO", severityText: "INFO", severityNumber: 9, message: "grpc /grpc.health.v1.Health/Watch route=api grpc-status=0" }),
+    ];
+    expect(isHealthCheckRow(rows[0]!)).toBe(true);
+    expect(isHealthCheckRow(rows[3]!)).toBe(true);
+    expect(filterLogRows(rows, { hideHealth: true, levels: ["INFO", "WARN"] }).map((row) => row.seq)).toEqual([2, 3]);
+    expect(filterLogRows(rows, { levels: ["WARN", "ERROR"] }).map((row) => row.seq)).toEqual([3]);
+    expect(toggleListedLevel(["WARN"], "error")).toEqual(["WARN", "ERROR"]);
+    expect(facetLevelCount({ INFO: 2, WARNING: 1 }, "WARN")).toBe(1);
+  });
+
   test("wrap cycles clip → wrap selected → wrap all", () => {
     expect(nextLogWrapMode("clip")).toBe("focus");
     expect(nextLogWrapMode("focus")).toBe("all");
@@ -179,6 +198,10 @@ describe("log payload adapters", () => {
       level: "ERROR",
       search: "err",
       regex: true,
+    });
+    expect(encodeLogsQuery(liveLogsQuery({ levels: ["INFO", "WARN"], hideHealth: true }))).toEqual({
+      levels: "INFO,WARN",
+      hide_health: "true",
     });
     expect(INITIAL_LOG_PAGE_LIMIT).toBe(500);
   });

@@ -16,6 +16,8 @@ export function LogsScreen(props: {
   logSources?: string[];
   service: string;
   errorOnly: boolean;
+  logLevels?: readonly string[];
+  hideHealthLogs?: boolean;
   showSystemLogs: boolean;
   search: string;
   searchFocused: boolean;
@@ -37,6 +39,9 @@ export function LogsScreen(props: {
   onSearch: (value: string) => void;
   onService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleLevel?: (level: string) => void;
+  onClearLevels?: () => void;
+  onToggleHealth?: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
   onJumpLatest?: () => void;
@@ -62,6 +67,8 @@ export function LogsScreen(props: {
     logSources,
     service,
     errorOnly,
+    logLevels = [],
+    hideHealthLogs = false,
     showSystemLogs,
     search,
     searchFocused,
@@ -70,6 +77,9 @@ export function LogsScreen(props: {
     onSearch,
     onService,
     onToggleErrors,
+    onToggleLevel,
+    onClearLevels,
+    onToggleHealth,
     onSelect,
     wrapMode = "all",
     selected = -1,
@@ -103,6 +113,8 @@ export function LogsScreen(props: {
     service,
     services: props.services,
     errorOnly,
+    levels: logLevels,
+    hideHealth: hideHealthLogs,
     search,
     regex: props.regex,
     source: props.source,
@@ -141,6 +153,8 @@ export function LogsScreen(props: {
             logs={logs}
             service={service}
             errorOnly={errorOnly}
+            logLevels={logLevels}
+            hideHealthLogs={hideHealthLogs}
             showSystemLogs={showSystemLogs}
             search={search}
             regex={props.regex}
@@ -160,6 +174,9 @@ export function LogsScreen(props: {
             focused={splitFocus === 0}
             onService={onService}
             onToggleErrors={onToggleErrors}
+            onToggleLevel={onToggleLevel}
+            onClearLevels={onClearLevels}
+            onToggleHealth={onToggleHealth}
             onSelect={onSelect}
             onLeaveLatest={onLeaveLatest}
             onFocus={() => onFocusPane?.(0)}
@@ -170,6 +187,8 @@ export function LogsScreen(props: {
             logs={logs}
             service={serviceB}
             errorOnly={errorOnly}
+            logLevels={logLevels}
+            hideHealthLogs={hideHealthLogs}
             showSystemLogs={showSystemLogs}
             search={search}
             regex={props.regex}
@@ -189,6 +208,9 @@ export function LogsScreen(props: {
             focused={splitFocus === 1}
             onService={onServiceB ?? onService}
             onToggleErrors={onToggleErrors}
+            onToggleLevel={onToggleLevel}
+            onClearLevels={onClearLevels}
+            onToggleHealth={onToggleHealth}
             onSelect={onSelectB}
             onLeaveLatest={onLeaveLatestB}
             onFocus={() => onFocusPane?.(1)}
@@ -211,9 +233,14 @@ export function LogsScreen(props: {
             names={logSources ?? names}
             service={service}
             errorOnly={errorOnly}
+            levels={logLevels}
+            hideHealth={hideHealthLogs}
             width={width}
             onService={onService}
             onToggleErrors={onToggleErrors}
+            onToggleLevel={onToggleLevel}
+            onClearLevels={onClearLevels}
+            onToggleHealth={onToggleHealth}
             facets={facets}
           />
         </>
@@ -293,6 +320,8 @@ function SplitLogPane(props: {
   logs: LogEvent[];
   service: string;
   errorOnly: boolean;
+  logLevels?: readonly string[];
+  hideHealthLogs?: boolean;
   showSystemLogs: boolean;
   search: string;
   regex?: boolean;
@@ -312,6 +341,9 @@ function SplitLogPane(props: {
   focused: boolean;
   onService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleLevel?: (level: string) => void;
+  onClearLevels?: () => void;
+  onToggleHealth?: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
   onFocus: () => void;
@@ -328,6 +360,8 @@ function SplitLogPane(props: {
         names={props.names}
         service={service}
         errorOnly={props.errorOnly}
+        levels={props.logLevels}
+        hideHealth={props.hideHealthLogs}
         width={width}
         onService={(name) => {
           props.onFocus();
@@ -336,6 +370,18 @@ function SplitLogPane(props: {
         onToggleErrors={() => {
           props.onFocus();
           props.onToggleErrors();
+        }}
+        onToggleLevel={(level) => {
+          props.onFocus();
+          props.onToggleLevel?.(level);
+        }}
+        onClearLevels={() => {
+          props.onFocus();
+          props.onClearLevels?.();
+        }}
+        onToggleHealth={() => {
+          props.onFocus();
+          props.onToggleHealth?.();
         }}
         facets={props.facets}
       />

@@ -8,6 +8,7 @@ import {
   formatBodySummary,
   matchLog,
   MAX_LOG_PAGE_SIZE,
+  normalizeLogLevels,
   redactLogRecord,
   redactSpan,
   type LogFilter,
@@ -119,7 +120,9 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: {
         service: { type: "string" },
-        level: { type: "string" },
+        level: { type: "string", description: "Minimum level (ERROR includes FATAL). Ignored when levels is set" },
+        levels: { type: "string", description: "Comma-separated levels to show, such as info,warn or warn,error. Empty shows every level" },
+        hide_health: { type: "boolean", description: "Hide supervisor health probes and HTTP/gRPC health-endpoint request logs" },
         search: { type: "string" },
         regex: { type: "boolean", description: "Treat search as a regular expression" },
         source: { type: "string" },
@@ -148,7 +151,9 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: {
         service: { type: "string" },
-        level: { type: "string" },
+        level: { type: "string", description: "Minimum level (ERROR includes FATAL). Ignored when levels is set" },
+        levels: { type: "string", description: "Comma-separated levels to show, such as info,warn or warn,error. Empty shows every level" },
+        hide_health: { type: "boolean", description: "Hide supervisor health probes and HTTP/gRPC health-endpoint request logs" },
         search: { type: "string" },
         regex: { type: "boolean", description: "Treat search as a regular expression" },
         source: { type: "string" },
@@ -790,6 +795,8 @@ function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
   return {
     services: service === "" ? [] : [service],
     level: argString(args, "level"),
+    levels: normalizeLogLevels(args.levels),
+    hideHealth: argFlag(args.hide_health) || argFlag(args.hideHealth),
     search: argString(args, "search"),
     regex: argFlag(args.regex),
     source: argString(args, "source"),

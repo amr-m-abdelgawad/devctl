@@ -100,6 +100,9 @@ export type LogParser = {
 export type LogFilter = {
   services?: string[];
   level?: string;
+  // Exact severity buckets. When non-empty, this replaces the minimum `level`.
+  levels?: string[];
+  hideHealth?: boolean;
   source?: string;
   search?: string;
   regex?: boolean;

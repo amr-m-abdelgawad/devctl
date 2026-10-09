@@ -1,7 +1,8 @@
 import { stringifyAnyValue } from "./any-value.ts";
 import { recordSearchText, requestIdOf } from "./display.ts";
+import { isHealthCheckLog } from "./health.ts";
 import { compileLogSearch } from "./regex.ts";
-import { meetsMinLevel } from "./severity.ts";
+import { matchesSelectedLevels, meetsMinLevel } from "./severity.ts";
 import type { LogFilter, LogRecord } from "./types.ts";
 
 export type LogMatcher = (ev: LogRecord) => boolean;
@@ -10,7 +11,14 @@ export function matchesLogDimensions(filter: LogFilter, ev: LogRecord): boolean 
   if (filter.services && filter.services.length > 0 && !filter.services.includes(ev.service)) {
     return false;
   }
-  if (filter.level && !meetsMinLevel(ev.severityNumber, filter.level)) {
+  if (filter.hideHealth === true && isHealthCheckLog(ev)) {
+    return false;
+  }
+  if (filter.levels && filter.levels.length > 0) {
+    if (!matchesSelectedLevels(ev.severityNumber, ev.severityText, filter.levels)) {
+      return false;
+    }
+  } else if (filter.level && !meetsMinLevel(ev.severityNumber, filter.level)) {
     return false;
   }
   if (filter.source && ev.source !== filter.source) {

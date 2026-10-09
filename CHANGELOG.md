@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The TUI and web Logs views can hide health-check lines: supervisor probes, plus request logs for HTTP health, ready, and live endpoints and gRPC `grpc.health.v1.Health` from the service or the proxy. Level chips choose which severities to show (for example info and warn, or warn and error). See [Logs](docs/logs.md).
+
 ## [0.25.0] - 2026-09-28
 
 ### Changed

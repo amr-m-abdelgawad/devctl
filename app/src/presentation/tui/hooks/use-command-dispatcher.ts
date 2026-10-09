@@ -4,6 +4,7 @@ import { useCallback, useRef } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
+import { normalizeLogLevels } from "../../../domain/logs/logs.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { DAEMON_RESTART_HINT, type UpdateCheck } from "../../../domain/update.ts";
 import { versionLine } from "../../../version.ts";
@@ -27,7 +28,7 @@ const COMMAND_LOCK_MS = 50;
 type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
-  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
+  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "setLogLevels" | "toggleHideHealthLogs" | "hideHealthLogs" | "logLevels" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
   llmView: Pick<ReturnType<typeof useLlmView>, "setCaller">;
   trafficView: Pick<ReturnType<typeof useTrafficView>, "setCaller">;
   workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
@@ -128,12 +129,15 @@ export function useCommandDispatcher({
     setLogsFullscreen,
     setPaused,
     setErrorOnly,
+    setLogLevels,
+    toggleHideHealthLogs,
+    hideHealthLogs,
+    logLevels,
     toggleSystemLogs,
     clearLogs,
     logWrap,
     setLogWrap,
     logServices,
-    errorOnly,
     logLevel,
     logSearch,
     logRegex,
@@ -514,6 +518,28 @@ export function useCommandDispatcher({
             setErrorOnly((v) => !v);
             setScreen("logs");
             return;
+          case "levels": {
+            const raw = args.join(",");
+            if (raw === "" || raw.toLowerCase() === "all") {
+              setLogLevels([]);
+              setStatus("Showing all log levels");
+            } else {
+              const next = normalizeLogLevels(raw);
+              if (!next) {
+                setStatus("No recognized log levels — use trace, debug, info, warn, error, fatal");
+                return;
+              }
+              setLogLevels(next);
+              setStatus(`Showing ${next.join(", ")}`);
+            }
+            setScreen("logs");
+            return;
+          }
+          case "health":
+            toggleHideHealthLogs();
+            setStatus(hideHealthLogs ? "Showing health-check logs" : "Hiding health-check logs");
+            setScreen("logs");
+            return;
           case "system":
             toggleSystemLogs();
             setScreen("logs");
@@ -542,7 +568,9 @@ export function useCommandDispatcher({
               await controller.logs({
                 export: dest,
                 services: logServices,
-                level: errorOnly ? "ERROR" : logLevel,
+                level: logLevels.length > 0 ? "" : logLevel,
+                levels: logLevels.length > 0 ? logLevels : undefined,
+                hideHealth: hideHealthLogs ? true : undefined,
                 search: logSearch,
                 regex: logRegex,
                 source: logSource,
@@ -614,7 +642,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, llmView, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs, trafficView],
+    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, filteredLogs, hideHealthLogs, llmView, logLevel, logLevels, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogLevels, setLogSearch, setSlashPicker, themeName, toggleHideHealthLogs, toggleSplitLogs, toggleSystemLogs, trafficView],
   );
   return { runCommand };
 }

@@ -182,6 +182,8 @@ export type LogFacets = {
 export type LogsQuery = {
   service?: string;
   level?: string;
+  levels?: string[];
+  hideHealth?: boolean;
   search?: string;
   regex?: boolean;
   source?: string;

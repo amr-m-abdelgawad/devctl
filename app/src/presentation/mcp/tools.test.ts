@@ -454,12 +454,16 @@ describe("mcp tools", () => {
       regex: "true",
       dedupe_request_id: "true",
       search: "err",
+      levels: "info,warn",
+      hide_health: "true",
     });
     expect(seen?.limit).toBe(25);
     expect(seen?.direction).toBe("backward");
     expect(seen?.regex).toBe(true);
     expect(seen?.dedupeRequestId).toBe(true);
     expect(seen?.search).toBe("err");
+    expect(seen?.levels).toEqual(["INFO", "WARN"]);
+    expect(seen?.hideHealth).toBe(true);
   });
 
   test("get_log_stats returns facet counts without events", async () => {
