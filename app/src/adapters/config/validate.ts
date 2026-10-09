@@ -884,6 +884,9 @@ function validateIapCredentialsFile(auth: RouteAuthConfig, prefix: string): stri
 
 function validateTelemetry(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
+  if (!Number.isFinite(cfg.telemetry.store_max_bytes) || cfg.telemetry.store_max_bytes < 0) {
+    issues.push("telemetry.store_max_bytes must be a finite number >= 0");
+  }
   const host = cfg.telemetry.otlp.listen.host || LOCALHOST;
   if (!isLoopbackBindHost(host)) {
     issues.push("telemetry.otlp.listen.host must be a loopback address");

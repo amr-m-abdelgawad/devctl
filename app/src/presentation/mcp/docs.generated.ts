@@ -799,6 +799,7 @@ TUI appearance is **not** this file. Theme, keys, mouse, and MCP listen live in 
 | \`proxy\` | Listen address, token endpoint, routes (\`inspect.enabled\` captures bodies) — see [Proxy](proxy.md) |
 | \`logs\` | In-memory cap and persistence |
 | \`telemetry.otlp\` | Opt-in loopback OTLP/HTTP receiver, JSON or protobuf (off by default) — see [Telemetry](telemetry.md) |
+| \`telemetry.store_max_bytes\` | Byte budget for the trace store, proxy request spans included (64 MiB when unset) — see [Telemetry](telemetry.md) |
 | \`web\` | Opt-in loopback telemetry web UI (off by default, port 18900) — see [Web console](web.md) |
 | \`llm\` | Opt-in LLM traffic inspector (off by default) — see [LLM inspector](llm.md) |
 | \`auth.refresh_threshold_seconds\` | Token refresh window (default 300) |
@@ -2287,6 +2288,7 @@ Every buffer has a byte budget. Overflow is queued, then written to an ordered s
 | \`logs.persistence.max_total_bytes\` | \`0\` — 2 GiB across closed sessions |
 | \`logs.persistence.max_session_logs\` | \`0\` — unlimited; when set, counts sessions **for this repository** |
 | \`llm.store_max_bytes\` / \`proxy.inspect_store_max_bytes\` | \`0\` — 128 MiB of captured bodies. Metadata for the newest 2,000 calls stays; a missing body is marked evicted |
+| \`telemetry.store_max_bytes\` | \`0\` — 64 MiB of spans in the trace store, within its 10,000-span cap. The oldest spans go first |
 | \`supervisor.reap_orphans\` | unset — on where PID 1 does not reap (\`sleep infinity\`, \`tail\`, \`pause\`, \`cat\`), off elsewhere. \`true\` forces it on, \`false\` off |
 
 With persistence off, a very large line shrinks the in-memory window below 50,000 records instead of exhausting RAM. With persistence on, \`logs\` pages read session files when the byte budget has evicted records, so the last \`logs.max_memory_events\` lines stay reachable. Health probes log when status changes, plus a periodic reminder while a service stays unhealthy.
@@ -4213,6 +4215,20 @@ devctl's own signals are telemetry too. The proxy emits one **span per request**
 the request's trace. A \`traceparent\` on an incoming request is honored; a bare
 request-id header is **not** adopted as the trace id, so unrelated requests are
 never merged into one trace.
+
+Spans are kept in memory only. The trace store holds the newest 10,000 spans,
+and within that at most \`telemetry.store_max_bytes\` of them (64 MiB when unset
+or \`0\`); the proxy's request spans count toward both. Once it is over either
+limit the oldest spans leave first, so with large spans (a whole prompt in an
+attribute or an event) older traces drop out of the explorer sooner. A span is
+not cut to fit: one larger than the whole budget is kept until the next
+arrives. Under memory pressure the daemon halves this budget, then quarters
+it, as it does the log ring. A changed value takes effect on reload.
+
+\`\`\`yaml
+telemetry:
+  store_max_bytes: 134217728      # 128 MiB of spans; default 64 MiB
+\`\`\`
 
 View a trace three ways:
 

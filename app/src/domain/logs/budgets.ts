@@ -9,6 +9,7 @@ const RING_MEMORY_MAX_BYTES = 384 * MIB;
 
 const GIB = 1024 * MIB;
 const DEFAULT_CAPTURE_STORE_BYTES = 128 * MIB;
+const DEFAULT_SPAN_STORE_BYTES = 64 * MIB;
 
 /** Default cap for one session file and for the not-yet-parsed spool. */
 export const DEFAULT_LOG_CAP_BYTES = GIB;
@@ -56,6 +57,11 @@ export function autoRingBytes(hostMemoryBytes: number): number {
 
 export function captureStoreBytes(configured: number): number {
   return configured > 0 ? configured : DEFAULT_CAPTURE_STORE_BYTES;
+}
+
+/** The trace store's byte budget: `telemetry.store_max_bytes`, or 64 MiB when that is 0. */
+export function spanStoreBytes(configured: number): number {
+  return configured > 0 ? configured : DEFAULT_SPAN_STORE_BYTES;
 }
 
 /** `0` selects the documented default. A positive value is the configured cap. */

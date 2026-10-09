@@ -84,8 +84,8 @@ import {
   type ServiceState,
 } from "../../domain/service/services.ts";
 import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
-import { autoRingBytes, LOGS_REPLY_MAX_BYTES, TRACE_LOOKUP_PAGES } from "../../domain/logs/budgets.ts";
-import { nextMemoryGuard, ringBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
+import { autoRingBytes, LOGS_REPLY_MAX_BYTES, spanStoreBytes, TRACE_LOOKUP_PAGES } from "../../domain/logs/budgets.ts";
+import { nextMemoryGuard, storeBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
 import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
@@ -125,6 +125,8 @@ export class Supervisor {
   private readonly resources: ResourceSampler;
   /** The ring budget the memory guard last set; undefined while the store keeps its configured budget. */
   private ringBudget?: number;
+  // The trace store's budget as last applied.
+  private spanBudget: number;
   /** False until recovery has read state.json. Earlier writes must not erase leftover processes. */
   private processesLoaded = false;
   private memoryGuard: MemoryPressure = "ok";
@@ -205,7 +207,8 @@ export class Supervisor {
     this.unlinkSocketFn = deps.unlinkSocket;
     this.detector = deps.detector;
     this.logs = deps.logs;
-    this.spans = new SpanManager(undefined, this.detector);
+    this.spanBudget = spanStoreBytes(cfg.telemetry.store_max_bytes);
+    this.spans = new SpanManager(undefined, this.detector, this.spanBudget);
     this.llmStore = new LlmCallManager(this.detector, 0, cfg.llm.store_max_bytes);
     this.trafficStore = new TrafficCallRing(this.detector, 0, cfg.proxy.inspect_store_max_bytes);
     this.llmFactory = llmSourceFactory([]);
@@ -1154,9 +1157,9 @@ export class Supervisor {
   }
 
   /**
-   * Shrinks the ring at 75% of the limit and sheds capture bodies at 90%, with
-   * hysteresis. Shedding never stops ingest: a service blocked on a full pipe
-   * would be the harm the guard exists to prevent.
+   * Shrinks the ring and the trace store at 75% of the limit and sheds capture
+   * bodies at 90%, with hysteresis. Shedding never stops ingest: a service
+   * blocked on a full pipe would be the harm the guard exists to prevent.
    */
   applyMemoryPressure(usedBytes: number, limitBytes: number): void {
     const ratio = limitBytes > 0 ? usedBytes / limitBytes : 0;
@@ -1165,10 +1168,16 @@ export class Supervisor {
     const full = this.cfg.logs.max_memory_bytes > 0
       ? this.cfg.logs.max_memory_bytes
       : autoRingBytes(readHostLimits(this.cfg.repoRoot).memoryBytes);
-    const budget = ringBudgetFor(pressure, full);
+    const budget = storeBudgetFor(pressure, full);
     if (budget !== (this.ringBudget ?? full)) {
       this.logs.setMemoryBudget?.(budget);
       this.ringBudget = budget;
+    }
+    // The full budget is read from the config each time, so one changed by a reload is taken up here.
+    const spanBudget = storeBudgetFor(pressure, spanStoreBytes(this.cfg.telemetry.store_max_bytes));
+    if (spanBudget !== this.spanBudget) {
+      this.spans.setMaxBytes?.(spanBudget);
+      this.spanBudget = spanBudget;
     }
     if (pressure === "shed") {
       this.llmStore.shedBodies?.();

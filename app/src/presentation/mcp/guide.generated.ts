@@ -425,7 +425,7 @@ complete allowlists.
 | \`logs.persistence\` | \`enabled\` \`directory\` \`retention_days\` \`max_session_logs\` \`max_session_bytes\` \`max_total_bytes\` |
 | \`logs.spool\` | \`max_bytes\` |
 | \`supervisor\` | \`reap_orphans\` |
-| \`telemetry\` | \`otlp\` |
+| \`telemetry\` | \`otlp\` \`store_max_bytes\` |
 | \`telemetry.otlp\` | \`enabled\` \`listen\` |
 | \`web\` | \`enabled\` \`listen\` |
 | \`llm\` | \`enabled\` \`capture_max_bytes\` \`store_max_bytes\` \`sources\` |

@@ -1,5 +1,5 @@
-// Proxy capture under load: the LLM inspector's byte budget, and caller
-// attribution when a service holds thousands of file descriptors.
+// Capture under load: the LLM inspector's byte budget, the trace store's, and
+// caller attribution when a service holds thousands of file descriptors.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { gateEnabled, gatedName } from "../gates.ts";
 import { CONFIG_HEADER, IMAGE_BUILD_TIMEOUT_MS, MIB, report, SoakContainer, soakEnabled, soakImage, soakQuick, type ProbeResult } from "../harness/soak.ts";
@@ -85,6 +85,47 @@ services:
     // The store counts each body as its search text; the JSON read back over RPC is a little larger.
     expect(load.bodyBytes).toBeLessThanOrEqual(budget * 1.1);
     expect(load.rssMaxBytes).toBeLessThan(RSS_MAX_BYTES);
+  }, 600_000);
+
+  type SpanLoad = { sent: number; refused: number; anonBeforeBytes: number; anonMaxBytes: number; anonLateMaxBytes: number; anonSettledBytes: number; firstTraceSpans: number; lastTraceSpans: number };
+
+  test("spans that carry whole prompts stay within the trace store's budget", async () => {
+    const box = await container();
+    const count = 6_000;
+    const attributeBytes = 100_000;
+    // The default budget: 64 MiB. Six thousand of these spans are about 600 MB;
+    // held only to the 10,000-span cap they took the daemon past a gigabyte.
+    await box.configure(`${CONFIG_HEADER}project:
+  name: soak-spans
+telemetry:
+  otlp:
+    enabled: true
+    listen: { host: 127.0.0.1, port: 4318 }
+services:
+  idle:
+    command: [sleep, "36000"]
+`);
+    await box.devctl(["start", "idle"]);
+    const load = await box.driver<SpanLoad>("span-load.ts", ["--count", String(count), "--attribute-bytes", String(attributeBytes)], { timeoutMs: 540_000 });
+    const mib = (bytes: number): number => Math.round(bytes / MIB);
+    report("trace store budget", {
+      sentMiB: mib(count * attributeBytes),
+      refused: load.refused,
+      daemonOwnMiB: { before: mib(load.anonBeforeBytes), max: mib(load.anonMaxBytes), lateMax: mib(load.anonLateMaxBytes), settled: mib(load.anonSettledBytes) },
+      firstTraceSpans: load.firstTraceSpans,
+      lastTraceSpans: load.lastTraceSpans,
+    });
+    await box.devctl(["down"], { allowFail: true });
+
+    expect(load.refused).toBe(0);
+    // The newest trace is there and the oldest has gone: evicted, not refused.
+    expect(load.lastTraceSpans).toBe(1);
+    expect(load.firstTraceSpans).toBe(0);
+    // Level through the second half at about 450 MiB, most of it the runtime's
+    // own while it takes in 100 KiB bodies. Held only by count, the store alone
+    // is past 500 MiB by the half-way mark and past a gigabyte at the end.
+    expect(load.anonLateMaxBytes).toBeLessThan(700 * MIB);
+    expect(load.anonSettledBytes).toBeLessThan(600 * MIB);
   }, 600_000);
 
   type Attribution = { fds: number; calls: number; byCaller: Record<string, number>; p99: number; errors: number; measured: ProbeResult };

@@ -793,6 +793,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "store_max_bytes": { "type": "integer", "minimum": 0, "description": "Byte budget for the trace store, which holds the spans services send over OTLP and the proxy's span for each request. 0 uses 64 MiB. Over the budget the oldest spans go first; the 10,000-span cap applies as well." },
         "otlp": {
           "type": "object",
           "additionalProperties": false,

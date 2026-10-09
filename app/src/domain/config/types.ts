@@ -509,6 +509,8 @@ export type TelemetryOtlpConfig = {
 
 export type TelemetryConfig = {
   otlp: TelemetryOtlpConfig;
+  /** Byte budget for the trace store, proxy request spans included. 0 uses 64 MiB. */
+  store_max_bytes: number;
 };
 
 export const DEFAULT_OTLP_HTTP_PORT = 4318;
@@ -938,6 +940,7 @@ export function defaultConfig(): DevctlConfig {
         enabled: false,
         listen: { host: LOCALHOST, port: DEFAULT_OTLP_HTTP_PORT },
       },
+      store_max_bytes: 0,
     },
     web: {
       enabled: false,

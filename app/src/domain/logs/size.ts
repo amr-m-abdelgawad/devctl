@@ -10,6 +10,12 @@ const UNWALKED_BYTES = 16 * 1024;
 // Shorter strings are counted at one byte per unit without a width check:
 // the error is a few bytes, and sizing runs for every record ingested.
 const WIDTH_CHECK_MIN_CHARS = 64;
+// Fixed per-span cost: the span, its status, attribute, event, link and
+// resource containers, and its entries in the trace and request-id indexes.
+// A proxy request's span measures a little under this in the heap.
+const SPAN_OVERHEAD_BYTES = 768;
+// A link's two ids and its object.
+const LINK_BYTES = 96;
 
 /**
  * Approximate size of a record in memory and on the wire. An ASCII string
@@ -39,6 +45,43 @@ function approxBytes(fields: Pick<LogIngest, "service" | "source" | "raw" | "att
     attributesBytes(fields.attributes, budget) +
     attributesBytes(fields.resource, budget)
   );
+}
+
+/** What `approxSpanBytes` reads of a span. */
+type SizedSpan = {
+  name: string;
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  status: { message?: string };
+  attributes: Attributes;
+  events: readonly { name: string; attributes: Attributes }[];
+  links: readonly unknown[];
+  resource: Attributes;
+};
+
+/**
+ * Approximate size of a span as the trace store holds it. A span is sized
+ * once, when it arrives, and one request carries few of them, so the walk has
+ * no budget: a prompt or a stack trace is counted wherever it sits, in an
+ * attribute or in an event.
+ */
+export function approxSpanBytes(span: SizedSpan): number {
+  const budget = { left: Number.POSITIVE_INFINITY };
+  let total =
+    SPAN_OVERHEAD_BYTES +
+    stringBytes(span.name) +
+    span.traceId.length +
+    span.spanId.length +
+    (span.parentSpanId?.length ?? 0) +
+    (span.status.message === undefined ? 0 : stringBytes(span.status.message)) +
+    span.links.length * LINK_BYTES +
+    attributesBytes(span.attributes, budget) +
+    attributesBytes(span.resource, budget);
+  for (const event of span.events) {
+    total += ENTRY_OVERHEAD_BYTES + stringBytes(event.name) + attributesBytes(event.attributes, budget);
+  }
+  return total;
 }
 
 /** Approximate heap size of one string, by the rule above. The capture stores size bodies with it too. */

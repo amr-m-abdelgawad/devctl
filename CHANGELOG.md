@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The filter chips' counts for service, level and source cover the whole log window, including records the in-memory ring has evicted to the session files. With a search, a time range, or a trace, request-id or attribute filter they count the records still in memory, as before.
 - A trace's log records are looked up across the whole log window, not only the part still in memory. The trace response says `truncated: true` (MCP: `logs_truncated`) when the lookup stopped before it had read the whole window.
 
+- The trace store has a byte budget, `telemetry.store_max_bytes` (64 MiB when unset), beside its 10,000-span cap. It was bounded only by count, so spans that carry whole prompts or stack traces could take the daemon past a gigabyte. Over the budget the oldest spans go first, and under memory pressure the daemon halves and then quarters the budget as it does the log ring's. Stacks with small spans keep 10,000 as before; with large spans, older traces leave the trace explorer sooner. The proxy's request spans count toward the budget.
 - `devctl status` and `devctl down` wait up to three seconds for a daemon that is alive and only slow to answer, instead of giving up after 200 ms. When a live daemon still does not answer, `status` says so and no longer also prints `supervisor is not running` or lists its services as stopped; `status --json` stays one JSON document and carries the text in `notice`.
 
 ### Fixed

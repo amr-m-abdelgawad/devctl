@@ -1,4 +1,4 @@
-/** Shrink the ring at 75% of the cgroup limit, and shed capture bodies at 90%. */
+/** Shrink the ring and the trace store at 75% of the cgroup limit, and shed capture bodies at 90%. */
 
 export const MEMORY_SHRINK_RATIO = 0.75;
 export const MEMORY_SHED_RATIO = 0.9;
@@ -30,10 +30,11 @@ export function memoryGuardUsage(limits: { readonly memoryBytes: number; readonl
 const RING_FLOOR_BYTES = 8 * 1024 * 1024;
 
 /**
- * The log ring's budget at each level: full when ok, half under shrink, and a
- * quarter while shedding, since shedding no longer pauses ingest.
+ * The budget of the log ring, and of the trace store, at each level: full
+ * when ok, half under shrink, and a quarter while shedding, since shedding no
+ * longer pauses ingest.
  */
-export function ringBudgetFor(pressure: MemoryPressure, fullBytes: number): number {
+export function storeBudgetFor(pressure: MemoryPressure, fullBytes: number): number {
   if (pressure === "ok") {
     return fullBytes;
   }

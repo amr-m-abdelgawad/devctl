@@ -50,6 +50,8 @@ Never log `Authorization`. Proxy request logs are structured without header dump
 - OTLP receiver (`adapters/telemetry/otlp-http.ts`) when `telemetry.otlp.enabled`
 - Service logs that carry `trace_id` / `span_id` attributes
 
+The store is capped at 10,000 spans and at a byte budget (`telemetry.store_max_bytes`, 64 MiB by default). Each span is sized once, as stored after redaction, by `approxSpanBytes` (`domain/logs/size.ts`): every string in its attributes, events and resource, with no walk limit, plus a fixed overhead. Over either cap the oldest spans are evicted with their trace and request-id index entries. The memory guard scales the budget with the log ring's (half at 75% of the limit, a quarter at 90%).
+
 RPC: `get_trace`, `trace_request` (from `X-Devctl-Request-ID`). MCP/web reuse the same queries with redacted attributes.
 
 OTLP env injection: `domain/telemetry/otel-env.ts` so user services can export to the loopback receiver (`OTEL_EXPORTER_OTLP_ENDPOINT`, …). Design note: `design/telemetry-otel-model.md`.

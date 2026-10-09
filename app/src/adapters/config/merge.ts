@@ -281,6 +281,9 @@ function applySops(sops: SopsConfig, raw: Record<string, unknown>): void {
 }
 
 export function applyTelemetry(telemetry: TelemetryConfig, raw: Record<string, unknown>): void {
+  if (raw.store_max_bytes !== undefined) {
+    telemetry.store_max_bytes = decodeStrictNumber(raw.store_max_bytes);
+  }
   if (!isRecord(raw.otlp)) {
     return;
   }

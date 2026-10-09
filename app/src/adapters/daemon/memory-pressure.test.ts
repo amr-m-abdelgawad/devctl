@@ -5,6 +5,7 @@ import { defaultConfig } from "../../domain/config/types.ts";
 import { LLM_OPERATION_CHAT, LLM_STATUS_OK } from "../../domain/llm/llm.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { SpanStore } from "../../ports/span-store.ts";
 import { Supervisor } from "../../bootstrap/test-supervisor.ts";
 import { LogManager, inProcessLogStore } from "../storage/logs.ts";
 import { Detector } from "../secrets/detector.ts";
@@ -31,7 +32,8 @@ function harness() {
   };
   const sup = new Supervisor(cfg, { logs });
   const llm = (sup as unknown as { llmStore: LlmCallStore }).llmStore;
-  return { sup, logs, budgets, llm, close: () => manager.close() };
+  const spans = (sup as unknown as { spans: SpanStore }).spans;
+  return { sup, cfg, logs, budgets, llm, spans, close: () => manager.close() };
 }
 
 const chunk = () => ({ service: "api", stream: "stdout", pid: 1, readAtMs: Date.now(), bytes: Buffer.from("line\n") });
@@ -76,5 +78,69 @@ describe("memory guard", () => {
     } finally {
       await close();
     }
+  });
+
+  // 100 spans of about 1 MiB each, as an LLM trace with whole prompts carries.
+  function fill(spans: SpanStore, from: number): void {
+    for (let n = from; n < from + 100; n += 1) {
+      spans.append({
+        traceId: n.toString(16).padStart(32, "0"),
+        spanId: n.toString(16).padStart(16, "0"),
+        name: `chat ${n}`,
+        kind: "client",
+        startUnixNano: 1,
+        endUnixNano: 2,
+        status: { code: "ok" },
+        attributes: { "gen_ai.prompt": "p".repeat(MIB) },
+        events: [],
+        links: [],
+        resource: { "service.name": "agent" },
+      });
+    }
+  }
+  const held = (spans: SpanStore): number => spans.recent(1_000).length;
+
+  test("the trace store is held to its byte budget, and the guard trims and restores it with the ring", async () => {
+    const { sup, spans, close } = harness();
+    try {
+      // The default budget is 64 MiB: about 63 of these spans.
+      fill(spans, 1);
+      expect(held(spans)).toBeGreaterThan(55);
+      expect(held(spans)).toBeLessThan(64);
+      sup.applyMemoryPressure(80, 100);
+      expect(held(spans)).toBeGreaterThan(27);
+      expect(held(spans)).toBeLessThan(32);
+      sup.applyMemoryPressure(95, 100);
+      expect(held(spans)).toBeGreaterThan(13);
+      expect(held(spans)).toBeLessThan(16);
+      expect(spans.recent(1)[0]?.name).toBe("chat 100");
+      // Back to normal, it fills to the whole budget again.
+      sup.applyMemoryPressure(50, 100);
+      sup.applyMemoryPressure(40, 100);
+      fill(spans, 101);
+      expect(held(spans)).toBeGreaterThan(55);
+      expect(spans.recent(1)[0]?.name).toBe("chat 200");
+    } finally {
+      await close();
+    }
+  });
+
+  test("a budget set in the configuration is used, and one changed by a reload is taken up", async () => {
+    const dir = join(process.env.TMPDIR ?? "/tmp", `devctl-span-budget-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.telemetry.store_max_bytes = 8 * MIB;
+    const sup = new Supervisor(cfg);
+    const spans = (sup as unknown as { spans: SpanStore }).spans;
+    fill(spans, 1);
+    expect(held(spans)).toBe(7);
+    // A reload replaces the values in the live configuration; the next guard tick applies them.
+    cfg.telemetry.store_max_bytes = 3 * MIB;
+    sup.applyMemoryPressure(10, 100);
+    expect(held(spans)).toBe(2);
+    await sup.shutdown(false);
   });
 });
