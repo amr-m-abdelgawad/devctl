@@ -161,6 +161,87 @@ function severityFromNumeric(n: number): number | undefined {
   return undefined;
 }
 
+export const SELECTABLE_LOG_LEVELS = [LevelTrace, LevelDebug, LevelInfo, LevelWarn, LevelError, LevelFatal] as const;
+
+export type SelectableLogLevel = (typeof SELECTABLE_LOG_LEVELS)[number];
+
+export function canonicalLogLevel(level: string): SelectableLogLevel | undefined {
+  const number = severityNumberFromText(level);
+  if (number === SeverityUnspecified) {
+    return undefined;
+  }
+  const text = severityTextFromNumber(number);
+  return SELECTABLE_LOG_LEVELS.find((item) => item === text);
+}
+
+export function severityBucket(severityNumber: number, severityText: string): string {
+  if (severityNumber > SeverityUnspecified) {
+    return severityTextFromNumber(severityNumber);
+  }
+  return canonicalLogLevel(severityText) ?? LevelUnknown;
+}
+
+export function matchesSelectedLevels(severityNumber: number, severityText: string, levels: readonly string[]): boolean {
+  if (levels.length === 0) {
+    return true;
+  }
+  const bucket = severityBucket(severityNumber, severityText);
+  for (const level of levels) {
+    if (canonicalLogLevel(level) === bucket) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function orderedLogLevels(levels: readonly string[]): SelectableLogLevel[] {
+  const wanted = new Set<SelectableLogLevel>();
+  for (const level of levels) {
+    const canonical = canonicalLogLevel(level);
+    if (canonical) {
+      wanted.add(canonical);
+    }
+  }
+  return SELECTABLE_LOG_LEVELS.filter((level) => wanted.has(level));
+}
+
+export function normalizeLogLevels(value: unknown): SelectableLogLevel[] | undefined {
+  const ordered = orderedLogLevels(levelTokens(value));
+  return ordered.length > 0 ? ordered : undefined;
+}
+
+export function toggleListedLevel(current: readonly string[], level: string): SelectableLogLevel[] {
+  const canonical = canonicalLogLevel(level);
+  if (!canonical) {
+    return orderedLogLevels(current);
+  }
+  if (current.length === 0) {
+    return [canonical];
+  }
+  const next = current.includes(canonical) ? current.filter((item) => item !== canonical) : [...current, canonical];
+  return orderedLogLevels(next);
+}
+
+export function isErrorLevelPreset(levels: readonly string[]): boolean {
+  return levels.length === 2 && levels.includes(LevelError) && levels.includes(LevelFatal);
+}
+
+function levelTokens(value: unknown): string[] {
+  if (typeof value === "string") {
+    return value.split(/[\s,]+/).filter((token) => token !== "");
+  }
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const tokens: string[] = [];
+  for (const item of value) {
+    if (typeof item === "string") {
+      tokens.push(...item.split(/[\s,]+/).filter((token) => token !== ""));
+    }
+  }
+  return tokens;
+}
+
 export function syslogSeverity(n: number): number | undefined {
   if (n <= SYSLOG_EMERG) {
     return SeverityFatal;

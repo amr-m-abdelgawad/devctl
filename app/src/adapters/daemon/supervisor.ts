@@ -1069,6 +1069,8 @@ export class Supervisor {
     return {
       services: req.services,
       level: req.level,
+      levels: req.levels,
+      hideHealth: req.hideHealth,
       search: req.search,
       regex: req.regex,
       source: req.source,

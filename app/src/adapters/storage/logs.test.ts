@@ -419,6 +419,23 @@ describe("LogManager facets", () => {
     expect(facets.byService).toEqual({ api: 2, worker: 1 });
   });
 
+  test("levels select exact buckets and hideHealth drops probe and request lines", () => {
+    const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "s1", 0, 0);
+    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "api", source: "stdout", level: "INFO", message: "ready", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "api", source: "stdout", level: "WARN", message: "slow", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "api", source: "stderr", level: "ERROR", message: "boom", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:03.000Z", service: "api", source: "health", level: "INFO", message: "health HEALTHY 200", pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:04.000Z", service: "api", source: "stdout", level: "INFO", message: 'INFO:     127.0.0.1:1 - "GET /health HTTP/1.1" 200 OK', pid: 1 });
+    mgr.append({ timestamp: "2026-08-30T00:00:05.000Z", service: "proxy", source: "proxy", level: "INFO", message: "grpc /grpc.health.v1.Health/Check route=api identity= grpc-status=0 duration=1ms", pid: 0 });
+    const shown = mgr.query({ levels: ["INFO", "WARN"], hideHealth: true }).map((event) => logMessage(event));
+    expect(shown).toEqual(["ready", "slow"]);
+    const facets = mgr.queryFacets({ levels: ["INFO"], hideHealth: true });
+    expect(facets.total).toBe(1);
+    expect(facets.byLevel.INFO).toBe(1);
+    expect(facets.byLevel.WARN).toBe(1);
+    expect(facets.byLevel.ERROR).toBe(1);
+  });
+
   test("byLevel and bySource each ignore only their own dimension", () => {
     const mgr = seededMixed();
     const facets = mgr.queryFacets({ level: "ERROR", source: "stderr" });

@@ -48,7 +48,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 ![The Logs tab with a live search kept on “fulfill pipeline” — per-service and per-level facet chips update as you filter](assets/manual/tui-logs-search.png)
 
 - `f` focuses search **on the Logs tab** (`/` stays the command line). `esc` closes search, clears the query, and jumps to the live tail. `enter` keeps the current filter so you can browse matches; `esc` again (or `f` then `esc`) returns to the live stream. Matches are highlighted in the log line (plain or `/regex`). Dashboard tail uses the same search filter while it is applied.
-- `e` / `/filter` — ERROR and above.
+- `e` / `/filter` — ERROR and FATAL. Level chips and `/levels` choose any other combination.
 - `p` / `/pause` — freeze the live stream.
 - `z` / `/fullscreen` — hide header and nav so the stream fills a small editor terminal. `z` or `esc` exits.
 - `t` / `m` — timestamp and metadata columns (persist in `tui.json`).
@@ -66,6 +66,8 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - `/exports` or the **open folder** chip — reveal that directory.
 - `/history [id]` — load a persisted session (`LogManager.listSessions`).
 - `/system` / `/internal` — show or hide internal `auth` / `mcp` / `devctl` / `proxy` lines.
+- Level chips, or `/levels info,warn` — show only the levels you pick (for example info and warn, or warn and error). Empty / `all` shows every level, including lines with no level. `e` / `/filter` still jumps to ERROR and FATAL.
+- **health** chip, or `/health` — hide supervisor health probes and the request logs those probes produce. That includes HTTP access lines for `/health`, `/healthz`, `/ready`, `/readyz`, `/livez`, and the same paths with a prefix (`/api/v1/health`), plus gRPC `grpc.health.v1.Health` Check and Watch, whether the line came from the service or the proxy.
 - `/regex`, `/since`, `/until` — search and time range (`until` is exclusive of later lines).
 
 Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. `j`/`k` moves the highlight.
@@ -74,15 +76,24 @@ Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on th
 
 The [web console](web.md) Logs page is the same ring and paging, not a 200-row table. It holds up to `logs.max_memory_events` (default 50,000), virtualizes the list, and follows with `cursor=next_cursor` (~100ms while the page is visible, live, and not paused; slower when idle or the tab is hidden). Scroll up loads older pages (`cursor=prev_cursor`, `direction=backward`). Overview “recent errors” stays a small ERROR page and does not feed the 50k buffer.
 
-- Search (substring / regex), ERROR+, system-source toggle (`auth` / `mcp` / `devctl` / `proxy`)
+- Search (substring / regex), ERROR+, level chips (info and warn, warn and error, and the other combinations), hide-health toggle, system-source toggle (`auth` / `mcp` / `devctl` / `proxy`)
 - Pause / live, jump latest (`pinned · +N new`)
 - Service chips from facets; timestamp/metadata columns from `log_timestamps` / `log_metadata`
 - Clear (client-local `since=now`; daemon ring untouched), export NDJSON, history session picker
 - Split: two panes, shared buffer and search, independent service filter and follow/pin
 - Wrap cycle: clip → wrap selected → wrap all
-- Keys: `j`/`k`, `f` search, `p` pause, `g` latest, `e` ERROR+, `\` split, `w` wrap
+- Keys: `j`/`k`, `f` search, `p` pause, `g` latest, `e` ERROR+, `\` split, `w` wrap. Level chips and **hide health** match the TUI: supervisor probes plus REST and gRPC health-endpoint request logs.
 
 History loads a persisted session (same store as TUI `/history`). Export downloads JSONL for the current filters — the full match set, not one page.
+
+## MCP
+
+`get_logs` and `get_log_stats` take the same choices as the TUI and web Logs pages:
+
+- `levels`: `["info", "warn"]`, `["warn", "error"]`, and the other combinations of `trace`, `debug`, `info`, `warn`, `error`, and `fatal`. A comma-separated string works too. Omit it to show every level. `level` stays a minimum and is ignored when `levels` is set.
+- `hide_health`: `true` hides supervisor health probes and the REST and gRPC health-endpoint request lines, from the service and from the proxy.
+
+`recent_errors` stays error and fatal, and accepts `hide_health`.
 
 ## CLI
 

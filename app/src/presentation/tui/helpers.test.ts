@@ -136,6 +136,8 @@ describe("TUI helpers", () => {
     expect(filterLogs(events, { until: "2026-01-01T00:00:00.000Z" })).toEqual([]);
     expect(filterLogs(events, { systemLogs: false }).map((ev) => ev.service)).toEqual(["api"]);
     expect(filterLogs(events, { systemLogs: true }).map((ev) => ev.service)).toEqual(["auth", "api"]);
+    expect(filterLogs(events, { levels: ["INFO"] }).map((ev) => ev.service)).toEqual(["auth"]);
+    expect(filterLogs(events, { levels: ["ERROR", "FATAL"] }).map((ev) => ev.service)).toEqual(["api"]);
     expect(logServiceCounts(events, ["auth", "api"]).map((row) => row.count)).toEqual([1, 1]);
     expect(cycleLogService(["auth", "api"], "", 1)).toBe("auth");
     expect(cycleLogService(["auth", "api"], "api", 1)).toBe("");

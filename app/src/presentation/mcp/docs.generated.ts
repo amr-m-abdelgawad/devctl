@@ -2220,7 +2220,7 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 ![The Logs tab with a live search kept on “fulfill pipeline” — per-service and per-level facet chips update as you filter](assets/manual/tui-logs-search.png)
 
 - \`f\` focuses search **on the Logs tab** (\`/\` stays the command line). \`esc\` closes search, clears the query, and jumps to the live tail. \`enter\` keeps the current filter so you can browse matches; \`esc\` again (or \`f\` then \`esc\`) returns to the live stream. Matches are highlighted in the log line (plain or \`/regex\`). Dashboard tail uses the same search filter while it is applied.
-- \`e\` / \`/filter\` — ERROR and above.
+- \`e\` / \`/filter\` — ERROR and FATAL. Level chips and \`/levels\` choose any other combination.
 - \`p\` / \`/pause\` — freeze the live stream.
 - \`z\` / \`/fullscreen\` — hide header and nav so the stream fills a small editor terminal. \`z\` or \`esc\` exits.
 - \`t\` / \`m\` — timestamp and metadata columns (persist in \`tui.json\`).
@@ -2238,6 +2238,8 @@ Facets — the total matching count, plus per-service/level/source counts (each 
 - \`/exports\` or the **open folder** chip — reveal that directory.
 - \`/history [id]\` — load a persisted session (\`LogManager.listSessions\`).
 - \`/system\` / \`/internal\` — show or hide internal \`auth\` / \`mcp\` / \`devctl\` / \`proxy\` lines.
+- Level chips, or \`/levels info,warn\` — show only the levels you pick (for example info and warn, or warn and error). Empty / \`all\` shows every level, including lines with no level. \`e\` / \`/filter\` still jumps to ERROR and FATAL.
+- **health** chip, or \`/health\` — hide supervisor health probes and the request logs those probes produce. That includes HTTP access lines for \`/health\`, \`/healthz\`, \`/ready\`, \`/readyz\`, \`/livez\`, and the same paths with a prefix (\`/api/v1/health\`), plus gRPC \`grpc.health.v1.Health\` Check and Watch, whether the line came from the service or the proxy.
 - \`/regex\`, \`/since\`, \`/until\` — search and time range (\`until\` is exclusive of later lines).
 
 Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. \`j\`/\`k\` moves the highlight.
@@ -2246,15 +2248,24 @@ Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on 
 
 The [web console](web.md) Logs page is the same ring and paging, not a 200-row table. It holds up to \`logs.max_memory_events\` (default 50,000), virtualizes the list, and follows with \`cursor=next_cursor\` (~100ms while the page is visible, live, and not paused; slower when idle or the tab is hidden). Scroll up loads older pages (\`cursor=prev_cursor\`, \`direction=backward\`). Overview “recent errors” stays a small ERROR page and does not feed the 50k buffer.
 
-- Search (substring / regex), ERROR+, system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`)
+- Search (substring / regex), ERROR+, level chips (info and warn, warn and error, and the other combinations), hide-health toggle, system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`)
 - Pause / live, jump latest (\`pinned · +N new\`)
 - Service chips from facets; timestamp/metadata columns from \`log_timestamps\` / \`log_metadata\`
 - Clear (client-local \`since=now\`; daemon ring untouched), export NDJSON, history session picker
 - Split: two panes, shared buffer and search, independent service filter and follow/pin
 - Wrap cycle: clip → wrap selected → wrap all
-- Keys: \`j\`/\`k\`, \`f\` search, \`p\` pause, \`g\` latest, \`e\` ERROR+, \`\\\` split, \`w\` wrap
+- Keys: \`j\`/\`k\`, \`f\` search, \`p\` pause, \`g\` latest, \`e\` ERROR+, \`\\\` split, \`w\` wrap. Level chips and **hide health** match the TUI: supervisor probes plus REST and gRPC health-endpoint request logs.
 
 History loads a persisted session (same store as TUI \`/history\`). Export downloads JSONL for the current filters — the full match set, not one page.
+
+## MCP
+
+\`get_logs\` and \`get_log_stats\` take the same choices as the TUI and web Logs pages:
+
+- \`levels\`: \`["info", "warn"]\`, \`["warn", "error"]\`, and the other combinations of \`trace\`, \`debug\`, \`info\`, \`warn\`, \`error\`, and \`fatal\`. A comma-separated string works too. Omit it to show every level. \`level\` stays a minimum and is ignored when \`levels\` is set.
+- \`hide_health\`: \`true\` hides supervisor health probes and the REST and gRPC health-endpoint request lines, from the service and from the proxy.
+
+\`recent_errors\` stays error and fatal, and accepts \`hide_health\`.
 
 ## CLI
 
@@ -2370,7 +2381,7 @@ rotate or remint. It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_preferences\` | inspect | Resolved operator prefs, write paths, and layer provenance (\`user\` / \`repo\` / \`default\`). \`scope\` labels the save target |
 | \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
-| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
+| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). \`levels\` is the set to show, such as \`["info", "warn"]\` or \`["warn", "error"]\`; omit it to show every level, including lines with no level. \`level\` is a minimum (\`error\` includes fatal) and is ignored when \`levels\` is set. \`hide_health: true\` drops supervisor health probes and request logs for HTTP health/ready/live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and the proxy. Also filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
 | \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\` |
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
 | \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
@@ -2379,7 +2390,7 @@ rotate or remint. It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_llm_call\` | inspect | One LLM call by id, including redacted request/response payloads |
 | \`get_traffic_calls\` | inspect | Filtered HTTP/gRPC hops captured on \`inspect.enabled\` proxy routes, secrets redacted, bodies omitted. Direct sockets that never hit the proxy are invisible. Filter with \`route\`, \`caller\`, \`method\`, \`status\`, \`transport\`, \`search\`, \`request_id\`, \`trace_id\`. Pass \`cursor\` from \`next_cursor\` to page toward older calls |
 | \`get_traffic_call\` | inspect | One captured proxy hop by id, including redacted request/response payloads. \`/reveal\` cannot unmask these bodies |
-| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\` |
+| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\`. \`hide_health: true\` drops health-check failures |
 | \`list_profiles\` | inspect | Config profiles and members |
 | \`get_config\` | inspect | Merged summary: project, services, routes, proxy paths |
 | \`get_config_sources\` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |
@@ -4455,13 +4466,15 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/split\` | | Split the logs screen into two service panes |
 | \`/trace <id>\` | | Search logs for a request or trace id |
 | \`/filter\` | | Toggle ERROR+ log filter |
+| \`/levels [levels]\` | \`/level\` | Show only these log levels, such as info,warn or warn,error |
+| \`/health\` | \`/health-logs\` | Show or hide health-check logs, including REST and gRPC health request lines |
 | \`/system\` | \`/internal\` | Show or hide internal auth/mcp/devctl/proxy logs |
 | \`/wrap\` | | Cycle log wrap: all lines, clip, or selected row |
 | \`/export [path]\` | | Write filtered logs to ~/.devctl/exports |
 | \`/exports\` | \`/open-exports\` | Open the log export folder |
 | \`/clear\` | \`/new\` | Clear the on-screen log buffer |
 
-\`/split\` is also \`\\\\\`; \`|\` focuses the other pane. \`/trace\` sets log search to a \`request_id\` / \`trace_id\`. \`/export\` without a path writes under \`~/.devctl/exports\`. \`/clear\` only clears this TUI's on-screen view, not the daemon's shared log buffer.
+\`/levels info,warn\` — Info and warn. \`/levels warn,error\` — Warn and error. \`/levels error,fatal\` — Error and fatal. \`/levels all\` — Show every level, including lines that have none. \`/health\` hides supervisor probes and request logs for HTTP health, ready, and live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and the proxy. \`/split\` is also \`\\\\\`; \`|\` focuses the other pane. \`/trace\` sets log search to a \`request_id\` / \`trace_id\`. \`/export\` without a path writes under \`~/.devctl/exports\`. \`/clear\` only clears this TUI's on-screen view, not the daemon's shared log buffer.
 
 ### UI
 
@@ -4718,7 +4731,7 @@ The proxy emits request spans. Deeper application spans require your services to
 
 Open Logs to follow the supervisor ring. The page keeps up to \`logs.max_memory_events\` events (default 50,000), virtualizes the viewport, and polls only new lines with \`next_cursor\` while the tab is visible and live. Scroll up to backfill older pages (\`prev_cursor\`, \`direction=backward\`). Pause freezes follow; **Clear** hides earlier lines in this tab without touching the daemon. Filter chips use \`/api/logs/stats\` counts, not whatever is on screen.
 
-Search is substring or regex (\`f\` focuses the box). **ERROR+** (\`e\`) and the system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`) match the TUI. Wrap cycles clip → wrap selected → wrap all (\`w\`). Split (\`\\\`) opens a second pane on the same buffer with its own service filter and follow/pin. History loads a persisted session; **Export** downloads NDJSON for the active filter. Keys on Logs: \`j\`/\`k\` move, \`f\` search, \`p\` pause, \`g\` latest (\`pinned · +N new\` when you leave the tail), \`e\` ERROR+, \`\\\` split, \`w\` wrap. Select a row for the JSON inspector; newer appends do not replace the open record. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
+Search is substring or regex (\`f\` focuses the box). **ERROR+** (\`e\`), the level chips (info and warn, warn and error, and the other combinations), **hide health**, and the system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`) match the TUI. Hide health drops supervisor probes and request logs for HTTP health/ready/live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and from the proxy. Wrap cycles clip → wrap selected → wrap all (\`w\`). Split (\`\\\`) opens a second pane on the same buffer with its own service filter and follow/pin. History loads a persisted session; **Export** downloads NDJSON for the active filter. Keys on Logs: \`j\`/\`k\` move, \`f\` search, \`p\` pause, \`g\` latest (\`pinned · +N new\` when you leave the tail), \`e\` ERROR+, \`\\\` split, \`w\` wrap. Select a row for the JSON inspector; newer appends do not replace the open record. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
 The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for a collapsible tree (path breadcrumb, expand/collapse, copy path or value) and a syntax-colored pretty view. Find highlights matching keys and values. The selected call stays open when newer calls arrive. Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
 

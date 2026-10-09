@@ -10,6 +10,7 @@ export * from "./ansi.ts";
 export * from "./parse.ts";
 export * from "./multiline.ts";
 export * from "./filter.ts";
+export * from "./health.ts";
 export * from "./regex.ts";
 export * from "./pagination.ts";
 export * from "./dedupe.ts";

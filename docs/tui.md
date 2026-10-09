@@ -160,13 +160,15 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/split` | | Split the logs screen into two service panes |
 | `/trace <id>` | | Search logs for a request or trace id |
 | `/filter` | | Toggle ERROR+ log filter |
+| `/levels [levels]` | `/level` | Show only these log levels, such as info,warn or warn,error |
+| `/health` | `/health-logs` | Show or hide health-check logs, including REST and gRPC health request lines |
 | `/system` | `/internal` | Show or hide internal auth/mcp/devctl/proxy logs |
 | `/wrap` | | Cycle log wrap: all lines, clip, or selected row |
 | `/export [path]` | | Write filtered logs to ~/.devctl/exports |
 | `/exports` | `/open-exports` | Open the log export folder |
 | `/clear` | `/new` | Clear the on-screen log buffer |
 
-`/split` is also `\\`; `|` focuses the other pane. `/trace` sets log search to a `request_id` / `trace_id`. `/export` without a path writes under `~/.devctl/exports`. `/clear` only clears this TUI's on-screen view, not the daemon's shared log buffer.
+`/levels info,warn` — Info and warn. `/levels warn,error` — Warn and error. `/levels error,fatal` — Error and fatal. `/levels all` — Show every level, including lines that have none. `/health` hides supervisor probes and request logs for HTTP health, ready, and live endpoints and gRPC `grpc.health.v1.Health`, from the service and the proxy. `/split` is also `\\`; `|` focuses the other pane. `/trace` sets log search to a `request_id` / `trace_id`. `/export` without a path writes under `~/.devctl/exports`. `/clear` only clears this TUI's on-screen view, not the daemon's shared log buffer.
 
 ### UI
 

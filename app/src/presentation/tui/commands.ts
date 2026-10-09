@@ -69,6 +69,13 @@ export function allCommands(): CommandSpec[] {
     { name: "split", aliases: [], desc: "Split the logs screen into two service panes", leader: "", group: "logs" },
     { name: "trace", aliases: [], desc: "Search logs for a request or trace id", leader: "", group: "logs", usage: "<id>" },
     { name: "filter", aliases: [], desc: "Toggle ERROR+ log filter", leader: "", group: "logs" },
+    { name: "levels", aliases: ["level"], desc: "Show only these log levels, such as info,warn or warn,error", leader: "", group: "logs", usage: "[levels]", suggest: [
+      { token: "info,warn", desc: "Info and warn" },
+      { token: "warn,error", desc: "Warn and error" },
+      { token: "error,fatal", desc: "Error and fatal" },
+      { token: "all", desc: "Show every level" },
+    ] },
+    { name: "health", aliases: ["health-logs"], desc: "Show or hide health-check logs, including REST and gRPC health request lines", leader: "", group: "logs" },
     { name: "system", aliases: ["internal"], desc: "Show or hide internal auth/mcp/devctl/proxy logs", leader: "", group: "logs" },
     { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values (not log, LLM, or traffic payloads)", leader: "", group: "ui" },
     { name: "wrap", aliases: [], desc: "Cycle log wrap: all lines, clip, or selected row", leader: "", group: "logs" },

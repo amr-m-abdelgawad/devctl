@@ -8,6 +8,7 @@ import {
   formatBodySummary,
   matchLog,
   MAX_LOG_PAGE_SIZE,
+  normalizeLogLevels,
   redactLogRecord,
   redactSpan,
   type LogFilter,
@@ -25,6 +26,20 @@ import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
+
+const LOG_LEVEL_AND_HEALTH = {
+  level: { type: "string", description: "Minimum level (ERROR includes FATAL). Ignored when levels is set" },
+  levels: {
+    type: "array",
+    items: { type: "string" },
+    description: "Levels to show, such as [\"info\", \"warn\"] or [\"warn\", \"error\"]. Names: trace, debug, info, warn, error, fatal. Omit or pass [] to show every level, including lines with no level. A comma-separated string is also accepted. Replaces level when set",
+  },
+  hide_health: {
+    type: "boolean",
+    description: "Hide supervisor health probes and request logs for HTTP health, ready, and live endpoints and gRPC grpc.health.v1.Health, from the service and the proxy",
+  },
+} as const;
+
 export const MCP_LLM_CAP = 200;
 export const MCP_TRAFFIC_CAP = 200;
 
@@ -114,12 +129,12 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Filtered log pages, secrets redacted",
     category: "logs",
     description:
-      "Recent log records, optionally filtered. Default page size is 200 (pass limit, max 5000). Secrets are redacted. Pass cursor=next_cursor to page toward newer events (direction defaults to forward whenever a cursor is set); pass cursor=prev_cursor with direction=backward for older events. since/until are plain timestamp filters for a fresh query, not a follow cursor. regex=true treats search as a regular expression.",
+      "Recent log records, optionally filtered. Default page size is 200 (pass limit, max 5000). Secrets are redacted. levels chooses which severities to show (for example [\"info\", \"warn\"] or [\"warn\", \"error\"]); omit it to show every level. level is a minimum and is ignored when levels is set. hide_health drops supervisor health probes and HTTP/gRPC health-endpoint request logs. Pass cursor=next_cursor to page toward newer events (direction defaults to forward whenever a cursor is set); pass cursor=prev_cursor with direction=backward for older events. since/until are plain timestamp filters for a fresh query, not a follow cursor. regex=true treats search as a regular expression.",
     inputSchema: {
       type: "object",
       properties: {
         service: { type: "string" },
-        level: { type: "string" },
+        ...LOG_LEVEL_AND_HEALTH,
         search: { type: "string" },
         regex: { type: "boolean", description: "Treat search as a regular expression" },
         source: { type: "string" },
@@ -148,7 +163,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: {
         service: { type: "string" },
-        level: { type: "string" },
+        ...LOG_LEVEL_AND_HEALTH,
         search: { type: "string" },
         regex: { type: "boolean", description: "Treat search as a regular expression" },
         source: { type: "string" },
@@ -278,11 +293,12 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     label: "Recent errors",
     summary: "Latest error-severity log records",
     category: "logs",
-    description: "Latest error and fatal log records, capped at 200 by default, secrets redacted. Same paging fields as get_logs.",
+    description: "Latest error and fatal log records, capped at 200 by default, secrets redacted. Same paging fields as get_logs. hide_health drops health-check failures the same way get_logs does.",
     inputSchema: {
       type: "object",
       properties: {
         service: { type: "string" },
+        hide_health: LOG_LEVEL_AND_HEALTH.hide_health,
         search: { type: "string" },
         regex: { type: "boolean" },
         source: { type: "string" },
@@ -790,6 +806,8 @@ function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
   return {
     services: service === "" ? [] : [service],
     level: argString(args, "level"),
+    levels: normalizeLogLevels(args.levels),
+    hideHealth: argFlag(args.hide_health) || argFlag(args.hideHealth),
     search: argString(args, "search"),
     regex: argFlag(args.regex),
     source: argString(args, "source"),
@@ -1256,8 +1274,11 @@ export async function callMcpTool(host: McpHost, name: string, args: Record<stri
       return getTrafficCalls(host, args);
     case "get_traffic_call":
       return getTrafficCallTool(host, args);
-    case "recent_errors":
-      return getLogs(host, { ...args, level: "ERROR" });
+    case "recent_errors": {
+      const rest = { ...args };
+      delete rest.levels;
+      return getLogs(host, { ...rest, level: "ERROR" });
+    }
     case "list_profiles":
       return listProfiles(host.config());
     case "get_config":

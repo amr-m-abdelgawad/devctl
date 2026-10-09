@@ -1,4 +1,8 @@
+import { isHealthCheckLog } from "../src/domain/logs/health.ts";
+import { canonicalLogLevel, isErrorLevelPreset, matchesSelectedLevels, SELECTABLE_LOG_LEVELS, toggleListedLevel } from "../src/domain/logs/severity.ts";
 import type { DoctorCheck, DoctorReport, DoctorSeverity, LogFacets, LogRow, LogsPayload, LogsQuery } from "./types.ts";
+
+export { isErrorLevelPreset, SELECTABLE_LOG_LEVELS, toggleListedLevel };
 
 export const DEFAULT_MAX_MEMORY_EVENTS = 50_000;
 export const INITIAL_LOG_PAGE_LIMIT = 500;
@@ -216,11 +220,53 @@ export function appendFollowEvents(current: LogRow[], incoming: LogRow[], since:
   return merged.slice(drop).concat(fresh);
 }
 
+export function isHealthCheckRow(row: LogRow): boolean {
+  const body = typeof row.body === "string" && row.body !== "" ? row.body : row.message;
+  return isHealthCheckLog({
+    source: row.source,
+    body,
+    attributes: healthAttributes(row.attributes),
+    raw: row.message,
+  });
+}
+
+function healthAttributes(value: Record<string, unknown> | undefined): Record<string, string | number | boolean | null> {
+  const out: Record<string, string | number | boolean | null> = {};
+  if (!value) {
+    return out;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item === "string" || typeof item === "number" || typeof item === "boolean" || item === null) {
+      out[key] = item;
+    }
+  }
+  return out;
+}
+
+export function rowMatchesLevels(row: LogRow, levels: readonly string[]): boolean {
+  return matchesSelectedLevels(row.severityNumber ?? 0, row.level || row.severityText || "", levels);
+}
+
+export function facetLevelCount(byLevel: Record<string, number> | undefined, level: string): number {
+  if (!byLevel) {
+    return 0;
+  }
+  let total = 0;
+  for (const [key, count] of Object.entries(byLevel)) {
+    if (canonicalLogLevel(key) === level) {
+      total += count;
+    }
+  }
+  return total;
+}
+
 export function filterLogRows(
   events: LogRow[],
   opts: {
     service?: string;
     errorOnly?: boolean;
+    levels?: readonly string[];
+    hideHealth?: boolean;
     search?: string;
     regex?: boolean;
     showSystem?: boolean;
@@ -238,10 +284,17 @@ export function filterLogRows(
     if (opts.showSystem === false && isSystemLog(event)) {
       return false;
     }
+    if (opts.hideHealth === true && isHealthCheckRow(event)) {
+      return false;
+    }
     if (since !== "" && event.timestamp < since) {
       return false;
     }
-    if (opts.errorOnly === true && !isErrorLog(event)) {
+    if (opts.levels && opts.levels.length > 0) {
+      if (!rowMatchesLevels(event, opts.levels)) {
+        return false;
+      }
+    } else if (opts.errorOnly === true && !isErrorLog(event)) {
       return false;
     }
     if (!matcher) {
@@ -321,6 +374,8 @@ export function lastSeq(events: LogRow[]): number | undefined {
 export function liveLogsQuery(opts: {
   service?: string;
   errorOnly?: boolean;
+  levels?: readonly string[];
+  hideHealth?: boolean;
   search?: string;
   regex?: boolean;
   since?: string;
@@ -329,8 +384,13 @@ export function liveLogsQuery(opts: {
   if (opts.service) {
     query.service = opts.service;
   }
-  if (opts.errorOnly) {
+  if (opts.levels && opts.levels.length > 0) {
+    query.levels = [...opts.levels];
+  } else if (opts.errorOnly) {
     query.level = "ERROR";
+  }
+  if (opts.hideHealth) {
+    query.hideHealth = true;
   }
   if (opts.search) {
     query.search = opts.search;
@@ -348,6 +408,8 @@ export function logsQueryKey(query: LogsQuery): string {
   return JSON.stringify([
     query.service ?? "",
     query.level ?? "",
+    (query.levels ?? []).join(","),
+    query.hideHealth === true,
     query.search ?? "",
     query.regex === true,
     query.source ?? "",
@@ -363,6 +425,12 @@ export function encodeLogsQuery(query: LogsQuery): Record<string, string> {
   }
   if (query.level) {
     params.level = query.level;
+  }
+  if (query.levels && query.levels.length > 0) {
+    params.levels = query.levels.join(",");
+  }
+  if (query.hideHealth) {
+    params.hide_health = "true";
   }
   if (query.search) {
     params.search = query.search;

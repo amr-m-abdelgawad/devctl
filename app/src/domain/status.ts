@@ -35,6 +35,8 @@ export type RestartRequest = {
 export type LogsRequest = {
   services?: string[];
   level?: string;
+  levels?: string[];
+  hideHealth?: boolean;
   search?: string;
   regex?: boolean;
   source?: string;

@@ -1,6 +1,6 @@
 import type { LlmCallFilter, LlmCallStatus } from "../../domain/llm/llm.ts";
 import type { TrafficCallFilter, TrafficTransport } from "../../domain/traffic/traffic.ts";
-import type { LogFilter } from "../../domain/logs/logs.ts";
+import { normalizeLogLevels, type LogFilter } from "../../domain/logs/logs.ts";
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -10,6 +10,8 @@ export function asLogFilter(rec: Record<string, unknown>): LogFilter {
   return {
     services: asStringArray(rec.services),
     level: typeof rec.level === "string" ? rec.level : "",
+    levels: normalizeLogLevels(rec.levels),
+    hideHealth: rec.hideHealth === true || rec.hide_health === true || rec.hideHealth === "true" || rec.hide_health === "true",
     search: typeof rec.search === "string" ? rec.search : "",
     regex: rec.regex === true,
     source: typeof rec.source === "string" ? rec.source : "",

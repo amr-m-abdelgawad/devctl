@@ -454,12 +454,41 @@ describe("mcp tools", () => {
       regex: "true",
       dedupe_request_id: "true",
       search: "err",
+      levels: "info,warn",
+      hide_health: "true",
     });
     expect(seen?.limit).toBe(25);
     expect(seen?.direction).toBe("backward");
     expect(seen?.regex).toBe(true);
     expect(seen?.dedupeRequestId).toBe(true);
     expect(seen?.search).toBe("err");
+    expect(seen?.levels).toEqual(["INFO", "WARN"]);
+    expect(seen?.hideHealth).toBe(true);
+  });
+
+  test("get_logs and get_log_stats apply a level set and hide_health", async () => {
+    const logs = [
+      logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "ready", pid: 1, seq: 1 }),
+      logRecord({ timestamp: "t2", service: "api", source: "stdout", level: "WARN", message: "slow", pid: 1, seq: 2 }),
+      logRecord({ timestamp: "t3", service: "api", source: "stderr", level: "ERROR", message: "boom", pid: 1, seq: 3 }),
+      logRecord({ timestamp: "t4", service: "api", source: "health", level: "INFO", message: "health HEALTHY 200", pid: 1, seq: 4 }),
+      logRecord({ timestamp: "t5", service: "api", source: "stdout", level: "INFO", message: 'INFO:     127.0.0.1:1 - "GET /health HTTP/1.1" 200 OK', pid: 1, seq: 5 }),
+      logRecord({ timestamp: "t6", service: "proxy", source: "proxy", level: "INFO", message: "grpc /grpc.health.v1.Health/Check route=api grpc-status=0 duration=1ms", pid: 0, seq: 6 }),
+      logRecord({ timestamp: "t7", service: "api", source: "health", level: "ERROR", message: "health UNHEALTHY down", pid: 1, seq: 7 }),
+    ];
+    const host = stubHost();
+    host.logsPage = (req) => fakeLogsPage(logs, req);
+    host.logsStats = (req) => fakeLogsStats(logs, req);
+    const page = (await callMcpTool(host, "get_logs", { levels: ["warn", "error"], hide_health: true })) as {
+      events: Array<{ message: string }>;
+    };
+    expect(page.events.map((event) => event.message)).toEqual(["slow", "boom"]);
+    const stats = (await callMcpTool(host, "get_log_stats", { hide_health: true })) as { total: number };
+    expect(stats.total).toBe(3);
+    const errors = (await callMcpTool(host, "recent_errors", { hide_health: true, levels: ["info"] })) as {
+      events: Array<{ message: string }>;
+    };
+    expect(errors.events.map((event) => event.message)).toEqual(["boom"]);
   });
 
   test("get_log_stats returns facet counts without events", async () => {
