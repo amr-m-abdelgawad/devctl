@@ -9,6 +9,7 @@ import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, 
 import { configFlag, writeOut } from "./shared.ts";
 import { DEFAULT_WAIT_TIMEOUT, plannedServices, waitForStack } from "./wait.ts";
 import { parseDuration } from "../../domain/harness.ts";
+import { hintError, KindGeneral } from "../../shared/errors.ts";
 
 export function addExec(root: Command, runtime: ClientRuntime): void {
   root.command("exec")
@@ -279,8 +280,15 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
       // request — dispatch("shutdown") replies immediately and does the
       // actual work shortly after (so the reply can flush before its own
       // socket goes away). down's job is to leave the daemon actually
-      // gone, so wait for that before reporting success.
-      await waitUntilStopped(runtime, repoRoot, timeout);
+      // gone, so wait for that before reporting success, and say so when
+      // it is still there at the deadline.
+      if (!(await waitUntilStopped(runtime, repoRoot, timeout))) {
+        throw hintError(
+          KindGeneral,
+          `the supervisor for ${repoRoot} is still stopping after ${Math.round(timeout / 1000)} s`,
+          "it was asked to stop and goes on; run `devctl down` again to wait for it",
+        );
+      }
       writeOut(
         opts.keepServices !== true
           ? `stopped services and the supervisor for ${repoRoot}\n`

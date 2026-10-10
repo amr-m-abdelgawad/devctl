@@ -19,7 +19,7 @@ import { detectGoogle, loginGoogle, logoutGoogle } from "../adapters/google/goog
 import { TokenManager, googleTokenProviders } from "../adapters/google/token.ts";
 import { createDoctorHost, createDoctorRunner, formatDoctor, type DoctorHost } from "../adapters/doctor/doctor.ts";
 import { GetShutdownPlan, GetStartupPlan, ResolveStart, RunDoctor } from "../application/commands.ts";
-import { openAttach, openController, openTui, findDaemon, tryDial, daemonRunning, assertMethodAllowed } from "../adapters/rpc/controller.ts";
+import { openAttach, openController, openTui, findDaemon, daemonRunning, assertMethodAllowed } from "../adapters/rpc/controller.ts";
 import { githubUpdate } from "../adapters/update/update.ts";
 import { formatUpdateStatus } from "../domain/update.ts";
 
@@ -38,7 +38,7 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     loadTuiConfig, saveTuiPreferences, resolveTuiOverridePath, userTuiConfigPath, repoTuiConfigPath, patchRepoLocalConfig, listSessions, loadSessionEvents, loadSessionTail,
     loadSessionPage: (session, filter, page, root = logsDir()) => history(root).page(session, filter, page),
     loadPath, validateConfigText, discover, configDiff,
-    openTui, findDaemon, tryDial, daemonRunning, assertMethodAllowed,
+    openTui, findDaemon, daemonRunning, assertMethodAllowed,
     listInstances: readInstances,
     releaseInstance: releaseSlot,
     processAlive,

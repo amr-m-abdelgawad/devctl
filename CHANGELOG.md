@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The trace store has a byte budget, `telemetry.store_max_bytes` (64 MiB when unset), beside its 10,000-span cap. It was bounded only by count, so spans that carry whole prompts or stack traces could take the daemon past a gigabyte. Over the budget the oldest spans go first, and under memory pressure the daemon halves and then quarters the budget as it does the log ring's. Stacks with small spans keep 10,000 as before; with large spans, older traces leave the trace explorer sooner. The proxy's request spans count toward the budget.
 - `devctl status` and `devctl down` wait up to three seconds for a daemon that is alive and only slow to answer, instead of giving up after 200 ms. When a live daemon still does not answer, `status` says so and no longer also prints `supervisor is not running` or lists its services as stopped; `status --json` stays one JSON document and carries the text in `notice`.
+- `devctl down` exits 1 and says `the supervisor for <repo> is still stopping after <n> s` when the daemon has not gone by its deadline (the shutdown grace plus two seconds, at least five). It printed `stopped services and the supervisor` whatever had happened. The daemon goes on stopping; running `down` again waits for it.
+- `devctl instances prune` says why it kept the slot of a daemon that is alive and does not answer (paused, wedged, or left by an older devctl): the same text `devctl down` prints, which names `devctl down --force`. It said `its supervisor did not stop in time; run devctl instances prune again`, or told you to stop the services by hand.
+- `devctl instances` lists a stack as `running` while a live process holds its daemon lock. One ping unanswered within 200 ms listed it as `stopped`.
 
 ### Fixed
 

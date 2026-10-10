@@ -264,7 +264,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export async function tryDial(repoRoot: string): Promise<Client | undefined> {
+async function tryDial(repoRoot: string): Promise<Client | undefined> {
   try {
     return await dial(repoRoot, TRY_DIAL_MS);
   } catch {

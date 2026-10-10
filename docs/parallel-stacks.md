@@ -49,7 +49,7 @@ A service that ignores its injected port and binds a hardcoded one will still co
 A slot stays with its stack, keyed by checkout path and instance name, until it is freed. Restarts, `devctl down --keep-services` and a supervisor crash all keep it, because the services may still be running on the slot's ports. A start that fails before the supervisor is up (an invalid configuration, say) gives back a slot it had just claimed.
 
 - `devctl down`, which stops the services too, frees the slot. `devctl --instance ci-7 down` stops and frees only that instance.
-- `devctl instances prune` stops every stack (named instances included) whose checkout directory no longer exists (a deleted worktree) and frees its slot. It keeps the slot, and exits non-zero, while anything of that stack is still running: a supervisor that didn't stop in time, or services a `down --keep-services` left behind. Stop those, then prune again.
+- `devctl instances prune` stops every stack (named instances included) whose checkout directory no longer exists (a deleted worktree) and frees its slot. It keeps the slot, and exits non-zero, while anything of that stack is still running: a supervisor that didn't stop in time, a supervisor that is alive and does not answer (paused, or left by an older devctl), or services a `down --keep-services` left behind. For a supervisor that does not answer it prints what `devctl down` prints, which names `devctl down --force`. Stop those, then prune again.
 
 If all 9 slots are taken, starting another stack fails with `all 9 port slots are taken by other stacks`. Run `devctl down` in a stack you're done with, or prune deleted checkouts.
 

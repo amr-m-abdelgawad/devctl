@@ -34,7 +34,7 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
       const kept: string[] = [];
       for (const row of stale) {
         await withInstance(row.instance, async () => {
-          const { client } = await runtime.findDaemon("", row.repoRoot);
+          const { client, notice } = await runtime.findDaemon("", row.repoRoot);
           if (client) {
             const timeout = await shutdownTimeoutFor(client);
             try {
@@ -43,6 +43,11 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
               client.close();
             }
             await waitUntilStopped(runtime, row.repoRoot, timeout);
+          } else if (notice !== undefined) {
+            // Alive and not answering, so it was never asked to stop: say
+            // why, as `down` does, not that it did not stop in time.
+            kept.push(`slot ${row.slot} (${stackLabel(row)}): ${notice}`);
+            return;
           }
           // The slot's ports are free only once nothing of the stack is left:
           // a supervisor that outlived its shutdown deadline, or services a
@@ -81,9 +86,8 @@ async function instanceRows(runtime: ClientRuntime): Promise<InstanceRow[]> {
     // exactly what prune is for.
     let status: InstanceRow["status"] = "missing";
     if (runtime.fileExists(entry.repoRoot)) {
-      const client = await withInstance(entry.instance, () => runtime.tryDial(entry.repoRoot));
-      status = client ? "running" : "stopped";
-      client?.close();
+      // By its lock as well as its socket: a daemon slow to answer is still running.
+      status = (await withInstance(entry.instance, () => runtime.daemonRunning(entry.repoRoot))) ? "running" : "stopped";
     }
     rows.push({ ...entry, offset: slotOffset(entry.slot), status });
   }
