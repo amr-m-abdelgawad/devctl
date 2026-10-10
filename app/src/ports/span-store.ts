@@ -6,5 +6,7 @@ export type SpanStore = {
   envelopeMs(traceId: string): number | undefined;
   findTraceIdByRequestId(requestId: string): string | undefined;
   recent(limit?: number): Span[];
+  /** Changes the store's byte budget and evicts down to it. */
+  setMaxBytes?(maxBytes: number): void;
   close(): void;
 };

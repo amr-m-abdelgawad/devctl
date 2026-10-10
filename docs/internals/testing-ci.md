@@ -126,7 +126,7 @@ Jobs (all must pass except dependency-review skipped on non-PR):
 | demo-config | `devctl config validate` in `examples/demo-platform` |
 | compile-smoke | `compile-binaries.sh` + `smoke-test-binary.sh` |
 | npm-package-build / smoke | Pack + install matrix (Linux/macOS/Windows/Alpine) |
-| windows-tests | `bun test` on windows-latest |
+| windows-tests | `bun test` on windows-latest, run under `.github/scripts/run-watched.cjs`: a run still going after ten minutes is stopped, and the log first shows the processes started since it began, its threads, and their native stacks |
 | macos-tests | `bun test` on macos-15 (Docker-gated tests stay skipped) |
 | e2e | `bun run e2e:setup` + `bun run e2e` on ubuntu-latest and macos-15 |
 | audit | `bun audit` |

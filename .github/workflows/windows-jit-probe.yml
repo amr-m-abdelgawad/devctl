@@ -1,0 +1,54 @@
+name: Windows runtime probe
+
+# Temporary. Bun 1.4.2 has crashed and hung in the Windows unit job on this
+# branch; its two crash reports both end in the JIT finishing a background
+# compilation. A first round of 12 runs a leg had 3 crashes in 24 runs as it
+# is and none in 24 with the JIT restricted, which is too few to be sure.
+# This round repeats the unit suite 30 times each: as it is, with the
+# optimizing JIT off, and on Bun's canary build. Remove it, and
+# .github/scripts/repeat-tests.cjs, once that is settled.
+#
+# Runs when a pull request is given the `win-probe` label.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: github.event.label.name == 'win-probe'
+    name: ${{ matrix.leg }}, ${{ matrix.half }} of 2
+    runs-on: windows-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [as it is, no optimizing JIT, Bun canary]
+        half: [1, 2]
+        include:
+          - leg: as it is
+            bun: 1.4.2
+            args: ""
+          - leg: no optimizing JIT
+            bun: 1.4.2
+            args: "--env BUN_JSC_useDFGJIT=0"
+          - leg: Bun canary
+            bun: canary
+            args: ""
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ matrix.bun }}
+      - working-directory: app
+        run: bun install --frozen-lockfile
+      # Fifteen runs of about two minutes each, twice over. A run still going after six is stopped and counted as hung.
+      - name: Repeat the unit suite
+        working-directory: app
+        run: node ../.github/scripts/repeat-tests.cjs 15 6 ${{ matrix.args }}

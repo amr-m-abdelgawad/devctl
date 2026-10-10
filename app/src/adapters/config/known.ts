@@ -19,6 +19,7 @@ export const knownTopLevel = [
   "telemetry",
   "web",
   "llm",
+  "supervisor",
 ];
 
 export const knownService = [
@@ -51,7 +52,7 @@ export const knownIdentity = ["type", "mode", "service_account", "config"];
 export const knownRestart = ["enabled", "policy", "max_retries", "backoff_seconds"];
 export const knownStartup = ["wait_for_healthy", "timeout_seconds"];
 export const knownExpose = ["enabled", "host", "port"];
-export const knownProxy = ["enabled", "gateway", "credentials", "listen", "token_endpoint", "routes", "inspect_max_bytes"];
+export const knownProxy = ["enabled", "gateway", "credentials", "listen", "token_endpoint", "routes", "inspect_max_bytes", "inspect_store_max_bytes"];
 export const knownListen = ["host", "port"];
 export const knownRoute = ["name", "transport", "listen", "match", "upstream", "auth", "response_headers", "inspect", "strip_prefix", "log", "timeout", "transform"];
 export const knownRouteTimeout = ["idle_ms", "total_ms"];
@@ -65,8 +66,10 @@ export const knownRouteLogGrpcOk = ["status", "methods", "log", "inspect"];
 export const knownMatch = ["host", "path"];
 export const knownUpstream = ["url", "service", "port", "recipe"];
 export const knownRouteAuth = ["type", "identity", "audience", "service_account", "client_id", "client_secret", "credentials", "headers", "log_identity", "suppress_authorization"];
-export const knownLogs = ["max_memory_events", "persistence"];
-export const knownPersistence = ["enabled", "directory", "retention_days", "max_session_logs"];
+export const knownLogs = ["max_memory_events", "max_memory_bytes", "persistence", "spool"];
+export const knownPersistence = ["enabled", "directory", "retention_days", "max_session_logs", "max_session_bytes", "max_total_bytes"];
+export const knownSpool = ["max_bytes"];
+export const knownSupervisor = ["reap_orphans"];
 export const knownAuth = ["refresh_threshold_seconds"];
 export const knownShutdown = ["stop_services_on_exit", "grace_seconds"];
 export const knownUI = ["theme", "keymap"];
@@ -93,10 +96,10 @@ export const knownHttp = ["request", "outputs", "cache", "expose"];
 export const knownHttpRequest = ["method", "url", "headers", "body", "form", "auth", "timeout_seconds"];
 export const knownHttpCache = ["jwt", "expires_in"];
 export const knownHttpExpose = ["enabled", "host", "response_headers", "allow_token_body"];
-export const knownTelemetry = ["otlp"];
+export const knownTelemetry = ["otlp", "store_max_bytes"];
 export const knownTelemetryOtlp = ["enabled", "listen"];
 export const knownWeb = ["enabled", "listen"];
-export const knownLlm = ["enabled", "sources", "capture_max_bytes"];
+export const knownLlm = ["enabled", "sources", "capture_max_bytes", "store_max_bytes"];
 export const knownLlmSource = [
   "name",
   "type",

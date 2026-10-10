@@ -11,6 +11,8 @@
   "files": [
     "bin/devctl.cjs",
     "dist/devctl.js",
+    "dist/log-worker.js",
+    "dist/event-loop-watchdog-worker.js",
     "README.md",
     "LICENSE"
   ],

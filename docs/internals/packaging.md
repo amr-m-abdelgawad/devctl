@@ -16,10 +16,10 @@ The Release publish job uploads those standalone files and the npm tarball **one
 Standalone binaries:
 
 - `Bun.isStandaloneExecutable` changes `_supervisor` argv (`supervisorSpawnCommand`)
-- Log worker is skipped
+- The log and watchdog workers are extra `--compile` entrypoints named `[name].[ext]`, so each binary embeds them beside its entrypoint (`resolveWorkerUrl`)
 - MCP/docs strings must be compiled in → `sync-guide` before release
 
-Smoke: `.github/scripts/smoke-test-binary.sh`.
+Smoke: `.github/scripts/smoke-test-binary.sh`. It, and the npm smoke, also assert that the daemon runs the worker log store (`status --json` `daemon.logStore`) and a live watchdog (`heartbeat.json` not degraded, `workerTick` advancing). CI also checks that every compiled binary embeds both workers.
 
 ## npm (`@amr-m-abdelgawad/devctl`)
 
@@ -29,6 +29,8 @@ Smoke: `.github/scripts/smoke-test-binary.sh`.
 | Launcher tests | `packaging/npm/devctl.test.cjs`, `app` script `test:npm-launcher` |
 | Publish | Trusted Publishing / OIDC via `release.yml` environment `npm` |
 | Maintainer steps | [npm-publishing.md](../npm-publishing.md) |
+
+The tarball ships `dist/log-worker.js` and `dist/event-loop-watchdog-worker.js` beside `dist/devctl.js`; without them the daemon parses logs on its main thread and runs without its watchdog. npm packs only what `files` in `packaging/npm/package.template.json` names, so the build fails when a generated file is missing from that list, and `.github/scripts/verify-npm-pack.cjs` checks what was packed.
 
 The generated tarball's `dependencies` are `bun` (pinned), `PUBLISHED_APP_DEPENDENCIES` (today: `@opentui/core`, for native `dlopen`), and `PUBLISHED_RUNTIME_EXTERNALS` (today: `node-fetch`, which gaxios reaches through a dynamic `import()` that the bundler cannot inline) — all in `app/scripts/npm-package.ts`. Native packages and the Bun runtime are pinned to the exact version installed at build time (the frozen bundle is validated against that build and their ABI is version-coupled, as esbuild/sharp/`@swc/core` pin their native platform packages), while pure-JS runtime imports ship as caret ranges from that version so semver-compatible security patches still reach consumers; every other `app/package.json` dependency is inlined into `dist/devctl.js`. After bundling, the build scans the emitted JS for the modules it still imports and throws if any is not declared in one of those lists — or if either list names a package the bundle no longer imports — so a dependency change fails the build instead of crashing on a user's machine. To keep a new native library on disk, add it to `PUBLISHED_APP_DEPENDENCIES`; for a package left as a runtime `import()`, add it to `PUBLISHED_RUNTIME_EXTERNALS`. Consumers still must not install with `--ignore-scripts`: Bun's package uses a postinstall script to select the runtime for the current OS and CPU.
 

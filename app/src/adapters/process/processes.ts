@@ -1,14 +1,22 @@
 import type { ProcessRuntime } from "../../ports/process-runtime.ts";
 import { spawn, type Subprocess } from "bun";
 import { KindProcessStart, newError, wrapError } from "../../shared/errors.ts";
+import { DEFAULT_LOG_CAP_BYTES, RUN_ONCE_DRAIN_GRACE_MS, SPLIT_MAX_BYTES } from "../../domain/logs/budgets.ts";
+import { MAX_LOG_LINE_CHARS } from "../../domain/logs/logs.ts";
 import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./windows.ts";
 import { processAlive } from "../storage/storage.ts";
+import { groupHasLiveMembers } from "./liveness.ts";
+import { pumpChunks, pumpLines, type ChunkHandler, type LineHandler, type StreamName } from "./output-pump.ts";
+import { LineSplitter } from "../storage/ingest/line-splitter.ts";
+import { FifoStdio, type ServiceFifos, type StdioHandlerFor } from "./fifo-stdio.ts";
+import { forgetManagedPid, rememberManagedPid } from "./peer-caller.ts";
 import { adoptContainer, startContainer, containerEnvironment, type ContainerControl, type ContainerLaunchSpec } from "../containers/containers.ts";
 
 const DEFAULT_GRACE_MS = 10_000;
 const KILL_WAIT_MS = 2_000;
 const ADOPT_POLL_MS = 500;
+const GROUP_POLL_MS = 50;
 // Cap per-stream captured output for a transient run (tasks, exec_service) so a
 // noisy command cannot grow supervisor memory without bound. Live logging via
 // `onLine` is untouched — only the returned string is capped, with a marker.
@@ -18,9 +26,12 @@ const CAPTURE_TRUNCATED_MARKER = "\n...[truncated]\n";
 // newline-free flood cannot grow the pending buffer without bound. Applies to
 // both transient captures and long-running service streaming.
 const MAX_LINE_BYTES = 1024 * 1024;
+// A transient command's leftover output is waited for this long at most while the log store is paused.
+const RUN_ONCE_PAUSED_DRAIN_MS = 30_000;
+const DRAIN_POLL_MS = 10;
 
-export type Stream = "stdout" | "stderr";
-export type LineHandler = (stream: Stream, line: string) => void;
+export type Stream = StreamName;
+export type { LineHandler };
 
 export type ProcessSpec = {
   name: string;
@@ -32,6 +43,10 @@ export type ProcessSpec = {
   captureStdout?: boolean;
   captureStderr?: boolean;
   onLine?: LineHandler;
+  /** Raw stdout/stderr. Returning false keeps the chunk until the pipeline has room. */
+  onChunk?: ChunkHandler;
+  /** When true, the pump stops reading so a full spool can apply backpressure. */
+  paused?: () => boolean;
   onExit?: (code: number, err?: Error) => void;
 };
 
@@ -56,6 +71,15 @@ export type Handle = {
 };
 
 export class ProcessManager implements ProcessRuntime {
+  private readonly fifos: FifoStdio | undefined;
+
+  /** `ingestSpoolDir` is the log store's spool: what it holds shares `spoolMaxBytes` with the drain spool. */
+  constructor(options: { stdioRoot?: string; spoolMaxBytes?: number; ingestSpoolDir?: string } = {}) {
+    this.fifos = options.stdioRoot === undefined || options.stdioRoot === "" || process.platform === "win32"
+      ? undefined
+      : new FifoStdio(options.stdioRoot, options.spoolMaxBytes ?? DEFAULT_LOG_CAP_BYTES, options.ingestSpoolDir);
+  }
+
   isRunning(name: string): boolean {
     const handle = this.running.get(name);
     return handle !== undefined && handleStillRunning(handle);
@@ -73,25 +97,27 @@ export class ProcessManager implements ProcessRuntime {
       throw newError(KindProcessStart, "empty command");
     }
     const cmd = spec.shell ? shellCommand(spec.args) : spec.args;
+    const fifos = await this.fifos?.open(spec.name, { stdout: spec.captureStdout !== false, stderr: spec.captureStderr !== false });
+    const raced = this.running.get(spec.name);
+    if (raced && handleStillRunning(raced)) {
+      fifos?.abandon();
+      return raced;
+    }
     let proc: Subprocess;
+    let usingFifo = fifos !== undefined;
     try {
-      proc = spawn({
-        cmd,
-        cwd: spec.workDir === "" ? undefined : spec.workDir,
-        env: spec.env,
-        stdout: spec.captureStdout === false ? "ignore" : "pipe",
-        stderr: spec.captureStderr === false ? "ignore" : "pipe",
-        stdin: "ignore",
-        // Services outlive the supervisor (`down --keep-services`, daemon
-        // replacement). POSIX: setsid, so stop signals the group. Windows:
-        // outside the job object that kills children when the parent exits;
-        // windowsHide keeps console windows from opening for the service or
-        // console programs it starts. Stop uses `taskkill /T` there.
-        detached: true,
-        windowsHide: true,
-      });
+      proc = spawnService(spec, cmd, fifos);
     } catch (err) {
-      throw wrapError(KindProcessStart, `failed to start ${spec.name}`, err);
+      fifos?.abandon();
+      if (!usingFifo) {
+        throw wrapError(KindProcessStart, `failed to start ${spec.name}`, err);
+      }
+      usingFifo = false;
+      try {
+        proc = spawnService(spec, cmd, undefined);
+      } catch (fallback) {
+        throw wrapError(KindProcessStart, `failed to start ${spec.name}`, fallback);
+      }
     }
     const handle: Handle = {
       name: spec.name,
@@ -102,11 +128,25 @@ export class ProcessManager implements ProcessRuntime {
       proc,
       done: Promise.resolve({ code: 0 }),
     };
-    void pumpLines(proc.stdout, "stdout", spec.onLine);
-    void pumpLines(proc.stderr, "stderr", spec.onLine);
+    rememberManagedPid(handle.pid);
+    if (usingFifo && fifos) {
+      fifos.attach(handle.pid, chunkDeliver(spec, handle.pid), spec.paused);
+    } else {
+      const livePump = { paused: spec.paused, maxLineBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS };
+      if (spec.onChunk) {
+        const deliver = chunkDeliver(spec, handle.pid);
+        void pumpChunks(proc.stdout, "stdout", deliver, livePump);
+        void pumpChunks(proc.stderr, "stderr", deliver, livePump);
+      } else {
+        void pumpLines(proc.stdout, "stdout", spec.onLine, livePump);
+        void pumpLines(proc.stderr, "stderr", spec.onLine, livePump);
+      }
+    }
     handle.done = proc.exited.then((code) => {
       const exitCode = typeof code === "number" ? code : 0;
       const err = exitCode === 0 ? undefined : new Error(`exited with code ${exitCode}`);
+      forgetManagedPid(handle.pid);
+      this.fifos?.exited(handle.pid);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -148,9 +188,15 @@ export class ProcessManager implements ProcessRuntime {
       }
       spec.onLine?.(stream, line);
     };
-    const pumps = [pumpLines(proc.stdout, "stdout", collect), pumpLines(proc.stderr, "stderr", collect)];
+    // Task and hook output goes through the log store's bounded lane line by
+    // line; while the store is backed up (`paused`), reads stop and the command
+    // blocks in its write instead of growing the lane.
+    const pumps = [
+      pumpLines(proc.stdout, "stdout", collect, { maxLineBytes: MAX_LINE_BYTES, paused: spec.paused }),
+      pumpLines(proc.stderr, "stderr", collect, { maxLineBytes: MAX_LINE_BYTES, paused: spec.paused }),
+    ];
     const code = await proc.exited;
-    await Promise.all(pumps);
+    await drainAfterExit(Promise.all(pumps), spec.paused);
     return { code: typeof code === "number" ? code : 0, stdout: caps.stdout.text, stderr: caps.stderr.text };
   }
 
@@ -172,12 +218,34 @@ export class ProcessManager implements ProcessRuntime {
   async adoptContainer(spec: Omit<ContainerLaunchSpec, "image" | "command" | "env" | "ports" | "targetPorts" | "volumes">): Promise<Handle | undefined> {
     const existing = this.running.get(spec.name);
     if (existing && handleStillRunning(existing)) return existing;
-    const control = await adoptContainer(spec.runtime, spec.containerName, spec.onLine, spec.onExit);
+    const control = await adoptContainer(spec.runtime, spec.containerName, spec.onLine, spec.onExit, spec.onChunk, spec.paused);
     if (!control) return undefined;
     const handle: Handle = { name: spec.name, pid: 0, startTime: new Date(), workDir: spec.workDir, args: [], done: control.done, container: control };
     control.done.finally(() => { if (this.running.get(spec.name) === handle) this.running.delete(spec.name); });
     this.running.set(spec.name, handle);
     return handle;
+  }
+
+  /**
+   * For a shutdown that leaves services running: stops reading their FIFOs
+   * once what was read is delivered. The sentinel drains them from then on.
+   */
+  async handoff(): Promise<void> {
+    await this.fifos?.handoff();
+  }
+
+  /**
+   * Reads again the FIFOs a previous daemon left running services on. What
+   * its drainer spooled is replayed first. `replayed` settles once that is
+   * done and live reading has started.
+   */
+  async takeOverStdio(handlerFor: StdioHandlerFor, paused?: () => boolean, onDrainBytes?: (bytes: number) => void): Promise<{ replayed: Promise<void> }> {
+    return (await this.fifos?.takeOver(handlerFor, paused, onDrainBytes)) ?? { replayed: Promise.resolve() };
+  }
+
+  /** True when `pid`'s stdout or stderr is read from a FIFO. */
+  followsOutput(pid: number): boolean {
+    return this.fifos?.follows(pid) === true;
   }
 
   adopt(spec: AdoptSpec): Handle {
@@ -196,7 +264,10 @@ export class ProcessManager implements ProcessRuntime {
       args: [...spec.args],
       done: Promise.resolve({ code: 0 }),
     };
+    rememberManagedPid(spec.pid);
     handle.done = pollAdopted(spec.pid).then((code) => {
+      forgetManagedPid(spec.pid);
+      this.fifos?.exited(spec.pid);
       if (this.running.get(spec.name) === handle) {
         this.running.delete(spec.name);
       }
@@ -221,10 +292,10 @@ export class ProcessManager implements ProcessRuntime {
       return;
     }
     await killProcessTree(handle.pid, "SIGTERM");
-    const finished = await raceDone(handle.done, grace);
+    const finished = await raceGroup(handle.pid, handle.done, grace);
     if (!finished) {
       await killProcessTree(handle.pid, "SIGKILL");
-      const killed = await raceDone(handle.done, KILL_WAIT_MS);
+      const killed = await raceGroup(handle.pid, handle.done, KILL_WAIT_MS);
       if (!killed) {
         throw newError(KindProcessStart, `process ${name} did not exit after SIGKILL`);
       }
@@ -337,6 +408,19 @@ function timeMs(value: Date | string | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
+function spawnService(spec: ProcessSpec, cmd: string[], stdio: Pick<ServiceFifos, "stdoutFd" | "stderrFd"> | undefined): Subprocess {
+  return spawn({
+    cmd,
+    cwd: spec.workDir === "" ? undefined : spec.workDir,
+    env: spec.env,
+    stdout: spec.captureStdout === false ? "ignore" : stdio?.stdoutFd ?? "pipe",
+    stderr: spec.captureStderr === false ? "ignore" : stdio?.stderrFd ?? "pipe",
+    stdin: "ignore",
+    detached: true,
+    windowsHide: true,
+  });
+}
+
 function shellCommand(args: string[]): string[] {
   if (process.platform === "win32") {
     return ["cmd.exe", "/c", args.join(" ")];
@@ -355,48 +439,62 @@ async function pollAdopted(pid: number): Promise<number> {
   return 0;
 }
 
-async function pumpLines(stream: ReadableStream<Uint8Array> | number | undefined, kind: Stream, handler?: LineHandler): Promise<void> {
-  if (!stream || typeof stream === "number" || !handler) {
-    return;
+async function raceGroup(pid: number, done: Promise<unknown>, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  let leaderDone = false;
+  void done.then(() => {
+    leaderDone = true;
+  });
+  while (Date.now() < deadline) {
+    const live = groupHasLiveMembers(pid);
+    if (live === false || (live === undefined && leaderDone)) {
+      return true;
+    }
+    await sleep(GROUP_POLL_MS);
   }
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) {
-      if (buf !== "") {
-        handler(kind, buf);
-      }
-      return;
-    }
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    for (const line of lines) {
-      handler(kind, line.replace(/\r$/, ""));
-    }
-    // Force a break on a pathologically long unterminated line so `buf` cannot
-    // grow without bound before a newline arrives. Shared with the long-running
-    // service path, so this only affects a single >1 MiB line with no newline.
-    if (Buffer.byteLength(buf, "utf8") >= MAX_LINE_BYTES) {
-      handler(kind, buf.replace(/\r$/, ""));
-      buf = "";
-    }
-  }
-}
-
-async function raceDone(done: Promise<unknown>, ms: number): Promise<boolean> {
-  return Promise.race([
-    done.then(() => true),
-    new Promise<boolean>((resolve) => {
-      setTimeout(() => resolve(false), ms);
-    }),
-  ]);
+  const live = groupHasLiveMembers(pid);
+  return live === false || (live === undefined && leaderDone);
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+// Output left in the pipes after a transient command exits. A grandchild can
+// hold them open forever, so the wait gives up after the drain grace, counting
+// only time the log store was taking output, and after a hard cap in any case.
+async function drainAfterExit(pumps: Promise<unknown>, paused?: () => boolean): Promise<void> {
+  let done = false;
+  void pumps.then(() => {
+    done = true;
+  });
+  const deadline = Date.now() + RUN_ONCE_PAUSED_DRAIN_MS;
+  let taking = 0;
+  while (!done && taking < RUN_ONCE_DRAIN_GRACE_MS && Date.now() < deadline) {
+    const started = Date.now();
+    await Promise.race([pumps, sleep(DRAIN_POLL_MS)]);
+    if (paused?.() !== true) {
+      taking += Date.now() - started;
+    }
+  }
+}
+
+// Tags every chunk with the pid that wrote it: output read after the process
+// exits, or after a restart, still belongs to this process's stream.
+function chunkDeliver(spec: ProcessSpec, pid: number): ChunkHandler {
+  const stdout = new LineSplitter({ maxBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS });
+  const stderr = new LineSplitter({ maxBytes: SPLIT_MAX_BYTES, maxChars: MAX_LOG_LINE_CHARS });
+  return (stream, bytes, meta) => {
+    if (spec.onChunk) {
+      return spec.onChunk(stream, bytes, { ...meta, pid });
+    }
+    const splitter = stream === "stdout" ? stdout : stderr;
+    const lines = meta?.end === true ? splitter.finish() : splitter.push(bytes);
+    for (const line of lines) {
+      spec.onLine?.(stream, line);
+    }
+    return true;
+  };
 }

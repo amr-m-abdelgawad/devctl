@@ -51,7 +51,8 @@ import type { SpanStore } from "../../ports/span-store.ts";
 import type { LlmCallStore } from "../../ports/llm-call-store.ts";
 import type { TrafficCallStore } from "../../ports/traffic-call-store.ts";
 import type { LlmSourceFactory } from "../../ports/llm-source.ts";
-import { dedupeLogsByRequestId, isTraceId, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { dedupeLogsByRequestId, isTraceId, MAX_LOG_PAGE_SIZE, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { approxRecordBytes } from "../../domain/logs/size.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { LlmCallManager } from "../llm/store.ts";
@@ -82,8 +83,13 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
-import { listSessions, loadSessionEvents } from "../storage/logs.ts";
-import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
+import { autoRingBytes, LOGS_REPLY_MAX_BYTES, spanStoreBytes, TRACE_LOOKUP_PAGES } from "../../domain/logs/budgets.ts";
+import { nextMemoryGuard, storeBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
+import { readHostLimits } from "../system/host-limits.ts";
+import { summarizeLlmCall } from "../../domain/llm/llm.ts";
+import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
+import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -117,6 +123,13 @@ export class Supervisor {
   private readonly mcp: McpCoordinator;
   private readonly web: WebCoordinator;
   private readonly resources: ResourceSampler;
+  /** The ring budget the memory guard last set; undefined while the store keeps its configured budget. */
+  private ringBudget?: number;
+  // The trace store's budget as last applied.
+  private spanBudget: number;
+  /** False until recovery has read state.json. Earlier writes must not erase leftover processes. */
+  private processesLoaded = false;
+  private memoryGuard: MemoryPressure = "ok";
   private readonly runtimes = new Map<string, Runtime>();
   private readonly ports = new Map<string, Record<string, number>>();
   private lock?: { release: () => void };
@@ -194,9 +207,10 @@ export class Supervisor {
     this.unlinkSocketFn = deps.unlinkSocket;
     this.detector = deps.detector;
     this.logs = deps.logs;
-    this.spans = new SpanManager(undefined, this.detector);
-    this.llmStore = new LlmCallManager(this.detector);
-    this.trafficStore = new TrafficCallRing(this.detector);
+    this.spanBudget = spanStoreBytes(cfg.telemetry.store_max_bytes);
+    this.spans = new SpanManager(undefined, this.detector, this.spanBudget);
+    this.llmStore = new LlmCallManager(this.detector, 0, cfg.llm.store_max_bytes);
+    this.trafficStore = new TrafficCallRing(this.detector, 0, cfg.proxy.inspect_store_max_bytes);
     this.llmFactory = llmSourceFactory([]);
     this.llmCapture = new ProxyCaptureSink({
       cfg: () => this.cfg,
@@ -359,7 +373,11 @@ export class Supervisor {
       get serviceSeries() {
         return self.resources.serviceSeries();
       },
-      logs: { snapshot: () => self.logs.snapshot() },
+      logs: {
+        snapshot: () => self.logs.snapshot(),
+        pipelineStats: () => self.logs.pipelineStats?.() ?? self.logs.snapshot().pipeline,
+        usesWorker: () => self.logs.usesWorker?.() === true,
+      },
       tokens: { storeBackend: () => self.tokens.storeBackend() },
       traceDurationMs: (traceId) => self.spans.envelopeMs(traceId),
     };
@@ -432,7 +450,12 @@ export class Supervisor {
       get serviceStartedEnv() { return self.serviceStartedEnv; },
       get orchestrator() { return self.orchestrator; },
       get procs() { return self.procs; },
-      logs: { append: (event) => self.logs.append(event) },
+      logs: {
+        append: (event) => self.logs.append(event),
+        ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
+        ingestPaused: () => self.logs.ingestPaused?.() === true,
+        reserveSpool: (bytes) => self.logs.reserveSpool?.(bytes),
+      },
       get clock() { return self.clock; },
       get tokens() { return self.tokens; },
       get registry() { return self.registry; },
@@ -476,6 +499,7 @@ export class Supervisor {
     // Resolve the developer email before anything reads environment YAML, so
     // ${identity.user} matches the address the identity screen will show.
     await this.refreshIdentity();
+    this.processesLoaded = true;
     await this.recoverSession();
     this.serviceWatchers.sync(this.cfg.services);
     watchConfigDir(this.reloadHost());
@@ -502,7 +526,7 @@ export class Supervisor {
     const rec = isRecord(params) ? params : {};
     switch (method) {
       case "ping":
-        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION };
+        return { session: this.sessionID, version: VERSION, protocol: RPC_PROTOCOL_VERSION, features: ["log_batch.v1"] };
       case "start":
         return this.commands.startService.execute({
           services: asStringArray(rec.services),
@@ -558,6 +582,7 @@ export class Supervisor {
           ...asLlmCallFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+          summary: rec.summary === true,
         });
       case "get_llm_call":
         return this.queryLlmCall(typeof rec.id === "string" ? rec.id : "");
@@ -566,6 +591,7 @@ export class Supervisor {
           ...asTrafficCallFilter(rec),
           cursor: typeof rec.cursor === "string" ? rec.cursor : undefined,
           limit: typeof rec.limit === "number" ? rec.limit : undefined,
+          summary: rec.summary === true,
         });
       case "get_traffic_call":
         return this.queryTrafficCall(typeof rec.id === "string" ? rec.id : "");
@@ -717,7 +743,11 @@ export class Supervisor {
         },
       },
       resolveHealthConfig: (name, health, assigned) => resolveHealthConfig(health, self.cfg, name, assigned, self.ports),
-      logs: { append: (event) => self.logs.append(event) },
+      logs: {
+        append: (event) => self.logs.append(event),
+        ingestChunk: (chunk) => self.logs.ingestChunk?.(chunk) ?? false,
+        ingestPaused: () => self.logs.ingestPaused?.() === true,
+      },
       bus: self.bus,
       processMeta: self.processMeta,
       get containerPrefix() { return `devctl-${repoID(self.cfg.repoRoot, self.cfg.instance.name)}-`; },
@@ -805,6 +835,7 @@ export class Supervisor {
       name, args: [...command.args], shell: shell || command.shell, workDir, env,
       graceMs: graceSeconds(this.cfg.shutdown) * 1000,
       onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      paused: () => this.logs.ingestPaused?.() === true,
     });
     if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;
@@ -882,6 +913,7 @@ export class Supervisor {
       logsStats: (req) => this.queryLogsFacets(req),
       listLogSessions: () => listSessions(this.logSessionsRoot()),
       loadLogSession: (id) => this.loadPersistedLogSession(id),
+      logSessionPage: this.logs.historyPage === undefined ? undefined : (id, req) => this.queryLogSessionPage(id, req),
       config: () => this.cfg,
       validateConfigText: (text) => validateConfigText(this.cfg.repoRoot, this.cfg.configPath, text),
       start: (req) => this.commands.startService.execute(req),
@@ -971,6 +1003,8 @@ export class Supervisor {
     this.persistState();
     if (stopServices) {
       await this.stop([]);
+    } else {
+      await this.procs.handoff();
     }
     this.orchestrator.health.dispose();
     this.recipes.stop();
@@ -1001,19 +1035,43 @@ export class Supervisor {
     return this.identity.refreshIdentity(opts);
   }
 
-  async queryLogs(req: LogsRequest): Promise<{ events: LogEvent[] }> {
+  /**
+   * The unpaged `logs` call. An export is written by the log store and no
+   * records come back. Otherwise the reply holds the newest matches, read a
+   * page at a time, up to LOGS_REPLY_MAX_BYTES, and says when older ones were
+   * left out. A ring of long lines can be hundreds of megabytes, so a caller
+   * that wants all of it pages with `logs_page`.
+   */
+  async queryLogs(req: LogsRequest): Promise<{ events: LogEvent[]; truncated?: boolean }> {
     const filter = this.logFilter(req);
-    const events = await this.logs.query(filter);
     if (req.export) {
       await this.logs.exportTo(req.export, filter);
+      return { events: [] };
     }
-    return { events: applyRequestIdDedupe(filter, events) };
+    const pages: LogEvent[][] = [];
+    let bytes = 0;
+    let cursor: string | undefined;
+    let truncated = false;
+    for (;;) {
+      const page = await this.logs.queryPage(filter, { cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
+      pages.push(page.events);
+      for (const event of page.events) {
+        bytes += approxRecordBytes(event);
+      }
+      if (!page.hasPrev || page.prevCursor === cursor) {
+        break;
+      }
+      if (bytes >= LOGS_REPLY_MAX_BYTES) {
+        truncated = true;
+        break;
+      }
+      cursor = page.prevCursor;
+    }
+    const events = pages.reverse().flat();
+    return { events: applyRequestIdDedupe(filter, events), truncated: truncated ? true : undefined };
   }
 
-  // Bounded, cursor-paged counterpart to queryLogs() — added alongside it
-  // rather than replacing it so CLI/TUI/MCP consumers can migrate to paging
-  // one at a time; queryLogs()/the plain "logs" RPC still returns everything
-  // matching, unbounded, until every consumer has moved off it.
+  // The bounded, cursor-paged way to read logs: one page per call.
   async queryLogsPage(req: LogFilter & LogPageRequest): Promise<LogPage> {
     const filter = this.logFilter(req);
     const page = await this.logs.queryPage(filter, { cursor: req.cursor, direction: req.direction, limit: req.limit });
@@ -1026,8 +1084,30 @@ export class Supervisor {
 
   async queryTrace(traceId: string): Promise<TraceResponse> {
     const tree = this.spans.getTrace(traceId);
-    const events = traceId === "" ? [] : await this.logs.query({ traceId });
-    return { traceId, tree, events };
+    if (traceId === "") {
+      return { traceId, tree, events: [] };
+    }
+    const logs = await this.traceLogs(traceId);
+    return { traceId, tree, events: logs.events, truncated: logs.complete ? undefined : true };
+  }
+
+  // A trace's records from the whole log window, oldest first. The ring alone
+  // misses what it has evicted, so this pages back through the window like
+  // any paged read, for at most TRACE_LOOKUP_PAGES pages and a reply's bytes.
+  private async traceLogs(traceId: string): Promise<{ events: LogEvent[]; complete: boolean }> {
+    let events: LogEvent[] = [];
+    let bytes = 0;
+    let cursor: string | undefined;
+    for (let pages = 1; ; pages += 1) {
+      const page = await this.logs.queryPage({ traceId }, { cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
+      events = page.events.concat(events);
+      bytes = page.events.reduce((sum, event) => sum + approxRecordBytes(event), bytes);
+      const stalled = page.prevCursor === cursor;
+      if (!page.hasPrev || stalled || pages >= TRACE_LOOKUP_PAGES || bytes >= LOGS_REPLY_MAX_BYTES) {
+        return { events, complete: !page.hasPrev };
+      }
+      cursor = page.prevCursor;
+    }
   }
 
   async queryTraceByRequest(requestId: string): Promise<TraceResponse> {
@@ -1038,7 +1118,11 @@ export class Supervisor {
   }
 
   queryLlmCallsPage(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage {
-    return this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.llmStore.queryPage(req, { cursor: req.cursor, limit: req.limit, summary: req.summary });
+    if (req.summary !== true) {
+      return page;
+    }
+    return { ...page, calls: page.calls.map((call) => summarizeLlmCall(call)) };
   }
 
   queryLlmCall(id: string): LlmCall | undefined {
@@ -1046,7 +1130,59 @@ export class Supervisor {
   }
 
   queryTrafficCallsPage(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage {
-    return this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit });
+    const page = this.trafficStore.queryPage(req, { cursor: req.cursor, limit: req.limit, summary: req.summary });
+    if (req.summary !== true) {
+      return page;
+    }
+    return { ...page, calls: page.calls.map((call) => summarizeTrafficCall(call)) };
+  }
+
+  recordCrash(message: string): void {
+    this.logs.append({
+      timestamp: this.clock.isoNow(),
+      service: "devctl",
+      source: "devctl",
+      level: "ERROR",
+      message,
+      pid: process.pid,
+    });
+  }
+
+  async flushLogs(): Promise<void> {
+    await this.logs.flush?.();
+  }
+
+  servicePids(): number[] {
+    return this.procs.all().map((handle) => handle.pid).filter((pid) => pid > 0);
+  }
+
+  /**
+   * Shrinks the ring and the trace store at 75% of the limit and sheds capture
+   * bodies at 90%, with hysteresis. Shedding never stops ingest: a service
+   * blocked on a full pipe would be the harm the guard exists to prevent.
+   */
+  applyMemoryPressure(usedBytes: number, limitBytes: number): void {
+    const ratio = limitBytes > 0 ? usedBytes / limitBytes : 0;
+    const pressure = nextMemoryGuard(this.memoryGuard, ratio);
+    this.memoryGuard = pressure;
+    const full = this.cfg.logs.max_memory_bytes > 0
+      ? this.cfg.logs.max_memory_bytes
+      : autoRingBytes(readHostLimits(this.cfg.repoRoot).memoryBytes);
+    const budget = storeBudgetFor(pressure, full);
+    if (budget !== (this.ringBudget ?? full)) {
+      this.logs.setMemoryBudget?.(budget);
+      this.ringBudget = budget;
+    }
+    // The full budget is read from the config each time, so one changed by a reload is taken up here.
+    const spanBudget = storeBudgetFor(pressure, spanStoreBytes(this.cfg.telemetry.store_max_bytes));
+    if (spanBudget !== this.spanBudget) {
+      this.spans.setMaxBytes?.(spanBudget);
+      this.spanBudget = spanBudget;
+    }
+    if (pressure === "shed") {
+      this.llmStore.shedBodies?.();
+      this.trafficStore.shedBodies?.();
+    }
   }
 
   queryTrafficCall(id: string): TrafficCall | undefined {
@@ -1059,10 +1195,19 @@ export class Supervisor {
   }
 
   private loadPersistedLogSession(id: string): LogEvent[] {
-    if (!id.startsWith("session-") || id.includes("/") || id.includes("\\") || id.includes("..")) {
+    if (!isSessionName(id)) {
       return [];
     }
-    return loadSessionEvents(id, this.logSessionsRoot());
+    return loadSessionTail(id, this.logSessionsRoot());
+  }
+
+  // A page of a persisted session, read by the log store (on the log worker
+  // when it runs) rather than by a tail read on this thread.
+  private async queryLogSessionPage(id: string, req: LogFilter & LogPageRequest): Promise<LogPage> {
+    if (!isSessionName(id) || this.logs.historyPage === undefined) {
+      return { events: [], prevCursor: "0", nextCursor: "0", hasNext: false, hasPrev: false, sessionChanged: false };
+    }
+    return this.logs.historyPage(id, this.logFilter(req), { cursor: req.cursor, direction: req.direction, limit: req.limit });
   }
 
   private logFilter(req: LogFilter | LogsRequest): LogFilter {
@@ -1202,19 +1347,28 @@ export class Supervisor {
         env: this.serviceStartedEnv.get(handle.name) ?? this.serviceEnv.get(handle.name),
       });
     }
-    const service_environments: Record<string, string> = {};
+    const prior = this.processesLoaded ? undefined : readPersistedState(this.cfg.repoRoot);
+    const names = new Set(processes.map((proc) => proc.name));
+    for (const rec of prior?.processes ?? []) {
+      if (!names.has(rec.name) && rec.pid > 0 && this.processAliveFn(rec.pid)) {
+        processes.push(rec);
+      }
+    }
+    const service_environments: Record<string, string> = { ...(prior?.service_environments ?? {}) };
     for (const [name, envName] of this.serviceEnv) {
       if (envName !== "") {
         service_environments[name] = envName;
       }
     }
+    const profile = this.profile !== "" ? this.profile : (prior?.profile ?? "");
+    const configOverlay = this.configOverlay ?? prior?.config_overlay;
     writePersistedState(this.cfg.repoRoot, {
       session_id: this.sessionID,
       repo_root: this.cfg.repoRoot,
-      profile: this.profile,
+      profile,
       processes,
       service_environments,
-      config_overlay: this.configOverlay,
+      config_overlay: configOverlay,
     });
   }
 

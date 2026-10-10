@@ -7,7 +7,11 @@ Three related stores, one redaction story. User pages: [logs.md](../logs.md), [t
 Production daemon: `createDaemonLogStore` (`adapters/storage/worker-log-store.ts`).
 
 - Prefers a **worker thread** (`log-worker.ts`, protocol in `log-worker-protocol.ts`) so high-volume stdout does not block RPC.
-- Falls back in-process (`LogManager`) if the worker fails; logs a WARN. Compiled standalone binaries skip the worker (`Bun.isStandaloneExecutable`).
+- Traffic is batched both ways. Raw chunks go within a per-stream and total credit window. Structured appends (hooks, tasks, exec, proxy, OTLP) go through `AppendLane`, at most one batch per 5 ms tick, within 4 MiB of unacked bytes; past 16 MiB held, `ingestPaused()` is true. The worker sends committed records back at most 20 times a second, and acks appends by id with them.
+- A worker lost after it was ready is restarted once with the session's settings and every unacked chunk and append; a second loss hands the same to the in-process store. Either continues the session's seqs and spool.
+- Every line carries the time it was read (`readAtMs`). Folding, proxy-hop pairing, and access-line dedupe go by it, so spooled or late output comes out as it would have live.
+- Spool segments are written and read without blocking the thread, one write and one read in flight per stream.
+- Falls back in-process (`LogManager`) if the worker fails; logs a WARN. Compiled standalone binaries run the worker too: `compile-binaries.sh` embeds it beside the entrypoint, where `resolveWorkerUrl` finds it (the npm bundle ships it at the same place in `dist/`).
 - Ring size: `logs.max_memory_events`.
 - Optional persist under `logs.persistence.directory` (default `~/.devctl/logs`) with retention days and max sessions.
 
@@ -24,7 +28,9 @@ process stdout/stderr
 
 TUI/MCP **history** uses `logs_page` / `queryPage` (cursors in `domain/logs/pagination.ts`), not the event stream alone.
 
-Filters: service, level, search/regex, source, since/until, request_id, trace_id, attribute key/value. Ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same method (50ms event-time and ingest-arrival match; candidates expire 50ms after ingest arrival of the first folded line; HTTP hops require a request-target). If the service line arrived first, the tagged record is re-emitted and persisted. Optional query-time `dedupeRequestId` then collapses those pairs after the page is fetched. Facets (`logs_stats`) are the cheap poll.
+Filters: service, level, search/regex, source, since/until, request_id, trace_id, attribute key/value. Ingest copies `devctl.request_id` from a proxy hop onto a nearby service line that names the same method (50ms timestamp match and 50ms read-time match, by `ProxyHopWindow`; candidates stay until the low watermark, the oldest read time still to commit, has passed them by 50ms; HTTP hops require a request-target). If the service line arrived first, the tagged record is re-emitted and persisted. Optional query-time `dedupeRequestId` then collapses those pairs after the page is fetched. Facets (`logs_stats`) are the cheap poll: for a filter on service, level and source alone they come from `FacetWindow`, a per-seq table of those three fields kept at commit, and are exact over the logical window; any other filter is counted over the ring.
+
+Session files (`SessionLogWriter`, `SessionReader`): each service's records go to `<service>.jsonl`, then `<service>~N.jsonl`, one whole record a line, seqs rising. Beside a part, `<part>.idx` holds `offset bound` lines (every seq written before `offset` is at most `bound`): offset 0 with the first seq less one, a checkpoint each 64 KiB, and, once the part is sealed, its size and last seq. A re-emitted record is swapped in the writer's batch if its original is still there; otherwise the new copy is appended to `<part>.patch` beside the part that holds the original, never to the part. Readers lay patches over a part by seq (`SessionReader`, `loadJsonlSession`, `loadSessionTail`) and seek with the index. `SessionReader` does not hold patch text: the first time it reads a part it notes which stretch of the patch file (about 64 KiB) holds which seqs, reads a stretch when a range needs it, and points a cached match of a patched record at its line in the patch file. A part with no index (an older devctl wrote it) or the lines a crash replay appended past one are probed lazily and read with look-ahead for a late copy. Index and patch bytes count toward the session cap and are deleted with their part.
 
 Parsers: built-in line parser + plugin `LogParser`. Python-literal and OTLP AnyValue decoders live in domain so MCP/TUI share them.
 
@@ -43,6 +49,8 @@ Never log `Authorization`. Proxy request logs are structured without header dump
 - Proxy hops (`adapters/proxy/tracing.ts`)
 - OTLP receiver (`adapters/telemetry/otlp-http.ts`) when `telemetry.otlp.enabled`
 - Service logs that carry `trace_id` / `span_id` attributes
+
+The store is capped at 10,000 spans and at a byte budget (`telemetry.store_max_bytes`, 64 MiB by default). Each span is sized once, as stored after redaction, by `approxSpanBytes` (`domain/logs/size.ts`): every string in its attributes, events and resource, with no walk limit, plus a fixed overhead. Over either cap the oldest spans are evicted with their trace and request-id index entries. The memory guard scales the budget with the log ring's (half at 75% of the limit, a quarter at 90%).
 
 RPC: `get_trace`, `trace_request` (from `X-Devctl-Request-ID`). MCP/web reuse the same queries with redacted attributes.
 

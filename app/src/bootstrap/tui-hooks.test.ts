@@ -4,7 +4,7 @@ import { testRender } from "@opentui/react/test-utils";
 import { createClient } from "./client.ts";
 import { defaultConfig } from "../domain/config/types.ts";
 import type { DoctorProgress, Report } from "../domain/doctor/types.ts";
-import { logRecord, type LogEvent } from "../domain/logs/logs.ts";
+import { logMessage, logRecord, type LogEvent } from "../domain/logs/logs.ts";
 import { defaultTuiConfig } from "../domain/ui/preferences.ts";
 import { createTuiWorkspace } from "../presentation/tui/workspace.ts";
 import { useDiagnostics } from "../presentation/tui/hooks/use-diagnostics.ts";
@@ -128,6 +128,40 @@ test("log view keeps a pinned window stable as new logs arrive and clears only i
     expect(mounted.value.logSince).not.toBe("");
     expect(events).toHaveLength(230);
     expect(statuses.at(-1)).toBe("Cleared on-screen log buffer");
+  } finally { await mounted.close(); }
+});
+
+test("history pages its own session's older records in, never the live stream's, until live follow resumes", async () => {
+  const record = (seq: number): LogEvent => logRecord({ timestamp: new Date(1000 + seq).toISOString(), service: "api", level: "INFO", message: `past ${seq}`, source: "stdout", pid: 1, seq });
+  const livePages: Array<{ cursor?: string }> = [];
+  const controller = {
+    logsPage: async (req: { cursor?: string }) => {
+      livePages.push(req);
+      return { events: [], nextCursor: "", prevCursor: "", hasNext: false, hasPrev: false, sessionChanged: false };
+    },
+    logsStats: async () => ({ total: 0, byService: {}, byLevel: {}, bySource: {} }),
+  } as unknown as Controller;
+  const historyPages: Array<{ session: string; cursor?: string }> = [];
+  const mounted = await mountHook(useLogView, {
+    controller, tui: defaultTuiConfig(), names: ["api"], screen: "logs", refresh: async () => undefined, setStatus: () => {},
+    loadSessionPage: (session: string, _filter: unknown, page: { cursor?: string }) => {
+      historyPages.push({ session, cursor: page.cursor });
+      const before = Number(page.cursor);
+      const events = Array.from({ length: 50 }, (_, i) => record(before - 50 + i));
+      return { events, prevCursor: String(before - 50), nextCursor: String(before - 1), hasPrev: before - 50 > 1, hasNext: true, sessionChanged: false };
+    },
+  });
+  try {
+    await act(async () => mounted.value.showHistory("session-old", Array.from({ length: 100 }, (_, i) => record(101 + i))));
+    expect(mounted.value.paused).toBe(true);
+    await act(async () => mounted.value.applyLogCursor(0));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+    expect(historyPages[0]).toEqual({ session: "session-old", cursor: "101" });
+    expect(mounted.value.logs[0]?.seq).toBeLessThan(101);
+    expect(livePages.filter((req) => req.cursor !== undefined)).toEqual([]);
+    await act(async () => mounted.value.setPaused(false));
+    expect(mounted.value.historySession).toBe("");
+    expect(mounted.value.logs.some((event) => logMessage(event).startsWith("past"))).toBe(false);
   } finally { await mounted.close(); }
 });
 

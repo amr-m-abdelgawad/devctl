@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1
+# devctl from an older ref, for the version-skew scenario, compiled the way
+# that ref's release was: the entrypoint alone, with no embedded workers.
+# Build context is that ref's tree (`git archive <ref> app/…`).
+FROM oven/bun:1.4.2 AS build
+WORKDIR /build
+COPY app/package.json app/bun.lock app/bunfig.toml app/tsconfig.json ./
+RUN bun install --frozen-lockfile
+COPY app/src ./src
+ARG DEVCTL_VERSION=0.0.0-old
+RUN bun build --compile \
+      --define "process.env.DEVCTL_VERSION=\"${DEVCTL_VERSION}\"" \
+      --define 'process.env.OPENTUI_LIBC="glibc"' \
+      --outfile /out/devctl src/bin.ts
+
+FROM scratch
+COPY --from=build /out/devctl /devctl

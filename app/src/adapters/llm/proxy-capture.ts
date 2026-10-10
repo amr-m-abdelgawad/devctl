@@ -32,7 +32,7 @@ import { mapProxyCapture } from "./proxy-capture-map.ts";
 // named in `capture.paths` (those extra paths store raw bodies instead).
 const COMPLETION_PATH_HINTS = ["/completions", "/embeddings"];
 
-export type LlmCallerLookup = (peer: { address: string; port: number }) => Promise<string | undefined>;
+export type LlmCallerLookup = (peer: { address: string; port: number; proxyPort?: number }) => Promise<string | undefined>;
 
 export type ProxyCaptureSinkDeps = {
   cfg: () => DevctlConfig;
@@ -193,7 +193,7 @@ async function lookupPeerCaller(begin: LlmCaptureBegin, deps: ProxyCaptureSinkDe
 
 async function lookupCallerSafe(
   lookup: LlmCallerLookup,
-  peer: { address: string; port: number },
+  peer: { address: string; port: number; proxyPort?: number },
   deps: ProxyCaptureSinkDeps,
 ): Promise<string | undefined> {
   try {

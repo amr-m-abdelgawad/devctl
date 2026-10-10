@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
-import { unlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
-import { createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
+import { containerInitCheck, createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
+import { writeHeartbeatAtomic } from "../daemon/heartbeat.ts";
+import { acquireLock, socketPath } from "../storage/storage.ts";
 
 const IAP_CLIENT_ID = "desktop.apps.googleusercontent.com";
 const IAP_LOGIN_COMMAND = "gcloud auth application-default login";
@@ -513,4 +515,82 @@ test("doctor runner preserves attached-service context and diagnostic progress",
   expect(checkedServicePort).toBe(false);
   expect(report.checks.find((check) => check.name === "Repository configuration")?.message).toBe("broken local config");
   expect(updates.at(-1)).toBe("Diagnostics complete");
+});
+
+describe("doctor container init", () => {
+  test("a PID 1 that reaps nothing is fine while the daemon reaps for it, and a warning when it does not", () => {
+    const covered = containerInitCheck("sleep infinity", undefined, true);
+    expect(covered.severity).toBe("ok");
+    expect(covered.message).toBe("PID 1 is sleep infinity; devctl reaps the orphans of the services it starts");
+    expect(containerInitCheck("sleep infinity", true, true).severity).toBe("ok");
+
+    const turnedOff = containerInitCheck("sleep infinity", false, true);
+    expect(turnedOff.severity).toBe("warn");
+    expect(turnedOff.message).toContain("supervisor.reap_orphans is false");
+    expect(turnedOff.hint).toContain("remove supervisor.reap_orphans: false");
+
+    const cannot = containerInitCheck("tail -f /dev/null", undefined, false);
+    expect(cannot.severity).toBe("warn");
+    expect(cannot.message).toBe("PID 1 is tail -f /dev/null, and devctl cannot reap for it on this system");
+    expect(cannot.hint).toContain('"init": true');
+  });
+});
+
+describe("doctor daemon watchdog", () => {
+  let root = "";
+  let previousHome: string | undefined;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "devctl-doctor-watchdog-"));
+    mkdirSync(join(root, "repo"), { recursive: true });
+    previousHome = process.env.DEVCTL_HOME;
+    process.env.DEVCTL_HOME = join(root, "home");
+  });
+
+  afterEach(() => {
+    if (previousHome === undefined) {
+      delete process.env.DEVCTL_HOME;
+    } else {
+      process.env.DEVCTL_HOME = previousHome;
+    }
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function beat(repo: string, pid: number, degraded: boolean): void {
+    writeHeartbeatAtomic(repo, { pid, identity: String(pid), session: "s", workerTick: 3, mainStallTicks: 0, rpcOkAgeTicks: 0, degraded, writtenAtMs: Date.now() });
+  }
+
+  function repoCfg(repo: string): ReturnType<typeof localCfg> {
+    const cfg = localCfg();
+    cfg.repoRoot = repo;
+    return cfg;
+  }
+
+  test("warns when the daemon holding the lock reports its watchdog worker down", async () => {
+    const repo = join(root, "repo");
+    const held = acquireLock(repo, socketPath(repo));
+    try {
+      beat(repo, process.pid, true);
+      const check = (await runDoctor(repoCfg(repo), offlineHost())).checks.find((row) => row.name === "daemon watchdog");
+      expect(check?.severity).toBe("warn");
+      expect(check?.message).toContain("watchdog worker is down");
+      beat(repo, process.pid, false);
+      expect((await runDoctor(repoCfg(repo), offlineHost())).checks.some((row) => row.name === "daemon watchdog")).toBe(false);
+    } finally {
+      held.release();
+    }
+  });
+
+  test("ignores a degraded heartbeat left by a daemon that no longer holds the lock", async () => {
+    const repo = join(root, "repo");
+    beat(repo, process.pid, true);
+    expect((await runDoctor(repoCfg(repo), offlineHost())).checks.some((row) => row.name === "daemon watchdog")).toBe(false);
+    const held = acquireLock(repo, socketPath(repo));
+    try {
+      beat(repo, process.pid + 1_000_000, true);
+      expect((await runDoctor(repoCfg(repo), offlineHost())).checks.some((row) => row.name === "daemon watchdog")).toBe(false);
+    } finally {
+      held.release();
+    }
+  });
 });

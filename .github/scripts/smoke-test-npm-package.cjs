@@ -2,7 +2,7 @@
 "use strict";
 
 const assert = require("node:assert/strict");
-const { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } = require("node:fs");
+const { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { basename, dirname, join, resolve } = require("node:path");
 const { spawnSync } = require("node:child_process");
@@ -10,10 +10,14 @@ const { spawnSync } = require("node:child_process");
 const tarballArgument = process.argv[2];
 const expectedVersion = process.argv[3];
 const mode = process.argv[4] ?? "local";
-if (!tarballArgument || !expectedVersion || !new Set(["local", "global", "npx"]).has(mode)) {
+if (!tarballArgument || !expectedVersion || !new Set(["local", "global", "npx", "binary"]).has(mode)) {
   console.error("usage: node smoke-test-npm-package.cjs <package.tgz> <version> [local|global|npx]");
+  console.error("       node smoke-test-npm-package.cjs <compiled devctl> <version> binary");
   process.exit(2);
 }
+// `binary` runs the same daemon checks against a compiled devctl on the
+// platform it was built for; there is no package to install or inspect.
+const packaged = mode !== "binary";
 
 const tarball = resolve(tarballArgument);
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -83,6 +87,10 @@ function devctl(args, options = {}) {
 }
 
 function installPackage() {
+  if (!packaged) {
+    launcher = tarball;
+    return;
+  }
   if (mode === "npx") {
     launcher = npxCommand;
     const version = devctl(["version"], { timeout: 180_000 });
@@ -138,6 +146,40 @@ function waitForPingReady() {
   assert.match(last, pattern);
 }
 
+function sleepMs(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// A package whose worker files are missing still serves, on the in-process
+// log store with a degraded watchdog, so ask the daemon for both.
+function assertDaemonWorkers() {
+  const snapshot = JSON.parse(devctl(["--config", config, "status", "--json"], { quiet: true }).stdout);
+  if (snapshot.daemon?.logStore !== "worker" || snapshot.daemon?.watchdog !== "ok") {
+    // The daemon's own log says why a worker did not start.
+    devctl(["--config", config, "logs", "devctl"], { acceptedExitCodes: [0, 1, 2] });
+  }
+  assert.equal(snapshot.daemon?.logStore, "worker", "the daemon must run the log worker, not the in-process log store");
+  assert.equal(snapshot.daemon?.watchdog, "ok", "the daemon's watchdog worker must be running");
+  // heartbeat.json sits beside devctl.lock in the repository's state directory.
+  const deadline = Date.now() + 10_000;
+  let heartbeat;
+  while (heartbeat === undefined && Date.now() < deadline) {
+    const found = readdirSync(home, { recursive: true }).find((name) => basename(String(name)) === "heartbeat.json");
+    if (found !== undefined) {
+      heartbeat = join(home, String(found));
+    } else {
+      sleepMs(100);
+    }
+  }
+  assert.ok(heartbeat, `no watchdog heartbeat under ${home}`);
+  const first = JSON.parse(readFileSync(heartbeat, "utf8"));
+  assert.equal(first.degraded, false, "the watchdog heartbeat must not be degraded");
+  sleepMs(3_000);
+  const second = JSON.parse(readFileSync(heartbeat, "utf8"));
+  assert.ok(second.workerTick > first.workerTick, `the watchdog worker stopped ticking (workerTick ${first.workerTick} -> ${second.workerTick})`);
+  console.log(`log worker running; watchdog ticking (workerTick ${first.workerTick} -> ${second.workerTick})`);
+}
+
 function removeTemporaryRoot() {
   const retryable = new Set(["EBUSY", "ENOTEMPTY", "EPERM"]);
   for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -186,15 +228,19 @@ try {
   assert.match(devctl(["--config", config, "config", "validate"]).stdout, /configuration is valid/);
   devctl(["--config", config, "doctor", "--json"], { acceptedExitCodes: [0, 2] });
 
-  const publishedDeps = publishedDependencies();
-  assert.deepEqual(Object.keys(publishedDeps).sort(), ["@opentui/core", "bun", "node-fetch"]);
-  // Native/binary externals are pinned exact (frozen bundle, version-coupled ABI);
-  // pure-JS runtime imports ship as semver ranges so patches reach consumers.
-  assert.match(publishedDeps.bun, /^\d+\.\d+\.\d+$/, "the bundled Bun runtime must be pinned to an exact version");
-  assert.match(publishedDeps["@opentui/core"], /^\d+\.\d+\.\d+$/, "native @opentui/core must be pinned to an exact version");
-  assert.match(publishedDeps["node-fetch"], /^[\^~]\d+\.\d+\.\d+$/, "pure-JS runtime imports must ship as a semver range");
+  if (packaged) {
+    const publishedDeps = publishedDependencies();
+    assert.deepEqual(Object.keys(publishedDeps).sort(), ["@opentui/core", "bun", "node-fetch"]);
+    // Native/binary externals are pinned exact (frozen bundle, version-coupled ABI);
+    // pure-JS runtime imports ship as semver ranges so patches reach consumers.
+    assert.match(publishedDeps.bun, /^\d+\.\d+\.\d+$/, "the bundled Bun runtime must be pinned to an exact version");
+    assert.match(publishedDeps["@opentui/core"], /^\d+\.\d+\.\d+$/, "native @opentui/core must be pinned to an exact version");
+    assert.match(publishedDeps["node-fetch"], /^[\^~]\d+\.\d+\.\d+$/, "pure-JS runtime imports must ship as a semver range");
+  } else {
+    testTuiInPseudoTerminal();
+  }
 
-  if (mode !== "npx") {
+  if (packaged && mode !== "npx") {
     const installedRoot = packageRoot();
     const bunExecutable = require.resolve("bun/bin/bun.exe", { paths: [join(installedRoot, "bin")] });
     assert.ok(existsSync(bunExecutable), "the package-local Bun runtime is missing");
@@ -208,13 +254,14 @@ try {
 
   devctl(["--config", config, "start", "ping"]);
   assert.match(devctl(["--config", config, "status"]).stdout, /ping\s+(RUNNING|HEALTHY)/);
+  assertDaemonWorkers();
   waitForPingReady();
   const mcp = devctl(["--config", config, "mcp", "--on", "--json"]);
   assert.equal(JSON.parse(mcp.stdout).running, true);
   devctl(["--config", config, "mcp", "--off", "--json"]);
   devctl(["--config", config, "down"]);
 
-  console.log(`npm ${mode} package smoke test passed on ${process.platform}-${process.arch}`);
+  console.log(`${packaged ? `npm ${mode} package` : "compiled binary"} smoke test passed on ${process.platform}-${process.arch}`);
 } finally {
   if (launcher && existsSync(config)) {
     try {

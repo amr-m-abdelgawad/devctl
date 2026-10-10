@@ -254,6 +254,26 @@ llm:
     expect(cfg.llm.capture_max_bytes).toBe(4_194_304);
   });
 
+  test("decodes telemetry.store_max_bytes without an otlp block, and rejects a malformed one", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-span-budget-${Date.now()}`;
+    const config = (value: string): string => `
+version: 1
+services:
+  api:
+    command: echo hi
+telemetry:
+  store_max_bytes: ${value}
+`;
+    writeFile(dir, ".devctl/config.yaml", config("16777216"));
+    const cfg = load(dir, "");
+    expect(cfg.telemetry.store_max_bytes).toBe(16_777_216);
+    expect(cfg.telemetry.otlp.enabled).toBe(false);
+    writeFile(dir, ".devctl/config.yaml", config("-1"));
+    expect(() => load(dir, "")).toThrow(/telemetry\.store_max_bytes must be a finite number >= 0/);
+    writeFile(dir, ".devctl/config.yaml", config("lots"));
+    expect(() => load(dir, "")).toThrow(/telemetry\.store_max_bytes must be a finite number >= 0/);
+  });
+
   test("rejects a malformed global inspect or capture cap instead of defaulting to 1 MiB", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-inspect-cap-invalid-${Date.now()}`;
     writeFile(

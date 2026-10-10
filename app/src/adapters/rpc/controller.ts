@@ -1,3 +1,4 @@
+import { StringDecoder } from "node:string_decoder";
 import { createConnection, type Socket } from "node:net";
 import { clearInterval as clearResumeInterval, setInterval as resumeInterval } from "node:timers";
 import { spawn } from "bun";
@@ -10,7 +11,12 @@ import { type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPa
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../../domain/llm/llm.ts";
 import type { TrafficCall, TrafficCallFilter, TrafficCallPage, TrafficCallPageRequest } from "../../domain/traffic/traffic.ts";
 import { type Plan } from "../../domain/service/services.ts";
-import { bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, persistedConfigOverlay, processAlive, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { bootstrapLogHint, bootstrapLogPath, persistedConfigOverlay, readBootstrapLog, readRepoLock, rotateBootstrapLog, socketPath, readRpcToken, lockPath, type PersistedState, readPersistedState } from "../storage/storage.ts";
+import { lockIsLive, readLockFile } from "../storage/lock.ts";
+import { processState } from "../process/liveness.ts";
+import { decideLiveness, heartbeatWorkerAdvanced, LEGACY_DAEMON_MESSAGE } from "../../domain/daemon/liveness.ts";
+import { readHeartbeat, writeRestartRequest } from "../daemon/heartbeat.ts";
+import { replaceWedgedDaemon } from "../daemon/force-down.ts";
 import type { Envelope } from "../../types.ts";
 import type { IdentitySnapshot, LogsRequest, ReloadResult, StartRequest, StatusSnapshot, TraceResponse } from "../../domain/status.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
@@ -27,8 +33,9 @@ const TRY_DIAL_MS = 200;
 const RPC_CALL_TIMEOUT_MS = 30_000;
 const PING_PROBE_MS = 1_000;
 const REDIAL_MS = 3_000;
+// How long a lookup waits for a daemon that is alive and only slow to answer.
+const BUSY_DIAL_MS = 3_000;
 const QUIT_RPC_MS = 3_000;
-const REAP_WAIT_MS = 2_000;
 const RESUME_POLL_MS = 1_000;
 export const RESUME_GAP_MS = 15_000;
 const COMMAND_RPC_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -78,7 +85,11 @@ export function assertMethodAllowed(client: { compat: DaemonCompat }, method: st
 
 export class Client {
   private readonly socket: Socket;
-  private buf = "";
+  // A reply is one line, possibly megabytes long, arriving in many chunks.
+  // Its pieces are kept apart until the newline comes, so each byte is looked
+  // at once, and the decoder keeps a character split across chunks whole.
+  private readonly decoder = new StringDecoder("utf8");
+  private pieces: string[] = [];
   private readonly pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly listeners: Array<(ev: BusEvent) => void> = [];
   private nextID = 0;
@@ -92,14 +103,18 @@ export class Client {
     this.socket = socket;
     this.auth = auth;
     socket.on("data", (chunk) => {
-      this.buf += chunk.toString("utf8");
-      const lines = this.buf.split("\n");
-      this.buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (line.trim() === "") {
-          continue;
+      let text = this.decoder.write(chunk);
+      for (let newline = text.indexOf("\n"); newline >= 0; newline = text.indexOf("\n")) {
+        this.pieces.push(text.slice(0, newline));
+        const line = this.pieces.length === 1 ? this.pieces[0]! : this.pieces.join("");
+        this.pieces = [];
+        text = text.slice(newline + 1);
+        if (line.trim() !== "") {
+          this.onLine(line);
         }
-        this.onLine(line);
+      }
+      if (text !== "") {
+        this.pieces.push(text);
       }
     });
     socket.on("error", (err) => this.rejectPending(err instanceof Error ? err : new Error(String(err))));
@@ -172,7 +187,8 @@ export class Client {
   }
 }
 
-export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
+/** `retry: false` makes one connection attempt: nothing listening is the answer, not a daemon about to bind. */
+export function dial(repoRoot: string, timeoutMs: number, opts: { retry?: boolean } = {}): Promise<Client> {
   const path = socketPath(repoRoot);
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
@@ -193,7 +209,7 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
       const socket = createConnection(path);
       const onError = (): void => {
         socket.destroy();
-        if (settled || Date.now() >= deadline) {
+        if (opts.retry === false || settled || Date.now() >= deadline) {
           fail(hintError(KindGeneral, "supervisor is not running", "run `devctl start` or `devctl attach` after starting services"));
           return;
         }
@@ -226,7 +242,7 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
 async function handshake(client: Client, timeoutMs: number): Promise<boolean> {
   let raw: unknown;
   try {
-    raw = await client.call("ping", null, timeoutMs);
+    raw = await client.call("ping", { features: ["log_batch.v1"] }, timeoutMs);
   } catch {
     return false;
   }
@@ -248,12 +264,29 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export async function tryDial(repoRoot: string): Promise<Client | undefined> {
+async function tryDial(repoRoot: string): Promise<Client | undefined> {
   try {
     return await dial(repoRoot, TRY_DIAL_MS);
   } catch {
     return undefined;
   }
+}
+
+/**
+ * True while the repository's daemon is still there: it answers, or a live
+ * process holds its lock. A daemon that holds the lock is running however
+ * slowly it answers, so one ping it misses while it stops its services does
+ * not make it gone. It is gone once it has released the lock, which it does
+ * right after it closes its socket, or once its process is dead.
+ */
+export async function daemonRunning(repoRoot: string): Promise<boolean> {
+  const probe = await dial(repoRoot, TRY_DIAL_MS, { retry: false }).catch(() => undefined);
+  if (probe) {
+    probe.close();
+    return true;
+  }
+  const action = livenessAction(repoRoot);
+  return action !== undefined && action !== "spawn";
 }
 
 // A `bun run script.ts` process needs the script path as argv[1] so the Bun
@@ -287,32 +320,53 @@ async function connectSupervisor(repoRoot: string): Promise<Client | undefined> 
 // accept, and the child processes still hold their ports. Replace it so
 // the next supervisor can adopt those processes.
 async function takeOverUnresponsive(repoRoot: string): Promise<Client | undefined> {
-  const lock = readRepoLock(repoRoot);
-  if (!lock || !processAlive(lock.pid)) {
+  const action = livenessAction(repoRoot);
+  if (action === undefined) {
     return undefined;
   }
-  try {
-    return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
-  } catch {
-    if (processAlive(lock.pid)) {
-      killRepoSupervisor(repoRoot);
-      await waitForExit(lock.pid, REAP_WAIT_MS);
+  if (action === "leave-legacy") {
+    throw new Error(LEGACY_DAEMON_MESSAGE);
+  }
+  if (action === "wait-busy" || action === "wait-frozen") {
+    try {
+      return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
+    } catch {
+      throw new Error(`devctl is ${action === "wait-frozen" ? "paused" : "busy"} and was not replaced. Wait for it to catch up.`);
     }
-    return undefined;
   }
+  if (action === "graceful-restart") {
+    const heartbeat = readHeartbeat(repoRoot);
+    if (heartbeat === undefined) {
+      return undefined;
+    }
+    // Addressed to the daemon that wrote the heartbeat, so a successor never
+    // mistakes it for its own restart.
+    writeRestartRequest(repoRoot, { pid: heartbeat.pid, session: heartbeat.session });
+    try {
+      return await dial(repoRoot, BOOTSTRAP_DIAL_TIMEOUT_MS);
+    } catch {
+      return undefined;
+    }
+  }
+  if (action === "replace-wedge") {
+    await replaceWedgedDaemon(repoRoot);
+  }
+  return undefined;
 }
 
-function waitForExit(pid: number, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  return new Promise((resolve) => {
-    const tick = (): void => {
-      if (!processAlive(pid) || Date.now() >= deadline) {
-        resolve();
-        return;
-      }
-      setTimeout(tick, DIAL_RETRY_MS);
-    };
-    tick();
+function livenessAction(repoRoot: string, nowMs = Date.now()): ReturnType<typeof decideLiveness> | undefined {
+  const lock = readRepoLock(repoRoot);
+  if (!lock || processState(lock.pid) === "dead") {
+    return undefined;
+  }
+  const record = readLockFile(lockPath(repoRoot));
+  const heartbeat = readHeartbeat(repoRoot);
+  return decideLiveness({
+    process: processState(lock.pid) === "zombie" ? "zombie" : "alive",
+    identityMatches: record === undefined || lockIsLive(record),
+    lockGeneration: record?.v === 2 ? 2 : 1,
+    heartbeat,
+    workerAdvanced: heartbeatWorkerAdvanced(heartbeat, nowMs),
   });
 }
 
@@ -628,7 +682,7 @@ export class Controller {
       const previous = this.lastResumeMark;
       this.lastResumeMark = now;
       if (hostClockJumped(previous, now)) {
-        void this.recoverSupervisor();
+        void this.redial();
       }
     }, RESUME_POLL_MS);
     this.resumeTimer.unref();
@@ -650,6 +704,22 @@ export class Controller {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async redial(): Promise<void> {
+    if (this.closed) {
+      return;
+    }
+    const repo = this.attachedRepo || this.cfg.repoRoot;
+    this.detachBus?.();
+    this.detachBus = undefined;
+    this.client?.close();
+    this.client = undefined;
+    try {
+      this.attachClient(await dial(repo, REDIAL_MS), repo);
+    } catch {
+      // Resume only redials. A sleeping daemon is not replaced.
     }
   }
 
@@ -676,12 +746,19 @@ export class Controller {
       this.attachClient(await dial(repo, REDIAL_MS), repo);
       return;
     } catch {
-      // The socket is still dead. Replace the supervisor below.
+      // The socket is still dead. Decide from the daemon's own heartbeat.
     }
-    const lock = readRepoLock(repo);
-    if (lock && processAlive(lock.pid)) {
-      killRepoSupervisor(repo);
-      await waitForExit(lock.pid, REAP_WAIT_MS);
+    try {
+      const replaced = await connectSupervisor(repo);
+      if (replaced) {
+        this.attachClient(replaced, repo);
+        return;
+      }
+    } catch (err) {
+      if (this.closed) {
+        return;
+      }
+      throw err;
     }
     if (this.closed) {
       return;
@@ -728,7 +805,7 @@ function warnIfVersionMismatch(client: Client | undefined): void {
 // is deliberately independent of local config parsing, via
 // resolveDaemonTarget's discovery-then-state-scan fallback, so a deleted
 // .devctl directory can never make a still-live daemon unreachable.
-export async function findDaemon(startDir: string, explicitRepo: string, explicitConfig = ""): Promise<{ repoRoot: string; client?: Client }> {
+export async function findDaemon(startDir: string, explicitRepo: string, explicitConfig = ""): Promise<{ repoRoot: string; client?: Client; notice?: string }> {
   const target = resolveDaemonTarget(startDir, explicitRepo, explicitConfig);
   if (!target) {
     throw hintError(
@@ -737,9 +814,33 @@ export async function findDaemon(startDir: string, explicitRepo: string, explici
       "run `devctl setup`, create a .devctl/config.yaml in the repository root, or pass --repo",
     );
   }
-  const client = await tryDial(target.repoRoot);
+  let client = await tryDial(target.repoRoot);
+  let notice: string | undefined;
+  if (!client) {
+    const action = livenessAction(target.repoRoot);
+    if (action === "wait-busy") {
+      // Alive and making progress, only slow to answer just now: wait for it,
+      // as the commands that start a daemon do, before calling it unreachable.
+      client = await dial(target.repoRoot, BUSY_DIAL_MS).catch(() => undefined);
+    }
+    notice = client ? undefined : unreachableDaemonNotice(action);
+  }
   warnIfVersionMismatch(client);
-  return { repoRoot: target.repoRoot, client };
+  return { repoRoot: target.repoRoot, client, notice };
+}
+
+/** Explains a live daemon that did not answer, including an older build with no heartbeat. */
+function unreachableDaemonNotice(action: ReturnType<typeof livenessAction>): string | undefined {
+  if (action === "leave-legacy") {
+    return LEGACY_DAEMON_MESSAGE;
+  }
+  if (action === "wait-frozen") {
+    return "devctl is paused and was not replaced. Wait for it to catch up, or stop it with `devctl down --force`.";
+  }
+  if (action === "wait-busy" || action === "graceful-restart" || action === "replace-wedge") {
+    return "devctl is running but not answering. Wait for it to catch up.";
+  }
+  return undefined;
 }
 
 function overlayFromPersisted(startDir: string, configPath: string): string | undefined {

@@ -375,6 +375,49 @@ export function isSystemLogSource(source: string): boolean {
 // is no stale cross-session data to protect against here — only `since` (the log-view boundary set
 // by an explicit clear or filter command) should ever hide events. Starting or stopping services
 // must not clear the view; see the `clear` command / Clear button for that.
+const DEFAULT_TUI_LOG_CAP = 50_000;
+
+// The byte budget is sized to hold the whole record window at 1 KiB per record,
+// by the estimate below (body chars + service + 64). Typical lines are 100-300
+// chars, about 170-370 by that estimate, so the default 50k window fits with room
+// for long stack traces and JSON lines; the old flat 8 MiB held about 30k records
+// of 200-char lines. The ceiling bounds a configured window of 100k+ records.
+const TUI_LOG_BYTES_PER_RECORD = 1024;
+const TUI_LOG_BYTES_MIN = 8 * 1024 * 1024;
+const TUI_LOG_BYTES_MAX = 64 * 1024 * 1024;
+
+/** Records the view keeps: the daemon's configured window, else its default. */
+export function tuiLogCap(maxMemoryEvents: number | undefined): number {
+  return maxMemoryEvents !== undefined && maxMemoryEvents > 0 ? maxMemoryEvents : DEFAULT_TUI_LOG_CAP;
+}
+
+export function tuiLogBytes(cap: number): number {
+  return Math.min(TUI_LOG_BYTES_MAX, Math.max(TUI_LOG_BYTES_MIN, cap * TUI_LOG_BYTES_PER_RECORD));
+}
+
+function logRecordBytes(record: LogRecord): number {
+  return (typeof record.body === "string" ? record.body.length : 0) + record.service.length + 64;
+}
+
+/** Keeps the newest records that fit `maxBytes`. */
+export function trimLogBytes(records: LogRecord[], maxBytes: number): LogRecord[] {
+  let used = 0;
+  const kept: LogRecord[] = [];
+  for (let index = records.length - 1; index >= 0; index -= 1) {
+    const record = records[index];
+    if (record !== undefined) {
+      const size = logRecordBytes(record);
+      if (kept.length > 0 && used + size > maxBytes) {
+        break;
+      }
+      used += size;
+      kept.push(record);
+    }
+  }
+  kept.reverse();
+  return kept;
+}
+
 export function appendVisibleLogs(current: LogRecord[], incoming: LogRecord[], since: string, cap: number): LogRecord[] {
   const accepted = since === "" ? incoming : incoming.filter((event) => event.timestamp >= since);
   if (accepted.length === 0) {
@@ -424,13 +467,28 @@ export function mergeLoadedPage(current: LogRecord[], page: LogRecord[]): LogRec
 
 // Prepends a page fetched by scrolling back past the currently loaded
 // window. De-duplicates by seq in case the two pages touch at the boundary.
-export function prependOlderPage(current: LogRecord[], older: LogRecord[]): LogRecord[] {
+// Past the record cap or byte budget the newest records go, the far edge from
+// where the user is reading, so the page just fetched is what stays.
+export function prependOlderPage(current: LogRecord[], older: LogRecord[], cap = Number.POSITIVE_INFINITY, maxBytes = Number.POSITIVE_INFINITY): LogRecord[] {
   if (older.length === 0) {
     return current;
   }
   const known = new Set(current.map((ev) => ev.seq));
   const fresh = older.filter((ev) => !known.has(ev.seq));
-  return fresh.length === 0 ? current : [...fresh, ...current];
+  return fresh.length === 0 ? current : keepOldest([...fresh, ...current], cap, maxBytes);
+}
+
+function keepOldest(records: LogRecord[], cap: number, maxBytes: number): LogRecord[] {
+  let used = 0;
+  let kept = 0;
+  for (; kept < records.length && kept < cap; kept += 1) {
+    const size = logRecordBytes(records[kept]!);
+    if (kept > 0 && used + size > maxBytes) {
+      break;
+    }
+    used += size;
+  }
+  return kept === records.length ? records : records.slice(0, kept);
 }
 
 // True exactly when the user has scrolled to the very top of the currently

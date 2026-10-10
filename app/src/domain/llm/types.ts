@@ -67,7 +67,19 @@ export type LlmCallFilter = {
 export type LlmCallPageRequest = {
   cursor?: string;
   limit?: number;
+  /** When true, list rows omit request and response bodies. */
+  summary?: boolean;
 };
+
+export function summarizeLlmCall(call: LlmCall): LlmCall {
+  const body = call.attributes.body === "evicted" ? "evicted" : "omitted";
+  return {
+    ...call,
+    request: undefined,
+    response: undefined,
+    attributes: { ...call.attributes, body },
+  };
+}
 
 export type LlmCallPage = {
   calls: LlmCall[];

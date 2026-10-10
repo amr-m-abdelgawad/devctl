@@ -7,6 +7,8 @@ coverageSkipTestFiles = true
 # Generated guide text and plugin fixtures are not the unit-test surface.
 coveragePathIgnorePatterns = [
   "e2e/**",
+  # The ingest oracle's frozen copy of main's append path is a test reference, not the unit-test surface.
+  "test/**",
   "**/*.generated.ts",
   "**/.watch-*/**",
   "src/adapters/google/testdata/**",

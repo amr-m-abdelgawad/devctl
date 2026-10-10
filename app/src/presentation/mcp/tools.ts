@@ -713,6 +713,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
       ? { running: snap.web.running, address: snap.web.address, port: snap.web.port }
       : { running: false },
     stats_series: snap.stats_series,
+    ...(snap.daemon ? { daemon: snap.daemon } : {}),
   };
 }
 
@@ -732,8 +733,10 @@ export function listLogSessions(host: McpHost): readonly string[] | Promise<read
 
 export async function getLogSession(host: McpHost, id: string, args: Record<string, unknown>): Promise<unknown> {
   const filter = logFilterFromArgs(args);
-  const events = await host.loadLogSession(id);
-  const page = pageLoadedLogs(events, filter, logPageRequestFromArgs(args, MCP_LOG_CAP));
+  const request = logPageRequestFromArgs(args, MCP_LOG_CAP);
+  const page = host.logSessionPage !== undefined
+    ? await host.logSessionPage(id, { ...filter, ...request })
+    : pageLoadedLogs(await host.loadLogSession(id), filter, request);
   return logPageResponse(detectorFor(host.config()), page, filter.since ?? "");
 }
 
@@ -748,13 +751,14 @@ export async function* iterateLogsExport(host: McpHost, args: Record<string, unk
   for (const line of logPageJsonl(detector, page)) {
     yield line;
   }
+  // A page a read budget cut short can be empty with more to come; stop only when the cursor stops moving.
   while (page.hasNext) {
     const cursor = page.nextCursor;
     page = await host.logsPage({ ...filter, cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
     for (const line of logPageJsonl(detector, page)) {
       yield line;
     }
-    if (page.events.length === 0 || page.nextCursor === cursor) {
+    if (page.nextCursor === cursor) {
       return;
     }
   }
@@ -831,23 +835,22 @@ function logPageJsonl(detector: Detector, page: LogPage): string[] {
   return page.events.map((ev) => JSON.stringify(mcpLogRecord(detector, ev)));
 }
 
+// The oldest page with events. A page a read budget cut short can be empty
+// while older matches remain, so the walk goes on while the cursor moves.
 async function oldestMatchingLogPage(host: McpHost, filter: LogFilter): Promise<LogPage | undefined> {
   let page = await host.logsPage({ ...filter, limit: MAX_LOG_PAGE_SIZE, direction: "backward" });
-  if (page.events.length === 0) {
-    return undefined;
-  }
+  let oldest = page.events.length > 0 ? page : undefined;
   while (page.hasPrev) {
     const cursor = page.prevCursor;
-    const older = await host.logsPage({ ...filter, cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
-    if (older.events.length === 0) {
-      break;
+    page = await host.logsPage({ ...filter, cursor, direction: "backward", limit: MAX_LOG_PAGE_SIZE });
+    if (page.events.length > 0) {
+      oldest = page;
     }
-    page = older;
-    if (older.prevCursor === cursor) {
+    if (page.prevCursor === cursor) {
       break;
     }
   }
-  return page;
+  return oldest;
 }
 
 function pageLoadedLogs(events: readonly LogRecord[], filter: LogFilter, page: LogPageRequest): LogPage {
@@ -917,6 +920,7 @@ export function mcpTrace(detector: Detector, result: TraceResponse): Record<stri
     request_id: result.requestId,
     spans: result.tree.spans.map((span) => redactSpan(detector, span)),
     logs: result.events.map((ev) => mcpLogRecord(detector, ev)),
+    logs_truncated: result.truncated,
   };
 }
 
@@ -1019,14 +1023,27 @@ export async function getLlmCalls(host: McpHost, args: Record<string, unknown>):
     traceId: nonempty(typeof args.trace_id === "string" ? args.trace_id : ""),
     cursor,
     limit: MCP_LLM_CAP,
+    // The rows are shown without bodies, so the store need not parse them.
+    summary: true,
   });
   const detector = detectorFor(host.config());
   return {
-    calls: page.calls.map((call) => mcpLlmCall(detector, call, false)),
+    calls: page.calls.map((call) => mcpLlmCall(detector, withoutOmittedMarker(call), false)),
     has_more: page.hasNext,
     next_cursor: page.nextCursor,
     errors: page.errors,
   };
+}
+
+// A summary row marks its bodies "omitted", which these rows never carried.
+// "evicted" stays: list readers saw it before whenever the store dropped a body.
+function withoutOmittedMarker(call: LlmCall): LlmCall {
+  if (call.attributes.body !== "omitted") {
+    return call;
+  }
+  const attributes = { ...call.attributes };
+  delete attributes.body;
+  return { ...call, attributes };
 }
 
 export async function getLlmCallTool(host: McpHost, args: Record<string, unknown>): Promise<unknown> {
@@ -1085,6 +1102,7 @@ export async function getTrafficCalls(host: McpHost, args: Record<string, unknow
     transport: args.transport === "http" || args.transport === "grpc" ? args.transport : undefined,
     cursor,
     limit: MCP_TRAFFIC_CAP,
+    summary: true,
   });
   const detector = detectorFor(host.config());
   return {

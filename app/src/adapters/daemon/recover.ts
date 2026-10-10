@@ -14,6 +14,7 @@ import type { ProxyServer } from "../proxy/proxy.ts";
 import { readPersistedState, repoID } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { LogStore } from "../../ports/log-store.ts";
+import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
 
 export type RecoverHost = {
   cfg: DevctlConfig;
@@ -28,7 +29,7 @@ export type RecoverHost = {
   readonly serviceStartedEnv: Map<string, string>;
   readonly orchestrator: ServiceOrchestratorPort;
   readonly procs: ProcessManager;
-  readonly logs: Pick<LogStore, "append">;
+  readonly logs: Pick<LogStore, "append" | "ingestChunk" | "ingestPaused" | "reserveSpool">;
   readonly clock: Clock;
   readonly tokens: TokenManager;
   readonly registry?: Registry;
@@ -84,6 +85,40 @@ export async function resolveAdoptedHealthEnv(
   }
 }
 
+function outputChunk(host: RecoverHost, name: string, pid: number): ProcessChunkHandler | undefined {
+  return host.logs.ingestChunk ? ingestAs(host, name, pid) : undefined;
+}
+
+// Replayed output carries the time it was read; live output is stamped now.
+function ingestAs(host: RecoverHost, name: string, pid: number): ProcessChunkHandler {
+  return (stream, bytes, meta) =>
+    host.logs.ingestChunk?.({
+      service: name,
+      stream,
+      pid: meta?.pid ?? pid,
+      readAtMs: meta?.readAtMs ?? host.clock.unixMs(),
+      bytes,
+      end: meta?.end,
+      // Replayed bytes are still in the drain spool, so they are never written to the ingest spool too.
+      noSpill: meta?.replayed,
+    }) ?? false;
+}
+
+// Before anything else: stops the previous daemon's drainer, replays what it
+// spooled with the original read times, then reads the FIFOs of every service
+// it left running, adopted below or not. Output of a service that exited in
+// the meantime is kept too.
+async function takeOverStdio(host: RecoverHost): Promise<void> {
+  if (!host.logs.ingestChunk) {
+    return;
+  }
+  await host.procs.takeOverStdio(
+    (service, pid) => ingestAs(host, service, pid),
+    () => host.logs.ingestPaused?.() === true,
+    (bytes) => host.logs.reserveSpool?.(bytes),
+  );
+}
+
 export function attachProcess(host: RecoverHost, name: string, pid: number, args: string[], workDir: string, startTime: Date): number | undefined {
   if (host.procs.get(name) && host.processAliveFn(host.procs.get(name)?.pid ?? 0)) {
     return undefined;
@@ -135,7 +170,9 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
       runtime,
       containerName: `devctl-${repoID(host.cfg.repoRoot, host.cfg.instance.name)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       workDir,
-      onLine: (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onLine: host.logs.ingestChunk ? undefined : (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onChunk: outputChunk(host, name, 0),
+      paused: () => host.logs.ingestPaused?.() === true,
       onExit: (code, err) => host.orchestrator.health.onExit(name, gen, code, err),
     });
     if (!handle) return false;
@@ -192,6 +229,7 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
 }
 
 export async function recoverSession(host: RecoverHost): Promise<void> {
+  await takeOverStdio(host);
   const persisted = readPersistedState(host.cfg.repoRoot);
   if (!persisted) {
     return;
@@ -212,7 +250,9 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
       runtime,
       containerName: `devctl-${repoID(host.cfg.repoRoot, host.cfg.instance.name)}-${name.replace(/[^a-zA-Z0-9_.-]/g, "-")}`,
       workDir: host.serviceWorkDir(svc),
-      onLine: (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onLine: host.logs.ingestChunk ? undefined : (stream, line) => host.logs.append({ timestamp: host.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      onChunk: outputChunk(host, name, 0),
+      paused: () => host.logs.ingestPaused?.() === true,
       onExit: (code, err) => host.orchestrator.health.onExit(name, gen, code, err),
     });
     if (!handle) continue;
@@ -257,7 +297,9 @@ export async function recoverSession(host: RecoverHost): Promise<void> {
     const healthEnv = await resolveAdoptedHealthEnv(host, rec.name, svc, rec.ports);
       host.orchestrator.health.startHealth(rec.name, svc, rec.pid, rec.ports, workDir, healthEnv, gen);
     }
-    host.log(rec.name, "INFO", "adopted leftover process; stdout/stderr from before adopt are not captured");
+    host.log(rec.name, "INFO", host.procs.followsOutput(rec.pid)
+      ? "adopted leftover process; its output continues from where the last daemon stopped"
+      : "adopted leftover process; stdout/stderr from before adopt are not captured");
     adopted.push(rec.name);
   }
   if (adopted.length > 0) {

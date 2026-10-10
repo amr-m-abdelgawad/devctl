@@ -33,7 +33,7 @@ import { assembleSseCompletion } from "../llm/proxy-capture-map.ts";
 import type { TrafficDecoder } from "../plugins/registry.ts";
 import { gunzipSync } from "node:zlib";
 
-export type TrafficCallerLookup = (peer: { address: string; port: number }) => Promise<string | undefined>;
+export type TrafficCallerLookup = (peer: { address: string; port: number; proxyPort?: number }) => Promise<string | undefined>;
 
 export type TrafficCaptureSinkDeps = {
   cfg: () => DevctlConfig;

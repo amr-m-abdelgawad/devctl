@@ -1,5 +1,5 @@
 import * as http2 from "node:http2";
-import type { Http2Server, ServerHttp2Stream, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
+import type { Http2Server, ServerHttp2Stream, ServerStreamResponseOptions, ClientHttp2Session, IncomingHttpHeaders, OutgoingHttpHeaders } from "node:http2";
 import type { RouteConfig } from "../config/index.ts";
 import { listenKey, sameListen } from "../../domain/proxy/listen.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
@@ -226,8 +226,10 @@ export class GrpcProxyServer {
       }
     };
     const fail = (grpcStatus: string, message: string): void => {
-      // Deliver the failure as a gRPC trailers-only response the client SDK
-      // understands, rather than resetting the stream.
+      if (clientGone || front.closed) {
+        finish(499, grpcStatus, message);
+        return;
+      }
       try {
         front.respond({ ":status": 200, "content-type": "application/grpc", "grpc-status": grpcStatus, "grpc-message": message }, { endStream: true });
       } catch {
@@ -256,13 +258,59 @@ export class GrpcProxyServer {
       }
     });
 
+    let clientGone = false;
+    const cancelUpstream = (): void => {
+      try {
+        upReq?.close(http2.constants.NGHTTP2_CANCEL);
+      } catch {
+        upReq?.destroy();
+      }
+    };
+    const onClientGone = (): void => {
+      clientGone = true;
+      cancelUpstream();
+    };
+    // The client can reset its stream between the upstream answering and this
+    // relay. respond() then throws inside the upstream's event handler, where
+    // nothing else would catch it, so a failure records the RPC and ends both
+    // sides instead of reaching the daemon.
+    const relayResponse = (out: OutgoingHttpHeaders, options: ServerStreamResponseOptions): boolean => {
+      let failure = "client closed before completion";
+      if (front.headersSent) {
+        failure = "response headers were already sent";
+      } else if (!front.destroyed && !front.closed) {
+        try {
+          front.respond(out, options);
+          return true;
+        } catch (err) {
+          failure = `cannot relay the upstream response: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
+      const gone = clientGone || front.destroyed || front.closed;
+      finish(gone ? 499 : 502, gone ? GRPC_CANCELLED : GRPC_UNAVAILABLE, failure);
+      try {
+        front.close(http2.constants.NGHTTP2_INTERNAL_ERROR);
+      } catch {
+        // already torn down
+      }
+      cancelUpstream();
+      return false;
+    };
+    front.on("close", onClientGone);
+    front.on("error", onClientGone);
     let out: Record<string, string>;
     try {
       out = this.buildUpstreamHeaders(headers, route);
       applyTraceHeaders(out, ctx, REQUEST_ID_HEADER);
       await injectIdentityHeaders(route, out, this.tokens);
     } catch (err) {
-      fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
+      if (!clientGone) {
+        fail(GRPC_UNAUTHENTICATED, err instanceof Error ? err.message : "token injection failed");
+      }
+      return;
+    }
+    if (clientGone || front.closed) {
+      finish(499, GRPC_CANCELLED, "client closed before completion");
       return;
     }
 
@@ -282,13 +330,16 @@ export class GrpcProxyServer {
       // Trailers-only response (grpc-status already in the headers) — usually an
       // upstream error. Forward it verbatim and end; there is no body to pipe.
       if (uh["grpc-status"] !== undefined) {
-        front.respond(this.frontResponseHeaders(uh), { endStream: true });
-        finish(Number(uh[":status"] ?? 200), String(uh["grpc-status"]));
+        if (relayResponse(this.frontResponseHeaders(uh), { endStream: true })) {
+          finish(Number(uh[":status"] ?? 200), String(uh["grpc-status"]));
+        }
         return;
       }
       const contentType = headerString(uh, "content-type") ?? "application/grpc";
       recorder?.setResponseContentType(contentType);
-      front.respond(this.frontResponseHeaders(uh), { waitForTrailers: true });
+      if (!relayResponse(this.frontResponseHeaders(uh), { waitForTrailers: true })) {
+        return;
+      }
       front.on("wantTrailers", () => {
         try {
           front.sendTrailers(this.sanitizeTrailers(upTrailers));
@@ -500,13 +551,13 @@ export function writeWithBackpressure(src: NodeJS.ReadableStream, dest: NodeJS.W
   }
 }
 
-function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: number } | undefined {
+function grpcCapturePeer(stream: ServerHttp2Stream): { address: string; port: number; proxyPort?: number } | undefined {
   const socket = stream.session?.socket;
   const port = socket?.remotePort;
   if (!Number.isInteger(port) || port === undefined || port <= 0) {
     return undefined;
   }
-  return { address: socket?.remoteAddress ?? "", port };
+  return { address: socket?.remoteAddress ?? "", port, proxyPort: socket?.localPort };
 }
 
 function headerString(headers: IncomingHttpHeaders, name: string): string | undefined {

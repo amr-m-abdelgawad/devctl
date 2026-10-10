@@ -8,10 +8,7 @@ import {
   clampLogPageSize,
   compileLogSearch,
   DEFAULT_LOG_PAGE_SIZE,
-  defaultExportPath,
   defaultLogParser,
-  isJsonlSessionDir,
-  loadSessionEvents,
   LogManager,
   MAX_JSON_LOG_BYTES,
   MAX_LOG_LINE_CHARS,
@@ -25,10 +22,10 @@ import {
   REQUEST_ID_ATTR,
   SeverityError,
   SeverityWarn,
-  pruneSessions,
-  resolveExportPath,
-  writeLogExport,
 } from "./logs.ts";
+import { defaultExportPath, resolveExportPath, writeLogExport } from "./log-export.ts";
+import { isJsonlSessionDir, loadSessionEvents } from "./session-files.ts";
+import { pruneSessions } from "./session-prune.ts";
 import { exportsDir } from "./storage.ts";
 
 function tmp(): string {
@@ -576,6 +573,20 @@ describe("log export paths", () => {
     }
   });
 
+  test("writeLogExport writes a large window in batches with one record per line", () => {
+    const dest = join(tmp(), "big.jsonl");
+    const events = Array.from({ length: 300 }, (_, index) => logRecord({ seq: index + 1, service: "api", message: `${index}-${"z".repeat(8_000)}` }));
+    writeLogExport(dest, events);
+    const lines = readFileSync(dest, "utf8").split("\n");
+    expect(lines.pop()).toBe("");
+    expect(lines).toHaveLength(300);
+    expect(lines.map((line) => (JSON.parse(line) as { seq: number }).seq)).toEqual(events.map((event) => event.seq));
+
+    const empty = join(tmp(), "empty.jsonl");
+    writeLogExport(empty, []);
+    expect(readFileSync(empty, "utf8")).toBe("\n");
+  });
+
   test("writeLogExport and exportTo create the parent directory", () => {
     const dest = join(tmp(), "nested", "out.jsonl");
     const exported = logRecord({
@@ -767,6 +778,41 @@ describe("LogManager process multiline folding", () => {
 });
 
 describe("LogManager dedupe_access_line", () => {
+  test("remembers the last line of a bounded number of processes, the most recent ones", () => {
+    const mgr = new LogManager(5_000, undefined, new Detector([], []), false, tmp(), "pair-bound", 0, 0);
+    mgr.setServiceLogs({ api: { stdout: true, stderr: true, dedupe_access_line: true } });
+    const remembered = (mgr as unknown as { lastByServicePid: Map<string, unknown> }).lastByServicePid;
+    const structured = (pid: number): void => {
+      mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", pid, message: '{"method":"GET","path":"/health","status":200}' });
+    };
+    const plain = (pid: number): void => {
+      mgr.append({ timestamp: "2026-09-19T00:00:00.000Z", service: "api", source: "stdout", pid, message: 'INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200 OK' });
+    };
+    // A query commits what is still folding.
+    const recordsOf = (pid: number): number => mgr.query({}).filter((event) => event.resource["process.pid"] === pid).length;
+    // A service restarted 2,000 times: each run is a new pid that logs once.
+    for (let pid = 1; pid <= 2_000; pid += 1) {
+      structured(pid);
+    }
+    expect(recordsOf(2_000)).toBe(1);
+    expect(remembered.size).toBe(256);
+    // The newest process's plain copy of its line is still dropped.
+    plain(2_000);
+    expect(recordsOf(2_000)).toBe(1);
+    // A process that keeps logging stays remembered while 255 newer ones come and go.
+    structured(7);
+    for (let pid = 3_000; pid < 3_255; pid += 1) {
+      structured(pid);
+    }
+    expect(recordsOf(7)).toBe(2);
+    expect(remembered.size).toBe(256);
+    plain(7);
+    expect(recordsOf(7)).toBe(2);
+    // One that has been pushed out is treated as never seen: its plain line is kept.
+    plain(1);
+    expect(recordsOf(1)).toBe(2);
+  });
+
   test("off by default keeps the uvicorn pair", () => {
     const mgr = new LogManager(100, undefined, new Detector([], []), false, tmp(), "pair-off", 0, 0);
     mgr.append({
@@ -889,7 +935,7 @@ describe("LogManager proxy hop request-id tagging", () => {
     });
     const events = mgr.query({});
     expect(events).toHaveLength(2);
-    expect(events[0]?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
+    expect(events.find((event) => event.service === "worker")?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-2");
   });
 
   test("re-emits and persists a reverse-order request-id update", async () => {
@@ -907,6 +953,9 @@ describe("LogManager proxy hop request-id tagging", () => {
     mgr.setOnRecord((event) => {
       seen.push(`${event.service}:${String(event.attributes[REQUEST_ID_ATTR] ?? "")}`);
     });
+    // Arrival times are given, not taken from the clock: the flush between the
+    // two lines can take longer than the pairing window on a slow disk.
+    const arrivedAt = Date.now();
     mgr.append({
       timestamp: "2026-09-19T00:00:00.000Z",
       service: "worker",
@@ -914,7 +963,10 @@ describe("LogManager proxy hop request-id tagging", () => {
       level: "",
       message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
       pid: 1,
-    });
+    }, arrivedAt);
+    // A record from another source no longer closes an open fold, so the
+    // worker line is committed first explicitly, as its idle timeout would.
+    await mgr.flush();
     mgr.append({
       timestamp: "2026-09-19T00:00:00.010Z",
       service: "proxy",
@@ -923,7 +975,7 @@ describe("LogManager proxy hop request-id tagging", () => {
       message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
       pid: 0,
       request_id: "req-hop-3",
-    });
+    }, arrivedAt + 10);
     expect(seen).toEqual(["worker:", "worker:req-hop-3", "proxy:req-hop-3"]);
     expect(live).toEqual(seen);
     await mgr.flush();
@@ -1024,11 +1076,14 @@ describe("LogManager proxy hop request-id tagging", () => {
     expect(worker?.attributes[REQUEST_ID_ATTR]).toBeUndefined();
   });
 
-  test("folded process lines still tag when the proxy arrives inside the window", async () => {
+  test("folded process lines still tag when the proxy arrives inside the window", () => {
     const mgr = new LogManager(200, undefined, new Detector([], []), false, tmp(), "correlate-fold-in", 0, 0);
     mgr.setServiceLogs({
       worker: { stdout: true, stderr: true, multiline: { max_wait_ms: 500 } },
     });
+    // The proxy line's arrival is given as 20 ms after the worker's. Sleeping
+    // that long instead overshoots the 50 ms window on a busy machine.
+    const arrivedAt = Date.now();
     mgr.append({
       timestamp: "2026-09-19T00:00:00.000Z",
       service: "worker",
@@ -1036,9 +1091,7 @@ describe("LogManager proxy hop request-id tagging", () => {
       level: "",
       message: "ERROR temporalio_client::retry: gRPC call poll_activity_task_queue retried 41 times",
       pid: 1,
-    });
-    const arrivalInsideWindowMs = 20;
-    await Bun.sleep(arrivalInsideWindowMs);
+    }, arrivedAt);
     mgr.append({
       timestamp: "2026-09-19T00:00:00.010Z",
       service: "proxy",
@@ -1047,7 +1100,7 @@ describe("LogManager proxy hop request-id tagging", () => {
       message: "grpc /temporal.api.workflowservice.v1.WorkflowService/PollActivityTaskQueue route=temporal-grpc grpc-status=14",
       pid: 0,
       request_id: "req-hop-8",
-    });
+    }, arrivedAt + 20);
     const worker = mgr.query({}).find((event) => event.service === "worker");
     expect(worker?.attributes[REQUEST_ID_ATTR]).toBe("req-hop-8");
   });

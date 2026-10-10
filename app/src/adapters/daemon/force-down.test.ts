@@ -1,0 +1,177 @@
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { spawn, type Subprocess } from "bun";
+import { lockHolderSignalable, type LockRecord } from "../storage/lock.ts";
+import { lockPath } from "../storage/storage.ts";
+import { processState } from "../process/liveness.ts";
+import { forceStopDaemon, replaceWedgedDaemon } from "./force-down.ts";
+import { restartRequestPath, writeHeartbeatAtomic } from "./heartbeat.ts";
+
+let root = "";
+let repo = "";
+let previousHome: string | undefined;
+const children: Subprocess[] = [];
+const orphans: number[] = [];
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "devctl-force-down-"));
+  repo = join(root, "repo");
+  mkdirSync(repo, { recursive: true });
+  previousHome = process.env.DEVCTL_HOME;
+  process.env.DEVCTL_HOME = join(root, "home");
+  mkdirSync(join(root, "home"), { recursive: true });
+});
+
+afterEach(() => {
+  for (const child of children.splice(0)) {
+    child.kill("SIGKILL");
+  }
+  for (const pid of orphans.splice(0)) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+  if (previousHome === undefined) {
+    delete process.env.DEVCTL_HOME;
+  } else {
+    process.env.DEVCTL_HOME = previousHome;
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+
+// A stand-in process says it is up by writing this file from its own code.
+// Before that its command line cannot be trusted: while a process execs,
+// /proc shows it empty, and a lock check that cannot read it decides nothing.
+const UP_SCRIPT = `require("node:fs").writeFileSync(process.env.DEVCTL_TEST_UP, ""); setInterval(() => {}, 1000)`;
+const UP_WAIT_MS = 10_000;
+let standIns = 0;
+
+function upFile(): string {
+  standIns += 1;
+  return join(root, `up-${standIns}`);
+}
+
+function awaitUp(file: string): void {
+  const deadline = Date.now() + UP_WAIT_MS;
+  while (!existsSync(file)) {
+    if (Date.now() > deadline) {
+      throw new Error("the stand-in process did not start");
+    }
+    Bun.sleepSync(5);
+  }
+}
+
+// A long-lived process whose command line carries `extra`, the way a real
+// daemon's carries `_supervisor`.
+function sleeper(...extra: string[]): Subprocess {
+  const up = upFile();
+  const child = spawn({ cmd: [process.execPath, "-e", UP_SCRIPT, ...extra], env: { ...process.env, DEVCTL_TEST_UP: up }, stdout: "ignore", stderr: "ignore", stdin: "ignore" });
+  children.push(child);
+  awaitUp(up);
+  return child;
+}
+
+// Like a detached daemon, it is not our child: init reaps it once it is
+// killed, instead of it lingering as our zombie.
+function orphan(...extra: string[]): number {
+  const up = upFile();
+  const started = spawnSync("/bin/sh", ["-c", `bun="$0"; script="$1"; shift; "$bun" -e "$script" "$@" >/dev/null 2>&1 & echo $!`, process.execPath, UP_SCRIPT, ...extra], {
+    encoding: "utf8",
+    env: { ...process.env, DEVCTL_TEST_UP: up },
+  });
+  const pid = Number(started.stdout.trim());
+  orphans.push(pid);
+  awaitUp(up);
+  return pid;
+}
+
+function writeLock(record: LockRecord): void {
+  mkdirSync(join(lockPath(repo), ".."), { recursive: true });
+  writeFileSync(lockPath(repo), JSON.stringify(record));
+}
+
+describe("down --force", () => {
+  test.skipIf(process.platform === "win32")("does not kill a reused v1 pid, and drops the stale lock", async () => {
+    const other = sleeper();
+    writeLock({ pid: other.pid, socket: join(root, "sock") });
+    expect(forceStopDaemon(repo)).toBe(false);
+    await Bun.sleep(100);
+    expect(processState(other.pid)).toBe("alive");
+    expect(existsSync(lockPath(repo))).toBe(false);
+  });
+
+  test.skipIf(process.platform === "win32")("stops a v1 lock holder that runs the daemon subcommand", () => {
+    const daemon = orphan("_supervisor", "--repo", repo);
+    writeLock({ pid: daemon, socket: join(root, "sock") });
+    expect(forceStopDaemon(repo)).toBe(true);
+    expect(processState(daemon)).not.toBe("alive");
+  });
+
+  test.skipIf(process.platform === "win32")("leaves a v2 lock alone when its stamp names an older process", async () => {
+    const other = sleeper("_supervisor");
+    writeLock({ v: 2, pid: other.pid, socket: join(root, "sock"), nonce: "n", startTicks: "1", lstart: "Thu Jan  1 00:00:00 1970" });
+    expect(forceStopDaemon(repo)).toBe(false);
+    await Bun.sleep(100);
+    expect(processState(other.pid)).toBe("alive");
+    expect(existsSync(lockPath(repo))).toBe(true);
+  });
+
+  test.skipIf(process.platform === "win32")("never signals a pid from another PID namespace", () => {
+    const other = sleeper("_supervisor");
+    const record: LockRecord = { pid: other.pid, socket: join(root, "sock"), pidNs: "pid:[4026531836]" };
+    expect(lockHolderSignalable(record, { pidNs: "pid:[4026532695]" })).toBe(false);
+    expect(lockHolderSignalable(record, {})).toBe(true);
+  });
+});
+
+describe("wedge replacement", () => {
+  // A daemon whose loop never gets to run its SIGTERM handler.
+  async function deaf(): Promise<Subprocess<"ignore", "pipe", "ignore">> {
+    const child = spawn({
+      cmd: [process.execPath, "-e", `process.on("SIGTERM", () => {}); console.log("ready"); setInterval(() => {}, 1000)`, "_supervisor"],
+      stdout: "pipe",
+      stderr: "ignore",
+      stdin: "ignore",
+    });
+    children.push(child);
+    const reader = child.stdout.getReader();
+    await reader.read();
+    reader.releaseLock();
+    return child;
+  }
+
+  test.skipIf(process.platform === "win32")("SIGKILLs a daemon that ignores SIGTERM once the grace runs out", async () => {
+    const daemon = await deaf();
+    writeLock({ pid: daemon.pid, socket: join(root, "sock") });
+    const started = Date.now();
+    await replaceWedgedDaemon(repo, 300);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
+    await daemon.exited;
+    expect(daemon.signalCode).toBe("SIGKILL");
+  });
+
+  test.skipIf(process.platform === "win32")("stops at SIGTERM for a daemon that exits, after asking it to hand its services over", async () => {
+    const daemon = sleeper("_supervisor");
+    writeLock({ pid: daemon.pid, socket: join(root, "sock") });
+    writeHeartbeatAtomic(repo, { pid: daemon.pid, identity: String(daemon.pid), session: "wedged", workerTick: 90, mainStallTicks: 60, rpcOkAgeTicks: 60, degraded: false, writtenAtMs: Date.now() });
+    const started = Date.now();
+    await replaceWedgedDaemon(repo, 5_000);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    await daemon.exited;
+    expect(daemon.signalCode).toBe("SIGTERM");
+    expect(JSON.parse(readFileSync(restartRequestPath(repo), "utf8"))).toMatchObject({ pid: daemon.pid, session: "wedged" });
+  });
+
+  test.skipIf(process.platform === "win32")("does not signal a pid that is not the daemon", async () => {
+    const other = sleeper();
+    writeLock({ pid: other.pid, socket: join(root, "sock") });
+    await replaceWedgedDaemon(repo, 100);
+    await Bun.sleep(100);
+    expect(processState(other.pid)).toBe("alive");
+  });
+});

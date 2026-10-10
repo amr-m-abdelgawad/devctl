@@ -7,10 +7,13 @@ import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, startPeriodWindow, type Runtime } from "../../domain/service/services.ts";
 import { defaultEnvironmentName, resolveEnvironmentName } from "../../domain/service/environments.ts";
-import { instanceStatusLine, type IdentitySnapshot, type LogSnapshot, type ServiceAccountStatus, type StatsSeries, type StatusSnapshot, type SystemSnapshot } from "../../domain/status.ts";
+import { daemonStatusLine, instanceStatusLine, type IdentitySnapshot, type LogSnapshot, type ServiceAccountStatus, type StatsSeries, type StatusSnapshot, type SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
 import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
+import { readHostLimits } from "../system/host-limits.ts";
+import { emptyDaemonMetrics } from "../../ports/daemon-metrics.ts";
+import { eventLoopLagMs, orphanReaperState, watchdogState } from "./resource-probe.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
 
 export type SnapshotHost = {
@@ -37,7 +40,7 @@ export type SnapshotHost = {
   readonly restartRequired: string[];
   readonly statsSeries?: StatsSeries;
   readonly serviceSeries?: Record<string, StatsSeries>;
-  readonly logs: { snapshot(): LogSnapshot };
+  readonly logs: { snapshot(): LogSnapshot; pipelineStats?: () => LogSnapshot["pipeline"]; usesWorker?: () => boolean };
   readonly tokens: { storeBackend(): string };
   readonly traceDurationMs?: (traceId: string) => number | undefined;
 };
@@ -168,6 +171,24 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
     // Omit until at least one service has samples, so consumers can tell an
     // unavailable series from an empty service set (matches the type contract).
     service_series: host.serviceSeries && Object.keys(host.serviceSeries).length > 0 ? host.serviceSeries : undefined,
+    daemon: daemonResource(host),
+  };
+}
+
+function daemonResource(host: SnapshotHost): StatusSnapshot["daemon"] {
+  const memory = process.memoryUsage();
+  const limits = readHostLimits();
+  const baseline = emptyDaemonMetrics();
+  return {
+    rssBytes: memory.rss || baseline.rssBytes,
+    heapBytes: memory.heapUsed,
+    memoryLimitBytes: limits.memoryBytes > 0 ? limits.memoryBytes : undefined,
+    nonReapingPid1: limits.nonReapingPid1 || undefined,
+    orphanReaper: orphanReaperState(),
+    eventLoopLagMs: eventLoopLagMs(),
+    logs: host.logs.pipelineStats?.(),
+    logStore: host.logs.usesWorker?.() === true ? "worker" : "in-process",
+    watchdog: watchdogState(),
   };
 }
 
@@ -215,5 +236,9 @@ export function formatStatusFromSnapshot(snap: StatusSnapshot): string {
   lines.push("", `PROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}`);
   lines.push(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}`);
   lines.push(`WEB         ${snap.web?.running ? "RUNNING" : "STOPPED"}     ${snap.web?.address ?? ""}`);
+  const daemonLine = daemonStatusLine(snap.daemon);
+  if (daemonLine !== undefined) {
+    lines.push(daemonLine);
+  }
   return lines.join("\n") + "\n";
 }

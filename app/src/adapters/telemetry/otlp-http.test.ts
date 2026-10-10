@@ -24,6 +24,7 @@ describe("OTLP/HTTP+JSON receiver", () => {
       setServiceLogs: () => undefined,
       setSecrets: () => undefined,
       close: () => logs.close(),
+      ingestPaused: () => logs.ingestPaused(),
     }, spans });
     await server.start();
     const base = `http://127.0.0.1:${server.listenPort()}`;
@@ -128,7 +129,7 @@ describe("OTLP/HTTP+JSON receiver", () => {
 const TRACE_PROTO = Buffer.from("0acd020a170a150a0c736572766963652e6e616d6512050a0361706912b1020a0c0a0570726f62651203312e3012a0020a100af7651916cd43dd8448eb211c80319c1208b7ad6b7169203331220800f067aa0ba902b72a0a474554202f7573657273300239006c0a591a9f681841801ef1671a9f68184a170a10687474702e7374617475735f636f646512031894034a140a057265747279120b18fdffffffffffffffff014a120a05726174696f120921000000000000e03f4a0c0a06636163686564120210014a130a0474616773120b2a090a030a01610a0218024a160a066e6573746564120c320a0a080a016b12030a01764a0c0a04626c6f6212043a0201025a1f09004d005f1a9f6818120572657472791a0d0a07617474656d7074120218016a1c0a100af7651916cd43dd8448eb211c80319c120800f067aa0ba902b77a0d12096e6f7420666f756e641802", "hex");
 const LOGS_PROTO = Buffer.from("0a8a010a170a150a0c736572766963652e6e616d6512050a03617069126f0a070a0570726f6265126409006c0a591a9f6818100d1a045741524e2a120a106469736b20616c6d6f73742066756c6c32130a046469736b120b0a092f6465762f7364613145010000004a100af7651916cd43dd8448eb211c80319c5208b7ad6b716920333159016c0a591a9f6818", "hex");
 
-async function startReceiver(): Promise<{ base: string; logs: LogManager; spans: SpanManager; stop: () => Promise<void> }> {
+async function startReceiver(paused = () => false): Promise<{ base: string; logs: LogManager; spans: SpanManager; stop: () => Promise<void> }> {
   const logs = new LogManager(100, undefined, new Detector([], []), false, "/tmp", "otlp", 0, 0);
   const spans = new SpanManager(100);
   const server = new OtlpHttpServer({ host: "127.0.0.1", port: 0, spans, logs: {
@@ -144,6 +145,7 @@ async function startReceiver(): Promise<{ base: string; logs: LogManager; spans:
     setServiceLogs: () => undefined,
     setSecrets: () => undefined,
     close: () => logs.close(),
+    ingestPaused: () => paused() || logs.ingestPaused(),
   } });
   await server.start();
   return { base: `http://127.0.0.1:${server.listenPort()}`, logs, spans, stop: () => server.stop() };
@@ -215,6 +217,22 @@ describe("OTLP/HTTP protobuf and gzip", () => {
       const badGzip = await fetch(`${rx.base}/v1/logs`, { method: "POST", headers: { "content-type": "application/json", "content-encoding": "gzip" }, body: "not gzip" });
       expect(badGzip.status).toBe(400);
       expect(rx.spans.getTrace("0af7651916cd43dd8448eb211c80319c").spans).toHaveLength(0);
+    } finally {
+      await rx.stop();
+    }
+  });
+
+  test("returns 503 after the body is accepted when ingest is paused", async () => {
+    // The pipeline pauses only when its memory window and spool are both full.
+    const rx = await startReceiver(() => true);
+    try {
+      const res = await fetch(`${rx.base}/v1/logs`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ resourceLogs: [] }),
+      });
+      expect(res.status).toBe(503);
+      expect(res.headers.get("retry-after")).toBe("1");
     } finally {
       await rx.stop();
     }
