@@ -4,10 +4,10 @@ import { createServer, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, dial, ensureSupervisor, findDaemon, hostClockJumped, isRpcTimeout, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, daemonRunning, dial, ensureSupervisor, findDaemon, hostClockJumped, isRpcTimeout, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "../environment/environment.ts";
 import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "../../shared/errors.ts";
-import { acquireLock, bootstrapLogPath, killRepoSupervisor, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
+import { acquireLock, bootstrapLogPath, killRepoSupervisor, lockPath, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 function tmp(): string {
@@ -50,6 +50,13 @@ function fakePingServer(repoRoot: string, pingResult: unknown, delayMs = 0): { c
   return {
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
+}
+
+// A daemon that holds the lock and is this live process, as a busy one is.
+function busyDaemon(dir: string): { release: () => void } {
+  mkdirSync(join(dir, ".devctl"), { recursive: true });
+  writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+  return acquireLock(dir, socketPath(dir));
 }
 
 describe("RPC client", () => {
@@ -345,13 +352,6 @@ describe("findDaemon", () => {
     await expect(findDaemon(dir, "")).rejects.toThrow(/no devctl configuration found/);
   });
 
-  // A daemon that holds the lock and is this live process, as a busy one is.
-  function busyDaemon(dir: string): { release: () => void } {
-    mkdirSync(join(dir, ".devctl"), { recursive: true });
-    writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
-    return acquireLock(dir, socketPath(dir));
-  }
-
   test("waits for a daemon that is alive and only slow to answer", async () => {
     const dir = tmp();
     const held = busyDaemon(dir);
@@ -395,6 +395,84 @@ describe("findDaemon", () => {
     expect(notice).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(1_500);
   });
+});
+
+describe("daemonRunning", () => {
+  // Each look at the lock reads the holder's start time, which on Windows starts
+  // PowerShell: seconds when it is cold. The findDaemon tests carry the same limit.
+  const PING = { session: "s", protocol: RPC_PROTOCOL_VERSION, version: VERSION };
+
+  test("a daemon that holds its lock is running while a ping to it goes unanswered", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    // Slower than the 200 ms a ping is given, as a daemon that stalls while it stops its services is.
+    const server = fakePingServer(dir, PING, 500);
+    try {
+      expect(await daemonRunning(dir)).toBe(true);
+    } finally {
+      await server.close();
+      held.release();
+    }
+  }, 15_000);
+
+  test("a daemon that holds its lock is running before it has bound its socket", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    try {
+      expect(await daemonRunning(dir)).toBe(true);
+    } finally {
+      held.release();
+    }
+  }, 15_000);
+
+  test("it is gone once it has closed its socket and released its lock", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    const server = fakePingServer(dir, PING);
+    expect(await daemonRunning(dir)).toBe(true);
+    await server.close();
+    // The socket is closed first: the lock still says a daemon is there.
+    expect(await daemonRunning(dir)).toBe(true);
+    held.release();
+    expect(await daemonRunning(dir)).toBe(false);
+  }, 15_000);
+
+  test("a lock left behind by a process that died is not a running daemon", async () => {
+    const dir = tmp();
+    busyDaemon(dir);
+    const child = spawn({ cmd: [process.execPath, "-e", ""], stdout: "ignore", stderr: "ignore" });
+    await child.exited;
+    const lock = JSON.parse(readFileSync(lockPath(dir), "utf8")) as { pid: number };
+    writeFileSync(lockPath(dir), JSON.stringify({ ...lock, pid: child.pid }));
+    expect(await daemonRunning(dir)).toBe(false);
+  }, 15_000);
+
+  test("a daemon that answers is running even when its lock file is gone", async () => {
+    const dir = tmp();
+    const server = fakePingServer(dir, PING);
+    try {
+      expect(await daemonRunning(dir)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 15_000);
+
+  test("its dial makes one attempt and does not wait for a socket that appears later", async () => {
+    const dir = tmp();
+    let server: { close: () => Promise<void> } | undefined;
+    const late = setTimeout(() => {
+      server = fakePingServer(dir, PING);
+    }, 100);
+    try {
+      // With retries this dial would connect once the socket is there.
+      await expect(dial(dir, 5_000, { retry: false })).rejects.toThrow(/supervisor is not running/);
+      const retried = await dial(dir, 5_000);
+      retried.close();
+    } finally {
+      clearTimeout(late);
+      await server?.close();
+    }
+  }, 15_000);
 });
 
 describe("openTui", () => {

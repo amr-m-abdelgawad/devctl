@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - A gRPC response that the client can no longer take does not crash the daemon.
+- `devctl down`, `devctl instances prune` and the teardown of `devctl test` wait until the daemon has released its lock. They took the daemon as gone the first time it missed a 200 ms ping. A daemon that was slow for a moment while it stopped its services made `down` print `stopped services and the supervisor` while both were still running, and made `instances prune` keep the slot with `its supervisor did not stop in time`. `instances prune` also keeps the slot of a live daemon that does not answer, where it could free it before.
 
 ## [0.25.0] - 2026-09-28
 

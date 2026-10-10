@@ -101,6 +101,8 @@ export type ClientRuntime = {
   releaseInstance(repoRoot: string): void;
   processAlive(pid: number): boolean;
   tryDial(repoRoot: string): Promise<DaemonClient | undefined>;
+  /** True while the repository's daemon answers or a live process holds its lock, however slowly it answers. */
+  daemonRunning(repoRoot: string): Promise<boolean>;
   /** Signal a lock holder that did not answer, including an older daemon. */
   forceStopDaemon(repoRoot: string): boolean;
   assertMethodAllowed(client: DaemonClient, method: string): void;

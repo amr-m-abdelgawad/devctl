@@ -6,7 +6,7 @@ import { configSecretValues, failedTraceIds, maskKnownValues, parseDuration, red
 import { exitCode, humanMessage } from "../../shared/errors.ts";
 import { Detector } from "../../shared/redaction.ts";
 import { versionLine } from "../../version.ts";
-import { shutdownTimeoutFor, waitUntilUnreachable } from "./lifecycle.ts";
+import { shutdownTimeoutFor, waitUntilStopped } from "./lifecycle.ts";
 import { DEFAULT_WAIT_TIMEOUT, waitForStack } from "./wait.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
@@ -122,7 +122,7 @@ async function teardown(runtime: ClientRuntime, ctrl: Controller, repoRoot: stri
   } finally {
     await ctrl.close({ detach: true });
   }
-  await waitUntilUnreachable(runtime, repoRoot, timeout);
+  await waitUntilStopped(runtime, repoRoot, timeout);
 }
 
 export function addBundle(root: Command, runtime: ClientRuntime): void {

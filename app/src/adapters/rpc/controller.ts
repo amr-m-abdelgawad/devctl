@@ -187,7 +187,8 @@ export class Client {
   }
 }
 
-export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
+/** `retry: false` makes one connection attempt: nothing listening is the answer, not a daemon about to bind. */
+export function dial(repoRoot: string, timeoutMs: number, opts: { retry?: boolean } = {}): Promise<Client> {
   const path = socketPath(repoRoot);
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
@@ -208,7 +209,7 @@ export function dial(repoRoot: string, timeoutMs: number): Promise<Client> {
       const socket = createConnection(path);
       const onError = (): void => {
         socket.destroy();
-        if (settled || Date.now() >= deadline) {
+        if (opts.retry === false || settled || Date.now() >= deadline) {
           fail(hintError(KindGeneral, "supervisor is not running", "run `devctl start` or `devctl attach` after starting services"));
           return;
         }
@@ -269,6 +270,23 @@ export async function tryDial(repoRoot: string): Promise<Client | undefined> {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * True while the repository's daemon is still there: it answers, or a live
+ * process holds its lock. A daemon that holds the lock is running however
+ * slowly it answers, so one ping it misses while it stops its services does
+ * not make it gone. It is gone once it has released the lock, which it does
+ * right after it closes its socket, or once its process is dead.
+ */
+export async function daemonRunning(repoRoot: string): Promise<boolean> {
+  const probe = await dial(repoRoot, TRY_DIAL_MS, { retry: false }).catch(() => undefined);
+  if (probe) {
+    probe.close();
+    return true;
+  }
+  const action = livenessAction(repoRoot);
+  return action !== undefined && action !== "spawn";
 }
 
 // A `bun run script.ts` process needs the script path as argv[1] so the Bun

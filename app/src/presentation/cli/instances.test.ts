@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ClientRuntime } from "../../application/client-runtime.ts";
 import type { PersistedProcess } from "../../domain/session/session.ts";
 import { formatInstances, stillRunning } from "./instances.ts";
 
 function runtime(opts: { daemon?: boolean; processes?: Pick<PersistedProcess, "name" | "pid">[]; alive?: number[] }) {
   return {
-    tryDial: () => Promise.resolve(opts.daemon ? ({ close: () => undefined } as unknown as Awaited<ReturnType<ClientRuntime["tryDial"]>>) : undefined),
+    daemonRunning: () => Promise.resolve(opts.daemon === true),
     readPersistedState: () =>
       opts.processes === undefined ? undefined : ({ session_id: "", repo_root: "/gone", profile: "", processes: opts.processes as PersistedProcess[] }),
     processAlive: (pid: number) => (opts.alive ?? []).includes(pid),

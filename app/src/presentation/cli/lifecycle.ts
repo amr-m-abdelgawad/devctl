@@ -279,8 +279,8 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
       // request — dispatch("shutdown") replies immediately and does the
       // actual work shortly after (so the reply can flush before its own
       // socket goes away). down's job is to leave the daemon actually
-      // gone, so wait for it to stop answering before reporting success.
-      await waitUntilUnreachable(runtime, repoRoot, timeout);
+      // gone, so wait for that before reporting success.
+      await waitUntilStopped(runtime, repoRoot, timeout);
       writeOut(
         opts.keepServices !== true
           ? `stopped services and the supervisor for ${repoRoot}\n`
@@ -289,15 +289,23 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
     });
 }
 
-export async function waitUntilUnreachable(runtime: ClientRuntime, repoRoot: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const probe = await runtime.tryDial(repoRoot);
-    if (!probe) {
-      return;
+const STOP_POLL_MS = 50;
+
+/**
+ * Waits for a daemon that was asked to shut down to be gone. It is gone once
+ * it has released its lock, not when it first misses a ping: it can be slow
+ * to answer while it stops its services. False when it is still there after
+ * `timeoutMs`.
+ */
+export async function waitUntilStopped(runtime: Pick<ClientRuntime, "daemonRunning">, repoRoot: string, timeoutMs: number): Promise<boolean> {
+  const deadline = performance.now() + timeoutMs;
+  while (await runtime.daemonRunning(repoRoot)) {
+    if (performance.now() >= deadline) {
+      return false;
     }
-    probe.close();
+    await delay(STOP_POLL_MS);
   }
+  return true;
 }
 
 // down works even without a loadable local config, so it can't rely on
