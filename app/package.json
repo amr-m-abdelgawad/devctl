@@ -45,7 +45,7 @@
     "bun-plugin-tailwind": "^0.1.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "jscpd": "^5.2.0",
+    "jscpd": "^5.4.0",
     "knip": "^6.35.1",
     "react-dom": "19.3.0",
     "tailwind-merge": "^3.7.0",
