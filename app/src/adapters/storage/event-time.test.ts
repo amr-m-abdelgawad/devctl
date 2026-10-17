@@ -184,6 +184,7 @@ describe("event-time folding", () => {
 });
 
 describe("event-time proxy-hop pairing", () => {
+  // Usually a fifth of a second; on a Windows runner it has taken over three.
   test("a hop pairs with a service line that was still queued when the hop arrived", async () => {
     const mgr = manager("hop-lag");
     // Parsing is slow enough that the line ahead of the hop commits well after it.
@@ -209,5 +210,5 @@ describe("event-time proxy-hop pairing", () => {
     expect(worker?.attributes[REQUEST_ID_ATTR]).toBe("req-lagging");
     expect(Date.now() - readAt).toBeGreaterThan(100);
     await mgr.close();
-  });
+  }, 15_000);
 });

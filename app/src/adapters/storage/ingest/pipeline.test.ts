@@ -46,6 +46,7 @@ async function offer(pipeline: IngestPipeline, next: PipelineChunk, attempts = 3
 }
 
 describe("ingest pipeline ordering", () => {
+  // Usually a tenth of a second; on a Windows runner it has taken over two.
   test("keeps read order and whole lines when chunks arrive while older bytes are spooled", async () => {
     const pipeline = new IngestPipeline(tempDir(), {
       spillPerStream: 64,
@@ -79,7 +80,7 @@ describe("ingest pipeline ordering", () => {
     await drainAll(pipeline, emit);
     expect(out).toEqual(text.trimEnd().split("\n"));
     expect(pipeline.spilledSegments).toBeGreaterThan(0);
-  });
+  }, 15_000);
 });
 
 describe("ingest pipeline spool budget", () => {
@@ -276,6 +277,7 @@ function prng(seed: number): () => number {
 }
 
 describe("ingest pipeline streams", () => {
+  // Usually a third of a second; on a Windows runner it has taken five.
   test("keeps each stream's order when many streams spill, refuse, and drain interleaved", async () => {
     for (const seed of [1, 7, 42, 1_234]) {
       const random = prng(seed);
@@ -324,7 +326,7 @@ describe("ingest pipeline streams", () => {
       expect(pipeline.inFlightBytes()).toBe(0);
       expect(pipeline.spooledBytes()).toBe(0);
     }
-  });
+  }, 30_000);
 
   test("emits a stream's last unterminated line once the stream ends, then frees it", async () => {
     const root = tempDir();

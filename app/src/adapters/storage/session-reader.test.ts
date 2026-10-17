@@ -645,6 +645,7 @@ describe("session reader", () => {
     expect(page.events[1]?.attributes["http.request_id"]).toBe("late");
   });
 
+  // Usually a fifth of a second; on a Windows runner it has taken nearly three.
   test("seeks through a large part with probes instead of reading it whole", () => {
     const dir = tmp();
     const records = range(1, 20_000).map((seq) => logRecord({ seq, service: "api", message: `line ${seq} ${PAD}` }));
@@ -660,5 +661,5 @@ describe("session reader", () => {
     expect(reader.bytesRead - cold).toBeLessThan(cold);
     expect(reader.bytesRead - cold).toBeLessThan(512 * 1024);
     expect(reader.lastSeq(readBudget(1024 * 1024, 1_000))).toBe(20_000);
-  });
+  }, 15_000);
 });
