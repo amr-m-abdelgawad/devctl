@@ -1,0 +1,61 @@
+name: Soak
+
+# The Docker soak suite (app/e2e/soak): devctl compiled from this commit
+# inside oven/bun:1.4.2 and driven in containers shaped like a dev container
+# (2 GiB memory limit, PID 1 `sleep infinity`, plus `--init` variants).
+#
+# - Nightly and on demand: the full matrix, with a 15 minute mixed session
+#   (`endurance`) that watches memory, descriptors, threads, zombies and
+#   FIFOs for a level that keeps climbing.
+# - On a pull request labeled `soak`: the PR subset (DEVCTL_SOAK_QUICK=1), one
+#   FIFO flood, two P0 repros and the quiet-services check, under six minutes
+#   after the image build.
+#
+# A check that pins a known production bug is skipped unless its key is in
+# DEVCTL_SOAK_REQUIRE (see app/e2e/soak/gates.ts); `all` runs every one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      require:
+        description: "DEVCTL_SOAK_REQUIRE: comma-separated gate keys, or `all`"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 6 * * *"
+  pull_request:
+    types: [labeled]
+
+concurrency:
+  group: soak-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    if: github.event_name != 'pull_request' || github.event.label.name == 'soak'
+    name: ${{ github.event_name == 'pull_request' && 'Resource soak (PR subset)' || 'Resource soak' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 120 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The version-skew scenario builds main as the old binary.
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Install
+        working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Docker
+        run: docker version
+      - name: Soak
+        working-directory: app
+        run: bun test e2e/soak
+        env:
+          DEVCTL_SOAK: "1"
+          DEVCTL_SOAK_QUICK: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          DEVCTL_SOAK_REQUIRE: ${{ github.event_name == 'workflow_dispatch' && inputs.require || '' }}
+      - name: Remove soak containers
+        if: always()
+        run: docker ps -aq --filter "label=devctl-soak.run" | xargs -r docker rm -f

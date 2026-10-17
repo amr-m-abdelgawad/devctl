@@ -12,7 +12,7 @@ export type LlmCaptureBegin = {
   requestHeaders: Record<string, string>;
   // Loopback TCP peer of the inbound socket, used to map the call back to a
   // managed service when the client did not send X-Devctl-Service.
-  peer?: { address: string; port: number };
+  peer?: { address: string; port: number; proxyPort?: number };
 };
 
 export type LlmCaptureFinish = {

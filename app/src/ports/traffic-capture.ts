@@ -9,7 +9,7 @@ export type TrafficCaptureBegin = {
   path: string;
   requestHeaders: Record<string, string>;
   transport: "http" | "grpc";
-  peer?: { address: string; port: number };
+  peer?: { address: string; port: number; proxyPort?: number };
 };
 
 export type TrafficCaptureFinish = {

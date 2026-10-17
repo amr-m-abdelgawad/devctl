@@ -18,4 +18,5 @@ export type LlmCallStore = {
   sourceErrors(): LlmSourceError[];
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void;
   close(): void;
+  shedBodies?(): void;
 };

@@ -1,13 +1,125 @@
 import { Detector } from "../secrets/detector.ts";
+import { rememberSelfStamp } from "../process/liveness.ts";
 import { loadPluginPaths } from "../plugins/registry.ts";
-import { defaultLogParser, LogManager } from "./logs.ts";
+import { RECORD_BATCH_BYTES, RECORD_BATCH_MS, RECORD_BATCH_RECORDS } from "../../domain/logs/budgets.ts";
+import { approxRecordBytes } from "../../domain/logs/size.ts";
+import { defaultLogParser, LogManager, type LogRecord } from "./logs.ts";
+import type { LogSnapshot } from "../../ports/log-store.ts";
 import type { WorkerRequest, WorkerResponse } from "./log-worker-protocol.ts";
+import { ChunkHoldQueue } from "./chunk-hold.ts";
 
 let manager: LogManager | undefined;
 let detector: Detector | undefined;
 let chain = Promise.resolve();
 
+type ChunkMessage = Extract<WorkerRequest, { type: "chunk" }>;
+
+const HELD_RETRY_MS = 5;
+let hold: ChunkHoldQueue<ChunkMessage> | undefined;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Committed records go back in batches: at most one per RECORD_BATCH_MS, and
+// sooner only when a batch fills. A quiet stream's line leaves at once.
+let outbox: LogRecord[] = [];
+let outboxBytes = 0;
+let outboxTimer: ReturnType<typeof setTimeout> | undefined;
+let outboxSentAt = 0;
+// The newest structured append taken and not yet acked.
+let appendedUpTo: number | undefined;
+
+function queueRecord(event: LogRecord): void {
+  outbox.push(event);
+  outboxBytes += approxRecordBytes(event);
+  if (outbox.length >= RECORD_BATCH_RECORDS || outboxBytes >= RECORD_BATCH_BYTES) {
+    sendRecords();
+    return;
+  }
+  scheduleRecords();
+}
+
+function scheduleRecords(): void {
+  outboxTimer ??= setTimeout(sendRecords, Math.max(0, outboxSentAt + RECORD_BATCH_MS - Date.now()));
+}
+
+// The supervisor reads the pipeline's state (spooled bytes, and whether
+// readers must pause) from the stats on the last ack or record batch. Once
+// output stops, nothing else would tell it that the writer caught up, the
+// spool drained, or a pause cleared. So after each message that carries
+// stats, they are sent once more whenever they have changed, until the
+// pipeline is quiet.
+const STATS_SETTLE_MS = 250;
+let statsTimer: ReturnType<typeof setTimeout> | undefined;
+let sentPipeline = "";
+
+function noteStatsSent(stats: LogSnapshot): void {
+  sentPipeline = JSON.stringify(stats.pipeline ?? null);
+  followStats();
+}
+
+function followStats(): void {
+  statsTimer ??= setTimeout(() => {
+    statsTimer = undefined;
+    if (manager === undefined) {
+      return;
+    }
+    const stats = manager.snapshot();
+    const pipeline = stats.pipeline;
+    if (JSON.stringify(pipeline ?? null) !== sentPipeline) {
+      postMessage({ type: "appended", events: [], stats } satisfies WorkerResponse);
+      noteStatsSent(stats);
+    } else if (pipeline !== undefined && (pipeline.paused || pipeline.inFlightBytes > 0 || pipeline.spooledBytes > 0)) {
+      followStats();
+    }
+  }, STATS_SETTLE_MS);
+}
+
+function sendRecords(): void {
+  if (outboxTimer !== undefined) {
+    clearTimeout(outboxTimer);
+    outboxTimer = undefined;
+  }
+  if ((outbox.length === 0 && appendedUpTo === undefined) || manager === undefined) {
+    return;
+  }
+  const events = outbox;
+  outbox = [];
+  outboxBytes = 0;
+  outboxSentAt = Date.now();
+  const acked = appendedUpTo;
+  appendedUpTo = undefined;
+  const stats = manager.snapshot();
+  postMessage({ type: "appended", events, stats, appendedUpTo: acked } satisfies WorkerResponse);
+  noteStatsSent(stats);
+}
+
+function holdFor(mgr: LogManager): ChunkHoldQueue<ChunkMessage> {
+  hold ??= new ChunkHoldQueue<ChunkMessage>(
+    (message, force) => mgr.acceptChunk(message, force),
+    (message) => {
+      const stats = mgr.snapshot();
+      reply({ id: message.id, type: "chunkAck", accepted: true, stats });
+      noteStatsSent(stats);
+    },
+  );
+  return hold;
+}
+
+function scheduleRetry(): void {
+  if (retryTimer !== undefined || hold?.holding !== true) {
+    return;
+  }
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined;
+    hold?.retry();
+    scheduleRetry();
+  }, HELD_RETRY_MS);
+}
+
 function reply(message: WorkerResponse): void {
+  // A result must not overtake the records its caller expects to have seen.
+  if (message.type === "result" || message.type === "error") {
+    sendRecords();
+  }
   postMessage(message);
 }
 
@@ -20,6 +132,9 @@ function fail(id: number | undefined, err: unknown): void {
 
 async function handle(message: WorkerRequest): Promise<void> {
   if (message.type === "init") {
+    if (message.config.selfStamp !== undefined) {
+      rememberSelfStamp(message.config.selfStamp);
+    }
     detector = new Detector(message.config.extraMarkers, message.config.extraPatterns, message.config.redact !== false);
     manager = new LogManager(
       message.config.max,
@@ -30,11 +145,18 @@ async function handle(message: WorkerRequest): Promise<void> {
       message.config.sessionID,
       message.config.retentionDays,
       message.config.maxSessionLogs,
+      {
+        repoKey: message.config.repoKey,
+        maxMemoryBytes: message.config.maxMemoryBytes,
+        maxSessionBytes: message.config.maxSessionBytes,
+        maxSpoolBytes: message.config.maxSpoolBytes,
+        maxTotalBytes: message.config.maxTotalBytes,
+        spoolDir: message.config.spoolDir,
+        firstSeq: message.config.firstSeq,
+      },
     );
     manager.setParsers([defaultLogParser()]);
-    manager.setOnRecord((event) => {
-      reply({ type: "appended", event, stats: manager!.snapshot() });
-    });
+    manager.setOnRecord(queueRecord);
     reply({ type: "ready" });
     return;
   }
@@ -57,8 +179,38 @@ async function handle(message: WorkerRequest): Promise<void> {
     fail("id" in message ? message.id : undefined, new Error("log worker is not initialized"));
     return;
   }
-  if (message.type === "append") {
-    manager.append(message.event);
+  if (message.type === "appendBatch") {
+    for (const item of message.items) {
+      manager.append(item.event, item.atMs);
+    }
+    appendedUpTo = message.items.at(-1)?.id ?? appendedUpTo;
+    scheduleRecords();
+    return;
+  }
+  if (message.type === "setUpstreamPaused") {
+    manager.setUpstreamPaused(message.paused);
+    return;
+  }
+  if (message.type === "chunk") {
+    if (!holdFor(manager).offer(message)) {
+      scheduleRetry();
+    }
+    return;
+  }
+  if (message.type === "reserveSpool") {
+    manager.reserveSpool(message.bytes);
+    return;
+  }
+  if (message.type === "setMemoryBudget") {
+    manager.setMemoryBudget(message.bytes);
+    // Trimming the ring changes its size with no record to carry the news.
+    followStats();
+    return;
+  }
+  if (message.type === "flush") {
+    hold?.retry();
+    await manager.flush();
+    reply({ id: message.id, type: "result", result: null });
     return;
   }
   if (message.type === "query") {
@@ -67,6 +219,10 @@ async function handle(message: WorkerRequest): Promise<void> {
   }
   if (message.type === "queryPage") {
     reply({ id: message.id, type: "result", result: manager.queryPage(message.filter, message.page) });
+    return;
+  }
+  if (message.type === "historyPage") {
+    reply({ id: message.id, type: "result", result: manager.historyPage(message.session, message.filter, message.page) });
     return;
   }
   if (message.type === "queryFacets") {
@@ -78,13 +234,22 @@ async function handle(message: WorkerRequest): Promise<void> {
     reply({ id: message.id, type: "result", result: null });
     return;
   }
-  await manager.close();
-  reply({ id: message.id, type: "result", result: null });
+  if (message.type === "close") {
+    // Held chunks go in past the budget rather than being lost at shutdown.
+    hold?.retry(true);
+    await manager.close();
+    reply({ id: message.id, type: "result", result: null });
+  }
 }
 
 addEventListener("message", (event: MessageEvent<WorkerRequest>) => {
-  chain = chain.then(() => handle(event.data)).catch((err: unknown) => {
-    const data = event.data;
+  const data = event.data;
+  // The budget must not wait behind a flood of chunks.
+  if (data.type === "setMemoryBudget") {
+    void handle(data);
+    return;
+  }
+  chain = chain.then(() => handle(data)).catch((err: unknown) => {
     fail("id" in data ? data.id : undefined, err);
   });
 });
