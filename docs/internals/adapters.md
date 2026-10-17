@@ -45,7 +45,8 @@ See [config pipeline](config-pipeline.md). Entry barrel: `index.ts` (re-exports 
 | File | Role |
 |------|------|
 | `processes.ts` | `ProcessManager implements ProcessRuntime`; spawn via `Bun.spawn`; adopt; `runOnce`; delegates containers |
-| `peer-caller.ts` | Map a loopback TCP peer port to a managed service (lsof/netstat owner pid, parent walk, pgid) for LLM caller attribution |
+| `peer-caller.ts` | Map a loopback TCP peer to a managed service for LLM and traffic caller attribution. Linux: socket inode from the kernel (`sock-diag.ts`), else from shared reads of `/proc/net/tcp[6]`, then the fds of managed processes and their descendants. Elsewhere: lsof/netstat owner pid, parent walk, pgid |
+| `sock-diag.ts` | Ask the kernel for one TCP socket by both ends: a netlink `NETLINK_SOCK_DIAG` exact-match request through `bun:ffi` to glibc, non-blocking. Linux only |
 | `unix.ts` | Process inspect, tree kill, `vm_stat` samples, command matching |
 | `windows.ts` | Same for Windows (WMIC/CIM, named-pipe world) |
 

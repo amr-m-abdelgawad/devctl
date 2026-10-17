@@ -13,9 +13,11 @@ import {
   parseProcPidStat,
   parsePsPidColumn,
   PeerCallerResolver,
+  tcpRowsByPort,
   type PeerCallerLookups,
   type ProcFs,
 } from "./peer-caller.ts";
+import type { SocketAnswer, SocketDiag } from "./sock-diag.ts";
 
 const lookups = (owner: number | undefined, ancestors: number[], pgid?: number): PeerCallerResolver =>
   new PeerCallerResolver({
@@ -72,6 +74,31 @@ describe("proc parsers (lsof/ps-free path)", () => {
       "   0: 0000000000000000FFFF00000100007F:D431 0000000000000000FFFF00000100007F:43F8 01 00000000:00000000 00:00000000 00000000  1000        0 99999 1 0000 100 0 0 10 0",
     ].join("\n");
     expect(parseProcNetTcpInode(tcp6, 0xd431)).toBe("99999");
+  });
+
+  test("indexes every row a process can hold by its local port, passing over TIME_WAIT", () => {
+    const text = [
+      "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode",
+      "   0: 0100007F:D431 0100007F:43F8 06 00000000:00000000 03:00000F3C 00000000     0        0 0 3 0000000000000000",
+      "   1: 0100007F:D431 0100007F:1F90 08 00000000:00000000 00:00000000 00000000  1000        0 45679 1 0000 100 0 0 10 0",
+      "   2: 0100007F:D431 0100007F:43F8 01 00000000:00000000 00:00000000 00000000  1000        0 45678 1 0000 100 0 0 10 0",
+      "   3: 0100007F:43F8 0100007F:D431 01 00000000:00000000 00:00000000 00000000  1000        0 11111 1 0000 100 0 0 10 0",
+      // Closed by its process and still draining: no inode.
+      "   4: 0100007F:D432 0100007F:43F8 04 00000000:00000000 01:00000014 00000000  1000        0 0 1 0000 100 0 0 10 0",
+      "10000: 0000000000000000FFFF00000100007F:D433 0000000000000000FFFF00000100007F:43F8 01 00000000:00000000 00:00000000 00000000  1000        0 99999 1 0000 100 0 0 10 0",
+      "10001: 0000000000000000FFFF00000100007F:D434 0000000000000000FFFF00000100007F:43F8 06 00000000:00000000 03:00000F3C 00000000     0        0 0 3 0000000000000000",
+    ].join("\n");
+    const index = tcpRowsByPort(text);
+    expect([...index.keys()].sort((a, b) => a - b)).toEqual([0x43f8, 0xd431, 0xd433]);
+    expect(index.get(0xd431)).toEqual([
+      { port: 0xd431, remotePort: 0x1f90, inode: "45679", established: false },
+      { port: 0xd431, remotePort: 0x43f8, inode: "45678", established: true },
+    ]);
+    expect(index.get(0xd433)?.map((row) => row.inode)).toEqual(["99999"]);
+    // A search of the table finds the same rows.
+    expect(parseProcNetTcpInode(text, 0xd431)).toBe("45678");
+    expect(parseProcNetTcpInode(text, 0xd431, 0x1f90)).toBe("45679");
+    expect(parseProcNetTcpInode(text, 0xd432)).toBeUndefined();
   });
 
   test("prefers an ESTABLISHED row and skips inode 0 (TIME_WAIT)", () => {
@@ -370,6 +397,170 @@ describe.skipIf(process.platform === "win32")("PeerCallerResolver on /proc", () 
       proc.socket(0xd433, "66666");
       resolver.markDirty();
       expect(await callerServiceForPeer({ address: "127.0.0.1", port: 0xd433 }, services, resolver)).toBe("api");
+    } finally {
+      proc.close();
+    }
+  });
+
+  // The kernel's socket lookup, knowing the sockets in `open` by "<local port>><remote port>".
+  function fakeKernel(open: ReadonlyMap<string, SocketAnswer>) {
+    const asked: string[] = [];
+    const kernel: SocketDiag = {
+      socket: (local, remote) => {
+        const key = `${local.port}>${remote.port}`;
+        asked.push(key);
+        return open.get(key) ?? "missing";
+      },
+    };
+    return { kernel, asked };
+  }
+
+  const viaProxy = (port: number) => ({ address: "127.0.0.1", port, proxyPort: PROXY_PORT, proxyAddress: "127.0.0.1" });
+
+  // Pid 101, a child of the managed pid 100, holds a socket on each of `count` new client ports.
+  function churned(count: number) {
+    const proc = fakeProc();
+    const ports = Array.from({ length: count }, (_, index) => 0xd500 + index);
+    const inodes = ports.map((_, index) => String(60_000 + index));
+    proc.add({ pid: 100, ppid: 50, files: 2 });
+    proc.add({ pid: 101, ppid: 100, pgid: 100, sockets: inodes });
+    ports.forEach((port, index) => proc.socket(port, inodes[index]!));
+    return { proc, ports, open: new Map<string, SocketAnswer>(ports.map((port, index) => [`${port}>${PROXY_PORT}`, { inode: inodes[index]! }])) };
+  }
+
+  test("with the kernel's socket lookup, a new connection costs no read of the socket table", async () => {
+    const { proc, ports, open } = churned(30);
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => kernel.kernel });
+      for (const port of ports) {
+        expect(await callerServiceForPeer(viaProxy(port), services, resolver)).toBe("api");
+      }
+      // Read once per connection, the table took a whole copy of every socket each time.
+      expect(reads.counts.tables).toBe(0);
+      expect(kernel.asked).toHaveLength(30);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("once the kernel has answered for the proxy's own end, its 'no such socket' is believed", async () => {
+    const { proc, ports } = churned(3);
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      // The client has gone; only the proxy's end of each connection is known.
+      const kernel = fakeKernel(new Map(ports.map((port) => [`${PROXY_PORT}>${port}`, { inode: "1" }])));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => kernel.kernel });
+      for (const port of ports) {
+        expect(await callerServiceForPeer(viaProxy(port), services, resolver)).toBeUndefined();
+      }
+      expect(reads.counts.tables).toBe(0);
+      // The proxy's end was asked about only until the kernel had proved itself.
+      expect(kernel.asked).toEqual([`${ports[0]}>${PROXY_PORT}`, `${PROXY_PORT}>${ports[0]}`, `${ports[1]}>${PROXY_PORT}`, `${ports[2]}>${PROXY_PORT}`]);
+      // A connection the kernel knows only in TIME_WAIT is closed, whatever the table says.
+      const timeWait = fakeKernel(new Map([[`${ports[0]}>${PROXY_PORT}`, "closed" as const]]));
+      const fresh = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => timeWait.kernel });
+      expect(await callerServiceForPeer(viaProxy(ports[0]!), services, fresh)).toBeUndefined();
+      expect(reads.counts.tables).toBe(0);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a kernel that cannot prove its answers is given up on, and the socket table answers", async () => {
+    const { proc, ports } = churned(6);
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      // A kernel without the lookup: every socket is missing, the proxy's own included.
+      const kernel = fakeKernel(new Map());
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => kernel.kernel });
+      for (const port of ports) {
+        expect(await callerServiceForPeer(viaProxy(port), services, resolver)).toBe("api");
+      }
+      expect(reads.counts.tables).toBe(6);
+      // Asked about the client and the proxy's end for three connections, then not again.
+      expect(kernel.asked).toHaveLength(6);
+      // A lookup the kernel could not open, or one without the proxy's address, reads the table too.
+      const unopened = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => undefined });
+      expect(await callerServiceForPeer(viaProxy(ports[0]!), services, unopened)).toBe("api");
+      const known = fakeKernel(new Map([[`${ports[1]}>${PROXY_PORT}`, { inode: "60001" }]]));
+      const noAddress = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => known.kernel });
+      expect(await callerServiceForPeer({ address: "127.0.0.1", port: ports[1]!, proxyPort: PROXY_PORT }, services, noAddress)).toBe("api");
+      expect(known.asked).toEqual([]);
+      expect(reads.counts.tables).toBe(8);
+      // Ends the kernel cannot be asked about are no reason to give up on it.
+      const picky: SocketDiag = { socket: (local, remote) => (local.port === ports[1] ? known.kernel.socket(local, remote) : "unasked") };
+      const keeps = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => picky });
+      for (const port of ports.slice(2)) {
+        expect(await callerServiceForPeer(viaProxy(port), services, keeps)).toBe("api");
+      }
+      expect(reads.counts.tables).toBe(12);
+      expect(await callerServiceForPeer(viaProxy(ports[1]!), services, keeps)).toBe("api");
+      expect(reads.counts.tables).toBe(12);
+      expect(known.asked).toEqual([`${ports[1]}>${PROXY_PORT}`]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  // Each read of net/tcp copies the table when it is asked for and hands it over once `release` is called.
+  function heldReads(proc: ProcFs) {
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const counts = { tables: 0 };
+    const fs: ProcFs = {
+      ...proc,
+      readText: async (path) => {
+        if (!path.endsWith("/net/tcp")) {
+          return proc.readText(path);
+        }
+        counts.tables += 1;
+        const text = await proc.readText(path);
+        await gate;
+        return text;
+      },
+    };
+    return { fs, counts, release: () => release() };
+  }
+
+  test("without the kernel's lookup, connections that arrive during a read of the table share the next one", async () => {
+    const { proc, ports } = churned(12);
+    try {
+      const reads = heldReads(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      const first = callerServiceForPeer(viaProxy(ports[0]!), services, resolver);
+      await Bun.sleep(10);
+      expect(reads.counts.tables).toBe(1);
+      const rest = ports.slice(1).map((port) => callerServiceForPeer(viaProxy(port), services, resolver));
+      await Bun.sleep(10);
+      reads.release();
+      // Eleven lookups on one read: past the first few, the table is indexed once.
+      const callers: (string | undefined)[] = await Promise.all([first, ...rest]);
+      expect(callers).toEqual(ports.map(() => "api"));
+      expect(reads.counts.tables).toBe(2);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a lookup is never answered from a read of the table that began before it asked", async () => {
+    const proc = fakeProc();
+    try {
+      proc.add({ pid: 100, ppid: 1, sockets: ["80001", "80002"] });
+      proc.socket(0xd601, "80001");
+      const reads = heldReads(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0 });
+      const early = callerServiceForPeer(viaProxy(0xd601), services, resolver);
+      await Bun.sleep(10);
+      // This connection opened after the read under way had copied the table.
+      proc.socket(0xd602, "80002");
+      const late = callerServiceForPeer(viaProxy(0xd602), services, resolver);
+      reads.release();
+      expect(await Promise.all([early, late])).toEqual(["api", "api"]);
+      expect(reads.counts.tables).toBe(2);
     } finally {
       proc.close();
     }

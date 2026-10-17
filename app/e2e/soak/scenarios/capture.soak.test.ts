@@ -228,4 +228,82 @@ services:
     expect(result.errors).toBe(0);
     expect(result.byCaller.client ?? 0).toBeGreaterThanOrEqual(Math.ceil(result.calls * 0.99));
   }, 300_000);
+
+  type Churn = {
+    requests: { ok: number; errors: number; shed: number; perSecond: number; p99: number };
+    table: { rowsAfter: number };
+    cpu: { daemon: { percent: number; per1000: number }; client: { percent: number } };
+    daemon: { rssMaxMiB: number; heapMaxMiB: number; eventLoopLagMaxMs: number; readBytesPerRequest: number };
+  };
+
+  test("a client devctl does not run that closes every connection costs no read of the socket table per connection, and a service's calls keep their caller", async () => {
+    const box = await container();
+    const rate = 130;
+    // The churn goes to an LLM route and the service's calls to an inspected
+    // one, so the churn does not push the service's calls out of the traffic
+    // store's 2,000.
+    await box.configure(`${CONFIG_HEADER}project:
+  name: soak-churn
+proxy:
+  enabled: true
+  listen: { host: 127.0.0.1, port: ${PROXY_PORT} }
+  routes:
+    - name: llm-route
+      match: { path: /v1 }
+      upstream: { service: llm }
+    - name: echo-route
+      match: { path: /echo }
+      upstream: { service: echo }
+      inspect: true
+llm:
+  enabled: true
+  sources:
+    - name: local-llm
+      type: proxy
+      via: { route: llm-route }
+services:
+  llm:
+    command: [bun, /soak/driver/llm-upstream.ts, "18082", --completion-bytes, "2048"]
+    ports: { http: 18082 }
+    health: { type: http, url: "http://127.0.0.1:\${services.llm.ports.http}/health", interval_seconds: 1 }
+  echo:
+    command: [bun, /soak/driver/echo.ts, "18081", --delay-ms, "30"]
+    ports: { http: 18081 }
+    health: { type: http, url: "http://127.0.0.1:\${services.echo.ports.http}/health", interval_seconds: 1 }
+  client:
+    command: [bun, /soak/driver/client.ts, --url, "http://127.0.0.1:${PROXY_PORT}/echo/x", --count, "300", --interval-ms, "20", --delay-ms, "75000"]
+    restart: { policy: never }
+`);
+    await box.devctl(["start", "llm", "echo", "--wait", "--timeout", "60s"]);
+    // The service starts calling once 75 s of churn have filled the socket
+    // table with about 60 s of closed connections (TIME_WAIT).
+    await box.devctl(["start", "client"]);
+    const churn = await box.driver<Churn>("churn.ts", ["--url", `http://127.0.0.1:${PROXY_PORT}/v1/chat/completions`, "--rate", String(rate), "--warmup-s", "70", "--measure-s", "30"], { timeoutMs: 200_000 });
+    await box.waitDone("client");
+    const traffic = await box.driver<{ calls: number; byCaller: Record<string, number> }>("traffic.ts");
+    const llm = await box.driver<{ calls: number; byCaller: Record<string, number> }>("traffic.ts", ["--store", "llm"]);
+    const summary = (await box.devctl(["logs", "client", "--search", "client done", "--json"])).stdout;
+    const clientErrors = Number(/errors=(\d+)/.exec(summary)?.[1] ?? "NaN");
+    report("connection churn from outside devctl", {
+      rate,
+      requests: churn.requests,
+      tableRows: churn.table.rowsAfter,
+      daemon: { cpuPercent: churn.cpu.daemon.percent, cpuSecondsPer1000: churn.cpu.daemon.per1000, readBytesPerRequest: churn.daemon.readBytesPerRequest, rssMaxMiB: churn.daemon.rssMaxMiB, heapMaxMiB: churn.daemon.heapMaxMiB, eventLoopLagMaxMs: churn.daemon.eventLoopLagMaxMs },
+      churnClientCpuPercent: churn.cpu.client.percent,
+      serviceCalls: traffic.byCaller,
+      churnCalls: llm.byCaller,
+    });
+    await box.devctl(["down"], { allowFail: true });
+
+    expect(churn.requests.errors).toBe(0);
+    expect(churn.requests.shed).toBe(0);
+    // The premise: thousands of closed connections in the table.
+    expect(churn.table.rowsAfter).toBeGreaterThan(3_000);
+    // Each lookup that read the table copied all of it, about 150 bytes a row.
+    expect(churn.daemon.readBytesPerRequest).toBeLessThan(64 * 1024);
+    expect(clientErrors).toBe(0);
+    expect(traffic.byCaller.client ?? 0).toBeGreaterThanOrEqual(297);
+    // The churn's own calls are nobody's.
+    expect(Object.keys(llm.byCaller)).toEqual(["(none)"]);
+  }, 300_000);
 });
