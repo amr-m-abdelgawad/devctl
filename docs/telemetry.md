@@ -82,6 +82,20 @@ the request's trace. A `traceparent` on an incoming request is honored; a bare
 request-id header is **not** adopted as the trace id, so unrelated requests are
 never merged into one trace.
 
+Spans are kept in memory only. The trace store holds the newest 10,000 spans,
+and within that at most `telemetry.store_max_bytes` of them (64 MiB when unset
+or `0`); the proxy's request spans count toward both. Once it is over either
+limit the oldest spans leave first, so with large spans (a whole prompt in an
+attribute or an event) older traces drop out of the explorer sooner. A span is
+not cut to fit: one larger than the whole budget is kept until the next
+arrives. Under memory pressure the daemon halves this budget, then quarters
+it, as it does the log ring. A changed value takes effect on reload.
+
+```yaml
+telemetry:
+  store_max_bytes: 134217728      # 128 MiB of spans; default 64 MiB
+```
+
 View a trace three ways:
 
 - **TUI** — a ◎ marker on a log row means it has a trace; `enter` (or **view

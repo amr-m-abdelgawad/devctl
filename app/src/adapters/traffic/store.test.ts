@@ -45,4 +45,32 @@ describe("TrafficCallRing", () => {
     store.close();
     expect(store.get("d")).toBeUndefined();
   });
+
+  test("counts and drops both the decoded text and the raw base64 of an evicted body", () => {
+    const data = Buffer.alloc(300, 7).toString("base64");
+    const grpc = (id: string): TrafficCallIngest =>
+      ingest(id, { transport: "grpc", request: { contentType: "application/grpc", encoding: "base64", data, text: '{"n":1}' } });
+    const store = new TrafficCallRing(new Detector([], []), 100, 1_000);
+    store.upsert([grpc("a"), grpc("b"), grpc("c")]);
+    const evicted = store.get("a")?.request;
+    expect(evicted?.data).toBeUndefined();
+    expect(evicted?.text).toBeUndefined();
+    expect(evicted?.omitted).toBe(true);
+    expect(evicted?.contentType).toBe("application/grpc");
+    expect(store.get("b")?.request?.data).toBe(data);
+    expect(store.get("c")?.request?.data).toBe(data);
+  });
+
+  test("summary pages and shedding leave no payload behind", () => {
+    const store = new TrafficCallRing(new Detector([], []));
+    store.upsert([ingest("a", { request: { text: '{"q":"find me"}' }, response: { text: "ok" } })]);
+    const summary = store.queryPage({ search: "find me" }, { summary: true });
+    expect(summary.calls.map((call) => call.id)).toEqual(["a"]);
+    expect(summary.calls[0]?.request).toEqual({ omitted: true });
+    expect(store.get("a")?.request?.text).toBe('{"q":"find me"}');
+    store.shedBodies();
+    expect(store.get("a")?.request).toEqual({ omitted: true });
+    expect(store.get("a")?.response).toEqual({ omitted: true });
+    expect(store.queryPage({ search: "find me" }).calls).toHaveLength(0);
+  });
 });

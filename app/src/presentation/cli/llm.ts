@@ -96,20 +96,22 @@ export function addLlm(root: Command, runtime: ClientRuntime): void {
         const printCall = (call: LlmCall): void => {
           writeOut(opts.json ? `${JSON.stringify(call)}\n` : formatLlmCallLine(call));
         };
+        // A text line shows no bodies, so only --json asks for them.
+        const request = { ...filter, summary: opts.json !== true };
         if (opts.follow) {
           const abort = new AbortController();
           const onSignal = (): void => abort.abort();
           process.on("SIGINT", onSignal);
           process.on("SIGTERM", onSignal);
           try {
-            await followLlmCalls(() => ctrl.llmCallsPage(filter), printCall, abort.signal);
+            await followLlmCalls(() => ctrl.llmCallsPage(request), printCall, abort.signal);
           } finally {
             process.off("SIGINT", onSignal);
             process.off("SIGTERM", onSignal);
           }
           return;
         }
-        const page = await ctrl.llmCallsPage(filter);
+        const page = await ctrl.llmCallsPage(request);
         for (const err of page.errors) {
           writeOut(`! ${err.source}: ${err.message}\n`);
         }

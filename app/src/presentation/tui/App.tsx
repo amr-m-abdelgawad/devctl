@@ -14,6 +14,7 @@ import { writeClipboard } from "./clipboard.ts";
 import { lookupCommand } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
+import { tuiLogCap } from "./helpers/logs.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
 import { matchProxyRequest } from "./helpers/proxy.ts";
@@ -163,7 +164,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       return undefined;
     }
   }, [controller, profile]);
-  const logView = useLogView({ controller, tui, names, screen, refresh, setStatus });
+  const logView = useLogView({ controller, tui, names, screen, refresh, setStatus, loadSessionPage: workspace.loadSessionPage, logCap: tuiLogCap(cfg?.logs.max_memory_events) });
   const preferences = usePreferences({
     tui,
     controller,
@@ -262,6 +263,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     applyLogCursorA,
     applyLogCursorB,
     jumpToLatestLogs,
+    logTailCut,
   } = logView;
 
   const filtered = useMemo(() => {
@@ -352,7 +354,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     copyMcpSnippet,
   } = mcp;
 
-  useDaemonEvents({ controller, cfg, paused, logSince, refresh, setLogs, setCfg, setConfigReloadError, setStatus });
+  useDaemonEvents({ controller, cfg, paused: paused || logTailCut, logSince, refresh, setLogs, setCfg, setConfigReloadError, setStatus });
 
   const openDetail = useCallback((name: string) => {
     setDetailName(name);

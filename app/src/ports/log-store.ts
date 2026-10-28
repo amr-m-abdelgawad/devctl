@@ -8,6 +8,8 @@ export type LogStore = {
   append(event: LogIngest): void;
   query(filter: LogFilter): Promise<LogRecord[]>;
   queryPage(filter: LogFilter, page?: LogPageRequest): Promise<LogPage>;
+  /** One page of a persisted session's history, by plain-seq cursors. With no cursor, its newest matches. */
+  historyPage?(session: string, filter: LogFilter, page?: LogPageRequest): Promise<LogPage>;
   queryFacets(filter: LogFilter): Promise<LogFacets>;
   snapshot(): LogSnapshot;
   exportTo(path: string, filter: LogFilter): Promise<void>;
@@ -15,4 +17,19 @@ export type LogStore = {
   setServiceLogs(logs: Record<string, ServiceLogConfig>): void;
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void;
   close(): Promise<void>;
+  /** True when the pipeline cannot accept more bytes until the spool drains. */
+  ingestPaused?(): boolean;
+  /** Raw service output. False means the caller must retry this chunk. `end` (with no bytes) finishes the stream. */
+  ingestChunk?(chunk: { service: string; stream: string; pid: number; readAtMs: number; bytes: Uint8Array; end?: boolean; noSpill?: boolean }): boolean;
+  /**
+   * Bytes of unparsed output held on disk outside the pipeline's own spool,
+   * such as a drain spool being replayed. They count against
+   * `logs.spool.max_bytes` with it.
+   */
+  reserveSpool?(bytes: number): void;
+  flush?(): Promise<void>;
+  setMemoryBudget?(bytes: number): void;
+  pipelineStats?(): LogSnapshot["pipeline"];
+  /** True while a worker thread holds the ring. A store without it runs on the caller's thread. */
+  usesWorker?(): boolean;
 };

@@ -12,6 +12,8 @@ export type McpHost = {
   logsStats(req: LogFilter): LogFacets | Promise<LogFacets>;
   listLogSessions(): readonly string[] | Promise<readonly string[]>;
   loadLogSession(id: string): readonly LogRecord[] | Promise<readonly LogRecord[]>;
+  /** One page of a persisted session by plain-seq cursors. Hosts without it page `loadLogSession`. */
+  logSessionPage?(id: string, req: LogFilter & LogPageRequest): LogPage | Promise<LogPage>;
   llmCallsPage?(req: LlmCallFilter & LlmCallPageRequest): LlmCallPage | Promise<LlmCallPage>;
   getLlmCall?(id: string): LlmCall | undefined | Promise<LlmCall | undefined>;
   trafficCallsPage?(req: TrafficCallFilter & TrafficCallPageRequest): TrafficCallPage | Promise<TrafficCallPage>;

@@ -2,13 +2,14 @@ import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { Detector } from "../../shared/redaction.ts";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import { instanceStatusLine, type StatusSnapshot } from "../../domain/status.ts";
+import { daemonStatusLine, instanceStatusLine, type StatusSnapshot } from "../../domain/status.ts";
 import { displayState, formatPlan } from "../../domain/service/services.ts";
 import { type ServiceConfig } from "../../domain/config/types.ts";
 import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
 import { configFlag, writeOut } from "./shared.ts";
 import { DEFAULT_WAIT_TIMEOUT, plannedServices, waitForStack } from "./wait.ts";
 import { parseDuration } from "../../domain/harness.ts";
+import { hintError, KindGeneral } from "../../shared/errors.ts";
 
 export function addExec(root: Command, runtime: ClientRuntime): void {
   root.command("exec")
@@ -160,12 +161,18 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
   // dial, not a parsed config, so a deleted .devctl must not prevent it
   // from finding a still-live daemon (findDaemon's discovery-then-
   // state-scan fallback handles that).
-  const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
+  const { repoRoot, client, notice } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
   try {
     if (!client) {
       const persisted = runtime.readPersistedState(repoRoot);
       if (opts.json) {
-        writeOut(JSON.stringify({ running: false, persisted }, null, 2) + "\n");
+        writeOut(JSON.stringify({ running: false, ...(notice === undefined ? {} : { notice }), persisted }, null, 2) + "\n");
+        return;
+      }
+      if (notice !== undefined) {
+        // A daemon is there and did not answer. What was persisted may be
+        // behind it, so nothing is shown as stopped.
+        writeOut(`${notice}\n`);
         return;
       }
       writeOut("supervisor is not running\n");
@@ -195,6 +202,10 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
     writeOut(`\nPROXY       ${snap.proxy.running ? "RUNNING" : "STOPPED"}     ${snap.proxy.address ?? ""}\n`);
     writeOut(`MCP         ${snap.mcp?.running ? "RUNNING" : "STOPPED"}     ${snap.mcp?.address ?? ""}\n`);
     writeOut(`WEB         ${snap.web?.running ? "RUNNING" : "STOPPED"}     ${snap.web?.address ?? ""}\n`);
+    const daemonLine = daemonStatusLine(snap.daemon);
+    if (daemonLine !== undefined) {
+      writeOut(`${daemonLine}\n`);
+    }
     writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
     writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);
   } finally {
@@ -243,10 +254,16 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
     .description("stop the daemon (and, by default, its services)")
     .option("--repo <path>", "target a repository directly, even without a loadable configuration")
     .option("--keep-services", "stop only the daemon; its services keep running, detached")
-    .action(async (opts: { repo?: string; keepServices?: boolean }) => {
-      const { repoRoot, client } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
+    .option("--force", "stop a daemon that has no heartbeat, including one left running by an older devctl")
+    .action(async (opts: { repo?: string; keepServices?: boolean; force?: boolean }) => {
+      const { repoRoot, client, notice } = await runtime.findDaemon("", opts.repo ?? "", configFlag(root));
       if (!client) {
-        writeOut(`no supervisor is running for ${repoRoot}\n`);
+        if (opts.force === true) {
+          const stopped = runtime.forceStopDaemon(repoRoot);
+          writeOut(stopped ? `stopped the supervisor for ${repoRoot}\n` : `no supervisor is running for ${repoRoot}\n`);
+          return;
+        }
+        writeOut(notice ? `${notice}\n` : `no supervisor is running for ${repoRoot}\n`);
         return;
       }
       const timeout = await shutdownTimeoutFor(client);
@@ -263,8 +280,15 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
       // request — dispatch("shutdown") replies immediately and does the
       // actual work shortly after (so the reply can flush before its own
       // socket goes away). down's job is to leave the daemon actually
-      // gone, so wait for it to stop answering before reporting success.
-      await waitUntilUnreachable(runtime, repoRoot, timeout);
+      // gone, so wait for that before reporting success, and say so when
+      // it is still there at the deadline.
+      if (!(await waitUntilStopped(runtime, repoRoot, timeout))) {
+        throw hintError(
+          KindGeneral,
+          `the supervisor for ${repoRoot} is still stopping after ${Math.round(timeout / 1000)} s`,
+          "it was asked to stop and goes on; run `devctl down` again to wait for it",
+        );
+      }
       writeOut(
         opts.keepServices !== true
           ? `stopped services and the supervisor for ${repoRoot}\n`
@@ -273,15 +297,23 @@ export function addDown(root: Command, runtime: ClientRuntime): void {
     });
 }
 
-export async function waitUntilUnreachable(runtime: ClientRuntime, repoRoot: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const probe = await runtime.tryDial(repoRoot);
-    if (!probe) {
-      return;
+const STOP_POLL_MS = 50;
+
+/**
+ * Waits for a daemon that was asked to shut down to be gone. It is gone once
+ * it has released its lock, not when it first misses a ping: it can be slow
+ * to answer while it stops its services. False when it is still there after
+ * `timeoutMs`.
+ */
+export async function waitUntilStopped(runtime: Pick<ClientRuntime, "daemonRunning">, repoRoot: string, timeoutMs: number): Promise<boolean> {
+  const deadline = performance.now() + timeoutMs;
+  while (await runtime.daemonRunning(repoRoot)) {
+    if (performance.now() >= deadline) {
+      return false;
     }
-    probe.close();
+    await delay(STOP_POLL_MS);
   }
+  return true;
 }
 
 // down works even without a loadable local config, so it can't rely on

@@ -53,6 +53,13 @@
     "telemetry": { "$ref": "#/$defs/telemetry" },
     "web": { "$ref": "#/$defs/web" },
     "llm": { "$ref": "#/$defs/llm" },
+    "supervisor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reap_orphans": { "type": "boolean", "description": "Whether the daemon adopts and reaps the orphans its services leave (Linux with glibc). Unset: on only where PID 1 does not reap, such as `sleep infinity`. `true` turns it on everywhere, `false` off. Prefer a reaping PID 1 (`init: true`) in containers." }
+      }
+    },
     "auth": {
       "type": "object",
       "additionalProperties": false,
@@ -460,6 +467,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "inspect_max_bytes": { "type": "integer", "minimum": 0, "description": "Default body cap for inspect-enabled routes whose inspect.max_bytes is 0 or omitted. 0 means 1 MiB. A route that sets max_bytes > 0 wins." },
+        "inspect_store_max_bytes": { "type": "integer", "minimum": 0, "description": "Byte budget for retained proxy inspect bodies. 0 uses 128 MiB. Call metadata is kept when a body is evicted." },
         "gateway": { "type": "boolean", "description": "Expose every HTTP-capable service (one with a port named http) through the proxy, as if each declared expose: true. Sugar over per-service expose." },
         "credentials": { "type": "string", "description": "Default authorized_user credentials file for IAP routes that omit auth.credentials (see route.auth.credentials)." },
         "listen": {
@@ -759,6 +767,14 @@
       "additionalProperties": false,
       "properties": {
         "max_memory_events": { "type": "integer", "minimum": 1 },
+        "max_memory_bytes": { "type": "integer", "minimum": 0, "description": "Byte budget for the live ring. 0 selects 8% of host or cgroup memory, clamped to 96–384 MiB." },
+        "spool": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "max_bytes": { "type": "integer", "minimum": 0, "description": "Ordered disk spool for lines not yet parsed. 0 uses 1 GiB." }
+          }
+        },
         "persistence": {
           "type": "object",
           "additionalProperties": false,
@@ -766,7 +782,9 @@
             "enabled": { "type": "boolean" },
             "directory": { "type": "string" },
             "retention_days": { "type": "integer", "minimum": 0 },
-            "max_session_logs": { "type": "integer", "minimum": 0 }
+            "max_session_logs": { "type": "integer", "minimum": 0, "description": "How many sessions to keep for this repository. Other repositories sharing the logs directory are not counted." },
+            "max_session_bytes": { "type": "integer", "minimum": 0, "description": "Per-session persistence cap. 0 uses 1 GiB." },
+            "max_total_bytes": { "type": "integer", "minimum": 0, "description": "Cap across closed sessions. 0 uses 2 GiB." }
           }
         }
       }
@@ -775,6 +793,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "store_max_bytes": { "type": "integer", "minimum": 0, "description": "Byte budget for the trace store, which holds the spans services send over OTLP and the proxy's span for each request. 0 uses 64 MiB. Over the budget the oldest spans go first; the 10,000-span cap applies as well." },
         "otlp": {
           "type": "object",
           "additionalProperties": false,
@@ -814,6 +833,7 @@
       "properties": {
         "enabled": { "type": "boolean" },
         "capture_max_bytes": { "type": "integer", "minimum": 0, "description": "Default body cap for sources whose capture.max_bytes is 0 or omitted. 0 means 1 MiB. A source that sets max_bytes > 0 wins." },
+        "store_max_bytes": { "type": "integer", "minimum": 0, "description": "Byte budget for retained LLM bodies. 0 uses 128 MiB. Metadata for the newest 2,000 calls is kept when a body is evicted." },
         "sources": {
           "type": "array",
           "items": { "$ref": "#/$defs/llmSource" }

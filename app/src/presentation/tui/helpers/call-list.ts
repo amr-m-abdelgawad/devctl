@@ -51,3 +51,25 @@ export function stepCallIndex(count: number, current: number, delta: number): nu
   const from = current < 0 ? 0 : current;
   return Math.max(0, Math.min(count - 1, from + delta));
 }
+
+type CallVersion = { readonly id: string; readonly seq: number };
+
+// List pages carry no bodies. The selected row's full record is fetched by id
+// and shown in its place, including while a newer version is being fetched.
+export function withCallDetail<T extends { readonly id: string }>(rows: readonly T[], full: T | undefined): readonly T[] {
+  if (full === undefined) {
+    return rows;
+  }
+  const index = rows.findIndex((row) => row.id === full.id);
+  if (index < 0) {
+    return rows;
+  }
+  const merged = rows.slice();
+  merged[index] = full;
+  return merged;
+}
+
+/** True when the selected row has no full record yet, or it changed since that record was fetched. */
+export function callDetailStale(row: CallVersion | undefined, held: CallVersion | undefined): boolean {
+  return row !== undefined && (held === undefined || held.id !== row.id || held.seq !== row.seq);
+}

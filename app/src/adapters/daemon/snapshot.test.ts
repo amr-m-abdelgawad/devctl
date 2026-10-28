@@ -5,6 +5,7 @@ import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config
 import { emptyRuntime, HealthHealthy, StateRunning } from "../../domain/service/services.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
 import { buildSnapshot, emptyIdentitySnapshot, formatStatusFromSnapshot, routeIapCredentialsValid, type SnapshotHost } from "./snapshot.ts";
+import { noteWatchdog } from "./resource-probe.ts";
 
 function sampleSnap(): StatusSnapshot {
   const api = emptyRuntime("api");
@@ -92,6 +93,28 @@ describe("formatStatusFromSnapshot", () => {
     const text = formatStatusFromSnapshot(sampleSnap());
     expect(text).toContain("SERVICE\tSTATUS\tHEALTH\tENV\tPID");
     expect(text).toContain("api\tHEALTHY\tHEALTHY\tdeployed\t42");
+    expect(text).not.toContain("DAEMON");
+  });
+
+  test("says when the daemon runs without its watchdog or log worker", () => {
+    const snap = { ...sampleSnap(), daemon: { rssBytes: 1, heapBytes: 1, logStore: "in-process" as const, watchdog: "degraded" as const } };
+    expect(formatStatusFromSnapshot(snap)).toContain("DAEMON      DEGRADED    watchdog worker down, log store in-process");
+  });
+});
+
+describe("buildSnapshot daemon workers", () => {
+  test("reports whether the ring runs in a worker", () => {
+    const host = snapshotHost(emptyRuntime("api"), 0);
+    expect(buildSnapshot({ ...host, logs: { ...host.logs, usesWorker: () => true } }).daemon?.logStore).toBe("worker");
+    expect(buildSnapshot({ ...host, logs: { ...host.logs, usesWorker: () => false } }).daemon?.logStore).toBe("in-process");
+    expect(buildSnapshot(host).daemon?.logStore).toBe("in-process");
+  });
+
+  test("carries the watchdog state this process recorded", () => {
+    noteWatchdog("degraded");
+    expect(buildSnapshot(snapshotHost(emptyRuntime("api"), 0)).daemon?.watchdog).toBe("degraded");
+    noteWatchdog("ok");
+    expect(buildSnapshot(snapshotHost(emptyRuntime("api"), 0)).daemon?.watchdog).toBe("ok");
   });
 });
 
