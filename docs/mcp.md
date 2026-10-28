@@ -51,12 +51,16 @@ Change it with `←` / `→` or `devctl mcp --port`. An override is persisted as
 The server binds **`127.0.0.1` only**. Requests must use a loopback `Host` from a
 loopback peer. There is no CORS (`Access-Control-Allow-Origin` is not set), so a
 browser page cannot drive the control plane cross-origin. Mutating tools require
-`Authorization: Bearer` with a short session token. The token is reused across
-daemon restarts for **7 days**, then reminted. `devctl mcp --rotate` mints a new
-one immediately (and restarts the listener if it is running). Copied snippets
-include the header. Tool output never includes tokens or raw secret env values.
-`get_status` reports MCP running/address/port and token age, not the bearer
-token. Re-copy snippets after a rotate or TTL remint.
+`Authorization: Bearer` with a session token. A saved token is reused across
+daemon restarts until you rotate it. `devctl mcp --rotate` mints a new one
+immediately (and restarts the listener if it is running). Set
+`regenerate_session_tokens: true` in `tui.json` (Settings → **Regenerate tokens**,
+or the web console Settings page) to remint after **7 days** the next time the
+listener reads the token. That preference is off by default and covers the web
+control token too. Copied snippets include the header. Tool output never includes
+tokens or raw secret env values. `get_status` reports MCP running/address/port,
+token age, and whether regeneration is on, not the bearer token. Re-copy snippets
+after a rotate, or after a remint when regeneration is on.
 
 ## CLI
 
@@ -77,8 +81,9 @@ so agents must be given the new snippets.
 checkout (`.mcp.json`, `.cursor/mcp.json` or `kilo.jsonc`), keeping any other
 servers there. The MCP port is derived per stack, so each worktree of a
 [parallel stacks](parallel-stacks.md) setup points its agent at its own stack.
-The file holds the bearer token: keep it out of git, and write it again after a
-rotate or remint. It needs a running listener (`devctl mcp --on --write …`).
+The file holds the bearer token: keep it out of git, and write it again after
+`devctl mcp --rotate` (or after a remint when `regenerate_session_tokens` is
+on). It needs a running listener (`devctl mcp --on --write …`).
 
 ![devctl mcp — the loopback URL and ready-to-paste config snippets for Claude, Cursor, Kilo Code, and Codex, each with the bearer header (token redacted here)](assets/manual/cli-mcp.png)
 
@@ -90,7 +95,7 @@ rotate or remint. It needs a running listener (`devctl mcp --on --write …`).
 | `get_service` | inspect | One service plus command/cwd/ports (env redacted or left as `${…}` refs) |
 | `get_status` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | `get_preferences` | inspect | Resolved operator prefs, write paths, and layer provenance (`user` / `repo` / `default`). `scope` labels the save target |
-| `set_preferences` | control | Write TUI/web prefs (`scope` repo or user). MCP listen always hits the repo overlay. `local.web_enabled` / `local.web_port` / `local.inspect_max_bytes` patch `.devctl/config.local.yaml` then reload |
+| `set_preferences` | control | Write TUI/web prefs (`scope` repo or user). MCP listen always hits the repo overlay. `regenerate_session_tokens` (default false) remints saved MCP and web bearers after 7 days. `local.web_enabled` / `local.web_port` / `local.inspect_max_bytes` patch `.devctl/config.local.yaml` then reload |
 | `get_logs` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass `limit`, max 5000). Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from `next_cursor` to page toward newer events (`direction` defaults to forward when a cursor is set); pass `cursor` from `prev_cursor` with `direction=backward` for older events. `regex=true` treats `search` as a regular expression. `since`/`until` are plain timestamp filters for a fresh query |
 | `get_log_stats` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as `get_logs` |
 | `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |

@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import { cycleInspectCap, DEFAULT_WEB_PORT, inspectCapBytes } from "../../../domain/config/types.ts";
+import { MCP_TOKEN_TTL_DAYS } from "../../../shared/mcp-token.ts";
 import { clampMcpPort } from "../../../domain/net/mcp-port.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
@@ -94,6 +95,8 @@ export function usePreferences({
   const committedMetadata = useRef(logMetadata);
   const [webAppearance, setWebAppearance] = useState<WebAppearance>(tui.web_appearance);
   const committedAppearance = useRef(webAppearance);
+  const [regenerateSessionTokens, setRegenerateSessionTokens] = useState(tui.regenerate_session_tokens === true);
+  const committedRegenerate = useRef(regenerateSessionTokens);
   const [webEnabled, setWebEnabled] = useState(controller?.cfg.web.enabled === true);
   const [webPort, setWebPort] = useState(() => controller?.cfg.web.listen.port || DEFAULT_WEB_PORT);
   const committedWebPort = useRef(webPort);
@@ -142,6 +145,7 @@ export function usePreferences({
         logTimestamps,
         logMetadata,
         webAppearance,
+        regenerateSessionTokens,
         webEnabled,
         webPort,
         inspectMaxBytes,
@@ -162,6 +166,7 @@ export function usePreferences({
       scope,
       scrollSpeed,
       snap?.mcp?.running,
+      regenerateSessionTokens,
       snap?.web?.running,
       themeName,
       userPath,
@@ -240,6 +245,16 @@ export function usePreferences({
     committedScroll.current = next;
     persistPrefs({ scroll_speed: next }, `scroll ${next}`);
   }, [persistPrefs]);
+
+  const toggleRegenerateSessionTokens = useCallback(() => {
+    const next = !regenerateSessionTokens;
+    setRegenerateSessionTokens(next);
+    committedRegenerate.current = next;
+    persistPrefs(
+      { regenerate_session_tokens: next },
+      next ? `token regeneration on (next listener read, after ${MCP_TOKEN_TTL_DAYS} days)` : "token regeneration off",
+    );
+  }, [persistPrefs, regenerateSessionTokens]);
 
   const applyWebAppearance = useCallback((next: WebAppearance) => {
     setWebAppearance(next);
@@ -350,6 +365,10 @@ export function usePreferences({
         toggleWeb();
         return;
       }
+      if (item.id === "session_tokens") {
+        toggleRegenerateSessionTokens();
+        return;
+      }
       if (item.id === "web_port") {
         applyWebPort(webPort);
         return;
@@ -394,6 +413,7 @@ export function usePreferences({
       setStatus,
       themeName,
       toggleMouse,
+      toggleRegenerateSessionTokens,
       toggleWeb,
       webAppearance,
       webPort,
@@ -452,6 +472,10 @@ export function usePreferences({
       }
       if (item.id === "web") {
         toggleWeb();
+        return;
+      }
+      if (item.id === "session_tokens") {
+        toggleRegenerateSessionTokens();
       }
     },
     [
@@ -474,6 +498,7 @@ export function usePreferences({
       settingRows,
       themeName,
       toggleMouse,
+      toggleRegenerateSessionTokens,
       toggleWeb,
       webAppearance,
       webPort,
@@ -495,6 +520,7 @@ export function usePreferences({
     setLogTimestamps(committedTimestamps.current);
     setLogMetadata(committedMetadata.current);
     setWebAppearance(committedAppearance.current);
+    setRegenerateSessionTokens(committedRegenerate.current);
     setWebPort(committedWebPort.current);
   }, [screen]);
 

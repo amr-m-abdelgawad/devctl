@@ -60,8 +60,8 @@ Four listeners, same bind rule. The web UI also checks that `Host` is a loopback
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include `Authorization` |
 | **Token endpoint** | `X-Devctl-Internal-Token` + loopback peer. Query `identity`/`audience` must match a declared route or service identity. Google mints are rate-limited. Returns `access_token` to that caller |
-| **MCP** | Off by default. Loopback `Host` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need `Authorization: Bearer` (session token, 7-day TTL, `devctl mcp --rotate`). `exec_service` is off until opted in. Copied snippets include the token; `get_status` does not |
-| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). Every `/api/*` route needs `Authorization: Bearer` (session token, 7-day TTL, `~/.devctl/state/<repoID>/web-token`; the SPA keeps it in localStorage after the first `#token=` visit) plus a loopback `http` or `https` `Origin`/`Referer` on `POST /api/control`. HTML is not framed. `get_status` does not include the token |
+| **MCP** | Off by default. Loopback `Host` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need `Authorization: Bearer` (saved session token, `devctl mcp --rotate`; 7-day remint only when `regenerate_session_tokens` is on). `exec_service` is off until opted in. Copied snippets include the token; `get_status` does not |
+| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). Every `/api/*` route needs `Authorization: Bearer` (saved session token, `~/.devctl/state/<repoID>/web-token`, `devctl web rotate`; 7-day remint only when `regenerate_session_tokens` is on; the SPA keeps it in localStorage after the first `#token=` visit) plus a loopback `http` or `https` `Origin`/`Referer` on `POST /api/control`. HTML is not framed. `get_status` does not include the token |
 
 Host child processes always get `DEVCTL_INTERNAL_TOKEN`. They only get `DEVCTL_TOKEN_URL` when `proxy.token_endpoint.enabled` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 
@@ -117,7 +117,7 @@ Two checkouts do not share a lock. `repoID` is `sha256(canonical repo root)` (16
 
 | Path | Mode / note |
 |------|-------------|
-| `~/.devctl/state/<repoID>/` | `state.json`, `devctl.lock`, `rpc-token`, `mcp-token`, `web-token`, and on Unix `devctl.sock`. Windows attach uses `\\.\pipe\devctl-<repoID>` plus the same `rpc-token`. MCP and web bearers last 7 days (mode `0600`) |
+| `~/.devctl/state/<repoID>/` | `state.json`, `devctl.lock`, `rpc-token`, `mcp-token`, `web-token`, and on Unix `devctl.sock`. Windows attach uses `\\.\pipe\devctl-<repoID>` plus the same `rpc-token`. MCP and web bearers stay until rotated (mode `0600`). `regenerate_session_tokens: true` remints them after 7 days |
 | leftover `~/.devctl/sessions/` | Migrated once |
 | Stale lock from a dead PID | Replaced |
 | `~/.devctl/credentials/` | Directory `0700`, files `0600` (Unix mode bits; Windows uses ACLs). OS keychain holds tokens; the file fallback stores metadata only (no access token). Cache keys are sanitized so they are valid filenames on Windows. Restart remints via ADC |
@@ -136,8 +136,8 @@ Override the home directory with `DEVCTL_HOME`.
 
 - Anyone who can reach your user account can reach `127.0.0.1` listeners.
 - Supervisor RPC requires the per-checkout `rpc-token` (Unix socket mode `0700` plus the token; Windows named pipe plus the token).
-- MCP is off until you flip it. Treat the copied bearer token like a session secret; it lasts 7 days or until `devctl mcp --rotate`.
-- Web UI is off until you flip it. Treat the control token like a session secret; it lasts 7 days (file plus browser `localStorage`) after the first `#token=` visit.
+- MCP is off until you flip it. Treat the copied bearer token like a session secret. It stays valid until `devctl mcp --rotate`, or for 7 days when `regenerate_session_tokens` is on.
+- Web UI is off until you flip it. Treat the control token like a session secret. It stays valid (file plus browser `localStorage`) until `devctl web rotate`, or for 7 days when `regenerate_session_tokens` is on.
 - `/reveal` and log export write what you can already see on that machine.
 - Doctor never enables Google APIs or grants IAM.
 

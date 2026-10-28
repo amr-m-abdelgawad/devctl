@@ -2,7 +2,7 @@ import { spawn } from "bun";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readOrCreateWebToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, webTokenPath, writePersistedState } from "./storage.ts";
+import { acquireLock, BOOTSTRAP_LOG_HISTORY, bootstrapLogHint, bootstrapLogPath, killRepoSupervisor, lockPath, mcpTokenAgeMs, mcpTokenPath, newSessionID, processAlive, readOrCreateMcpToken, readOrCreateRpcToken, readOrCreateWebToken, readPersistedState, readRpcToken, repoID, rotateBootstrapLog, rotateMcpToken, rotateWebToken, rpcTokenPath, sessionDir, sessionStartedAt, socketPath, statePath, webTokenPath, writePersistedState } from "./storage.ts";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 
 describe("session storage", () => {
@@ -52,7 +52,7 @@ describe("session storage", () => {
     expect(readOrCreateMcpToken("/repo")).not.toBe(first);
   });
 
-  test("MCP token remints after TTL and rotateMcpToken always mints", () => {
+  test("MCP token stays saved unless regeneration is on, and rotateMcpToken always mints", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-mcp-token-ttl-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
     process.env.DEVCTL_HOME = dir;
@@ -60,7 +60,8 @@ describe("session storage", () => {
     const path = mcpTokenPath("/repo");
     const staleSec = (Date.now() - (MCP_TOKEN_TTL_MS + 5_000)) / 1000;
     utimesSync(path, staleSec, staleSec);
-    const reminted = readOrCreateMcpToken("/repo");
+    expect(readOrCreateMcpToken("/repo")).toBe(first);
+    const reminted = readOrCreateMcpToken("/repo", { regenerate: true });
     expect(reminted).not.toBe(first);
     expect(mcpTokenAgeMs("/repo") ?? 999_999).toBeLessThan(5_000);
     const rotated = rotateMcpToken("/repo");
@@ -82,7 +83,7 @@ describe("session storage", () => {
     expect(readOrCreateWebToken("/repo")).not.toBe(first);
   });
 
-  test("web token remints after TTL like MCP", () => {
+  test("web token stays saved unless regeneration is on, and rotateWebToken always mints", () => {
     const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-web-token-ttl-${Date.now()}`;
     mkdirSync(dir, { recursive: true });
     process.env.DEVCTL_HOME = dir;
@@ -90,7 +91,12 @@ describe("session storage", () => {
     const path = webTokenPath("/repo");
     const staleSec = (Date.now() - (MCP_TOKEN_TTL_MS + 5_000)) / 1000;
     utimesSync(path, staleSec, staleSec);
-    expect(readOrCreateWebToken("/repo")).not.toBe(first);
+    expect(readOrCreateWebToken("/repo")).toBe(first);
+    const reminted = readOrCreateWebToken("/repo", { regenerate: true });
+    expect(reminted).not.toBe(first);
+    const rotated = rotateWebToken("/repo");
+    expect(rotated).not.toBe(reminted);
+    expect(readOrCreateWebToken("/repo")).toBe(rotated);
   });
 
   test("RPC token is reused across supervisor restarts and isolated per repo", () => {

@@ -12,18 +12,20 @@ From a repository with a valid devctl configuration:
 devctl web start --print-url
 ```
 
-Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. The browser stores the token after the first authorized visit (7-day TTL, same as MCP), so closing the tab and opening the same origin again stays authorized. Plain `devctl web start` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use `devctl start --profile <name>`.
+Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. The browser stores the token after the first authorized visit, so closing the tab and opening the same origin again stays authorized. The saved token is kept until `devctl web rotate` (or the same `regenerate_session_tokens` preference as MCP, off by default, which remints it after 7 days). Plain `devctl web start` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use `devctl start --profile <name>`.
 
 The console is off by default and normally listens at `http://127.0.0.1:18900`. You can check or stop its listener independently:
 
 ```bash
 devctl web status
 devctl web stop
+devctl web rotate
+devctl web rotate --print-url
 ```
 
 Stopping the web listener leaves your services running. Use `devctl down` when you want to shut down the session.
 
-**Settings** (`#/settings`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write `tui.json` layers. **Web console on/off and port** write `web.enabled` / `web.listen.port` into gitignored `.devctl/config.local.yaml` (created if missing) and reload so the listener starts, stops, or rebinds. **Inspect body cap** writes `proxy.inspect_max_bytes` and `llm.capture_max_bytes` (1 / 4 / 8 / 16 MiB) so large request/response bodies are kept; a route or source that sets `max_bytes` still wins. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
+**Settings** (`#/settings`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write `tui.json` layers. **Regenerate tokens** writes `regenerate_session_tokens` (off by default). On remints the saved MCP and web bearer tokens after 7 days, the next time that listener reads them. **Web console on/off and port** write `web.enabled` / `web.listen.port` into gitignored `.devctl/config.local.yaml` (created if missing) and reload so the listener starts, stops, or rebinds. **Inspect body cap** writes `proxy.inspect_max_bytes` and `llm.capture_max_bytes` (1 / 4 / 8 / 16 MiB) so large request/response bodies are kept; a route or source that sets `max_bytes` still wins. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
 
 ```yaml
 web:
@@ -89,7 +91,7 @@ The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector
 | Symptom | Next step |
 |---|---|
 | Browser cannot connect | Run `devctl web status`, then `devctl web start --print-url`; use the address it prints. |
-| Pages load but controls fail | Reopen the access link from `devctl web start --print-url` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
+| Pages load but controls fail | Reopen the access link from `devctl web start --print-url` after `devctl web rotate`, after a remint when `regenerate_session_tokens` is on, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
 | No application traces | Check your instrumentation and OTLP/HTTP exporter configuration in [Telemetry](telemetry.md). |
 | Cannot bind the listener | Check for a port conflict with `devctl doctor` or `#/doctor` and choose an unused loopback port. |

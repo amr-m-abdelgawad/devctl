@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { DevctlConfig } from "../../domain/config/types.ts";
 import { secretTemplateLabel } from "../../domain/config/env-ref.ts";
 import { configDiff } from "../../domain/config/provenance.ts";
+import { MCP_TOKEN_TTL_DAYS } from "../../shared/mcp-token.ts";
 import { Detector } from "../../shared/redaction.ts";
 import {
   clampLogPageSize,
@@ -413,7 +414,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     category: "control",
     mutates: true,
     description:
-      "Write operator preferences. scope=repo (default) writes this checkout's overlay; scope=user writes ~/.devctl/tui.json. MCP listen, port, and tool lists always write to the repo overlay. reset=true restores advertised defaults in that scope (MCP listen is left as-is). local.web_enabled / local.web_port / local.inspect_max_bytes patch .devctl/config.local.yaml (creating it if missing) then reload so the web listener starts, stops, or rebinds and inspect/LLM capture caps update. Other YAML keys are preserved. dismissed_notifications stay user-global.",
+      `Write operator preferences. scope=repo (default) writes this checkout's overlay; scope=user writes ~/.devctl/tui.json. MCP listen, port, and tool lists always write to the repo overlay. reset=true restores advertised defaults in that scope (MCP listen and regenerate_session_tokens are left as-is). regenerate_session_tokens opts into reminting saved MCP and web bearer tokens after ${MCP_TOKEN_TTL_DAYS} days; it is off by default. local.web_enabled / local.web_port / local.inspect_max_bytes patch .devctl/config.local.yaml (creating it if missing) then reload so the web listener starts, stops, or rebinds and inspect/LLM capture caps update. Other YAML keys are preserved. dismissed_notifications stay user-global.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -427,6 +428,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         log_metadata: { type: "boolean" },
         web_appearance: { type: "string", enum: ["dark", "light"] },
         mcp_enabled: { type: "boolean" },
+        regenerate_session_tokens: { type: "boolean", description: `When true, saved MCP and web bearer tokens remint after ${MCP_TOKEN_TTL_DAYS} days. Off by default.` },
         mcp_port: { type: ["number", "null"] },
         reset: { type: "boolean" },
         local: {
@@ -707,7 +709,13 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
     },
     logs: snap.logs,
     mcp: snap.mcp
-      ? { running: snap.mcp.running, address: snap.mcp.address, port: snap.mcp.port, token_age_ms: snap.mcp.token_age_ms }
+      ? {
+          running: snap.mcp.running,
+          address: snap.mcp.address,
+          port: snap.mcp.port,
+          token_age_ms: snap.mcp.token_age_ms,
+          regenerate_token: snap.mcp.regenerate_token === true,
+        }
       : { running: false },
     web: snap.web
       ? { running: snap.web.running, address: snap.web.address, port: snap.web.port }

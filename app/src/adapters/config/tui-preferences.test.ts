@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultCopyKeybind, displayWithMod, getPreferenceSnapshot, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, repoTuiConfigPath, resetTuiPreferences, resolveTuiOverridePath, saveTuiPreferences, userTuiConfigPath, withMod } from "./tui-preferences.ts";
+import { defaultCopyKeybind, displayWithMod, getPreferenceSnapshot, hasPrimaryMod, keyMatches, loadTuiConfig, mergeTuiConfig, defaultTuiConfig, parseJsonc, parseKeybind, parsePreferenceWrite, repoTuiConfigPath, resetTuiPreferences, resolveTuiOverridePath, saveTuiPreferences, sessionTokensRegenerate, userTuiConfigPath, withMod } from "./tui-preferences.ts";
 
 describe("tui.json", () => {
   test("parses jsonc and merges keybinds with defaults", () => {
@@ -24,6 +24,31 @@ describe("tui.json", () => {
     expect(defaultTuiConfig().keybinds.setup).toBe("u");
     expect(cfg.mouse).toBe(true);
     expect(cfg.mcp_enabled).toBe(false);
+  });
+
+  test("session token regeneration is off unless saved", () => {
+    expect(defaultTuiConfig().regenerate_session_tokens).toBe(false);
+    expect(mergeTuiConfig(defaultTuiConfig(), {}, "/tmp/tui.json").regenerate_session_tokens).toBe(false);
+    expect(mergeTuiConfig(defaultTuiConfig(), { regenerate_session_tokens: true }, "/tmp/tui.json").regenerate_session_tokens).toBe(true);
+    expect(parsePreferenceWrite({ regenerate_session_tokens: true }).regenerate_session_tokens).toBe(true);
+    expect(parsePreferenceWrite({ regenerate_session_tokens: "yes" }).regenerate_session_tokens).toBeUndefined();
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-token-regen-${Date.now()}`;
+    mkdirSync(dir, { recursive: true });
+    process.env.DEVCTL_HOME = dir;
+    try {
+      expect(sessionTokensRegenerate(dir)).toBe(false);
+      saveTuiPreferences({ regenerate_session_tokens: true }, { repoRoot: dir, scope: "repo" });
+      expect(sessionTokensRegenerate(dir)).toBe(true);
+      resetTuiPreferences({ repoRoot: dir, scope: "repo" });
+      expect(loadTuiConfig(dir).regenerate_session_tokens).toBe(true);
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
   });
 
   test("merges mcp_enabled and mcp_port", () => {

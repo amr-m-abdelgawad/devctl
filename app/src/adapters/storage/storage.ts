@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
+import { sessionTokenTtlMs } from "../../shared/mcp-token.ts";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
@@ -423,24 +423,34 @@ function readOrCreateTtlToken(path: string, ttlMs: number, now: number): string 
   return rotateTtlToken(path);
 }
 
+export type SessionTokenRead = {
+  now?: number;
+  // When false (the default), a saved token is reused regardless of age.
+  // When true, a token older than the session TTL is reminted.
+  regenerate?: boolean;
+};
+
 export function mcpTokenAgeMs(repoRoot: string, now = Date.now()): number | undefined {
   return ttlTokenAgeMs(mcpTokenPath(repoRoot), now);
 }
 
-// Pasted into external agent configs, so the token survives daemon restarts
-// until TTL (7 days) or an explicit rotate. A leaked snippet must not stay
-// valid forever.
-export function readOrCreateMcpToken(repoRoot: string, now = Date.now()): string {
-  return readOrCreateTtlToken(mcpTokenPath(repoRoot), MCP_TOKEN_TTL_MS, now);
+// Pasted into external agent configs. A saved token is reused across daemon
+// restarts. Regeneration is opt-in; `rotateMcpToken` always mints a new one.
+export function readOrCreateMcpToken(repoRoot: string, opts?: SessionTokenRead): string {
+  return readOrCreateTtlToken(mcpTokenPath(repoRoot), sessionTokenTtlMs(opts?.regenerate === true), opts?.now ?? Date.now());
 }
 
 export function rotateMcpToken(repoRoot: string): string {
   return rotateTtlToken(mcpTokenPath(repoRoot));
 }
 
-// Same 7-day TTL as MCP. The SPA keeps the token in localStorage after the
-// first `#token=` visit, so reminting on every web bind would treat a
-// reopened tab as unauthorized.
-export function readOrCreateWebToken(repoRoot: string, now = Date.now()): string {
-  return readOrCreateTtlToken(webTokenPath(repoRoot), MCP_TOKEN_TTL_MS, now);
+// The SPA keeps the token in localStorage after the first `#token=` visit, so
+// reminting on every web bind would treat a reopened tab as unauthorized.
+// Regeneration is opt-in, same as MCP. `rotateWebToken` always mints a new one.
+export function readOrCreateWebToken(repoRoot: string, opts?: SessionTokenRead): string {
+  return readOrCreateTtlToken(webTokenPath(repoRoot), sessionTokenTtlMs(opts?.regenerate === true), opts?.now ?? Date.now());
+}
+
+export function rotateWebToken(repoRoot: string): string {
+  return rotateTtlToken(webTokenPath(repoRoot));
 }

@@ -549,6 +549,11 @@ export class Controller {
     await this.call("web_stop", null);
   }
 
+  async webRotate(): Promise<{ url: string }> {
+    const res = (await this.call("web_rotate", null)) as { url?: string };
+    return { url: res.url ?? "" };
+  }
+
   // Local RPC only, deliberately: this is not reachable through McpHost, so a
   // connected agent cannot re-enable a tool its operator turned off.
   async mcpSetTools(disabled: readonly string[]): Promise<string[]> {

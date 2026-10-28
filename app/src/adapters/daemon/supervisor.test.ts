@@ -7,11 +7,11 @@ import { defaultConfig, emptyCommand, emptyHealth, emptyProfile, emptyService } 
 import { ConfigurationReloadFailed, SessionRecovered } from "../../shared/events.ts";
 import { MCP_TOOLS } from "../../presentation/mcp/tools.ts";
 import { available } from "../net/ports.ts";
-import { processAlive, readPersistedState, socketPath, writePersistedState } from "../storage/storage.ts";
+import { processAlive, readPersistedState, socketPath, webTokenPath, writePersistedState } from "../storage/storage.ts";
 import { ProcessManager, inspectProcess } from "../process/processes.ts";
 import { Supervisor, diffReload } from "../../bootstrap/test-supervisor.ts";
 import { mergeRestartRequired } from "./reload.ts";
-import { saveTuiPreferences } from "../config/tui-preferences.ts";
+import { loadTuiConfig, saveTuiPreferences } from "../config/tui-preferences.ts";
 import { TokenManager, type AccessToken, type TokenProvider } from "../google/token.ts";
 
 function tmp(): string {
@@ -1241,8 +1241,52 @@ proxy:
       expect(sup.snapshot().web?.running).toBe(false);
       const restarted = await sup.dispatch("web_start", null) as { url?: string };
       expect(restarted.url).toBe(startedRpc.url);
+      const rotated = await sup.dispatch("web_rotate", null) as { url?: string };
+      expect(rotated.url).toMatch(new RegExp(`^http://127\\.0\\.0\\.1:${port}/#token=[0-9a-f]{48}$`));
+      expect(rotated.url).not.toBe(restarted.url);
+      expect(sup.snapshot().web?.running).toBe(true);
+      const rotatedToken = new URLSearchParams(new URL(rotated.url ?? "").hash.slice(1)).get("token") ?? "";
+      const stale = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { Authorization: `Bearer ${token}` } });
+      expect(stale.status).toBe(401);
+      const fresh = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { Authorization: `Bearer ${rotatedToken}` } });
+      expect(fresh.status).toBe(200);
       await sup.dispatch("web_stop", null);
       expect(sup.snapshot().web?.running).toBe(false);
+    } finally {
+      await sup.shutdown(false);
+    }
+  }, 15_000);
+
+  test("set_preferences turns token regeneration on without reminting the saved web token", async () => {
+    const dir = tmp();
+    const port = await freePort();
+    const cfg = defaultConfig();
+    cfg.repoRoot = dir;
+    cfg.logs.persistence.enabled = false;
+    cfg.web.listen.port = port;
+    const sup = new Supervisor(cfg, {
+      detectGoogle: async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" }),
+    });
+    try {
+      await sup.run();
+      const started = await sup.dispatch("web_start", null) as { url?: string };
+      const token = new URLSearchParams(new URL(started.url ?? "").hash.slice(1)).get("token") ?? "";
+      const before = readFileSync(webTokenPath(dir), "utf8");
+      const res = await fetch(`http://127.0.0.1:${port}/api/control`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${token}`,
+          Origin: `http://127.0.0.1:${port}`,
+        },
+        body: JSON.stringify({ tool: "set_preferences", args: { scope: "repo", regenerate_session_tokens: true } }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json() as { values: { regenerate_session_tokens: boolean } };
+      expect(body.values.regenerate_session_tokens).toBe(true);
+      expect(loadTuiConfig(dir).regenerate_session_tokens).toBe(true);
+      expect(readFileSync(webTokenPath(dir), "utf8")).toBe(before);
+      expect(sup.snapshot().mcp?.regenerate_token).toBe(true);
     } finally {
       await sup.shutdown(false);
     }

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `devctl web rotate` mints a new web console control token. `--print-url` prints the new access link when the console is running. See [Web console](docs/web.md).
+
+### Changed
+
+- Saved MCP and web bearer tokens are kept until you rotate them. They are no longer reminted after 7 days unless `regenerate_session_tokens` is true in `tui.json` (TUI Settings → Regenerate tokens, the web console Settings page, or `set_preferences`). The preference is off by default and applies the next time that listener reads the token. See [MCP](docs/mcp.md) and [Web console](docs/web.md).
+
 ## [0.25.0] - 2026-09-28
 
 ### Changed

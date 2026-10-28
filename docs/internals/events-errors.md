@@ -62,7 +62,7 @@ Network/token operations may retry with backoff. Configuration errors must not. 
 | `headers.ts` | Header lookup without throwing on malformed requests |
 | `redaction.ts` | Detector used when presentation cannot import the secrets adapter |
 | `repo-id.ts` | `sha256` → 16 hex |
-| `mcp-token.ts` | MCP token TTL helpers |
+| `mcp-token.ts` | MCP/web session token age and optional TTL helpers |
 | `warnings.ts` | Mute noisy GCP metadata logs; hold stderr for TUI |
 | `sliding-window.ts` | Rate/window helpers |
 | `terminal-restore.ts` | Reset terminal modes on TUI exit (including crashes) |

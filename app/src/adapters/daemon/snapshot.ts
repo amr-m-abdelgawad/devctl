@@ -28,6 +28,7 @@ export type SnapshotHost = {
   readonly web?: WebListener;
   readonly mcpToken: string;
   readonly mcpTokenAgeMs?: number;
+  readonly mcpRegenerateToken?: boolean;
   readonly mcpDisabledTools: string[];
   readonly identityCache: IdentitySnapshot;
   readonly serviceAccountStatus: Map<string, ServiceAccountStatus>;
@@ -143,6 +144,7 @@ export function buildSnapshot(host: SnapshotHost, nowMs = Date.now()): StatusSna
       port: host.mcp?.isRunning() ? host.mcp.listenPort() : undefined,
       token: host.mcpToken,
       token_age_ms: host.mcpTokenAgeMs,
+      regenerate_token: host.mcpRegenerateToken === true,
       disabled_tools: [...host.mcpDisabledTools],
     },
     web: {

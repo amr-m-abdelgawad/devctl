@@ -346,6 +346,7 @@ export class Supervisor {
       get web() { return self.web.instance; },
       get mcpToken() { return self.mcp.token; },
       get mcpTokenAgeMs() { return self.mcp.tokenAgeMs(); },
+      get mcpRegenerateToken() { return self.mcp.regenerates(); },
       get mcpDisabledTools() { return self.mcp.disabledTools; },
       get identityCache() { return self.identity.identityCache; },
       get serviceAccountStatus() { return self.identity.serviceAccountStatus; },
@@ -602,6 +603,8 @@ export class Supervisor {
       case "web_stop":
         await this.web.stop();
         return null;
+      case "web_rotate":
+        return { url: await this.web.rotate() };
       case "mcp_set_tools": {
         // The client sends the whole deny-list, not a delta: it already
         // renders the full set, and a delta would need conflict rules for two
@@ -1275,6 +1278,9 @@ function tuiPatchFromWrite(patch: PreferenceWrite): TuiPreferencePatch {
   }
   if (patch.mcp_enabled_tools !== undefined) {
     partial.mcp_enabled_tools = patch.mcp_enabled_tools;
+  }
+  if (patch.regenerate_session_tokens !== undefined) {
+    partial.regenerate_session_tokens = patch.regenerate_session_tokens;
   }
   return partial;
 }

@@ -56,4 +56,35 @@ export function addWeb(root: Command, runtime: ClientRuntime): void {
       await ctrl.close();
     }
   });
+  web
+    .command("rotate")
+    .description("mint a new control token (restarts the listener if it is running)")
+    .option("--print-url", "print the full access link including the new control token (sensitive)")
+    .action(async (opts: { printUrl?: boolean }) => {
+      const ctrl = await runtime.openController("", configFlag(root), false);
+      try {
+        if (ctrl.client) {
+          const rotated = await ctrl.webRotate();
+          writeRotatedWeb(rotated.url, opts.printUrl === true);
+          return;
+        }
+        runtime.rotateWebToken(ctrl.cfg.repoRoot);
+        writeRotatedWeb("", opts.printUrl === true);
+      } finally {
+        await ctrl.close();
+      }
+    });
+}
+
+function writeRotatedWeb(url: string, printUrl: boolean): void {
+  if (printUrl && url !== "") {
+    writeOut(`${url}\n`);
+    return;
+  }
+  writeOut("web control token rotated\n");
+  if (url === "") {
+    writeOut("the console is stopped; the next start uses the new token: devctl web start --print-url\n");
+    return;
+  }
+  writeOut("open the new access link: devctl web start --print-url\n");
 }

@@ -30,6 +30,7 @@ const PROVENANCE_KEYS = [
   "web_appearance",
   "mcp_enabled",
   "mcp_port",
+  "regenerate_session_tokens",
 ] as const;
 
 export function userTuiConfigPath(): string {
@@ -83,6 +84,10 @@ export function teamTuiConfigPath(startDir: string): string | undefined {
     }
   }
   return firstExisting(candidates);
+}
+
+export function sessionTokensRegenerate(repoRoot: string): boolean {
+  return loadTuiConfig(repoRoot).regenerate_session_tokens;
 }
 
 export function loadTuiConfig(startDir: string, yamlKeymap?: TuiKeybinds): TuiConfig {
@@ -197,6 +202,9 @@ function applyPatchRecord(existing: Record<string, unknown>, partial: TuiPrefere
   if (partial.mcp_enabled_tools !== undefined) {
     next.mcp_enabled_tools = partial.mcp_enabled_tools;
   }
+  if (partial.regenerate_session_tokens !== undefined) {
+    next.regenerate_session_tokens = partial.regenerate_session_tokens;
+  }
   if (partial.dismissed_notifications !== undefined) {
     next.dismissed_notifications = partial.dismissed_notifications;
   }
@@ -306,6 +314,7 @@ export function getPreferenceSnapshot(
       web_appearance: loaded.web_appearance,
       mcp_enabled: loaded.mcp_enabled,
       mcp_port: loaded.mcp_port,
+      regenerate_session_tokens: loaded.regenerate_session_tokens,
     },
     scope,
     locked,
@@ -396,6 +405,9 @@ export function mergeTuiConfig(base: TuiConfig, raw: unknown, path: string): Tui
     mcp_enabled_tools: Array.isArray(rec.mcp_enabled_tools)
       ? rec.mcp_enabled_tools.filter((name): name is string => typeof name === "string")
       : base.mcp_enabled_tools,
+    regenerate_session_tokens: typeof rec.regenerate_session_tokens === "boolean"
+      ? rec.regenerate_session_tokens
+      : base.regenerate_session_tokens,
     dismissed_notifications: Array.isArray(rec.dismissed_notifications)
       ? rec.dismissed_notifications.filter((id): id is string => typeof id === "string" && id !== "")
       : base.dismissed_notifications,

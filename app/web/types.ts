@@ -109,6 +109,7 @@ export type ControlArgs = {
   log_metadata?: boolean;
   web_appearance?: "dark" | "light";
   mcp_enabled?: boolean;
+  regenerate_session_tokens?: boolean;
   mcp_port?: number | null;
   reset?: boolean;
   local?: { web_enabled?: boolean; web_port?: number; inspect_max_bytes?: number };
@@ -128,6 +129,7 @@ export type PreferenceSnapshot = {
     web_appearance: "dark" | "light";
     mcp_enabled: boolean;
     mcp_port?: number;
+    regenerate_session_tokens: boolean;
   };
   scope: "user" | "repo";
   locked: boolean;

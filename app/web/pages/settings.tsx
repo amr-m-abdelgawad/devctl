@@ -260,6 +260,18 @@ export function SettingsPage(props: {
           <CardTitle>Listeners</CardTitle>
         </CardHeader>
         <CardContent>
+          <PrefRow label="Regenerate tokens" hint="Off keeps the saved MCP and web bearer tokens until you rotate them. On remints each one after 7 days, the next time that listener reads it." layer={prefs.layers.regenerate_session_tokens}>
+            <Segmented
+              ariaLabel="Regenerate session tokens"
+              value={prefs.values.regenerate_session_tokens ? "on" : "off"}
+              disabled={disable}
+              options={[
+                { id: "on", label: "On" },
+                { id: "off", label: "Off" },
+              ]}
+              onChange={(value) => void save({ scope, regenerate_session_tokens: value === "on" }, value === "on" ? "Token regeneration on…" : "Token regeneration off…")}
+            />
+          </PrefRow>
           <PrefRow label="Web console" hint={`Writes ${prefs.paths.local}. Loopback host is unchanged.`}>
             {confirmOff ? (
               <div className="flex flex-wrap items-center gap-2">

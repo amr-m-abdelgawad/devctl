@@ -52,6 +52,7 @@ export type Controller = {
   mcpRotate(): Promise<void>;
   webStart(): Promise<{ url: string }>;
   webStop(): Promise<void>;
+  webRotate(): Promise<{ url: string }>;
   mcpSetTools(disabled: readonly string[]): Promise<string[]>;
   reload(): Promise<ReloadResult>;
   setServiceEnvironment(service: string, name: string): Promise<{ service: string; env: string }>;
@@ -101,6 +102,7 @@ export type ClientRuntime = {
   assertMethodAllowed(client: DaemonClient, method: string): void;
   readPersistedState(repoRoot: string): PersistedState | undefined;
   rotateMcpToken(repoRoot: string): string;
+  rotateWebToken(repoRoot: string): string;
   mcpTokenAgeMs(repoRoot: string): number | undefined;
   bootstrapLogPath(repoRoot: string): string;
   exportsDir(): string;

@@ -69,7 +69,7 @@ Boot: attach existing daemon first (even if local YAML is broken). If none: vali
 
 ## MCP — `presentation/mcp/`
 
-Streamable HTTP, JSON-RPC 2.0, protocol `2025-03-26`. Bind loopback only. Bearer token (`shared/mcp-token.ts`, TTL). Peer must be loopback (`domain/net/hosts.ts`).
+Streamable HTTP, JSON-RPC 2.0, protocol `2025-03-26`. Bind loopback only. Bearer token (`shared/mcp-token.ts`; saved until rotate, 7-day TTL only when `regenerate_session_tokens` is on). Peer must be loopback (`domain/net/hosts.ts`).
 
 | File | Role |
 |------|------|
@@ -98,7 +98,7 @@ Default-off: `exec_service` (opt in via TUI `mcp_enabled_tools`). Deny-list: `mc
 
 ## Web UI — `presentation/web/` + `app/web/`
 
-`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, `getLogStats`, control POSTs including `set_service_environment`). Same bearer and loopback rules. The token is disk-backed (`web-token`, 7-day TTL) and the SPA persists it in `localStorage` after the first `#token=` visit. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm, traffic, doctor, identity, settings). Rebuild assets after UI changes.
+`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, `getLogStats`, control POSTs including `set_service_environment`). Same bearer and loopback rules. The token is disk-backed (`web-token`, kept until `web_rotate`, 7-day TTL only when `regenerate_session_tokens` is on) and the SPA persists it in `localStorage` after the first `#token=` visit. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm, traffic, doctor, identity, settings). Rebuild assets after UI changes.
 
 Log HTTP: `GET /api/logs` (`limit`, `direction`, `regex`, `cursor` / `prev_cursor` in the response), `GET /api/logs/stats`, `GET /api/logs/sessions`, `GET /api/logs/sessions/:id`, `GET /api/logs/export` (NDJSON + `Content-Disposition`). `GET /api/doctor` is `host.doctor()` (`run_doctor` is not `mutates: true`, so it cannot go through `POST /api/control`).
 
