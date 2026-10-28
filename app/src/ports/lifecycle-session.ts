@@ -19,7 +19,7 @@ export type HealthHost = {
   readonly serviceEnv: Map<string, string>;
   readonly serviceStartedEnv: Map<string, string>;
   readonly healthCheckers: HealthCheckerFactory;
-  readonly logs: Pick<LogStore, "append">;
+  readonly logs: Pick<LogStore, "append" | "ingestChunk" | "ingestPaused">;
   readonly bus: Bus;
   /** Expands `${services.…}` templates in health.url / health.address; throws naming the field. */
   resolveHealthConfig(name: string, health: HealthCheckConfig, assigned: Record<string, number>): HealthCheckConfig;

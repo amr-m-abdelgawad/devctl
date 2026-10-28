@@ -26,6 +26,14 @@ export type StatusSummary = {
   mcp: { running: boolean; address?: string; port?: number };
   web: { running: boolean; address?: string; port?: number };
   stats_series?: { interval_ms: number; cpu: number[]; mem: number[] };
+  daemon?: {
+    rssBytes: number;
+    heapBytes: number;
+    memoryLimitBytes?: number;
+    nonReapingPid1?: boolean;
+    eventLoopLagMs?: number;
+    logs?: { inFlightBytes: number; spooledBytes: number; paused: boolean; loss: number; ringBytes: number };
+  };
 };
 
 export type ServiceRow = {

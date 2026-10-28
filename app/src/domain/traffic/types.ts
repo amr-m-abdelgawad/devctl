@@ -54,7 +54,24 @@ export type TrafficCallFilter = {
 export type TrafficCallPageRequest = {
   cursor?: string;
   limit?: number;
+  /** When true, list rows omit payload bytes. */
+  summary?: boolean;
 };
+
+export function summarizeTrafficCall(call: TrafficCall): TrafficCall {
+  return {
+    ...call,
+    request: omitTrafficPayload(call.request),
+    response: omitTrafficPayload(call.response),
+  };
+}
+
+function omitTrafficPayload(payload: TrafficPayload | undefined): TrafficPayload | undefined {
+  if (payload === undefined) {
+    return undefined;
+  }
+  return { ...payload, text: undefined, data: undefined, omitted: true };
+}
 
 export type TrafficCallPage = {
   calls: TrafficCall[];

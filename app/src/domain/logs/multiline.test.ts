@@ -96,6 +96,38 @@ describe("MultilineAssembler", () => {
     expect(folded.map((item) => item.body)).toEqual(["Traceback (most recent call last):", "unrelated stderr line"]);
   });
 
+  test("a line closes only its own stream's idle buffer, by that stream's event time", () => {
+    const assembler = new MultilineAssembler();
+    expect(assembler.push(ingest("Traceback (most recent call last):"), 1_000)).toEqual([]);
+    // Another stream far ahead in event time leaves the traceback open.
+    expect(assembler.push(ingest("later stderr line", "api", "stderr"), 9_000)).toEqual([]);
+    expect(assembler.oldestFirstAt()).toBe(1_000);
+    const closed = assembler.push(ingest("  File \"app.py\", line 1"), 1_080);
+    expect(closed.map((item) => item.body)).toEqual(["Traceback (most recent call last):"]);
+    expect(closed[0]?.arrivedMs).toBe(1_000);
+  });
+
+  test("flushIdle goes by when lines arrived and skips streams still busy", () => {
+    const assembler = new MultilineAssembler();
+    // Read at 1,000 but only now arriving, at wall time 50,000.
+    assembler.push(ingest("still open"), 1_000, { max_wait_ms: 80 }, 50_000);
+    expect(assembler.nextDeadlineMs()).toBe(50_080);
+    expect(assembler.flushIdle(50_079, () => false)).toEqual([]);
+    expect(assembler.flushIdle(50_080, () => true)).toEqual([]);
+    const idle = assembler.flushIdle(50_080, () => false);
+    expect(idle.map((item) => item.body)).toEqual(["still open"]);
+    expect(idle[0]?.arrivedMs).toBe(1_000);
+  });
+
+  test("flushAll can hold back the buffers of busy streams", () => {
+    const assembler = new MultilineAssembler();
+    assembler.push(ingest("stdout line"), 1_000);
+    assembler.push(ingest("stderr line", "api", "stderr"), 1_000);
+    const flushed = assembler.flushAll((first) => first.source === "stderr");
+    expect(flushed.map((item) => item.body)).toEqual(["stdout line"]);
+    expect(assembler.flushAll().map((item) => item.body)).toEqual(["stderr line"]);
+  });
+
   test("unknown text stays unspecified until a later line classifies", () => {
     const assembler = new MultilineAssembler();
     assembler.push(ingest("Traceback (most recent call last):"), 1_000);

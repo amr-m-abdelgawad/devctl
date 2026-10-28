@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
-import type { LogEvent, LogFacets } from "../../../domain/logs/logs.ts";
+import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../../domain/logs/logs.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import {
@@ -14,6 +14,8 @@ import {
   mergeLoadedPage,
   needsOlderLogPage,
   prependOlderPage,
+  tuiLogBytes,
+  tuiLogCap,
   type LogWrapMode,
 } from "../helpers/logs.ts";
 import { type TuiConfig } from "../tui-config.ts";
@@ -60,6 +62,10 @@ type Options = {
   screen: Screen;
   refresh: () => Promise<StatusSnapshot | undefined>;
   setStatus: (status: string) => void;
+  /** Pages a persisted session for `/history`, from this machine's session files. */
+  loadSessionPage?: (session: string, filter: LogFilter, page: LogPageRequest) => LogPage;
+  /** Records the view keeps, as the daemon's window is configured. */
+  logCap?: number;
 };
 
 export function useLogView({
@@ -69,9 +75,17 @@ export function useLogView({
   screen,
   refresh,
   setStatus,
+  loadSessionPage,
+  logCap = tuiLogCap(undefined),
 }: Options) {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [paused, setPaused] = useState(false);
+  // True once scrolling back dropped the newest records to make room: the view
+  // no longer reaches the live tail, so live records stay out until it follows
+  // again and reloads the newest page.
+  const [logTailCut, setLogTailCut] = useState(false);
+  // The persisted session `/history` is showing, or "" for the live stream.
+  const [historySession, setHistorySession] = useState("");
   const [errorOnly, setErrorOnly] = useState(false);
   const [showSystemLogs, setShowSystemLogs] = useState(true);
   const [logSearch, setLogSearch] = useState("");
@@ -323,6 +337,7 @@ export function useLogView({
     try {
       const page = await controller.logsPage(currentLogFilter);
       setLogs((current) => mergeLoadedPage(current, page.events));
+      setLogTailCut(false);
       setLogPrevCursor(page.prevCursor);
       setLogHasPrevPage(page.hasPrev);
       await refreshFacets();
@@ -365,12 +380,16 @@ export function useLogView({
   useEffect(() => {
     const needA = needsOlderLogPage(logPinned, logWindow.start, logHasPrevPage);
     const needB = splitLogs && needsOlderLogPage(logPinnedB, logWindowB.start, logHasPrevPage);
-    if (!controller || loadingOlderLogs || (!needA && !needB)) {
+    // A persisted session pages its own history, never the live stream's.
+    const request = { ...currentLogFilter, cursor: logPrevCursor, direction: "backward" as const };
+    const pageOlder = historySession !== ""
+      ? loadSessionPage && (async () => loadSessionPage(historySession, currentLogFilter, request))
+      : controller && (() => controller.logsPage(request));
+    if (!pageOlder || loadingOlderLogs || (!needA && !needB)) {
       return;
     }
     setLoadingOlderLogs(true);
-    void controller
-      .logsPage({ ...currentLogFilter, cursor: logPrevCursor, direction: "backward" })
+    void pageOlder()
       .then((older) => {
         if (older.sessionChanged) {
           setStatus("Daemon session changed — older log history is no longer available");
@@ -378,10 +397,16 @@ export function useLogView({
           return;
         }
         const before = logsRef.current;
-        const merged = prependOlderPage(before, older.events);
+        const merged = prependOlderPage(before, older.events, logCap, tuiLogBytes(logCap));
         setLogs(merged);
-        const added = merged.length - before.length;
-        if (added > 0) {
+        // Rows now in front of what was on screen; the newest may have gone to make room.
+        const first = before[0];
+        const shown = first === undefined ? -1 : merged.indexOf(first);
+        const added = shown < 0 ? merged.length : shown;
+        if (before.length > 0 && merged[merged.length - 1] !== before[before.length - 1]) {
+          setLogTailCut(true);
+        }
+        if (merged !== before && added > 0) {
           if (logPinned) {
             setLogViewStart((start) => start + added);
           }
@@ -394,7 +419,34 @@ export function useLogView({
       })
       .catch((err: unknown) => setStatus(humanMessage(err)))
       .finally(() => setLoadingOlderLogs(false));
-  }, [controller, currentLogFilter, loadingOlderLogs, logHasPrevPage, logPinned, logPinnedB, logPrevCursor, logWindow.start, logWindowB.start, splitLogs]);
+  }, [controller, currentLogFilter, historySession, loadSessionPage, loadingOlderLogs, logCap, logHasPrevPage, logPinned, logPinnedB, logPrevCursor, logWindow.start, logWindowB.start, splitLogs]);
+
+  // Following again after a scroll-back cut the tail reloads the newest page.
+  useEffect(() => {
+    if (logTailCut && !logPinned && !(splitLogs && logPinnedB)) {
+      void refreshLogs();
+    }
+  }, [logPinned, logPinnedB, logTailCut, refreshLogs, splitLogs]);
+
+  // `/history` shows a session's newest records with live follow paused;
+  // scrolling up pages that session's older records in.
+  const showHistory = useCallback((session: string, events: LogEvent[]) => {
+    setHistorySession(session);
+    setPaused(true);
+    setLogs(events);
+    setLogPrevCursor(String(events.find((event) => event.seq > 0)?.seq ?? 0));
+    setLogHasPrevPage(events.length > 0);
+  }, []);
+
+  // Resuming live follow leaves the session behind; the live page reloads.
+  useEffect(() => {
+    if (!paused && historySession !== "") {
+      setHistorySession("");
+      setLogs([]);
+      setLogPrevCursor("");
+      setLogHasPrevPage(false);
+    }
+  }, [historySession, paused]);
 
   // Facets are cheap (no event payload) so they can be kept live on a timer
   // while the logs screen is actively tailing, on top of the immediate
@@ -491,5 +543,8 @@ export function useLogView({
     jumpToLatestLogs,
     clearLogs,
     toggleSystemLogs,
+    historySession,
+    showHistory,
+    logTailCut,
   };
 }

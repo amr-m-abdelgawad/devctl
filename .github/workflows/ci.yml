@@ -30,6 +30,7 @@ jobs:
     name: Tests
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -93,6 +94,7 @@ jobs:
     name: Container tests
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -125,6 +127,7 @@ jobs:
     name: Compile smoke
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - name: Release scripts
@@ -142,13 +145,68 @@ jobs:
           DEVCTL_VERSION: 0.0.0-ci
           OUTDIR: /tmp/devctl-dist
         run: bash ../.github/scripts/compile-binaries.sh
+      # Only linux-x64 runs below. The rest must still carry both workers, or
+      # they fall back to the in-process log store and a degraded watchdog.
+      - name: every binary embeds the log and watchdog workers
+        run: |
+          for binary in /tmp/devctl-dist/devctl-*; do
+            for worker in log-worker event-loop-watchdog-worker; do
+              LC_ALL=C grep -aq "root/${worker}.js" "$binary" || { echo "::error::$binary does not embed ${worker}.js"; exit 1; }
+            done
+          done
+      # Also asserts the worker log store and a live, non-degraded watchdog.
       - name: end-to-end supervisor smoke test (compiled binary)
         run: bash .github/scripts/smoke-test-binary.sh /tmp/devctl-dist/devctl-linux-x64
+      - uses: actions/upload-artifact@v7
+        with:
+          name: devctl-compiled-ci
+          if-no-files-found: error
+          retention-days: 3
+          path: /tmp/devctl-dist/devctl-*
+
+  # The cross-compiled binaries, each run on the platform it targets. The
+  # embedded workers resolve differently per platform (Windows roots Bun's
+  # embedded file system elsewhere), so a binary that only compiles proves nothing.
+  compile-smoke-run:
+    name: Compiled binary smoke (${{ matrix.os }})
+    needs: compile-smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            binary: devctl-linux-arm64
+          - os: macos-15
+            binary: devctl-darwin-arm64
+          - os: macos-15-intel
+            binary: devctl-darwin-x64
+          - os: windows-latest
+            binary: devctl-windows-x64.exe
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v8
+        with:
+          name: devctl-compiled-ci
+          path: dist-compiled
+      - name: Make the binary executable
+        if: matrix.os != 'windows-latest'
+        run: chmod +x "dist-compiled/${{ matrix.binary }}"
+      # Asserts the worker log store and a live, non-degraded watchdog.
+      - name: Run the compiled binary end to end
+        env:
+          DEVCTL_TEST_TUI: ${{ matrix.os != 'windows-latest' && '1' || '0' }}
+        run: node .github/scripts/smoke-test-npm-package.cjs "dist-compiled/${{ matrix.binary }}" 0.0.0-ci binary
 
   npm-package-build:
     name: npm package build
     needs: setup
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -198,6 +256,7 @@ jobs:
           - macos-15-intel
           - windows-latest
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -207,6 +266,7 @@ jobs:
         with:
           name: devctl-npm-ci-${{ needs.npm-package-build.outputs.version }}
           path: dist
+      # Every mode also asserts the worker log store and a live, non-degraded watchdog.
       - name: Test local npm installation
         env:
           DEVCTL_TEST_TUI: ${{ matrix.os != 'windows-latest' && '1' || '0' }}
@@ -230,20 +290,38 @@ jobs:
   windows-tests:
     name: Windows tests
     runs-on: windows-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - working-directory: app
         run: bun install --frozen-lockfile
+      # The run takes three minutes. One still going after ten is stuck: the
+      # wrapper prints what was running, then stops it.
       - name: bun test
         working-directory: app
-        run: bun test
+        run: node ../.github/scripts/run-watched.cjs 10 bun test
+      # After the tests, so that nothing here starts PowerShell before they run:
+      # a cold first start is part of what they must cope with.
+      - name: Check that a stuck run would be reported
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          RUN_WATCHED_QUIET: "1"
+        run: |
+          node .github/scripts/run-watched.cjs 0.1 bun -e 'setInterval(String, 1000)'
+          if ($LASTEXITCODE -ne 124) { Write-Host "expected exit 124 from a stopped run, got $LASTEXITCODE"; exit 1 }
+          exit 0
 
   macos-tests:
     name: macOS tests
     runs-on: macos-15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -265,6 +343,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -328,7 +407,7 @@ jobs:
 
   ci:
     name: CI
-    needs: [tests, typecheck, architecture, hygiene, container-tests, demo-config, compile-smoke, npm-package-build, npm-package-smoke, windows-tests, macos-tests, e2e, audit, codeql, dependency-review]
+    needs: [tests, typecheck, architecture, hygiene, container-tests, demo-config, compile-smoke, compile-smoke-run, npm-package-build, npm-package-smoke, windows-tests, macos-tests, e2e, audit, codeql, dependency-review]
     if: always() && !cancelled()
     runs-on: ubuntu-latest
     steps:
@@ -341,6 +420,7 @@ jobs:
           CONTAINERS: ${{ needs.container-tests.result }}
           DEMO: ${{ needs.demo-config.result }}
           COMPILE: ${{ needs.compile-smoke.result }}
+          COMPILE_RUN: ${{ needs.compile-smoke-run.result }}
           NPM_BUILD: ${{ needs.npm-package-build.result }}
           NPM_SMOKE: ${{ needs.npm-package-smoke.result }}
           WINDOWS: ${{ needs.windows-tests.result }}
@@ -357,6 +437,7 @@ jobs:
           test "$CONTAINERS" = success
           test "$DEMO" = success
           test "$COMPILE" = success
+          test "$COMPILE_RUN" = success
           test "$NPM_BUILD" = success
           test "$NPM_SMOKE" = success
           test "$WINDOWS" = success

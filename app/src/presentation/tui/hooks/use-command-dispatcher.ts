@@ -27,10 +27,10 @@ const COMMAND_LOCK_MS = 50;
 type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
-  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
+  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogSearch" | "toggleSplitLogs">;
   llmView: Pick<ReturnType<typeof useLlmView>, "setCaller">;
   trafficView: Pick<ReturnType<typeof useTrafficView>, "setCaller">;
-  workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionEvents" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
+  workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionTail" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
   setOverlay: Dispatch<SetStateAction<Overlay>>;
   setQuery: Dispatch<SetStateAction<string>>;
   setSlashPicker: Dispatch<SetStateAction<SlashPicker>>;
@@ -118,7 +118,7 @@ export function useCommandDispatcher({
     exportsDir,
     openInFileManager,
     listSessions,
-    loadSessionEvents,
+    loadSessionTail,
     checkUpdate,
     applyUpdate,
     formatUpdateStatus,
@@ -142,7 +142,7 @@ export function useCommandDispatcher({
     setLogRegex,
     setLogSince,
     setLogUntil,
-    setLogs,
+    showHistory,
     setLogSearch,
     toggleSplitLogs,
   } = logView;
@@ -582,8 +582,9 @@ export function useCommandDispatcher({
               setStatus("No persisted log sessions");
               return;
             }
-            setLogs(loadSessionEvents(pick));
-            setStatus(`Loaded session ${pick}`);
+            const cap = cfg?.logs.max_memory_events && cfg.logs.max_memory_events > 0 ? cfg.logs.max_memory_events : 50_000;
+            showHistory(pick, loadSessionTail(pick, undefined, cap));
+            setStatus(`Loaded session ${pick} (live follow paused)`);
             return;
           }
           case "buffer":

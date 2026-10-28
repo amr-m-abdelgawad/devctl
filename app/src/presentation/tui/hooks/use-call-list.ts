@@ -1,6 +1,67 @@
 import { type ScrollBoxRenderable } from "@opentui/core";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { frozenCallListStart, nextCallListFreeze, pinnedCallIndex, selectionScrollKey, stepCallIndex } from "../helpers/call-list.ts";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { callDetailStale, frozenCallListStart, nextCallListFreeze, pinnedCallIndex, selectionScrollKey, stepCallIndex, withCallDetail } from "../helpers/call-list.ts";
+
+/** Runs `refresh` now and then every `intervalMs` while `active`. */
+export function useCallListPolling(active: boolean, refresh: () => Promise<void>, intervalMs: number): void {
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+    void refresh();
+    const timer = setInterval(() => {
+      void refresh();
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, [active, refresh, intervalMs]);
+}
+
+/**
+ * Selection and detail over a list polled without bodies. Only the selected
+ * row's full record is fetched, when the selection or that row's seq changes,
+ * and it replaces the row so the inspector and the detail overlay show its
+ * payloads. A late answer for an earlier selection is ignored.
+ */
+export function useCallDetails<T extends { id: string; seq: number }, P extends { calls: T[] }>(page: P, fetchCall: ((id: string) => Promise<T | undefined>) | undefined) {
+  const rows = page.calls;
+  const selection = useCallListSelection(rows);
+  const [full, setFull] = useState<T | undefined>(undefined);
+  const [detail, setDetail] = useState<T | undefined>(undefined);
+  const fullRef = useRef(full);
+  fullRef.current = full;
+  const fetchRef = useRef(fetchCall);
+  fetchRef.current = fetchCall;
+  const row = selection.selectedId === undefined ? undefined : rows.find((call) => call.id === selection.selectedId);
+  const rowId = row?.id;
+  const rowSeq = row?.seq;
+  const canFetch = fetchCall !== undefined;
+
+  useEffect(() => {
+    const fetch = fetchRef.current;
+    if (!fetch || rowId === undefined || rowSeq === undefined || !callDetailStale({ id: rowId, seq: rowSeq }, fullRef.current)) {
+      return;
+    }
+    let current = true;
+    fetch(rowId).then((call) => {
+      if (current && call) {
+        setFull(call);
+      }
+    }, () => undefined);
+    return () => {
+      current = false;
+    };
+  }, [canFetch, rowId, rowSeq]);
+
+  // An overlay opened on the summary row picks up the full record once it lands.
+  useEffect(() => {
+    if (full !== undefined) {
+      setDetail((open) => (open?.id === full.id ? full : open));
+    }
+  }, [full]);
+
+  const shown = useMemo(() => ({ ...page, calls: [...withCallDetail(rows, full)] }), [page, rows, full]);
+  return { page: shown, detail, setDetail, selectedIndex: selection.selectedIndex, pick: selection.pick, move: selection.move };
+}
 
 export function useCallListSelection<T extends { id: string }>(calls: readonly T[]) {
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);

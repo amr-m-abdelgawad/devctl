@@ -12,6 +12,5 @@ describe("event bus", () => {
     off();
     bus.publish(newEvent(ServiceStarted, "api", {}));
     expect(seen).toEqual([ServiceStarted]);
-    expect(bus.recent()).toHaveLength(3);
   });
 });

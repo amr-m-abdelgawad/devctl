@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -12,6 +12,7 @@ import {
   fallbackVersionFromSource,
   normalizeReleaseVersion,
   publishedExternalSpecs,
+  unpackedGeneratedFiles,
   validateVersionAlignment,
 } from "./npm-package.ts";
 
@@ -117,6 +118,16 @@ describe("bundle external packages", () => {
       "const t = `require(\"template-decoy\")`;", // template literal
     ].join("\n");
     expect(bundleExternalPackages(bundle)).toEqual(["@opentui/core", "@scope/thing", "left-pad", "node-fetch"]);
+  });
+});
+
+describe("what npm packs", () => {
+  test("the package template's files list names every generated file, the two workers included", () => {
+    const template = JSON.parse(readFileSync(join(import.meta.dir, "..", "..", "packaging", "npm", "package.template.json"), "utf8")) as { files: string[] };
+    expect(unpackedGeneratedFiles(template)).toEqual([]);
+    expect(template.files).toContain("dist/log-worker.js");
+    expect(template.files).toContain("dist/event-loop-watchdog-worker.js");
+    expect(unpackedGeneratedFiles({ files: ["bin/devctl.cjs", "dist/devctl.js", "README.md", "LICENSE"] })).toEqual(["dist/log-worker.js", "dist/event-loop-watchdog-worker.js"]);
   });
 });
 
