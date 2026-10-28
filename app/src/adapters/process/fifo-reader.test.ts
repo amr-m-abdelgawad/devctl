@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { closeSync, constants, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeFileSync, writeSync } from "node:fs";
+import { closeSync, constants, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, watch, writeSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -47,10 +47,12 @@ function heldFifo(): { fifo: string; dir: string; readFd: number; writeFd: numbe
   return { fifo, dir, readFd, writeFd };
 }
 
-// A path a watch can be put on that nothing ever writes to.
-function quietFile(dir: string): string {
+// A path a watch can be put on that nothing ever writes to. A directory: macOS
+// reports a file's creation to a watch put on it just after, which would read
+// as a write the watch did report.
+function quietPath(dir: string): string {
   const path = join(dir, "quiet");
-  writeFileSync(path, "");
+  mkdirSync(path);
   return path;
 }
 
@@ -225,7 +227,7 @@ describe.skipIf(process.platform === "win32")("fifo reader asleep", () => {
 
   test("output that a watch did not report still arrives, and after three in a row the stream is polled again", async () => {
     const { dir, readFd, writeFd } = heldFifo();
-    const quiet = quietFile(dir);
+    const quiet = quietPath(dir);
     const wake: FifoWake = { path: quiet };
     const chunks = fifoChunks(readFd, () => false, wake);
     for (let i = 0; i < 3; i++) {
