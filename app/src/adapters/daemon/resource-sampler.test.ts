@@ -31,7 +31,7 @@ describe("resource sampler", () => {
   // Bun 1.4.2 on Windows can segfault in sampleResourceUsageWindows
   // (PowerShell Get-Process spawn). processes.test.ts already skips the
   // same hop; Linux still covers a live pid.
-  test.skipIf(process.platform === "win32")("poll writes cpu/memory onto runtimes that have a live pid", async () => {
+  test.skipIf(process.platform === "win32" && process.env.DEVCTL_WIN_PROBE_UNSKIP !== "1")("poll writes cpu/memory onto runtimes that have a live pid", async () => {
     const rt = emptyRuntime("api");
     rt.state = StateHealthy;
     rt.pid = process.pid;
