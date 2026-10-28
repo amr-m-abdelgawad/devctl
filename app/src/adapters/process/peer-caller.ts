@@ -1,6 +1,7 @@
 import { readdir, readFile, readlink } from "node:fs/promises";
 import { isLoopbackPeer } from "../../domain/net/hosts.ts";
 import { normalizeLlmCaller } from "../../domain/llm/caller.ts";
+import { parseProcStartTicks } from "./liveness.ts";
 import { openSocketDiag, type SocketDiag } from "./sock-diag.ts";
 import { captureProcessOutput } from "./unix.ts";
 
@@ -20,6 +21,25 @@ const KERNEL_DOUBTS_MAX = 3;
 // until this many have; the rest are answered from one index of the table.
 // Indexing a table costs about two searches of it.
 const SEARCHES_BEFORE_INDEX = 2;
+// Processes devctl does not run that held recently looked-up sockets. Each
+// one's last descriptor is read before anything else, and each is read
+// before any managed process larger than it: otherwise every new connection
+// from such a client costs a read of every managed process's descriptors.
+const HOT_OWNERS_MAX = 4;
+// A hot owner that has held none of the looked-up sockets for this long is dropped.
+const HOT_IDLE_MS = 10_000;
+// A scan lists, all at once before it reads anything, every candidate last
+// seen with at most this many descriptors, and every one not seen before.
+// Larger ones are listed only when their turn comes. Hot owners are read
+// after every managed process this small.
+const LIST_AHEAD_MAX = 256;
+// The search for a hot owner runs only while lookups have recently found no managed owner.
+const MISS_RECENT_MS = 5_000;
+// Descriptors one search for a hot owner reads at most.
+const OWNER_SEARCH_LINKS_MAX = 1_024;
+// After a search that found no owner the next waits this long, doubled after each such search.
+const OWNER_SEARCH_BACKOFF_MIN_MS = 100;
+const OWNER_SEARCH_BACKOFF_MAX_MS = 6_400;
 
 export type NamedPid = {
   readonly name: string;
@@ -79,6 +99,8 @@ export function nodeProcFs(root = "/proc"): ProcFs {
 
 type ProcLink = { readonly ppid: number; readonly pgid: number };
 type Owner = { readonly inode: string; readonly caller: string | undefined; readonly pid?: number; readonly fd?: string };
+// Where a hot owner held the last socket it was found with.
+type HotOwner = { readonly pid: number; readonly fd: string; readonly hitAt: number };
 // A miss holds only while the index that produced it is current: the socket
 // may belong to a child the next rebuild picks up.
 type CachedSocket = Owner & { readonly generation: number };
@@ -96,6 +118,15 @@ type CachedSocket = Owner & { readonly generation: number };
  * port share one resolution. When the proxy's side of the connection is known,
  * that pair names one live socket, so a repeat lookup only checks that its
  * holder still has it open.
+ *
+ * A socket no managed process holds can only be ruled out by reading all of
+ * their descriptors. So once lookups miss, the processes devctl does not run
+ * are searched, newest first, for the holder of a socket still being looked
+ * up. From then on that holder's last descriptor is read first, and the
+ * holder joins the scan in size order. A socket found in it is judged by the
+ * rule the index uses, read fresh from /proc; one it holds unmanaged gets no
+ * caller without the larger managed processes being read, even if one of
+ * them holds the same socket too (one passed it to the other).
  */
 export class PeerCallerResolver {
   private readonly now: () => number;
@@ -112,6 +143,18 @@ export class PeerCallerResolver {
   private kernelOpening?: Promise<void>;
   private kernelTrusted = false;
   private kernelDoubts = 0;
+  private hot: HotOwner[] = [];
+  // Descriptors each candidate held when last listed: the order of the next scan.
+  private readonly fdCounts = new Map<number, number>();
+  // Service (or none) per process, keyed by pid and start time; dropped when the index changes.
+  private readonly verdicts = new Map<string, string | undefined>();
+  private verdictsGeneration = 0;
+  // The sockets of lookups now reading the managed processes, by fd link: what an owner search looks for.
+  private readonly wanted = new Map<string, string>();
+  private missedAt = Number.NEGATIVE_INFINITY;
+  private searching = false;
+  private searchNotBefore = Number.NEGATIVE_INFINITY;
+  private searchBackoff = OWNER_SEARCH_BACKOFF_MIN_MS;
 
   constructor(
     private readonly opts: {
@@ -120,6 +163,8 @@ export class PeerCallerResolver {
       readonly now?: () => number;
       /** Opens the kernel's socket lookup, once, on the first lookup that reads /proc. */
       readonly openKernel?: () => Promise<SocketDiag | undefined>;
+      /** This process, which holds the proxy's side of every connection and is never a caller. */
+      readonly self?: number;
     },
   ) {
     this.now = opts.now ?? Date.now;
@@ -129,9 +174,10 @@ export class PeerCallerResolver {
     }
   }
 
-  /** A managed process started or exited, so the index is stale. */
+  /** A managed process started, exited or was adopted, so the index and every verdict are stale. */
   markDirty(): void {
     this.indexDirty = true;
+    this.verdicts.clear();
   }
 
   callerFor(peer: TcpPeer, services: () => readonly NamedPid[]): Promise<string | undefined> {
@@ -167,13 +213,204 @@ export class PeerCallerResolver {
     if (cached !== undefined && inodes.includes(cached.inode) && (cached.caller !== undefined || !this.missMayRebuild(cached))) {
       return cached.caller;
     }
-    const scanned = new Set<number>();
-    let found = await this.findOwner(proc, inodes, await this.managedIndex(services, false), scanned);
-    if (found === undefined && this.now() - this.indexAt >= INDEX_MISS_REFRESH_MS) {
-      found = await this.findOwner(proc, inodes, await this.managedIndex(services, true), scanned);
-    }
+    const found = await this.ownerOf(proc, inodes, services, this.stillOpen(peer, inodes));
     this.remember(key, { ...(found ?? { inode: inodes[0]!, caller: undefined }), generation: this.generation });
     return found?.caller;
+  }
+
+  // Whether the peer's socket is still open, from the kernel. Once it has
+  // closed no process holds it, so a scan still under way can stop: under
+  // load a lookup can start its scan after a short connection has already
+  // ended, and reading every descriptor for it would only add to the load.
+  // Undefined where the kernel cannot be asked about this connection.
+  private stillOpen(peer: TcpPeer, inodes: readonly string[]): (() => boolean) | undefined {
+    const kernel = this.kernel;
+    const inode = inodes[0];
+    if (kernel === undefined || !this.kernelTrusted || inodes.length !== 1 || inode === undefined || peer.proxyPort === undefined || peer.proxyAddress === undefined) {
+      return undefined;
+    }
+    const client = { address: peer.address, port: peer.port };
+    const proxy = { address: peer.proxyAddress, port: peer.proxyPort };
+    return () => {
+      const answer = kernel.socket(client, proxy);
+      if (typeof answer === "object") {
+        return answer.inode === inode;
+      }
+      return answer === "unknown" || answer === "unasked";
+    };
+  }
+
+  private async ownerOf(proc: ProcFs, inodes: readonly string[], services: () => readonly NamedPid[], open?: () => boolean): Promise<Owner | undefined> {
+    const targets = new Map(inodes.map((inode) => [`socket:[${inode}]`, inode]));
+    const now = this.now();
+    this.hot = this.hot.filter((owner) => now - owner.hitAt < HOT_IDLE_MS);
+    const candidates = this.withHotOwners(await this.managedIndex(services, false));
+    const scanned = new Set<number>();
+    // The hot owners' last descriptors are read while the small candidates
+    // are listed, so a managed caller waits no longer than before for its own
+    // process to be read.
+    const [last, listed] = await Promise.all([this.hotLastDescriptor(proc, targets), this.listAhead(proc, candidates, scanned)]);
+    if (last !== undefined) {
+      return { ...last, caller: await this.verdict(proc, last.pid, services) };
+    }
+    if (open?.() === false) {
+      this.missedAt = this.now();
+      return undefined;
+    }
+    for (const [link, inode] of targets) {
+      this.wanted.set(link, inode);
+    }
+    try {
+      // Searched for now, while this socket is open: a client's connection
+      // can close long before a scan past a process holding thousands of
+      // descriptors would end.
+      this.searchForOwner(proc, services);
+      let found = await this.findOwner(proc, targets, candidates, scanned, listed, open);
+      if (found === undefined && open?.() !== false && this.now() - this.indexAt >= INDEX_MISS_REFRESH_MS) {
+        const rebuilt = this.withHotOwners(await this.managedIndex(services, true));
+        found = await this.findOwner(proc, targets, rebuilt, scanned, await this.listAhead(proc, rebuilt, scanned), open);
+      }
+      if (found === undefined) {
+        this.missedAt = this.now();
+        return undefined;
+      }
+      if (found.name !== undefined) {
+        return { inode: found.inode, fd: found.fd, pid: found.pid, caller: normalizeLlmCaller(found.name) };
+      }
+      this.hotHit(found.pid, found.inode, found.fd);
+      return { inode: found.inode, fd: found.fd, pid: found.pid, caller: await this.verdict(proc, found.pid, services) };
+    } finally {
+      for (const link of targets.keys()) {
+        this.wanted.delete(link);
+      }
+    }
+  }
+
+  // A client making one connection after another reuses its lowest free
+  // descriptor, so each hot owner's last one is read before any scan.
+  private async hotLastDescriptor(proc: ProcFs, targets: ReadonlyMap<string, string>): Promise<{ pid: number; inode: string; fd: string } | undefined> {
+    const links = await Promise.all(this.hot.map((owner) => proc.link(`${proc.root}/${owner.pid}/fd/${owner.fd}`)));
+    for (let index = 0; index < this.hot.length; index += 1) {
+      const link = links[index];
+      const inode = link === undefined ? undefined : targets.get(link);
+      if (inode !== undefined) {
+        const owner = this.hot[index]!;
+        return this.hotHit(owner.pid, inode, owner.fd);
+      }
+    }
+    return undefined;
+  }
+
+  // The hot owners join the scan as candidates with no service name. They are
+  // read after every small managed process and before any larger one, so a
+  // client holding many connections at once is found before a service
+  // holding thousands, and a managed caller in a small service before it.
+  private withHotOwners(index: ReadonlyMap<number, string>): ReadonlyMap<number, string | undefined> {
+    const hot = this.hot.filter((owner) => !index.has(owner.pid));
+    if (hot.length === 0) {
+      return index;
+    }
+    const candidates = new Map<number, string | undefined>(index);
+    for (const owner of hot) {
+      candidates.set(owner.pid, undefined);
+    }
+    return candidates;
+  }
+
+  private hotHit(pid: number, inode: string, fd: string): { pid: number; inode: string; fd: string } {
+    this.hot = [{ pid, fd, hitAt: this.now() }, ...this.hot.filter((owner) => owner.pid !== pid)].slice(0, HOT_OWNERS_MAX);
+    return { pid, inode, fd };
+  }
+
+  // The service a process belongs to by the index's rule (itself, an ancestor
+  // within the walk, or its process group), read fresh: a hot owner may have
+  // been adopted as a service since it was found, and a service's
+  // just-started child is not in the index yet.
+  private async verdict(proc: ProcFs, pid: number, services: () => readonly NamedPid[]): Promise<string | undefined> {
+    if (this.verdictsGeneration !== this.generation) {
+      this.verdicts.clear();
+      this.verdictsGeneration = this.generation;
+    }
+    const stat = (await proc.readText(`${proc.root}/${pid}/stat`)) ?? "";
+    const key = `${pid}:${parseProcStartTicks(stat) ?? ""}`;
+    if (this.verdicts.has(key)) {
+      return this.verdicts.get(key);
+    }
+    const byPid = pidNameMap(services());
+    const chain = new Map<number, ProcLink>();
+    let current = pid;
+    let link = parseProcPidStat(stat);
+    for (let depth = 0; link !== undefined && depth < MAX_ANCESTOR_WALK; depth += 1) {
+      chain.set(current, link);
+      if (byPid.has(current) || link.ppid <= 1 || chain.has(link.ppid)) {
+        break;
+      }
+      current = link.ppid;
+      link = parseProcPidStat((await proc.readText(`${proc.root}/${current}/stat`)) ?? "");
+    }
+    const pgid = chain.get(pid)?.pgid;
+    const name = nearestManaged(pid, chain, byPid) ?? (pgid === undefined ? undefined : byPid.get(pgid));
+    const caller = name === undefined ? undefined : normalizeLlmCaller(name);
+    this.verdicts.set(key, caller);
+    return caller;
+  }
+
+  // Starts a search among the processes devctl does not run for one holding a
+  // socket still being looked up, when lookups have found no managed owner of
+  // late. One runs at a time; after one that finds nobody, the next waits.
+  private searchForOwner(proc: ProcFs, services: () => readonly NamedPid[]): void {
+    const now = this.now();
+    if (this.searching || now - this.missedAt >= MISS_RECENT_MS || now < this.searchNotBefore) {
+      return;
+    }
+    this.searching = true;
+    void this.findUnmanagedOwner(proc, services)
+      .catch(() => false)
+      .then((found) => {
+        // Even one that found its owner waits the least: the lookups right
+        // after it read that owner anyway.
+        if (found) {
+          this.searchBackoff = OWNER_SEARCH_BACKOFF_MIN_MS;
+          this.searchNotBefore = this.now() + OWNER_SEARCH_BACKOFF_MIN_MS;
+        } else {
+          this.searchNotBefore = this.now() + this.searchBackoff;
+          this.searchBackoff = Math.min(this.searchBackoff * 2, OWNER_SEARCH_BACKOFF_MAX_MS);
+        }
+        this.searching = false;
+      });
+  }
+
+  // Newest processes first: a client usually started after the services it
+  // calls. Each one's descriptors are matched against the sockets of every
+  // lookup under way, which come and go while the search runs.
+  private async findUnmanagedOwner(proc: ProcFs, services: () => readonly NamedPid[]): Promise<boolean> {
+    const self = this.opts.self ?? process.pid;
+    const pids = (await proc.list(proc.root))
+      .filter((name) => /^[0-9]+$/.test(name))
+      .map(Number)
+      .filter((pid) => pid !== self && !this.index.has(pid))
+      .sort((a, b) => b - a);
+    let budget = OWNER_SEARCH_LINKS_MAX;
+    for (const pid of pids) {
+      if (this.wanted.size === 0 || budget <= 0) {
+        return false;
+      }
+      const fds = await proc.list(`${proc.root}/${pid}/fd`);
+      if (fds.length === 0 || fds.length > budget) {
+        continue;
+      }
+      budget -= fds.length;
+      const held = await heldSocket(proc, pid, fds, this.wanted);
+      if (held !== undefined) {
+        // A managed process not in the index yet is the managed scan's to find.
+        if ((await this.verdict(proc, pid, services)) !== undefined) {
+          return false;
+        }
+        this.hotHit(pid, held.inode, held.fd);
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Inodes of the peer's socket (none when it has closed), or undefined when neither the kernel nor /proc/net/tcp can say. */
@@ -257,20 +494,64 @@ export class PeerCallerResolver {
     return undefined;
   }
 
+  // Lists at once (one readdir each) the candidates that are small or not
+  // seen before. A larger one waits for its turn in findOwner.
+  private async listAhead(proc: ProcFs, candidates: ReadonlyMap<number, string | undefined>, scanned: ReadonlySet<number>): Promise<Map<number, string[]>> {
+    const ahead = [...candidates.keys()].filter((pid) => !scanned.has(pid) && (this.fdCounts.get(pid) ?? 0) <= LIST_AHEAD_MAX);
+    const rows = await Promise.all(ahead.map(async (pid) => [pid, await proc.list(`${proc.root}/${pid}/fd`)] as const));
+    const listed = new Map<number, string[]>();
+    for (const [pid, fds] of rows) {
+      listed.set(pid, fds);
+      this.fdCounts.set(pid, fds.length);
+    }
+    return listed;
+  }
+
   // The lookup races the caller closing its socket, so it reads the cheapest
-  // candidates first: each one's descriptors are listed up front (one readdir
-  // each), and processes holding the fewest are read before one that holds
-  // thousands. A caller usually holds a few dozen.
-  private async findOwner(proc: ProcFs, inodes: readonly string[], index: ReadonlyMap<number, string>, scanned: Set<number>): Promise<Owner | undefined> {
-    const targets = new Map(inodes.map((inode) => [`socket:[${inode}]`, inode]));
-    const pending = [...index].filter(([pid]) => !scanned.has(pid));
-    const candidates = await Promise.all(pending.map(async ([pid, name]) => ({ pid, name, fds: await proc.list(`${proc.root}/${pid}/fd`) })));
-    candidates.sort((a, b) => a.fds.length - b.fds.length || a.pid - b.pid);
-    for (const candidate of candidates) {
-      scanned.add(candidate.pid);
-      const held = await heldSocket(proc, candidate.pid, candidate.fds, targets);
+  // candidates first: processes holding the fewest descriptors are read
+  // before one that holds thousands. A caller usually holds a few dozen. A
+  // large process is listed only when its turn comes, in the order of the
+  // counts last seen, so one holding thousands is not even listed when the
+  // socket turns up before it; one that has grown past the next goes back in
+  // line.
+  private async findOwner(
+    proc: ProcFs,
+    targets: ReadonlyMap<string, string>,
+    candidates: ReadonlyMap<number, string | undefined>,
+    scanned: Set<number>,
+    listed: Map<number, string[]>,
+    open?: () => boolean,
+  ): Promise<{ inode: string; fd: string; pid: number; name: string | undefined } | undefined> {
+    const rank = (pid: number, name: string | undefined): number => {
+      const count = this.fdCounts.get(pid) ?? 0;
+      return name === undefined ? Math.max(count, LIST_AHEAD_MAX) : count;
+    };
+    const queue = [...candidates].filter(([pid]) => !scanned.has(pid)).map(([pid, name]) => ({ pid, name, rank: rank(pid, name) }));
+    queue.sort(byRank);
+    while (queue.length > 0) {
+      if (open?.() === false) {
+        return undefined;
+      }
+      const next = queue[0]!;
+      let fds = listed.get(next.pid);
+      if (fds === undefined) {
+        fds = await proc.list(`${proc.root}/${next.pid}/fd`);
+        listed.set(next.pid, fds);
+        this.fdCounts.set(next.pid, fds.length);
+        next.rank = rank(next.pid, next.name);
+        const after = queue[1];
+        if (after !== undefined && byRank(next, after) > 0) {
+          queue.shift();
+          const at = queue.findIndex((other) => byRank(next, other) < 0);
+          queue.splice(at < 0 ? queue.length : at, 0, next);
+          continue;
+        }
+      }
+      queue.shift();
+      scanned.add(next.pid);
+      const held = await heldSocket(proc, next.pid, fds, targets, open);
       if (held !== undefined) {
-        return { ...held, pid: candidate.pid, caller: normalizeLlmCaller(candidate.name) };
+        return { ...held, pid: next.pid, name: next.name };
       }
     }
     return undefined;
@@ -292,6 +573,11 @@ export class PeerCallerResolver {
           this.index = managedCallers(table, services());
           this.generation += 1;
           this.indexAt = this.now();
+          for (const pid of this.fdCounts.keys()) {
+            if (!this.index.has(pid) && !this.hot.some((owner) => owner.pid === pid)) {
+              this.fdCounts.delete(pid);
+            }
+          }
           return this.index;
         })
         .finally(() => {
@@ -474,15 +760,29 @@ class TcpTable {
   }
 }
 
+// Fewest descriptors first; between equals, the lower pid.
+function byRank(a: { readonly pid: number; readonly rank: number }, b: { readonly pid: number; readonly rank: number }): number {
+  return a.rank - b.rank || a.pid - b.pid;
+}
+
 const LINK_BATCH = 64;
 
 // Reads a process's descriptors from the highest number down, a batch at a
 // time. A process that holds many long-lived descriptors gets its newest
 // socket above them, so the one just connected is in the first batch.
-async function heldSocket(proc: ProcFs, pid: number, fds: readonly string[], targets: ReadonlyMap<string, string>): Promise<{ inode: string; fd: string } | undefined> {
+async function heldSocket(
+  proc: ProcFs,
+  pid: number,
+  fds: readonly string[],
+  targets: ReadonlyMap<string, string>,
+  open?: () => boolean,
+): Promise<{ inode: string; fd: string } | undefined> {
   const dir = `${proc.root}/${pid}/fd`;
   const newestFirst = [...fds].sort((a, b) => Number(b) - Number(a));
   for (let start = 0; start < newestFirst.length; start += LINK_BATCH) {
+    if (start > 0 && open?.() === false) {
+      return undefined;
+    }
     const batch = newestFirst.slice(start, start + LINK_BATCH);
     const links = await Promise.all(batch.map((fd) => proc.link(`${dir}/${fd}`)));
     for (let index = 0; index < batch.length; index += 1) {

@@ -8,6 +8,8 @@ const RPC_P99_MS = 50;
 const PROXY_P99_MS = 50;
 const RSS_MAX_BYTES = 400_000_000;
 const PROXY_PORT = 18080;
+// Daemon CPU per 1,000 churned requests, with a service holding 5000 descriptors.
+const CHURN_CPU_SECONDS_PER_1000 = 10;
 
 type LlmLoad = {
   requests: { count: number; p50: number; p99: number; max: number; errors: number };
@@ -236,7 +238,7 @@ services:
     daemon: { rssMaxMiB: number; heapMaxMiB: number; eventLoopLagMaxMs: number; readBytesPerRequest: number };
   };
 
-  test("a client devctl does not run that closes every connection costs no read of the socket table per connection, and a service's calls keep their caller", async () => {
+  test("a client devctl does not run that closes every connection costs no read of the socket table or of a service's 5000 file descriptors per connection, and a service's calls keep their caller", async () => {
     const box = await container();
     const rate = 130;
     // The churn goes to an LLM route and the service's calls to an inspected
@@ -262,6 +264,8 @@ llm:
       type: proxy
       via: { route: llm-route }
 services:
+  fdhog:
+    command: [bun, /soak/driver/fdhog.ts, "5000"]
   llm:
     command: [bun, /soak/driver/llm-upstream.ts, "18082", --completion-bytes, "2048"]
     ports: { http: 18082 }
@@ -274,7 +278,7 @@ services:
     command: [bun, /soak/driver/client.ts, --url, "http://127.0.0.1:${PROXY_PORT}/echo/x", --count, "300", --interval-ms, "20", --delay-ms, "75000"]
     restart: { policy: never }
 `);
-    await box.devctl(["start", "llm", "echo", "--wait", "--timeout", "60s"]);
+    await box.devctl(["start", "fdhog", "llm", "echo", "--wait", "--timeout", "60s"]);
     // The service starts calling once 75 s of churn have filled the socket
     // table with about 60 s of closed connections (TIME_WAIT).
     await box.devctl(["start", "client"]);
@@ -301,6 +305,8 @@ services:
     expect(churn.table.rowsAfter).toBeGreaterThan(3_000);
     // Each lookup that read the table copied all of it, about 150 bytes a row.
     expect(churn.daemon.readBytesPerRequest).toBeLessThan(64 * 1024);
+    // Reading the 5000 descriptors for each connection cost 30 or more CPU-seconds per 1,000 requests; about 3 now.
+    expect(churn.cpu.daemon.per1000).toBeLessThan(CHURN_CPU_SECONDS_PER_1000);
     expect(clientErrors).toBe(0);
     expect(traffic.byCaller.client ?? 0).toBeGreaterThanOrEqual(297);
     // The churn's own calls are nobody's.

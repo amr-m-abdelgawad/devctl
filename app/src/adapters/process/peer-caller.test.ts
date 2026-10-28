@@ -182,7 +182,13 @@ describe("callerServiceForPeer", () => {
   });
 });
 
-type FakeProcess = { pid: number; ppid: number; pgid?: number; sockets?: string[]; files?: number };
+type FakeProcess = { pid: number; ppid: number; pgid?: number; sockets?: string[]; files?: number; start?: number };
+
+// A /proc/<pid>/stat line: state, ppid, pgrp, session, ... with the start time as field 22.
+function statLine(proc: FakeProcess): string {
+  const pgid = proc.pgid ?? proc.pid;
+  return `${proc.pid} (svc) S ${proc.ppid} ${pgid} ${pgid} 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${proc.start ?? proc.pid} 0 0`;
+}
 
 // A /proc tree on disk: stat files, fd symlinks, and a net/tcp table.
 function fakeProc() {
@@ -197,7 +203,7 @@ function fakeProc() {
     add(proc: FakeProcess): void {
       const fds = join(root, String(proc.pid), "fd");
       mkdirSync(fds, { recursive: true });
-      writeFileSync(join(root, String(proc.pid), "stat"), `${proc.pid} (svc) S ${proc.ppid} ${proc.pgid ?? proc.pid} ${proc.pgid ?? proc.pid} 0 -1 0 0`);
+      writeFileSync(join(root, String(proc.pid), "stat"), statLine(proc));
       let fd = 0;
       for (let i = 0; i < (proc.files ?? 0); i += 1) {
         symlinkSync("/dev/null", join(fds, String(fd++)));
@@ -215,6 +221,24 @@ function fakeProc() {
       rows.length = 0;
       writeTcp();
     },
+    /** The process now at this pid: a new start time, parent or group. */
+    restat(proc: FakeProcess): void {
+      writeFileSync(join(root, String(proc.pid), "stat"), statLine(proc));
+    },
+    /** Opens `count` more descriptors in `pid`, from descriptor `from`. */
+    grow(pid: number, from: number, count: number): void {
+      for (let fd = from; fd < from + count; fd += 1) {
+        symlinkSync("/dev/null", join(root, String(pid), "fd", String(fd)));
+      }
+    },
+    /** Puts socket `inode` at descriptor `fd` of `pid`, or closes that descriptor. */
+    hold(pid: number, fd: number, inode: string | undefined): void {
+      const path = join(root, String(pid), "fd", String(fd));
+      rmSync(path, { force: true });
+      if (inode !== undefined) {
+        symlinkSync(`socket:[${inode}]`, path);
+      }
+    },
     close(): void {
       rmSync(root, { recursive: true, force: true });
     },
@@ -224,6 +248,7 @@ function fakeProc() {
 // Counts what the resolver reads, per path.
 function counting(proc: ProcFs) {
   const listed: string[] = [];
+  const linked: string[] = [];
   const counts = { links: 0, tables: 0 };
   const fs: ProcFs = {
     root: proc.root,
@@ -239,10 +264,11 @@ function counting(proc: ProcFs) {
     },
     link: async (path) => {
       counts.links += 1;
+      linked.push(path);
       return proc.link(path);
     },
   };
-  return { fs, listed, counts };
+  return { fs, listed, linked, counts };
 }
 
 const CLIENT_PORT = 0xd431;
@@ -439,7 +465,8 @@ describe.skipIf(process.platform === "win32")("PeerCallerResolver on /proc", () 
       }
       // Read once per connection, the table took a whole copy of every socket each time.
       expect(reads.counts.tables).toBe(0);
-      expect(kernel.asked).toHaveLength(30);
+      // Asked about each connection (again while its scan runs, to stop once it has closed).
+      expect(new Set(kernel.asked).size).toBe(30);
     } finally {
       proc.close();
     }
@@ -498,7 +525,7 @@ describe.skipIf(process.platform === "win32")("PeerCallerResolver on /proc", () 
       expect(reads.counts.tables).toBe(12);
       expect(await callerServiceForPeer(viaProxy(ports[1]!), services, keeps)).toBe("api");
       expect(reads.counts.tables).toBe(12);
-      expect(known.asked).toEqual([`${ports[1]}>${PROXY_PORT}`]);
+      expect([...new Set(known.asked)]).toEqual([`${ports[1]}>${PROXY_PORT}`]);
     } finally {
       proc.close();
     }
@@ -561,6 +588,365 @@ describe.skipIf(process.platform === "win32")("PeerCallerResolver on /proc", () 
       reads.release();
       expect(await Promise.all([early, late])).toEqual(["api", "api"]);
       expect(reads.counts.tables).toBe(2);
+    } finally {
+      proc.close();
+    }
+  });
+
+  // The daemon (50), a small managed service (100), a managed service holding
+  // 3,000 descriptors (200), a process devctl does not run that never calls
+  // (300), and a client devctl does not run (400) that opens one connection
+  // after another, each at its lowest free descriptor, 10.
+  function churnWorld() {
+    const proc = fakeProc();
+    proc.add({ pid: 50, ppid: 1, files: 300 });
+    proc.add({ pid: 100, ppid: 50, files: 4 });
+    proc.add({ pid: 200, ppid: 50, files: 3_000 });
+    proc.add({ pid: 300, ppid: 1, files: 6 });
+    proc.add({ pid: 400, ppid: 1, files: 10 });
+    const open = new Map<string, SocketAnswer>();
+    let made = 0;
+    const connect = (pid = 400, fd = 10): ReturnType<typeof viaProxy> => {
+      made += 1;
+      const port = 0xd700 + made;
+      const inode = String(90_000 + made);
+      proc.hold(pid, fd, inode);
+      open.set(`${port}>${PROXY_PORT}`, { inode });
+      return viaProxy(port);
+    };
+    return { proc, open, connect };
+  }
+  const churnServices = () => [{ name: "api", pid: 100 }, { name: "hog", pid: 200 }];
+  const onlyFrom = (paths: readonly string[], pid: number): string[] => paths.filter((path) => path.includes(`/${pid}/fd`));
+
+  test("a client devctl does not run is read first once found, so its next connections read none of the managed processes' descriptors", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => kernel.kernel, self: 50 });
+      // The first misses every managed process. The second searches the
+      // processes devctl does not run while its socket is open, and finds the client.
+      expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      expect(onlyFrom(reads.linked, 200).length).toBeGreaterThanOrEqual(6_000);
+      reads.counts.links = 0;
+      reads.linked.length = 0;
+      reads.listed.length = 0;
+      for (let index = 0; index < 20; index += 1) {
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      }
+      // One link a connection: the client's descriptor 10. Read every time, the 3,000 were 60,000.
+      expect(reads.counts.links).toBe(20);
+      expect(reads.linked.every((path) => path.endsWith("/400/fd/10"))).toBe(true);
+      // Small directories are listed beside that read; the one holding 3,000 never is.
+      expect(reads.listed).not.toContain(`${proc.root}/200/fd`);
+      // The process that never called was read at most once, by the search.
+      expect(onlyFrom(reads.linked, 300)).toEqual([]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("without the kernel's lookup, the client is still found and read first, from the socket table's inodes", async () => {
+    const { proc } = churnWorld();
+    try {
+      let made = 0;
+      // Each connection's socket is in the table, at the client's descriptor 10.
+      const connect = (): ReturnType<typeof viaProxy> => {
+        made += 1;
+        const port = 0xda00 + made;
+        const inode = String(97_000 + made);
+        proc.hold(400, 10, inode);
+        proc.socket(port, inode);
+        return viaProxy(port);
+      };
+      const reads = counting(nodeProcFs(proc.root));
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, self: 50 });
+      expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      reads.linked.length = 0;
+      for (let index = 0; index < 10; index += 1) {
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      }
+      expect(reads.linked).toEqual(Array.from({ length: 10 }, () => `${proc.root}/400/fd/10`));
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("the client is found while the managed scan is still reading, even when its connection closes before that scan ends", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      const inner = nodeProcFs(proc.root);
+      let gated = false;
+      let release = (): void => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let seen = (): void => undefined;
+      const clientRead = new Promise<void>((resolve) => {
+        seen = resolve;
+      });
+      const linked: string[] = [];
+      // The managed process's descriptors are read slowly; a read of the client's is noticed once it is done.
+      const fs: ProcFs = {
+        ...inner,
+        link: async (path) => {
+          linked.push(path);
+          if (gated && path.includes("/200/fd/")) {
+            await gate;
+          }
+          const target = await inner.link(path);
+          if (path.endsWith("/400/fd/10")) {
+            seen();
+          }
+          return target;
+        },
+      };
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: fs, now: () => 0, openKernel: async () => kernel.kernel, self: 50 });
+      try {
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+        gated = true;
+        const second = callerServiceForPeer(connect(), churnServices, resolver);
+        const readInTime = await Promise.race([clientRead.then(() => true), Bun.sleep(2_000).then(() => false)]);
+        expect(readInTime).toBe(true);
+        // The client closes this connection while the scan is held inside the managed process.
+        proc.hold(400, 10, undefined);
+        release();
+        expect(await second).toBeUndefined();
+        linked.length = 0;
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+        expect(onlyFrom(linked, 200)).toEqual([]);
+      } finally {
+        release();
+      }
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a scan stops once the kernel says the connection has closed: no process can hold it any more", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      const inner = nodeProcFs(proc.root);
+      const linked: string[] = [];
+      let closing = "";
+      // The client closes its connection while the small service is being read.
+      const fs: ProcFs = {
+        ...inner,
+        link: async (path) => {
+          linked.push(path);
+          if (path.includes("/100/fd/")) {
+            open.delete(closing);
+          }
+          return inner.link(path);
+        },
+      };
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: fs, now: () => 0, openKernel: async () => kernel.kernel, self: 50 });
+      const peer = connect();
+      closing = `${peer.port}>${PROXY_PORT}`;
+      expect(await callerServiceForPeer(peer, churnServices, resolver)).toBeUndefined();
+      // Read while open, the 3,000 descriptors were read in full.
+      expect(onlyFrom(linked, 100).length).toBeGreaterThan(0);
+      expect(onlyFrom(linked, 200)).toEqual([]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a hot owner is judged afresh: once adopted as a service, or when its pid now names a service's child", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: nodeProcFs(proc.root), now: () => 0, openKernel: async () => kernel.kernel, self: 50 });
+      for (let index = 0; index < 3; index += 1) {
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      }
+      // devctl adopts the client as a service.
+      resolver.markDirty();
+      const adopted = () => [...churnServices(), { name: "late", pid: 400 }];
+      expect(await callerServiceForPeer(connect(), adopted, resolver)).toBe("late");
+      // The client exits and its pid is reused by a child of "api".
+      proc.restat({ pid: 400, ppid: 100, start: 9_999 });
+      expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBe("api");
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("while a hot owner is kept, a managed caller in a smaller service reads nothing of it but its last descriptor", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      let now = 0;
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => now, openKernel: async () => kernel.kernel, self: 50 });
+      for (let index = 0; index < 3; index += 1) {
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      }
+      // Late enough that no lookup missed recently, so no search for an owner
+      // runs beside the scan, and soon enough that the hot owner is kept.
+      now = 6_000;
+      reads.linked.length = 0;
+      reads.listed.length = 0;
+      // "api" (5 descriptors) opens a connection of its own; the client holds 11.
+      expect(await callerServiceForPeer(connect(100, 4), churnServices, resolver)).toBe("api");
+      expect(onlyFrom(reads.linked, 400)).toEqual([`${proc.root}/400/fd/10`]);
+      expect(onlyFrom(reads.linked, 200)).toEqual([]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a managed caller in a small service is read before a hot owner holding even fewer descriptors", async () => {
+    const proc = fakeProc();
+    try {
+      let now = 0;
+      // "api" holds 20 descriptors, the client 3.
+      proc.add({ pid: 100, ppid: 1, files: 20 });
+      proc.add({ pid: 400, ppid: 1, files: 2 });
+      const open = new Map<string, SocketAnswer>();
+      let made = 0;
+      const connect = (pid: number, fd: number): ReturnType<typeof viaProxy> => {
+        made += 1;
+        const port = 0xd900 + made;
+        proc.hold(pid, fd, String(95_000 + made));
+        open.set(`${port}>${PROXY_PORT}`, { inode: String(95_000 + made) });
+        return viaProxy(port);
+      };
+      const reads = counting(nodeProcFs(proc.root));
+      // While the client is learned, "api" is read slowly, so the search for
+      // an owner ends before the scan that would let go of the socket.
+      let slow = true;
+      const fs: ProcFs = {
+        ...reads.fs,
+        link: async (path) => {
+          if (slow && path.includes("/100/fd/")) {
+            await Bun.sleep(30);
+          }
+          return reads.fs.link(path);
+        },
+      };
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: fs, now: () => now, openKernel: async () => kernel.kernel, self: 50 });
+      const apiOnly = () => [{ name: "api", pid: 100 }];
+      for (let index = 0; index < 3; index += 1) {
+        expect(await callerServiceForPeer(connect(400, 2), apiOnly, resolver)).toBeUndefined();
+      }
+      slow = false;
+      // The client is now a hot owner: its next connection costs one read.
+      reads.linked.length = 0;
+      expect(await callerServiceForPeer(connect(400, 2), apiOnly, resolver)).toBeUndefined();
+      expect(reads.linked).toEqual([`${proc.root}/400/fd/2`]);
+      // No search beside the scan: nothing missed in the last five seconds.
+      now = 6_000;
+      reads.linked.length = 0;
+      expect(await callerServiceForPeer(connect(100, 20), apiOnly, resolver)).toBe("api");
+      expect(onlyFrom(reads.linked, 400)).toEqual([`${proc.root}/400/fd/2`]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a client holding many connections at once is read before a service holding thousands, which is not even listed", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      // 150 open at a time, each new one at whichever descriptor was freed.
+      proc.grow(400, 11, 140);
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => kernel.kernel, self: 50 });
+      expect(await callerServiceForPeer(connect(400, 20), churnServices, resolver)).toBeUndefined();
+      expect(await callerServiceForPeer(connect(400, 21), churnServices, resolver)).toBeUndefined();
+      reads.linked.length = 0;
+      reads.listed.length = 0;
+      for (let index = 0; index < 10; index += 1) {
+        expect(await callerServiceForPeer(connect(400, 30 + index * 7), churnServices, resolver)).toBeUndefined();
+      }
+      expect(onlyFrom(reads.linked, 200)).toEqual([]);
+      expect(reads.listed).not.toContain(`${proc.root}/200/fd`);
+      expect(onlyFrom(reads.linked, 400).length).toBeGreaterThan(10);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a process that has grown since it was last listed goes back in line behind smaller ones", async () => {
+    const proc = fakeProc();
+    try {
+      proc.add({ pid: 100, ppid: 1, files: 4 });
+      proc.add({ pid: 200, ppid: 1, files: 1 });
+      const open = new Map<string, SocketAnswer>([[`${0xd801}>${PROXY_PORT}`, { inode: "81001" }], [`${0xd802}>${PROXY_PORT}`, { inode: "81002" }]]);
+      proc.hold(100, 4, "81001");
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const both = () => [{ name: "api", pid: 100 }, { name: "hog", pid: 200 }];
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => 0, openKernel: async () => kernel.kernel, self: 50 });
+      // Listed with 1 descriptor and read first.
+      expect(await callerServiceForPeer(viaProxy(0xd801), both, resolver)).toBe("api");
+      // It now holds 3,001, and "api" a new connection.
+      proc.grow(200, 1, 3_000);
+      proc.hold(100, 5, "81002");
+      reads.linked.length = 0;
+      expect(await callerServiceForPeer(viaProxy(0xd802), both, resolver)).toBe("api");
+      expect(onlyFrom(reads.linked, 200)).toEqual([]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a hot owner that holds none of the looked-up sockets for ten seconds is no longer read", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      let now = 0;
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => now, openKernel: async () => kernel.kernel, self: 50 });
+      for (let index = 0; index < 3; index += 1) {
+        expect(await callerServiceForPeer(connect(), churnServices, resolver)).toBeUndefined();
+      }
+      now = 10_001;
+      reads.linked.length = 0;
+      expect(await callerServiceForPeer(connect(100, 4), churnServices, resolver)).toBe("api");
+      expect(onlyFrom(reads.linked, 400)).toEqual([]);
+    } finally {
+      proc.close();
+    }
+  });
+
+  test("a search that finds no owner waits before the next, longer each time", async () => {
+    const { proc, open, connect } = churnWorld();
+    try {
+      let now = 0;
+      const reads = counting(nodeProcFs(proc.root));
+      const kernel = fakeKernel(open);
+      const resolver = new PeerCallerResolver({ proc: reads.fs, now: () => now, openKernel: async () => kernel.kernel, self: 50 });
+      // Connections whose socket no readable process holds: the client closed it at once.
+      const vanished = (): ReturnType<typeof viaProxy> => {
+        const peer = connect();
+        proc.hold(400, 10, undefined);
+        return peer;
+      };
+      const searches = (): number => reads.listed.filter((path) => path.endsWith("/300/fd")).length;
+      expect(await callerServiceForPeer(vanished(), churnServices, resolver)).toBeUndefined();
+      expect(searches()).toBe(0);
+      for (let index = 0; index < 5; index += 1) {
+        expect(await callerServiceForPeer(vanished(), churnServices, resolver)).toBeUndefined();
+        await Bun.sleep(5);
+      }
+      // One search at time 0, then none until 100 ms later.
+      expect(searches()).toBe(1);
+      now = 100;
+      expect(await callerServiceForPeer(vanished(), churnServices, resolver)).toBeUndefined();
+      await Bun.sleep(5);
+      now = 150;
+      expect(await callerServiceForPeer(vanished(), churnServices, resolver)).toBeUndefined();
+      await Bun.sleep(5);
+      // The second waited 100 ms; the third must wait 200.
+      expect(searches()).toBe(2);
     } finally {
       proc.close();
     }
