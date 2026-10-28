@@ -31,7 +31,7 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     checked, detailName, bootErrorMissing, bootErrorConfig, bootError, logSearchFocused,
     logSources, logService, logShowTimestamps, logShowMeta, logWrap, showSystemLogs,
     logPinned, dashboardLogCursor, applyLogCursor, applyDashboardLogCursor, jumpToLatestLogs,
-    toggleSystemLogs, clearLogs, setLogService, setPaused, setErrorOnly, setLogWrap, beginStart, beginStop, beginRestart,
+    toggleSystemLogs, toggleGrpcLogs, clearLogs, setLogService, setPaused, setErrorOnly, setLogWrap, beginStart, beginStop, beginRestart,
     applyMcpPortDraft, toggleMcp, toggleMcpTool, copyFocusedMcpSnippet, persistMcpPort,
     restartMcpOnPort, setMcpPortDraft, settingRows, applyLogTimestamps, applyLogMetadata, cycleSetting,
     setDoctorTick, refreshAuth, configScrollRef, detailScrollRef, handleEnter, setScreen,
@@ -399,6 +399,10 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
   if ((screen === "logs" || screen === "dashboard") && name === "i") {
     toggleSystemLogs();
     setStatus(showSystemLogs ? "Hiding internal auth/mcp/devctl/proxy logs" : "Showing internal logs");
+    return;
+  }
+  if ((screen === "logs" || screen === "dashboard") && name === "b") {
+    toggleGrpcLogs();
     return;
   }
   if ((screen === "logs" || screen === "dashboard") && isClearLogsKey(key)) {

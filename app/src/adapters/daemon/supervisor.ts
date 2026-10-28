@@ -1223,6 +1223,7 @@ export class Supervisor {
       requestId: req.requestId,
       attribute: req.attribute,
       dedupeRequestId: req.dedupeRequestId,
+      hideGrpc: req.hideGrpc,
     };
   }
 

@@ -109,6 +109,8 @@ export type LogFilter = {
   requestId?: string;
   attribute?: { key: string; value: string };
   dedupeRequestId?: boolean;
+  /** Omit gRPC proxy logs and any record marked rpc.system=grpc. Default is to show them. */
+  hideGrpc?: boolean;
 };
 
 export type LogPageDirection = "forward" | "backward";

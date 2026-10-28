@@ -91,8 +91,8 @@ rotate or remint. It needs a running listener (`devctl mcp --on --write …`).
 | `get_status` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | `get_preferences` | inspect | Resolved operator prefs, write paths, and layer provenance (`user` / `repo` / `default`). `scope` labels the save target |
 | `set_preferences` | control | Write TUI/web prefs (`scope` repo or user). MCP listen always hits the repo overlay. `local.web_enabled` / `local.web_port` / `local.inspect_max_bytes` patch `.devctl/config.local.yaml` then reload |
-| `get_logs` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass `limit`, max 5000). Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from `next_cursor` to page toward newer events (`direction` defaults to forward when a cursor is set); pass `cursor` from `prev_cursor` with `direction=backward` for older events. `regex=true` treats `search` as a regular expression. `since`/`until` are plain timestamp filters for a fresh query |
-| `get_log_stats` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as `get_logs` |
+| `get_logs` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass `limit`, max 5000). Filter by `trace_id`, `request_id`, or an `attribute` key/value in addition to service/level/source/time. Pass `cursor` from `next_cursor` to page toward newer events (`direction` defaults to forward when a cursor is set); pass `cursor` from `prev_cursor` with `direction=backward` for older events. `regex=true` treats `search` as a regular expression. `since`/`until` are plain timestamp filters for a fresh query. `hide_grpc=true` omits gRPC proxy logs and records marked `rpc.system=grpc` |
+| `get_log_stats` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as `get_logs`, including `hide_grpc` |
 | `get_trace` | logs | Span tree plus correlated log records for a W3C `trace_id`, secrets redacted |
 | `trace_request` | logs | Resolve a proxy `X-Devctl-Request-ID` to its trace, then return the span tree and correlated logs |
 | `get_requests` | inspect | The proxy's recent requests — method, route, status, duration, identity, request/trace ids, and `captured` when a traffic-inspector body exists |
@@ -100,7 +100,7 @@ rotate or remint. It needs a running listener (`devctl mcp --on --write …`).
 | `get_llm_call` | inspect | One LLM call by id, including redacted request/response payloads |
 | `get_traffic_calls` | inspect | Filtered HTTP/gRPC hops captured on `inspect.enabled` proxy routes, secrets redacted, bodies omitted. Direct sockets that never hit the proxy are invisible. Filter with `route`, `caller`, `method`, `status`, `transport`, `search`, `request_id`, `trace_id`. Pass `cursor` from `next_cursor` to page toward older calls |
 | `get_traffic_call` | inspect | One captured proxy hop by id, including redacted request/response payloads. `/reveal` cannot unmask these bodies |
-| `recent_errors` | logs | The latest error and fatal log records, capped at 200, same paging as `get_logs` |
+| `recent_errors` | logs | The latest error and fatal log records, capped at 200, same paging as `get_logs`, including `hide_grpc` |
 | `list_profiles` | inspect | Config profiles and members |
 | `get_config` | inspect | Merged summary: project, services, routes, proxy paths |
 | `get_config_sources` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |

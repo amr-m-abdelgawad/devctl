@@ -108,5 +108,5 @@ export class FacetWindow {
 
 /** True when a filter narrows only by service, level and source, the dimensions `FacetWindow` counts. */
 export function filtersDimensionsOnly(filter: LogFilter): boolean {
-  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined;
+  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideGrpc !== true;
 }

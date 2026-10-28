@@ -10,12 +10,14 @@ export function LogFilterBar(props: {
   names: string[];
   service: string;
   errorOnly: boolean;
+  showGrpc?: boolean;
   width: number;
   onService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleGrpc?: () => void;
   facets?: LogFacets;
 }) {
-  const { palette, logs, names, service, errorOnly, width, onService, onToggleErrors, facets } = props;
+  const { palette, logs, names, service, errorOnly, showGrpc = true, width, onService, onToggleErrors, onToggleGrpc, facets } = props;
   const sources = facets ? facetFilterCatalog(names, facets) : logFilterCatalog(names, logs);
   const compact = width < 80;
   const items = sources.map((item) => {
@@ -28,7 +30,8 @@ export function LogFilterBar(props: {
   });
   const active = Math.max(0, sources.findIndex((item) => item.name === service));
   const levelLabel = errorOnly ? "ERROR+" : compact ? "lvls" : "all levels";
-  const stripWidth = Math.max(tabChipWidth(items[active]?.label ?? "all"), width - tabChipWidth(levelLabel));
+  const grpcLabel = showGrpc ? "grpc" : "no grpc";
+  const stripWidth = Math.max(tabChipWidth(items[active]?.label ?? "all"), width - tabChipWidth(levelLabel) - tabChipWidth(grpcLabel));
   return (
     <Toolbar palette={palette} backgroundColor={palette.element}>
     <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
@@ -52,6 +55,12 @@ export function LogFilterBar(props: {
         label={levelLabel}
         tone={errorOnly ? "error" : "muted"}
         onMouseDown={onToggleErrors}
+      />
+      <Chip
+        palette={palette}
+        label={grpcLabel}
+        tone={showGrpc ? "muted" : "warning"}
+        onMouseDown={onToggleGrpc}
       />
     </box>
     </Toolbar>

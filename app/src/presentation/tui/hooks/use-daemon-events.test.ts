@@ -48,6 +48,7 @@ test("a status-bearing event refreshes status within the coalescing window, and 
   const mounted = await mountHook(useDaemonEvents, {
     controller,
     paused: false,
+    showGrpcLogs: true,
     logSince: "",
     refresh: async () => {
       refreshes += 1;

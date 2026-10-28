@@ -7,7 +7,7 @@ import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
 import { NARROW_WIDTH } from "../helpers/chrome.ts";
 import { clipText,padClip } from "../helpers/format.ts";
-import { filterLogs,isSystemLogSource,visibleLogErrorCount,type LogWrapMode } from "../helpers/logs.ts";
+import { filterLogs,logsForFilterChips,visibleLogErrorCount,type LogWrapMode } from "../helpers/logs.ts";
 import { canStartAll,previousSessionNote,serviceLineState,serviceListInnerWidth,serviceListPaneWidth } from "../helpers/services.ts";
 import { countRunning } from "../helpers/stats.ts";
 import { MetaBar } from "../layout.tsx";
@@ -30,11 +30,13 @@ export function Dashboard(props: {
   logSources?: string[];
   errorOnly: boolean;
   showSystemLogs: boolean;
+  showGrpcLogs: boolean;
   onOpen: (name: string) => void;
   onSelectIndex: (index: number) => void;
   onToggle: (name: string) => void;
   onFilterService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleGrpc: () => void;
   onShowErrors?: () => void;
   wrapMode?: LogWrapMode;
   view?: LogEvent[];
@@ -65,11 +67,13 @@ export function Dashboard(props: {
     logSources,
     errorOnly,
     showSystemLogs,
+    showGrpcLogs,
     onOpen,
     onSelectIndex,
     onToggle,
     onFilterService,
     onToggleErrors,
+    onToggleGrpc,
     onShowErrors,
     wrapMode = "all",
     view,
@@ -104,8 +108,8 @@ export function Dashboard(props: {
   const lastSession = idle ? previousSessionNote(leftover, snap?.session_id) : undefined;
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
-  const filterBarLogs = showSystemLogs ? logs : logs.filter((ev) => !isSystemLogSource(ev.source));
-  const visible = filterLogs(logs, { service: logService, errorOnly, systemLogs: showSystemLogs, search, regex });
+  const filterBarLogs = logsForFilterChips(logs, { systemLogs: showSystemLogs, grpcLogs: showGrpcLogs });
+  const visible = filterLogs(logs, { service: logService, errorOnly, systemLogs: showSystemLogs, grpcLogs: showGrpcLogs, search, regex });
   const shown = view ?? visible;
   const shownTotal = viewTotal ?? visible.length;
   const viewEnd = Math.min(shownTotal, viewStart + shown.length);
@@ -175,6 +179,8 @@ export function Dashboard(props: {
           width={logWidth}
           onService={onFilterService}
           onToggleErrors={onToggleErrors}
+          onToggleGrpc={onToggleGrpc}
+          showGrpc={showGrpcLogs}
           facets={facets}
         />
         {shownTotal > shown.length ? (

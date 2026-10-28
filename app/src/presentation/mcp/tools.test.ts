@@ -347,6 +347,14 @@ describe("mcp tools", () => {
     expect(seen?.dedupeRequestId).toBe(true);
     await callMcpTool(host, "get_logs", {});
     expect(seen?.dedupeRequestId).toBe(false);
+    await callMcpTool(host, "get_logs", { hide_grpc: true });
+    expect(seen?.hideGrpc).toBe(true);
+    host.logsStats = (req) => {
+      seen = req;
+      return { total: 0, byService: {}, byLevel: {}, bySource: {} };
+    };
+    await callMcpTool(host, "get_log_stats", { hide_grpc: "true" });
+    expect(seen?.hideGrpc).toBe(true);
   });
 
   test("get_logs filters by service and redacts", async () => {

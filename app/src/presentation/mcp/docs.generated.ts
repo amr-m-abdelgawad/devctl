@@ -592,7 +592,7 @@ devctl test [--profile <name> | --services a,b] [--timeout 5m] [--env-from <svc>
 devctl bundle [--since 10m] [--output <dir|file.tgz>]
 devctl status [--repo <path>] [--json] [--watch]
 devctl config import compose <file> [--write]
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--output] [--json] [-f|--follow] [--all]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--output] [--json] [-f|--follow] [--all]
 devctl logs export --output FILE
 devctl llm [--source] [--caller] [--model] [--status] [--search] [--since] [--until] [--json] [-f|--follow]
 devctl llm show <id> [--json]
@@ -639,7 +639,7 @@ devctl update [--json] [--check]
 - \`status\` with no socket prints persisted per-repo state (or “stopped”) and exits **0**.
 - \`status\` also prints proxy, MCP, and WEB listen lines when a supervisor is up. Each service row includes \`ENV\` (the selected named overlay, empty when the service has none).
 - \`status --watch\` reprints the same status every 2 seconds, each under its own timestamp header, until interrupted (\`ctrl+c\`).
-- \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. \`--request-id\` filters by \`X-Devctl-Request-ID\`; \`--dedupe-request-id\` collapses nearby events that share that id after the page is fetched; \`--trace\` prints the span tree plus correlated logs.
+- \`logs -f\` (and the TUI's own live view) keeps printing new matching events until interrupted instead of exiting after the current page; see [Logs](logs.md) for pagination and filtering details. \`--request-id\` filters by \`X-Devctl-Request-ID\`; \`--dedupe-request-id\` collapses nearby events that share that id after the page is fetched; \`--hide-grpc\` omits gRPC proxy logs (and records marked \`rpc.system=grpc\`) from the page, the follow stream, and export; \`--trace\` prints the span tree plus correlated logs.
 - \`devctl llm\` lists recent LLM calls from configured \`llm.sources\` (LiteLLM spend logs first). \`--caller\` filters by originating service. \`--follow\` polls until interrupted. \`devctl llm show <id>\` prints one call including redacted bodies. See [LLM inspector](llm.md).
 - \`devctl traffic\` lists recent HTTP and gRPC hops captured on \`inspect.enabled\` proxy routes. \`--caller\` filters by originating service (\`-\` or \`none\` for hops with no caller). \`--follow\` polls until interrupted. \`devctl traffic show <id>\` prints one hop including redacted bodies. Direct sockets that never hit the proxy are not listed. See [Proxy](proxy.md#inspect-bodies).
 - \`devctl daemon logs [-f]\` prints the detached supervisor's own bootstrap stderr (its log location, before it has a config to start services from) — useful when \`start\`/\`attach\` reports "supervisor failed to start" and points at a path. Prints "no daemon bootstrap log yet" if the daemon has never been spawned for this repository. \`-f\` follows it live the same way \`logs -f\` does. The TUI equivalent is \`/daemon\`.
@@ -2243,6 +2243,7 @@ With only service, level and source filters, the counts cover the whole log wind
 - \`/exports\` or the **open folder** chip — reveal that directory.
 - \`/history [id]\` — load a persisted session (\`LogManager.listSessions\`).
 - \`/system\` / \`/internal\` — show or hide internal \`auth\` / \`mcp\` / \`devctl\` / \`proxy\` lines.
+- \`b\` / \`/grpc\` — show or hide gRPC proxy logs (the \`grpc …\` access and listener lines, and any record marked \`rpc.system=grpc\`). HTTP proxy logs and service stdout stay. The same choice is \`devctl logs --hide-grpc\` and MCP \`hide_grpc\`. Default is to show them. Hiding them asks the daemon for pages and facet counts without those lines, so a chatty gRPC route does not fill the view.
 - \`/regex\`, \`/since\`, \`/until\` — search and time range (\`until\` is exclusive of later lines).
 
 Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. \`j\`/\`k\` moves the highlight.
@@ -2251,20 +2252,20 @@ Headlines wrap to the pane width with OpenTUI word wrap (\`wrapMode="word"\` on 
 
 The [web console](web.md) Logs page is the same ring and paging, not a 200-row table. It holds up to \`logs.max_memory_events\` (default 50,000), virtualizes the list, and follows with \`cursor=next_cursor\` (~100ms while the page is visible, live, and not paused; slower when idle or the tab is hidden). Scroll up loads older pages (\`cursor=prev_cursor\`, \`direction=backward\`). Overview “recent errors” stays a small ERROR page and does not feed the 50k buffer.
 
-- Search (substring / regex), ERROR+, system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`)
+- Search (substring / regex), ERROR+, system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`), **hide grpc** (\`b\`) for gRPC proxy logs
 - Pause / live, jump latest (\`pinned · +N new\`)
 - Service chips from facets; timestamp/metadata columns from \`log_timestamps\` / \`log_metadata\`
 - Clear (client-local \`since=now\`; daemon ring untouched), export NDJSON, history session picker
 - Split: two panes, shared buffer and search, independent service filter and follow/pin
 - Wrap cycle: clip → wrap selected → wrap all
-- Keys: \`j\`/\`k\`, \`f\` search, \`p\` pause, \`g\` latest, \`e\` ERROR+, \`\\\` split, \`w\` wrap
+- Keys: \`j\`/\`k\`, \`f\` search, \`p\` pause, \`g\` latest, \`e\` ERROR+, \`b\` gRPC logs, \`\\\` split, \`w\` wrap
 
 History loads a persisted session (same store as TUI \`/history\`). Export downloads JSONL for the current filters — the full match set, not one page.
 
 ## CLI
 
 \`\`\`bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
@@ -2272,6 +2273,7 @@ devctl logs export --output FILE   # explicit export subcommand
 devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
 devctl logs --dedupe-request-id    # collapse nearby events that share a request id
+devctl logs --hide-grpc            # omit gRPC proxy logs; omit the flag to show them
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 \`\`\`
 
@@ -2403,8 +2405,8 @@ rotate or remint. It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_preferences\` | inspect | Resolved operator prefs, write paths, and layer provenance (\`user\` / \`repo\` / \`default\`). \`scope\` labels the save target |
 | \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
-| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
-| \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\` |
+| \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). Filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/level/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query. \`hide_grpc=true\` omits gRPC proxy logs and records marked \`rpc.system=grpc\` |
+| \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\`, including \`hide_grpc\` |
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
 | \`trace_request\` | logs | Resolve a proxy \`X-Devctl-Request-ID\` to its trace, then return the span tree and correlated logs |
 | \`get_requests\` | inspect | The proxy's recent requests — method, route, status, duration, identity, request/trace ids, and \`captured\` when a traffic-inspector body exists |
@@ -2412,7 +2414,7 @@ rotate or remint. It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_llm_call\` | inspect | One LLM call by id, including redacted request/response payloads |
 | \`get_traffic_calls\` | inspect | Filtered HTTP/gRPC hops captured on \`inspect.enabled\` proxy routes, secrets redacted, bodies omitted. Direct sockets that never hit the proxy are invisible. Filter with \`route\`, \`caller\`, \`method\`, \`status\`, \`transport\`, \`search\`, \`request_id\`, \`trace_id\`. Pass \`cursor\` from \`next_cursor\` to page toward older calls |
 | \`get_traffic_call\` | inspect | One captured proxy hop by id, including redacted request/response payloads. \`/reveal\` cannot unmask these bodies |
-| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\` |
+| \`recent_errors\` | logs | The latest error and fatal log records, capped at 200, same paging as \`get_logs\`, including \`hide_grpc\` |
 | \`list_profiles\` | inspect | Config profiles and members |
 | \`get_config\` | inspect | Merged summary: project, services, routes, proxy paths |
 | \`get_config_sources\` | inspect | Effective values with winning and shadowed configuration sources; secret-like values are redacted |
@@ -4507,12 +4509,13 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 | \`/trace <id>\` | | Search logs for a request or trace id |
 | \`/filter\` | | Toggle ERROR+ log filter |
 | \`/system\` | \`/internal\` | Show or hide internal auth/mcp/devctl/proxy logs |
+| \`/grpc\` | | Show or hide gRPC proxy logs |
 | \`/wrap\` | | Cycle log wrap: all lines, clip, or selected row |
 | \`/export [path]\` | | Write filtered logs to ~/.devctl/exports |
 | \`/exports\` | \`/open-exports\` | Open the log export folder |
 | \`/clear\` | \`/new\` | Clear the on-screen log buffer |
 
-\`/split\` is also \`\\\\\`; \`|\` focuses the other pane. \`/trace\` sets log search to a \`request_id\` / \`trace_id\`. \`/export\` without a path writes under \`~/.devctl/exports\`. \`/clear\` only clears this TUI's on-screen view, not the daemon's shared log buffer.
+\`/split\` is also \`\\\\\`; \`|\` focuses the other pane. \`/trace\` sets log search to a \`request_id\` / \`trace_id\`. \`/grpc\` (or \`b\` on Logs and the dashboard) shows or hides gRPC proxy logs; HTTP proxy lines stay. \`/export\` without a path writes under \`~/.devctl/exports\`. \`/clear\` only clears this TUI's on-screen view, not the daemon's shared log buffer.
 
 ### UI
 
@@ -4769,7 +4772,7 @@ The proxy emits request spans. Deeper application spans require your services to
 
 Open Logs to follow the supervisor ring. The page keeps up to \`logs.max_memory_events\` events (default 50,000), virtualizes the viewport, and polls only new lines with \`next_cursor\` while the tab is visible and live. Scroll up to backfill older pages (\`prev_cursor\`, \`direction=backward\`). Pause freezes follow; **Clear** hides earlier lines in this tab without touching the daemon. Filter chips use \`/api/logs/stats\` counts, not whatever is on screen.
 
-Search is substring or regex (\`f\` focuses the box). **ERROR+** (\`e\`) and the system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`) match the TUI. Wrap cycles clip → wrap selected → wrap all (\`w\`). Split (\`\\\`) opens a second pane on the same buffer with its own service filter and follow/pin. History loads a persisted session; **Export** downloads NDJSON for the active filter. Keys on Logs: \`j\`/\`k\` move, \`f\` search, \`p\` pause, \`g\` latest (\`pinned · +N new\` when you leave the tail), \`e\` ERROR+, \`\\\` split, \`w\` wrap. Select a row for the JSON inspector; newer appends do not replace the open record. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
+Search is substring or regex (\`f\` focuses the box). **ERROR+** (\`e\`), the system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`), and **hide grpc** (\`b\`) match the TUI. Hide grpc drops gRPC proxy logs from the page, the facet counts, and export; HTTP proxy logs stay. Wrap cycles clip → wrap selected → wrap all (\`w\`). Split (\`\\\`) opens a second pane on the same buffer with its own service filter and follow/pin. History loads a persisted session; **Export** downloads NDJSON for the active filter. Keys on Logs: \`j\`/\`k\` move, \`f\` search, \`p\` pause, \`g\` latest (\`pinned · +N new\` when you leave the tail), \`e\` ERROR+, \`b\` gRPC logs, \`\\\` split, \`w\` wrap. Select a row for the JSON inspector; newer appends do not replace the open record. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
 The LLM view is a list plus live inspector. Select a call to read the conversation, or switch to JSON for a collapsible tree (path breadcrumb, expand/collapse, copy path or value) and a syntax-colored pretty view. Find highlights matching keys and values. The selected call stays open when newer calls arrive. Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
 

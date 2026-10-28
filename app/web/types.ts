@@ -198,6 +198,7 @@ export type LogsQuery = {
   cursor?: string;
   direction?: "forward" | "backward";
   limit?: number;
+  hideGrpc?: boolean;
 };
 
 export type DoctorSeverity = "ok" | "warn" | "error";
