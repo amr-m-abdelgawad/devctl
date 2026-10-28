@@ -10,7 +10,9 @@ if (!reportPath) {
   process.exit(2);
 }
 
-const expected = ["LICENSE", "README.md", "bin/devctl.cjs", "dist/devctl.js", "package.json"];
+// The two workers sit beside the bundle: without them the daemon parses logs on
+// its main thread and runs without its watchdog.
+const expected = ["LICENSE", "README.md", "bin/devctl.cjs", "dist/devctl.js", "dist/event-loop-watchdog-worker.js", "dist/log-worker.js", "package.json"];
 const report = JSON.parse(readFileSync(reportPath, "utf8"));
 assert.equal(report.length, 1, "npm pack must produce exactly one package report");
 const actual = report[0].files.map((file) => file.path).sort();

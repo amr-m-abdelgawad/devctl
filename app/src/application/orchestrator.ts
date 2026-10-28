@@ -29,7 +29,7 @@ import {
   type ServiceState,
 } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
-import type { ProcessRuntime } from "../ports/process-runtime.ts";
+import type { ProcessChunkMeta, ProcessRuntime } from "../ports/process-runtime.ts";
 import type { StartRequest } from "../domain/status.ts";
 import type { ServiceOrchestratorPort } from "../ports/daemon.ts";
 import type { LifecycleSession } from "../ports/lifecycle-session.ts";
@@ -366,12 +366,27 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       if (!this.health.isCurrentGeneration(name, gen)) {
         return;
       }
-      const onLine = (stream: "stdout" | "stderr", line: string): void => {
-        s.logs.append({
-          timestamp: this.clock.isoNow(), service: name, source: stream, stream,
-          level: "", message: line, pid: handle.pid,
-        });
-      };
+      const onChunk = s.logs.ingestChunk
+        ? (stream: "stdout" | "stderr", bytes: Uint8Array, meta?: ProcessChunkMeta): boolean =>
+            s.logs.ingestChunk?.({
+              service: name,
+              stream,
+              pid: meta?.pid ?? 0,
+              // Delivery can lag the read (coalescing, a paused pipeline), so the reader's stamp wins.
+              readAtMs: meta?.readAtMs ?? this.clock.unixMs(),
+              bytes,
+              end: meta?.end,
+            }) ?? false
+        : undefined;
+      const onLine = onChunk
+        ? undefined
+        : (stream: "stdout" | "stderr", line: string): void => {
+            s.logs.append({
+              timestamp: this.clock.isoNow(), service: name, source: stream, stream,
+              level: "", message: line, pid: handle.pid,
+            });
+          };
+      const paused = (): boolean => s.logs.ingestPaused?.() === true;
       const onExit = (code: number, err?: Error): void => this.health.onExit(name, gen, code, err);
       const mounts = svc.container ? scopeVolumes(svc.container, s.containerPrefix) : undefined;
       handle = svc.container
@@ -389,6 +404,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             workDir,
             limits: resolvedContainerLimits(svc.container),
             onLine,
+            onChunk,
+            paused,
             onExit,
           })
         : await this.processes.start({
@@ -401,6 +418,8 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
             captureStdout: captureStdout(svc),
             captureStderr: captureStderr(svc),
             onLine,
+            onChunk,
+            paused,
             onExit,
           });
     } catch (err) {
@@ -494,6 +513,7 @@ export class ServiceOrchestrator implements ServiceOrchestratorPort {
       name, args: [...command.args], shell: shell || command.shell, workDir, env,
       graceMs: graceSeconds(this.host().cfg.shutdown) * 1000,
       onLine: (stream, line) => this.host().logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
+      paused: () => this.host().logs.ingestPaused?.() === true,
     });
     if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;

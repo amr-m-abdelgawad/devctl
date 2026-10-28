@@ -9,7 +9,8 @@
     "**/guide.generated.ts",
     "**/assets.generated.ts",
     "**/.watch-*/**",
-    "**/node_modules/**"
+    "**/node_modules/**",
+    "**/test/oracle/**"
   ],
   "reporters": ["console"]
 }

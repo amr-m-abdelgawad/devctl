@@ -12,4 +12,5 @@ export type TrafficCallStore = {
   get(id: string): TrafficCall | undefined;
   setSecrets(extraMarkers: string[], extraPatterns: string[], redact?: boolean): void;
   close(): void;
+  shedBodies?(): void;
 };

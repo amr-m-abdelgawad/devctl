@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { LogManager, logMessage } from "../storage/logs.ts";
 import { available } from "../net/ports.ts";
 import { ProcessManager, provenSameProcess, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { parseElapsedMillis } from "./unix.ts";
@@ -263,3 +267,123 @@ test("runOnce bounds a single unterminated line without dropping callbacks", asy
   // The forced line break(s) still reached onLine at least once.
   expect(onLineCalls).toBeGreaterThan(0);
 });
+
+test("runOnce stops reading a flooding command while the log store is paused, and keeps every line", async () => {
+  const mgr = new ProcessManager();
+  let paused = true;
+  let lines = 0;
+  // Far more than the pipe holds: the command blocks in its write while reads are paused.
+  const script = "for (let i = 0; i < 200000; i++) console.log('line ' + i)";
+  const running = mgr.runOnce({
+    name: "flood",
+    args: [process.execPath, "-e", script],
+    shell: false,
+    workDir: "",
+    env: process.env as Record<string, string>,
+    graceMs: 1000,
+    onLine: () => {
+      lines += 1;
+    },
+    paused: () => paused,
+  });
+  await sleep(300);
+  const whilePaused = lines;
+  await sleep(100);
+  expect(lines).toBe(whilePaused);
+  expect(whilePaused).toBeLessThan(200_000);
+  paused = false;
+  const result = await running;
+  expect(result.code).toBe(0);
+  expect(lines).toBe(200_000);
+});
+
+describe("service output end", () => {
+  async function lastLineThrough(stdioRoot: string | undefined): Promise<{ pid: number; lines: { message: string; pid: unknown }[] }> {
+    const dir = mkdtempSync(join(tmpdir(), "devctl-tail-"));
+    const mgr = new LogManager(100, undefined, undefined, false, dir, "tail");
+    const procs = new ProcessManager({ stdioRoot });
+    try {
+      const handle = await procs.start({
+        name: "tail",
+        args: ["sh", "-c", "printf 'first\\nlast line no newline'"],
+        shell: false,
+        workDir: dir,
+        env: process.env as Record<string, string>,
+        graceMs: 1_000,
+        onChunk: (stream, bytes, meta) => mgr.acceptChunk({ service: "tail", stream, pid: meta?.pid ?? 0, readAtMs: Date.now(), bytes, end: meta?.end }),
+      });
+      await handle.done;
+      const deadline = Date.now() + 5_000;
+      while (Date.now() < deadline && !mgr.query({}).some((event) => logMessage(event) === "last line no newline")) {
+        await sleep(20);
+      }
+      const lines = mgr.query({}).map((event) => ({ message: logMessage(event), pid: event.resource["process.pid"] }));
+      return { pid: handle.pid, lines };
+    } finally {
+      await mgr.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test.skipIf(process.platform === "win32")("a last line without a newline is logged with the pid that wrote it", async () => {
+    const { pid, lines } = await lastLineThrough(undefined);
+    expect(lines).toEqual([
+      { message: "first", pid },
+      { message: "last line no newline", pid },
+    ]);
+  });
+
+  test.skipIf(process.platform === "win32")("the same holds when output goes through FIFO stdio", async () => {
+    const root = mkdtempSync(join(tmpdir(), "devctl-tail-fifo-"));
+    try {
+      const { pid, lines } = await lastLineThrough(root);
+      expect(lines).toEqual([
+        { message: "first", pid },
+        { message: "last line no newline", pid },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+
+  test.skipIf(process.platform === "win32")("a service that exits after a quiet spell ends its FIFO streams at its exit, not at the readers' next check", async () => {
+    const root = mkdtempSync(join(tmpdir(), "devctl-exit-fifo-"));
+    const procs = new ProcessManager({ stdioRoot: root });
+    try {
+      let ends = 0;
+      let endsAtExit = -1;
+      const handle = await procs.start({
+        name: "quiet",
+        args: ["sh", "-c", "printf hi; sleep 0.6"],
+        shell: false,
+        workDir: root,
+        env: process.env as Record<string, string>,
+        graceMs: 1_000,
+        onChunk: (_stream, _bytes, meta) => {
+          if (meta?.end === true) {
+            ends += 1;
+          }
+          return true;
+        },
+        onExit: () => {
+          // Microtasks only: no timer runs meanwhile, so the readers' own check of their FIFOs has not.
+          void microtasks().then(() => {
+            endsAtExit = ends;
+          });
+        },
+      });
+      await handle.done;
+      await sleep(20);
+      // Both readers were asleep by then, and the exit woke them.
+      expect(endsAtExit).toBe(2);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 15_000);
+});
+
+async function microtasks(): Promise<void> {
+  for (let i = 0; i < 500; i++) {
+    await Promise.resolve();
+  }
+}

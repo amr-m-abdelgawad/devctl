@@ -22,6 +22,8 @@ import {
   knownLogs,
   knownMatch,
   knownPersistence,
+  knownSpool,
+  knownSupervisor,
   knownProfile,
   knownProject,
   knownProxy,
@@ -134,6 +136,10 @@ function knownForPath(path: string): string[] {
       return knownLogs;
     case "logs.persistence":
       return knownPersistence;
+    case "logs.spool":
+      return knownSpool;
+    case "supervisor":
+      return knownSupervisor;
     case "auth":
       return knownAuth;
     case "shutdown":

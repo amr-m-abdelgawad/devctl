@@ -126,6 +126,15 @@ export type LogSnapshot = {
   seen: number;
   /** Error/fatal events ingested this daemon lifetime. */
   seenErrors: number;
+  pipeline?: {
+    inFlightBytes: number;
+    spooledBytes: number;
+    paused: boolean;
+    loss: number;
+    ringBytes: number;
+    /** Why persistence is dropping lines right now ("disk-low", "write-error", "backlog"). Clears on its own. */
+    degraded?: string;
+  };
 };
 
 export type CredentialEntrySnapshot = {
@@ -197,6 +206,21 @@ export type StatusSnapshot = {
   // Per-service CPU%/memoryKB trend over the same window as stats_series, keyed
   // by service name. Absent until the sampler has recorded at least one tick.
   service_series?: Record<string, StatsSeries>;
+  /** Present when the daemon reports its own resource use. */
+  daemon?: {
+    rssBytes: number;
+    heapBytes: number;
+    memoryLimitBytes?: number;
+    nonReapingPid1?: boolean;
+    /** "on" while the daemon reaps the orphans of its services; "unavailable" when it should but cannot on this system. */
+    orphanReaper?: "on" | "unavailable";
+    eventLoopLagMs?: number;
+    logs?: LogSnapshot["pipeline"];
+    /** "in-process" when the log worker did not start or died: parsing then shares the daemon's main thread. */
+    logStore?: "worker" | "in-process";
+    /** "degraded" while the watchdog worker is down, so a wedged daemon is not detected. Absent before it starts. */
+    watchdog?: "ok" | "degraded";
+  };
 };
 
 export type LogsResponse = {
@@ -208,6 +232,8 @@ export type TraceResponse = {
   requestId?: string;
   tree: TraceTree;
   events: LogEvent[];
+  /** True when the lookup stopped before it had read the whole log window. */
+  truncated?: boolean;
 };
 
 /** The status line naming a stack's instance and port slot; undefined for a checkout's own stack in slot 0. */
@@ -218,4 +244,19 @@ export function instanceStatusLine(instance: StatusSnapshot["instance"]): string
     return undefined;
   }
   return `INSTANCE: ${name === "" ? "" : `${name}, `}slot ${slot} (ports +${instance?.port_offset ?? 0})`;
+}
+
+/** The status line for a daemon missing one of its workers; undefined while both run. */
+export function daemonStatusLine(daemon: StatusSnapshot["daemon"]): string | undefined {
+  const missing: string[] = [];
+  if (daemon?.watchdog === "degraded") {
+    missing.push("watchdog worker down");
+  }
+  if (daemon?.logStore === "in-process") {
+    missing.push("log store in-process");
+  }
+  if (missing.length === 0) {
+    return undefined;
+  }
+  return `DAEMON      DEGRADED    ${missing.join(", ")}`;
 }
