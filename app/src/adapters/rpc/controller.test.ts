@@ -4,10 +4,10 @@ import { createServer, type Socket } from "node:net";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { Client, Controller, dial, ensureSupervisor, findDaemon, hostClockJumped, isRpcTimeout, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
+import { Client, Controller, daemonRunning, dial, ensureSupervisor, findDaemon, hostClockJumped, isRpcTimeout, openAttach, openTui, reapSupervisorChild, supervisorSpawnCommand } from "./controller.ts";
 import { osEnviron } from "../environment/environment.ts";
 import { KindConfiguration, KindConfigurationMissing, KindGeneral } from "../../shared/errors.ts";
-import { bootstrapLogPath, killRepoSupervisor, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
+import { acquireLock, bootstrapLogPath, killRepoSupervisor, lockPath, processAlive, socketPath, writePersistedState } from "../storage/storage.ts";
 import { RPC_PROTOCOL_VERSION, VERSION } from "../../version.ts";
 
 function tmp(): string {
@@ -27,7 +27,7 @@ function resolvedScan(path: string): string {
 // A minimal fake supervisor that answers "ping" with a fixed payload and
 // nothing else — enough to test how the client interprets a handshake
 // response without spinning up a real Supervisor.
-function fakePingServer(repoRoot: string, pingResult: unknown): { close: () => Promise<void> } {
+function fakePingServer(repoRoot: string, pingResult: unknown, delayMs = 0): { close: () => Promise<void> } {
   const path = socketPath(repoRoot);
   const server = createServer((conn: Socket) => {
     let buf = "";
@@ -41,7 +41,7 @@ function fakePingServer(repoRoot: string, pingResult: unknown): { close: () => P
         }
         const env = JSON.parse(line) as { id?: string; method?: string };
         if (env.method === "ping") {
-          conn.write(`${JSON.stringify({ id: env.id, result: pingResult })}\n`);
+          setTimeout(() => conn.write(`${JSON.stringify({ id: env.id, result: pingResult })}\n`), delayMs);
         }
       }
     });
@@ -50,6 +50,13 @@ function fakePingServer(repoRoot: string, pingResult: unknown): { close: () => P
   return {
     close: () => new Promise((resolve) => server.close(() => resolve())),
   };
+}
+
+// A daemon that holds the lock and is this live process, as a busy one is.
+function busyDaemon(dir: string): { release: () => void } {
+  mkdirSync(join(dir, ".devctl"), { recursive: true });
+  writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+  return acquireLock(dir, socketPath(dir));
 }
 
 describe("RPC client", () => {
@@ -65,6 +72,25 @@ describe("RPC client", () => {
     );
     client.close();
     expect(await outcome).toContain("supervisor connection closed");
+  });
+
+  test("a reply split across chunks is read whole, even inside a multi-byte character", async () => {
+    const socket = new EventEmitter() as EventEmitter & { write: () => boolean; destroy: () => void };
+    socket.write = () => true;
+    socket.destroy = () => socket.emit("close");
+    const client = new Client(socket as never);
+    const seen: string[] = [];
+    client.onEvent((event) => seen.push(String(event.payload?.text)));
+    // 3 MiB of 3-byte characters in 4,093-byte chunks: every chunk boundary cuts a character.
+    const text = "你".repeat(1024 * 1024);
+    const wire = Buffer.from(`${JSON.stringify({ event: { type: "T", timestamp: "", payload: { text } } })}\n${JSON.stringify({ event: { type: "T", timestamp: "", payload: { text: "next" } } })}\n`);
+    for (let offset = 0; offset < wire.length; offset += 4_093) {
+      socket.emit("data", wire.subarray(offset, offset + 4_093));
+    }
+    expect(seen).toHaveLength(2);
+    expect(seen[0] === text).toBe(true);
+    expect(seen[1]).toBe("next");
+    client.close();
   });
 
   test("Controller.refreshAuth calls the daemon probe rather than refreshing only local CLI state", async () => {
@@ -325,6 +351,128 @@ describe("findDaemon", () => {
     const dir = tmp();
     await expect(findDaemon(dir, "")).rejects.toThrow(/no devctl configuration found/);
   });
+
+  test("waits for a daemon that is alive and only slow to answer", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    // Slower than the quick first try, which gives up after 200 ms.
+    const server = fakePingServer(dir, { session: "slow", protocol: RPC_PROTOCOL_VERSION, version: VERSION }, 500);
+    try {
+      const { client, notice } = await findDaemon(dir, "");
+      expect(notice).toBeUndefined();
+      expect(client?.session).toBe("slow");
+      client?.close();
+    } finally {
+      await server.close();
+      held.release();
+    }
+  }, 15_000);
+
+  test("says a live daemon is not answering once it has waited, and never that none is running", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    // Accepts and never answers: the socket is open and nobody reads it.
+    const server = fakePingServer(dir, undefined, 60_000);
+    const started = Date.now();
+    try {
+      const { client, notice } = await findDaemon(dir, "");
+      expect(client).toBeUndefined();
+      expect(notice).toBe("devctl is running but not answering. Wait for it to catch up.");
+      expect(Date.now() - started).toBeGreaterThanOrEqual(3_000);
+    } finally {
+      await server.close();
+      held.release();
+    }
+  }, 15_000);
+
+  test("does not wait when no daemon holds the lock", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".devctl"), { recursive: true });
+    writeFileSync(join(dir, ".devctl", "config.yaml"), "version: 1\nservices:\n  api:\n    command: [echo, ok]\n");
+    const started = Date.now();
+    const { client, notice } = await findDaemon(dir, "");
+    expect(client).toBeUndefined();
+    expect(notice).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1_500);
+  });
+});
+
+describe("daemonRunning", () => {
+  // Each look at the lock reads the holder's start time, which on Windows starts
+  // PowerShell: seconds when it is cold. The findDaemon tests carry the same limit.
+  const PING = { session: "s", protocol: RPC_PROTOCOL_VERSION, version: VERSION };
+
+  test("a daemon that holds its lock is running while a ping to it goes unanswered", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    // Slower than the 200 ms a ping is given, as a daemon that stalls while it stops its services is.
+    const server = fakePingServer(dir, PING, 500);
+    try {
+      expect(await daemonRunning(dir)).toBe(true);
+    } finally {
+      await server.close();
+      held.release();
+    }
+  }, 15_000);
+
+  test("a daemon that holds its lock is running before it has bound its socket", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    try {
+      expect(await daemonRunning(dir)).toBe(true);
+    } finally {
+      held.release();
+    }
+  }, 15_000);
+
+  test("it is gone once it has closed its socket and released its lock", async () => {
+    const dir = tmp();
+    const held = busyDaemon(dir);
+    const server = fakePingServer(dir, PING);
+    expect(await daemonRunning(dir)).toBe(true);
+    await server.close();
+    // The socket is closed first: the lock still says a daemon is there.
+    expect(await daemonRunning(dir)).toBe(true);
+    held.release();
+    expect(await daemonRunning(dir)).toBe(false);
+  }, 15_000);
+
+  test("a lock left behind by a process that died is not a running daemon", async () => {
+    const dir = tmp();
+    busyDaemon(dir);
+    const child = spawn({ cmd: [process.execPath, "-e", ""], stdout: "ignore", stderr: "ignore" });
+    await child.exited;
+    const lock = JSON.parse(readFileSync(lockPath(dir), "utf8")) as { pid: number };
+    writeFileSync(lockPath(dir), JSON.stringify({ ...lock, pid: child.pid }));
+    expect(await daemonRunning(dir)).toBe(false);
+  }, 15_000);
+
+  test("a daemon that answers is running even when its lock file is gone", async () => {
+    const dir = tmp();
+    const server = fakePingServer(dir, PING);
+    try {
+      expect(await daemonRunning(dir)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 15_000);
+
+  test("its dial makes one attempt and does not wait for a socket that appears later", async () => {
+    const dir = tmp();
+    let server: { close: () => Promise<void> } | undefined;
+    const late = setTimeout(() => {
+      server = fakePingServer(dir, PING);
+    }, 100);
+    try {
+      // With retries this dial would connect once the socket is there.
+      await expect(dial(dir, 5_000, { retry: false })).rejects.toThrow(/supervisor is not running/);
+      const retried = await dial(dir, 5_000);
+      retried.close();
+    } finally {
+      clearTimeout(late);
+      await server?.close();
+    }
+  }, 15_000);
 });
 
 describe("openTui", () => {

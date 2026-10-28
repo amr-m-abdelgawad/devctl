@@ -3,12 +3,14 @@ import { hintError, KindConfiguration } from "../../shared/errors.ts";
 export { repoID } from "../../shared/repo-id.ts";
 import type { PersistedState } from "../../domain/session/session.ts";
 export { sessionStartedAt, type PersistedProcess, type PersistedState } from "../../domain/session/session.ts";
-import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
+import { processState } from "../process/liveness.ts";
+export { windowsTasklistLine } from "../process/liveness.ts";
+import { acquireLockFile } from "./lock.ts";
 
 const DIR_PERM = 0o700;
 const FILE_PERM = 0o600;
@@ -248,28 +250,8 @@ export type LockFile = {
 };
 
 export function acquireLock(repoRoot: string, socket: string): { release: () => void } {
-  const path = lockPath(repoRoot);
-  if (existsSync(path)) {
-    const existing = readLock(path);
-    if (existing && processAlive(existing.pid)) {
-      throw new Error(`supervisor already running (pid ${existing.pid})`);
-    }
-    try {
-      unlinkSync(path);
-    } catch {
-      // stale lock file; overwrite below
-    }
-  }
-  writeFileSecure(path, JSON.stringify({ pid: process.pid, socket }));
-  return {
-    release: () => {
-      try {
-        unlinkSync(path);
-      } catch {
-        // lock already released
-      }
-    },
-  };
+  const held = acquireLockFile(lockPath(repoRoot), socket);
+  return { release: () => held.release() };
 }
 
 export function readRepoLock(repoRoot: string): LockFile | undefined {
@@ -305,61 +287,7 @@ function readLock(path: string): LockFile | undefined {
 }
 
 export function processAlive(pid: number): boolean {
-  if (pid <= 0) {
-    return false;
-  }
-  if (process.platform === "win32") {
-    return processAliveWindows(pid);
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function windowsTasklistLine(pid: number): string {
-  try {
-    const result = spawnSync("cmd.exe", ["/d", "/c", `tasklist /FO CSV /NH /FI "PID eq ${pid}"`], {
-      encoding: "buffer",
-      windowsHide: true,
-      timeout: 5_000,
-    });
-    return decodeWindowsOutput(result.stdout);
-  } catch {
-    return "";
-  }
-}
-
-function processAliveWindows(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    // Bun/Node may reject signal 0 for other processes.
-  }
-  const out = windowsTasklistLine(pid).toLowerCase();
-  if (out === "" || out.includes("no tasks") || out.includes("no matching")) {
-    return false;
-  }
-  return out.includes(String(pid));
-}
-
-function decodeWindowsOutput(buf: Buffer | string | null | undefined): string {
-  if (!buf) {
-    return "";
-  }
-  if (typeof buf === "string") {
-    return buf;
-  }
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.toString("utf16le");
-  }
-  if (buf.length >= 4 && buf[1] === 0 && buf[3] === 0) {
-    return buf.toString("utf16le");
-  }
-  return buf.toString("utf8");
+  return processState(pid) === "alive";
 }
 
 export function randomSecret(): string {

@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
 import { slotOffset, type InstanceSlot } from "../../domain/net/port-slots.ts";
-import { shutdownTimeoutFor, waitUntilUnreachable } from "./lifecycle.ts";
+import { shutdownTimeoutFor, waitUntilStopped } from "./lifecycle.ts";
 import { withInstance, writeOut } from "./shared.ts";
 
 type InstanceRow = InstanceSlot & { offset: number; status: "running" | "stopped" | "missing" };
@@ -34,7 +34,7 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
       const kept: string[] = [];
       for (const row of stale) {
         await withInstance(row.instance, async () => {
-          const { client } = await runtime.findDaemon("", row.repoRoot);
+          const { client, notice } = await runtime.findDaemon("", row.repoRoot);
           if (client) {
             const timeout = await shutdownTimeoutFor(client);
             try {
@@ -42,7 +42,12 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
             } finally {
               client.close();
             }
-            await waitUntilUnreachable(runtime, row.repoRoot, timeout);
+            await waitUntilStopped(runtime, row.repoRoot, timeout);
+          } else if (notice !== undefined) {
+            // Alive and not answering, so it was never asked to stop: say
+            // why, as `down` does, not that it did not stop in time.
+            kept.push(`slot ${row.slot} (${stackLabel(row)}): ${notice}`);
+            return;
           }
           // The slot's ports are free only once nothing of the stack is left:
           // a supervisor that outlived its shutdown deadline, or services a
@@ -63,10 +68,8 @@ export function addInstances(root: Command, runtime: ClientRuntime): void {
 }
 
 /** Why a pruned checkout's slot can't be freed yet, or undefined once its stack is gone. */
-export async function stillRunning(runtime: Pick<ClientRuntime, "tryDial" | "readPersistedState" | "processAlive">, repoRoot: string): Promise<string | undefined> {
-  const client = await runtime.tryDial(repoRoot);
-  if (client) {
-    client.close();
+export async function stillRunning(runtime: Pick<ClientRuntime, "daemonRunning" | "readPersistedState" | "processAlive">, repoRoot: string): Promise<string | undefined> {
+  if (await runtime.daemonRunning(repoRoot)) {
     return "its supervisor did not stop in time; run `devctl instances prune` again";
   }
   const alive = (runtime.readPersistedState(repoRoot)?.processes ?? []).filter((proc) => proc.pid > 0 && runtime.processAlive(proc.pid));
@@ -83,9 +86,8 @@ async function instanceRows(runtime: ClientRuntime): Promise<InstanceRow[]> {
     // exactly what prune is for.
     let status: InstanceRow["status"] = "missing";
     if (runtime.fileExists(entry.repoRoot)) {
-      const client = await withInstance(entry.instance, () => runtime.tryDial(entry.repoRoot));
-      status = client ? "running" : "stopped";
-      client?.close();
+      // By its lock as well as its socket: a daemon slow to answer is still running.
+      status = (await withInstance(entry.instance, () => runtime.daemonRunning(entry.repoRoot))) ? "running" : "stopped";
     }
     rows.push({ ...entry, offset: slotOffset(entry.slot), status });
   }

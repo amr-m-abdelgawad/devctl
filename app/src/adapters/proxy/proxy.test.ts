@@ -1641,6 +1641,37 @@ describe("proxy LLM capture", () => {
     }
   });
 
+  test("hands the capture both ends of the inbound connection, so the caller's one socket can be asked for", async () => {
+    const begun: LlmCaptureBegin[] = [];
+    const recordingSink: LlmCaptureSink = {
+      begin(input: LlmCaptureBegin): undefined {
+        begun.push(input);
+        return undefined;
+      },
+    };
+    const { proxyPort, close } = await setupCaptureProxy((req, res) => {
+      req.resume();
+      res.end(chatResponse);
+    }, { sink: recordingSink });
+    try {
+      const resp = await fetch(`http://127.0.0.1:${proxyPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: chatBody,
+      });
+      expect(resp.status).toBe(200);
+      await resp.text();
+      expect(begun).toHaveLength(1);
+      const peer = begun[0]!.peer!;
+      expect(peer.address).toBe("127.0.0.1");
+      expect(Number.isInteger(peer.port) && peer.port > 0 && peer.port !== proxyPort).toBe(true);
+      expect(peer.proxyAddress).toBe("127.0.0.1");
+      expect(peer.proxyPort).toBe(proxyPort);
+    } finally {
+      await close();
+    }
+  });
+
   test("a throwing sink never disturbs the proxied response", async () => {
     const throwingSink: LlmCaptureSink = {
       begin(_input: LlmCaptureBegin): LlmCaptureRecorder {

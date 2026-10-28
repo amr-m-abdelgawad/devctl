@@ -58,6 +58,7 @@ test("daemon composition shares supplied clock, filesystem, bus, and identity de
     expect(runtime.fs).toBe(fs);
     expect(paths).toContain(cfg.configPath);
     expect(runtime.supervisor.snapshot().setup_mode).toBeUndefined();
+    expect(runtime.supervisor.snapshot().daemon?.logStore).toBe("worker");
     await runtime.supervisor.refreshIdentity();
     expect(projects).toEqual([cfg.google.project_id]);
     expect(runtime.supervisor.snapshot().identity.user).toBe("fixture@example.com");

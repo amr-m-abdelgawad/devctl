@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { Detector } from "../secrets/detector.ts";
 import { LlmCallManager } from "./store.ts";
 import { LLM_OPERATION_CHAT, LLM_STATUS_ERROR, LLM_STATUS_OK, type LlmCallIngest } from "../../domain/llm/llm.ts";
@@ -46,5 +46,54 @@ describe("LlmCallManager", () => {
     expect(store.facets({}).errors).toBe(1);
     expect(store.facets({}).byModel["gpt-4o"]).toBe(1);
     expect(JSON.stringify(store.get("err"))).not.toContain("still-secret-0123456789");
+  });
+
+  test("evicting bodies over the budget keeps every call listed and does not throw", () => {
+    const prompt = "x".repeat(400);
+    const store = new LlmCallManager(new Detector([], []), 100, 1_000);
+    expect(() => store.upsert([ingest("a", { request: { prompt } }), ingest("b", { request: { prompt } }), ingest("c", { request: { prompt } })])).not.toThrow();
+    expect(store.queryPage({}).calls.map((call) => call.id)).toEqual(["c", "b", "a"]);
+    expect(store.get("a")?.request).toBeUndefined();
+    expect(store.get("a")?.attributes.body).toBe("evicted");
+    expect(store.get("c")?.request).toEqual({ prompt });
+    expect(store.queryPage({ search: "xxxx" }).calls.map((call) => call.id)).toEqual(["c", "b"]);
+  });
+
+  test("shedding bodies keeps the metadata, stops body search, and does not throw", () => {
+    const store = new LlmCallManager(new Detector([], []));
+    store.upsert([ingest("a", { request: { prompt: "hi" }, response: { text: "a reply" } })]);
+    expect(() => store.shedBodies()).not.toThrow();
+    expect(() => store.shedBodies()).not.toThrow();
+    const call = store.get("a");
+    expect(call?.request).toBeUndefined();
+    expect(call?.response).toBeUndefined();
+    expect(call?.attributes.body).toBe("evicted");
+    expect(store.queryPage({ search: "a reply" }).calls).toHaveLength(0);
+    expect(store.queryPage({ search: "gpt-4o" }).calls).toHaveLength(1);
+    store.upsert([ingest("b", { request: { prompt: "again" } })]);
+    expect(store.get("b")?.request).toEqual({ prompt: "again" });
+  });
+
+  test("holds each body as text and parses it only when one call is read", () => {
+    const store = new LlmCallManager(new Detector([], []));
+    const request = { messages: [{ role: "user", content: "hello there" }] };
+    store.upsert([ingest("a", { request, response: "plain text reply" })]);
+    const parse = spyOn(JSON, "parse");
+    try {
+      const summary = store.queryPage({ search: "hello there" }, { summary: true });
+      expect(summary.calls.map((call) => call.id)).toEqual(["a"]);
+      expect(summary.calls[0]?.request).toBeUndefined();
+      expect(summary.calls[0]?.attributes.body).toBe("omitted");
+      expect(parse).not.toHaveBeenCalled();
+      const read = store.get("a");
+      expect(parse).toHaveBeenCalledTimes(1);
+      expect(read?.request).toEqual(request);
+      expect(read?.response).toBe("plain text reply");
+      // Every read is a fresh copy, so a caller cannot change what is held.
+      (read?.request as { messages: unknown[] }).messages.length = 0;
+      expect(store.get("a")?.request).toEqual(request);
+    } finally {
+      parse.mockRestore();
+    }
   });
 });

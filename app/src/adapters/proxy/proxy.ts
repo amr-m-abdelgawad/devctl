@@ -352,6 +352,11 @@ export class ProxyServer {
       closeBoth();
     });
     socket.on("data", () => timeouts.touch());
+    let upgradeClientGone = false;
+    socket.on("close", () => {
+      upgradeClientGone = true;
+      upgradeReq?.destroy();
+    });
 
     try {
       if ((route.upstream.recipe ?? "") !== "") {
@@ -380,6 +385,10 @@ export class ProxyServer {
       }
 
       const upstream = resolveProxyTarget(this.upstreamBase(route), forwardedRequestUrl(route, path));
+      if (upgradeClientGone) {
+        finish(499, "client closed before upgrade");
+        return;
+      }
       const upstreamReq = proxyUpgradeRequest(upstream)(upstream, { method, headers });
       upgradeReq = upstreamReq;
       upstreamReq.on("upgrade", (upstreamRes, connectedSocket, upstreamHead) => {
@@ -567,6 +576,11 @@ export class ProxyServer {
         // @ts-expect-error Bun/undici duplex for streamed request bodies
         duplex: prepared.duplex,
       }, () => new Error(timeoutMessage(timeoutKind ?? "total")));
+      if (req.socket?.destroyed === true || res.destroyed || res.writableEnded) {
+        await resp.body?.cancel().catch(() => undefined);
+        status = 499;
+        return;
+      }
       if (timeoutKind) {
         throw new Error(timeoutMessage(timeoutKind));
       }
@@ -922,8 +936,11 @@ export async function injectIdentityHeaders(
 // pipe. The response is always streamed, never buffered-then-forwarded, so SSE
 // keeps flowing.
 async function pipeResponse(resp: Response, res: ServerResponse, onChunk?: (chunk: Buffer) => boolean, onActivity?: () => void): Promise<void> {
-  if (!resp.body) {
-    res.end();
+  if (!resp.body || res.writableEnded || res.destroyed) {
+    await resp.body?.cancel().catch(() => undefined);
+    if (!res.writableEnded && !res.destroyed) {
+      res.end();
+    }
     return;
   }
   const readable = Readable.fromWeb(resp.body as never);
@@ -1091,12 +1108,12 @@ function removeHeader(headers: Record<string, string>, name: string): void {
   }
 }
 
-function capturePeer(req: IncomingMessage): { address: string; port: number } | undefined {
+function capturePeer(req: IncomingMessage): { address: string; port: number; proxyPort?: number; proxyAddress?: string } | undefined {
   const port = req.socket.remotePort;
   if (!Number.isInteger(port) || port === undefined || port <= 0) {
     return undefined;
   }
-  return { address: req.socket.remoteAddress ?? "", port };
+  return { address: req.socket.remoteAddress ?? "", port, proxyPort: req.socket.localPort, proxyAddress: req.socket.localAddress };
 }
 
 function stripLlmCallerHeaders(headers: Record<string, string>): void {

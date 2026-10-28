@@ -1,9 +1,10 @@
 import { createServer, type Server, type Socket } from "node:net";
-import type { Bus } from "../../shared/events.ts";
+import { LogBatch, LogReceived, type Bus } from "../../shared/events.ts";
 import { humanMessage, serializeError } from "../../shared/errors.ts";
 import type { Envelope } from "../../types.ts";
 import { KindAuthorization } from "../../shared/errors.ts";
 import { secretMatches } from "../../shared/bearer.ts";
+import { OutboundQueue } from "./outbound-queue.ts";
 
 export type RpcDispatch = (method: string, params: unknown) => Promise<unknown>;
 
@@ -16,7 +17,6 @@ export type RpcServerDeps = {
   token: string;
 };
 
-const MAX_QUEUED_EVENTS = 2000;
 // Cap the inbound line buffer so a local peer cannot grow supervisor memory
 // without bound by streaming bytes with no newline — the buffer accumulates
 // before any token check, since auth runs per complete line in dispatchLine.
@@ -69,40 +69,51 @@ export class RpcServer {
     let buf = "";
     let authed = false;
     let unsub = (): void => undefined;
-    // Bound the outgoing queue so a slow reader under a high-frequency log
-    // stream can't grow memory without limit. Only pure event pushes (no
-    // `id`) are droppable — an RPC response always carries an `id` and the
-    // client would hang forever waiting for it, so those are never dropped.
-    const queue: Envelope[] = [];
+    // The outgoing queue stays bounded while a client is slow or suspended:
+    // live log batches merge, legacy per-record events drop their oldest,
+    // and responses (which a client waits on by `id`) are never dropped.
+    const queue = new OutboundQueue();
     let waitingForDrain = false;
+    let closed = false;
+    let logBatch = false;
     const pump = (): void => {
-      while (queue.length > 0) {
-        const env = queue[0];
-        const ok = socketConn.write(`${JSON.stringify(env)}\n`);
-        queue.shift();
+      while (!waitingForDrain && !closed) {
+        const envs = queue.drain(COALESCE_LINES);
+        if (envs.length === 0) {
+          return;
+        }
+        let lines = "";
+        for (const env of envs) {
+          lines += `${JSON.stringify(env)}\n`;
+        }
+        const ok = socketConn.write(lines);
         if (!ok) {
           waitingForDrain = true;
           socketConn.once("drain", () => {
             waitingForDrain = false;
-            pump();
+            setImmediate(pump);
           });
-          return;
         }
       }
     };
     const write = (env: Envelope): void => {
-      const droppable = env.id === undefined && env.event !== undefined;
-      if (droppable && queue.length >= MAX_QUEUED_EVENTS) {
-        // Evict the oldest droppable entry specifically — not index 0, which
-        // may be an RPC response the client is blocked waiting on. If the
-        // queue is entirely RPC responses, let it grow; that's fine, RPCs
-        // aren't the high-frequency case this cap exists for.
-        const i = queue.findIndex((e) => e.id === undefined && e.event !== undefined);
-        if (i >= 0) {
-          queue.splice(i, 1);
-        }
+      if (closed) {
+        return;
       }
-      queue.push(env);
+      const eventType = eventTypeOf(env);
+      if (logBatch && eventType === LogReceived) {
+        return;
+      }
+      if (!logBatch && eventType === LogBatch) {
+        return;
+      }
+      if (!queue.push(env)) {
+        this.deps.log("devctl", "WARN", "client stopped reading replies; closing its connection");
+        closed = true;
+        queue.clear();
+        socketConn.destroy();
+        return;
+      }
       if (!waitingForDrain) {
         pump();
       }
@@ -137,14 +148,25 @@ export class RpcServer {
               unsub = this.deps.subscribe((event) => write({ event }));
               authed = true;
             }
+          }, (features) => {
+            logBatch = features.includes("log_batch.v1");
           });
         }
       }
     });
-    socketConn.on("close", () => unsub());
+    socketConn.on("close", () => {
+      closed = true;
+      queue.clear();
+      unsub();
+    });
   }
 
-  private async dispatchLine(line: string, write: (env: Envelope) => void, onAuthed: () => void): Promise<void> {
+  private async dispatchLine(
+    line: string,
+    write: (env: Envelope) => void,
+    onAuthed: () => void,
+    noteFeatures: (features: string[]) => void,
+  ): Promise<void> {
     let env: Envelope;
     try {
       env = JSON.parse(line) as Envelope;
@@ -156,6 +178,9 @@ export class RpcServer {
       write({ id: env.id, error: "unauthorized", kind: KindAuthorization });
       return;
     }
+    if (env.method === "ping") {
+      noteFeatures(featureList(env.params));
+    }
     onAuthed();
     try {
       const result = await this.deps.dispatch(env.method ?? "", env.params);
@@ -165,4 +190,22 @@ export class RpcServer {
       write({ id: env.id, error: serialized.error, kind: serialized.kind, hint: serialized.hint, service: serialized.service });
     }
   }
+}
+
+const COALESCE_LINES = 32;
+
+function eventTypeOf(env: Envelope): string | undefined {
+  const event = env.event as { type?: unknown } | undefined;
+  return typeof event?.type === "string" ? event.type : undefined;
+}
+
+function featureList(params: unknown): string[] {
+  if (typeof params !== "object" || params === null) {
+    return [];
+  }
+  const features = (params as { features?: unknown }).features;
+  if (!Array.isArray(features)) {
+    return [];
+  }
+  return features.filter((item): item is string => typeof item === "string");
 }

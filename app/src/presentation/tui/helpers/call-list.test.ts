@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { frozenCallListStart, nextCallListFreeze, pinnedCallIndex, selectionScrollKey, stepCallIndex } from "./call-list.ts";
+import { callDetailStale, frozenCallListStart, nextCallListFreeze, pinnedCallIndex, selectionScrollKey, stepCallIndex, withCallDetail } from "./call-list.ts";
 
 describe("pinnedCallIndex", () => {
   const calls = [{ id: "new" }, { id: "mid" }, { id: "old" }];
@@ -63,5 +63,33 @@ describe("stepCallIndex", () => {
     expect(stepCallIndex(3, 2, 1)).toBe(2);
     expect(stepCallIndex(3, 1, -1)).toBe(0);
     expect(stepCallIndex(3, 0, -1)).toBe(0);
+  });
+});
+
+describe("selected call detail", () => {
+  const rows = [
+    { id: "a", seq: 3, body: "" },
+    { id: "b", seq: 2, body: "" },
+  ];
+
+  test("swaps the fetched record into its row and leaves the other rows alone", () => {
+    const full = { id: "b", seq: 2, body: "payload" };
+    expect(withCallDetail(rows, full)).toEqual([rows[0]!, full]);
+    expect(withCallDetail(rows, undefined)).toBe(rows);
+    expect(withCallDetail(rows, { id: "gone", seq: 1, body: "x" })).toBe(rows);
+  });
+
+  test("keeps showing the held record while the row's newer version is fetched", () => {
+    const held = { id: "a", seq: 2, body: "older" };
+    expect(withCallDetail(rows, held)[0]).toBe(held);
+    expect(callDetailStale(rows[0], held)).toBe(true);
+  });
+
+  test("fetches only when nothing is held for the selected row or that row changed", () => {
+    expect(callDetailStale(undefined, undefined)).toBe(false);
+    expect(callDetailStale({ id: "a", seq: 1 }, undefined)).toBe(true);
+    expect(callDetailStale({ id: "a", seq: 1 }, { id: "a", seq: 1 })).toBe(false);
+    expect(callDetailStale({ id: "a", seq: 2 }, { id: "a", seq: 1 })).toBe(true);
+    expect(callDetailStale({ id: "b", seq: 1 }, { id: "a", seq: 1 })).toBe(true);
   });
 });
