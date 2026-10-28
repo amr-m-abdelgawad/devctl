@@ -3,7 +3,7 @@
 # image, as .github/scripts/compile-binaries.sh compiles a release binary
 # (workers embedded as extra entrypoints), plus the soak drivers. Build
 # context is app/; Dockerfile.dockerignore keeps host node_modules out.
-FROM oven/bun:1.4.2 AS build
+FROM oven/bun:1.4.4 AS build
 WORKDIR /build
 COPY package.json bun.lock bunfig.toml tsconfig.json ./
 RUN bun install --frozen-lockfile
@@ -15,7 +15,7 @@ RUN bun build --compile --entry-naming "[name].[ext]" \
       --outfile /out/devctl \
       src/bin.ts src/adapters/storage/log-worker.ts src/adapters/daemon/event-loop-watchdog-worker.ts
 
-FROM oven/bun:1.4.2
+FROM oven/bun:1.4.4
 COPY --from=build /out/devctl /usr/local/bin/devctl
 # The drivers import the image's own source (the spool format, for one), so
 # both keep their app/ layout under /soak/app.

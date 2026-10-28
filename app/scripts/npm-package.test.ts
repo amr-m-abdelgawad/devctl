@@ -78,7 +78,7 @@ describe("published npm metadata", () => {
     const template = { name: "@amr-m-abdelgawad/devctl", license: "MIT" };
     const resolved = { "@opentui/core": "0.5.11" };
     expect(() =>
-      createPublishedPackageJson(template, { dependencies: { bun: "1.4.2", "@opentui/core": "^0.5.11" } }, "1.2.3", resolved),
+      createPublishedPackageJson(template, { dependencies: { bun: "1.4.4", "@opentui/core": "^0.5.11" } }, "1.2.3", resolved),
     ).toThrow("must not depend on Bun");
     expect(() => createPublishedPackageJson(template, { dependencies: { yaml: "^2.9.0" } }, "1.2.3", resolved)).toThrow(
       "missing published runtime dependency @opentui/core",
