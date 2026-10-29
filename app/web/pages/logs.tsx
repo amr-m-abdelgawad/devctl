@@ -52,6 +52,7 @@ import {
   logIdentity,
   logWrapLabel,
   nextLogWrapMode,
+  nextPinSeq,
   nextLogSelectionIndex,
   SEARCH_DEBOUNCE_MS,
   SELECTABLE_LOG_LEVELS,
@@ -180,12 +181,12 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
 
   const pinA = useCallback(() => {
     setFollowA(false);
-    setPinSeqA(lastSeq(rowsA));
-  }, [rowsA]);
+    setPinSeqA((current) => nextPinSeq(followA, current, lastSeq(rowsA)));
+  }, [followA, rowsA]);
   const pinB = useCallback(() => {
     setFollowB(false);
-    setPinSeqB(lastSeq(rowsB));
-  }, [rowsB]);
+    setPinSeqB((current) => nextPinSeq(followB, current, lastSeq(rowsB)));
+  }, [followB, rowsB]);
   const selectRow = useCallback(
     (id: string, pane: 0 | 1) => {
       if (pane === 1) {

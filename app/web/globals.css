@@ -406,6 +406,16 @@ summary:focus-visible {
   :is(.brand-copy, .workspace-label, .nav-label, .nav-link-label, .nav-count, .sidebar-footer > span:last-child, .sidebar-search kbd) {
   display: none;
 }
+.sidebar-search {
+  height: 36px;
+  padding-inline: 11px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.sidebar-search svg {
+  width: 17px;
+  height: 17px;
+}
 .console-collapsed .sidebar-search {
   margin: 0 auto;
   width: 40px;

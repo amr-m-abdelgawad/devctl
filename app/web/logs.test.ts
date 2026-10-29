@@ -15,6 +15,7 @@ import {
   mergeLoadedPage,
   nextLogFollowAction,
   nextLogWrapMode,
+  nextPinSeq,
   normalizeDoctorReport,
   normalizeFacets,
   normalizeLogsPayload,
@@ -128,6 +129,12 @@ describe("log follow helpers", () => {
   test("countNewerThan uses seq as identity", () => {
     expect(countNewerThan([ev(1), ev(2), ev(5)], 2)).toBe(1);
     expect(countNewerThan([ev(1)], undefined)).toBe(0);
+  });
+
+  test("a later selection keeps the original pin", () => {
+    expect(nextPinSeq(true, undefined, 4)).toBe(4);
+    expect(nextPinSeq(false, 4, 9)).toBe(4);
+    expect(nextPinSeq(true, 4, 9)).toBe(9);
   });
 });
 

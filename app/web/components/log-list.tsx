@@ -290,7 +290,7 @@ export function LogList(props: LogListProps) {
           })}
         </div>
       </div>
-      {follow || selectedId !== "" ? null : (
+      {follow ? null : (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <Button type="button" size="xs" className="pointer-events-auto shadow-md" onClick={onJumpLatest}>
             {newer > 0 ? `pinned · +${newer} new` : "jump to latest"}

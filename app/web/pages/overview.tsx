@@ -134,7 +134,7 @@ export function OverviewPage(props: {
       {confirmation}
       <ServiceFleet services={services} config={configServices} profiles={profiles} busy={busy} onControl={onControl} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader className="flex-nowrap">
             <div className="flex min-w-0 items-center gap-2">
@@ -162,7 +162,7 @@ export function OverviewPage(props: {
             {errors.length === 0 ? (
               <Empty>No error-level logs.</Empty>
             ) : (
-              <div className="flex flex-col divide-y divide-border/50">
+              <div className="flex flex-col divide-y divide-border/50 [&>*:last-child]:border-b-0">
                 {errors
                   .slice(-14)
                   .reverse()

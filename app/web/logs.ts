@@ -388,6 +388,11 @@ export function countNewerThan(events: LogRow[], pinSeq: number | undefined): nu
   return events.reduce((sum, event) => sum + (typeof event.seq === "number" && event.seq > pinSeq ? 1 : 0), 0);
 }
 
+/** Keep the first pin until the view returns to live. Later selections must not move it. */
+export function nextPinSeq(following: boolean, current: number | undefined, latest: number | undefined): number | undefined {
+  return following ? latest : current;
+}
+
 export function lastSeq(events: LogRow[]): number | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const seq = events[index]?.seq;
