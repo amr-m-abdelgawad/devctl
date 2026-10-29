@@ -365,9 +365,8 @@ summary:focus-visible {
   background: var(--muted);
 }
 .nav-link-active {
-  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
   color: var(--primary);
-  box-shadow: inset 2px 0 var(--primary);
 }
 .nav-count {
   margin-left: auto;

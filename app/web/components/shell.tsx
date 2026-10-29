@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { DevctlLogo } from "../brand.tsx";
 import { hrefFor } from "../hash.ts";
 import {
@@ -149,25 +149,32 @@ export function ConsoleShell(props: {
       {["Workspace", "Observe", "Manage"].map((group) => (
         <div key={group} className="nav-group">
           <p className="nav-label">{group}</p>
-          {PAGES.filter((item) => item.group === group).map((item) => (
-            <Tooltip key={item.name}>
-              <TooltipTrigger asChild>
-                <a
-                  key={item.name}
-                  href={hrefFor(item.name)}
-                  aria-label={item.label}
-                  aria-current={props.route === item.name ? "page" : undefined}
-                  className={cn("nav-link", props.route === item.name && "nav-link-active")}
-                  onClick={() => setMenu(false)}
-                >
-                  <item.icon aria-hidden="true" />
-                  <span className="nav-link-label">{item.label}</span>
-                  {item.name === "services" ? <span className="nav-count">{props.services.length}</span> : null}
-                </a>
-              </TooltipTrigger>
-              {collapsed ? <TooltipContent side="right">{item.label}</TooltipContent> : null}
-            </Tooltip>
-          ))}
+          {PAGES.filter((item) => item.group === group).map((item) => {
+            const link = (
+              <a
+                href={hrefFor(item.name)}
+                aria-label={item.label}
+                aria-current={props.route === item.name ? "page" : undefined}
+                className={cn("nav-link", props.route === item.name && "nav-link-active")}
+                onClick={() => setMenu(false)}
+              >
+                <item.icon aria-hidden="true" />
+                <span className="nav-link-label">{item.label}</span>
+                {item.name === "services" ? <span className="nav-count">{props.services.length}</span> : null}
+              </a>
+            );
+            // Mount tooltips only while the rail is collapsed. Hovering the expanded
+            // labels otherwise leaves every trigger open, and they all appear on collapse.
+            if (!collapsed) return <Fragment key={item.name}>{link}</Fragment>;
+            return (
+              <Tooltip key={item.name}>
+                <TooltipTrigger asChild>{link}</TooltipTrigger>
+                <TooltipContent side="right" align="center" sideOffset={8} avoidCollisions={false}>
+                  {item.label}
+                </TooltipContent>
+              </Tooltip>
+            );
+          })}
         </div>
       ))}
     </nav>

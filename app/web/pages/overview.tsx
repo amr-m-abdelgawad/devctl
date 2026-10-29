@@ -136,12 +136,14 @@ export function OverviewPage(props: {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Recent proxy requests</CardTitle>
-            <a href={hrefFor("traces")} className="text-xs text-primary hover:underline">
+          <CardHeader className="flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2">
+              <CardTitle className="truncate">Recent proxy requests</CardTitle>
+              {requests?.requests.length ? <Badge variant="muted">{requests.requests.length} recent</Badge> : null}
+            </div>
+            <a href={hrefFor("traces")} className="shrink-0 text-xs font-medium text-primary hover:underline">
               View all →
             </a>
-            {requests?.requests.length ? <Badge variant="muted">{requests.requests.length} recent</Badge> : null}
           </CardHeader>
           <CardContent className="pt-0">
             <RequestTable
