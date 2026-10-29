@@ -142,6 +142,8 @@ On Linux and macOS, each captured stdout and stderr of a long-running service go
 
 `devctl down --force` stops a daemon that has no heartbeat, including one left running by an older devctl. It signals only a pid that is still that daemon: one whose lock stamp matches or, for an older lock, whose command line runs `_supervisor`. A busy daemon is not killed, and `devctl status` and `devctl down` wait up to three seconds for one before they report it as not answering. A daemon is replaced only after the watchdog has recorded a 60 second wedge and released its lock. The client that replaces it sends SIGTERM, then SIGKILL two seconds later; a daemon that recovers in time hands its services over to the next one. `status` and `down` say when a live daemon is busy, paused, or left by an older build.
 
+A daemon the watchdog stopped leaves no log line of its own, so the next one reports it. Until a daemon runs again, `devctl status` says the last one was stopped as wedged and that its services may still be running unsupervised (`status --json` carries `wedge`). The first daemon after it logs a `WARN` from `devctl`, and for a day `status` prints a `WATCHDOG` line (`daemon.lastWedge` in `status --json`) and `devctl doctor` warns.
+
 If the watchdog worker cannot run, the daemon keeps serving but a wedge goes undetected. It retries the worker after 1, 2, 4 … seconds, at most a minute apart. `status` prints a `DAEMON DEGRADED` line, `status --json` reports `daemon.watchdog: "degraded"` (and `daemon.logStore: "in-process"` when the log worker is down too), and `devctl doctor` warns.
 
 ## Related

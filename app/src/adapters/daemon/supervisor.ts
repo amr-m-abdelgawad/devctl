@@ -1,4 +1,6 @@
 import type { FSWatcher } from "node:fs";
+import { markWedgeReported, readWedge } from "./heartbeat.ts";
+import { wedgeMessage } from "../../domain/daemon/liveness.ts";
 import {
   type DevctlConfig,
   type ServiceConfig,
@@ -508,6 +510,7 @@ export class Supervisor {
     watchConfigDir(this.reloadHost());
     this.persistState();
     this.log("devctl", "INFO", `supervisor started session=${this.sessionID}`);
+    this.reportWedge();
     this.resources.start();
     await this.telemetry.start();
     await this.llm.start();
@@ -853,6 +856,17 @@ export class Supervisor {
 
   private async claimIfAlreadyUp(name: string): Promise<boolean> {
     return claimAdoptedService(this.recoverHost(), name);
+  }
+
+  // A daemon the watchdog stopped leaves no log line of its own: the first
+  // daemon after it says what happened, once.
+  private reportWedge(): void {
+    const wedge = readWedge(this.cfg.repoRoot);
+    if (wedge === undefined || wedge.pid === process.pid || wedge.reportedBy !== undefined) {
+      return;
+    }
+    this.log("devctl", "WARN", `${wedgeMessage(wedge)}. This daemon took over its services; the bootstrap log has any error from before the stall.`);
+    markWedgeReported(this.cfg.repoRoot, wedge, process.pid);
   }
 
   private async recoverSession(): Promise<void> {

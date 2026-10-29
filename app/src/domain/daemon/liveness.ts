@@ -87,5 +87,24 @@ export function heartbeatWorkerAdvanced(
   return nowMs - writtenAtMs < HEARTBEAT_FRESH_MS;
 }
 
+/** What the watchdog leaves when it stops a wedged daemon. `reportedBy` is the daemon that has logged it since. */
+export type WedgeRecord = {
+  pid: number;
+  /** Unix ms. */
+  at: number;
+  reportedBy?: number;
+};
+
+/** How long `status` and `doctor` keep pointing at a wedge. */
+export const WEDGE_REPORT_MS = 24 * 60 * 60 * 1000;
+
+export function recentWedge(wedge: WedgeRecord | undefined, nowMs: number): wedge is WedgeRecord {
+  return wedge !== undefined && nowMs - wedge.at < WEDGE_REPORT_MS;
+}
+
+export function wedgeMessage(wedge: WedgeRecord): string {
+  return `the devctl daemon (pid ${wedge.pid}) was stopped by its watchdog at ${new Date(wedge.at).toISOString()}: its event loop made no progress for ${WEDGE_STALL_TICKS} s`;
+}
+
 export const LEGACY_DAEMON_MESSAGE =
   "A daemon left running by an older devctl has no heartbeat and was not replaced. Stop it with `devctl down --force`, then start again.";

@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { HeartbeatView } from "../../domain/daemon/liveness.ts";
+import type { HeartbeatView, WedgeRecord } from "../../domain/daemon/liveness.ts";
 import { lockPath } from "../storage/storage.ts";
 
 export type HeartbeatFile = HeartbeatView & {
@@ -22,6 +22,32 @@ export function restartRequestPath(repoRoot: string): string {
 
 export function wedgePath(repoRoot: string): string {
   return join(daemonStateDir(repoRoot), "wedge");
+}
+
+/** The watchdog's record of the last daemon it stopped as wedged, if any. */
+export function readWedge(repoRoot: string): WedgeRecord | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(wedgePath(repoRoot), "utf8"));
+    if (typeof parsed !== "object" || parsed === null) {
+      return undefined;
+    }
+    const row = parsed as Partial<WedgeRecord>;
+    if (typeof row.pid !== "number" || typeof row.at !== "number") {
+      return undefined;
+    }
+    return { pid: row.pid, at: row.at, ...(typeof row.reportedBy === "number" ? { reportedBy: row.reportedBy } : {}) };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Notes that `pid` has logged the wedge, so the daemons after it do not log it again. */
+export function markWedgeReported(repoRoot: string, wedge: WedgeRecord, pid: number): void {
+  try {
+    writeFileSync(wedgePath(repoRoot), `${JSON.stringify({ ...wedge, reportedBy: pid })}\n`, { mode: 0o600 });
+  } catch {
+    // the next daemon logs it again
+  }
 }
 
 export function readHeartbeat(repoRoot: string): HeartbeatFile | undefined {
