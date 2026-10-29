@@ -3,6 +3,7 @@ import type { Http2Server, ServerHttp2Stream, ServerStreamResponseOptions, Clien
 import type { RouteConfig } from "../config/index.ts";
 import { listenKey, sameListen } from "../../domain/proxy/listen.ts";
 import { isLoopbackBindHost } from "../../domain/net/hosts.ts";
+import { RPC_SYSTEM_ATTR, RPC_SYSTEM_GRPC } from "../../domain/logs/grpc.ts";
 import { matchGrpcOk } from "../../domain/proxy/grpc-ok.ts";
 import { KindProxy, newError, wrapError } from "../../shared/errors.ts";
 import { withErrorCode } from "../../domain/net/error-code.ts";
@@ -524,7 +525,17 @@ export class GrpcProxyServer {
   }
 
   private log(level: "INFO" | "WARN" | "ERROR", message: string, requestID = "", identity = ""): void {
-    this.logs?.append({ timestamp: new Date().toISOString(), service: "proxy", source: "proxy", level, message, pid: 0, request_id: requestID, identity });
+    this.logs?.append({
+      timestamp: new Date().toISOString(),
+      service: "proxy",
+      source: "proxy",
+      level,
+      message,
+      pid: 0,
+      request_id: requestID,
+      identity,
+      attributes: { [RPC_SYSTEM_ATTR]: RPC_SYSTEM_GRPC },
+    });
   }
 }
 

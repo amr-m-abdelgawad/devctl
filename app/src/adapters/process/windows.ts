@@ -1,5 +1,5 @@
 import { spawn, type Subprocess } from "bun";
-import { processAlive, windowsTasklistLine } from "../storage/storage.ts";
+import { processAlive } from "../storage/storage.ts";
 import type { ProcessIdentity, ResourceSample } from "./unix.ts";
 
 const BYTES_PER_KB = 1024;
@@ -22,10 +22,6 @@ export async function killProcessTreeWindows(pid: number, _signal: "SIGTERM" | "
 }
 
 export async function inspectProcessWindows(pid: number): Promise<ProcessIdentity | undefined> {
-  const listed = parseTasklistCsv(windowsTasklistLine(pid), pid);
-  if (listed) {
-    return listed;
-  }
   if (!processAlive(pid)) {
     return undefined;
   }
@@ -60,22 +56,6 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
     cwd: "",
     startTime: parsed?.startTime || fromProcess?.startTime,
   };
-}
-
-export function parseTasklistCsv(text: string, pid: number): ProcessIdentity | undefined {
-  const needle = String(pid);
-  for (const line of text.split(/\r?\n/)) {
-    if (!line.includes(needle)) {
-      continue;
-    }
-    const cols = line.split(",").map((col) => col.replace(/^"|"$/g, "").trim());
-    const image = cols[0] ?? "";
-    if (image === "" || image.toLowerCase().includes("info:")) {
-      continue;
-    }
-    return { pid, command: image, cwd: "" };
-  }
-  return undefined;
 }
 
 export function parseGetProcess(text: string): { command: string; cwd: string; startTime?: string } | undefined {

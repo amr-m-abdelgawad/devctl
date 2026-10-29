@@ -251,6 +251,12 @@ export class ProxyServer {
         void this.serve(req, res);
       });
       this.server.on("upgrade", (req, socket, head) => {
+        // Held from the start, not only once joined: an upgrade socket is
+        // the listener's to close, and `server.close()` waits for it (as in
+        // Node and Bun 1.4.4), so one still waiting for its upstream
+        // would keep `stop()` from returning.
+        this.upgradedSockets.add(socket);
+        socket.once("close", () => this.upgradedSockets.delete(socket));
         void this.serveUpgrade(req, socket, head);
       });
       this.server.on("error", (err) => reject(wrapError(KindProxy, withErrorCode(`unable to listen on ${host}:${port}`, err), err)));

@@ -9,7 +9,6 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
 import { processState } from "../process/liveness.ts";
-export { windowsTasklistLine } from "../process/liveness.ts";
 import { acquireLockFile } from "./lock.ts";
 
 const DIR_PERM = 0o700;

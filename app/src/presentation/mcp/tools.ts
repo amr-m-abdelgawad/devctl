@@ -114,7 +114,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     summary: "Filtered log pages, secrets redacted",
     category: "logs",
     description:
-      "Recent log records, optionally filtered. Default page size is 200 (pass limit, max 5000). Secrets are redacted. Pass cursor=next_cursor to page toward newer events (direction defaults to forward whenever a cursor is set); pass cursor=prev_cursor with direction=backward for older events. since/until are plain timestamp filters for a fresh query, not a follow cursor. regex=true treats search as a regular expression.",
+      "Recent log records, optionally filtered. Default page size is 200 (pass limit, max 5000). Secrets are redacted. Pass cursor=next_cursor to page toward newer events (direction defaults to forward whenever a cursor is set); pass cursor=prev_cursor with direction=backward for older events. since/until are plain timestamp filters for a fresh query, not a follow cursor. regex=true treats search as a regular expression. hide_grpc=true omits gRPC proxy logs and records marked rpc.system=grpc; omit it to show them.",
     inputSchema: {
       type: "object",
       properties: {
@@ -133,6 +133,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         attribute_key: { type: "string", description: "Attribute key to match (with attribute_value)" },
         attribute_value: { type: "string", description: "Attribute value to match (with attribute_key)" },
         dedupe_request_id: { type: "boolean", description: "Collapse nearby events that share devctl.request_id (query-time; paging is unchanged)" },
+        hide_grpc: { type: "boolean", description: "Omit gRPC proxy logs and records marked rpc.system=grpc. Omit or false to show them." },
       },
       additionalProperties: false,
     },
@@ -159,6 +160,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         attribute_key: { type: "string" },
         attribute_value: { type: "string" },
         dedupe_request_id: { type: "boolean" },
+        hide_grpc: { type: "boolean", description: "Omit gRPC proxy logs and records marked rpc.system=grpc. Omit or false to show them." },
       },
       additionalProperties: false,
     },
@@ -278,7 +280,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
     label: "Recent errors",
     summary: "Latest error-severity log records",
     category: "logs",
-    description: "Latest error and fatal log records, capped at 200 by default, secrets redacted. Same paging fields as get_logs.",
+    description: "Latest error and fatal log records, capped at 200 by default, secrets redacted. Same paging fields as get_logs. hide_grpc=true omits gRPC proxy logs.",
     inputSchema: {
       type: "object",
       properties: {
@@ -293,6 +295,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
         limit: { type: "integer" },
         request_id: { type: "string" },
         trace_id: { type: "string" },
+        hide_grpc: { type: "boolean", description: "Omit gRPC proxy logs and records marked rpc.system=grpc. Omit or false to show them." },
       },
       additionalProperties: false,
     },
@@ -803,6 +806,7 @@ function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
     traceId: nonempty(argString(args, "trace_id")),
     attribute: attributeKey !== "" && attributeValue !== "" ? { key: attributeKey, value: attributeValue } : undefined,
     dedupeRequestId: argFlag(args.dedupe_request_id),
+    hideGrpc: argFlag(args.hide_grpc),
   };
 }
 

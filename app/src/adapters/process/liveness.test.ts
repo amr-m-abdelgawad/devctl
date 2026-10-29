@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
-import { readSelfStamp, readStamp, sameStamp } from "./liveness.ts";
+import { processState, readSelfStamp, readStamp, sameStamp } from "./liveness.ts";
 
 const MODULE = fileURLToPath(new URL("./liveness.ts", import.meta.url));
 
@@ -69,5 +69,31 @@ describe("a process's own stamp", () => {
       rememberSelfStamp({ bootId: "the main thread's read timed out" });
       console.log(JSON.stringify(readSelfStamp(() => ({ lstart: "read by the worker" }))));
     `)).toEqual({ lstart: "read by the worker" });
+  });
+});
+
+describe("processState", () => {
+  // Off Linux it is signal 0 alone, which on Windows is all there is.
+  test("tells a running child from the same child once it has exited, without spawning a lookup", async () => {
+    const child = Bun.spawn({ cmd: [process.execPath, "-e", "setInterval(() => {}, 1000)"], stdout: "ignore", stderr: "ignore" });
+    try {
+      let started = performance.now();
+      expect(processState(child.pid)).toBe("alive");
+      let took = performance.now() - started;
+      child.kill();
+      await child.exited;
+      started = performance.now();
+      expect(processState(child.pid)).toBe("dead");
+      took += performance.now() - started;
+      // Two spawned lookups (tasklist through cmd.exe took 35-55 ms each) would show here.
+      expect(took).toBeLessThan(30);
+    } finally {
+      child.kill();
+    }
+  });
+
+  test("a pid no process has is dead", () => {
+    expect(processState(0)).toBe("dead");
+    expect(processState(4_194_300)).toBe("dead");
   });
 });

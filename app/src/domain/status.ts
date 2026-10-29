@@ -45,6 +45,7 @@ export type LogsRequest = {
   requestId?: string;
   attribute?: { key: string; value: string };
   dedupeRequestId?: boolean;
+  hideGrpc?: boolean;
 };
 
 export type RouteSnapshot = {

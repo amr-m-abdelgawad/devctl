@@ -31,6 +31,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
   const [regex, setRegex] = useState(false);
   const [errorOnly, setErrorOnly] = useState(false);
   const [showSystem, setShowSystem] = useState(true);
+  const [showGrpc, setShowGrpc] = useState(true);
   const [paused, setPaused] = useState(false);
   const [wrapMode, setWrapMode] = useState<LogWrapMode>("clip");
   const [split, setSplit] = useState(false);
@@ -57,8 +58,9 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
       errorOnly,
       search,
       regex,
+      showGrpc,
     }),
-    [errorOnly, regex, search, serviceA, split],
+    [errorOnly, regex, search, serviceA, showGrpc, split],
   );
   const session = useLogSession({ active: true, paused, query, sessionId });
 
@@ -87,8 +89,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
   }, []);
 
   const filterOpts = useMemo(
-    () => ({ errorOnly, search, regex, showSystem, since: session.since }),
-    [errorOnly, regex, search, session.since, showSystem],
+    () => ({ errorOnly, search, regex, showSystem, showGrpc, since: session.since }),
+    [errorOnly, regex, search, session.since, showGrpc, showSystem],
   );
   const rowsA = useMemo(
     () => filterLogRows(session.events, { ...filterOpts, service: serviceA }),
@@ -200,6 +202,11 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
         setErrorOnly((value) => !value);
         return;
       }
+      if (event.key === "b") {
+        event.preventDefault();
+        setShowGrpc((value) => !value);
+        return;
+      }
       if (event.key === "\\") {
         event.preventDefault();
         latest.toggleSplit();
@@ -247,7 +254,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           </Badge>
           {session.truncated ? <Badge variant="outline">older history</Badge> : null}
           <span className="ml-auto text-[11px] text-muted-foreground">
-            j/k move · f search · p pause · g latest · e ERROR+ · \ split · w wrap
+            j/k move · f search · p pause · g latest · e ERROR+ · b grpc · \ split · w wrap
           </span>
         </div>
         <Toolbar
@@ -256,6 +263,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           regex={regex}
           errorOnly={errorOnly}
           showSystem={showSystem}
+          showGrpc={showGrpc}
           paused={paused}
           wrapMode={wrapMode}
           split={split}
@@ -268,6 +276,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           onRegex={() => setRegex((value) => !value)}
           onErrorOnly={() => setErrorOnly((value) => !value)}
           onSystem={() => setShowSystem((value) => !value)}
+          onGrpc={() => setShowGrpc((value) => !value)}
           onPaused={() => setPaused((value) => !value)}
           onWrap={() => setWrapMode((mode) => nextLogWrapMode(mode))}
           onSplit={toggleSplit}
@@ -412,6 +421,7 @@ function Toolbar(props: {
   regex: boolean;
   errorOnly: boolean;
   showSystem: boolean;
+  showGrpc: boolean;
   paused: boolean;
   wrapMode: LogWrapMode;
   split: boolean;
@@ -424,6 +434,7 @@ function Toolbar(props: {
   onRegex: () => void;
   onErrorOnly: () => void;
   onSystem: () => void;
+  onGrpc: () => void;
   onPaused: () => void;
   onWrap: () => void;
   onSplit: () => void;
@@ -452,6 +463,7 @@ function Toolbar(props: {
         <Toggle active={p.regex} onClick={p.onRegex}>regex</Toggle>
         <Toggle active={p.errorOnly} onClick={p.onErrorOnly} tone="destructive">ERROR+</Toggle>
         <Toggle active={!p.showSystem} onClick={p.onSystem} title="Hide auth, mcp, devctl, and proxy">hide system</Toggle>
+        <Toggle active={!p.showGrpc} onClick={p.onGrpc} title="Hide gRPC proxy logs">hide grpc</Toggle>
         <Button type="button" size="xs" variant={p.paused ? "secondary" : "outline"} onClick={p.onPaused}>
           {p.paused ? <PauseIcon /> : <PlayIcon />}
           {p.paused ? "paused" : "live"}

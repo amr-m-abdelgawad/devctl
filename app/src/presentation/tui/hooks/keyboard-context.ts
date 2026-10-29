@@ -141,6 +141,7 @@ export type ScreenKeyCtx = KeyboardUi & {
   applyDashboardLogCursor: ReturnType<typeof useLogView>["applyDashboardLogCursor"];
   jumpToLatestLogs: ReturnType<typeof useLogView>["jumpToLatestLogs"];
   toggleSystemLogs: ReturnType<typeof useLogView>["toggleSystemLogs"];
+  toggleGrpcLogs: ReturnType<typeof useLogView>["toggleGrpcLogs"];
   clearLogs: ReturnType<typeof useLogView>["clearLogs"];
   setLogSearchFocused: ReturnType<typeof useLogView>["setLogSearchFocused"];
   setLogsFullscreen: ReturnType<typeof useLogView>["setLogsFullscreen"];
