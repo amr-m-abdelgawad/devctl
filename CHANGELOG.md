@@ -60,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- On cgroup v1 without a cgroup namespace, the daemon finds the memory limit on its own memory cgroup (the `memory:` line of `/proc/self/cgroup`), not only at the root of the memory hierarchy. It used to see host memory as its limit there, so the log ring was sized and memory-pressure shedding began as if the container had the host's RAM.
 - After a daemon crash, the next daemon adopts services whose command a shell rewrote. A service started as `sh -c "<cmd>"` execs into `<cmd>` without its quotes and with variables such as `$PORT` expanded, so it no longer matched its stored command: the new daemon started a second copy and left the original running, untracked, past `devctl down`. On Linux, the state file now records each service's kernel start time and boot id, and adoption trusts that over the command line.
 - Output a crashed daemon left in the spool is written into that daemon's session with the session's byte cap, part files, and indexes. It was appended to one file without a cap, and a stored record is several times its raw line, so one crash with a full spool could leave a multi-gigabyte session.
 - An environment overlay that sets one key keeps `environment.helm` from the base service. Previously a modular file or local overlay that touched `environment` dropped the Helm source.

@@ -2,13 +2,20 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { cgroupDirFromProc, cgroupMemory, workingSetBytes } from "./host-limits.ts";
+import { cgroupDirFromProc, cgroupMemory, cgroupV1MemoryDirFromProc, workingSetBytes } from "./host-limits.ts";
 
 describe("cgroup path", () => {
   test("reads the process cgroup rather than the mount root", () => {
     expect(cgroupDirFromProc("0::/devctl-memtest")).toBe("/sys/fs/cgroup/devctl-memtest");
     expect(cgroupDirFromProc("0::/\n")).toBe("/sys/fs/cgroup");
     expect(cgroupDirFromProc("1:name=systemd:/user.slice\n0::/nested/child")).toBe("/sys/fs/cgroup/nested/child");
+  });
+
+  test("finds the v1 memory controller's line among the others", () => {
+    const proc = "9:name=systemd:/\n5:cpu,cpuacct:/x\n4:memory:/sandbox/job\n0::/\n";
+    expect(cgroupV1MemoryDirFromProc(proc, "/sys/fs/cgroup/memory")).toBe("/sys/fs/cgroup/memory/sandbox/job");
+    expect(cgroupV1MemoryDirFromProc("4:memory:/\n", "/sys/fs/cgroup/memory")).toBe("/sys/fs/cgroup/memory");
+    expect(cgroupV1MemoryDirFromProc("0::/a\n", "/sys/fs/cgroup/memory")).toBeUndefined();
   });
 });
 
@@ -75,6 +82,24 @@ describe("container working set", () => {
     });
     try {
       expect(cgroupMemory(tree.mount, "4:memory:/docker/abc\n")).toEqual({ limit: 1000, used: 500 });
+    } finally {
+      tree.close();
+    }
+  });
+
+  test("cgroup v1 without a cgroup namespace: the process's own memory cgroup, below the hierarchy root", () => {
+    // The root reports no limit, as on a host; the limit is on the process's nested cgroup.
+    const tree = cgroupTree({
+      "memory/memory.limit_in_bytes": "9223372036854771712\n",
+      "memory/memory.usage_in_bytes": "5000\n",
+      "memory/sandbox/memory.limit_in_bytes": "9223372036854771712\n",
+      "memory/sandbox/memory.usage_in_bytes": "3000\n",
+      "memory/sandbox/job/memory.limit_in_bytes": "2000\n",
+      "memory/sandbox/job/memory.usage_in_bytes": "1800\n",
+      "memory/sandbox/job/memory.stat": "total_inactive_file 1000\n",
+    });
+    try {
+      expect(cgroupMemory(tree.mount, "4:memory:/sandbox/job\n0::/\n")).toEqual({ limit: 2000, used: 800 });
     } finally {
       tree.close();
     }
