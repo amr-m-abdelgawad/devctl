@@ -65,7 +65,7 @@ describe("provenSameProcess", () => {
   const now = new Date();
   const expected = { args: ["bun", "server.ts"], workDir: "/repo", startTime: now };
 
-  test("a name-only match is not proof (Windows tasklist: no cwd, no start time)", () => {
+  test("a name-only match is not proof (no cwd, no start time, as Windows can give)", () => {
     expect(provenSameProcess(expected, { pid: 1, command: "bun.exe", cwd: "" })).toBe(false);
     expect(sameProcess(expected, { pid: 1, command: "bun.exe", cwd: "" })).toBe(true);
   });

@@ -27,7 +27,7 @@ const COMMAND_LOCK_MS = 50;
 type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
-  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogSearch" | "toggleSplitLogs">;
+  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "toggleSystemLogs" | "toggleGrpcLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "errorOnly" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogSearch" | "toggleSplitLogs">;
   llmView: Pick<ReturnType<typeof useLlmView>, "setCaller">;
   trafficView: Pick<ReturnType<typeof useTrafficView>, "setCaller">;
   workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionTail" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
@@ -129,6 +129,7 @@ export function useCommandDispatcher({
     setPaused,
     setErrorOnly,
     toggleSystemLogs,
+    toggleGrpcLogs,
     clearLogs,
     logWrap,
     setLogWrap,
@@ -518,6 +519,10 @@ export function useCommandDispatcher({
             toggleSystemLogs();
             setScreen("logs");
             return;
+          case "grpc":
+            toggleGrpcLogs();
+            setScreen("logs");
+            return;
           case "clear":
             clearLogs();
             return;
@@ -615,7 +620,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, llmView, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleSplitLogs, toggleSystemLogs, trafficView],
+    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, errorOnly, filteredLogs, llmView, logLevel, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogSearch, setSlashPicker, themeName, toggleGrpcLogs, toggleSplitLogs, toggleSystemLogs, trafficView],
   );
   return { runCommand };
 }

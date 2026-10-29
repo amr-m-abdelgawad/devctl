@@ -1,7 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
-import type { LogEvent } from "../../../domain/logs/logs.ts";
+import { encodeLogCursor, isGrpcLog, type LogEvent } from "../../../domain/logs/logs.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { ConfigurationChanged, ConfigurationReloadFailed, LogBatch, LogReceived, type BusEvent } from "../../../shared/events.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
@@ -9,7 +9,6 @@ import { reloadFailureMessage } from "../helpers/chrome.ts";
 import { appendVisibleLogs, trimLogBytes, tuiLogBytes, tuiLogCap } from "../helpers/logs.ts";
 import { LogGapTracker, mergeGapPage } from "../helpers/log-gaps.ts";
 import { StatusRefresher } from "../helpers/status-refresh.ts";
-import { encodeLogCursor } from "../../../domain/logs/logs.ts";
 
 import type { Dispatch, SetStateAction } from "react";
 
@@ -26,6 +25,7 @@ type Options = {
   cfg?: DevctlConfig;
   /** True while live records must not enter the view: paused, or scrolled back past a cut tail. */
   paused: boolean;
+  showGrpcLogs: boolean;
   logSince: string;
   refresh: () => Promise<StatusSnapshot | undefined>;
   setLogs: Dispatch<SetStateAction<LogEvent[]>>;
@@ -38,6 +38,7 @@ export function useDaemonEvents({
   controller,
   cfg,
   paused,
+  showGrpcLogs,
   logSince,
   refresh,
   setLogs,
@@ -45,6 +46,8 @@ export function useDaemonEvents({
   setConfigReloadError,
   setStatus,
 }: Options) {
+  const showGrpcLogsRef = useRef(showGrpcLogs);
+  showGrpcLogsRef.current = showGrpcLogs;
   useEffect(() => {
     if (!controller) {
       return;
@@ -107,7 +110,8 @@ export function useDaemonEvents({
           return;
         }
         const found = page.events.filter((event) => event.seq >= range.from && event.seq <= range.to);
-        setLogs((current) => noteHeld(trimLogBytes(mergeGapPage(current, found, logSince, cap), maxBytes)));
+        const kept = showGrpcLogsRef.current ? found : found.filter((event) => !isGrpcLog(event));
+        setLogs((current) => noteHeld(trimLogBytes(mergeGapPage(current, kept, logSince, cap), maxBytes)));
         if (gaps.settle(range, page)) {
           scheduleFill(GAP_FILL_PACE_MS);
         }
@@ -123,7 +127,10 @@ export function useDaemonEvents({
           lastGapAt = Date.now();
           pagesLeft = GAP_FILL_MAX_PAGES;
         }
-        setLogs((current) => noteHeld(trimLogBytes(appendVisibleLogs(current, batch, logSince, cap), maxBytes)));
+        const visible = showGrpcLogsRef.current ? batch : batch.filter((event) => !isGrpcLog(event));
+        if (visible.length > 0) {
+          setLogs((current) => noteHeld(trimLogBytes(appendVisibleLogs(current, visible, logSince, cap), maxBytes)));
+        }
         fillGaps();
       }
     };

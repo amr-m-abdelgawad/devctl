@@ -219,6 +219,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     errorOnly,
     setErrorOnly,
     showSystemLogs,
+    showGrpcLogs,
+    toggleGrpcLogs,
     logSearch,
     setLogSearch,
     logSearchFocused,
@@ -349,7 +351,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     copyMcpSnippet,
   } = mcp;
 
-  useDaemonEvents({ controller, cfg, paused: paused || logTailCut, logSince, refresh, setLogs, setCfg, setConfigReloadError, setStatus });
+  useDaemonEvents({ controller, cfg, paused: paused || logTailCut, showGrpcLogs, logSince, refresh, setLogs, setCfg, setConfigReloadError, setStatus });
 
   const openDetail = useCallback((name: string) => {
     setDetailName(name);
@@ -774,6 +776,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             logService={logService}
             errorOnly={errorOnly}
             showSystemLogs={showSystemLogs}
+            showGrpcLogs={showGrpcLogs}
             onOpen={openDetail}
             onSelectIndex={setSelected}
             selectedLog={dashboardLogCursor}
@@ -781,6 +784,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             logSources={logSources}
             onFilterService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onToggleGrpc={toggleGrpcLogs}
             onShowErrors={() => {
               setLogService("");
               setErrorOnly(true);
@@ -851,6 +855,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             service={logService}
             errorOnly={errorOnly}
             showSystemLogs={showSystemLogs}
+            showGrpcLogs={showGrpcLogs}
             search={logSearch}
             searchFocused={logSearchFocused}
             followTick={logFollow}
@@ -858,6 +863,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             onSearch={setLogSearch}
             onService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onToggleGrpc={toggleGrpcLogs}
             source={logSource}
             regex={logRegex}
             services={logServices}

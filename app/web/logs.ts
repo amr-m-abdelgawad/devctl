@@ -27,6 +27,21 @@ export function isSystemLog(row: Pick<LogRow, "source" | "service">): boolean {
   return SYSTEM_LOG_SET.has(row.source) || SYSTEM_LOG_SET.has(row.service);
 }
 
+const GRPC_PROXY_LINE = /^grpc\s+\S/;
+
+/** Same rule as domain `isGrpcLog`: rpc.system=grpc, or a proxy line that starts with `grpc `. */
+export function isGrpcLogRow(row: Pick<LogRow, "service" | "source" | "message" | "body" | "attributes">): boolean {
+  if (row.attributes?.["rpc.system"] === "grpc") {
+    return true;
+  }
+  if (row.service !== "proxy" || row.source !== "proxy") {
+    return false;
+  }
+  const text = row.message !== "" ? row.message : typeof row.body === "string" ? row.body : "";
+  const line = text.split("\n", 1)[0] ?? "";
+  return GRPC_PROXY_LINE.test(line);
+}
+
 export function isErrorLog(row: Pick<LogRow, "level" | "severityText" | "severityNumber">): boolean {
   if (typeof row.severityNumber === "number" && row.severityNumber >= SEVERITY_ERROR) {
     return true;
@@ -224,6 +239,7 @@ export function filterLogRows(
     search?: string;
     regex?: boolean;
     showSystem?: boolean;
+    showGrpc?: boolean;
     since?: string;
   },
 ): LogRow[] {
@@ -236,6 +252,9 @@ export function filterLogRows(
       return false;
     }
     if (opts.showSystem === false && isSystemLog(event)) {
+      return false;
+    }
+    if (opts.showGrpc === false && isGrpcLogRow(event)) {
       return false;
     }
     if (since !== "" && event.timestamp < since) {
@@ -324,6 +343,7 @@ export function liveLogsQuery(opts: {
   search?: string;
   regex?: boolean;
   since?: string;
+  showGrpc?: boolean;
 }): LogsQuery {
   const query: LogsQuery = {};
   if (opts.service) {
@@ -341,6 +361,9 @@ export function liveLogsQuery(opts: {
   if (opts.since) {
     query.since = opts.since;
   }
+  if (opts.showGrpc === false) {
+    query.hideGrpc = true;
+  }
   return query;
 }
 
@@ -353,6 +376,7 @@ export function logsQueryKey(query: LogsQuery): string {
     query.source ?? "",
     query.since ?? "",
     query.until ?? "",
+    query.hideGrpc === true,
   ]);
 }
 
@@ -387,6 +411,9 @@ export function encodeLogsQuery(query: LogsQuery): Record<string, string> {
   }
   if (typeof query.limit === "number") {
     params.limit = String(query.limit);
+  }
+  if (query.hideGrpc) {
+    params.hide_grpc = "true";
   }
   return params;
 }

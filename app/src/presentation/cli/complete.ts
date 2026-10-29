@@ -78,7 +78,11 @@ export function completeLine(line: string, cfg: DevctlConfig): string[] {
     if (tail === "--profile" || words[words.length - 1] === "--profile") {
       return filterPrefix(profiles, tail === "--profile" ? "" : tail);
     }
-    return filterPrefix([...services, "--profile", "--detach", "--json", "--since", "--until"], tail);
+    const flags = ["--profile", "--detach", "--json", "--since", "--until"];
+    if (cmd === "logs") {
+      flags.push("--hide-grpc");
+    }
+    return filterPrefix([...services, ...flags], tail);
   }
   if (cmd === "completion") {
     return filterPrefix([...SHELLS].sort(), tail);

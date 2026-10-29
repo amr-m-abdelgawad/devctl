@@ -19,6 +19,7 @@ export function asLogFilter(rec: Record<string, unknown>): LogFilter {
     requestId: nonemptyString(rec.requestId) ?? nonemptyString(rec.request_id),
     attribute: asAttributePredicate(rec.attribute),
     dedupeRequestId: rec.dedupeRequestId === true || rec.dedupe_request_id === true,
+    hideGrpc: rec.hideGrpc === true || rec.hide_grpc === true || rec.hideGrpc === "true" || rec.hide_grpc === "true",
   };
 }
 

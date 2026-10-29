@@ -70,6 +70,7 @@ With only service, level and source filters, the counts cover the whole log wind
 - `/exports` or the **open folder** chip — reveal that directory.
 - `/history [id]` — load a persisted session (`LogManager.listSessions`).
 - `/system` / `/internal` — show or hide internal `auth` / `mcp` / `devctl` / `proxy` lines.
+- `b` / `/grpc` — show or hide gRPC proxy logs (the `grpc …` access and listener lines, and any record marked `rpc.system=grpc`). HTTP proxy logs and service stdout stay. The same choice is `devctl logs --hide-grpc` and MCP `hide_grpc`. Default is to show them. Hiding them asks the daemon for pages and facet counts without those lines, so a chatty gRPC route does not fill the view.
 - `/regex`, `/since`, `/until` — search and time range (`until` is exclusive of later lines).
 
 Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on the message cell; chrome columns stay fixed). Clip mode uses native ellipsis. `j`/`k` moves the highlight.
@@ -78,20 +79,20 @@ Headlines wrap to the pane width with OpenTUI word wrap (`wrapMode="word"` on th
 
 The [web console](web.md) Logs page is the same ring and paging, not a 200-row table. It holds up to `logs.max_memory_events` (default 50,000), virtualizes the list, and follows with `cursor=next_cursor` (~100ms while the page is visible, live, and not paused; slower when idle or the tab is hidden). Scroll up loads older pages (`cursor=prev_cursor`, `direction=backward`). Overview “recent errors” stays a small ERROR page and does not feed the 50k buffer.
 
-- Search (substring / regex), ERROR+, system-source toggle (`auth` / `mcp` / `devctl` / `proxy`)
+- Search (substring / regex), ERROR+, system-source toggle (`auth` / `mcp` / `devctl` / `proxy`), **hide grpc** (`b`) for gRPC proxy logs
 - Pause / live, jump latest (`pinned · +N new`)
 - Service chips from facets; timestamp/metadata columns from `log_timestamps` / `log_metadata`
 - Clear (client-local `since=now`; daemon ring untouched), export NDJSON, history session picker
 - Split: two panes, shared buffer and search, independent service filter and follow/pin
 - Wrap cycle: clip → wrap selected → wrap all
-- Keys: `j`/`k`, `f` search, `p` pause, `g` latest, `e` ERROR+, `\` split, `w` wrap
+- Keys: `j`/`k`, `f` search, `p` pause, `g` latest, `e` ERROR+, `b` gRPC logs, `\` split, `w` wrap
 
 History loads a persisted session (same store as TUI `/history`). Export downloads JSONL for the current filters — the full match set, not one page.
 
 ## CLI
 
 ```bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
@@ -99,6 +100,7 @@ devctl logs export --output FILE   # explicit export subcommand
 devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
 devctl logs --dedupe-request-id    # collapse nearby events that share a request id
+devctl logs --hide-grpc            # omit gRPC proxy logs; omit the flag to show them
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 ```
 

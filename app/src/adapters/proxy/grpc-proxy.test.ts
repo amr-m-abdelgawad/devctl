@@ -60,13 +60,13 @@ async function startUpstream(): Promise<{ url: string; close: () => Promise<void
   return { url: `http://127.0.0.1:${port}`, close: () => new Promise<void>((r) => server.close(() => r())) };
 }
 
-function memoryLogs(): { logs: Pick<LogStore, "append">; events: Array<{ level: string; message: string }> } {
-  const events: Array<{ level: string; message: string }> = [];
+function memoryLogs(): { logs: Pick<LogStore, "append">; events: Array<{ level: string; message: string; attributes?: Record<string, unknown> }> } {
+  const events: Array<{ level: string; message: string; attributes?: Record<string, unknown> }> = [];
   return {
     events,
     logs: {
       append: (event) => {
-        events.push({ level: event.level ?? "", message: event.message ?? "" });
+        events.push({ level: event.level ?? "", message: event.message ?? "", attributes: event.attributes });
       },
     },
   };
@@ -330,7 +330,7 @@ describe("GrpcProxyServer", () => {
       expect(s.total).toBe(3);
       expect(s.errors).toBe(1);
       const hop = (method: string) => events.filter((e) => e.message.includes(method));
-      expect(hop("PollWorkflowTaskQueue").some((e) => e.level === "INFO" && e.message.includes("grpc-status=14"))).toBe(true);
+      expect(hop("PollWorkflowTaskQueue").some((e) => e.level === "INFO" && e.message.includes("grpc-status=14") && e.attributes?.["rpc.system"] === "grpc")).toBe(true);
       expect(hop("PollActivityTaskQueue").some((e) => e.level === "INFO" && e.message.includes("grpc-status=14"))).toBe(true);
       expect(hop("TerminateWorkflowExecution").some((e) => e.level === "WARN" && e.message.includes("grpc-status 7"))).toBe(true);
     } finally {

@@ -46,8 +46,9 @@ describe("facet window", () => {
 
   test("only service, level and source filters can be answered from it", () => {
     expect(filtersDimensionsOnly({ services: ["api"], level: "ERROR", source: "stderr", regex: true, dedupeRequestId: true })).toBe(true);
-    for (const filter of [{ search: "x" }, { since: "2026-01-01" }, { until: "2026-01-01" }, { traceId: "t" }, { requestId: "r" }, { attribute: { key: "k", value: "v" } }]) {
+    for (const filter of [{ search: "x" }, { since: "2026-01-01" }, { until: "2026-01-01" }, { traceId: "t" }, { requestId: "r" }, { attribute: { key: "k", value: "v" } }, { hideGrpc: true }]) {
       expect(filtersDimensionsOnly(filter)).toBe(false);
     }
+    expect(filtersDimensionsOnly({ hideGrpc: false })).toBe(true);
   });
 });

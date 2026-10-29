@@ -2441,7 +2441,7 @@ services:
     }
   }, 10_000);
 
-  // "name only" is what Windows tasklist gives: the command, no cwd, no start
+  // "name only" is what Windows can give: the command, no cwd, no start
   // time, so the holder can only be matched on its executable name.
   test.each([
     ["full identity", inspectProcess],

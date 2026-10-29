@@ -3,7 +3,7 @@ import { createServer as createHttpsServer, request as httpsRequest } from "node
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { connect } from "node:net";
+import { connect, createServer as createNetServer, type Socket } from "node:net";
 import { brotliCompressSync, gzipSync } from "node:zlib";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, emptyLlmSource, type RouteAuthConfig, type RouteConfig } from "../../domain/config/types.ts";
@@ -355,6 +355,10 @@ describe("proxy", () => {
       socket.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
       if (head.length > 0) socket.write(head);
       socket.on("data", (chunk) => socket.write(chunk));
+      // An upgraded socket is the listener's to close: `upstream.close()`
+      // waits for it (as in Node and Bun 1.4.4), as a WebSocket server
+      // closes its end once the peer has.
+      socket.on("end", () => socket.end());
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     const upAddr = upstream.address();
@@ -408,6 +412,10 @@ describe("proxy", () => {
       socket.write("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
       if (head.length > 0) socket.write(head);
       socket.on("data", (chunk) => socket.write(chunk));
+      // An upgraded socket is the listener's to close: `upstream.close()`
+      // waits for it (as in Node and Bun 1.4.4), as a WebSocket server
+      // closes its end once the peer has.
+      socket.on("end", () => socket.end());
     });
     await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
     const upAddr = upstream.address();
@@ -453,6 +461,36 @@ describe("proxy", () => {
       await proxy.stop();
       await new Promise<void>((resolve) => upstream.close(() => resolve()));
     }
+  });
+
+  test("stop closes an upgrade still waiting for its upstream", async () => {
+    // Accepts the upgrade request and never answers it.
+    const accepted: Socket[] = [];
+    const silent = createNetServer((socket) => accepted.push(socket));
+    await new Promise<void>((resolve) => silent.listen(0, "127.0.0.1", resolve));
+    const silentAddr = silent.address();
+    const upPort = typeof silentAddr === "object" && silentAddr ? silentAddr.port : 0;
+    const reserved = createServer();
+    await new Promise<void>((resolve) => reserved.listen(0, "127.0.0.1", resolve));
+    const addr = reserved.address();
+    const proxyPort = typeof addr === "object" && addr ? addr.port : 0;
+    await new Promise<void>((resolve) => reserved.close(() => resolve()));
+    const cfg = defaultConfig().proxy;
+    cfg.listen = { host: "127.0.0.1", port: proxyPort };
+    cfg.routes.push({ name: "ws", match: { host: "", path: "/socket" }, upstream: { url: `http://127.0.0.1:${upPort}` }, auth: NONE_AUTH });
+    const proxy = new ProxyServer(cfg);
+    await proxy.start();
+    const upstreamDialed = new Promise<void>((resolve) => silent.once("connection", () => resolve()));
+    const client = connect(proxyPort, "127.0.0.1");
+    const clientClosed = new Promise<void>((resolve) => client.once("close", () => resolve()));
+    client.on("error", () => undefined);
+    client.write("GET /socket HTTP/1.1\r\nHost: localhost\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n");
+    await upstreamDialed;
+    const stopped = await Promise.race([proxy.stop().then(() => "stopped"), Bun.sleep(2_000).then(() => "still waiting")]);
+    expect(stopped).toBe("stopped");
+    await clientClosed;
+    for (const socket of accepted) socket.destroy();
+    await new Promise<void>((resolve) => silent.close(() => resolve()));
   });
 
   test("rejects unmatched WebSocket upgrades without hanging", async () => {
