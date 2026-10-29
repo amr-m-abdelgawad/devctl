@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LogManager, logMessage } from "../storage/logs.ts";
 import { available } from "../net/ports.ts";
-import { ProcessManager, provenSameProcess, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
+import { inspectProcess, ProcessManager, provenSameProcess, sameAdoptedProcess, sameProcess, sampleResourceUsage } from "./processes.ts";
 import { parseElapsedMillis } from "./unix.ts";
 
 function listenPort(): Promise<number> {
@@ -91,6 +91,15 @@ describe("sameAdoptedProcess", () => {
     expect(sameAdoptedProcess(expected, { ...observed, stamp: { ...stamp } })).toBe(true);
   });
 
+  test("macOS and Windows stamps compare by the reported start", () => {
+    const expected = { args: ["sh", "-c", "node 'server.js'"], workDir: "/repo", startTime: new Date(), stamp: { lstart: "134062128001234567" } };
+    const observed = { pid: 7, command: "node server.js", cwd: "", startTime: new Date().toISOString() };
+    expect(sameAdoptedProcess(expected, { ...observed, stamp: { lstart: "134062128001234567" } })).toBe(true);
+    expect(sameAdoptedProcess(expected, { ...observed, stamp: { lstart: "134062128009999999" } })).toBe(false);
+    // Stamps of different kinds say nothing; the command check decides.
+    expect(sameAdoptedProcess(expected, { ...observed, stamp: { startTicks: "100" } })).toBe(false);
+  });
+
   test("a different stamp rejects a reused pid whose command matches", () => {
     const expected = { args: ["python", "main.py"], workDir: "/repo", startTime: new Date(), stamp: { startTicks: "100", bootId: "boot-a" } };
     const observed = { pid: 7, command: "python main.py", cwd: "/repo", startTime: new Date().toISOString() };
@@ -168,6 +177,35 @@ describe("process adopt", () => {
 });
 
 describe("process stop", () => {
+  test("a started service's stamp is the one a later daemon's inspect reads", async () => {
+    const mgr = new ProcessManager();
+    let stamped = false;
+    mgr.onStamped(() => {
+      stamped = true;
+    });
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined) {
+        env[key] = value;
+      }
+    }
+    const handle = await mgr.start({ name: "stamped", args: [process.execPath, "-e", "setInterval(() => {}, 1e6)"], shell: false, workDir: "", env, graceMs: 800 });
+    try {
+      // Linux has it at start; macOS and Windows read it in the background.
+      for (let i = 0; i < 200 && handle.stamp === undefined; i += 1) {
+        await sleep(50);
+      }
+      expect(handle.stamp).toBeDefined();
+      expect(stamped).toBe(process.platform !== "linux");
+      const observed = await inspectProcess(handle.pid);
+      expect(observed?.stamp).toBeDefined();
+      // The stored command is not on the observed line at all; the stamp alone proves it.
+      expect(sameAdoptedProcess({ args: ["no-such-command"], workDir: "", stamp: handle.stamp }, observed!)).toBe(true);
+    } finally {
+      await mgr.stop("stamped", 800);
+    }
+  }, 30_000);
+
   test("stop kills grandchild listeners so the port is free", async () => {
     const port = await listenPort();
     const mgr = new ProcessManager();

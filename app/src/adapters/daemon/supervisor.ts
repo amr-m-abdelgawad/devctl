@@ -226,6 +226,8 @@ export class Supervisor {
       decoders: () => this.registry?.trafficDecoders ?? [],
     });
     this.procs = deps.procs;
+    // A stamp read after start (macOS, Windows) is saved as soon as it lands.
+    this.procs.onStamped?.(() => this.persistState());
     this.orchestrator = deps.orchestrator;
     this.tokens = deps.tokens;
     this.recipes = new RecipeRuntime({

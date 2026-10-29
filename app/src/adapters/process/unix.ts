@@ -2,6 +2,7 @@ import { spawn } from "bun";
 import { readFile, readlink } from "node:fs/promises";
 import { processAlive } from "../storage/storage.ts";
 import { readStamp, type ProcessStamp } from "./liveness.ts";
+import { serviceStamp } from "./stamp.ts";
 
 // /proc on Linux exposes process identity and memory without `ps`/`lsof`, which
 // a minimal container image (e.g. a uv/python-slim base) often does not ship.
@@ -131,12 +132,13 @@ export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity |
   // right after WSL resumes) look like a newer process.
   const elapsed = parseElapsedMillis(await captureProcessOutput(["ps", "-p", String(pid), "-o", "etime="]));
   const sampledAt = Date.now();
-  const cwd = await cwdOf(pid);
+  const [cwd, stamp] = await Promise.all([cwdOf(pid), serviceStamp(pid)]);
   return {
     pid,
     command: command.trim(),
     cwd,
     startTime: elapsed === undefined ? undefined : new Date(sampledAt - elapsed).toISOString(),
+    stamp,
   };
 }
 
