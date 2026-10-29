@@ -1,6 +1,7 @@
 import { spawn } from "bun";
 import { readFile, readlink } from "node:fs/promises";
 import { processAlive } from "../storage/storage.ts";
+import { readStamp, type ProcessStamp } from "./liveness.ts";
 
 // /proc on Linux exposes process identity and memory without `ps`/`lsof`, which
 // a minimal container image (e.g. a uv/python-slim base) often does not ship.
@@ -39,6 +40,7 @@ export type ProcessIdentity = {
   command: string;
   cwd: string;
   startTime?: string;
+  stamp?: ProcessStamp;
 };
 
 // Turn /proc/<pid>/cmdline (NUL-separated argv, often with a trailing NUL) into
@@ -107,7 +109,7 @@ async function inspectProcessProc(pid: number): Promise<ProcessIdentity | undefi
   const startTime = ticks !== undefined && uptime !== undefined
     ? new Date(sampledAt - (uptime - ticks / PROC_USER_HZ) * 1000).toISOString()
     : undefined;
-  return { pid, command, cwd, startTime };
+  return { pid, command, cwd, startTime, stamp: readStamp(pid) };
 }
 
 export async function inspectProcessUnix(pid: number): Promise<ProcessIdentity | undefined> {

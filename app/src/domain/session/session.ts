@@ -14,12 +14,22 @@ export function sessionStartedAt(sessionID: string): Date | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
 }
 
+/** What tells a process from a later one given the same pid (see readStamp). */
+export type PersistedProcessStamp = {
+  startTicks?: string;
+  bootId?: string;
+  pidNs?: string;
+  lstart?: string;
+};
+
 export type PersistedProcess = {
   name: string;
   pid: number;
   command: string[];
   cwd: string;
   startTime: string;
+  /** Read when devctl started or adopted the process. Older state files have none. */
+  stamp?: PersistedProcessStamp;
   ports: Record<string, number>;
   profile?: string;
   env?: string;

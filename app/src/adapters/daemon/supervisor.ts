@@ -1352,6 +1352,7 @@ export class Supervisor {
         ports: this.ports.get(handle.name) ?? {},
         profile: this.serviceProfile.get(handle.name) ?? this.profile,
         env: this.serviceStartedEnv.get(handle.name) ?? this.serviceEnv.get(handle.name),
+        stamp: handle.stamp,
       });
     }
     const prior = this.processesLoaded ? undefined : readPersistedState(this.cfg.repoRoot);

@@ -82,6 +82,22 @@ describe("provenSameProcess", () => {
 });
 
 describe("sameAdoptedProcess", () => {
+  test("a matching stamp proves the process even after an exec changed its command", () => {
+    const stamp = { startTicks: "4242", bootId: "boot-a" };
+    // `bash -c "yes 'a b'"` execs into `yes a b`: no stored argument is in the command line.
+    const expected = { args: ["bash", "-c", "yes 'a b'"], workDir: "/repo", startTime: new Date(), stamp };
+    const observed = { pid: 7, command: "yes a b", cwd: "/elsewhere", startTime: new Date().toISOString() };
+    expect(sameAdoptedProcess({ ...expected, stamp: undefined }, observed)).toBe(false);
+    expect(sameAdoptedProcess(expected, { ...observed, stamp: { ...stamp } })).toBe(true);
+  });
+
+  test("a different stamp rejects a reused pid whose command matches", () => {
+    const expected = { args: ["python", "main.py"], workDir: "/repo", startTime: new Date(), stamp: { startTicks: "100", bootId: "boot-a" } };
+    const observed = { pid: 7, command: "python main.py", cwd: "/repo", startTime: new Date().toISOString() };
+    expect(sameAdoptedProcess(expected, { ...observed, stamp: { startTicks: "900", bootId: "boot-a" } })).toBe(false);
+    expect(sameAdoptedProcess(expected, { ...observed, stamp: { startTicks: "100", bootId: "boot-b" } })).toBe(false);
+  });
+
   test("accepts a start time that drifted backward and rejects a newer pid", () => {
     const now = new Date();
     const observed = { pid: 1, command: "python main.py", cwd: "/repo" };

@@ -11,7 +11,7 @@ import { occupiedFixedPorts, findPortHolder } from "../net/ports.ts";
 import type { Registry } from "../plugins/registry.ts";
 import { type ProcessManager, sameAdoptedProcess, type ProcessIdentity } from "../process/processes.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
-import { readPersistedState, repoID } from "../storage/storage.ts";
+import { readPersistedState, repoID, type PersistedProcess } from "../storage/storage.ts";
 import type { TokenManager } from "../google/token.ts";
 import type { LogStore } from "../../ports/log-store.ts";
 import type { ProcessChunkHandler } from "../../ports/process-runtime.ts";
@@ -208,7 +208,7 @@ export async function claimIfAlreadyUp(host: RecoverHost, name: string): Promise
     host.log(name, "WARN", `port ${first} is held by pid ${pid} with no persisted record for ${name}; not adopting`);
     return false;
   }
-  if (!(await persistedHolderMatches(host, svc, persistedRec.startTime, pid))) {
+  if (!(await persistedHolderMatches(host, svc, persistedRec, pid))) {
     host.log(name, "WARN", `port ${first} is in use by an unrelated process (pid ${pid}); not adopting`);
     return false;
   }
@@ -337,7 +337,7 @@ function persistedProfileFor(host: RecoverHost, rec?: { profile?: string }): str
   return rec?.profile ?? host.profile;
 }
 
-async function persistedHolderMatches(host: RecoverHost, svc: ServiceConfig, startTime: string, pid: number): Promise<boolean> {
+async function persistedHolderMatches(host: RecoverHost, svc: ServiceConfig, rec: PersistedProcess, pid: number): Promise<boolean> {
   if (!host.processAliveFn(pid)) {
     return false;
   }
@@ -352,13 +352,13 @@ async function persistedHolderMatches(host: RecoverHost, svc: ServiceConfig, sta
   // Skip cwd: Windows inspect reports the image directory, not the process
   // working directory. Pid already matched the persisted record.
   return sameAdoptedProcess(
-    { args: [...svc.command.args], workDir: "", startTime: new Date(startTime) },
+    { args: [...svc.command.args], workDir: "", startTime: new Date(rec.startTime), stamp: rec.stamp },
     observed,
   );
 }
 
 function adoptedIdentity(
-  rec: { command: string[]; cwd: string; startTime: string },
+  rec: Pick<PersistedProcess, "command" | "cwd" | "startTime" | "stamp">,
   observed: ProcessIdentity | undefined,
 ): boolean {
   // Inspect is best-effort. After a WSL or dev-container resume, ps and
@@ -367,7 +367,7 @@ function adoptedIdentity(
     return true;
   }
   return sameAdoptedProcess(
-    { args: rec.command, workDir: rec.cwd, startTime: rec.startTime ? new Date(rec.startTime) : undefined },
+    { args: rec.command, workDir: rec.cwd, startTime: rec.startTime ? new Date(rec.startTime) : undefined, stamp: rec.stamp },
     observed,
   );
 }
