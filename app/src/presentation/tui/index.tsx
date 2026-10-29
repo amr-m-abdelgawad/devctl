@@ -7,6 +7,8 @@ import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
 import { installTerminalRestoreOnExit, restoreTerminalModes } from "../../shared/terminal-restore.ts";
 
+const RENDERER_CLOSE_WAIT_MS = 1_000;
+
 export async function runTuiWithController(client: ClientRuntime, controller: Controller): Promise<void> {
   const tui = client.loadTuiConfig(controller.cfg.repoRoot, controller.cfg.ui.keymap);
   await renderApp(client, controller, tui);
@@ -53,11 +55,16 @@ export async function renderApp(
     // Keep the explicit theme background when the terminal does not answer OSC palette queries.
   }
   await new Promise<void>((resolve) => {
-    const leaveTty = (): void => {
+    const leaveTty = async (): Promise<void> => {
       try {
         root.unmount();
         restoreStderr();
         renderer.destroy();
+        // destroy() restores the terminal and writes its last output
+        // asynchronously: exiting first could leave the terminal in the
+        // TUI's modes. Bounded, so a renderer that never settles cannot
+        // keep devctl from exiting.
+        await Promise.race([renderer.closed.catch(() => undefined), Bun.sleep(RENDERER_CLOSE_WAIT_MS)]);
       } finally {
         restoreTerminalModes();
         resolve();
@@ -71,14 +78,14 @@ export async function renderApp(
     };
     const quit = (detach?: boolean): void => {
       if (!controller) {
-        leaveTty();
+        void leaveTty();
         return;
       }
       void controller.close({ detach, shutdownSupervisor: true }).finally(leaveTty);
     };
     const down = (keepServices: boolean): void => {
       if (!controller) {
-        leaveTty();
+        void leaveTty();
         return;
       }
       void controller
