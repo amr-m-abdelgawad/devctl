@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- devctl runs on Bun 1.4.4. The npm package depends on Bun 1.4.4 and release binaries are built with it, and source development needs Bun 1.4.4 or later.
+- devctl runs on Bun 1.4.4. The npm package depends on Bun 1.4.4 and release binaries are built with it, and source development needs Bun 1.4.4 or later. On Windows, Bun 1.4.2 crashed or hung in about one test run in eight on CI runners, inside JavaScriptCore's compiler and garbage collector threads; in 60 runs on 1.4.4 it did neither.
 - On Windows, checking whether a process is alive no longer runs `tasklist` through `cmd.exe`. That call never returned an answer and held the daemon for 35 to 55 ms each time; the answers are the same, and identifying a process goes straight to PowerShell, as it already did after the failed call.
 - `logs.persistence.max_session_logs` counts sessions for the current repository. One checkout no longer deletes another checkout's sessions in a shared logs directory.
 - Health checks record a log line when status changes, and remind while a service stays unhealthy, instead of once per probe.
