@@ -259,7 +259,7 @@ summary:focus-visible {
   min-height: 100dvh;
 }
 .console-collapsed {
-  --sidebar-width: 72px;
+  --sidebar-width: 62px;
 }
 .console-sidebar {
   position: fixed;
@@ -298,9 +298,13 @@ summary:focus-visible {
   line-height: 32px;
 }
 .sidebar-toggle {
-  width: 28px;
+  width: 32px;
   height: 32px;
   flex-shrink: 0;
+}
+.console-collapsed .sidebar-toggle {
+  width: 40px;
+  height: 40px;
 }
 .brand-caption {
   display: block;
@@ -391,7 +395,8 @@ summary:focus-visible {
 .console-collapsed .sidebar-heading {
   flex-direction: column;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
+  padding: 18px 0 14px;
 }
 .console-collapsed .console-brand {
   flex: none;
@@ -404,7 +409,7 @@ summary:focus-visible {
 .console-collapsed .sidebar-search {
   margin: 0 auto;
   width: 40px;
-  height: 36px;
+  height: 40px;
   padding: 0;
   justify-content: center;
   font-size: 0;
@@ -414,12 +419,15 @@ summary:focus-visible {
   gap: 0;
 }
 .console-collapsed .console-nav {
-  padding: 14px 12px;
+  padding: 12px 8px;
 }
 .console-collapsed .nav-link {
   justify-content: center;
-  min-height: 42px;
-  padding: 10px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  margin-inline: auto;
+  padding: 0;
 }
 .console-collapsed .nav-group + .nav-group {
   padding-top: 12px;
@@ -428,7 +436,7 @@ summary:focus-visible {
 }
 .console-collapsed .sidebar-footer {
   justify-content: center;
-  padding: 20px 0;
+  padding: 16px 0;
 }
 .console-topbar {
   position: sticky;
@@ -1128,6 +1136,10 @@ summary:focus-visible {
   }
   .fleet-actions button {
     min-height: 36px;
+  }
+  .fleet-actions .action-restart {
+    width: 36px;
+    height: 36px;
   }
   .fleet-pagination {
     justify-content: center;

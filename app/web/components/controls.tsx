@@ -2,6 +2,7 @@ import { ArrowsClockwiseIcon, PlayIcon, StopIcon } from "../icons.ts";
 import { envNeedsRestart, isLiveState, type RunControl } from "../control.ts";
 import type { ServiceRow } from "../types.ts";
 import { Badge } from "./ui/badge.tsx";
+import { IconButton } from "./ui/icon-button.tsx";
 import { Button } from "./ui/button.tsx";
 import { FilterSelect } from "./filters.tsx";
 
@@ -15,29 +16,31 @@ export function ActionButtons(props: {
 }) {
   const { live, busy, onStart, onStop, onRestart } = props;
   return (
-    <div className="flex flex-wrap items-center gap-1">
+    <div className="flex items-center">
       <Button
         type="button"
         size="sm"
         variant="outline"
         disabled={busy}
+        className="rounded-r-none"
         aria-label={`${live ? "Stop" : "Start"} ${props.name || "service"}`}
         onClick={live ? onStop : onStart}
       >
         {live ? <StopIcon data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
         {live ? "Stop" : "Start"}
       </Button>
-      <Button
+      <IconButton
         type="button"
-        size="sm"
-        variant="ghost"
+        size="icon"
+        variant="outline"
         disabled={busy}
-        aria-label={`Restart ${props.name || "service"}`}
-        title={`Restart ${props.name || "service"}`}
+        side="top"
+        label={`Restart ${props.name || "service"}`}
+        className="action-restart -ml-px size-8 rounded-l-none"
         onClick={onRestart}
       >
         <ArrowsClockwiseIcon />
-      </Button>
+      </IconButton>
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
 import { cn } from "../lib/utils.ts";
 import type { RouteName, ServiceRow, StatusSummary } from "../types.ts";
 import { Button } from "./ui/button.tsx";
+import { IconButton } from "./ui/icon-button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { SearchInput } from "./filters.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
@@ -205,14 +206,14 @@ export function ConsoleShell(props: {
               <span className="brand-caption">DEVELOPMENT CONSOLE</span>
             </span>
           </a>
-          <Button
+          <IconButton
             variant="ghost"
             size="icon"
             className="sidebar-toggle"
-            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+            side={collapsed ? "right" : "bottom"}
+            label={collapsed ? "Expand navigation" : "Collapse navigation"}
             aria-expanded={!collapsed}
             aria-controls="workspace-sidebar"
-            title={collapsed ? "Expand navigation" : "Collapse navigation"}
             onClick={() => {
               const next = !collapsed;
               setCollapsed(next);
@@ -224,7 +225,7 @@ export function ConsoleShell(props: {
             }}
           >
             {collapsed ? <CaretRightIcon /> : <CaretLeftIcon />}
-          </Button>
+          </IconButton>
         </div>
         <div className="workspace-label">
           <span className="size-2 shrink-0 rounded-sm bg-primary" />
@@ -232,21 +233,44 @@ export function ConsoleShell(props: {
             {props.project || "Local workspace"}
           </span>
         </div>
-        <Button
-          variant="outline"
-          className="sidebar-search mx-4 justify-between"
-          aria-label="Quick find"
-          onClick={() => {
-            setSearch("");
-            setSearchOpen(true);
-          }}
-        >
-          <span className="flex items-center gap-2">
-            <MagnifyingGlassIcon data-icon="inline-start" />
-            Quick find
-          </span>
-          <kbd className="text-[10px]">⌘ K</kbd>
-        </Button>
+        {collapsed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                className="sidebar-search mx-4 justify-between"
+                aria-label="Quick find"
+                onClick={() => {
+                  setSearch("");
+                  setSearchOpen(true);
+                }}
+              >
+                <span className="flex items-center gap-2">
+                  <MagnifyingGlassIcon data-icon="inline-start" />
+                  Quick find
+                </span>
+                <kbd className="text-[10px]">⌘ K</kbd>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">Quick find</TooltipContent>
+          </Tooltip>
+        ) : (
+          <Button
+            variant="outline"
+            className="sidebar-search mx-4 justify-between"
+            aria-label="Quick find"
+            onClick={() => {
+              setSearch("");
+              setSearchOpen(true);
+            }}
+          >
+            <span className="flex items-center gap-2">
+              <MagnifyingGlassIcon data-icon="inline-start" />
+              Quick find
+            </span>
+            <kbd className="text-[10px]">⌘ K</kbd>
+          </Button>
+        )}
         {nav}
         <div
           className="sidebar-footer"
@@ -258,9 +282,9 @@ export function ConsoleShell(props: {
       </aside>
       <div className="console-workspace">
         <header className="console-topbar">
-          <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation" onClick={() => setMenu(true)}>
+          <IconButton variant="ghost" size="icon" className="lg:hidden" label="Open navigation" onClick={() => setMenu(true)}>
             <ListIcon />
-          </Button>
+          </IconButton>
           <div className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
             <span className="hidden sm:inline">
               {props.project || "Workspace"}
@@ -302,18 +326,18 @@ export function ConsoleShell(props: {
             <ArrowClockwiseIcon data-icon="inline-start" />
             <span className="hidden sm:inline">Reload config</span>
           </Button>
-          <Button
+          <IconButton
             size="icon"
             variant="ghost"
             className="lg:hidden"
-            aria-label="Quick find"
+            label="Quick find"
             onClick={() => {
               setSearch("");
               setSearchOpen(true);
             }}
           >
             <MagnifyingGlassIcon />
-          </Button>
+          </IconButton>
         </header>
         {props.update}
         {props.error ? (

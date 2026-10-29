@@ -15,6 +15,7 @@ import { Empty } from "./primitives.tsx";
 import { StatusBadge } from "./status.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
+import { IconButton } from "./ui/icon-button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.tsx";
 
 export function ServiceFleet(props: {
@@ -139,9 +140,9 @@ export function ServiceFleet(props: {
               <StopIcon data-icon="inline-start" />
               Stop
             </Button>
-            <Button size="icon" variant="ghost" aria-label="Clear selection" onClick={() => setSelected([])}>
+            <IconButton size="icon" variant="ghost" label="Clear selection" onClick={() => setSelected([])}>
               <XIcon />
-            </Button>
+            </IconButton>
           </div>
         ) : null}
         {banner}
@@ -284,27 +285,27 @@ export function ServiceFleet(props: {
               onChange={(value) => change(() => setPageSize(value))}
               options={[20, 50, 100].map((n) => ({ value: String(n), label: `${n} / page` }))}
             />
-            <Button
+            <IconButton
               size="icon"
               variant="outline"
               disabled={currentPage === 0}
-              aria-label="Previous services page"
+              label="Previous services page"
               onClick={() => setPage(currentPage - 1)}
             >
               <CaretLeftIcon />
-            </Button>
+            </IconButton>
             <span className="text-xs tabular-nums text-muted-foreground">
               {currentPage + 1}/{pages}
             </span>
-            <Button
+            <IconButton
               size="icon"
               variant="outline"
               disabled={currentPage + 1 >= pages}
-              aria-label="Next services page"
+              label="Next services page"
               onClick={() => setPage(currentPage + 1)}
             >
               <CaretRightIcon />
-            </Button>
+            </IconButton>
           </div>
         </div>
       </CardContent>

@@ -4,6 +4,7 @@ import { JsonViewer } from "../components/json-viewer.tsx";
 import { LogList } from "../components/log-list.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
+import { IconButton } from "../components/ui/icon-button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { useLogSession } from "../hooks/use-log-session.ts";
 import {
@@ -462,24 +463,18 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
               <span className="text-[11px] text-muted-foreground">Selected · view pinned</span>
             </div>
             <div className="log-selection-actions">
-              <Button
-                size="xs"
-                variant="ghost"
-                aria-label="Previous log"
-                disabled={selectedIndex <= 0}
-                onClick={() => navigateSelection(-1)}
-              >
+              <IconButton size="xs" variant="ghost" label="Previous log" disabled={selectedIndex <= 0} onClick={() => navigateSelection(-1)}>
                 <CaretLeftIcon />
-              </Button>
-              <Button
+              </IconButton>
+              <IconButton
                 size="xs"
                 variant="ghost"
-                aria-label="Next log"
+                label="Next log"
                 disabled={selectedIndex < 0 || selectedIndex >= activeRows.length - 1}
                 onClick={() => navigateSelection(1)}
               >
                 <CaretRightIcon />
-              </Button>
+              </IconButton>
               <Button
                 size="xs"
                 variant="ghost"
@@ -493,9 +488,9 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
               <Button size="xs" variant="outline" aria-expanded={inspectorOpen} onClick={() => setInspectorOpen((value) => !value)}>
                 {wide && inspectorOpen ? "Hide details" : "Inspect record"}
               </Button>
-              <Button size="xs" variant="ghost" aria-label="Clear log selection" onClick={closeSelection}>
+              <IconButton size="xs" variant="ghost" label="Clear log selection" onClick={closeSelection}>
                 <XIcon />
-              </Button>
+              </IconButton>
             </div>
             {copied === "failed" ? (
               <span role="status" className="text-xs text-warning">
@@ -575,9 +570,9 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             <aside className="log-details" aria-label="Log details">
               <div className="log-details-heading">
                 <h3>Log details</h3>
-                <Button size="xs" variant="ghost" aria-label="Close log details" onClick={() => setInspectorOpen(false)}>
+                <IconButton size="xs" variant="ghost" label="Close log details" onClick={() => setInspectorOpen(false)}>
                   <XIcon />
-                </Button>
+                </IconButton>
               </div>
               <LogInspector event={selectedEvent} />
             </aside>

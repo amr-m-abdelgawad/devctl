@@ -16,6 +16,7 @@ import {
 import { cn } from "../lib/utils.ts";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
 
 const COPY_FEEDBACK_MS = 2_000;
 const VIEW_KEY = "devctl.json.viewMode";
@@ -372,11 +373,19 @@ export function CopyTextButton(props: { text: string; label?: string }) {
       setCopied(false);
     });
   };
-  return (
-    <Button type="button" size="xs" variant="ghost" className="h-6 gap-1 px-1.5 text-muted-foreground" onClick={copy} disabled={text === ""}>
+  const caption = copied ? "Copied" : label || "Copy";
+  const button = (
+    <Button type="button" size="xs" variant="ghost" className="h-6 gap-1 px-1.5 text-muted-foreground" onClick={copy} disabled={text === ""} aria-label={caption}>
       {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
       {label ? <span>{copied ? "Copied" : label}</span> : null}
     </Button>
+  );
+  if (label) return button;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{button}</TooltipTrigger>
+      <TooltipContent>{caption}</TooltipContent>
+    </Tooltip>
   );
 }
 
