@@ -64,16 +64,25 @@ export function cgroupMemory(mount: string, procSelfCgroup: string | undefined):
 
 function cgroupLevels(mount: string, procSelfCgroup: string | undefined): string[] {
   const own = procSelfCgroup === undefined ? undefined : cgroupDirFromProc(procSelfCgroup, mount);
+  const levels = levelsUpTo(own ?? mount, mount);
+  // cgroup v1 keeps memory in its own hierarchy. A container with a cgroup
+  // namespace (Docker) sees its own cgroup at that root; without one the
+  // process's memory cgroup sits below it, under the path the memory line names.
+  const v1Root = cgroupPath(mount, "memory");
+  const v1Own = procSelfCgroup === undefined ? undefined : cgroupV1MemoryDirFromProc(procSelfCgroup, v1Root);
+  levels.push(...levelsUpTo(v1Own ?? v1Root, v1Root));
+  return levels;
+}
+
+// `dir` and each parent up to and including `root`.
+function levelsUpTo(dir: string, root: string): string[] {
   const levels: string[] = [];
-  for (let dir = own ?? mount; ; dir = dir.slice(0, dir.lastIndexOf("/"))) {
-    levels.push(dir);
-    if (dir.length <= mount.length || !dir.startsWith(`${mount}/`)) {
-      break;
+  for (let level = dir; ; level = level.slice(0, level.lastIndexOf("/"))) {
+    levels.push(level);
+    if (level.length <= root.length || !level.startsWith(`${root}/`)) {
+      return levels;
     }
   }
-  // cgroup v1 keeps memory in its own hierarchy; a container sees its cgroup at that root.
-  levels.push(cgroupPath(mount, "memory"));
-  return levels;
 }
 
 function cgroupLevelMemory(dir: string): { limit: number; used: number } | undefined {
@@ -145,6 +154,17 @@ export function cgroupDirFromProc(text: string, mount = CGROUP_MOUNT): string | 
   }
   const cleaned = relative.startsWith("/") ? relative.slice(1) : relative;
   return cgroupPath(mount, cleaned);
+}
+
+/** The v1 memory controller's directory for this process: the `N:memory:/path` line under `root`. */
+export function cgroupV1MemoryDirFromProc(text: string, root: string): string | undefined {
+  const line = text.split("\n").map((row) => row.trim()).find((row) => row.split(":")[1]?.split(",").includes("memory") === true);
+  if (line === undefined) {
+    return undefined;
+  }
+  const relative = line.split(":").slice(2).join(":");
+  const cleaned = relative.startsWith("/") ? relative.slice(1) : relative;
+  return cgroupPath(root, cleaned);
 }
 
 /** cgroup paths are always POSIX, including when the test host is Windows. */
