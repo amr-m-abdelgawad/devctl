@@ -4,6 +4,7 @@ import type { DevctlConfig } from "../domain/config/types.ts";
 import type { ConfigDiffEntry } from "../domain/config/provenance.ts";
 import type { GoogleStatus } from "../domain/identity/google-status.ts";
 import type { PersistedState } from "../domain/session/session.ts";
+import type { WedgeRecord } from "../domain/daemon/liveness.ts";
 import type { Plan } from "../domain/service/services.ts";
 import type { LogEvent, LogFilter, LogPageRequest, LogPage, LogFacets } from "../domain/logs/logs.ts";
 import type { LlmCall, LlmCallFilter, LlmCallPage, LlmCallPageRequest } from "../domain/llm/llm.ts";
@@ -107,6 +108,8 @@ export type ClientRuntime = {
   forceStopDaemon(repoRoot: string): boolean;
   assertMethodAllowed(client: DaemonClient, method: string): void;
   readPersistedState(repoRoot: string): PersistedState | undefined;
+  /** The watchdog's record of the last daemon it stopped as wedged. */
+  readWedge(repoRoot: string): WedgeRecord | undefined;
   rotateMcpToken(repoRoot: string): string;
   rotateWebToken(repoRoot: string): string;
   mcpTokenAgeMs(repoRoot: string): number | undefined;

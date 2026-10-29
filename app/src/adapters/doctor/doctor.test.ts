@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
 import { containerInitCheck, createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
-import { writeHeartbeatAtomic } from "../daemon/heartbeat.ts";
+import { wedgePath, writeHeartbeatAtomic } from "../daemon/heartbeat.ts";
 import { acquireLock, socketPath } from "../storage/storage.ts";
 
 const IAP_CLIENT_ID = "desktop.apps.googleusercontent.com";
@@ -579,6 +579,20 @@ describe("doctor daemon watchdog", () => {
     } finally {
       held.release();
     }
+  });
+
+  test("warns about a daemon the watchdog stopped within the last day", async () => {
+    const repo = join(root, "repo");
+    const wedgeCheck = async (): Promise<{ severity: string; message: string } | undefined> =>
+      (await runDoctor(repoCfg(repo), offlineHost())).checks.find((row) => row.name === "daemon wedge");
+    expect(await wedgeCheck()).toBeUndefined();
+    mkdirSync(dirname(wedgePath(repo)), { recursive: true });
+    writeFileSync(wedgePath(repo), `${JSON.stringify({ pid: 307, at: Date.now() - 60_000, reportedBy: 500 })}\n`);
+    const check = await wedgeCheck();
+    expect(check?.severity).toBe("warn");
+    expect(check?.message).toContain("pid 307) was stopped by its watchdog");
+    writeFileSync(wedgePath(repo), `${JSON.stringify({ pid: 307, at: Date.now() - 25 * 60 * 60 * 1000 })}\n`);
+    expect(await wedgeCheck()).toBeUndefined();
   });
 
   test("ignores a degraded heartbeat left by a daemon that no longer holds the lock", async () => {

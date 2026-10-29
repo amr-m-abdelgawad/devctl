@@ -2,7 +2,8 @@ import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import { Detector } from "../../shared/redaction.ts";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import { daemonStatusLine, instanceStatusLine, type StatusSnapshot } from "../../domain/status.ts";
+import { daemonStatusLine, instanceStatusLine, wedgeStatusLine, type StatusSnapshot } from "../../domain/status.ts";
+import { recentWedge, wedgeMessage } from "../../domain/daemon/liveness.ts";
 import { displayState, formatPlan } from "../../domain/service/services.ts";
 import { type ServiceConfig } from "../../domain/config/types.ts";
 import { defaultEnvironmentName, namedEnvironmentNames, resolveEnvironmentName, serviceHasNamedEnvironments } from "../../domain/service/environments.ts";
@@ -165,8 +166,11 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
   try {
     if (!client) {
       const persisted = runtime.readPersistedState(repoRoot);
+      // A wedge after the last daemon to run: its services may still be running, unsupervised.
+      const read = runtime.readWedge(repoRoot);
+      const wedge = recentWedge(read, Date.now()) && read.reportedBy === undefined ? read : undefined;
       if (opts.json) {
-        writeOut(JSON.stringify({ running: false, ...(notice === undefined ? {} : { notice }), persisted }, null, 2) + "\n");
+        writeOut(JSON.stringify({ running: false, ...(notice === undefined ? {} : { notice }), ...(wedge === undefined ? {} : { wedge }), persisted }, null, 2) + "\n");
         return;
       }
       if (notice !== undefined) {
@@ -176,6 +180,9 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
         return;
       }
       writeOut("supervisor is not running\n");
+      if (wedge !== undefined) {
+        writeOut(`${wedgeMessage(wedge)}. Its services may still be running without health checks or restarts; \`devctl start\` adopts them.\n`);
+      }
       if (persisted && persisted.processes.length > 0) {
         writeOut(`last session ${persisted.session_id}  profile ${persisted.profile || "(none)"}\n`);
         for (const proc of persisted.processes) {
@@ -205,6 +212,10 @@ async function renderStatusOnce(runtime: ClientRuntime, root: Command, opts: { r
     const daemonLine = daemonStatusLine(snap.daemon);
     if (daemonLine !== undefined) {
       writeOut(`${daemonLine}\n`);
+    }
+    const wedgeLine = wedgeStatusLine(snap.daemon);
+    if (wedgeLine !== undefined) {
+      writeOut(`${wedgeLine}\n`);
     }
     writeOut(`IDENTITY    ${snap.identity.user || "(unknown)"}\n`);
     writeOut(`CLOUD       ${snap.identity.project || "(unset)"}\n`);

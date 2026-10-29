@@ -1,6 +1,7 @@
 import { type LogEvent } from "./logs/logs.ts";
 import { type Runtime } from "./service/services.ts";
 import type { TraceTree } from "./telemetry/types.ts";
+import { wedgeMessage, type WedgeRecord } from "./daemon/liveness.ts";
 
 export type StartRequest = {
   services?: string[];
@@ -225,6 +226,8 @@ export type StatusSnapshot = {
     logStore?: "worker" | "in-process";
     /** "degraded" while the watchdog worker is down, so a wedged daemon is not detected. Absent before it starts. */
     watchdog?: "ok" | "degraded";
+    /** A daemon before this one that the watchdog stopped as wedged, within the last day. */
+    lastWedge?: WedgeRecord;
   };
 };
 
@@ -252,6 +255,12 @@ export function instanceStatusLine(instance: StatusSnapshot["instance"]): string
 }
 
 /** The status line for a daemon missing one of its workers; undefined while both run. */
+/** The status line for a wedged daemon this one replaced, if any. */
+export function wedgeStatusLine(daemon: StatusSnapshot["daemon"]): string | undefined {
+  const wedge = daemon?.lastWedge;
+  return wedge === undefined ? undefined : `WATCHDOG    ${wedgeMessage(wedge)}; this daemon adopted its services`;
+}
+
 export function daemonStatusLine(daemon: StatusSnapshot["daemon"]): string | undefined {
   const missing: string[] = [];
   if (daemon?.watchdog === "degraded") {

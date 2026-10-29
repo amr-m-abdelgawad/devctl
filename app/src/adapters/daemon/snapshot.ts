@@ -7,13 +7,15 @@ import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { configuredServiceAccounts } from "../../domain/identity/identity.ts";
 import { displayState, startPeriodWindow, type Runtime } from "../../domain/service/services.ts";
 import { defaultEnvironmentName, resolveEnvironmentName } from "../../domain/service/environments.ts";
-import { daemonStatusLine, instanceStatusLine, type IdentitySnapshot, type LogSnapshot, type ServiceAccountStatus, type StatsSeries, type StatusSnapshot, type SystemSnapshot } from "../../domain/status.ts";
+import { daemonStatusLine, instanceStatusLine, wedgeStatusLine, type IdentitySnapshot, type LogSnapshot, type ServiceAccountStatus, type StatsSeries, type StatusSnapshot, type SystemSnapshot } from "../../domain/status.ts";
 import type { McpListener } from "../../ports/mcp-host.ts";
 import type { WebListener } from "../../ports/web-host.ts";
 import { readHostMemory } from "../system/host-stats.ts";
 import { readHostLimits } from "../system/host-limits.ts";
 import { emptyDaemonMetrics } from "../../ports/daemon-metrics.ts";
 import { eventLoopLagMs, orphanReaperState, watchdogState } from "./resource-probe.ts";
+import { readWedge } from "./heartbeat.ts";
+import { recentWedge, type WedgeRecord } from "../../domain/daemon/liveness.ts";
 import type { ProxyServer } from "../proxy/proxy.ts";
 
 export type SnapshotHost = {
@@ -191,7 +193,13 @@ function daemonResource(host: SnapshotHost): StatusSnapshot["daemon"] {
     logs: host.logs.pipelineStats?.(),
     logStore: host.logs.usesWorker?.() === true ? "worker" : "in-process",
     watchdog: watchdogState(),
+    lastWedge: replacedWedge(host.cfg.repoRoot),
   };
+}
+
+function replacedWedge(repoRoot: string): WedgeRecord | undefined {
+  const wedge = readWedge(repoRoot);
+  return recentWedge(wedge, Date.now()) && wedge.pid !== process.pid ? wedge : undefined;
 }
 
 export function routeIapCredentialsValid(auth: RouteAuthConfig): boolean | undefined {
@@ -241,6 +249,10 @@ export function formatStatusFromSnapshot(snap: StatusSnapshot): string {
   const daemonLine = daemonStatusLine(snap.daemon);
   if (daemonLine !== undefined) {
     lines.push(daemonLine);
+  }
+  const wedgeLine = wedgeStatusLine(snap.daemon);
+  if (wedgeLine !== undefined) {
+    lines.push(wedgeLine);
   }
   return lines.join("\n") + "\n";
 }

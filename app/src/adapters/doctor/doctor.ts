@@ -15,7 +15,8 @@ import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
 import { lockPath, resolveUserPath } from "../storage/storage.ts";
 import { lockIsLive, readLockFile } from "../storage/lock.ts";
-import { readHeartbeat } from "../daemon/heartbeat.ts";
+import { readHeartbeat, readWedge } from "../daemon/heartbeat.ts";
+import { recentWedge, wedgeMessage } from "../../domain/daemon/liveness.ts";
 import { TokenManager, googleTokenProviders, iapOAuthClientRef, TOKEN_MINT_WARN_COUNT, type OAuthClientRef, type TokenMintHotspot } from "../google/token.ts";
 import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../../domain/doctor/types.ts";
 import { readPid1 } from "../system/host-limits.ts";
@@ -201,6 +202,16 @@ export async function runDoctor(
       severity: "warn",
       message: "the watchdog worker is down, so a wedged daemon is not detected",
       hint: "restart the daemon without stopping services (`devctl down --keep-services`, then `devctl start`); reinstall devctl if it stays down",
+    });
+  }
+  const wedge = readWedge(cfg.repoRoot);
+  if (recentWedge(wedge, Date.now())) {
+    checking("daemon wedge");
+    add({
+      name: "daemon wedge",
+      severity: "warn",
+      message: wedgeMessage(wedge),
+      hint: "a service flooding output or a plugin or hook blocking the main thread can stall it; the bootstrap log (`devctl daemon logs`) and that session's devctl logs show what ran last",
     });
   }
   if (cfg.plugins.length > 0) {
