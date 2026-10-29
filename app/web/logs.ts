@@ -17,6 +17,7 @@ export const FOLLOW_IDLE_POLL_MS = 1_000;
 export const FOLLOW_HIDDEN_POLL_MS = 2_000;
 export const FACETS_POLL_MS = 2_000;
 export const CLIP_ROW_HEIGHT = 28;
+export const COMPACT_LOG_ROW_HEIGHT = 56;
 export const LOG_OVERSCAN = 16;
 export const LOG_FOLLOW_SLACK_PX = 24;
 export const SEARCH_DEBOUNCE_MS = 300;
@@ -89,6 +90,12 @@ export function logWrapLabel(mode: LogWrapMode): string {
 
 export function logRowExpanded(mode: LogWrapMode, selected: boolean): boolean {
   return mode === "all" || (mode === "focus" && selected);
+}
+
+export function nextLogSelectionIndex(length: number, current: number, delta: number): number {
+  if (length === 0) return -1;
+  if (current < 0) return delta < 0 ? length - 1 : 0;
+  return Math.max(0, Math.min(length - 1, current + delta));
 }
 
 export function estimateWrappedHeight(message: string): number {

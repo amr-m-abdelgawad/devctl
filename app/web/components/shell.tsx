@@ -7,6 +7,8 @@ import {
   ArrowUpRightIcon,
   BrowsersIcon,
   CommandIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
   FileCodeIcon,
   FirstAidIcon,
   FlowArrowIcon,
@@ -27,6 +29,16 @@ import type { RouteName, ServiceRow, StatusSummary } from "../types.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { SearchInput } from "./filters.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
+
+const SIDEBAR_KEY = "devctl.sidebar.collapsed";
+function readSidebarCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 const PAGES: Array<{ name: RouteName; label: string; description: string; icon: Icon; group: string }> = [
   {
@@ -105,6 +117,7 @@ export function ConsoleShell(props: {
   children: ReactNode;
 }) {
   const [menu, setMenu] = useState(false);
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
   const [searchOpen, setSearchOpen] = useState(false);
   const [search, setSearch] = useState("");
   const page = PAGES.find((item) => item.name === props.route) ?? PAGES[0]!;
@@ -127,24 +140,30 @@ export function ConsoleShell(props: {
         <div key={group} className="nav-group">
           <p className="nav-label">{group}</p>
           {PAGES.filter((item) => item.group === group).map((item) => (
-            <a
-              key={item.name}
-              href={hrefFor(item.name)}
-              aria-current={props.route === item.name ? "page" : undefined}
-              className={cn("nav-link", props.route === item.name && "nav-link-active")}
-              onClick={() => setMenu(false)}
-            >
-              <item.icon aria-hidden="true" />
-              <span>{item.label}</span>
-              {item.name === "services" ? <span className="nav-count">{props.services.length}</span> : null}
-            </a>
+            <Tooltip key={item.name}>
+              <TooltipTrigger asChild>
+                <a
+                  key={item.name}
+                  href={hrefFor(item.name)}
+                  aria-label={item.label}
+                  aria-current={props.route === item.name ? "page" : undefined}
+                  className={cn("nav-link", props.route === item.name && "nav-link-active")}
+                  onClick={() => setMenu(false)}
+                >
+                  <item.icon aria-hidden="true" />
+                  <span className="nav-link-label">{item.label}</span>
+                  {item.name === "services" ? <span className="nav-count">{props.services.length}</span> : null}
+                </a>
+              </TooltipTrigger>
+              {collapsed ? <TooltipContent side="right">{item.label}</TooltipContent> : null}
+            </Tooltip>
           ))}
         </div>
       ))}
     </nav>
   );
   return (
-    <div className="console-layout">
+    <div className={cn("console-layout", collapsed && "console-collapsed")}>
       <a
         href="#main-content"
         className="skip-link"
@@ -155,13 +174,41 @@ export function ConsoleShell(props: {
       >
         Skip to content
       </a>
-      <aside className="console-sidebar">
-        <a href={hrefFor("services")} className="console-brand">
-          <DevctlLogo className="size-8" />
-          <span>
-            devctl<span className="brand-caption">DEVELOPMENT CONSOLE</span>
-          </span>
-        </a>
+      <aside id="workspace-sidebar" className="console-sidebar">
+        <div className="sidebar-heading">
+          <a
+            href={hrefFor("services")}
+            className="console-brand"
+            aria-label="devctl overview"
+            title={collapsed ? props.project : undefined}
+          >
+            <DevctlLogo className="size-8" />
+            <span className="brand-copy">
+              <span className="brand-name">devctl</span>
+              <span className="brand-caption">DEVELOPMENT CONSOLE</span>
+            </span>
+          </a>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="sidebar-toggle"
+            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+            aria-expanded={!collapsed}
+            aria-controls="workspace-sidebar"
+            title={collapsed ? "Expand navigation" : "Collapse navigation"}
+            onClick={() => {
+              const next = !collapsed;
+              setCollapsed(next);
+              try {
+                window.localStorage.setItem(SIDEBAR_KEY, String(next));
+              } catch {
+                /* Keep the control usable when storage is unavailable. */
+              }
+            }}
+          >
+            {collapsed ? <CaretRightIcon /> : <CaretLeftIcon />}
+          </Button>
+        </div>
         <div className="workspace-label">
           <span className="size-2 shrink-0 rounded-sm bg-primary" />
           <span className="truncate" title={props.status?.repo_root}>
@@ -170,7 +217,8 @@ export function ConsoleShell(props: {
         </div>
         <Button
           variant="outline"
-          className="mx-4 justify-between"
+          className="sidebar-search mx-4 justify-between"
+          aria-label="Quick find"
           onClick={() => {
             setSearch("");
             setSearchOpen(true);
@@ -183,7 +231,10 @@ export function ConsoleShell(props: {
           <kbd className="text-[10px]">⌘ K</kbd>
         </Button>
         {nav}
-        <div className="sidebar-footer">
+        <div
+          className="sidebar-footer"
+          title={props.error ? "Connection interrupted" : props.status ? "Connected to supervisor" : "Connecting…"}
+        >
           <span className={cn("size-1.5 rounded-full", props.error ? "bg-warning" : props.status ? "bg-success" : "bg-muted-foreground")} />
           <span>{props.error ? "Connection interrupted" : props.status ? "Connected to supervisor" : "Connecting…"}</span>
         </div>

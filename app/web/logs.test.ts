@@ -31,6 +31,7 @@ import {
   logIdentity,
   logWrapLabel,
   logsQueryKey,
+  nextLogSelectionIndex,
 } from "./logs.ts";
 import type { LogRow } from "./types.ts";
 
@@ -72,6 +73,14 @@ describe("log page merge", () => {
 });
 
 describe("log windowing", () => {
+  test("keyboard selection starts at the first or last record and stays within the loaded window", () => {
+    expect(nextLogSelectionIndex(5, -1, 1)).toBe(0);
+    expect(nextLogSelectionIndex(5, -1, -1)).toBe(4);
+    expect(nextLogSelectionIndex(5, 0, -1)).toBe(0);
+    expect(nextLogSelectionIndex(5, 4, 1)).toBe(4);
+    expect(nextLogSelectionIndex(5, 2, 1)).toBe(3);
+    expect(nextLogSelectionIndex(0, -1, 1)).toBe(-1);
+  });
   test("visibleIndexRange overscans around the viewport", () => {
     expect(visibleIndexRange(100, 280, 140, 28, 2)).toEqual({ start: 8, end: 17 });
     expect(visibleIndexRange(0, 0, 100, 28, 2)).toEqual({ start: 0, end: 0 });

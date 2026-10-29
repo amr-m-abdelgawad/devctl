@@ -6,7 +6,21 @@ import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { useLogSession } from "../hooks/use-log-session.ts";
-import { ColumnsIcon, DownloadSimpleIcon, PauseIcon, PlayIcon } from "../icons.ts";
+import {
+  CaretDownIcon,
+  CaretLeftIcon,
+  CaretRightIcon,
+  ColumnsIcon,
+  CopyIcon,
+  DownloadSimpleIcon,
+  PauseIcon,
+  PlayIcon,
+  XIcon,
+} from "../icons.ts";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog.tsx";
+import { ChoiceGroup } from "../components/filters.tsx";
+import { clockMs } from "../format.ts";
+import { StatusBadge } from "../components/status.tsx";
 import { cn } from "../lib/utils.ts";
 import {
   countNewerThan,
@@ -20,6 +34,7 @@ import {
   logIdentity,
   logWrapLabel,
   nextLogWrapMode,
+  nextLogSelectionIndex,
   SEARCH_DEBOUNCE_MS,
   SELECTABLE_LOG_LEVELS,
   type LogWrapMode,
@@ -45,7 +60,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   const errorOnly = isErrorLevelPreset(levels);
   const [showGrpc, setShowGrpc] = useState(true);
   const [paused, setPaused] = useState(false);
-  const [wrapMode, setWrapMode] = useState<LogWrapMode>("clip");
+  const [wrapMode, setWrapMode] = useState<LogWrapMode>("focus");
   const [split, setSplit] = useState(false);
   const [splitFocus, setSplitFocus] = useState<0 | 1>(0);
   const [serviceA, setServiceA] = useState(props.initialService || "");
@@ -68,6 +83,19 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   const [showTimestamps, setShowTimestamps] = useState(true);
   const [showMeta, setShowMeta] = useState(true);
   const [exportError, setExportError] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [wide, setWide] = useState(() => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches);
+  const [copied, setCopied] = useState("");
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 1280px)");
+    const changed = (): void => {
+      setWide(media.matches);
+      if (!media.matches) setInspectorOpen(false);
+    };
+    changed();
+    media.addEventListener("change", changed);
+    return () => media.removeEventListener("change", changed);
+  }, []);
 
   const query = useMemo(
     () => ({
@@ -140,24 +168,46 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
     setFollowB(false);
     setPinSeqB(lastSeq(rowsB));
   }, [rowsB]);
+  const selectRow = useCallback(
+    (id: string, pane: 0 | 1) => {
+      if (pane === 1) {
+        setSelectedB(id);
+        pinB();
+      } else {
+        setSelectedA(id);
+        pinA();
+      }
+      setSplitFocus(pane);
+      if (wide) setInspectorOpen(true);
+    },
+    [pinA, pinB, wide],
+  );
+  const inspectRow = useCallback(
+    (id: string, pane: 0 | 1) => {
+      selectRow(id, pane);
+      setInspectorOpen(true);
+    },
+    [selectRow],
+  );
+  const selectA = useCallback((id: string) => selectRow(id, 0), [selectRow]);
+  const selectB = useCallback((id: string) => selectRow(id, 1), [selectRow]);
+  const inspectA = useCallback((id: string) => inspectRow(id, 0), [inspectRow]);
+  const inspectB = useCallback((id: string) => inspectRow(id, 1), [inspectRow]);
+  const selectActive = split && splitFocus === 1 ? selectB : selectA;
   const jumpA = useCallback(() => {
     setFollowA(true);
     setPinSeqA(undefined);
     setTickA((tick) => tick + 1);
-    const tail = rowsA[rowsA.length - 1];
-    if (tail) {
-      setSelectedA(logIdentity(tail, rowsA.length - 1));
-    }
-  }, [rowsA]);
+    setSelectedA("");
+    setInspectorOpen(false);
+  }, []);
   const jumpB = useCallback(() => {
     setFollowB(true);
     setPinSeqB(undefined);
     setTickB((tick) => tick + 1);
-    const tail = rowsB[rowsB.length - 1];
-    if (tail) {
-      setSelectedB(logIdentity(tail, rowsB.length - 1));
-    }
-  }, [rowsB]);
+    setSelectedB("");
+    setInspectorOpen(false);
+  }, []);
   const jumpActive = useCallback(() => {
     if (split && splitFocus === 1) {
       jumpB();
@@ -188,17 +238,21 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
     selectedId,
     split,
     splitFocus,
+    selectActive,
   });
   useEffect(() => {
-    keysRef.current = { jumpActive, toggleSplit, activeRows, selectedId, split, splitFocus };
-  }, [activeRows, jumpActive, selectedId, split, splitFocus, toggleSplit]);
+    keysRef.current = { jumpActive, toggleSplit, activeRows, selectedId, split, splitFocus, selectActive };
+  }, [activeRows, jumpActive, selectedId, split, splitFocus, toggleSplit, selectActive]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.metaKey || event.ctrlKey || event.altKey) {
         return;
       }
-      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog], button, a")
+      ) {
         if (event.key === "Escape") {
           event.target.blur();
         }
@@ -213,6 +267,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
       if (event.key === "z" || event.key === "Escape") {
         event.preventDefault();
         setFullscreen((value) => (event.key === "Escape" ? false : !value));
+        if (event.key === "Escape") setInspectorOpen(false);
         return;
       }
       if (event.key === "p") {
@@ -250,7 +305,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
         return;
       }
       event.preventDefault();
-      moveSelection(latest.activeRows, latest.selectedId, delta, latest.split && latest.splitFocus === 1 ? setSelectedB : setSelectedA);
+      moveSelection(latest.activeRows, latest.selectedId, delta, latest.selectActive);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -265,8 +320,29 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
     );
   };
 
-  const inspector = <LogInspector event={selectedEvent} />;
+  const selectedIndex = activeRows.findIndex((row, index) => logIdentity(row, index) === selectedId);
+  const navigateSelection = (delta: number): void => moveSelection(activeRows, selectedId, delta, selectActive);
+  const closeSelection = (): void => {
+    setSelectedA("");
+    setSelectedB("");
+    setInspectorOpen(false);
+  };
+  const copyMessage = (): void => {
+    if (selectedEvent)
+      void navigator.clipboard
+        .writeText(selectedEvent.message)
+        .then(() => setCopied(selectedId))
+        .catch(() => setCopied("failed"));
+  };
 
+  const levelControls = (
+    <LevelChips
+      levels={levels}
+      byLevel={sessionId ? undefined : session.facets?.byLevel}
+      onChange={setLevels}
+      onClear={() => setLevels([])}
+    />
+  );
   return (
     <Card className={cn("log-workspace", fullscreen && "log-zen")}>
       <CardHeader className="flex-wrap items-start gap-2">
@@ -277,7 +353,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
           </Badge>
           {session.truncated ? <Badge variant="outline">older history</Badge> : null}
           <span className="ml-auto hidden text-[11px] text-muted-foreground xl:inline">
-            j/k move · f search · p pause · g latest · e ERROR+ · b grpc · levels below · \ split · w wrap
+            Click to select · ↑/↓ move · Enter inspect · f search · p pause · g latest
           </span>
         </div>
         <Toolbar
@@ -336,6 +412,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
           onJump={jumpActive}
           onClear={() => {
             session.clear();
+            closeSelection();
             setFollowA(true);
             setFollowB(true);
             setPinSeqA(undefined);
@@ -353,91 +430,217 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             options={chips.map((chip) => ({ value: chip.name, label: chip.name || "All services", count: chip.count }))}
             onChange={split && splitFocus === 1 ? setServiceB : setServiceA}
           />
-          <LevelChips
-            levels={levels}
-            byLevel={sessionId ? undefined : session.facets?.byLevel}
-            onChange={setLevels}
-            onClear={() => setLevels([])}
-          />
+          <div className="log-levels-desktop">{levelControls}</div>
+          <details className="log-levels-mobile">
+            <summary aria-label="Filter log levels">
+              Levels <span>{levels.length === 0 ? "All" : levels.length < 3 ? levels.join(", ") : `${levels.length} selected`}</span>
+              <CaretDownIcon aria-hidden="true" />
+            </summary>
+            <div>{levelControls}</div>
+          </details>
         </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-0">
         {session.error || exportError ? <p className="text-xs text-destructive">{session.error || exportError}</p> : null}
-        {split ? (
-          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
-            <LogPane
-              title="Pane A"
-              active={splitFocus === 0}
-              events={rowsA}
-              selectedId={selectedA}
-              follow={followA}
-              followTick={tickA}
-              newer={newerA}
-              wrapMode={wrapMode}
-              showTimestamps={showTimestamps}
-              showMeta={showMeta}
-              loadingOlder={session.loadingOlder}
-              onFocus={() => setSplitFocus(0)}
-              onSelect={setSelectedA}
-              onPin={pinA}
-              onJumpLatest={jumpA}
-              onReachTop={session.loadOlder}
-            />
-            <LogPane
-              title="Pane B"
-              active={splitFocus === 1}
-              events={rowsB}
-              selectedId={selectedB}
-              follow={followB}
-              followTick={tickB}
-              newer={newerB}
-              wrapMode={wrapMode}
-              showTimestamps={showTimestamps}
-              showMeta={showMeta}
-              loadingOlder={session.loadingOlder}
-              onFocus={() => setSplitFocus(1)}
-              onSelect={setSelectedB}
-              onPin={pinB}
-              onJumpLatest={jumpB}
-              onReachTop={session.loadOlder}
-            />
+        {selectedEvent ? (
+          <div className="log-selection-bar" role="region" aria-label="Selected log">
+            <div className="log-selection-summary">
+              <StatusBadge value={selectedEvent.level || selectedEvent.severityText || "info"} />
+              <span className="truncate font-medium">{selectedEvent.service}</span>
+              <time className="font-mono text-[11px] text-muted-foreground">{clockMs(selectedEvent.timestamp)}</time>
+              <span className="text-[11px] text-muted-foreground">Selected · view pinned</span>
+            </div>
+            <div className="log-selection-actions">
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label="Previous log"
+                disabled={selectedIndex <= 0}
+                onClick={() => navigateSelection(-1)}
+              >
+                <CaretLeftIcon />
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label="Next log"
+                disabled={selectedIndex < 0 || selectedIndex >= activeRows.length - 1}
+                onClick={() => navigateSelection(1)}
+              >
+                <CaretRightIcon />
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={copyMessage}
+                aria-label={copied === selectedId ? "Copied message" : "Copy message"}
+                title={copied === selectedId ? "Copied" : "Copy message"}
+              >
+                <CopyIcon data-icon="inline-start" />
+                <span className="hidden sm:inline">{copied === selectedId ? "Copied" : "Copy message"}</span>
+              </Button>
+              <Button size="xs" variant="outline" aria-expanded={inspectorOpen} onClick={() => setInspectorOpen((value) => !value)}>
+                {wide && inspectorOpen ? "Hide details" : "Inspect record"}
+              </Button>
+              <Button size="xs" variant="ghost" aria-label="Clear log selection" onClick={closeSelection}>
+                <XIcon />
+              </Button>
+            </div>
+            {copied === "failed" ? (
+              <span role="status" className="text-xs text-warning">
+                Clipboard unavailable. Select the message in details to copy it.
+              </span>
+            ) : null}
           </div>
         ) : (
-          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-            <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-border/60">
-              <LogList
+          <p className="log-selection-hint">Select a row to read its message. Open details with the arrow or Enter.</p>
+        )}
+        <div className={cn("log-body", wide && inspectorOpen && selectedEvent && "log-body-inspecting")}>
+          {split ? (
+            <div className="log-streams log-streams-split">
+              <LogPane
+                title="Pane A"
+                active={splitFocus === 0}
                 events={rowsA}
                 selectedId={selectedA}
-                onSelect={setSelectedA}
+                follow={followA}
+                followTick={tickA}
+                newer={newerA}
                 wrapMode={wrapMode}
                 showTimestamps={showTimestamps}
                 showMeta={showMeta}
-                follow={followA}
-                followTick={tickA}
+                loadingOlder={session.loadingOlder}
+                onFocus={() => setSplitFocus(0)}
+                onSelect={selectA}
+                onInspect={inspectA}
                 onPin={pinA}
                 onJumpLatest={jumpA}
-                newer={newerA}
                 onReachTop={session.loadOlder}
+              />
+              <LogPane
+                title="Pane B"
+                active={splitFocus === 1}
+                events={rowsB}
+                selectedId={selectedB}
+                follow={followB}
+                followTick={tickB}
+                newer={newerB}
+                wrapMode={wrapMode}
+                showTimestamps={showTimestamps}
+                showMeta={showMeta}
                 loadingOlder={session.loadingOlder}
-                empty={session.loading ? "Loading logs…" : "No log records."}
+                onFocus={() => setSplitFocus(1)}
+                onSelect={selectB}
+                onInspect={inspectB}
+                onPin={pinB}
+                onJumpLatest={jumpB}
+                onReachTop={session.loadOlder}
               />
             </div>
-            {inspector}
-          </div>
-        )}
-        {split ? inspector : null}
+          ) : (
+            <div className="log-streams">
+              <div className="log-stream">
+                <LogList
+                  events={rowsA}
+                  selectedId={selectedA}
+                  onSelect={selectA}
+                  onInspect={inspectA}
+                  wrapMode={wrapMode}
+                  showTimestamps={showTimestamps}
+                  showMeta={showMeta}
+                  follow={followA}
+                  followTick={tickA}
+                  onPin={pinA}
+                  onJumpLatest={jumpA}
+                  newer={newerA}
+                  onReachTop={session.loadOlder}
+                  loadingOlder={session.loadingOlder}
+                  empty={session.loading ? "Loading logs…" : "No log records."}
+                />
+              </div>
+            </div>
+          )}
+          {wide && inspectorOpen && selectedEvent ? (
+            <aside className="log-details" aria-label="Log details">
+              <div className="log-details-heading">
+                <h3>Log details</h3>
+                <Button size="xs" variant="ghost" aria-label="Close log details" onClick={() => setInspectorOpen(false)}>
+                  <XIcon />
+                </Button>
+              </div>
+              <LogInspector event={selectedEvent} />
+            </aside>
+          ) : null}
+        </div>
+        <Dialog open={!wide && inspectorOpen && Boolean(selectedEvent)} onOpenChange={setInspectorOpen}>
+          <DialogContent className="log-details-dialog">
+            <DialogHeader>
+              <DialogTitle>Log details</DialogTitle>
+              <DialogDescription>
+                {selectedEvent ? `${selectedEvent.service} · ${clockMs(selectedEvent.timestamp)}` : "Selected log record"}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedEvent ? <LogInspector event={selectedEvent} /> : null}
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );
 }
 
-function LogInspector(props: { event: LogRow | undefined }) {
+function LogInspector(props: { event: LogRow }) {
   const { event } = props;
-  if (!event) {
-    return <p className="px-2 py-6 text-center text-xs text-muted-foreground">Select a log row to inspect its JSON.</p>;
-  }
+  const [view, setView] = useState("message");
   const resetKey = typeof event.seq === "number" ? `seq:${event.seq}` : event.timestamp;
-  return <JsonViewer title="Log record" input={event} resetKey={resetKey} />;
+  return (
+    <div className="log-record-detail">
+      <ChoiceGroup
+        label="Log detail view"
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "message", label: "Message" },
+          { value: "json", label: "JSON" },
+        ]}
+      />
+      <div className="log-detail-scroll">
+        {view === "json" ? (
+          <JsonViewer title="Log record" input={event} resetKey={resetKey} />
+        ) : (
+          <>
+            <dl className="log-record-facts">
+              <div>
+                <dt>Service</dt>
+                <dd>{event.service}</dd>
+              </div>
+              <div>
+                <dt>Level</dt>
+                <dd>
+                  <StatusBadge value={event.level || event.severityText || "info"} />
+                </dd>
+              </div>
+              <div>
+                <dt>Time</dt>
+                <dd>{event.timestamp}</dd>
+              </div>
+              <div>
+                <dt>Source</dt>
+                <dd>{event.source}</dd>
+              </div>
+              {event.traceId ? (
+                <div>
+                  <dt>Trace</dt>
+                  <dd>{event.traceId}</dd>
+                </div>
+              ) : null}
+            </dl>
+            <h4 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Message</h4>
+            <pre className="log-readable-message">{event.message}</pre>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function LogPane(props: {
@@ -454,6 +657,7 @@ function LogPane(props: {
   loadingOlder: boolean;
   onFocus: () => void;
   onSelect: (id: string) => void;
+  onInspect: (id: string) => void;
   onPin: () => void;
   onJumpLatest: () => void;
   onReachTop: () => void;
@@ -546,9 +750,10 @@ function Toolbar(props: {
           {p.paused ? <PlayIcon data-icon="inline-start" /> : <PauseIcon data-icon="inline-start" />}
           {p.paused ? "Resume" : "Pause"}
         </Button>
-        <Button size="sm" variant="outline" onClick={p.onJump}>
-          {p.liveLabel === "live" ? "Latest" : p.liveLabel}
+        <Button size="sm" variant="outline" onClick={p.onJump} title="Return to live logs and clear selection">
+          Latest
         </Button>
+        {p.liveLabel !== "live" ? <Badge variant="muted">{p.liveLabel}</Badge> : null}
         <Button size="sm" variant="outline" onClick={p.onFullscreen} aria-pressed={p.fullscreen}>
           {p.fullscreen ? "Exit full screen" : "Full screen"}
         </Button>
@@ -728,11 +933,8 @@ function moveSelection(rows: LogRow[], selectedId: string, delta: number, onSele
   if (rows.length === 0) {
     return;
   }
-  const current = Math.max(
-    0,
-    rows.findIndex((row, index) => logIdentity(row, index) === selectedId),
-  );
-  const nextIndex = Math.min(rows.length - 1, Math.max(0, current + delta));
+  const current = rows.findIndex((row, index) => logIdentity(row, index) === selectedId);
+  const nextIndex = nextLogSelectionIndex(rows.length, current, delta);
   const next = rows[nextIndex];
   if (next) {
     onSelect(logIdentity(next, nextIndex));
