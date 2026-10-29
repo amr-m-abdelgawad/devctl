@@ -625,6 +625,10 @@ export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown 
       ports: Record<string, number>;
       pid: number;
       last_error: string;
+      restarts?: number;
+      startTime?: string;
+      cpuPercent?: number;
+      memoryKB?: number;
       env?: string;
       started_env?: string;
       environments?: string[];
@@ -637,7 +641,11 @@ export function listServices(snap: StatusSnapshot, cfg?: DevctlConfig): unknown 
       ports: rt.ports,
       pid: rt.pid,
       last_error: rt.last_error,
+      restarts: rt.restarts,
     };
+    if (rt.startTime !== undefined) row.startTime = rt.startTime;
+    if (rt.cpuPercent !== undefined) row.cpuPercent = rt.cpuPercent;
+    if (rt.memoryKB !== undefined) row.memoryKB = rt.memoryKB;
     if (rt.env) {
       row.env = rt.env;
     }
@@ -702,6 +710,7 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
     identity: {
       user: snap.identity.user,
       project: snap.identity.project,
+      project_source: snap.identity.project_source,
       adc: snap.identity.adc,
       iap: snap.identity.iap,
       service_accounts: snap.identity.service_accounts,
@@ -734,11 +743,16 @@ export function getStatusSummary(snap: StatusSnapshot): unknown {
           port: snap.mcp.port,
           token_age_ms: snap.mcp.token_age_ms,
           regenerate_token: snap.mcp.regenerate_token === true,
+          disabled_tools: snap.mcp.disabled_tools,
         }
       : { running: false },
     web: snap.web
       ? { running: snap.web.running, address: snap.web.address, port: snap.web.port }
       : { running: false },
+    credentials: snap.credentials,
+    system: snap.system,
+    service_series: snap.service_series,
+    restart_required: snap.restart_required,
     stats_series: snap.stats_series,
     ...(snap.daemon ? { daemon: snap.daemon } : {}),
   };
@@ -770,7 +784,11 @@ export async function getLogSession(host: McpHost, id: string, args: Record<stri
 export async function* iterateLogsExport(host: McpHost, args: Record<string, unknown>): AsyncGenerator<string> {
   const detector = detectorFor(host.config());
   const filter = logFilterFromArgs(args);
-  const oldest = await oldestMatchingLogPage(host, filter);
+  const session = argString(args, "session");
+  const source: McpHost = session ? { ...host, logsPage: async (req) => host.logSessionPage
+    ? host.logSessionPage(session, req)
+    : pageLoadedLogs(await host.loadLogSession(session), req, req) } : host;
+  const oldest = await oldestMatchingLogPage(source, filter);
   if (oldest === undefined) {
     return;
   }
@@ -781,7 +799,7 @@ export async function* iterateLogsExport(host: McpHost, args: Record<string, unk
   // A page a read budget cut short can be empty with more to come; stop only when the cursor stops moving.
   while (page.hasNext) {
     const cursor = page.nextCursor;
-    page = await host.logsPage({ ...filter, cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
+    page = await source.logsPage({ ...filter, cursor, direction: "forward", limit: MAX_LOG_PAGE_SIZE });
     for (const line of logPageJsonl(detector, page)) {
       yield line;
     }
@@ -833,6 +851,7 @@ function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
     attribute: attributeKey !== "" && attributeValue !== "" ? { key: attributeKey, value: attributeValue } : undefined,
     dedupeRequestId: argFlag(args.dedupe_request_id),
     hideGrpc: argFlag(args.hide_grpc),
+    hideSystem: argFlag(args.hide_system),
   };
 }
 
@@ -1174,6 +1193,10 @@ function routeConfigSummary(route: DevctlConfig["proxy"]["routes"][number]): Rec
     upstream: route.upstream.url !== "" ? route.upstream.url : nonempty(route.upstream.service ?? "") ? `service:${route.upstream.service}${route.upstream.port ? `/${route.upstream.port}` : ""}` : "",
     auth: route.auth.type,
   };
+  if (route.transport) out.transport = route.transport;
+  if (route.listen) out.listen = route.listen;
+  if (route.inspect) out.inspect = route.inspect;
+  if (route.strip_prefix) out.strip_prefix = true;
   const identity = nonempty(route.auth.identity.type);
   const audience = nonempty(route.auth.audience);
   const serviceAccount = nonempty(route.auth.identity.service_account || route.auth.service_account);

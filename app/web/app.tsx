@@ -1,30 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { SystemPage } from "./pages/system.tsx";
+import { PageBoundary } from "./components/page-boundary.tsx";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconContext } from "./icons.ts";
+import { ConsoleShell } from "./components/shell.tsx";
+import { ServiceDetail } from "./components/service-detail.tsx";
+import { ConfigPage } from "./pages/config.tsx";
+import { ProxyPage } from "./pages/proxy.tsx";
+import { WorkspacePage } from "./pages/workspace.tsx";
+import { useInspectorFeed } from "./hooks/use-inspector-feed.ts";
+import { serviceIsHealthy } from "./fleet.ts";
 import {
-  ArrowClockwiseIcon,
-  ArrowsLeftRightIcon,
-  FirstAidIcon,
-  FlowArrowIcon,
-  GearIcon,
-  GraphIcon,
-  IconContext,
-  IdentificationCardIcon,
-  PlayIcon,
-  RobotIcon,
-  ScrollIcon,
-  SquaresFourIcon,
-  StopIcon,
-  type Icon,
-} from "./icons.ts";
-import { fetchConfig, fetchLlmCall, fetchLlmCalls, fetchLogs, fetchPreferences, fetchProfiles, fetchRequestTrace, fetchRequests, fetchServices, fetchStatus, fetchTrace, fetchTrafficCall, fetchTrafficCalls, fetchUpdate, postControl } from "./api.ts";
+  fetchConfig,
+  fetchLlmCall,
+  fetchLlmCalls,
+  fetchLogs,
+  fetchPreferences,
+  fetchProfiles,
+  fetchRequestTrace,
+  fetchRequests,
+  fetchServices,
+  fetchStatus,
+  fetchTrace,
+  fetchTrafficCall,
+  fetchTrafficCalls,
+  fetchUpdate,
+  postControl,
+} from "./api.ts";
 import { percentile, type SeriesPoint } from "./charts.tsx";
 import { ControlNotice } from "./components/controls.tsx";
 import { UpdateNotice } from "./components/update-notice.tsx";
 import { noticeFor, type RunControl } from "./control.ts";
 import { NANOS_PER_MS, traceEnvelopeNs } from "./format.ts";
 import { TooltipProvider } from "./components/ui/tooltip.tsx";
-import { Button } from "./components/ui/button.tsx";
-import { cn } from "./lib/utils.ts";
-import { DevctlLogo } from "./brand.tsx";
 import { activeInspectId, hrefFor, parseHash } from "./hash.ts";
 import { advanceRingCounter, emptyRingCounter, lifetimeTotal, logLifetime } from "./lifetime.ts";
 import { counterWindowRate, rateInWindow, requestIsFailure } from "./rates.ts";
@@ -42,7 +49,6 @@ import type {
   ControlArgs,
   ControlTool,
   LlmCallRow,
-  LlmCallsPayload,
   LogRow,
   ProfileRow,
   RequestsPayload,
@@ -52,7 +58,6 @@ import type {
   StatusSummary,
   TracePayload,
   TrafficCallRow,
-  TrafficCallsPayload,
   UpdateCheckPayload,
 } from "./types.ts";
 import {
@@ -68,17 +73,6 @@ import { consoleDocumentTitle, repoDisplayName } from "./title.ts";
 const POLL_MS = 2000;
 const WINDOW = 60;
 const RATE_LOOKBACK_MS = 10_000;
-const NAV: Array<{ name: RouteName; label: string; icon: Icon }> = [
-  { name: "services", label: "Overview", icon: SquaresFourIcon },
-  { name: "traces", label: "Traces", icon: FlowArrowIcon },
-  { name: "llm", label: "LLM", icon: RobotIcon },
-  { name: "traffic", label: "Traffic", icon: ArrowsLeftRightIcon },
-  { name: "graph", label: "Graph", icon: GraphIcon },
-  { name: "logs", label: "Logs", icon: ScrollIcon },
-  { name: "doctor", label: "Doctor", icon: FirstAidIcon },
-  { name: "settings", label: "Settings", icon: GearIcon },
-];
-
 const PAGE_LABEL: Record<RouteName, string> = {
   services: "Overview",
   traces: "Traces",
@@ -89,6 +83,10 @@ const PAGE_LABEL: Record<RouteName, string> = {
   doctor: "Doctor",
   identity: "Identity",
   settings: "Settings",
+  workspace: "Profiles & tasks",
+  config: "Configuration",
+  proxy: "Proxy & connections",
+  system: "System & supervisor",
 };
 
 type RateSample = {
@@ -128,7 +126,6 @@ export function App() {
   const [config, setConfig] = useState<ConfigSummary | undefined>(undefined);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [errors, setErrors] = useState<LogRow[]>([]);
-  const [llmCalls, setLlmCalls] = useState<LlmCallsPayload | undefined>(undefined);
   const [llmDetail, setLlmDetail] = useState<LlmCallRow | undefined>(undefined);
   const [llmError, setLlmError] = useState("");
   // Active caller filter ("" = all, "-" = no caller) and the option list. The
@@ -137,12 +134,34 @@ export function App() {
   const [llmCaller, setLlmCaller] = useState("");
   const [llmCallers, setLlmCallers] = useState<string[]>([]);
   const [llmSearch, setLlmSearch] = useState("");
-  const [trafficCalls, setTrafficCalls] = useState<TrafficCallsPayload | undefined>(undefined);
   const [trafficDetail, setTrafficDetail] = useState<TrafficCallRow | undefined>(undefined);
   const [trafficError, setTrafficError] = useState("");
   const [trafficSearch, setTrafficSearch] = useState("");
   const [trafficCaller, setTrafficCaller] = useState("");
   const [trafficCallers, setTrafficCallers] = useState<string[]>([]);
+  const [llmFilters, setLlmFilters] = useState<Record<string, string>>({});
+  const [trafficFilters, setTrafficFilters] = useState<Record<string, string>>({});
+  const llmParams = useMemo(() => ({ ...llmFilters, caller: llmCaller, search: llmSearch }), [llmFilters, llmCaller, llmSearch]);
+  const trafficParams = useMemo(
+    () => ({ ...trafficFilters, caller: trafficCaller, search: trafficSearch }),
+    [trafficFilters, trafficCaller, trafficSearch],
+  );
+  const llmFeed = useInspectorFeed(route.name === "llm", fetchLlmCalls, llmParams);
+  const trafficFeed = useInspectorFeed(route.name === "traffic", fetchTrafficCalls, trafficParams);
+  const llmCalls = llmFeed.payload;
+  const trafficCalls = trafficFeed.payload;
+  const [llmModels, setLlmModels] = useState<string[]>([]);
+  useEffect(() => {
+    if (llmCalls && !llmCaller && !llmSearch && !Object.values(llmFilters).some(Boolean)) {
+      setLlmCallers([...new Set(llmCalls.calls.map((row) => row.caller || "").filter(Boolean))].sort());
+      setLlmModels([...new Set(llmCalls.calls.map((row) => row.model).filter(Boolean))].sort());
+    }
+  }, [llmCalls, llmCaller, llmSearch, llmFilters]);
+  useEffect(() => {
+    if (trafficCalls && !trafficCaller && !trafficSearch && !Object.values(trafficFilters).some(Boolean)) {
+      setTrafficCallers([...new Set(trafficCalls.calls.map((row) => row.caller || "").filter(Boolean))].sort());
+    }
+  }, [trafficCalls, trafficCaller, trafficSearch, trafficFilters]);
   const [trace, setTrace] = useState<TracePayload | undefined>(undefined);
   const [traceError, setTraceError] = useState("");
   const [selectedSpan, setSelectedSpan] = useState("");
@@ -151,32 +170,48 @@ export function App() {
   const [traceMsById, setTraceMsById] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
+  const [noticeError, setNoticeError] = useState(false);
+  const reportNotice = useCallback((message: string, error = false) => {
+    setNotice(message);
+    setNoticeError(error);
+  }, []);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), noticeError ? 12000 : 6500);
+    return () => window.clearTimeout(timer);
+  }, [notice, noticeError]);
   const [updateCheck, setUpdateCheck] = useState<UpdateCheckPayload | undefined>(undefined);
   const [dismissedNotices, setDismissedNotices] = useState<string[]>(() => readIdList(window.localStorage, DISMISSED_NOTIFICATIONS_KEY));
-  const [sessionHiddenNotices, setSessionHiddenNotices] = useState<string[]>(() => readIdList(window.sessionStorage, SESSION_HIDDEN_NOTIFICATIONS_KEY));
+  const [sessionHiddenNotices, setSessionHiddenNotices] = useState<string[]>(() =>
+    readIdList(window.sessionStorage, SESSION_HIDDEN_NOTIFICATIONS_KEY),
+  );
   const busyRef = useRef(false);
   const traceMsRef = useRef<Record<string, number>>({});
   const requestLifeRef = useRef(emptyRingCounter());
   const pollGenRef = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    void fetchUpdate().then((payload) => {
-      if (!cancelled) {
-        setUpdateCheck(payload);
-      }
-    }).catch(() => {
-      // A failed GitHub probe must not interrupt the console.
-    });
+    void fetchUpdate()
+      .then((payload) => {
+        if (!cancelled) {
+          setUpdateCheck(payload);
+        }
+      })
+      .catch(() => {
+        // A failed GitHub probe must not interrupt the console.
+      });
     return () => {
       cancelled = true;
     };
   }, []);
   useEffect(() => {
-    void fetchPreferences().then((prefs) => {
-      document.documentElement.dataset.appearance = prefs.values.web_appearance;
-    }).catch(() => {
-      // Appearance stays at the committed dark tokens if preferences are unavailable.
-    });
+    void fetchPreferences()
+      .then((prefs) => {
+        document.documentElement.dataset.appearance = prefs.values.web_appearance;
+      })
+      .catch(() => {
+        // Appearance stays at the committed dark tokens if preferences are unavailable.
+      });
   }, []);
   useEffect(() => {
     traceMsRef.current = traceMsById;
@@ -214,7 +249,11 @@ export function App() {
     const nowMs = Date.now();
     const rows = nextRequests.requests ?? [];
     const lat = rows.map((row) => row.duration_ms);
-    const reqs = rateInWindow(rows.map((row) => row.timestamp), nowMs, RATE_LOOKBACK_MS);
+    const reqs = rateInWindow(
+      rows.map((row) => row.timestamp),
+      nowMs,
+      RATE_LOOKBACK_MS,
+    );
     const reqFails = rateInWindow(
       rows.filter((row) => requestIsFailure(row)).map((row) => row.timestamp),
       nowMs,
@@ -228,8 +267,18 @@ export function App() {
         t: nowSec,
         reqs,
         reqFails,
-        logs: counterWindowRate(cur.map((row) => ({ t: row.t, value: row.seen })), nowSec, counts.total, lookbackSec),
-        logFails: counterWindowRate(cur.map((row) => ({ t: row.t, value: row.seenErrors })), nowSec, counts.errors, lookbackSec),
+        logs: counterWindowRate(
+          cur.map((row) => ({ t: row.t, value: row.seen })),
+          nowSec,
+          counts.total,
+          lookbackSec,
+        ),
+        logFails: counterWindowRate(
+          cur.map((row) => ({ t: row.t, value: row.seenErrors })),
+          nowSec,
+          counts.errors,
+          lookbackSec,
+        ),
         seen: counts.total,
         seenErrors: counts.errors,
         p50: percentile(lat, 50),
@@ -250,26 +299,46 @@ export function App() {
     });
   }, []);
 
-  const runControl: RunControl = useCallback((tool: ControlTool, args: ControlArgs = {}, label?: string) => {
-    if (busyRef.current) {
-      return;
-    }
-    busyRef.current = true;
-    setBusy(label || tool);
-    setNotice("");
-    void (async () => {
-      try {
-        const result = await postControl(tool, args);
-        setNotice(noticeFor(tool, result, args));
-        await poll();
-      } catch (err: unknown) {
-        setNotice(err instanceof Error ? err.message : "control failed");
-      } finally {
-        busyRef.current = false;
-        setBusy("");
+  const runControl: RunControl = useCallback(
+    (tool: ControlTool, args: ControlArgs = {}, label?: string) => {
+      if (busyRef.current) {
+        return;
       }
-    })();
+      busyRef.current = true;
+      setBusy(label || tool);
+      reportNotice("");
+      void (async () => {
+        try {
+          const result = await postControl(tool, args);
+          reportNotice(noticeFor(tool, result, args));
+          await poll().catch((err: unknown) => setPollError(err instanceof Error ? err.message : "Unable to refresh status"));
+        } catch (err: unknown) {
+          reportNotice(err instanceof Error ? err.message : "Control failed", true);
+        } finally {
+          busyRef.current = false;
+          setBusy("");
+        }
+      })();
+    },
+    [poll, reportNotice],
+  );
+
+  useEffect(() => {
+    const refresh = () => {
+      void poll().catch(() => {});
+    };
+    window.addEventListener("devctl:refresh", refresh);
+    return () => window.removeEventListener("devctl:refresh", refresh);
   }, [poll]);
+
+  const externalBusy = useCallback(
+    (label: string) => {
+      busyRef.current = Boolean(label);
+      setBusy(label);
+      if (!label) void poll().catch(() => {});
+    },
+    [poll],
+  );
 
   useEffect(() => {
     const run = (): void => {
@@ -282,7 +351,9 @@ export function App() {
       });
     };
     run();
-    const timer = window.setInterval(run, POLL_MS);
+    const timer = window.setInterval(() => {
+      if (!document.hidden) run();
+    }, POLL_MS);
     return () => {
       pollGenRef.current += 1;
       window.clearInterval(timer);
@@ -299,19 +370,21 @@ export function App() {
     setSelectedSpan("");
     setTrace(undefined);
     let cancelled = false;
-    void fetchTrace(requested).then((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setTrace(payload);
-      setTraceError("");
-    }).catch((err: unknown) => {
-      if (cancelled) {
-        return;
-      }
-      setTrace(undefined);
-      setTraceError(err instanceof Error ? err.message : "trace failed");
-    });
+    void fetchTrace(requested)
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        setTrace(payload);
+        setTraceError("");
+      })
+      .catch((err: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setTrace(undefined);
+        setTraceError(err instanceof Error ? err.message : "trace failed");
+      });
     return () => {
       cancelled = true;
     };
@@ -322,71 +395,33 @@ export function App() {
 
   useEffect(() => {
     if (route.name !== "llm") {
-      setLlmCalls(undefined);
       setLlmDetail(undefined);
       setLlmError("");
       return;
     }
-    let cancelled = false;
-    const run = (): void => {
-      const params: Record<string, string> = {};
-      if (llmCaller) {
-        params.caller = llmCaller;
-      }
-      if (llmSearch) {
-        params.search = llmSearch;
-      }
-      void fetchLlmCalls(params).then((payload) => {
-        if (!cancelled) {
-          setLlmCalls(payload);
-          if (!route.llmId) {
-            setLlmError("");
-          }
-          if (llmCaller === "" && llmSearch === "") {
-            const names = Array.from(
-              new Set(payload.calls.map((call) => (call.caller ?? "").trim()).filter((name) => name !== "")),
-            ).sort((a, b) => a.localeCompare(b));
-            setLlmCallers(names);
-          }
-        }
-      }).catch((err: unknown) => {
-        if (!cancelled) {
-          setLlmError(err instanceof Error ? err.message : "llm calls failed");
-        }
-      });
-    };
-    run();
-    const timer = window.setInterval(run, POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [route.name, route.llmId, llmCaller, llmSearch]);
-
-  useEffect(() => {
-    if (route.name !== "llm") {
-      return;
-    }
     if (!llmInspectId) {
       setLlmDetail(undefined);
+      setLlmError("");
       return;
     }
     const requested = llmInspectId;
     let cancelled = false;
     const run = (): void => {
-      void fetchLlmCall(requested).then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        setLlmDetail(payload);
-        setLlmError("");
-      }).catch((err: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        setLlmDetail(undefined);
-        setLlmError(err instanceof Error ? err.message : "llm call failed");
-      });
+      void fetchLlmCall(requested)
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+          setLlmDetail(payload);
+          setLlmError("");
+        })
+        .catch((err: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          setLlmDetail(undefined);
+          setLlmError(err instanceof Error ? err.message : "llm call failed");
+        });
     };
     run();
     const timer = window.setInterval(run, POLL_MS);
@@ -398,71 +433,33 @@ export function App() {
 
   useEffect(() => {
     if (route.name !== "traffic") {
-      setTrafficCalls(undefined);
       setTrafficDetail(undefined);
       setTrafficError("");
       return;
     }
-    let cancelled = false;
-    const run = (): void => {
-      const params: Record<string, string> = {};
-      if (trafficCaller) {
-        params.caller = trafficCaller;
-      }
-      if (trafficSearch) {
-        params.search = trafficSearch;
-      }
-      void fetchTrafficCalls(params).then((payload) => {
-        if (!cancelled) {
-          setTrafficCalls(payload);
-          if (!route.trafficId) {
-            setTrafficError("");
-          }
-          if (trafficCaller === "" && trafficSearch === "") {
-            const names = Array.from(
-              new Set(payload.calls.map((call) => (call.caller ?? "").trim()).filter((name) => name !== "")),
-            ).sort((a, b) => a.localeCompare(b));
-            setTrafficCallers(names);
-          }
-        }
-      }).catch((err: unknown) => {
-        if (!cancelled) {
-          setTrafficError(err instanceof Error ? err.message : "traffic calls failed");
-        }
-      });
-    };
-    run();
-    const timer = window.setInterval(run, POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [route.name, route.trafficId, trafficCaller, trafficSearch]);
-
-  useEffect(() => {
-    if (route.name !== "traffic") {
-      return;
-    }
     if (!trafficInspectId) {
       setTrafficDetail(undefined);
+      setTrafficError("");
       return;
     }
     const requested = trafficInspectId;
     let cancelled = false;
     const run = (): void => {
-      void fetchTrafficCall(requested).then((payload) => {
-        if (cancelled) {
-          return;
-        }
-        setTrafficDetail(payload);
-        setTrafficError("");
-      }).catch((err: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        setTrafficDetail(undefined);
-        setTrafficError(err instanceof Error ? err.message : "traffic call failed");
-      });
+      void fetchTrafficCall(requested)
+        .then((payload) => {
+          if (cancelled) {
+            return;
+          }
+          setTrafficDetail(payload);
+          setTrafficError("");
+        })
+        .catch((err: unknown) => {
+          if (cancelled) {
+            return;
+          }
+          setTrafficDetail(undefined);
+          setTrafficError(err instanceof Error ? err.message : "traffic call failed");
+        });
     };
     run();
     const timer = window.setInterval(run, POLL_MS);
@@ -532,11 +529,7 @@ export function App() {
   const last = rates[rates.length - 1];
   const summary: OverviewSummary = {
     total: services.length,
-    healthy: services.filter((s) => {
-      const h = (s.health || "").toUpperCase();
-      const st = (s.state || "").toUpperCase();
-      return h === "HEALTHY" || st === "RUNNING" || st === "HEALTHY";
-    }).length,
+    healthy: services.filter(serviceIsHealthy).length,
     requests: reqTotal,
     failedRequests,
     failedRate: reqTotal > 0 ? (failedRequests / reqTotal) * 100 : 0,
@@ -551,207 +544,155 @@ export function App() {
   return (
     <IconContext.Provider value={{ weight: "regular", color: "currentColor", size: 16 }}>
       <TooltipProvider delayDuration={200}>
-        <div className="flex min-h-full flex-col">
-        <div className="sticky top-0 z-20">
-          <header className="border-b border-border/70 bg-background/80 backdrop-blur">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-2.5">
-            <div className="flex items-center gap-2">
-              <DevctlLogo className="size-7 shrink-0" />
-              <div className="flex items-baseline gap-2">
-                <span className="text-[15px] font-semibold tracking-tight text-primary">devctl</span>
-                <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  {projectName === "" ? "console" : projectName}
-                </span>
-              </div>
+        <ConsoleShell
+          route={route.name}
+          project={projectName}
+          status={status}
+          services={services}
+          busy={Boolean(busy)}
+          error={pollError}
+          onReload={() => runControl("reload_config", {}, "Reloading configuration…")}
+          notice={<ControlNotice busy={busy} notice={notice} error={noticeError} onDismiss={() => setNotice("")} />}
+          update={
+            showUpdate && updateCheck ? (
+              <UpdateNotice
+                check={updateCheck}
+                onLater={() => {
+                  const next = withDismissed(sessionHiddenNotices, updateCheck.latest);
+                  setSessionHiddenNotices(next);
+                  writeIdList(window.sessionStorage, SESSION_HIDDEN_NOTIFICATIONS_KEY, next);
+                }}
+                onDismiss={() => {
+                  const next = withDismissed(dismissedNotices, updateCheck.latest);
+                  setDismissedNotices(next);
+                  writeIdList(window.localStorage, DISMISSED_NOTIFICATIONS_KEY, next);
+                }}
+              />
+            ) : null
+          }
+        >
+          <PageBoundary route={route.name}>
+            {route.name === "services" ? (
+              <OverviewPage
+                summary={summary}
+                services={services}
+                requests={requests}
+                errors={errors}
+                profiles={profiles}
+                tasks={config?.tasks ?? []}
+                configServices={config?.services ?? []}
+                profile={status?.profile || profiles[0]?.name || ""}
+                busy={Boolean(busy)}
+                traceMsById={traceMsById}
+                onControl={runControl}
+              />
+            ) : null}
+            {route.name === "traces" ? (
+              <TracesPage
+                requestTotal={reqTotal}
+                requests={requests}
+                trace={trace}
+                traceId={route.traceId}
+                error={traceError}
+                selectedSpan={selectedSpan}
+                onSelectSpan={setSelectedSpan}
+                traceMsById={traceMsById}
+                onJumpRequest={(id) => {
+                  void fetchRequestTrace(id)
+                    .then((payload) => {
+                      window.location.hash = hrefFor("traces", payload.trace_id);
+                    })
+                    .catch((err: unknown) => setTraceError(err instanceof Error ? err.message : "request trace failed"));
+                }}
+              />
+            ) : null}
+            {route.name === "graph" ? (
+              <GraphPage
+                config={config?.services ?? []}
+                services={services}
+                requestPoints={requestPoints}
+                logPoints={logPoints}
+                latPoints={latPoints}
+                hostPoints={hostPoints}
+                busy={Boolean(busy)}
+                onControl={runControl}
+              />
+            ) : null}
+            {route.name === "logs" ? (
+              <LogsPage logTotal={logTotal} serviceNames={services.map((row) => row.name)} initialService={route.logService} />
+            ) : null}
+            {route.name === "doctor" ? <DoctorPage /> : null}
+            {route.name === "system" ? <SystemPage status={status} services={services} /> : null}
+            {route.name === "identity" ? <IdentityPage status={status} /> : null}
+            {route.name === "llm" ? (
+              <LlmPage
+                payload={llmCalls}
+                detail={llmDetail}
+                llmId={route.llmId}
+                error={llmError || llmFeed.error}
+                filters={llmFilters}
+                onFilters={setLlmFilters}
+                models={llmModels}
+                feed={llmFeed}
+                caller={llmCaller}
+                callers={[...new Set([...services.map((row) => row.name), ...llmCallers])].sort()}
+                search={llmSearch}
+                onCaller={setLlmCaller}
+                onSearch={setLlmSearch}
+              />
+            ) : null}
+            {route.name === "traffic" ? (
+              <TrafficPage
+                payload={trafficCalls}
+                detail={trafficDetail}
+                trafficId={route.trafficId}
+                error={trafficError || trafficFeed.error}
+                filters={trafficFilters}
+                onFilters={setTrafficFilters}
+                routes={config?.proxy?.routes.map((row) => row.name) ?? []}
+                feed={trafficFeed}
+                caller={trafficCaller}
+                callers={[...new Set([...services.map((row) => row.name), ...trafficCallers])].sort()}
+                search={trafficSearch}
+                onCaller={setTrafficCaller}
+                onSearch={setTrafficSearch}
+              />
+            ) : null}
+            {route.name === "settings" ? (
+              <SettingsPage status={status} busy={Boolean(busy)} onBusy={externalBusy} onNotice={reportNotice} />
+            ) : null}
+            {route.name === "workspace" ? (
+              <WorkspacePage
+                profiles={profiles}
+                tasks={config?.tasks ?? []}
+                services={services}
+                profile={status?.profile || ""}
+                busy={Boolean(busy)}
+                onControl={runControl}
+                onBusy={externalBusy}
+                onNotice={reportNotice}
+              />
+            ) : null}
+            <div hidden={route.name !== "config"}>
+              <ConfigPage config={config} active={route.name === "config"} busy={Boolean(busy)} onControl={runControl} />
             </div>
-
-            <nav className="flex items-center gap-1 rounded-lg border border-border/60 bg-muted/40 p-1">
-              {NAV.map((item) => {
-                const active = route.name === item.name;
-                return (
-                  <a
-                    key={item.name}
-                    href={hrefFor(item.name)}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[13px] font-medium transition-colors",
-                      active ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <item.icon className="size-4" />
-                    {item.label}
-                  </a>
-                );
-              })}
-            </nav>
-
-            <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
-              <ControlNotice busy={busy} notice={notice} />
-              <div className="flex items-center gap-2">
-                <a
-                  href={hrefFor("identity")}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] hover:bg-accent hover:text-foreground",
-                    route.name === "identity" ? "bg-accent text-foreground" : "text-muted-foreground",
-                  )}
-                  title={status?.identity.adc ? "Application Default Credentials available" : "ADC missing — open Identity"}
-                >
-                  <IdentificationCardIcon className="size-3" />
-                  <span className={cn("size-1.5 rounded-full", status?.identity.adc ? "bg-success" : "bg-destructive")} />
-                  {status?.identity.adc ? "ADC" : "!ADC"}
-                </a>
-                <button
-                  type="button"
-                  className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
-                  disabled={Boolean(busy)}
-                  title={status?.proxy.running ? "Stop proxy" : "Start proxy"}
-                  onClick={() => runControl(status?.proxy.running ? "stop_proxy" : "start_proxy", {}, status?.proxy.running ? "Stopping proxy…" : "Starting proxy…")}
-                >
-                  {status?.proxy.running ? <StopIcon size={12} className="size-3" /> : <PlayIcon size={12} className="size-3" />}
-                  <ConnDot label="proxy" up={status?.proxy.running} />
-                </button>
-                <ConnDot label="mcp" up={status?.mcp.running} />
-                <ConnDot label="web" up={status?.web.running} />
-              </div>
-              <span className="rounded-md bg-muted px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
-                {status?.profile || profiles[0]?.name || "(none)"}
-              </span>
-              <Button
-                type="button"
-                size="xs"
-                variant="ghost"
-                disabled={Boolean(busy)}
-                onClick={() => runControl("reload_config", {}, "Reloading config…")}
-              >
-                <ArrowClockwiseIcon />
-                Reload
-              </Button>
-              {pollError ? (
-                <span className="max-w-[220px] truncate text-xs text-destructive" title={pollError}>{pollError}</span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="size-1.5 animate-pulse rounded-full bg-success" />
-                  live · {POLL_MS / 1000}s
-                </span>
-              )}
-            </div>
-          </div>
-          </header>
-          {showUpdate && updateCheck ? (
-            <UpdateNotice
-              check={updateCheck}
-              onLater={() => {
-                const next = withDismissed(sessionHiddenNotices, updateCheck.latest);
-                setSessionHiddenNotices(next);
-                writeIdList(window.sessionStorage, SESSION_HIDDEN_NOTIFICATIONS_KEY, next);
-              }}
-              onDismiss={() => {
-                const next = withDismissed(dismissedNotices, updateCheck.latest);
-                setDismissedNotices(next);
-                writeIdList(window.localStorage, DISMISSED_NOTIFICATIONS_KEY, next);
-              }}
-            />
-          ) : null}
-        </div>
-
-        <main className="mx-auto w-full max-w-[1600px] flex-1 p-5" aria-busy={Boolean(busy)}>
-          {route.name === "services" ? (
-            <OverviewPage
-              summary={summary}
-              services={services}
-              requests={requests}
-              errors={errors}
-              profiles={profiles}
-              tasks={config?.tasks ?? []}
-              configServices={config?.services ?? []}
-              profile={status?.profile || profiles[0]?.name || ""}
-              busy={Boolean(busy)}
-              traceMsById={traceMsById}
-              onControl={runControl}
-            />
-          ) : null}
-          {route.name === "traces" ? (
-            <TracesPage
-              requestTotal={reqTotal}
-              requests={requests}
-              trace={trace}
-              traceId={route.traceId}
-              error={traceError}
-              selectedSpan={selectedSpan}
-              onSelectSpan={setSelectedSpan}
-              traceMsById={traceMsById}
-              onJumpRequest={(id) => {
-                void fetchRequestTrace(id).then((payload) => {
-                  window.location.hash = hrefFor("traces", payload.trace_id);
-                }).catch((err: unknown) => setTraceError(err instanceof Error ? err.message : "request trace failed"));
-              }}
-            />
-          ) : null}
-          {route.name === "graph" ? (
-            <GraphPage
-              config={config?.services ?? []}
-              services={services}
-              requestPoints={requestPoints}
-              logPoints={logPoints}
-              latPoints={latPoints}
-              hostPoints={hostPoints}
-              busy={Boolean(busy)}
-              onControl={runControl}
-            />
-          ) : null}
-          {route.name === "logs" ? (
-            <LogsPage
-              logTotal={logTotal}
-              serviceNames={services.map((row) => row.name)}
-            />
-          ) : null}
-          {route.name === "doctor" ? <DoctorPage /> : null}
-          {route.name === "identity" ? <IdentityPage status={status} /> : null}
-          {route.name === "llm" ? (
-            <LlmPage
-              payload={llmCalls}
-              detail={llmDetail}
-              llmId={route.llmId}
-              error={llmError}
-              caller={llmCaller}
-              callers={llmCallers}
-              search={llmSearch}
-              onCaller={setLlmCaller}
-              onSearch={setLlmSearch}
-            />
-          ) : null}
-          {route.name === "traffic" ? (
-            <TrafficPage
-              payload={trafficCalls}
-              detail={trafficDetail}
-              trafficId={route.trafficId}
-              error={trafficError}
-              caller={trafficCaller}
-              callers={trafficCallers}
-              search={trafficSearch}
-              onCaller={setTrafficCaller}
-              onSearch={setTrafficSearch}
-            />
-          ) : null}
-          {route.name === "settings" ? (
-            <SettingsPage
-              status={status}
-              busy={Boolean(busy)}
-              onBusy={setBusy}
-              onNotice={setNotice}
-            />
-          ) : null}
-        </main>
-        </div>
+            {route.name === "proxy" ? <ProxyPage status={status} config={config} busy={Boolean(busy)} onControl={runControl} /> : null}
+            {route.name === "services" && route.serviceId ? (
+              <ServiceDetail
+                key={route.serviceId}
+                name={route.serviceId}
+                row={services.find((row) => row.name === route.serviceId)}
+                config={config?.services ?? []}
+                busy={Boolean(busy)}
+                onControl={runControl}
+                onClose={() => {
+                  window.location.hash = hrefFor("services");
+                }}
+              />
+            ) : null}
+          </PageBoundary>
+        </ConsoleShell>
       </TooltipProvider>
     </IconContext.Provider>
-  );
-}
-
-function ConnDot(props: { label: string; up?: boolean }) {
-  return (
-    <span className="flex items-center gap-1.5" title={`${props.label} ${props.up ? "up" : "down"}`}>
-      <span className={cn("size-1.5 rounded-full", props.up ? "bg-success" : "bg-muted-foreground/40")} />
-      <span className="text-[11px] text-muted-foreground">{props.label}</span>
-    </span>
   );
 }

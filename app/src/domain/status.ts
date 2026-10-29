@@ -49,6 +49,7 @@ export type LogsRequest = {
   attribute?: { key: string; value: string };
   dedupeRequestId?: boolean;
   hideGrpc?: boolean;
+  hideSystem?: boolean;
 };
 
 export type RouteSnapshot = {

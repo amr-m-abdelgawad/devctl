@@ -1,3 +1,4 @@
+import { laterLogSince } from "./logs.ts";
 import { describe, expect, test } from "bun:test";
 import {
   appendFollowEvents,
@@ -29,6 +30,7 @@ import {
   toggleListedLevel,
   logIdentity,
   logWrapLabel,
+  logsQueryKey,
 } from "./logs.ts";
 import type { LogRow } from "./types.ts";
 
@@ -92,22 +94,26 @@ describe("log follow helpers", () => {
   });
 
   test("nextLogFollowAction pins on a user scroll-up and snaps on layout growth", () => {
-    expect(nextLogFollowAction({
-      follow: true,
-      armed: true,
-      atBottom: false,
-      scrolledUp: true,
-      contentGrew: false,
-      contentShrunk: false,
-    }).action).toBe("pin");
-    expect(nextLogFollowAction({
-      follow: true,
-      armed: true,
-      atBottom: false,
-      scrolledUp: false,
-      contentGrew: true,
-      contentShrunk: false,
-    }).action).toBe("snap");
+    expect(
+      nextLogFollowAction({
+        follow: true,
+        armed: true,
+        atBottom: false,
+        scrolledUp: true,
+        contentGrew: false,
+        contentShrunk: false,
+      }).action,
+    ).toBe("pin");
+    expect(
+      nextLogFollowAction({
+        follow: true,
+        armed: true,
+        atBottom: false,
+        scrolledUp: false,
+        contentGrew: true,
+        contentShrunk: false,
+      }).action,
+    ).toBe("snap");
   });
 
   test("countNewerThan uses seq as identity", () => {
@@ -142,7 +148,13 @@ describe("log filters and wrap", () => {
       ev(2, { level: "INFO", severityText: "INFO", severityNumber: 9, message: "ready" }),
       ev(3, { level: "WARN", severityText: "WARN", severityNumber: 13, message: "slow" }),
       ev(4, { level: "INFO", severityText: "INFO", severityNumber: 9, message: 'INFO:     127.0.0.1:1 - "GET /health HTTP/1.1" 200 OK' }),
-      ev(5, { source: "proxy", level: "INFO", severityText: "INFO", severityNumber: 9, message: "grpc /grpc.health.v1.Health/Watch route=api grpc-status=0" }),
+      ev(5, {
+        source: "proxy",
+        level: "INFO",
+        severityText: "INFO",
+        severityNumber: 9,
+        message: "grpc /grpc.health.v1.Health/Watch route=api grpc-status=0",
+      }),
     ];
     expect(isHealthCheckRow(rows[0]!)).toBe(true);
     expect(isHealthCheckRow(rows[3]!)).toBe(true);
@@ -223,15 +235,54 @@ describe("log payload adapters", () => {
   test("normalizeDoctorReport keeps port holders without implying a kill action", () => {
     const report = normalizeDoctorReport({
       issues: 1,
-      checks: [{
-        name: "port 8080",
-        severity: "warn",
-        message: "in use",
-        hint: "free the leftover",
-        action: { kind: "free-port", holder: { port: 8080, pid: 12, command: "node" } },
-      }],
+      checks: [
+        {
+          name: "port 8080",
+          severity: "warn",
+          message: "in use",
+          hint: "free the leftover",
+          action: { kind: "free-port", holder: { port: 8080, pid: 12, command: "node" } },
+        },
+      ],
     });
     expect(report.issues).toBe(1);
     expect(report.checks[0]?.action?.holder).toEqual({ port: 8080, pid: 12, command: "node" });
   });
+});
+
+test("log time bounds stay effective after clear and historical exports retain their session", () => {
+  const filterSince = "2026-10-29T10:00:00.000Z";
+  const clearSince = "2026-10-29T11:00:00.000Z";
+  expect(laterLogSince(filterSince, "")).toBe(filterSince);
+  expect(laterLogSince(filterSince, clearSince)).toBe(clearSince);
+  expect(laterLogSince(clearSince, filterSince)).toBe(clearSince);
+  expect(laterLogSince()).toBeUndefined();
+  expect(encodeLogsQuery({ sessionId: "history-session", since: filterSince, until: clearSince })).toEqual({
+    session: "history-session",
+    since: filterSince,
+    until: clearSince,
+  });
+});
+
+test("correlation and system filters reach server queries and invalidate the paging window", () => {
+  const query = {
+    hideSystem: true,
+    requestId: "req-1",
+    traceId: "trace-1",
+    attributeKey: "http.method",
+    attributeValue: "POST",
+    source: "stdout",
+    dedupeRequestId: true,
+  };
+  expect(encodeLogsQuery(query)).toEqual({
+    hide_system: "true",
+    request_id: "req-1",
+    trace_id: "trace-1",
+    attribute_key: "http.method",
+    attribute_value: "POST",
+    source: "stdout",
+    dedupe_request_id: "true",
+  });
+  expect(liveLogsQuery({ showSystem: false })).toEqual({ hideSystem: true });
+  for (const key of Object.keys(query)) expect(logsQueryKey(query)).not.toBe(logsQueryKey({ ...query, [key]: undefined }));
 });

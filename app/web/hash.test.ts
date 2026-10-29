@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { activeInspectId, hrefFor, parseHash } from "./hash.ts";
 
 describe("web hash", () => {
+  test("deep-links to a service and scopes its log view without losing encoded names", () => {
+    expect(hrefFor("services", "billing api")).toBe("#/services/billing%20api");
+    expect(parseHash("#/services/billing%20api")).toEqual({ name: "services", serviceId: "billing api" });
+    expect(parseHash("#/logs?service=billing%20api")).toEqual({ name: "logs", logService: "billing api" });
+    for (const name of ["workspace", "config", "proxy"] as const) expect(parseHash(hrefFor(name))).toEqual({ name });
+  });
   test("parses the settings hash", () => {
     expect(parseHash("#/settings")).toEqual({ name: "settings" });
     expect(hrefFor("settings")).toBe("#/settings");

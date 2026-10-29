@@ -1,4 +1,6 @@
 export type ServiceAccountStatus = "unknown" | "available" | "unavailable";
+import type { CredentialsSnapshot, SystemSnapshot } from "../src/domain/status.ts";
+export type McpToolRow = { name: string; label: string; summary: string; category: string; mutates: boolean; enabled: boolean };
 
 export type StatusSummary = {
   session_id: string;
@@ -23,7 +25,10 @@ export type StatusSummary = {
     recentRequests?: RequestRow[];
   };
   logs: { total: number; errors: number; counts: Record<string, number>; seen?: number; seenErrors?: number };
-  mcp: { running: boolean; address?: string; port?: number };
+  mcp: { running: boolean; address?: string; port?: number; disabled_tools?: string[] };
+  credentials?: CredentialsSnapshot;
+  system?: SystemSnapshot;
+  restart_required?: string[];
   web: { running: boolean; address?: string; port?: number };
   stats_series?: { interval_ms: number; cpu: number[]; mem: number[] };
   daemon?: {
@@ -43,6 +48,10 @@ export type ServiceRow = {
   ports: Record<string, number>;
   pid: number;
   last_error: string;
+  restarts?: number;
+  startTime?: string;
+  cpuPercent?: number;
+  memoryKB?: number;
   env?: string;
   started_env?: string;
   environments?: string[];
@@ -74,6 +83,8 @@ export type RequestsPayload = {
 export type ConfigService = {
   name: string;
   description: string;
+  command?: string[];
+  cwd?: string;
   dependencies: Array<string | { service: string; condition?: string }>;
   ports?: Array<{ name: string; value: number; auto?: boolean }>;
   container?: { image?: string; runtime?: string };
@@ -85,7 +96,39 @@ export type ConfigSummary = {
   project: string;
   services: ConfigService[];
   tasks?: TaskRow[];
+  config_path?: string;
+  repo_root?: string;
+  proxy?: {
+    enabled: boolean;
+    listen: { host: string; port: number };
+    routes: Array<{
+      name: string;
+      match: { host: string; path: string } | string;
+      upstream: string;
+      auth: string;
+      audience?: string;
+      identity?: string;
+      transport?: string;
+      listen?: { host: string; port: number };
+      inspect?: unknown;
+      strip_prefix?: boolean;
+    }>;
+  };
 };
+
+export type ServiceDetail = Omit<ServiceRow, "environments"> & {
+  command: string[];
+  cwd: string;
+  environment: Record<string, string>;
+  environments?: Record<string, Record<string, string>>;
+  container?: Record<string, unknown>;
+};
+
+export type ConfigSources = {
+  entries: Array<{ path: string; value: string; source: string; layer: string; shadowed: Array<{ source: string; layer: string }> }>;
+};
+
+export type TaskResult = { task: string; code: number; stdout: string; stderr: string };
 
 export type ProfileRow = { name: string; services: string[] };
 
@@ -190,6 +233,7 @@ export type LogFacets = {
 };
 
 export type LogsQuery = {
+  sessionId?: string;
   service?: string;
   level?: string;
   levels?: string[];
@@ -203,6 +247,12 @@ export type LogsQuery = {
   direction?: "forward" | "backward";
   limit?: number;
   hideGrpc?: boolean;
+  hideSystem?: boolean;
+  requestId?: string;
+  traceId?: string;
+  attributeKey?: string;
+  attributeValue?: string;
+  dedupeRequestId?: boolean;
 };
 
 export type DoctorSeverity = "ok" | "warn" | "error";
@@ -313,10 +363,25 @@ export type TrafficCallsPayload = {
   next_cursor?: string;
 };
 
-export type RouteName = "services" | "traces" | "graph" | "logs" | "llm" | "traffic" | "settings" | "doctor" | "identity";
+export type RouteName =
+  | "services"
+  | "traces"
+  | "graph"
+  | "logs"
+  | "llm"
+  | "traffic"
+  | "settings"
+  | "doctor"
+  | "identity"
+  | "workspace"
+  | "config"
+  | "proxy"
+  | "system";
 
 export type Route = {
   name: RouteName;
+  serviceId?: string;
+  logService?: string;
   traceId?: string;
   llmId?: string;
   trafficId?: string;

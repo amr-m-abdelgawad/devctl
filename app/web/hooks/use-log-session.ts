@@ -7,6 +7,7 @@ import {
   followPollDelay,
   INITIAL_LOG_PAGE_LIMIT,
   logsQueryKey,
+  laterLogSince,
   mergeLoadedPage,
   prependOlderPage,
 } from "../logs.ts";
@@ -109,7 +110,11 @@ export function useLogSession(opts: UseLogSessionOpts): UseLogSessionResult {
     nextCursorRef.current = "";
     prevCursorRef.current = "";
     setLoading(true);
-    void loadLogPage(sessionId, { ...query, since }, { limit: INITIAL_LOG_PAGE_LIMIT, direction: "forward" })
+    void loadLogPage(
+      sessionId,
+      { ...query, since: laterLogSince(query.since, since) },
+      { limit: INITIAL_LOG_PAGE_LIMIT, direction: "forward" },
+    )
       .then((page) => {
         if (cancelled || gen !== genRef.current) {
           return;
@@ -152,16 +157,23 @@ export function useLogSession(opts: UseLogSessionOpts): UseLogSessionResult {
       }
       const cursor = nextCursorRef.current;
       if (cursor === "") {
-        timer = window.setTimeout(() => {
-          void tick();
-        }, followPollDelay({ idle: true, hidden: document.hidden }));
+        timer = window.setTimeout(
+          () => {
+            void tick();
+          },
+          followPollDelay({ idle: true, hidden: document.hidden }),
+        );
         return;
       }
       try {
-        const page = await loadLogPage(sessionId, { ...queryRef.current, since: sinceRef.current }, {
-          cursor,
-          direction: "forward",
-        });
+        const page = await loadLogPage(
+          sessionId,
+          { ...queryRef.current, since: laterLogSince(queryRef.current.since, sinceRef.current) },
+          {
+            cursor,
+            direction: "forward",
+          },
+        );
         if (cancelled) {
           return;
         }
@@ -187,13 +199,19 @@ export function useLogSession(opts: UseLogSessionOpts): UseLogSessionResult {
       if (cancelled) {
         return;
       }
-      timer = window.setTimeout(() => {
-        void tick();
-      }, followPollDelay({ idle, hidden: document.hidden }));
+      timer = window.setTimeout(
+        () => {
+          void tick();
+        },
+        followPollDelay({ idle, hidden: document.hidden }),
+      );
     };
-    timer = window.setTimeout(() => {
-      void tick();
-    }, followPollDelay({ idle: false, hidden: document.hidden }));
+    timer = window.setTimeout(
+      () => {
+        void tick();
+      },
+      followPollDelay({ idle: false, hidden: document.hidden }),
+    );
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -201,13 +219,14 @@ export function useLogSession(opts: UseLogSessionOpts): UseLogSessionResult {
   }, [active, applyPageMeta, cap, paused, resetForSessionChange, sessionId, key, since]);
 
   useEffect(() => {
-    if (!active) {
+    if (!active || sessionId) {
+      setFacets(undefined);
       return;
     }
     let cancelled = false;
     const pull = async (): Promise<void> => {
       try {
-        const stats = await fetchLogStats({ ...queryRef.current, since: sinceRef.current });
+        const stats = await fetchLogStats({ ...queryRef.current, since: laterLogSince(queryRef.current.since, sinceRef.current) });
         if (!cancelled) {
           setFacets(stats);
         }
@@ -230,7 +249,7 @@ export function useLogSession(opts: UseLogSessionOpts): UseLogSessionResult {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [active, key, paused, since]);
+  }, [active, key, paused, since, sessionId]);
 
   const loadOlder = useCallback((): void => {
     if (!active || olderLock.current || prevCursorRef.current === "") {
@@ -239,11 +258,15 @@ export function useLogSession(opts: UseLogSessionOpts): UseLogSessionResult {
     olderLock.current = true;
     setLoadingOlder(true);
     const cursor = prevCursorRef.current;
-    void loadLogPage(sessionId, { ...queryRef.current, since: sinceRef.current }, {
-      cursor,
-      direction: "backward",
-      limit: INITIAL_LOG_PAGE_LIMIT,
-    })
+    void loadLogPage(
+      sessionId,
+      { ...queryRef.current, since: laterLogSince(queryRef.current.since, sinceRef.current) },
+      {
+        cursor,
+        direction: "backward",
+        limit: INITIAL_LOG_PAGE_LIMIT,
+      },
+    )
       .then((page) => {
         if (page.session_changed && sessionId === "") {
           setError("Daemon session changed — older log history is no longer available");

@@ -6,13 +6,13 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
 }
 
 export function CardHeader({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cn("flex items-center justify-between gap-3 px-4 pb-2 pt-3.5", className)} {...props} />;
+  return <div className={cn("flex min-w-0 flex-wrap items-center justify-between gap-3 px-5 pb-4 pt-5", className)} {...props} />;
 }
 
 export function CardTitle({ className, ...props }: ComponentProps<"h3">) {
-  return <h3 className={cn("text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground", className)} {...props} />;
+  return <h3 className={cn("text-sm font-semibold tracking-tight", className)} {...props} />;
 }
 
 export function CardContent({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cn("px-4 pb-4", className)} {...props} />;
+  return <div className={cn("min-w-0 px-5 pb-5", className)} {...props} />;
 }

@@ -1,6 +1,6 @@
 import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
 import { formatHostPort } from "../../domain/net/hosts.ts";
-import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
+import type { WebHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
 import { humanMessage } from "../../shared/errors.ts";
 import { sessionTokensRegenerate } from "../config/tui-preferences.ts";
 import { readOrCreateWebToken, rotateWebToken } from "../storage/storage.ts";
@@ -9,7 +9,7 @@ export type WebCoordinatorDeps = {
   repoRoot: () => string;
   cfg: () => DevctlConfig;
   createListener: WebListenerFactory;
-  hostApi: () => McpHost;
+  hostApi: () => WebHost;
   log: (service: string, level: string, message: string) => void;
 };
 

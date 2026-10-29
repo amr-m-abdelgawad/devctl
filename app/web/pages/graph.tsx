@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { UPlotChart, type ChartStat, type SeriesPoint } from "../charts.tsx";
 import { DependencyGraph } from "../graph.tsx";
 import { hrefFor } from "../hash.ts";
+import { useStopServices } from "../hooks/use-stop-services.tsx";
 import { useCascadeRestart } from "../hooks/use-cascade-restart.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
@@ -35,6 +36,14 @@ export function GraphPage(props: {
 }) {
   const { config, services, requestPoints, logPoints, latPoints, hostPoints, busy = false, onControl } = props;
   const { requestRestart, banner } = useCascadeRestart(config, onControl ?? noopControl, busy);
+  const { requestStop, confirmation } = useStopServices(config, onControl ?? noopControl, busy);
+  const graphControl: RunControl = (tool, args, label) => {
+    if (tool === "stop_services") {
+      requestStop(args?.services ?? []);
+      return;
+    }
+    onControl?.(tool, args, label);
+  };
   const request = lastValues(requestPoints);
   const log = lastValues(logPoints);
   const lat = lastValues(latPoints);
@@ -78,7 +87,8 @@ export function GraphPage(props: {
         </CardHeader>
         <CardContent className="pt-0">
           {banner}
-          <DependencyGraph config={config} services={services} busy={busy} onControl={onControl} onRestartServices={requestRestart} />
+          {confirmation}
+          <DependencyGraph config={config} services={services} busy={busy} onControl={graphControl} onRestartServices={requestRestart} />
         </CardContent>
       </Card>
 
@@ -161,7 +171,9 @@ function requestInsight(req: number, failed: number, ready: boolean): ReactNode 
   return (
     <>
       {formatPerSec(failed)} failed requests per second (HTTP 4xx/5xx or a proxy error).{" "}
-      <a href={hrefFor("traces")} className="text-primary underline-offset-4 hover:underline">Open Traces</a>
+      <a href={hrefFor("traces")} className="text-primary underline-offset-4 hover:underline">
+        Open Traces
+      </a>
     </>
   );
 }
@@ -179,7 +191,9 @@ function logInsight(logs: number, failed: number, ready: boolean): ReactNode {
   return (
     <>
       {formatPerSec(failed)} ERROR or FATAL logs per second.{" "}
-      <a href={hrefFor("logs")} className="text-primary underline-offset-4 hover:underline">Open Logs</a>
+      <a href={hrefFor("logs")} className="text-primary underline-offset-4 hover:underline">
+        Open Logs
+      </a>
     </>
   );
 }
@@ -192,7 +206,9 @@ function latencyInsight(p50: number, p95: number, ready: boolean): ReactNode {
     return (
       <>
         Slow tail is over {LATENCY_SLOW_MS}ms — an upstream is stalling.{" "}
-        <a href={hrefFor("traces")} className="text-primary underline-offset-4 hover:underline">Open Traces</a>
+        <a href={hrefFor("traces")} className="text-primary underline-offset-4 hover:underline">
+          Open Traces
+        </a>
       </>
     );
   }

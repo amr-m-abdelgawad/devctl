@@ -1,5 +1,11 @@
 import { isHealthCheckLog } from "../src/domain/logs/health.ts";
-import { canonicalLogLevel, isErrorLevelPreset, matchesSelectedLevels, SELECTABLE_LOG_LEVELS, toggleListedLevel } from "../src/domain/logs/severity.ts";
+import {
+  canonicalLogLevel,
+  isErrorLevelPreset,
+  matchesSelectedLevels,
+  SELECTABLE_LOG_LEVELS,
+  toggleListedLevel,
+} from "../src/domain/logs/severity.ts";
 import type { DoctorCheck, DoctorReport, DoctorSeverity, LogFacets, LogRow, LogsPayload, LogsQuery } from "./types.ts";
 
 export { isErrorLevelPreset, SELECTABLE_LOG_LEVELS, toggleListedLevel };
@@ -199,9 +205,7 @@ export function appendFollowEvents(current: LogRow[], incoming: LogRow[], since:
   if (accepted.length === 0) {
     return current;
   }
-  const known = new Set(
-    current.flatMap((row) => (typeof row.seq === "number" && row.seq > 0 ? [row.seq] : [])),
-  );
+  const known = new Set(current.flatMap((row) => (typeof row.seq === "number" && row.seq > 0 ? [row.seq] : [])));
   const replacements = new Map<number, LogRow>();
   const fresh: LogRow[] = [];
   const freshIndexes = new Map<number, number>();
@@ -221,9 +225,8 @@ export function appendFollowEvents(current: LogRow[], incoming: LogRow[], since:
       fresh.push(event);
     }
   }
-  const merged = replacements.size === 0
-    ? current
-    : current.map((row) => (typeof row.seq === "number" ? replacements.get(row.seq) ?? row : row));
+  const merged =
+    replacements.size === 0 ? current : current.map((row) => (typeof row.seq === "number" ? (replacements.get(row.seq) ?? row) : row));
   if (fresh.length === 0) {
     return merged;
   }
@@ -357,9 +360,7 @@ export function facetServiceChips(
     .sort((a, b) => a.localeCompare(b))
     .map((name) => ({ name, count: byService[name] ?? 0 }));
   const listed = [...known, ...extra];
-  const total = typeof facets?.total === "number"
-    ? facets.total
-    : listed.reduce((sum, row) => sum + row.count, 0);
+  const total = typeof facets?.total === "number" ? facets.total : listed.reduce((sum, row) => sum + row.count, 0);
   return [{ name: "", count: total }, ...listed];
 }
 
@@ -399,6 +400,7 @@ export function liveLogsQuery(opts: {
   regex?: boolean;
   since?: string;
   showGrpc?: boolean;
+  showSystem?: boolean;
 }): LogsQuery {
   const query: LogsQuery = {};
   if (opts.service) {
@@ -424,7 +426,15 @@ export function liveLogsQuery(opts: {
   if (opts.showGrpc === false) {
     query.hideGrpc = true;
   }
+  if (opts.showSystem === false) query.hideSystem = true;
   return query;
+}
+
+/** Clearing the view must not loosen a time range chosen by the operator. */
+export function laterLogSince(configured?: string, cleared?: string): string | undefined {
+  const a = configured || "";
+  const b = cleared || "";
+  return (a > b ? a : b) || undefined;
 }
 
 export function logsQueryKey(query: LogsQuery): string {
@@ -439,11 +449,24 @@ export function logsQueryKey(query: LogsQuery): string {
     query.since ?? "",
     query.until ?? "",
     query.hideGrpc === true,
+    query.hideSystem === true,
+    query.requestId ?? "",
+    query.traceId ?? "",
+    query.attributeKey ?? "",
+    query.attributeValue ?? "",
+    query.dedupeRequestId === true,
   ]);
 }
 
 export function encodeLogsQuery(query: LogsQuery): Record<string, string> {
   const params: Record<string, string> = {};
+  if (query.sessionId) params.session = query.sessionId;
+  if (query.hideSystem) params.hide_system = "true";
+  if (query.requestId) params.request_id = query.requestId;
+  if (query.traceId) params.trace_id = query.traceId;
+  if (query.attributeKey) params.attribute_key = query.attributeKey;
+  if (query.attributeValue) params.attribute_value = query.attributeValue;
+  if (query.dedupeRequestId) params.dedupe_request_id = "true";
   if (query.service) {
     params.service = query.service;
   }
@@ -571,13 +594,14 @@ function normalizeCheck(value: unknown): DoctorCheck | undefined {
   }
   const actionRaw = isRecord(value.action) ? value.action : undefined;
   const holderRaw = actionRaw && isRecord(actionRaw.holder) ? actionRaw.holder : undefined;
-  const holder = holderRaw && typeof holderRaw.port === "number" && typeof holderRaw.pid === "number"
-    ? {
-      port: holderRaw.port,
-      pid: holderRaw.pid,
-      command: asString(holderRaw.command),
-    }
-    : undefined;
+  const holder =
+    holderRaw && typeof holderRaw.port === "number" && typeof holderRaw.pid === "number"
+      ? {
+          port: holderRaw.port,
+          pid: holderRaw.pid,
+          command: asString(holderRaw.command),
+        }
+      : undefined;
   return {
     name: value.name,
     severity: asSeverity(value.severity),
