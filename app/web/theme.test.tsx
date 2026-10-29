@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { THEME_NAMES, themePalette } from "../src/domain/ui/themes.ts";
+import { DevctlLogo } from "./brand.tsx";
 import { ThemePicker } from "./components/theme-picker.tsx";
 import { contrastRatio, themeDefaultAppearance, themeLabel, webThemeTokens } from "./theme.ts";
 
@@ -41,5 +42,19 @@ test("all 28 palettes in both appearances keep readable text, statuses, service 
           expect(contrastRatio(tokens["--service-" + index]!, tokens[bg]!)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(tokens["--primary"]!, tokens["--primary-foreground"]!)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(tokens["--destructive"]!, tokens["--destructive-foreground"]!)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(tokens["--logo-mark"]!, tokens["--logo-plate"]!)).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(tokens["--logo-stroke"]!, tokens["--card"]!)).toBeGreaterThanOrEqual(2);
     }
+});
+
+test("the sidebar logo recolors with the theme and keeps the brand geometry", () => {
+  const html = renderToStaticMarkup(<DevctlLogo />);
+  expect(html).toContain('fill="var(--logo-plate, #18372f)"');
+  expect(html).toContain('stroke="var(--logo-stroke, #087568)"');
+  expect(html).toContain('stroke="var(--logo-mark, #77ddba)"');
+  expect(html).toContain('fill="var(--logo-mark, #77ddba)"');
+  expect(webThemeTokens("dracula", "dark")["--logo-mark"]?.toLowerCase()).not.toBe(
+    webThemeTokens("devctl", "dark")["--logo-mark"]?.toLowerCase(),
+  );
+  expect(webThemeTokens("devctl", "light")["--logo-plate"]).not.toBe(webThemeTokens("devctl", "dark")["--logo-plate"]);
 });

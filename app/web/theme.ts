@@ -107,6 +107,13 @@ export function webThemeTokens(name: string, appearance: Appearance): Tokens {
     "--danger": error,
     "--theme-accent": readable(palette.accent, surfaces),
   };
+  const logoPlateTint = light ? 0.16 : 0.24;
+  const logoStrokeTint = 0.62;
+  const logoMarkContrast = 3;
+  const logoPlate = mix(background, primary, logoPlateTint);
+  tokens["--logo-plate"] = logoPlate;
+  tokens["--logo-stroke"] = mix(logoPlate, primary, logoStrokeTint);
+  tokens["--logo-mark"] = readable(primary, [logoPlate], logoMarkContrast);
   const colors = [
     palette.primary,
     palette.info,
