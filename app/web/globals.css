@@ -907,6 +907,15 @@ summary:focus-visible {
 .inspector-detail-card {
   min-height: 440px;
 }
+.inspector-payload {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+.inspector-payload > .grid {
+  flex: 1 1 auto;
+  min-height: 28rem;
+}
 .log-workspace {
   display: flex;
   flex-direction: column;
@@ -984,8 +993,7 @@ summary:focus-visible {
 }
 @media (min-width: 1280px) {
   .inspector-panes {
-    height: calc(100dvh - 300px);
-    min-height: 480px;
+    height: max(900px, calc(100dvh - 180px));
     grid-template-columns: minmax(320px, 38%) minmax(0, 1fr);
   }
   .inspector-list-card {
