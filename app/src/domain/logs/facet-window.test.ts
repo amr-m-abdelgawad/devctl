@@ -53,8 +53,9 @@ describe("facet window", () => {
     expect(filtersDimensionsOnly({ services: ["api"], level: "ERROR", source: "stderr", regex: true, dedupeRequestId: true })).toBe(true);
     expect(filtersDimensionsOnly({ levels: ["INFO", "WARN"] })).toBe(true);
     expect(filtersDimensionsOnly({ hideHealth: true })).toBe(false);
-    for (const filter of [{ search: "x" }, { since: "2026-01-01" }, { until: "2026-01-01" }, { traceId: "t" }, { requestId: "r" }, { attribute: { key: "k", value: "v" } }]) {
+    for (const filter of [{ search: "x" }, { since: "2026-01-01" }, { until: "2026-01-01" }, { traceId: "t" }, { requestId: "r" }, { attribute: { key: "k", value: "v" } }, { hideGrpc: true }]) {
       expect(filtersDimensionsOnly(filter)).toBe(false);
     }
+    expect(filtersDimensionsOnly({ hideGrpc: false })).toBe(true);
   });
 });

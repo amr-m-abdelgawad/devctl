@@ -23,6 +23,7 @@ import {
   visibleIndexRange,
   facetLevelCount,
   filterLogRows,
+  isGrpcLogRow,
   isHealthCheckRow,
   isSystemLog,
   toggleListedLevel,
@@ -125,6 +126,14 @@ describe("log filters and wrap", () => {
     expect(filterLogRows(rows, { showSystem: false }).map((row) => row.seq)).toEqual([2, 3]);
     expect(filterLogRows(rows, { errorOnly: true }).map((row) => row.seq)).toEqual([2]);
     expect(isSystemLog(rows[0]!)).toBe(true);
+    const grpc = ev(4, { service: "proxy", source: "proxy", message: "grpc /pkg.Service/Poll route=t grpc-status=0" });
+    const http = ev(5, { service: "proxy", source: "proxy", message: "GET /health route=api status=200" });
+    expect(isGrpcLogRow(grpc)).toBe(true);
+    expect(isGrpcLogRow(http)).toBe(false);
+    expect(filterLogRows([grpc, http], { showGrpc: false }).map((row) => row.seq)).toEqual([5]);
+    expect(encodeLogsQuery({ hideGrpc: true })).toEqual({ hide_grpc: "true" });
+    expect(liveLogsQuery({ showGrpc: false })).toEqual({ hideGrpc: true });
+    expect(liveLogsQuery({})).toEqual({});
   });
 
   test("hides health-check rows and keeps the chosen levels", () => {

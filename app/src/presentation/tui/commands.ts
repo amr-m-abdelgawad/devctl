@@ -77,6 +77,7 @@ export function allCommands(): CommandSpec[] {
     ] },
     { name: "health", aliases: ["health-logs"], desc: "Show or hide health-check logs, including REST and gRPC health request lines", leader: "", group: "logs" },
     { name: "system", aliases: ["internal"], desc: "Show or hide internal auth/mcp/devctl/proxy logs", leader: "", group: "logs" },
+    { name: "grpc", aliases: [], desc: "Show or hide gRPC proxy logs", leader: "", group: "logs" },
     { name: "reveal", aliases: [], desc: "Reveal or hide secret environment values (not log, LLM, or traffic payloads)", leader: "", group: "ui" },
     { name: "wrap", aliases: [], desc: "Cycle log wrap: all lines, clip, or selected row", leader: "", group: "logs" },
     { name: "copy", aliases: [], desc: "Copy the highlighted selection to the clipboard", leader: "", group: "ui" },

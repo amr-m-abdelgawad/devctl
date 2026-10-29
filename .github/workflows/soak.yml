@@ -1,7 +1,7 @@
 name: Soak
 
 # The Docker soak suite (app/e2e/soak): devctl compiled from this commit
-# inside oven/bun:1.4.2 and driven in containers shaped like a dev container
+# inside oven/bun:1.4.4 and driven in containers shaped like a dev container
 # (2 GiB memory limit, PID 1 `sleep infinity`, plus `--init` variants).
 #
 # - Nightly and on demand: the full matrix, with a 15 minute mixed session
@@ -43,7 +43,7 @@ jobs:
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - name: Install
         working-directory: app
         run: bun install --frozen-lockfile

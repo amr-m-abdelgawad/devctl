@@ -28,7 +28,7 @@ const COMMAND_LOCK_MS = 50;
 type Options = {
   lifecycleActions: Pick<ReturnType<typeof useLifecycle>, "beginStart" | "beginStop" | "beginRestart">;
   diagnostics: Pick<ReturnType<typeof useDiagnostics>, "refreshAuth" | "setGoogle">;
-  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "setLogLevels" | "toggleHideHealthLogs" | "hideHealthLogs" | "logLevels" | "toggleSystemLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
+  logView: Pick<ReturnType<typeof useLogView>, "setLogService" | "setLogsFullscreen" | "setPaused" | "setErrorOnly" | "setLogLevels" | "toggleHideHealthLogs" | "hideHealthLogs" | "logLevels" | "toggleSystemLogs" | "toggleGrpcLogs" | "showGrpcLogs" | "clearLogs" | "logWrap" | "setLogWrap" | "logServices" | "logLevel" | "logSearch" | "logRegex" | "logSource" | "filteredLogs" | "setLogRegex" | "setLogSince" | "setLogUntil" | "showHistory" | "setLogs" | "setLogSearch" | "toggleSplitLogs">;
   llmView: Pick<ReturnType<typeof useLlmView>, "setCaller">;
   trafficView: Pick<ReturnType<typeof useTrafficView>, "setCaller">;
   workspace: Pick<TuiWorkspace, "loginGoogle" | "detectGoogle" | "logoutGoogle" | "bootstrapLogPath" | "fileExists" | "readTextFile" | "writeTextFile" | "validateConfigText" | "resolveExportPath" | "writeLogExport" | "exportsDir" | "openInFileManager" | "listSessions" | "loadSessionTail" | "checkUpdate" | "applyUpdate" | "formatUpdateStatus">;
@@ -134,6 +134,8 @@ export function useCommandDispatcher({
     hideHealthLogs,
     logLevels,
     toggleSystemLogs,
+    toggleGrpcLogs,
+    showGrpcLogs,
     clearLogs,
     logWrap,
     setLogWrap,
@@ -544,6 +546,10 @@ export function useCommandDispatcher({
             toggleSystemLogs();
             setScreen("logs");
             return;
+          case "grpc":
+            toggleGrpcLogs();
+            setScreen("logs");
+            return;
           case "clear":
             clearLogs();
             return;
@@ -571,6 +577,7 @@ export function useCommandDispatcher({
                 level: logLevels.length > 0 ? "" : logLevel,
                 levels: logLevels.length > 0 ? logLevels : undefined,
                 hideHealth: hideHealthLogs ? true : undefined,
+                hideGrpc: showGrpcLogs ? undefined : true,
                 search: logSearch,
                 regex: logRegex,
                 source: logSource,
@@ -643,7 +650,7 @@ export function useCommandDispatcher({
         }, COMMAND_LOCK_MS);
       }
     },
-    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, filteredLogs, hideHealthLogs, llmView, loadSessionTail, logLevel, logLevels, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogLevels, setLogSearch, setSlashPicker, showHistory, themeName, toggleHideHealthLogs, toggleSplitLogs, toggleSystemLogs, trafficView],
+    [applyEnv, beginRestart, beginStart, beginStop, checked, cfg, clearLogs, controller, copySelection, filteredLogs, hideHealthLogs, llmView, loadSessionTail, logLevel, logLevels, logRegex, logSearch, logServices, logSource, logWrap, onDown, onNotifyAction, onUpdateApplied, onUpdateCheck, openConfigBuffer, openDetail, openEnvPicker, persistTheme, profile, refresh, refreshAuth, renderer, reveal, screen, setLogLevels, setLogSearch, setSlashPicker, showGrpcLogs, showHistory, themeName, toggleGrpcLogs, toggleHideHealthLogs, toggleSplitLogs, toggleSystemLogs, trafficView],
   );
   return { runCommand };
 }

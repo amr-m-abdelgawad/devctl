@@ -23,12 +23,14 @@ export function LogFilterBar(props: {
   errorOnly: boolean;
   levels?: readonly string[];
   hideHealth?: boolean;
+  showGrpc?: boolean;
   width: number;
   onService: (service: string) => void;
   onToggleErrors: () => void;
   onToggleLevel?: (level: string) => void;
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
+  onToggleGrpc?: () => void;
   facets?: LogFacets;
 }) {
   const {
@@ -39,12 +41,14 @@ export function LogFilterBar(props: {
     errorOnly,
     levels = [],
     hideHealth = false,
+    showGrpc = true,
     width,
     onService,
     onToggleErrors,
     onToggleLevel,
     onClearLevels,
     onToggleHealth,
+    onToggleGrpc,
     facets,
   } = props;
   const sources = facets ? facetFilterCatalog(names, facets) : logFilterCatalog(names, logs);
@@ -60,9 +64,10 @@ export function LogFilterBar(props: {
   const active = Math.max(0, sources.findIndex((item) => item.name === service));
   const levelLabel = errorOnly ? "ERROR+" : compact ? "lvls" : "all levels";
   const healthLabel = hideHealth ? (compact ? "nohlth" : "health hidden") : compact ? "hlth" : "health";
+  const grpcLabel = showGrpc ? "grpc" : "no grpc";
   const stripWidth = Math.max(
     tabChipWidth(items[active]?.label ?? "all"),
-    width - tabChipWidth(levelLabel) - tabChipWidth(healthLabel),
+    width - tabChipWidth(levelLabel) - tabChipWidth(healthLabel) - tabChipWidth(grpcLabel),
   );
   return (
     <Toolbar palette={palette} backgroundColor={palette.element}>
@@ -87,6 +92,12 @@ export function LogFilterBar(props: {
           label={healthLabel}
           tone={hideHealth ? "warning" : "muted"}
           onMouseDown={onToggleHealth}
+        />
+        <Chip
+          palette={palette}
+          label={grpcLabel}
+          tone={showGrpc ? "muted" : "warning"}
+          onMouseDown={onToggleGrpc}
         />
         <Chip
           palette={palette}

@@ -274,6 +274,17 @@ describe("LogManager persistence", () => {
     expect(createLogMatcher({ regex: true, search: "^ok" })(ev)).toBe(true);
   });
 
+  test("hideGrpc pages and facets skip proxy gRPC lines and keep HTTP and service logs", () => {
+    const mgr = new LogManager(10, undefined, new Detector([], []), false, tmp(), "grpc-hide", 0, 0);
+    mgr.append({ timestamp: "2026-08-30T00:00:00.000Z", service: "proxy", source: "proxy", level: "INFO", message: "grpc /pkg.Service/Poll route=t grpc-status=14", pid: 0 });
+    mgr.append({ timestamp: "2026-08-30T00:00:01.000Z", service: "proxy", source: "proxy", level: "INFO", message: "GET /health route=api status=200 duration=1ms", pid: 0 });
+    mgr.append({ timestamp: "2026-08-30T00:00:02.000Z", service: "worker", source: "stdout", level: "INFO", message: "grpc client connected", pid: 2 });
+    const page = mgr.queryPage({ hideGrpc: true }, { limit: 10 });
+    expect(page.events.map((event) => logMessage(event))).toEqual(["GET /health route=api status=200 duration=1ms", "grpc client connected"]);
+    expect(mgr.queryFacets({ hideGrpc: true }).total).toBe(2);
+    expect(mgr.queryPage({}, { limit: 10 }).events).toHaveLength(3);
+  });
+
   test("compileLogSearch rejects nested and oversized patterns", () => {
     expect(compileLogSearch("^ok")?.test("ok")).toBe(true);
     expect(compileLogSearch("err(or|no)")?.test("errno")).toBe(true);

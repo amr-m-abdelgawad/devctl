@@ -113,7 +113,7 @@ function rowMatchesLevel(row: Combination, filter: Pick<LogFilter, "level" | "le
   return !filter.level || meetsMinLevel(row.severityNumber, filter.level);
 }
 
-/** True when a filter narrows only by service, level and source, the dimensions `FacetWindow` counts. `hideHealth` needs each record's body. */
+/** True when a filter narrows only by service, level and source, the dimensions `FacetWindow` counts. `hideHealth` and `hideGrpc` need each record's body. */
 export function filtersDimensionsOnly(filter: LogFilter): boolean {
-  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideHealth !== true;
+  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideHealth !== true && filter.hideGrpc !== true;
 }

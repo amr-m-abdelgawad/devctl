@@ -1,5 +1,6 @@
 import { stringifyAnyValue } from "./any-value.ts";
 import { recordSearchText, requestIdOf } from "./display.ts";
+import { isGrpcLog } from "./grpc.ts";
 import { isHealthCheckLog } from "./health.ts";
 import { compileLogSearch } from "./regex.ts";
 import { matchesSelectedLevels, meetsMinLevel } from "./severity.ts";
@@ -41,6 +42,9 @@ export function matchesLogDimensions(filter: LogFilter, ev: LogRecord): boolean 
     if (stringifyAnyValue(actual ?? null) !== filter.attribute.value) {
       return false;
     }
+  }
+  if (filter.hideGrpc === true && isGrpcLog(ev)) {
+    return false;
   }
   return true;
 }

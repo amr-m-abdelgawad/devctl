@@ -2,7 +2,7 @@ import { type LogEvent,type LogFacets } from "../../../domain/logs/logs.ts";
 import { JumpLatestPrompt, LogFilterBar, LogHistoryBar, LogList } from "../components/logs/index.ts";
 import { EmptyState } from "../chrome.tsx";
 import { useDensity } from "../density.tsx";
-import { filterLogs, isSystemLogSource, logPaneInnerWidth, type LogWrapMode } from "../helpers/logs.ts";
+import { filterLogs, logPaneInnerWidth, logsForFilterChips, type LogWrapMode } from "../helpers/logs.ts";
 import { MetaBar } from "../layout.tsx";
 import { type Palette } from "../themes.ts";
 import { displayWithMod } from "../tui-config.ts";
@@ -19,6 +19,7 @@ export function LogsScreen(props: {
   logLevels?: readonly string[];
   hideHealthLogs?: boolean;
   showSystemLogs: boolean;
+  showGrpcLogs: boolean;
   search: string;
   searchFocused: boolean;
   followTick: number;
@@ -42,6 +43,7 @@ export function LogsScreen(props: {
   onToggleLevel?: (level: string) => void;
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
+  onToggleGrpc: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
   onJumpLatest?: () => void;
@@ -70,6 +72,7 @@ export function LogsScreen(props: {
     logLevels = [],
     hideHealthLogs = false,
     showSystemLogs,
+    showGrpcLogs,
     search,
     searchFocused,
     followTick,
@@ -80,6 +83,7 @@ export function LogsScreen(props: {
     onToggleLevel,
     onClearLevels,
     onToggleHealth,
+    onToggleGrpc,
     onSelect,
     wrapMode = "all",
     selected = -1,
@@ -108,7 +112,7 @@ export function LogsScreen(props: {
   } = props;
   const scale = useDensity();
   const innerWidth = logPaneInnerWidth(width, scale.pad, fullscreen);
-  const filterBarLogs = showSystemLogs ? logs : logs.filter((ev) => !isSystemLogSource(ev.source));
+  const filterBarLogs = logsForFilterChips(logs, { systemLogs: showSystemLogs, grpcLogs: showGrpcLogs });
   const filtered = filterLogs(logs, {
     service,
     services: props.services,
@@ -119,6 +123,7 @@ export function LogsScreen(props: {
     regex: props.regex,
     source: props.source,
     systemLogs: showSystemLogs,
+    grpcLogs: showGrpcLogs,
   });
   const shown = view ?? filtered;
   const shownTotal = viewTotal ?? filtered.length;
@@ -156,6 +161,7 @@ export function LogsScreen(props: {
             logLevels={logLevels}
             hideHealthLogs={hideHealthLogs}
             showSystemLogs={showSystemLogs}
+            showGrpcLogs={showGrpcLogs}
             search={search}
             regex={props.regex}
             source={props.source}
@@ -177,6 +183,7 @@ export function LogsScreen(props: {
             onToggleLevel={onToggleLevel}
             onClearLevels={onClearLevels}
             onToggleHealth={onToggleHealth}
+            onToggleGrpc={onToggleGrpc}
             onSelect={onSelect}
             onLeaveLatest={onLeaveLatest}
             onFocus={() => onFocusPane?.(0)}
@@ -190,6 +197,7 @@ export function LogsScreen(props: {
             logLevels={logLevels}
             hideHealthLogs={hideHealthLogs}
             showSystemLogs={showSystemLogs}
+            showGrpcLogs={showGrpcLogs}
             search={search}
             regex={props.regex}
             source={props.source}
@@ -211,6 +219,7 @@ export function LogsScreen(props: {
             onToggleLevel={onToggleLevel}
             onClearLevels={onClearLevels}
             onToggleHealth={onToggleHealth}
+            onToggleGrpc={onToggleGrpc}
             onSelect={onSelectB}
             onLeaveLatest={onLeaveLatestB}
             onFocus={() => onFocusPane?.(1)}
@@ -241,6 +250,8 @@ export function LogsScreen(props: {
             onToggleLevel={onToggleLevel}
             onClearLevels={onClearLevels}
             onToggleHealth={onToggleHealth}
+            onToggleGrpc={onToggleGrpc}
+            showGrpc={showGrpcLogs}
             facets={facets}
           />
         </>
@@ -323,6 +334,7 @@ function SplitLogPane(props: {
   logLevels?: readonly string[];
   hideHealthLogs?: boolean;
   showSystemLogs: boolean;
+  showGrpcLogs: boolean;
   search: string;
   regex?: boolean;
   source?: string;
@@ -344,12 +356,13 @@ function SplitLogPane(props: {
   onToggleLevel?: (level: string) => void;
   onClearLevels?: () => void;
   onToggleHealth?: () => void;
+  onToggleGrpc: () => void;
   onSelect?: (index: number) => void;
   onLeaveLatest?: () => void;
   onFocus: () => void;
 }) {
   const { palette, width, service, shown, shownTotal, viewStart, focused } = props;
-  const filterBarLogs = props.showSystemLogs ? props.logs : props.logs.filter((ev) => !isSystemLogSource(ev.source));
+  const filterBarLogs = logsForFilterChips(props.logs, { systemLogs: props.showSystemLogs, grpcLogs: props.showGrpcLogs });
   const scope = service === "" ? "all services" : service;
   const rangeLabel = shownTotal === 0 ? "empty" : `${viewStart + 1}–${Math.min(shownTotal, viewStart + shown.length)} of ${shownTotal}`;
   return (
@@ -383,6 +396,11 @@ function SplitLogPane(props: {
           props.onFocus();
           props.onToggleHealth?.();
         }}
+        onToggleGrpc={() => {
+          props.onFocus();
+          props.onToggleGrpc();
+        }}
+        showGrpc={props.showGrpcLogs}
         facets={props.facets}
       />
       <box

@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - name: Install
         working-directory: app
         run: bun install --frozen-lockfile
@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: bun test with coverage
@@ -50,7 +50,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: tsc --noEmit
@@ -65,7 +65,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: check architecture
@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: unused files and dependencies
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: Docker lifecycle integration
@@ -116,7 +116,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: config validate
@@ -136,7 +136,7 @@ jobs:
           bash .github/scripts/compose-github-release-notes.test.sh
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile --os="*" --cpu="*"
       - name: bun build --compile all release targets
@@ -213,7 +213,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -298,7 +298,7 @@ jobs:
           node-version: 24
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       # The run takes three minutes. One still going after ten is stuck: the
@@ -326,7 +326,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       # Hosted macOS runners have no Docker. Leave DEVCTL_CONTAINER_TESTS
@@ -348,7 +348,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - uses: actions/setup-node@v7
         with:
           node-version: 24
@@ -369,7 +369,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
       - working-directory: app
         run: bun install --frozen-lockfile
       - name: bun audit
