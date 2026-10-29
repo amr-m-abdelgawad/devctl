@@ -48,6 +48,8 @@ export function terraformConfigIssues(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
   for (const [name, svc] of Object.entries(cfg.services)) {
     issues.push(...inspectTerraform(`services.${name}.environment.terraform`, cfg.repoRoot, svc.environment.terraform).issues);
+    issues.push(...inspectTerraform(`services.${name}.hooks.pre_start.environment.terraform`, cfg.repoRoot, svc.hooks.pre_start.environment.terraform).issues);
+    issues.push(...inspectTerraform(`services.${name}.hooks.post_start.environment.terraform`, cfg.repoRoot, svc.hooks.post_start.environment.terraform).issues);
     for (const [envName, env] of Object.entries(svc.environments)) {
       issues.push(...inspectTerraform(`services.${name}.environments.${envName}.terraform`, cfg.repoRoot, env.terraform).issues);
     }

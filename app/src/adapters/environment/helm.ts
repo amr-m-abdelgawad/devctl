@@ -22,6 +22,8 @@ export function helmConfigIssues(cfg: DevctlConfig): string[] {
   const issues: string[] = [];
   for (const [name, svc] of Object.entries(cfg.services)) {
     issues.push(...inspectHelm(`services.${name}.environment.helm`, cfg.repoRoot, svc.environment.helm).issues);
+    issues.push(...inspectHelm(`services.${name}.hooks.pre_start.environment.helm`, cfg.repoRoot, svc.hooks.pre_start.environment.helm).issues);
+    issues.push(...inspectHelm(`services.${name}.hooks.post_start.environment.helm`, cfg.repoRoot, svc.hooks.post_start.environment.helm).issues);
     for (const [envName, env] of Object.entries(svc.environments)) {
       issues.push(...inspectHelm(`services.${name}.environments.${envName}.helm`, cfg.repoRoot, env.helm).issues);
     }

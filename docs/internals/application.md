@@ -45,7 +45,7 @@ The supervisor applies a session `overlay` (persist + reload) before `orchestrat
 8. For each wave: `startOne` in parallel; then `awaitWaveHealth`.
 9. `persistState()`.
 
-`startOne` (private): lifecycle STARTING → prepare identity → resolve env/cwd → run `pre_start` hook → `ProcessRuntime.start` or `startContainer` → STARTING/RUNNING → health monitor `startHealth` → `post_start` hook. Failures go through `session.fail`.
+`startOne` (private): lifecycle STARTING → prepare identity → resolve env/cwd → run `pre_start` hook (its `environment` laid over the service env) → `ProcessRuntime.start` or `startContainer` → STARTING/RUNNING → health monitor `startHealth` → `post_start` hook. Failures go through `session.fail`.
 
 ### `stop`
 

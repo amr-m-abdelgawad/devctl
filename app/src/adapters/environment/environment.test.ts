@@ -5,7 +5,38 @@ import { defaultConfig, emptyRouteAuth, emptyService } from "../../domain/config
 import { KindAuthentication, KindAuthorization, KindConfiguration, newError } from "../../shared/errors.ts";
 import { secretManagerFetcher } from "../google/secret-manager.ts";
 import { resolveIapOAuthClient } from "../google/token.ts";
-import { resolveEnvironment, runtimeForService, sourceOrder } from "./environment.ts";
+import { resolveEnvironment, resolveHookOverlay, runtimeForService, sourceOrder } from "./environment.ts";
+
+describe("hook environment overlay", () => {
+  test("lays hook vars over the service env and resolves service refs", () => {
+    const cfg = defaultConfig();
+    cfg.services.db = emptyService();
+    cfg.services.db.ports = [{ name: "db", value: 5432, auto: false }];
+    const base = { SHARED: "service", SERVICE_ONLY: "yes" };
+    const out = resolveHookOverlay("/tmp", "services.api.hooks.pre_start", base, {
+      vars: { PRE_ONLY: "hook", SHARED: "hook", URL: "postgres://127.0.0.1:${services.db.ports.db}/app" },
+      required: ["PRE_ONLY"],
+      defaults: { FROM_DEFAULT: "d", SERVICE_ONLY: "no" },
+    }, { cfg, assigned: { db: { db: 5432 } } });
+    expect(out).toMatchObject({
+      PRE_ONLY: "hook",
+      SHARED: "hook",
+      SERVICE_ONLY: "yes",
+      FROM_DEFAULT: "d",
+      URL: "postgres://127.0.0.1:5432/app",
+    });
+    expect(base).toEqual({ SHARED: "service", SERVICE_ONLY: "yes" });
+  });
+
+  test("fails when a required hook variable is still empty", () => {
+    const cfg = defaultConfig();
+    expect(() => resolveHookOverlay("/tmp", "services.api.hooks.pre_start", {}, {
+      vars: {},
+      required: ["DATABASE_URL"],
+      defaults: {},
+    }, { cfg, assigned: {} })).toThrow(/services\.api\.hooks\.pre_start missing required environment variable DATABASE_URL/);
+  });
+});
 
 describe("environment precedence", () => {
   test("can omit the implicit process layer while retaining declared layers", async () => {
