@@ -13,7 +13,8 @@ const SECRET = "sk-live-e2e0123456789abcdef0123456789";
 function files(marker: string): Record<string, string> {
   return {
     "services/web.js": "Bun.serve({ hostname: '127.0.0.1', port: Number(process.env.HTTP_PORT), fetch: () => new Response('ok') })",
-    "services/talker.js": "console.log('token=' + process.env.API_TOKEN); setInterval(() => {}, 1000)",
+    // It listens, and so turns healthy, only once it has printed: a bundle taken after the stack is up has the line.
+    "services/talker.js": "console.log('token=' + process.env.API_TOKEN); Bun.serve({ hostname: '127.0.0.1', port: Number(process.env.HTTP_PORT), fetch: () => new Response('ok') })",
     "check.js": "const port = process.env.DEVCTL_WEB_HTTP_PORT; fetch('http://127.0.0.1:' + port + '/').then(async (r) => { const body = await r.text(); console.log('got ' + body + ' from ' + port); process.exit(body === 'ok' ? 0 : 1) })",
     ".devctl/config.yaml": `version: 1
 project:
@@ -31,6 +32,12 @@ services:
     command: [${bun}, services/talker.js, ${marker}]
     environment:
       API_TOKEN: ${SECRET}
+    ports:
+      http: auto
+    health:
+      type: http
+      url: http://127.0.0.1:\${services.talker.ports.http}/
+      interval_seconds: 0.2
   never-healthy:
     command: [${bun}, services/web.js, ${marker}]
     ports:
