@@ -18,7 +18,24 @@ import {
   XIcon,
 } from "../icons.ts";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../components/ui/dialog.tsx";
-import { ChoiceGroup } from "../components/filters.tsx";
+import { ChoiceGroup, FilterSelect } from "../components/filters.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSeparator,
+  DropdownMenuShortcut,
+  DropdownMenuPortal,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from "../components/ui/dropdown-menu.tsx";
 import { clockMs } from "../format.ts";
 import { StatusBadge } from "../components/status.tsx";
 import { cn } from "../lib/utils.ts";
@@ -37,10 +54,10 @@ import {
   nextLogSelectionIndex,
   SEARCH_DEBOUNCE_MS,
   SELECTABLE_LOG_LEVELS,
+  toggleListedLevel,
   type LogWrapMode,
 } from "../logs.ts";
 import { SearchInput, SearchableFilter } from "../components/filters.tsx";
-import { ToggleGroup, ToggleGroupItem } from "../components/ui/toggle-group.tsx";
 import { Input } from "../components/ui/input.tsx";
 import type { LogRow } from "../types.ts";
 
@@ -251,7 +268,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
       }
       if (
         event.target instanceof HTMLElement &&
-        event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog], button, a")
+        event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog], [role=menu], button, a")
       ) {
         if (event.key === "Escape") {
           event.target.blur();
@@ -336,7 +353,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   };
 
   const levelControls = (
-    <LevelChips
+    <LevelFilter
       levels={levels}
       byLevel={sessionId ? undefined : session.facets?.byLevel}
       onChange={setLevels}
@@ -408,6 +425,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
           onGrpc={() => setShowGrpc((value) => !value)}
           onPaused={() => setPaused((value) => !value)}
           onWrap={() => setWrapMode((mode) => nextLogWrapMode(mode))}
+          onWrapMode={setWrapMode}
           onSplit={toggleSplit}
           onJump={jumpActive}
           onClear={() => {
@@ -430,14 +448,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             options={chips.map((chip) => ({ value: chip.name, label: chip.name || "All services", count: chip.count }))}
             onChange={split && splitFocus === 1 ? setServiceB : setServiceA}
           />
-          <div className="log-levels-desktop">{levelControls}</div>
-          <details className="log-levels-mobile">
-            <summary aria-label="Filter log levels">
-              Levels <span>{levels.length === 0 ? "All" : levels.length < 3 ? levels.join(", ") : `${levels.length} selected`}</span>
-              <CaretDownIcon aria-hidden="true" />
-            </summary>
-            <div>{levelControls}</div>
-          </details>
+          {levelControls}
         </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-0">
@@ -717,6 +728,7 @@ function Toolbar(props: {
   onGrpc: () => void;
   onPaused: () => void;
   onWrap: () => void;
+  onWrapMode: (mode: LogWrapMode) => void;
   onSplit: () => void;
   onJump: () => void;
   onClear: () => void;
@@ -726,6 +738,8 @@ function Toolbar(props: {
   onMeta: () => void;
 }) {
   const p = props;
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const optionsRef = useRef<HTMLButtonElement>(null);
   return (
     <div className="log-toolbar">
       <div className="log-toolbar-primary">
@@ -762,143 +776,263 @@ function Toolbar(props: {
           Export
         </Button>
       </div>
-      <details className="log-option-panel">
-        <summary>
-          Filters & view options
-          {p.hideHealth || !p.showSystem || !p.showGrpc || p.sinceTime || p.untilTime || p.advancedActive ? (
-            <Badge variant="info">Active</Badge>
-          ) : null}
-        </summary>
-        <div className="log-options">
-          <span className="log-option-label">Noise filters</span>
-          <Toggle active={p.hideHealth} onClick={p.onHideHealth}>
-            Hide health checks
-          </Toggle>
-          <Toggle active={!p.showSystem} onClick={p.onSystem}>
-            Hide system
-          </Toggle>
-          <Toggle active={!p.showGrpc} onClick={p.onGrpc}>
-            Hide gRPC
-          </Toggle>
-          <span className="log-option-label">Time range</span>
-          <label className="log-date">
-            Since
-            <Input
-              type="datetime-local"
-              value={p.sinceTime}
-              max={p.untilTime || undefined}
-              onChange={(event) => p.onSince(event.currentTarget.value)}
-            />
-          </label>
-          <label className="log-date">
-            Until
-            <Input
-              type="datetime-local"
-              value={p.untilTime}
-              min={p.sinceTime || undefined}
-              onChange={(event) => p.onUntil(event.currentTarget.value)}
-            />
-          </label>
-          <span className="log-option-label">Source & correlation</span>
-          <div className="log-advanced">
-            {[
-              { key: "source", label: "Source", placeholder: "stdout, stderr, auth…" },
-              { key: "requestId", label: "Request ID", placeholder: "X-Devctl-Request-ID" },
-              { key: "traceId", label: "Trace ID", placeholder: "W3C trace ID" },
-              { key: "attributeKey", label: "Attribute key", placeholder: "http.method" },
-              { key: "attributeValue", label: "Attribute value", placeholder: "GET" },
-            ].map((field) => (
-              <label key={field.key} className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground">
-                {field.label}
-                <Input
-                  value={p.advanced[field.key] || ""}
-                  placeholder={field.placeholder}
-                  onChange={(event) => p.onAdvanced({ ...p.advanced, [field.key]: event.currentTarget.value })}
-                />
-              </label>
-            ))}
-          </div>
-          <Button size="sm" variant="outline" onClick={p.onApplyAdvanced}>
-            Apply correlation filters
-          </Button>
-          <Toggle active={p.dedupe} onClick={p.onDedupe}>
-            Dedupe request IDs
-          </Toggle>
-          <span className="log-option-label">Display</span>
-          <Toggle active={p.showTimestamps} onClick={p.onTimestamps}>
-            Timestamps
-          </Toggle>
-          <Toggle active={p.showMeta} onClick={p.onMeta}>
-            Metadata
-          </Toggle>
-          <Button size="sm" variant="outline" onClick={p.onWrap}>
-            {logWrapLabel(p.wrapMode)}
-          </Button>
-          <Button size="sm" variant={p.split ? "secondary" : "outline"} onClick={p.onSplit} aria-pressed={p.split}>
-            <ColumnsIcon data-icon="inline-start" />
-            Split panes
-          </Button>
-          <span className="log-option-label">Session</span>
-          <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-muted-foreground">
-            History
-            <select
-              value={p.sessionId}
-              onChange={(event) => p.onSession(event.currentTarget.value)}
-              className="h-9 min-w-0 max-w-full flex-1 rounded-md border bg-background px-2 text-xs"
-            >
-              <option value="">Live session</option>
-              {p.sessions.map((id) => (
-                <option key={id} value={id}>
-                  {id}
-                </option>
+      <div className="flex flex-wrap items-center gap-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button ref={optionsRef} size="sm" variant="outline">
+              Filters & view options
+              <CaretDownIcon data-icon="inline-end" aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            className="w-64"
+            onCloseAutoFocus={(event) => {
+              if (filtersOpen) event.preventDefault();
+            }}
+          >
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Noise filters</DropdownMenuLabel>
+              <DropdownMenuCheckboxItem
+                checked={p.hideHealth}
+                onCheckedChange={p.onHideHealth}
+                onSelect={(event) => event.preventDefault()}
+              >
+                Hide health checks
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={!p.showSystem} onCheckedChange={p.onSystem} onSelect={(event) => event.preventDefault()}>
+                Hide system logs
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={!p.showGrpc} onCheckedChange={p.onGrpc} onSelect={(event) => event.preventDefault()}>
+                Hide gRPC logs
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuLabel>Display</DropdownMenuLabel>
+              <DropdownMenuCheckboxItem
+                checked={p.showTimestamps}
+                onCheckedChange={p.onTimestamps}
+                onSelect={(event) => event.preventDefault()}
+              >
+                Timestamps
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={p.showMeta} onCheckedChange={p.onMeta} onSelect={(event) => event.preventDefault()}>
+                Metadata
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuCheckboxItem checked={p.split} onCheckedChange={p.onSplit}>
+                Split panes
+              </DropdownMenuCheckboxItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="hidden sm:flex">
+                  Line wrapping<DropdownMenuShortcut>w</DropdownMenuShortcut>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Line wrapping</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup value={p.wrapMode} onValueChange={(value) => p.onWrapMode(value as LogWrapMode)}>
+                        {(["clip", "focus", "all"] as const).map((mode) => (
+                          <DropdownMenuRadioItem key={mode} value={mode}>
+                            {logWrapLabel(mode)}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
+              <DropdownMenuItem onSelect={p.onFullscreen}>
+                {p.fullscreen ? "Exit full screen" : "Full screen"}
+                <DropdownMenuShortcut>z</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+            <DropdownMenuGroup className="sm:hidden">
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Line wrapping</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={p.wrapMode} onValueChange={(value) => p.onWrapMode(value as LogWrapMode)}>
+                {(["clip", "focus", "all"] as const).map((mode) => (
+                  <DropdownMenuRadioItem key={mode} value={mode}>
+                    {logWrapLabel(mode)}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="hidden sm:flex">Session history</DropdownMenuSubTrigger>
+                <DropdownMenuPortal>
+                  <DropdownMenuSubContent className="max-h-80 w-64 max-w-[calc(100vw-1rem)] overflow-y-auto">
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Log session</DropdownMenuLabel>
+                      <DropdownMenuRadioGroup value={p.sessionId} onValueChange={p.onSession}>
+                        <DropdownMenuRadioItem value="">Live session</DropdownMenuRadioItem>
+                        {p.sessions.map((id) => (
+                          <DropdownMenuRadioItem key={id} value={id}>
+                            <span className="truncate">{id}</span>
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuPortal>
+              </DropdownMenuSub>
+              <DropdownMenuItem className="sm:hidden" onSelect={() => setFiltersOpen(true)}>Session history…</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setFiltersOpen(true)}>All filters & session history…</DropdownMenuItem>
+              <DropdownMenuItem onSelect={p.onExport}>Export logs</DropdownMenuItem>
+              <DropdownMenuItem onSelect={p.onReset}>Reset filters</DropdownMenuItem>
+              <DropdownMenuItem onSelect={p.onClear}>Clear view</DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {p.hideHealth || !p.showSystem || !p.showGrpc || p.sinceTime || p.untilTime || p.advancedActive ? (
+          <Badge variant="info">Filters active</Badge>
+        ) : null}
+      </div>
+      <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>
+        <DialogContent
+          className="log-filter-dialog"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            optionsRef.current?.focus();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Log filters and view options</DialogTitle>
+            <DialogDescription>Choose sources, correlation fields, time bounds, and a saved session.</DialogDescription>
+          </DialogHeader>
+          <div className="log-options">
+            <span className="log-option-label">Noise filters</span>
+            <Toggle active={p.hideHealth} onClick={p.onHideHealth}>
+              Hide health checks
+            </Toggle>
+            <Toggle active={!p.showSystem} onClick={p.onSystem}>
+              Hide system
+            </Toggle>
+            <Toggle active={!p.showGrpc} onClick={p.onGrpc}>
+              Hide gRPC
+            </Toggle>
+            <span className="log-option-label">Time range</span>
+            <label className="log-date">
+              Since
+              <Input
+                type="datetime-local"
+                value={p.sinceTime}
+                max={p.untilTime || undefined}
+                onChange={(event) => p.onSince(event.currentTarget.value)}
+              />
+            </label>
+            <label className="log-date">
+              Until
+              <Input
+                type="datetime-local"
+                value={p.untilTime}
+                min={p.sinceTime || undefined}
+                onChange={(event) => p.onUntil(event.currentTarget.value)}
+              />
+            </label>
+            <span className="log-option-label">Source & correlation</span>
+            <div className="log-advanced">
+              {[
+                { key: "source", label: "Source", placeholder: "stdout, stderr, auth…" },
+                { key: "requestId", label: "Request ID", placeholder: "X-Devctl-Request-ID" },
+                { key: "traceId", label: "Trace ID", placeholder: "W3C trace ID" },
+                { key: "attributeKey", label: "Attribute key", placeholder: "http.method" },
+                { key: "attributeValue", label: "Attribute value", placeholder: "GET" },
+              ].map((field) => (
+                <label key={field.key} className="flex min-w-0 flex-col gap-2 text-xs text-muted-foreground">
+                  {field.label}
+                  <Input
+                    value={p.advanced[field.key] || ""}
+                    placeholder={field.placeholder}
+                    onChange={(event) => p.onAdvanced({ ...p.advanced, [field.key]: event.currentTarget.value })}
+                  />
+                </label>
               ))}
-            </select>
-          </label>
-          <Button size="sm" variant="ghost" onClick={p.onClear}>
-            Clear view
-          </Button>
-          <Button size="sm" variant="ghost" onClick={p.onReset}>
-            Reset filters
-          </Button>
-        </div>
-      </details>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                p.onApplyAdvanced();
+                setFiltersOpen(false);
+              }}
+            >
+              Apply filters
+            </Button>
+            <Toggle active={p.dedupe} onClick={p.onDedupe}>
+              Dedupe request IDs
+            </Toggle>
+            <span className="log-option-label">Display</span>
+            <Toggle active={p.showTimestamps} onClick={p.onTimestamps}>
+              Timestamps
+            </Toggle>
+            <Toggle active={p.showMeta} onClick={p.onMeta}>
+              Metadata
+            </Toggle>
+            <Button size="sm" variant="outline" onClick={p.onWrap}>
+              {logWrapLabel(p.wrapMode)}
+            </Button>
+            <Button size="sm" variant={p.split ? "secondary" : "outline"} onClick={p.onSplit} aria-pressed={p.split}>
+              <ColumnsIcon data-icon="inline-start" />
+              Split panes
+            </Button>
+            <span className="log-option-label">Session</span>
+            <FilterSelect
+              label="Log history"
+              value={p.sessionId}
+              onChange={p.onSession}
+              options={[{ value: "", label: "Live session" }, ...p.sessions.map((id) => ({ value: id, label: id }))]}
+            />
+            <Button size="sm" variant="ghost" onClick={p.onClear}>
+              Clear view
+            </Button>
+            <Button size="sm" variant="ghost" onClick={p.onReset}>
+              Reset filters
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
-function LevelChips(props: {
+function LevelFilter(props: {
   levels: string[];
   byLevel: Record<string, number> | undefined;
   onChange: (levels: string[]) => void;
   onClear: () => void;
 }) {
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        variant={props.levels.length === 0 ? "secondary" : "ghost"}
-        onClick={props.onClear}
-        aria-pressed={props.levels.length === 0}
-      >
-        All levels
-      </Button>
-      <ToggleGroup
-        type="multiple"
-        size="sm"
-        spacing={1}
-        aria-label="Log levels"
-        value={props.levels}
-        onValueChange={props.onChange}
-        className="flex-wrap"
-      >
-        {SELECTABLE_LOG_LEVELS.map((level) => (
-          <ToggleGroupItem key={level} value={level} aria-label={level}>
-            {level.toLowerCase()}
-            {props.byLevel ? <span className="ml-1 text-[10px] text-muted-foreground">{facetLevelCount(props.byLevel, level)}</span> : null}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" aria-label="Filter log levels">
+          {props.levels.length === 0 ? "All levels" : props.levels.length < 3 ? props.levels.join(", ") : props.levels.length + " levels"}
+          <CaretDownIcon data-icon="inline-end" aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Log levels</DropdownMenuLabel>
+          <DropdownMenuItem onSelect={props.onClear}>All levels</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {SELECTABLE_LOG_LEVELS.map((level) => (
+            <DropdownMenuCheckboxItem
+              key={level}
+              checked={props.levels.includes(level)}
+              onCheckedChange={() => props.onChange(toggleListedLevel(props.levels, level))}
+              onSelect={(event) => event.preventDefault()}
+            >
+              {level.toLowerCase()}
+              {props.byLevel ? (
+                <span className="ml-auto font-mono text-xs text-muted-foreground">{facetLevelCount(props.byLevel, level)}</span>
+              ) : null}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

@@ -458,14 +458,21 @@ summary:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
+}
+.page-heading-main {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 6px;
+  min-width: 0;
 }
 .page-eyebrow {
+  grid-column: 2;
   font: 9px var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 1.8px;
   color: var(--primary);
-  margin-bottom: 6px;
 }
 .page-heading h1 {
   font-size: 27px;
@@ -473,10 +480,51 @@ summary:focus-visible {
   letter-spacing: -0.8px;
   font-weight: 600;
 }
+.page-title {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+}
+.page-title-icon {
+  grid-column: 1;
+  grid-row: 2 / 4;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--primary);
+  background: var(--muted);
+}
+.page-title-icon svg {
+  width: 21px;
+  height: 21px;
+}
+@media (max-width: 639px) {
+  .page-heading-main {
+    grid-template-columns: 32px minmax(0, 1fr);
+    column-gap: 10px;
+  }
+  .page-title-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .page-title-icon svg {
+    width: 20px;
+    height: 20px;
+  }
+}
 .page-description {
-  margin-top: 8px;
+  grid-column: 2;
+  grid-row: 3;
+  max-width: 70ch;
   color: var(--muted-foreground);
   font-size: 12px;
+  line-height: 1.5;
 }
 .page-context {
   display: flex;
@@ -872,28 +920,6 @@ summary:focus-visible {
 .log-toolbar-primary .search-field {
   flex: 1 1 220px;
 }
-.log-option-panel {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--muted);
-}
-.log-option-panel > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-  list-style: none;
-}
-.log-option-panel > summary::after {
-  content: "+";
-  margin-left: auto;
-  font-size: 16px;
-}
-.log-option-panel[open] > summary::after {
-  content: "−";
-}
 .log-options {
   display: flex;
   flex-wrap: wrap;
@@ -957,10 +983,6 @@ summary:focus-visible {
   }
   .inspector-list-card {
     max-height: none;
-  }
-  .log-workspace {
-    height: calc(100dvh - 240px);
-    min-height: 520px;
   }
 }
 @media (max-width: 1399px) {
@@ -1342,49 +1364,6 @@ summary:focus-visible {
   font-size: 11px;
   color: var(--muted-foreground);
 }
-.log-levels-mobile {
-  display: none;
-}
-@media (max-width: 639px) {
-  .log-levels-desktop {
-    display: none;
-  }
-  .log-levels-mobile {
-    display: block;
-    flex: 1;
-    min-width: 120px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-  }
-  .log-levels-mobile > summary {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 32px;
-    padding: 6px 10px;
-    list-style: none;
-    cursor: pointer;
-    font-size: 12px;
-  }
-  .log-levels-mobile > summary > span {
-    color: var(--muted-foreground);
-    font-size: 11px;
-  }
-  .log-levels-mobile > summary > svg {
-    width: 14px;
-    height: 14px;
-    margin-left: auto;
-  }
-  .log-levels-mobile[open] {
-    flex-basis: 100%;
-  }
-  .log-levels-mobile[open] > summary {
-    border-bottom: 1px solid var(--border);
-  }
-  .log-levels-mobile > div {
-    padding: 10px;
-  }
-}
 .log-selection-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1415,8 +1394,8 @@ summary:focus-visible {
   grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
-  min-height: 360px;
-  height: clamp(360px, 50dvh, 700px);
+  min-height: 560px;
+  height: clamp(560px, 70dvh, 1100px);
 }
 .log-streams {
   display: grid;
@@ -1524,11 +1503,6 @@ summary:focus-visible {
   text-align: left;
   padding-right: 24px;
   flex-shrink: 0;
-}
-.log-option-panel[open] .log-options {
-  max-height: min(420px, 48dvh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 .log-scroller {
   overscroll-behavior: contain;
@@ -1679,10 +1653,6 @@ summary:focus-visible {
   }
 }
 @media (min-width: 1280px) {
-  .log-body {
-    flex: 1;
-    height: auto;
-  }
   .log-body-inspecting {
     grid-template-columns: minmax(0, 1fr) minmax(300px, 35%);
   }
@@ -1851,4 +1821,12 @@ summary:focus-visible {
   width: 5px;
   height: 5px;
   border-radius: 50%;
+}
+
+.log-filter-dialog {
+  width: min(760px, calc(100% - 24px));
+  max-width: none;
+}
+.log-filter-dialog .log-options {
+  padding: 0;
 }

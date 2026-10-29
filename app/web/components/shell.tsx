@@ -9,6 +9,7 @@ import {
   CommandIcon,
   CaretLeftIcon,
   CaretRightIcon,
+  CaretDownIcon,
   FileCodeIcon,
   FirstAidIcon,
   FlowArrowIcon,
@@ -30,6 +31,15 @@ import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { SearchInput } from "./filters.tsx";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "./ui/dropdown-menu.tsx";
 
 const SIDEBAR_KEY = "devctl.sidebar.collapsed";
 function readSidebarCollapsed(): boolean {
@@ -244,12 +254,36 @@ export function ConsoleShell(props: {
           <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation" onClick={() => setMenu(true)}>
             <ListIcon />
           </Button>
-          <div className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          <div className="flex min-w-0 flex-1 items-center gap-1 text-xs text-muted-foreground">
             <span className="hidden sm:inline">
               {props.project || "Workspace"}
               <span className="mx-2.5 text-border">/</span>
             </span>
-            <span className="text-foreground">{page.label}</span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" className="max-w-full min-w-0 px-2" aria-label={`Switch page: ${page.label}`}>
+                  <page.icon data-icon="inline-start" aria-hidden="true" />
+                  <span className="truncate">{page.label}</span>
+                  <CaretDownIcon data-icon="inline-end" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                {["Workspace", "Observe", "Manage"].map((group, index) => (
+                  <DropdownMenuGroup key={group}>
+                    {index ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuLabel>{group}</DropdownMenuLabel>
+                    {PAGES.filter((item) => item.group === group).map((item) => (
+                      <DropdownMenuItem key={item.name} asChild>
+                        <a href={hrefFor(item.name)} aria-current={props.route === item.name ? "page" : undefined}>
+                          <item.icon aria-hidden="true" />
+                          <span>{item.label}</span>
+                        </a>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuGroup>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <span className="hidden items-center gap-2 text-[11px] text-muted-foreground sm:flex">
             <span
@@ -282,9 +316,12 @@ export function ConsoleShell(props: {
         ) : null}
         <main id="main-content" className="console-main" aria-busy={props.busy} tabIndex={-1}>
           <div className="page-heading">
-            <div>
+            <div className="page-heading-main">
               <p className="page-eyebrow">{page.group}</p>
-              <h1>{page.label}</h1>
+              <span className="page-title-icon" aria-hidden="true">
+                <page.icon />
+              </span>
+              <h1 className="page-title">{page.label}</h1>
               <p className="page-description">{page.description}</p>
             </div>
             <div className="page-context">

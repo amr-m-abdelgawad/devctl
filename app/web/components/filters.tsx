@@ -1,8 +1,16 @@
 import { useState, type ComponentProps, type ReactNode } from "react";
-import { MagnifyingGlassIcon, PauseIcon, PlayIcon, XIcon } from "../icons.ts";
+import { CaretDownIcon, MagnifyingGlassIcon, PauseIcon, PlayIcon, XIcon } from "../icons.ts";
 import { cn } from "../lib/utils.ts";
 import { Input } from "./ui/input.tsx";
-import { NativeSelect, NativeSelectOption } from "./ui/native-select.tsx";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+} from "./ui/dropdown-menu.tsx";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
@@ -26,21 +34,30 @@ export function FilterSelect(props: {
   className?: string;
 }) {
   return (
-    <label className={cn("filter-select flex min-w-0 items-center gap-2", props.className)}>
-      <span className="sr-only">{props.label}</span>
-      <NativeSelect
-        aria-label={props.label}
-        value={props.value}
-        disabled={props.disabled}
-        onChange={(event) => props.onChange(event.currentTarget.value)}
-      >
-        {props.options.map((option) => (
-          <NativeSelectOption key={option.value} value={option.value}>
-            {option.label}
-          </NativeSelectOption>
-        ))}
-      </NativeSelect>
-    </label>
+    <div className={cn("filter-select min-w-0", props.className)}>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" disabled={props.disabled} aria-label={props.label} className="w-full min-w-0 justify-between">
+            <span className="truncate">
+              {props.options.find((option) => option.value === props.value)?.label || props.value || props.label}
+            </span>
+            <CaretDownIcon data-icon="inline-end" aria-hidden="true" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-[var(--radix-dropdown-menu-trigger-width)] max-w-[calc(100vw-1rem)]">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{props.label}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={props.value} onValueChange={props.onChange}>
+              {props.options.map((option) => (
+                <DropdownMenuRadioItem key={option.value} value={option.value}>
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

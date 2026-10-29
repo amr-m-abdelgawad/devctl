@@ -3,6 +3,7 @@ import { envNeedsRestart, isLiveState, type RunControl } from "../control.ts";
 import type { ServiceRow } from "../types.ts";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
+import { FilterSelect } from "./filters.tsx";
 
 export function ActionButtons(props: {
   name?: string;
@@ -59,25 +60,18 @@ export function EnvSelect(props: {
   const pending = envNeedsRestart({ ...row, env: selected });
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <select
-        className="h-7 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+      <FilterSelect
         value={selected}
         disabled={busy}
-        aria-label={`Environment for ${row.name}`}
-        onChange={(event) => {
-          const name = event.target.value;
+        label={`Environment for ${row.name}`}
+        options={names.map((name) => ({ value: name, label: name }))}
+        onChange={(name) => {
           if (name === "" || name === row.env) {
             return;
           }
           onControl("set_service_environment", { service: row.name, name }, `Switching ${row.name} to ${name}…`);
         }}
-      >
-        {names.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
+      />
       {pending ? (
         <>
           <Badge variant="warning">pending</Badge>
