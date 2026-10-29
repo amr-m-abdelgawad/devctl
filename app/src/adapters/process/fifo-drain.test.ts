@@ -107,18 +107,23 @@ describe.skipIf(process.platform === "win32")("fifo drain", () => {
 
   test("the drain spool and the dead daemon's ingest spool share one cap", async () => {
     const service = serviceWritingTo(writeLines);
-    // The dead daemon left 48 KiB of unparsed output in its own spool.
+    // The dead daemon left all but 16 KiB of the 1 MiB cap as unparsed output in its own spool.
+    const cap = 1024 * 1024;
+    const left = 16 * 1024;
     const ingestSpoolDir = join(service.dir, "log-spool");
     mkdirSync(join(ingestSpoolDir, "s_api_stdout_1"), { recursive: true });
-    writeFileSync(join(ingestSpoolDir, "s_api_stdout_1", "00000000.spool"), Buffer.alloc(48 * 1024));
-    const plan = { ...planFor(service, 64 * 1024), ingestSpoolDir };
+    writeFileSync(join(ingestSpoolDir, "s_api_stdout_1", "00000000.spool"), Buffer.alloc(cap - left));
+    const plan = { ...planFor(service, cap), ingestSpoolDir };
+    // The pipe fills before the drainer starts, as on a loaded machine, so its first read takes a full pipe at once.
+    await Bun.sleep(300);
     const drain = startDrain(plan);
     await Bun.sleep(800);
     expect(service.proc.exitCode).toBeNull();
     drain.stop();
     await drain.done;
-    // 16 KiB was left for the drainer; it stops within one read batch of that, far below its own 64 KiB.
-    expect(spoolBytes(plan.spoolDir)).toBeLessThan(48 * 1024);
+    // It stops within one read batch (256 KiB, plus segment headers) of the 16 KiB left,
+    // far below the 1 MiB it would spool on a cap of its own.
+    expect(spoolBytes(plan.spoolDir)).toBeLessThan(left + 256 * 1024 + 4 * 1024);
     const replayed = await replayAll(plan.spoolDir);
     const rest = await readRest(service.fifo);
     expect(await service.proc.exited).toBe(0);
