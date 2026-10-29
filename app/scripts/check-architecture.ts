@@ -14,7 +14,9 @@
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import ts from "typescript";
+// TypeScript 7 typechecks the project but has no stable JavaScript API yet,
+// so imports are read with the TypeScript 6 compiler, kept for this alone.
+import ts from "typescript6";
 
 type Layer = "domain" | "application" | "ports" | "adapters" | "presentation" | "shared" | "bootstrap" | "legacy" | "test";
 
