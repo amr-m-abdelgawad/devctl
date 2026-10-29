@@ -78,9 +78,9 @@ export function processState(pid: number): ProcState {
   if (stat !== undefined) {
     return procStateKind(parseProcStatState(stat), true);
   }
-  if (process.platform === "win32") {
-    return processAliveWindows(pid) ? "alive" : "dead";
-  }
+  // Elsewhere signal 0 answers. A process this one may not signal (EPERM)
+  // counts as gone, as it always has: a stale lock's pid can be taken by
+  // such a process, and a v1 lock has no stamp to tell them apart.
   try {
     process.kill(pid, 0);
     return "alive";
@@ -280,47 +280,4 @@ export function groupHasLiveMembers(leaderPid: number): boolean | undefined {
     return undefined;
   }
   return livePidsInGroup(pgid).length > 0;
-}
-
-export function windowsTasklistLine(pid: number): string {
-  try {
-    const result = spawnSync("cmd.exe", ["/d", "/c", `tasklist /FO CSV /NH /FI "PID eq ${pid}"`], {
-      encoding: "buffer",
-      windowsHide: true,
-      timeout: 5_000,
-    });
-    return decodeWindowsOutput(result.stdout);
-  } catch {
-    return "";
-  }
-}
-
-function processAliveWindows(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    // Bun may reject signal 0 for other processes.
-  }
-  const out = windowsTasklistLine(pid).toLowerCase();
-  if (out === "" || out.includes("no tasks") || out.includes("no matching")) {
-    return false;
-  }
-  return out.includes(String(pid));
-}
-
-function decodeWindowsOutput(buf: Buffer | string | null | undefined): string {
-  if (!buf) {
-    return "";
-  }
-  if (typeof buf === "string") {
-    return buf;
-  }
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
-    return buf.toString("utf16le");
-  }
-  if (buf.length >= 4 && buf[1] === 0 && buf[3] === 0) {
-    return buf.toString("utf16le");
-  }
-  return buf.toString("utf8");
 }

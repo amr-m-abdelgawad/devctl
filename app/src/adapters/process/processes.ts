@@ -369,8 +369,9 @@ export function sameProcess(expected: { args: string[]; workDir: string; startTi
 
 // sameProcess, plus proof: the working directory or the start time was
 // actually compared, not skipped for lack of data. commandMatches alone
-// accepts an executable basename, so on Windows (tasklist reports neither
-// cwd nor start time) any process of the same program would pass. Used
+// accepts an executable basename, so where only the executable is known
+// (on Windows there is no cwd, and Get-Process may give only a path) any
+// process of the same program would pass. Used
 // before killing a port holder, where leaving an unverifiable process
 // running is the safe outcome.
 export function provenSameProcess(expected: { args: string[]; workDir: string; startTime?: Date }, observed: ProcessIdentity): boolean {
