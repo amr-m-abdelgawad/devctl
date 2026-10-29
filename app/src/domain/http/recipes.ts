@@ -138,6 +138,18 @@ export function recipesNeededForEnv(cfg: DevctlConfig, env: EnvConfig, extra: Re
   return recipeClosure(cfg, [...recipesReferencedInEnv(env), ...recipesReferencedInMap(extra)]);
 }
 
+export function recipesNeededForEnvs(cfg: DevctlConfig, envs: readonly EnvConfig[], extra: Record<string, string> = {}): string[] {
+  const names: string[] = [];
+  for (const env of envs) {
+    for (const name of recipesNeededForEnv(cfg, env, extra)) {
+      if (!names.includes(name)) {
+        names.push(name);
+      }
+    }
+  }
+  return names;
+}
+
 export function implicitServiceDependencies(cfg: DevctlConfig, env: EnvConfig, extra: Record<string, string> = {}): Dependency[] {
   const services: string[] = [];
   for (const recipeName of recipesNeededForEnv(cfg, env, extra)) {
@@ -165,7 +177,8 @@ export function effectiveStartupDependencies(cfg: DevctlConfig, name: string, pr
   const explicit = [...svc.dependencies];
   const seen = new Set(explicit.map((dep) => dependencyName(dep)));
   const out = [...explicit];
-  for (const env of allServiceEnvConfigs(svc)) {
+  const envs = [...allServiceEnvConfigs(svc), svc.hooks.pre_start.environment, svc.hooks.post_start.environment];
+  for (const env of envs) {
     for (const dep of implicitServiceDependencies(cfg, env, profileEnv)) {
       const depName = dependencyName(dep);
       if (!seen.has(depName) && depName !== name) {

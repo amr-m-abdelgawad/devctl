@@ -2,6 +2,7 @@ import {
   emptyCommand,
   emptyContainer,
   emptyEnv,
+  emptyHook,
   emptyHealth,
   emptyIdentity,
   emptyProfile,
@@ -14,6 +15,7 @@ import {
   watchDebounceMs,
   type Command,
   type EnvConfig,
+  type HookConfig,
   type HelmEnvConfig,
   type TerraformEnvConfig,
   type ExposeConfig,
@@ -355,9 +357,19 @@ export function decodeWatch(value: unknown): import("../../domain/config/types.t
   };
 }
 
+export function decodeHook(value: unknown): HookConfig {
+  if (typeof value === "string" || Array.isArray(value)) {
+    return { command: decodeCommand(value), environment: emptyEnv() };
+  }
+  if (!isRecord(value)) {
+    return emptyHook();
+  }
+  return { command: decodeCommand(value.command), environment: decodeEnv(value.environment) };
+}
+
 export function decodeHooks(value: unknown): import("../../domain/config/types.ts").HooksConfig {
   const raw = isRecord(value) ? value : {};
-  return { pre_start: decodeCommand(raw.pre_start), post_start: decodeCommand(raw.post_start) };
+  return { pre_start: decodeHook(raw.pre_start), post_start: decodeHook(raw.post_start) };
 }
 
 export function decodeTask(value: unknown): TaskConfig {

@@ -1,4 +1,4 @@
-import type { DevctlConfig, HealthCheckConfig, ServiceConfig } from "../domain/config/types.ts";
+import type { DevctlConfig, EnvConfig, HealthCheckConfig, ServiceConfig } from "../domain/config/types.ts";
 import type { Runtime, ServiceHealth, ServiceState } from "../domain/service/services.ts";
 import type { LogStore } from "./log-store.ts";
 import type { Bus } from "../shared/events.ts";
@@ -39,6 +39,7 @@ export type LifecycleSession = HealthHost & {
   readonly containerPrefix: string;
   prepareServiceIdentity(name: string, svc: ServiceConfig): Promise<void>;
   resolveServiceExecution(name: string, svc: ServiceConfig, profile: string, profileEnv: Record<string, string>, clientEnv?: Record<string, string>, includeProcess?: boolean, selectedEnv?: string): Promise<{ env: Record<string, string>; workDir: string }>;
+  overlayHookEnvironment(label: string, extra: EnvConfig, base: Record<string, string>, clientEnv?: Record<string, string>): Record<string, string>;
   ensureHttpRecipes(names: string[]): Promise<void>;
 
   detectGoogle(project: string): Promise<GoogleProbe>;
