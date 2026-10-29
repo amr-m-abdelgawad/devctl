@@ -18,9 +18,7 @@ function unusedPort(): Promise<number> {
 }
 
 describe("demo-platform integration", () => {
-  // Bun 1.4.2 on Windows can segfault while spawning this demo service
-  // (main CI after #95). The same hop is covered on Linux.
-  test.skipIf(process.platform === "win32" && process.env.DEVCTL_WIN_PROBE_UNSKIP !== "1")("starts and stops the Python identity service without Google", async () => {
+  test("starts and stops the Python identity service without Google", async () => {
     const home = join(tmpdir(), `devctl-int-${Date.now()}`);
     mkdirSync(home, { recursive: true });
     process.env.DEVCTL_HOME = home;
