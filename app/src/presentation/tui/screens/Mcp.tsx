@@ -5,7 +5,7 @@ import { Chip, KeyHints, MetaBar, ScreenFrame, scrollboxStyle, Toolbar } from ".
 import { agentColor, onAgentColor, type Palette } from "../themes.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { MCP_TOOL_CATEGORIES, MCP_TOOLS, toolEnabled, type McpToolDef } from "../../mcp/tools.ts";
-import { formatMcpTokenAge, MCP_TOKEN_TTL_DAYS } from "../../../shared/mcp-token.ts";
+import { formatSessionTokenAge } from "../../../shared/mcp-token.ts";
 
 export const MCP_TOGGLE_ROW = 0;
 export const MCP_PORT_ROW = 1;
@@ -85,7 +85,7 @@ export function McpScreen(props: {
           { text: running ? "RUNNING" : "STOPPED", tone: running ? "success" : "idle" },
           { text: `127.0.0.1:${livePort}`, tone: "info" },
           ...(tokenAge !== undefined
-            ? [{ text: `token ${formatMcpTokenAge(tokenAge)} / ${MCP_TOKEN_TTL_DAYS}d`, tone: "muted" as const }]
+            ? [{ text: `token ${formatSessionTokenAge(tokenAge, snap?.mcp?.regenerate_token === true)}`, tone: "muted" as const }]
             : []),
         ]}
       />

@@ -605,7 +605,7 @@ devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--rotate] [--write claude|cursor|kilo] [--json]
-devctl web status|start|stop
+devctl web status|start|stop|rotate [--print-url]
 devctl config validate|show|diff [--json] [--overlay <name>]
 devctl attach
 devctl completion zsh|bash|fish
@@ -681,7 +681,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Web
 
-\`devctl web status|start|stop\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full access link when you need it. After the first authorized visit, the browser keeps the token (7-day TTL, same as MCP). \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Web console](web.md).
+\`devctl web status|start|stop|rotate\` controls the opt-in loopback console. \`web start\` prints the console origin only; the control token travels in the URL fragment (\`#token=\`), and \`web start --print-url\` prints the full access link when you need it. After the first authorized visit, the browser keeps the token. The saved token stays until \`web rotate\`, unless \`regenerate_session_tokens\` is on (then it remints after 7 days, same as MCP). \`devctl status\` prints a \`WEB\` line without the token. Off until \`web.enabled: true\` or you run \`web start\`. See [Web console](web.md).
 
 ## Exit codes
 
@@ -2377,12 +2377,16 @@ Change it with \`←\` / \`→\` or \`devctl mcp --port\`. An override is persis
 The server binds **\`127.0.0.1\` only**. Requests must use a loopback \`Host\` from a
 loopback peer. There is no CORS (\`Access-Control-Allow-Origin\` is not set), so a
 browser page cannot drive the control plane cross-origin. Mutating tools require
-\`Authorization: Bearer\` with a short session token. The token is reused across
-daemon restarts for **7 days**, then reminted. \`devctl mcp --rotate\` mints a new
-one immediately (and restarts the listener if it is running). Copied snippets
-include the header. Tool output never includes tokens or raw secret env values.
-\`get_status\` reports MCP running/address/port and token age, not the bearer
-token. Re-copy snippets after a rotate or TTL remint.
+\`Authorization: Bearer\` with a session token. A saved token is reused across
+daemon restarts until you rotate it. \`devctl mcp --rotate\` mints a new one
+immediately (and restarts the listener if it is running). Set
+\`regenerate_session_tokens: true\` in \`tui.json\` (Settings → **Regenerate tokens**,
+or the web console Settings page) to remint after **7 days** the next time the
+listener reads the token. That preference is off by default and covers the web
+control token too. Copied snippets include the header. Tool output never includes
+tokens or raw secret env values. \`get_status\` reports MCP running/address/port,
+token age, and whether regeneration is on, not the bearer token. Re-copy snippets
+after a rotate, or after a remint when regeneration is on.
 
 ## CLI
 
@@ -2403,8 +2407,9 @@ so agents must be given the new snippets.
 checkout (\`.mcp.json\`, \`.cursor/mcp.json\` or \`kilo.jsonc\`), keeping any other
 servers there. The MCP port is derived per stack, so each worktree of a
 [parallel stacks](parallel-stacks.md) setup points its agent at its own stack.
-The file holds the bearer token: keep it out of git, and write it again after a
-rotate or remint. It needs a running listener (\`devctl mcp --on --write …\`).
+The file holds the bearer token: keep it out of git, and write it again after
+\`devctl mcp --rotate\` (or after a remint when \`regenerate_session_tokens\` is
+on). It needs a running listener (\`devctl mcp --on --write …\`).
 
 ![devctl mcp — the loopback URL and ready-to-paste config snippets for Claude, Cursor, Kilo Code, and Codex, each with the bearer header (token redacted here)](assets/manual/cli-mcp.png)
 
@@ -2416,7 +2421,7 @@ rotate or remint. It needs a running listener (\`devctl mcp --on --write …\`).
 | \`get_service\` | inspect | One service plus command/cwd/ports (env redacted or left as \`\${…}\` refs) |
 | \`get_status\` | inspect | Profile, session, identity flags, proxy, log counts, MCP listen |
 | \`get_preferences\` | inspect | Resolved operator prefs, write paths, and layer provenance (\`user\` / \`repo\` / \`default\`). \`scope\` labels the save target |
-| \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
+| \`set_preferences\` | control | Write TUI/web prefs (\`scope\` repo or user). MCP listen always hits the repo overlay. \`regenerate_session_tokens\` (default false) remints saved MCP and web bearers after 7 days. \`local.web_enabled\` / \`local.web_port\` / \`local.inspect_max_bytes\` patch \`.devctl/config.local.yaml\` then reload |
 | \`get_logs\` | logs | Filtered log records (body, attributes, severity), secrets redacted. Default page size is **200** (pass \`limit\`, max 5000). \`levels\` is the set to show, such as \`["info", "warn"]\` or \`["warn", "error"]\`; omit it to show every level, including lines with no level. \`level\` is a minimum (\`error\` includes fatal) and is ignored when \`levels\` is set. \`hide_health: true\` drops supervisor health probes and request logs for HTTP health/ready/live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and the proxy. \`hide_grpc=true\` omits gRPC proxy logs and records marked \`rpc.system=grpc\`. Also filter by \`trace_id\`, \`request_id\`, or an \`attribute\` key/value in addition to service/source/time. Pass \`cursor\` from \`next_cursor\` to page toward newer events (\`direction\` defaults to forward when a cursor is set); pass \`cursor\` from \`prev_cursor\` with \`direction=backward\` for older events. \`regex=true\` treats \`search\` as a regular expression. \`since\`/\`until\` are plain timestamp filters for a fresh query |
 | \`get_log_stats\` | logs | Facet counts for the current filter (by service, level, and source). No event payload. Same filters as \`get_logs\`, including \`hide_health\` and \`hide_grpc\` |
 | \`get_trace\` | logs | Span tree plus correlated log records for a W3C \`trace_id\`, secrets redacted |
@@ -2740,7 +2745,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 
 ## Web
 
-An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. \`devctl web start\` prints a URL with a session token (reused across listener restarts for 7 days); \`devctl status\` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
+An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. \`devctl web start\` prints a URL with a session token that is reused across listener restarts until \`devctl web rotate\` (7-day remint only when \`regenerate_session_tokens\` is on); \`devctl status\` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
 
 ## Configuration vs preferences
 
@@ -2883,7 +2888,7 @@ devctl mcp --write cursor        # .cursor/mcp.json
 devctl mcp --write kilo          # kilo.jsonc
 \`\`\`
 
-The file gets devctl's entry with this stack's URL and bearer token. Other servers in the file are kept. It holds a token, so keep it out of git, and write it again after \`devctl mcp --rotate\` or a token remint. Codex reads only \`~/.codex/config.toml\`, so for Codex use the snippet \`devctl mcp\` prints. See [MCP](mcp.md).
+The file gets devctl's entry with this stack's URL and bearer token. Other servers in the file are kept. It holds a token, so keep it out of git, and write it again after \`devctl mcp --rotate\` (or after a remint when \`regenerate_session_tokens\` is on). Codex reads only \`~/.codex/config.toml\`, so for Codex use the snippet \`devctl mcp\` prints. See [MCP](mcp.md).
 
 ## Commands
 
@@ -3777,8 +3782,8 @@ Four listeners, same bind rule. The web UI also checks that \`Host\` is a loopba
 |----------|------------------|
 | **Proxy** | Route identity (user ADC or impersonated SA). Logs never include \`Authorization\` |
 | **Token endpoint** | \`X-Devctl-Internal-Token\` + loopback peer. Query \`identity\`/\`audience\` must match a declared route or service identity. Google mints are rate-limited. Returns \`access_token\` to that caller |
-| **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (session token, 7-day TTL, \`devctl mcp --rotate\`). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
-| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). Every \`/api/*\` route needs \`Authorization: Bearer\` (session token, 7-day TTL, \`~/.devctl/state/<repoID>/web-token\`; the SPA keeps it in localStorage after the first \`#token=\` visit) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\` on \`POST /api/control\`. HTML is not framed. \`get_status\` does not include the token |
+| **MCP** | Off by default. Loopback \`Host\` (port may differ for WSL / Dev Container forwarding) + loopback peer, no CORS. Mutating tools need \`Authorization: Bearer\` (saved session token, \`devctl mcp --rotate\`; 7-day remint only when \`regenerate_session_tokens\` is on). \`exec_service\` is off until opted in. Copied snippets include the token; \`get_status\` does not |
+| **Web UI** | Off by default. Loopback Host (port may differ for WSL / Dev Container forwarding). Every \`/api/*\` route needs \`Authorization: Bearer\` (saved session token, \`~/.devctl/state/<repoID>/web-token\`, \`devctl web rotate\`; 7-day remint only when \`regenerate_session_tokens\` is on; the SPA keeps it in localStorage after the first \`#token=\` visit) plus a loopback \`http\` or \`https\` \`Origin\`/\`Referer\` on \`POST /api/control\`. HTML is not framed. \`get_status\` does not include the token |
 
 Host child processes always get \`DEVCTL_INTERNAL_TOKEN\`. They only get \`DEVCTL_TOKEN_URL\` when \`proxy.token_endpoint.enabled\` is turned on (off by default) — never a raw Google token in the environment. Containers get neither value: the loopback token endpoint is not reachable as container loopback, and embedding the internal token in inspectable container metadata would add exposure without providing access. With the token endpoint off, a service that needs its own Google credential (rather than relying on the proxy to inject one on inbound requests) must get it another way, e.g. its own ADC discovery.
 
@@ -3834,7 +3839,7 @@ Two checkouts do not share a lock. \`repoID\` is \`sha256(canonical repo root)\`
 
 | Path | Mode / note |
 |------|-------------|
-| \`~/.devctl/state/<repoID>/\` | \`state.json\`, \`devctl.lock\`, \`rpc-token\`, \`mcp-token\`, \`web-token\`, and on Unix \`devctl.sock\`. Windows attach uses \`\\\\.\\pipe\\devctl-<repoID>\` plus the same \`rpc-token\`. MCP and web bearers last 7 days (mode \`0600\`) |
+| \`~/.devctl/state/<repoID>/\` | \`state.json\`, \`devctl.lock\`, \`rpc-token\`, \`mcp-token\`, \`web-token\`, and on Unix \`devctl.sock\`. Windows attach uses \`\\\\.\\pipe\\devctl-<repoID>\` plus the same \`rpc-token\`. MCP and web bearers stay until rotated (mode \`0600\`). \`regenerate_session_tokens: true\` remints them after 7 days |
 | \`~/.devctl/state/<repoID>/log-spool/\` | Service output the daemon has read but not parsed yet, so **not redacted**. Directories \`0700\`, files \`0600\`, capped by \`logs.spool.max_bytes\`. Each segment is deleted as it is parsed. Segments a crashed daemon left behind are parsed (and redacted) into that daemon's session history by the next daemon, then deleted |
 | \`~/.devctl/state/<repoID>/stdio/\` | Unix only. Each captured service's stdout and stderr FIFOs (\`0600\`). While no daemon runs, \`drain/\` holds the output services wrote in the meantime, **not redacted**, files \`0600\`, capped by \`logs.spool.max_bytes\`; the next daemon parses it into its log and deletes it |
 | \`~/.devctl/logs/session-*/\` | Redacted log records (JSONL), directories \`0700\`, files \`0600\`. \`manifest.json\` records the owning daemon's pid and process stamp, so pruning never deletes a session that is still being written |
@@ -3856,8 +3861,8 @@ Override the home directory with \`DEVCTL_HOME\`.
 
 - Anyone who can reach your user account can reach \`127.0.0.1\` listeners.
 - Supervisor RPC requires the per-checkout \`rpc-token\` (Unix socket mode \`0700\` plus the token; Windows named pipe plus the token).
-- MCP is off until you flip it. Treat the copied bearer token like a session secret; it lasts 7 days or until \`devctl mcp --rotate\`.
-- Web UI is off until you flip it. Treat the control token like a session secret; it lasts 7 days (file plus browser \`localStorage\`) after the first \`#token=\` visit.
+- MCP is off until you flip it. Treat the copied bearer token like a session secret. It stays valid until \`devctl mcp --rotate\`, or for 7 days when \`regenerate_session_tokens\` is on.
+- Web UI is off until you flip it. Treat the control token like a session secret. It stays valid (file plus browser \`localStorage\`) until \`devctl web rotate\`, or for 7 days when \`regenerate_session_tokens\` is on.
 - \`/reveal\` and log export write what you can already see on that machine.
 - Doctor never enables Google APIs or grants IAM.
 
@@ -4280,7 +4285,7 @@ The [Web console](web.md) provides service controls, a dependency graph, structu
 devctl web start --print-url
 \`\`\`
 
-Open the printed link to authorize lifecycle controls. The browser keeps that token after the first visit (7-day TTL). Plain \`devctl web start\` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
+Open the printed link to authorize lifecycle controls. The browser keeps that token after the first visit. It stays valid until \`devctl web rotate\`, unless \`regenerate_session_tokens\` is on (then it remints after 7 days). Plain \`devctl web start\` prints only the origin, without the control token. See the [web console guide](web.md) for persistent configuration, screenshots, access details, and troubleshooting.
 
 ## Redaction
 
@@ -4470,7 +4475,7 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Config** — merged view including **tasks**. \`v\` / \`/buffer\` opens a validate/save overlay on \`cfg.configPath\` (invalid YAML is not written; \`esc\` discards). \`e\` / \`/edit\` still opens \`$EDITOR\` / \`DEVCTL_EDITOR\`. \`/diff\` shows provenance (\`devctl config diff\`). \`/reload\` re-reads after an external edit
 - **Profiles** — members; \`enter\` selects and offers start
 - **Setup** — onboarding checklist. First-run with no config still opens here
-- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, web console on/off and port, inspect body cap (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only; layer badges then show \`override\` or \`default\`, not an ignored overlay.
+- **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, **Regenerate tokens** (\`regenerate_session_tokens\`, off by default; on remints saved MCP and web bearers after 7 days), web console on/off and port, inspect body cap (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first and leaves MCP listen and token regeneration as they are. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only; layer badges then show \`override\` or \`default\`, not an ignored overlay.
 - **MCP** — Listen \`[ ON ]\` / \`[ OFF ]\`, port stepper \`‹ N ›\`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked \`read\` or \`write\`; \`space\` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
 \`/reveal\` toggles secret env values for this session only. The header shows \`secrets shown\`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.
@@ -4677,9 +4682,9 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **\`tui.json\` or \`tui.jsonc\`**: \`theme\`, \`keybinds\`, \`leader_timeout\`, \`font_size\`, \`mouse\`, \`scroll_speed\`, \`log_timestamps\`, \`log_metadata\`, \`web_appearance\`, \`mcp_enabled\`, \`mcp_port\`, \`mcp_disabled_tools\`, \`mcp_enabled_tools\`, \`dismissed_notifications\`.
+Configuration is **\`tui.json\` or \`tui.jsonc\`**: \`theme\`, \`keybinds\`, \`leader_timeout\`, \`font_size\`, \`mouse\`, \`scroll_speed\`, \`log_timestamps\`, \`log_metadata\`, \`web_appearance\`, \`mcp_enabled\`, \`mcp_port\`, \`mcp_disabled_tools\`, \`mcp_enabled_tools\`, \`regenerate_session_tokens\`, \`dismissed_notifications\`.
 
-\`mcp_disabled_tools\` is a deny-list of MCP tool names that are on by default. \`mcp_enabled_tools\` opts in tools that are off by default (\`exec_service\`). See [MCP](mcp.md). \`/notify dismiss\` appends this version to \`dismissed_notifications\` so the update banner does not return.
+\`mcp_disabled_tools\` is a deny-list of MCP tool names that are on by default. \`mcp_enabled_tools\` opts in tools that are off by default (\`exec_service\`). See [MCP](mcp.md). \`regenerate_session_tokens\` (default false) remints the saved MCP and web bearer tokens after 7 days. \`/notify dismiss\` appends this version to \`dismissed_notifications\` so the update banner does not return.
 
 Search order (later sources win). \`DEVCTL_TUI_CONFIG\` / \`OPENCODE_TUI_CONFIG\` is exclusive and session-only for writes:
 
@@ -4691,7 +4696,7 @@ flowchart TB
   user --> repo["~/.devctl/state/repoID/tui.json  this checkout"]
 \`\`\`
 
-Settings default to **this repository**. Theme, mouse, leader, scroll, log columns, and web appearance follow the Save to toggle. MCP listen / port / tool lists always write the repo overlay. \`dismissed_notifications\` stay user-global. \`DEVCTL_TUI_CONFIG\` still wins as the only file when set.
+Settings default to **this repository**. Theme, mouse, leader, scroll, log columns, web appearance, and token regeneration follow the Save to toggle. MCP listen / port / tool lists always write the repo overlay. \`dismissed_notifications\` stay user-global. \`DEVCTL_TUI_CONFIG\` still wins as the only file when set.
 
 \`keybinds\` merge with the built-in defaults, so you only override what you change. Defaults use \`cmd\` on macOS and \`ctrl\` on Linux/Windows (\`command+c\` / \`ctrl+c\` in the TUI).
 
@@ -4706,7 +4711,8 @@ Settings default to **this repository**. Theme, mouse, leader, scroll, log colum
   "mouse": true,
   "mcp_enabled": false,
   "mcp_disabled_tools": [],
-  "mcp_enabled_tools": []
+  "mcp_enabled_tools": [],
+  "regenerate_session_tokens": false
 }
 \`\`\`
 
@@ -4740,18 +4746,20 @@ From a repository with a valid devctl configuration:
 devctl web start --print-url
 \`\`\`
 
-Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. The browser stores the token after the first authorized visit (7-day TTL, same as MCP), so closing the tab and opening the same origin again stays authorized. Plain \`devctl web start\` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use \`devctl start --profile <name>\`.
+Open the printed link. Its URL fragment carries the control token that lets the console start, stop, and restart services. Keep that link private. The browser stores the token after the first authorized visit, so closing the tab and opening the same origin again stays authorized. The saved token is kept until \`devctl web rotate\` (or the same \`regenerate_session_tokens\` preference as MCP, off by default, which remints it after 7 days). Plain \`devctl web start\` prints only the origin; it does not print the token. Starting the console does not start a service profile: choose one in the console or use \`devctl start --profile <name>\`.
 
 The console is off by default and normally listens at \`http://127.0.0.1:18900\`. You can check or stop its listener independently:
 
 \`\`\`bash
 devctl web status
 devctl web stop
+devctl web rotate
+devctl web rotate --print-url
 \`\`\`
 
 Stopping the web listener leaves your services running. Use \`devctl down\` when you want to shut down the session.
 
-**Settings** (\`#/settings\`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write \`tui.json\` layers. **Web console on/off and port** write \`web.enabled\` / \`web.listen.port\` into gitignored \`.devctl/config.local.yaml\` (created if missing) and reload so the listener starts, stops, or rebinds. **Inspect body cap** writes \`proxy.inspect_max_bytes\` and \`llm.capture_max_bytes\` (1 / 4 / 8 / 16 MiB) so large request/response bodies are kept; a route or source that sets \`max_bytes\` still wins. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
+**Settings** (\`#/settings\`, gear in the nav) share the TUI preference model: this-repository overlay by default, or all checkouts. Appearance, scroll, and log columns write \`tui.json\` layers. **Regenerate tokens** writes \`regenerate_session_tokens\` (off by default). On remints the saved MCP and web bearer tokens after 7 days, the next time that listener reads them. **Web console on/off and port** write \`web.enabled\` / \`web.listen.port\` into gitignored \`.devctl/config.local.yaml\` (created if missing) and reload so the listener starts, stops, or rebinds. **Inspect body cap** writes \`proxy.inspect_max_bytes\` and \`llm.capture_max_bytes\` (1 / 4 / 8 / 16 MiB) so large request/response bodies are kept; a route or source that sets \`max_bytes\` still wins. Confirm before turning the console off while this tab is open. You can still enable it from YAML:
 
 \`\`\`yaml
 web:
@@ -4817,7 +4825,7 @@ The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspe
 | Symptom | Next step |
 |---|---|
 | Browser cannot connect | Run \`devctl web status\`, then \`devctl web start --print-url\`; use the address it prints. |
-| Pages load but controls fail | Reopen the access link from \`devctl web start --print-url\` after the 7-day token TTL, a different repository on the same port, or a missing first-time authorization. |
+| Pages load but controls fail | Reopen the access link from \`devctl web start --print-url\` after \`devctl web rotate\`, after a remint when \`regenerate_session_tokens\` is on, a different repository on the same port, or a missing first-time authorization. |
 | Service list is stopped | Start the intended profile; enabling the console does not launch your application. |
 | No application traces | Check your instrumentation and OTLP/HTTP exporter configuration in [Telemetry](telemetry.md). |
 | Cannot bind the listener | Check for a port conflict with \`devctl doctor\` or \`#/doctor\` and choose an unused loopback port. |

@@ -1,7 +1,7 @@
 import { humanMessage } from "../../shared/errors.ts";
 import { effectiveMcpDisabledTools } from "../../domain/ui/preferences.ts";
 import type { McpHost, McpListener, McpListenerFactory } from "../../ports/mcp-host.ts";
-import { loadTuiConfig } from "../config/tui-preferences.ts";
+import { loadTuiConfig, sessionTokensRegenerate } from "../config/tui-preferences.ts";
 import { resolveMcpPort } from "../net/mcp-port.ts";
 import { readOrCreateMcpToken, rotateMcpToken, mcpTokenAgeMs } from "../storage/storage.ts";
 
@@ -22,7 +22,16 @@ export class McpCoordinator {
 
   constructor(deps: McpCoordinatorDeps) {
     this.deps = deps;
-    this.currentToken = readOrCreateMcpToken(deps.repoRoot());
+    this.currentToken = this.readToken();
+  }
+
+  private readToken(): string {
+    const root = this.deps.repoRoot();
+    return readOrCreateMcpToken(root, { regenerate: sessionTokensRegenerate(root) });
+  }
+
+  regenerates(): boolean {
+    return sessionTokensRegenerate(this.deps.repoRoot());
   }
 
   get instance(): McpListener | undefined {
@@ -59,6 +68,7 @@ export class McpCoordinator {
     if (this.listener?.isRunning()) {
       return;
     }
+    this.currentToken = this.readToken();
     const resolved = await resolveMcpPort(this.deps.repoRoot(), port);
     this.listener = this.deps.createListener({
       port: resolved,

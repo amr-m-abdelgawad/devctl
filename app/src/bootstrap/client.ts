@@ -4,7 +4,7 @@ import type { ClientRuntime } from "../application/client-runtime.ts";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { runForeground } from "../adapters/process/foreground.ts";
 import { archiveDirectory } from "../adapters/storage/archive.ts";
-import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, logsDir, rotateMcpToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
+import { readPersistedState, processAlive, writeFileSecure, bootstrapLogPath, exportsDir, logsDir, rotateMcpToken, rotateWebToken, mcpTokenAgeMs } from "../adapters/storage/storage.ts";
 import { forceStopDaemon } from "../adapters/daemon/force-down.ts";
 import { resolveExportPath, writeLogExport, openInFileManager } from "../adapters/storage/log-export.ts";
 import { listSessions, loadSessionEvents, loadSessionTail } from "../adapters/storage/session-files.ts";
@@ -43,7 +43,7 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     releaseInstance: releaseSlot,
     processAlive,
     forceStopDaemon,
-    readPersistedState, rotateMcpToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
+    readPersistedState, rotateMcpToken, rotateWebToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
     createStarterConfig,
     runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),
     readTextFile: (path) => readFileSync(path, "utf8"),

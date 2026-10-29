@@ -73,6 +73,7 @@ Incompatible daemon: `assertMethodAllowed` blocks everything except `logs`, `log
 | `mcp_rotate` | `null` | `null` | New MCP bearer |
 | `web_start` | `null` | `{ url }` | |
 | `web_stop` | `null` | `null` | |
+| `web_rotate` | `null` | `{ url }` | New web control bearer. Restarts the listener when it was running. `url` is empty when it was stopped |
 | `mcp_set_tools` | `{ disabled: string[] }` | `{ disabled_tools }` | Full deny-list, not a delta |
 | `reload` | `null` | `ReloadResult` | |
 | `set_service_env` | `{ service, name }` | `{ service, env }` | Per-service named overlay; session state only. Does not restart. |

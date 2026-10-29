@@ -62,6 +62,9 @@ export type TuiConfig = {
   mcp_disabled_tools?: string[];
   // Opt-in list for tools that are off by default (currently exec_service).
   mcp_enabled_tools?: string[];
+  // Off by default. When true, saved MCP and web bearer tokens remint after
+  // the session TTL. An explicit rotate still mints a new token either way.
+  regenerate_session_tokens: boolean;
   /** Notification ids the operator dismissed (for example `update:0.10.0`). */
   dismissed_notifications?: string[];
   path?: string;
@@ -187,6 +190,7 @@ export function defaultTuiConfig(): TuiConfig {
     log_metadata: true,
     web_appearance: DEFAULT_WEB_APPEARANCE,
     mcp_enabled: false,
+    regenerate_session_tokens: false,
   };
 }
 
@@ -203,6 +207,7 @@ export type TuiPreferencePatch = {
   mcp_port?: number | null;
   mcp_disabled_tools?: string[];
   mcp_enabled_tools?: string[];
+  regenerate_session_tokens?: boolean;
   dismissed_notifications?: string[];
 };
 
@@ -286,6 +291,9 @@ export function parsePreferenceWrite(args: Record<string, unknown>): PreferenceW
   if (Array.isArray(args.mcp_enabled_tools)) {
     out.mcp_enabled_tools = args.mcp_enabled_tools.filter((name): name is string => typeof name === "string");
   }
+  if (typeof args.regenerate_session_tokens === "boolean") {
+    out.regenerate_session_tokens = args.regenerate_session_tokens;
+  }
   if (isPlainRecord(args.local)) {
     const local: LocalWebPatch = {};
     if (typeof args.local.web_enabled === "boolean") {
@@ -319,6 +327,7 @@ export type PreferenceValues = {
   web_appearance: WebAppearance;
   mcp_enabled: boolean;
   mcp_port?: number;
+  regenerate_session_tokens: boolean;
 };
 
 export type PreferenceSnapshot = {

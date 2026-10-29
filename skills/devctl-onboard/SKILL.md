@@ -312,7 +312,7 @@ Leave `exec_service` off. `get_llm_calls` / `get_llm_call` only matter if you
 enabled `llm`. Product pages: `search_docs` then `get_doc` (full text).
 
 `devctl down` has no MCP equivalent — use the CLI. MCP tools need the bearer
-token from `devctl mcp` (reused up to 7 days; `devctl mcp --rotate` remints).
+token from `devctl mcp` (saved until `devctl mcp --rotate`; 7-day remint only when `regenerate_session_tokens` is on).
 If calls fail with 401, re-copy the snippet rather than retrying.
 
 ## Reporting

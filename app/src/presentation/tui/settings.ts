@@ -1,4 +1,5 @@
 import { formatInspectCap, inspectCapBytes } from "../../domain/config/types.ts";
+import { MCP_TOKEN_TTL_DAYS } from "../../shared/mcp-token.ts";
 import { VERSION, versionLine } from "../../version.ts";
 import { THEME_NAMES } from "./themes.ts";
 import {
@@ -32,6 +33,7 @@ export type SettingsId =
   | "timestamps"
   | "metadata"
   | "mcp"
+  | "session_tokens"
   | "web"
   | "web_port"
   | "inspect_cap"
@@ -58,6 +60,7 @@ export type SettingsState = {
   locked: boolean;
   configPath: string;
   mcpRunning?: boolean;
+  regenerateSessionTokens: boolean;
   scope: PreferenceScope;
   scrollSpeed: number;
   logTimestamps: boolean;
@@ -272,6 +275,15 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       detail: "Opens the MCP page (also /mcp or /agent). Listen, port, and tool lists save to this repository overlay.",
     },
     {
+      id: "session_tokens",
+      group: "Listeners",
+      kind: "toggle",
+      name: "Regenerate tokens",
+      value: state.regenerateSessionTokens ? "on" : "off",
+      hint: "space or enter  toggle",
+      detail: `Off keeps the saved MCP and web bearer tokens until you rotate them. On remints each token after ${MCP_TOKEN_TTL_DAYS} days, the next time that listener reads it. ${persist}`,
+    },
+    {
       id: "web",
       group: "Listeners",
       kind: "toggle",
@@ -332,7 +344,7 @@ export function settingsItems(state: SettingsState): SettingsItem[] {
       name: "Reset",
       value: "defaults",
       hint: "enter  confirm reset",
-      detail: `Restore theme ${DEFAULT_THEME}, display ${formatFontSize(DEFAULT_FONT_SIZE)}, mouse on, leader ${formatLeader(DEFAULT_LEADER_TIMEOUT_MS)}, scroll ${DEFAULT_SCROLL_SPEED}, log columns on, web console ${DEFAULT_WEB_APPEARANCE}. Applies to ${scopeHint}. MCP listen is left as-is. ${persist}`,
+      detail: `Restore theme ${DEFAULT_THEME}, display ${formatFontSize(DEFAULT_FONT_SIZE)}, mouse on, leader ${formatLeader(DEFAULT_LEADER_TIMEOUT_MS)}, scroll ${DEFAULT_SCROLL_SPEED}, log columns on, web console ${DEFAULT_WEB_APPEARANCE}. Applies to ${scopeHint}. MCP listen and token regeneration are left as-is. ${persist}`,
     },
   ];
 }

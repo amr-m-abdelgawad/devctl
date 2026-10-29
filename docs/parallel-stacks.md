@@ -103,7 +103,7 @@ devctl mcp --write cursor        # .cursor/mcp.json
 devctl mcp --write kilo          # kilo.jsonc
 ```
 
-The file gets devctl's entry with this stack's URL and bearer token. Other servers in the file are kept. It holds a token, so keep it out of git, and write it again after `devctl mcp --rotate` or a token remint. Codex reads only `~/.codex/config.toml`, so for Codex use the snippet `devctl mcp` prints. See [MCP](mcp.md).
+The file gets devctl's entry with this stack's URL and bearer token. Other servers in the file are kept. It holds a token, so keep it out of git, and write it again after `devctl mcp --rotate` (or after a remint when `regenerate_session_tokens` is on). Codex reads only `~/.codex/config.toml`, so for Codex use the snippet `devctl mcp` prints. See [MCP](mcp.md).
 
 ## Commands
 
