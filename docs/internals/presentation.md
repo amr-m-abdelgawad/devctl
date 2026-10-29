@@ -106,6 +106,8 @@ Log HTTP: `GET /api/logs` (`limit`, `direction`, `regex`, `cursor` / `prev_curso
 
 The config adapter reads the active path only, checks revisions before atomic replacement, preserves permissions and symlinks, and rejects external edits. The supervisor validates before writing and uses its shared reload command. Google auth wraps gcloud's no-browser login with bounded URL capture, cancellation, and a ten-minute timeout. Codes and gcloud output never enter status/log payloads. Explicit editor and MCP connection reads can contain credentials and use `Cache-Control: no-store`; automatic summaries remain redacted.
 
+The TUI and browser share the pure palette catalog in `domain/ui/themes.ts`. Terminal OS detection stays in the TUI wrapper. The browser maps palettes to semantic CSS variables, preserves readable contrast in both appearances, and rebuilds canvas charts when the applied theme changes. Theme names use the existing shared preference; `web_appearance` remains browser-only.
+
 This is not a second orchestrator. Presentation must not import adapters.
 
 ## Shared presentation constraints

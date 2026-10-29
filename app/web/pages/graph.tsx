@@ -62,20 +62,20 @@ export function GraphPage(props: {
   const latCeiling = Math.max(LATENCY_FAST_MS, Math.ceil(peakP95 / LATENCY_CEILING_STEP_MS) * LATENCY_CEILING_STEP_MS);
 
   const requestStats: ChartStat[] = [
-    { label: "requests / s", value: req.toFixed(1), color: "#7ce0bd" },
-    { label: "failed / s", value: reqFailed.toFixed(1), color: "#f4868d", tone: reqFailed > 0 ? "destructive" : "default" },
+    { label: "requests / s", value: req.toFixed(1), color: "var(--primary)" },
+    { label: "failed / s", value: reqFailed.toFixed(1), color: "var(--danger)", tone: reqFailed > 0 ? "destructive" : "default" },
   ];
   const logStats: ChartStat[] = [
-    { label: "logs / s", value: logs.toFixed(1), color: "#7ce0bd" },
-    { label: "failed logs / s", value: logFailed.toFixed(1), color: "#f4868d", tone: logFailed > 0 ? "destructive" : "default" },
+    { label: "logs / s", value: logs.toFixed(1), color: "var(--primary)" },
+    { label: "failed logs / s", value: logFailed.toFixed(1), color: "var(--danger)", tone: logFailed > 0 ? "destructive" : "default" },
   ];
   const latStats: ChartStat[] = [
-    { label: "median", value: `${Math.round(p50)}ms`, color: "#79c6dc" },
-    { label: "slow tail", value: `${Math.round(p95)}ms`, color: "#ecc579", tone: p95 > LATENCY_SLOW_MS ? "warning" : "default" },
+    { label: "median", value: `${Math.round(p50)}ms`, color: "var(--info)" },
+    { label: "slow tail", value: `${Math.round(p95)}ms`, color: "var(--warning)", tone: p95 > LATENCY_SLOW_MS ? "warning" : "default" },
   ];
   const hostStats: ChartStat[] = [
-    { label: "cpu", value: `${Math.round(cpu)}%`, color: "#7fe0a3", tone: cpu >= CPU_BUSY ? "warning" : "default" },
-    { label: "memory", value: `${Math.round(mem)}%`, color: "#9fb8e8", tone: mem >= MEM_HIGH ? "warning" : "default" },
+    { label: "cpu", value: `${Math.round(cpu)}%`, color: "var(--success)", tone: cpu >= CPU_BUSY ? "warning" : "default" },
+    { label: "memory", value: `${Math.round(mem)}%`, color: "var(--theme-accent)", tone: mem >= MEM_HIGH ? "warning" : "default" },
   ];
 
   return (
@@ -104,7 +104,7 @@ export function GraphPage(props: {
             title="Requests"
             description="Green is proxy completions in the last 10s. Red is failed completions in that window: HTTP 4xx/5xx or a proxy error."
             labels={["requests/s", "failed/s"]}
-            colors={["#7ce0bd", "#f4868d"]}
+            colors={["var(--primary)", "var(--danger)"]}
             points={requestPoints}
             height={CHART_HEIGHT}
             stats={requestStats}
@@ -115,7 +115,7 @@ export function GraphPage(props: {
             title="Logs"
             description="Green is log lines ingested in the last 10s. Red is ERROR and FATAL lines in the same window."
             labels={["logs/s", "failed logs/s"]}
-            colors={["#7ce0bd", "#f4868d"]}
+            colors={["var(--primary)", "var(--danger)"]}
             points={logPoints}
             height={CHART_HEIGHT}
             stats={logStats}
@@ -126,7 +126,7 @@ export function GraphPage(props: {
             title="Proxy latency"
             description="How long upstreams took to answer, measured at the proxy. Median vs the slow tail of the recent request buffer."
             labels={["median", "slow tail"]}
-            colors={["#79c6dc", "#ecc579"]}
+            colors={["var(--info)", "var(--warning)"]}
             points={latPoints}
             yMax={latCeiling}
             yUnit="ms"
@@ -139,7 +139,7 @@ export function GraphPage(props: {
             title="This machine"
             description="CPU and memory of the host running these processes — not a single service. Use it to tell stack slowness from a laptop under load."
             labels={["cpu", "memory"]}
-            colors={["#7fe0a3", "#9fb8e8"]}
+            colors={["var(--success)", "var(--theme-accent)"]}
             points={hostPoints}
             yMax={100}
             yUnit="%"

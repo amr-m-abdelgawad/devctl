@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import uPlot from "uplot";
 import { cn } from "./lib/utils.ts";
 import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card.tsx";
+import { THEME_CHANGED_EVENT } from "./theme.ts";
 
 const DEFAULT_HEIGHT = 168;
 const MIN_PLOT_WIDTH = 240;
@@ -15,12 +16,10 @@ export type ChartStat = {
   tone?: "default" | "destructive" | "warning";
 };
 
-const AXIS: uPlot.Axis = {
-  stroke: "#93a89e",
-  font: "10px ui-monospace, monospace",
-  grid: { stroke: "rgba(41,56,47,0.7)", width: 1 },
-  ticks: { stroke: "rgba(41,56,47,0.7)", width: 1 },
-};
+function cssColor(value: string): string {
+  const variable = /^var\((--[\w-]+)\)$/.exec(value)?.[1];
+  return variable ? getComputedStyle(document.documentElement).getPropertyValue(variable).trim() || "#7ce0bd" : value;
+}
 
 const STAT_TONE: Record<NonNullable<ChartStat["tone"]>, string> = {
   default: "text-foreground",
@@ -31,10 +30,7 @@ const STAT_TONE: Record<NonNullable<ChartStat["tone"]>, string> = {
 export type SeriesPoint = { t: number; values: number[] };
 
 function toData(labels: string[], points: SeriesPoint[]): uPlot.AlignedData {
-  return [
-    points.map((point) => point.t),
-    ...labels.map((_, index) => points.map((point) => point.values[index] ?? 0)),
-  ];
+  return [points.map((point) => point.t), ...labels.map((_, index) => points.map((point) => point.values[index] ?? 0))];
 }
 
 function fillFor(stroke: string): string {
@@ -80,18 +76,30 @@ export function UPlotChart(props: {
   const plot = useRef<uPlot | undefined>(undefined);
   const latest = useRef({ labels, colors, points, yMax, height, yUnit });
   const [hover, setHover] = useState<string | null>(null);
+  const [themeRevision, setThemeRevision] = useState(0);
+  useEffect(() => {
+    const changed = (): void => setThemeRevision((revision) => revision + 1);
+    window.addEventListener(THEME_CHANGED_EVENT, changed);
+    return () => window.removeEventListener(THEME_CHANGED_EVENT, changed);
+  }, []);
 
   useEffect(() => {
     latest.current = { labels, colors, points, yMax, height, yUnit };
   }, [labels, colors, points, yMax, height, yUnit]);
 
-  const structureKey = `${labels.join("|")}::${colors.join("|")}::${yMax ?? ""}::${height}::${yUnit}`;
+  const structureKey = `${labels.join("|")}::${colors.join("|")}::${yMax ?? ""}::${height}::${yUnit}::${themeRevision}`;
   useEffect(() => {
     const el = ref.current;
     if (!el) {
       return;
     }
     const { labels: lbl, colors: col, points: pts, yMax: ymax, height: h, yUnit: unit } = latest.current;
+    const axis: uPlot.Axis = {
+      stroke: cssColor("var(--muted-foreground)"),
+      font: "10px ui-monospace, monospace",
+      grid: { stroke: cssColor("var(--border)"), width: 1 },
+      ticks: { stroke: cssColor("var(--border)"), width: 1 },
+    };
     const opts: uPlot.Options = {
       width: Math.max(MIN_PLOT_WIDTH, el.clientWidth || MIN_PLOT_WIDTH),
       height: h,
@@ -99,13 +107,13 @@ export function UPlotChart(props: {
       legend: { show: false },
       scales: { x: { time: true }, y: ymax !== undefined ? { range: [0, ymax] } : {} },
       axes: [
-        { ...AXIS, values: (_u, splits) => splits.map((s) => new Date(s * 1000).toISOString().slice(11, 19)) },
-        { ...AXIS, size: AXIS_SIZE, values: (_u, splits) => splits.map((s) => formatY(s, unit)) },
+        { ...axis, values: (_u, splits) => splits.map((s) => new Date(s * 1000).toISOString().slice(11, 19)) },
+        { ...axis, size: AXIS_SIZE, values: (_u, splits) => splits.map((s) => formatY(s, unit)) },
       ],
       series: [
         {},
         ...lbl.map((label, index) => {
-          const stroke = col[index] ?? "#7ce0bd";
+          const stroke = cssColor(col[index] ?? "var(--primary)");
           return { label, stroke, fill: fillFor(stroke), width: 2, points: { show: false } };
         }),
       ],

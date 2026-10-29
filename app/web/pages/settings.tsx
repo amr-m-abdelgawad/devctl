@@ -4,6 +4,8 @@ import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
 import { ChoiceGroup } from "../components/filters.tsx";
+import { ThemePicker } from "../components/theme-picker.tsx";
+import { applyWebTheme, themeDefaultAppearance, themeLabel } from "../theme.ts";
 import type { ControlArgs, PreferenceLayer, PreferenceSnapshot, StatusSummary } from "../types.ts";
 
 const INSPECT_CAP_1_MIB = 1_048_576;
@@ -13,10 +15,6 @@ const INSPECT_CAP_OPTIONS = [
   { id: String(8 * INSPECT_CAP_1_MIB), label: "8 MiB" },
   { id: String(16 * INSPECT_CAP_1_MIB), label: "16 MiB" },
 ];
-
-function applyAppearance(value: "dark" | "light"): void {
-  document.documentElement.dataset.appearance = value;
-}
 
 function layerLabel(layer: PreferenceLayer | undefined): string | undefined {
   if (layer === "repo") {
@@ -83,7 +81,7 @@ export function SettingsPage(props: {
   const load = useCallback(async (scope: "user" | "repo") => {
     const next = await fetchPreferences(scope);
     setPrefs(next);
-    applyAppearance(next.values.web_appearance);
+    applyWebTheme(next.values.theme, next.values.web_appearance);
     setPortDraft(String(next.local.web_port || ""));
   }, []);
 
@@ -109,7 +107,7 @@ export function SettingsPage(props: {
       try {
         const next = (await postControl("set_preferences", args)) as PreferenceSnapshot;
         setPrefs(next);
-        applyAppearance(next.values.web_appearance);
+        applyWebTheme(next.values.theme, next.values.web_appearance);
         setPortDraft(String(next.local.web_port || ""));
         onNotice(args.reset ? "Preferences reset" : "Preferences saved");
       } catch (err: unknown) {
@@ -149,7 +147,7 @@ export function SettingsPage(props: {
         </div>
       </div>
 
-      <Card>
+      <Card className="settings-scope">
         <CardHeader>
           <CardTitle>Scope</CardTitle>
         </CardHeader>
@@ -171,12 +169,12 @@ export function SettingsPage(props: {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="settings-appearance">
         <CardHeader>
           <CardTitle>Appearance</CardTitle>
         </CardHeader>
-        <CardContent>
-          <PrefRow label="Web console" hint="TUI theme still lives in the TUI." layer={prefs.layers.web_appearance}>
+        <CardContent className="flex flex-col gap-4">
+          <PrefRow label="Mode" hint="Use the selected palette in light or dark mode." layer={prefs.layers.web_appearance}>
             <Segmented
               ariaLabel="Web console appearance"
               value={prefs.values.web_appearance}
@@ -188,6 +186,18 @@ export function SettingsPage(props: {
               onChange={(web_appearance) => void save({ scope, web_appearance }, "Saving appearance…")}
             />
           </PrefRow>
+          <PrefRow
+            label="Color theme"
+            hint="Shared with the TUI. Choosing a theme uses its original light or dark appearance; Mode can override it."
+            layer={prefs.layers.theme}
+          >
+            <Badge variant="outline">{themeLabel(prefs.values.theme)}</Badge>
+          </PrefRow>
+          <ThemePicker
+            value={prefs.values.theme}
+            disabled={disable}
+            onChange={(theme) => void save({ scope, theme, web_appearance: themeDefaultAppearance(theme) }, "Saving theme…")}
+          />
         </CardContent>
       </Card>
 

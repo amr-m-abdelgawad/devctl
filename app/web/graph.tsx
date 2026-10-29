@@ -112,6 +112,7 @@ function svgId(value: string): string {
 }
 
 function withAlpha(hex: string, alpha: number): string {
+  if (hex.startsWith("var(")) return `color-mix(in srgb, ${hex} ${alpha * 100}%, transparent)`;
   const raw = hex.replace("#", "");
   const n = parseInt(
     raw.length === 3

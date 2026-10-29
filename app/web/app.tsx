@@ -1,4 +1,5 @@
 import { SystemPage } from "./pages/system.tsx";
+import { applyWebTheme } from "./theme.ts";
 import { PageBoundary } from "./components/page-boundary.tsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconContext } from "./icons.ts";
@@ -205,13 +206,28 @@ export function App() {
     };
   }, []);
   useEffect(() => {
-    void fetchPreferences()
-      .then((prefs) => {
-        document.documentElement.dataset.appearance = prefs.values.web_appearance;
-      })
-      .catch(() => {
-        // Appearance stays at the committed dark tokens if preferences are unavailable.
-      });
+    let cancelled = false;
+    let pending = false;
+    const refresh = async (): Promise<void> => {
+      if (pending) return;
+      pending = true;
+      try {
+        const prefs = await fetchPreferences();
+        if (!cancelled) applyWebTheme(prefs.values.theme, prefs.values.web_appearance);
+      } catch {
+        /* Retain the last applied theme when preferences are unavailable. */
+      } finally {
+        pending = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) void refresh();
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
   useEffect(() => {
     traceMsRef.current = traceMsById;

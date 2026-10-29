@@ -37,6 +37,12 @@ web:
 
 Run `devctl config validate` after a hand edit, then `devctl reload` if the supervisor is already running. A settings save already reloads. The port must differ from the proxy, token endpoint, OTLP receiver, and gRPC route ports. The listener accepts loopback addresses only. See [Security](security.md) for the access model.
 
+## Choose a color theme
+
+Open **Settings → Appearance** for the same 28 named palettes as the TUI, including Dracula, Tokyo Night, Catppuccin, Nord, Gruvbox, Solarized, and the high-contrast themes. Search by name or description, or filter the preview grid by light/dark appearance. Choosing a palette saves the shared theme preference using the selected repository/user scope and starts with that palette's native appearance.
+
+**Mode** overrides the web palette to light or dark independently of the TUI. Named pairs such as Catppuccin Mocha/Latte and Solarized Dark/Light use their matching variant; other palettes adapt their surfaces and colors for readable contrast. Theme changes cover navigation, controls, logs, JSON, traces, and charts. The last applied theme is cached for the next page load, and the console checks for changes made through the TUI.
+
 ## Control services
 
 The overview combines service status, recent proxy requests, and errors. Start a profile to bring up a group, or use a service's start, stop, and restart controls. The service fleet searches names, descriptions, ports, states, and environment names. Narrow it by profile or running/attention/stopped state, then sort by name, state, or attention first. Pagination keeps large workspaces manageable. Select a page or individual services for bulk actions; the selection bar also reports selections outside the current page.
