@@ -24,15 +24,14 @@ export const COMMAND_PROBE_MS = 1_500;
 const ADC_PROBE_MS = 2_000;
 
 /**
- * OpenTUI's CliRenderer sets `global.window = {}` (for a requestAnimationFrame shim) as soon as
- * the TUI starts rendering. gaxios's fetch-implementation detection treats the mere presence of a
- * global `window` as a signal that it's running in a browser and unconditionally uses
- * `window.fetch` — which OpenTUI never defines — instead of falling back to Bun/Node's native
- * `fetch`. The result is every Google API call failing with "fetchImpl is not a function" the
- * moment devctl runs inside the interactive TUI, while the plain CLI (no `window` global) is
- * unaffected. This has nothing to do with credentials, IAM, or enabled APIs — call this before any
- * gaxios-backed request to make sure `window.fetch`, if `window` exists at all, points at the real
- * fetch implementation.
+ * gaxios treats a global `window` as a browser and then calls `window.fetch`.
+ * OpenTUI 0.5 set `global.window = {}` for its animation-frame shim and never
+ * defined `fetch`, so every Google API call from the TUI failed with
+ * "fetchImpl is not a function" while the plain CLI (no `window`) worked.
+ * OpenTUI 0.7 no longer installs that `window`. Call this before any
+ * gaxios-backed request so a host that still exposes `window` without `fetch`
+ * uses the runtime implementation. It has nothing to do with credentials, IAM,
+ * or enabled APIs.
  */
 export function ensureFetchShim(): void {
   const g = globalThis as unknown as { window?: { fetch?: typeof fetch } };

@@ -2,16 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { withSuspendedRenderer } from "./suspend.ts";
 import { type CliRenderer } from "@opentui/core";
 
+// Like OpenTUI's, suspend() and resume() finish a moment after they are called.
 function fakeRenderer(): CliRenderer & { calls: string[] } {
   const calls: string[] = [];
+  const later = async (done: string): Promise<void> => {
+    await Bun.sleep(5);
+    calls.push(done);
+  };
   return {
     calls,
-    suspend: () => {
-      calls.push("suspend");
-    },
-    resume: () => {
-      calls.push("resume");
-    },
+    suspend: () => later("suspend"),
+    resume: () => later("resume"),
     intermediateRender: () => {
       calls.push("redraw");
     },

@@ -4238,6 +4238,22 @@ per-service configuration. That includes exporters that send protobuf whatever
 \`opentelemetry-exporter-otlp-proto-http\`. OTLP over gRPC (port 4317) and
 \`/v1/metrics\` are not served.
 
+### Exporting to devctl
+
+OpenTelemetry JS 3.0 (\`@opentelemetry/sdk-trace\` 3) constructs its span
+processor with an options object. Passing the exporter itself exports no spans
+and raises no error, which looks like devctl stopped receiving traces:
+
+\`\`\`ts
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace";
+
+new SimpleSpanProcessor({ exporter });
+\`\`\`
+
+\`NodeTracerProvider.register()\` is gone in that release. Install a context
+manager (the async-hooks one on Node) so a log emitted inside a span keeps the
+span's trace id. The SDK needs Node 22.15 or later.
+
 ## Traces and correlation
 
 devctl's own signals are telemetry too. The proxy emits one **span per request**
@@ -4337,6 +4353,7 @@ trace, and read the responsible service's span and logs — all redacted.
 | IAP authentication failure | Confirm audience, IAP client, and that the identity matches the route. If \`client_id\` is set, the ADC refresh token must belong to that OAuth client |
 | Port already in use | Doctor lists the holder. Stop a leftover, or change config. Running your own services will also show as “in use” |
 | Service crashes | Open Logs, filter \`ERROR\` (\`e\`), restart with \`R\` |
+| Traces stopped after upgrading to OpenTelemetry JS 3.0, and the process reports no error | \`SimpleSpanProcessor\` takes \`{ exporter }\`. \`new SimpleSpanProcessor(exporter)\` exports nothing. The SDK also requires Node 22.15 or later. See [Telemetry](telemetry.md#exporting-to-devctl) |
 | Health check failure | Confirm the health URL/port; \`tcp\` is connect-only; \`grpc\` is Health/Check (SERVING); \`process\` checks only PID liveness |
 | Proxy unavailable / missing listen port | Pin \`proxy.listen.port\` (required when \`proxy.enabled\` is true — validate exits **2**). Then \`devctl proxy start\` or TUI \`n\`. Starting with port \`0\` exits **7**. Bind is loopback only |
 | Token expired | Automatic refresh uses \`auth.refresh_threshold_seconds\`; run \`devctl auth refresh\`. Open Doctor if ADC itself expired |

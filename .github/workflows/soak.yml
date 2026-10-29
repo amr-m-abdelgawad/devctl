@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: ${{ github.event_name == 'pull_request' && 20 || 120 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The version-skew scenario builds main as the old binary.
           fetch-depth: 0
