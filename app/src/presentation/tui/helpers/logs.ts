@@ -1,4 +1,4 @@
-import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
+import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, isGrpcLog, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
 import { coerceJsonInput } from "../../../shared/json-view.ts";
 import { clipText } from "./format.ts";
 import { SERVICE_NAME_MAX } from "./services.ts";
@@ -371,6 +371,18 @@ export function isSystemLogSource(source: string): boolean {
   return SYSTEM_LOG_SOURCES.has(source);
 }
 
+export function logsForFilterChips(events: LogRecord[], opts: { systemLogs?: boolean; grpcLogs?: boolean }): LogRecord[] {
+  if (opts.systemLogs !== false && opts.grpcLogs !== false) {
+    return events;
+  }
+  return events.filter((event) => {
+    if (opts.systemLogs === false && isSystemLogSource(event.source)) {
+      return false;
+    }
+    return opts.grpcLogs !== false || !isGrpcLog(event);
+  });
+}
+
 // Log history is a per-process in-memory buffer (never re-populated from disk on launch), so there
 // is no stale cross-session data to protect against here — only `since` (the log-view boundary set
 // by an explicit clear or filter command) should ever hide events. Starting or stopping services
@@ -537,6 +549,7 @@ export function filterLogs(
     since?: string;
     until?: string;
     systemLogs?: boolean;
+    grpcLogs?: boolean;
     traceId?: string;
   },
 ): LogRecord[] {
@@ -571,6 +584,9 @@ export function filterLogs(
       return false;
     }
     if (opts.systemLogs === false && isSystemLogSource(ev.source)) {
+      return false;
+    }
+    if (opts.grpcLogs === false && isGrpcLog(ev)) {
       return false;
     }
     if (since !== "" && ev.timestamp < since) {

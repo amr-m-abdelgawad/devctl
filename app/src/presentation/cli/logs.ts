@@ -104,11 +104,12 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
     .option("--request-id <id>", "filter by request id")
     .option("--attribute <key=value>", "filter by a single attribute")
     .option("--dedupe-request-id", "collapse nearby events that share a request id")
+    .option("--hide-grpc", "hide gRPC proxy logs")
     .option("--output <path>", "export path")
     .option("--json", "JSONL LogRecord output")
     .option("-f, --follow", "keep printing new matching events until interrupted")
     .option("--all", "print the full matching history instead of the latest page")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean; trace?: string; requestId?: string; attribute?: string; dedupeRequestId?: boolean }) => {
+    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean; trace?: string; requestId?: string; attribute?: string; dedupeRequestId?: boolean; hideGrpc?: boolean }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         if (opts.trace) {
@@ -138,6 +139,7 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
           traceId: opts.trace,
           attribute,
           dedupeRequestId: opts.dedupeRequestId === true,
+          hideGrpc: opts.hideGrpc === true,
         };
         // Resolved against this process's own cwd before it crosses the RPC
         // boundary: the daemon may be a long-running background process with
@@ -205,7 +207,8 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
     .option("--search <text>", "substring or regex search")
     .option("--regex", "treat search as regular expression")
     .option("--source <source>", "filter by source")
-    .action(async (services: string[], opts: { output: string; level?: string; search?: string; regex?: boolean; source?: string }) => {
+    .option("--hide-grpc", "hide gRPC proxy logs")
+    .action(async (services: string[], opts: { output: string; level?: string; search?: string; regex?: boolean; source?: string; hideGrpc?: boolean }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         const exportPath = runtime.resolveExportPath(opts.output);
@@ -215,6 +218,7 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
           search: opts.search,
           regex: opts.regex,
           source: opts.source,
+          hideGrpc: opts.hideGrpc === true,
           export: exportPath,
         });
         writeOut(`exported ${exportPath}\n`);

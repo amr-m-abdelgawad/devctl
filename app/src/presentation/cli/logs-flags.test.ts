@@ -42,6 +42,11 @@ describe("devctl logs --dedupe-request-id", () => {
   test("omits the flag when it is not passed", async () => {
     expect((await parseLogs([]))?.dedupeRequestId).toBe(false);
   });
+
+  test("parses --hide-grpc onto the page request", async () => {
+    expect((await parseLogs(["--hide-grpc"]))?.hideGrpc).toBe(true);
+    expect((await parseLogs([]))?.hideGrpc).toBe(false);
+  });
 });
 
 describe("devctl logs --all", () => {

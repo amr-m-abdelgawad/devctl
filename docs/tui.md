@@ -161,12 +161,13 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 | `/trace <id>` | | Search logs for a request or trace id |
 | `/filter` | | Toggle ERROR+ log filter |
 | `/system` | `/internal` | Show or hide internal auth/mcp/devctl/proxy logs |
+| `/grpc` | | Show or hide gRPC proxy logs |
 | `/wrap` | | Cycle log wrap: all lines, clip, or selected row |
 | `/export [path]` | | Write filtered logs to ~/.devctl/exports |
 | `/exports` | `/open-exports` | Open the log export folder |
 | `/clear` | `/new` | Clear the on-screen log buffer |
 
-`/split` is also `\\`; `|` focuses the other pane. `/trace` sets log search to a `request_id` / `trace_id`. `/export` without a path writes under `~/.devctl/exports`. `/clear` only clears this TUI's on-screen view, not the daemon's shared log buffer.
+`/split` is also `\\`; `|` focuses the other pane. `/trace` sets log search to a `request_id` / `trace_id`. `/grpc` (or `b` on Logs and the dashboard) shows or hides gRPC proxy logs; HTTP proxy lines stay. `/export` without a path writes under `~/.devctl/exports`. `/clear` only clears this TUI's on-screen view, not the daemon's shared log buffer.
 
 ### UI
 
