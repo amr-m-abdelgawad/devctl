@@ -1,5 +1,6 @@
 import { spawn, type Subprocess } from "bun";
 import { processAlive } from "../storage/storage.ts";
+import { serviceStamp } from "./stamp.ts";
 import type { ProcessIdentity, ResourceSample } from "./unix.ts";
 
 const BYTES_PER_KB = 1024;
@@ -25,11 +26,14 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
   if (!processAlive(pid)) {
     return undefined;
   }
-  const cim = await capture([
-    "powershell",
-    "-NoProfile",
-    "-Command",
-    `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object CommandLine,ExecutablePath,CreationDate | ConvertTo-Json -Compress`,
+  const [cim, stamp] = await Promise.all([
+    capture([
+      "powershell",
+      "-NoProfile",
+      "-Command",
+      `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object CommandLine,ExecutablePath,CreationDate | ConvertTo-Json -Compress`,
+    ]),
+    serviceStamp(pid, "win32"),
   ]);
   const parsed = parseCimProcess(cim);
   if (parsed && parsed.command !== "") {
@@ -38,6 +42,7 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
       command: parsed.command,
       cwd: "",
       startTime: parsed.startTime,
+      stamp,
     };
   }
   const fallback = await capture([
@@ -55,6 +60,7 @@ export async function inspectProcessWindows(pid: number): Promise<ProcessIdentit
     command: parsed?.command || fromProcess?.command || "",
     cwd: "",
     startTime: parsed?.startTime || fromProcess?.startTime,
+    stamp,
   };
 }
 

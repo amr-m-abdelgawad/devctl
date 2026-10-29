@@ -6,7 +6,8 @@ import { MAX_LOG_LINE_CHARS } from "../../domain/logs/logs.ts";
 import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./windows.ts";
 import { processAlive } from "../storage/storage.ts";
-import { groupHasLiveMembers, readStamp, sameStamp, type ProcessStamp } from "./liveness.ts";
+import { groupHasLiveMembers, sameStamp, type ProcessStamp } from "./liveness.ts";
+import { linuxStamp, serviceStamp } from "./stamp.ts";
 import { pumpChunks, pumpLines, type ChunkHandler, type LineHandler, type StreamName } from "./output-pump.ts";
 import { LineSplitter } from "../storage/ingest/line-splitter.ts";
 import { FifoStdio, type ServiceFifos, type StdioHandlerFor } from "./fifo-stdio.ts";
@@ -88,6 +89,27 @@ export class ProcessManager implements ProcessRuntime {
   }
 
   private readonly running = new Map<string, Handle>();
+  private stamped: () => void = () => undefined;
+
+  /** Called when a stamp read after start (macOS, Windows) lands on a still-running handle, so it can be persisted. */
+  onStamped(listener: () => void): void {
+    this.stamped = listener;
+  }
+
+  // Linux reads it in place. Elsewhere it spawns ps or PowerShell, which a
+  // start must not wait on: it lands on the handle when it is read.
+  private stampHandle(handle: Handle): void {
+    handle.stamp = linuxStamp(handle.pid);
+    if (handle.stamp !== undefined || handle.pid <= 0 || process.platform === "linux") {
+      return;
+    }
+    void serviceStamp(handle.pid).then((stamp) => {
+      if (stamp !== undefined && this.running.get(handle.name) === handle) {
+        handle.stamp = stamp;
+        this.stamped();
+      }
+    });
+  }
 
   async start(spec: ProcessSpec): Promise<Handle> {
     const existing = this.running.get(spec.name);
@@ -129,8 +151,8 @@ export class ProcessManager implements ProcessRuntime {
       args: [...spec.args],
       proc,
       done: Promise.resolve({ code: 0 }),
-      stamp: launchStamp(proc.pid ?? 0),
     };
+    this.stampHandle(handle);
     rememberManagedPid(handle.pid);
     if (usingFifo && fifos) {
       fifos.attach(handle.pid, chunkDeliver(spec, handle.pid), spec.paused);
@@ -266,8 +288,8 @@ export class ProcessManager implements ProcessRuntime {
       workDir: spec.workDir,
       args: [...spec.args],
       done: Promise.resolve({ code: 0 }),
-      stamp: launchStamp(spec.pid),
     };
+    this.stampHandle(handle);
     rememberManagedPid(spec.pid);
     handle.done = pollAdopted(spec.pid).then((code) => {
       forgetManagedPid(spec.pid);
@@ -387,20 +409,17 @@ export function provenSameProcess(expected: { args: string[]; workDir: string; s
   return cwdCompared || startCompared;
 }
 
-// Only where it is a few cheap /proc reads: elsewhere it spawns ps or PowerShell.
-function launchStamp(pid: number): ProcessStamp | undefined {
-  if (process.platform !== "linux" || pid <= 0) {
-    return undefined;
-  }
-  const stamp = readStamp(pid);
-  return stamp.startTicks === undefined ? undefined : stamp;
+// Both carry a start time of the same kind: /proc ticks (Linux) or the start
+// that `ps` or PowerShell reports (macOS, Windows).
+function comparableStamps(a: ProcessStamp, b: ProcessStamp): boolean {
+  return (a.startTicks !== undefined && b.startTicks !== undefined) || (a.lstart !== undefined && b.lstart !== undefined);
 }
 
 export function sameAdoptedProcess(expected: { args: string[]; workDir: string; startTime?: Date; stamp?: ProcessStamp }, observed: ProcessIdentity): boolean {
   // A stamp names the process itself. Its command and cwd can have changed
   // since: `sh -c "<cmd>"` execs into <cmd> without the shell's quoting, and
   // with `$PORT` expanded, so the stored command no longer matches.
-  if (expected.stamp?.startTicks !== undefined && observed.stamp?.startTicks !== undefined) {
+  if (expected.stamp !== undefined && observed.stamp !== undefined && comparableStamps(expected.stamp, observed.stamp)) {
     return sameStamp(expected.stamp, observed.stamp);
   }
   if (expected.workDir !== "" && observed.cwd !== "" && normalizePath(expected.workDir) !== normalizePath(observed.cwd)) {
