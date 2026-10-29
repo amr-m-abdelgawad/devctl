@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyProfile, emptyService } from "../domain/config/types.ts";
+import { defaultConfig, emptyContainer, emptyHook, emptyHttpRecipe, emptyProfile, emptyService } from "../domain/config/types.ts";
 import { DEFAULT_CONTAINER_CPUS, DEFAULT_CONTAINER_MEMORY, DEFAULT_CONTAINER_PIDS_LIMIT } from "../domain/service/container-limits.ts";
 import { emptyRuntime, HealthHealthy, HealthUnhealthy, HealthUnknown, StateFailed, StateRestarting, StateRunning, StateStopped } from "../domain/service/services.ts";
 import type { Clock } from "../ports/clock.ts";
@@ -17,11 +17,13 @@ class MemoryProcesses implements ProcessRuntime {
   readonly started: ProcessSpec[] = [];
   readonly containers: ContainerLaunchSpec[] = [];
   readonly hooks: string[] = [];
+  readonly hookEnv: Record<string, Record<string, string>> = {};
   readonly failNext = new Set<string>();
   private readonly handles = new Map<string, ProcessHandle>();
   isRunning(name: string): boolean { return this.handles.has(name); }
   async runOnce(spec: Omit<ProcessSpec, "onExit">): Promise<{ code: number; stdout: string; stderr: string }> {
     this.hooks.push(spec.name);
+    this.hookEnv[spec.name] = spec.env;
     return { code: 0, stdout: "", stderr: "" };
   }
   async startContainer(spec: ContainerLaunchSpec): Promise<ProcessHandle> {
@@ -75,6 +77,13 @@ function harness(checkers: HealthCheckerFactory = { lookup: () => undefined }) {
     prepareServiceIdentity: async () => {},
     resolveHealthConfig: (_name, health) => health,
     resolveServiceExecution: async (_name, _svc, profile, env) => ({ env: { ...env, PROFILE: profile }, workDir: "/work" }),
+    overlayHookEnvironment: (_label, extra, base) => {
+      const out = { ...base };
+      for (const [key, value] of Object.entries(extra.defaults)) {
+        if ((out[key] ?? "").trim() === "") out[key] = value;
+      }
+      return { ...out, ...extra.vars };
+    },
     ensureHttpRecipes: async () => {},
     detectGoogle: async () => ({ adcAvailable: true }), startProxy: async () => {},
     fail: async (name) => {
@@ -209,12 +218,29 @@ describe("ServiceOrchestrator", () => {
 
   test("starts processes and runs explicit-start hooks through the process port", async () => {
     const { orch, svc, processes, assigned } = harness();
-    svc.hooks.pre_start = { args: ["before"], shell: false };
-    svc.hooks.post_start = { args: ["after"], shell: false };
+    svc.hooks.pre_start = { ...emptyHook(), command: { args: ["before"], shell: false } };
+    svc.hooks.post_start = { ...emptyHook(), command: { args: ["after"], shell: false } };
     expect((await orch.start({ services: ["api"] })).waves.flat()).toEqual(["api"]);
     expect(processes.started.map((s) => s.name)).toEqual(["api"]);
     expect(processes.hooks).toEqual(["api:pre_start", "api:post_start"]);
     expect(assigned).toEqual(["api"]);
+  });
+
+  test("hook environment overlays the resolved service env and stays off the service process", async () => {
+    const { orch, svc, processes } = harness();
+    svc.hooks.pre_start = {
+      command: { args: ["before"], shell: false },
+      environment: { vars: { PRE_ONLY: "hook", SHARED: "hook" }, required: [], defaults: { FROM_DEFAULT: "d" } },
+    };
+    svc.hooks.post_start = {
+      command: { args: ["after"], shell: false },
+      environment: { vars: { POST_ONLY: "after" }, required: [], defaults: {} },
+    };
+    await orch.start({ services: ["api"] });
+    expect(processes.hookEnv["api:pre_start"]).toMatchObject({ PRE_ONLY: "hook", SHARED: "hook", FROM_DEFAULT: "d" });
+    expect(processes.hookEnv["api:post_start"]?.POST_ONLY).toBe("after");
+    expect(processes.started[0]?.env.PRE_ONLY).toBeUndefined();
+    expect(processes.started[0]?.env.POST_ONLY).toBeUndefined();
   });
 
   test("ensures http recipes before resolving the environment snapshot", async () => {
@@ -255,7 +281,7 @@ describe("ServiceOrchestrator", () => {
   test("stopping during a post-start hook cannot reinstall health monitoring", async () => {
     const { orch, svc, session, processes } = harness();
     let release!: () => void;
-    svc.hooks.post_start = { args: ["after"], shell: false };
+    svc.hooks.post_start = { ...emptyHook(), command: { args: ["after"], shell: false } };
     processes.runOnce = async () => {
       await new Promise<void>((done) => { release = done; });
       return { code: 0, stdout: "", stderr: "" };
@@ -476,7 +502,7 @@ describe("ServiceOrchestrator", () => {
     const { orch, cfg, svc, session, processes } = harness();
     cfg.profiles.backend = emptyProfile({ services: ["api"], environment: { MARKER: "original" } });
     svc.restart = { enabled: true, policy: "on_failure", max_retries: 2, backoff_seconds: 0.01 };
-    svc.hooks.pre_start = { args: ["before"], shell: false };
+    svc.hooks.pre_start = { ...emptyHook(), command: { args: ["before"], shell: false } };
     await orch.start({ services: ["api"], profile: "backend" });
     session.profile = "unrelated";
     session.profileEnv = { MARKER: "changed" };

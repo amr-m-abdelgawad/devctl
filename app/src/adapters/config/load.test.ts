@@ -41,9 +41,76 @@ tasks:
     environment: { MODE: local }
 `);
     const cfg = load(dir, "");
-    expect(cfg.services.api?.hooks.pre_start.args).toEqual(["bun", "migrate.ts"]);
+    expect(cfg.services.api?.hooks.pre_start.command.args).toEqual(["bun", "migrate.ts"]);
+    expect(cfg.services.api?.hooks.pre_start.environment.vars).toEqual({});
     expect(cfg.tasks.migrate?.dependencies).toEqual(["api"]);
     expect(cfg.tasks.migrate?.environment.vars.MODE).toBe("local");
+  });
+
+  test("decodes hook environment and merges it over a template command", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-hook-env-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+templates:
+  base:
+    hooks:
+      pre_start:
+        command: [bun, migrate.ts]
+        environment:
+          MODE: template
+          KEEP: yes
+services:
+  api:
+    extends: base
+    command: [api]
+    hooks:
+      pre_start:
+        environment:
+          MODE: service
+  worker:
+    extends: base
+    command: [worker]
+    hooks:
+      pre_start: [bun, other.ts]
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.hooks.pre_start.command.args).toEqual(["bun", "migrate.ts"]);
+    expect(cfg.services.api?.hooks.pre_start.environment.vars).toEqual({ MODE: "service", KEEP: "yes" });
+    expect(cfg.services.worker?.hooks.pre_start.command.args).toEqual(["bun", "other.ts"]);
+    expect(cfg.services.worker?.hooks.pre_start.environment.vars).toEqual({});
+  });
+
+  test("a modular service file can add hook environment without replacing the command", () => {
+    const dir = `${process.env.TMPDIR ?? "/tmp"}/devctl-ts-hook-modular-${Date.now()}`;
+    writeFile(dir, ".devctl/config.yaml", `
+version: 1
+services:
+  api:
+    command: [api]
+    hooks:
+      pre_start:
+        command: [bun, migrate.ts]
+        environment:
+          KEEP: yes
+          MODE: main
+`);
+    writeFile(dir, ".devctl/services/api.yaml", `
+hooks:
+  pre_start:
+    environment:
+      MODE: modular
+`);
+    const cfg = load(dir, "");
+    expect(cfg.services.api?.hooks.pre_start.command.args).toEqual(["bun", "migrate.ts"]);
+    expect(cfg.services.api?.hooks.pre_start.environment.vars).toEqual({ KEEP: "yes", MODE: "modular" });
+  });
+
+  test("merging an environment overlay keeps helm from the base service", () => {
+    const base = emptyService();
+    base.environment = { vars: { KEEP: "1" }, required: [], defaults: {}, helm: { path: "charts/api", resource: "" } };
+    const merged = mergeService(base, { environment: { MODE: "local" } });
+    expect(merged.environment.helm?.path).toBe("charts/api");
+    expect(merged.environment.vars).toEqual({ KEEP: "1", MODE: "local" });
   });
 
   test("decodes dependency conditions and health startup thresholds", () => {
