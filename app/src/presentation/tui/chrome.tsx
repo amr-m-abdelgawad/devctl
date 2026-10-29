@@ -119,12 +119,14 @@ export function StatusBar(props: {
   status: string;
   paused: boolean;
   errorOnly: boolean;
+  logLevels?: readonly string[];
+  hideHealthLogs?: boolean;
   width: number;
   copyKey?: string;
   searchFocused?: boolean;
   searchQuery?: string;
 }) {
-  const { palette, screen, overlay, status, paused, errorOnly, width, copyKey, searchFocused = false, searchQuery = "" } = props;
+  const { palette, screen, overlay, status, paused, errorOnly, logLevels = [], hideHealthLogs = false, width, copyKey, searchFocused = false, searchQuery = "" } = props;
   const tight = isTightScale(useDensity());
   const hintBudget = Math.max(18, Math.floor(width * 0.42));
   const logSearch: LogSearchMode = searchFocused ? "editing" : searchQuery.trim() !== "" ? "applied" : "off";
@@ -139,7 +141,8 @@ export function StatusBar(props: {
         items={[
           { text: screen, tone: "ghost" },
           { text: paused ? "PAUSED" : "LIVE", tone: paused ? "warning" : "success" },
-          ...(errorOnly ? [{ text: "ERROR+", tone: "error" as const }] : []),
+          ...(errorOnly ? [{ text: "ERROR+", tone: "error" as const }] : logLevels.length > 0 ? [{ text: logLevels.join(" "), tone: "info" as const }] : []),
+          ...(hideHealthLogs ? [{ text: "no health", tone: "warning" as const }] : []),
           ...(status === "" ? [] : [{ text: clipText(status, Math.max(16, width - hintBudget - 28)), tone: statusTone }]),
         ]}
         hints={hints}

@@ -20,6 +20,11 @@ describe("facet window", () => {
     ];
     rows.forEach(([service, level, source], index) => window.add(record(index + 1, service, level, source)));
     expect(window.facets({})).toEqual({ total: 6, byService: { api: 3, worker: 3 }, byLevel: { INFO: 3, ERROR: 3 }, bySource: { stdout: 3, stderr: 3 } });
+    // An exact level set replaces the minimum. byLevel still shows every level.
+    expect(window.facets({ levels: ["INFO", "ERROR"] }).total).toBe(6);
+    const warnOnly = window.facets({ levels: ["WARN"] });
+    expect(warnOnly.total).toBe(0);
+    expect(warnOnly.byLevel).toEqual({ INFO: 3, ERROR: 3 });
     // A level is a minimum: WARN keeps the errors. byLevel still shows what another level would give.
     const filtered = window.facets({ services: ["api"], level: "WARN" });
     expect(filtered.total).toBe(2);
@@ -46,6 +51,8 @@ describe("facet window", () => {
 
   test("only service, level and source filters can be answered from it", () => {
     expect(filtersDimensionsOnly({ services: ["api"], level: "ERROR", source: "stderr", regex: true, dedupeRequestId: true })).toBe(true);
+    expect(filtersDimensionsOnly({ levels: ["INFO", "WARN"] })).toBe(true);
+    expect(filtersDimensionsOnly({ hideHealth: true })).toBe(false);
     for (const filter of [{ search: "x" }, { since: "2026-01-01" }, { until: "2026-01-01" }, { traceId: "t" }, { requestId: "r" }, { attribute: { key: "k", value: "v" } }, { hideGrpc: true }]) {
       expect(filtersDimensionsOnly(filter)).toBe(false);
     }

@@ -1,4 +1,4 @@
-import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, isGrpcLog, LevelUnknown, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
+import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, isGrpcLog, isHealthCheckLog, LevelUnknown, matchesSelectedLevels, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
 import { coerceJsonInput } from "../../../shared/json-view.ts";
 import { clipText } from "./format.ts";
 import { SERVICE_NAME_MAX } from "./services.ts";
@@ -543,6 +543,8 @@ export function filterLogs(
     service?: string;
     services?: string[];
     errorOnly?: boolean;
+    levels?: readonly string[];
+    hideHealth?: boolean;
     search?: string;
     regex?: boolean;
     source?: string;
@@ -598,7 +600,14 @@ export function filterLogs(
     if (opts.traceId && ev.traceId !== opts.traceId) {
       return false;
     }
-    if (opts.errorOnly === true && !isErrorSeverity(ev.severityNumber)) {
+    if (opts.hideHealth === true && isHealthCheckLog(ev)) {
+      return false;
+    }
+    if (opts.levels && opts.levels.length > 0) {
+      if (!matchesSelectedLevels(ev.severityNumber, ev.severityText, opts.levels)) {
+        return false;
+      }
+    } else if (opts.errorOnly === true && !isErrorSeverity(ev.severityNumber)) {
       return false;
     }
     if (!matcher) {

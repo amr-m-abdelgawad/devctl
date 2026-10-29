@@ -218,6 +218,11 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     paused,
     errorOnly,
     setErrorOnly,
+    logLevels,
+    toggleLogLevel,
+    clearLogLevels,
+    hideHealthLogs,
+    toggleHideHealthLogs,
     showSystemLogs,
     showGrpcLogs,
     toggleGrpcLogs,
@@ -775,6 +780,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             followTick={logFollow}
             logService={logService}
             errorOnly={errorOnly}
+            logLevels={logLevels}
+            hideHealthLogs={hideHealthLogs}
             showSystemLogs={showSystemLogs}
             showGrpcLogs={showGrpcLogs}
             onOpen={openDetail}
@@ -784,6 +791,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             logSources={logSources}
             onFilterService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onToggleLevel={toggleLogLevel}
+            onClearLevels={clearLogLevels}
+            onToggleHealth={toggleHideHealthLogs}
             onToggleGrpc={toggleGrpcLogs}
             onShowErrors={() => {
               setLogService("");
@@ -854,6 +864,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             logSources={logSources}
             service={logService}
             errorOnly={errorOnly}
+            logLevels={logLevels}
+            hideHealthLogs={hideHealthLogs}
             showSystemLogs={showSystemLogs}
             showGrpcLogs={showGrpcLogs}
             search={logSearch}
@@ -863,6 +875,9 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             onSearch={setLogSearch}
             onService={setLogService}
             onToggleErrors={() => setErrorOnly((v) => !v)}
+            onToggleLevel={toggleLogLevel}
+            onClearLevels={clearLogLevels}
+            onToggleHealth={toggleHideHealthLogs}
             onToggleGrpc={toggleGrpcLogs}
             source={logSource}
             regex={logRegex}
@@ -1114,6 +1129,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
           status={status}
           paused={paused}
           errorOnly={errorOnly}
+          logLevels={logLevels}
+          hideHealthLogs={hideHealthLogs}
           width={width}
           copyKey={copyKey}
           searchFocused={screen === "proxy" ? trafficView.searchFocused : logSearchFocused}

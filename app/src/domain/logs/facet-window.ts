@@ -1,4 +1,4 @@
-import { meetsMinLevel } from "./severity.ts";
+import { matchesSelectedLevels, meetsMinLevel } from "./severity.ts";
 import type { LogFacets, LogFilter, LogRecord } from "./types.ts";
 
 // One combination of the three facet dimensions, and how many records of
@@ -54,7 +54,7 @@ export class FacetWindow {
    * Facets for a filter on service, level and source alone. As everywhere,
    * each breakdown ignores its own dimension and keeps the other two.
    */
-  facets(filter: Pick<LogFilter, "services" | "level" | "source">): LogFacets {
+  facets(filter: Pick<LogFilter, "services" | "level" | "levels" | "source">): LogFacets {
     const services = filter.services !== undefined && filter.services.length > 0 ? new Set(filter.services) : undefined;
     const out: LogFacets = { total: 0, byService: {}, byLevel: {}, bySource: {} };
     for (const row of this.combinations) {
@@ -62,7 +62,7 @@ export class FacetWindow {
         continue;
       }
       const inServices = services === undefined || services.has(row.service);
-      const inLevel = !filter.level || meetsMinLevel(row.severityNumber, filter.level);
+      const inLevel = rowMatchesLevel(row, filter);
       const inSource = !filter.source || row.source === filter.source;
       if (inServices && inLevel && inSource) {
         out.total += row.count;
@@ -106,7 +106,14 @@ export class FacetWindow {
   }
 }
 
-/** True when a filter narrows only by service, level and source, the dimensions `FacetWindow` counts. */
+function rowMatchesLevel(row: Combination, filter: Pick<LogFilter, "level" | "levels">): boolean {
+  if (filter.levels !== undefined && filter.levels.length > 0) {
+    return matchesSelectedLevels(row.severityNumber, row.severityText, filter.levels);
+  }
+  return !filter.level || meetsMinLevel(row.severityNumber, filter.level);
+}
+
+/** True when a filter narrows only by service, level and source, the dimensions `FacetWindow` counts. `hideHealth` and `hideGrpc` need each record's body. */
 export function filtersDimensionsOnly(filter: LogFilter): boolean {
-  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideGrpc !== true;
+  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideHealth !== true && filter.hideGrpc !== true;
 }

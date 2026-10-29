@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
-import type { LogEvent, LogFacets, LogFilter, LogPage, LogPageRequest } from "../../../domain/logs/logs.ts";
+import { isErrorLevelPreset, LevelError, LevelFatal, toggleListedLevel, type LogEvent, type LogFacets, type LogFilter, type LogPage, type LogPageRequest } from "../../../domain/logs/logs.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import {
@@ -80,16 +80,34 @@ export function useLogView({
 }: Options) {
   const [logs, setLogs] = useState<LogEvent[]>([]);
   const [paused, setPaused] = useState(false);
+  const [logLevels, setLogLevels] = useState<string[]>([]);
+  const [hideHealthLogs, setHideHealthLogs] = useState(false);
   // True once scrolling back dropped the newest records to make room: the view
   // no longer reaches the live tail, so live records stay out until it follows
   // again and reloads the newest page.
   const [logTailCut, setLogTailCut] = useState(false);
   // The persisted session `/history` is showing, or "" for the live stream.
   const [historySession, setHistorySession] = useState("");
-  const [errorOnly, setErrorOnly] = useState(false);
   const [showSystemLogs, setShowSystemLogs] = useState(true);
   const [showGrpcLogs, setShowGrpcLogs] = useState(true);
   const showGrpcLogsRef = useRef(true);
+  const errorOnly = isErrorLevelPreset(logLevels);
+  const setErrorOnly = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    setLogLevels((current) => {
+      const prev = isErrorLevelPreset(current);
+      const next = typeof value === "function" ? value(prev) : value;
+      return next ? [LevelError, LevelFatal] : [];
+    });
+  }, []);
+  const toggleLogLevel = useCallback((level: string) => {
+    setLogLevels((current) => toggleListedLevel(current, level));
+  }, []);
+  const clearLogLevels = useCallback(() => {
+    setLogLevels([]);
+  }, []);
+  const toggleHideHealthLogs = useCallback(() => {
+    setHideHealthLogs((value) => !value);
+  }, []);
   const [logSearch, setLogSearch] = useState("");
   const [logSearchFocused, setLogSearchFocused] = useState(false);
   const [logFollow, setLogFollow] = useState(0);
@@ -141,6 +159,8 @@ export function useLogView({
         service: logService,
         services: logServices,
         errorOnly,
+        levels: logLevels,
+        hideHealth: hideHealthLogs,
         search: logSearch,
         regex: logRegex,
         source: logSource,
@@ -149,7 +169,7 @@ export function useLogView({
         systemLogs: showSystemLogs,
         grpcLogs: showGrpcLogs,
       }),
-    [errorOnly, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
+    [errorOnly, hideHealthLogs, logLevels, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
   );
   const logWindow = useMemo(
     () => logViewWindow(filteredLogs, logPinned, logViewStart),
@@ -162,6 +182,8 @@ export function useLogView({
         service: logServiceB,
         services: logServices,
         errorOnly,
+        levels: logLevels,
+        hideHealth: hideHealthLogs,
         search: logSearch,
         regex: logRegex,
         source: logSource,
@@ -170,7 +192,7 @@ export function useLogView({
         systemLogs: showSystemLogs,
         grpcLogs: showGrpcLogs,
       }),
-    [errorOnly, logRegex, logSearch, logServiceB, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
+    [errorOnly, hideHealthLogs, logLevels, logRegex, logSearch, logServiceB, logServices, logSince, logSource, logUntil, logs, showGrpcLogs, showSystemLogs],
   );
   const logWindowB = useMemo(
     () => logViewWindow(filteredLogsB, logPinnedB, logViewStartB),
@@ -191,12 +213,12 @@ export function useLogView({
     pinnedRef.current = false;
     setLogPinned(false);
     setLogSelected(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogs.length) - 1));
-  }, [errorOnly, logSearch, logService, showGrpcLogs, showSystemLogs]);
+  }, [errorOnly, hideHealthLogs, logLevels, logSearch, logService, showGrpcLogs, showSystemLogs]);
   useEffect(() => {
     pinnedBRef.current = false;
     setLogPinnedB(false);
     setLogSelectedB(Math.max(0, Math.min(LOG_LIST_TAIL, filteredLogsB.length) - 1));
-  }, [errorOnly, logSearch, logServiceB, showGrpcLogs, showSystemLogs]);
+  }, [errorOnly, hideHealthLogs, logLevels, logSearch, logServiceB, showGrpcLogs, showSystemLogs]);
 
   useEffect(() => {
     if (screen !== "logs") {
@@ -310,7 +332,9 @@ export function useLogView({
       // page request must not pin either pane's service (that would starve
       // the other pane of history and make the two tails drift).
       services: splitLogs ? NO_LOG_SERVICES : logService !== "" ? [logService] : logServices,
-      level: errorOnly ? "ERROR" : logLevel,
+      level: logLevels.length > 0 ? "" : logLevel,
+      levels: logLevels.length > 0 ? logLevels : undefined,
+      hideHealth: hideHealthLogs ? true : undefined,
       search: logSearch,
       regex: logRegex,
       source: logSource,
@@ -318,7 +342,7 @@ export function useLogView({
       until: logUntil,
       hideGrpc: !showGrpcLogs,
     }),
-    [errorOnly, logLevel, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, showGrpcLogs, splitLogs],
+    [hideHealthLogs, logLevel, logLevels, logRegex, logSearch, logService, logServices, logSince, logSource, logUntil, showGrpcLogs, splitLogs],
   );
 
   // Deliberately lightweight (no event payload) — safe to poll on a timer
@@ -480,6 +504,12 @@ export function useLogView({
     setPaused,
     errorOnly,
     setErrorOnly,
+    logLevels,
+    setLogLevels,
+    toggleLogLevel,
+    clearLogLevels,
+    hideHealthLogs,
+    toggleHideHealthLogs,
     showSystemLogs,
     showGrpcLogs,
     toggleGrpcLogs,

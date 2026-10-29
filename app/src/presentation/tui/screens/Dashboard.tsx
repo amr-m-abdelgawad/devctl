@@ -29,6 +29,8 @@ export function Dashboard(props: {
   logService: string;
   logSources?: string[];
   errorOnly: boolean;
+  logLevels?: readonly string[];
+  hideHealthLogs?: boolean;
   showSystemLogs: boolean;
   showGrpcLogs: boolean;
   onOpen: (name: string) => void;
@@ -36,6 +38,9 @@ export function Dashboard(props: {
   onToggle: (name: string) => void;
   onFilterService: (service: string) => void;
   onToggleErrors: () => void;
+  onToggleLevel?: (level: string) => void;
+  onClearLevels?: () => void;
+  onToggleHealth?: () => void;
   onToggleGrpc: () => void;
   onShowErrors?: () => void;
   wrapMode?: LogWrapMode;
@@ -66,6 +71,8 @@ export function Dashboard(props: {
     logService,
     logSources,
     errorOnly,
+    logLevels = [],
+    hideHealthLogs = false,
     showSystemLogs,
     showGrpcLogs,
     onOpen,
@@ -73,6 +80,9 @@ export function Dashboard(props: {
     onToggle,
     onFilterService,
     onToggleErrors,
+    onToggleLevel,
+    onClearLevels,
+    onToggleHealth,
     onToggleGrpc,
     onShowErrors,
     wrapMode = "all",
@@ -109,7 +119,7 @@ export function Dashboard(props: {
   const listWidth = serviceListPaneWidth(width, names, stacked);
   const logWidth = Math.max(24, stacked ? width - 4 : width - listWidth - 4);
   const filterBarLogs = logsForFilterChips(logs, { systemLogs: showSystemLogs, grpcLogs: showGrpcLogs });
-  const visible = filterLogs(logs, { service: logService, errorOnly, systemLogs: showSystemLogs, grpcLogs: showGrpcLogs, search, regex });
+  const visible = filterLogs(logs, { service: logService, errorOnly, levels: logLevels, hideHealth: hideHealthLogs, systemLogs: showSystemLogs, grpcLogs: showGrpcLogs, search, regex });
   const shown = view ?? visible;
   const shownTotal = viewTotal ?? visible.length;
   const viewEnd = Math.min(shownTotal, viewStart + shown.length);
@@ -176,9 +186,14 @@ export function Dashboard(props: {
           names={logSources ?? names}
           service={logService}
           errorOnly={errorOnly}
+          levels={logLevels}
+          hideHealth={hideHealthLogs}
           width={logWidth}
           onService={onFilterService}
           onToggleErrors={onToggleErrors}
+          onToggleLevel={onToggleLevel}
+          onClearLevels={onClearLevels}
+          onToggleHealth={onToggleHealth}
           onToggleGrpc={onToggleGrpc}
           showGrpc={showGrpcLogs}
           facets={facets}

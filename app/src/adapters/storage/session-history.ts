@@ -81,10 +81,12 @@ function historyCursorSeq(raw: string | undefined): number | undefined {
 export function matchCacheKey(filter: LogFilter): string | undefined {
   const { level, source, search, regex, since, until, traceId, requestId, attribute } = filter;
   const hideGrpc = filter.hideGrpc === true;
-  const selective = [level, source, search, since, until, traceId, requestId].some((value) => value !== undefined && value !== "") || attribute !== undefined || hideGrpc;
+  const hideHealth = filter.hideHealth === true;
+  const levels = filter.levels ?? [];
+  const selective = [level, source, search, since, until, traceId, requestId].some((value) => value !== undefined && value !== "") || attribute !== undefined || hideGrpc || hideHealth || levels.length > 0;
   if (!selective) {
     return undefined;
   }
   const services = [...(filter.services ?? [])].sort();
-  return JSON.stringify([services, level ?? "", source ?? "", search ?? "", regex === true, since ?? "", until ?? "", traceId ?? "", requestId ?? "", attribute ?? null, hideGrpc]);
+  return JSON.stringify([services, level ?? "", source ?? "", search ?? "", regex === true, since ?? "", until ?? "", traceId ?? "", requestId ?? "", attribute ?? null, hideGrpc, hideHealth, levels]);
 }

@@ -10,14 +10,18 @@ import { ColumnsIcon, DownloadSimpleIcon, MagnifyingGlassIcon, PauseIcon, PlayIc
 import { cn } from "../lib/utils.ts";
 import {
   countNewerThan,
+  facetLevelCount,
   facetServiceChips,
   filterLogRows,
+  isErrorLevelPreset,
   lastSeq,
   liveLogsQuery,
   logIdentity,
   logWrapLabel,
   nextLogWrapMode,
   SEARCH_DEBOUNCE_MS,
+  SELECTABLE_LOG_LEVELS,
+  toggleListedLevel,
   type LogWrapMode,
 } from "../logs.ts";
 import { serviceColor } from "../palette.ts";
@@ -29,8 +33,10 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
   const [searchDraft, setSearchDraft] = useState("");
   const [search, setSearch] = useState("");
   const [regex, setRegex] = useState(false);
-  const [errorOnly, setErrorOnly] = useState(false);
+  const [levels, setLevels] = useState<string[]>([]);
+  const [hideHealth, setHideHealth] = useState(false);
   const [showSystem, setShowSystem] = useState(true);
+  const errorOnly = isErrorLevelPreset(levels);
   const [showGrpc, setShowGrpc] = useState(true);
   const [paused, setPaused] = useState(false);
   const [wrapMode, setWrapMode] = useState<LogWrapMode>("clip");
@@ -55,12 +61,13 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
   const query = useMemo(
     () => liveLogsQuery({
       service: split ? undefined : serviceA,
-      errorOnly,
+      levels,
+      hideHealth,
       search,
       regex,
       showGrpc,
     }),
-    [errorOnly, regex, search, serviceA, showGrpc, split],
+    [hideHealth, levels, regex, search, serviceA, showGrpc, split],
   );
   const session = useLogSession({ active: true, paused, query, sessionId });
 
@@ -89,8 +96,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
   }, []);
 
   const filterOpts = useMemo(
-    () => ({ errorOnly, search, regex, showSystem, showGrpc, since: session.since }),
-    [errorOnly, regex, search, session.since, showGrpc, showSystem],
+    () => ({ errorOnly, levels, hideHealth, search, regex, showSystem, showGrpc, since: session.since }),
+    [errorOnly, hideHealth, levels, regex, search, session.since, showGrpc, showSystem],
   );
   const rowsA = useMemo(
     () => filterLogRows(session.events, { ...filterOpts, service: serviceA }),
@@ -199,7 +206,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
       }
       if (event.key === "e") {
         event.preventDefault();
-        setErrorOnly((value) => !value);
+        setLevels((current) => (isErrorLevelPreset(current) ? [] : ["ERROR", "FATAL"]));
         return;
       }
       if (event.key === "b") {
@@ -254,7 +261,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           </Badge>
           {session.truncated ? <Badge variant="outline">older history</Badge> : null}
           <span className="ml-auto text-[11px] text-muted-foreground">
-            j/k move · f search · p pause · g latest · e ERROR+ · b grpc · \ split · w wrap
+            j/k move · f search · p pause · g latest · e ERROR+ · b grpc · levels below · \ split · w wrap
           </span>
         </div>
         <Toolbar
@@ -262,6 +269,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           searchRef={searchRef}
           regex={regex}
           errorOnly={errorOnly}
+          hideHealth={hideHealth}
           showSystem={showSystem}
           showGrpc={showGrpc}
           paused={paused}
@@ -274,7 +282,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           liveLabel={paused ? "paused" : followA && (!split || followB) ? "live" : `pinned · +${Math.max(newerA, newerB)} new`}
           onSearchDraft={setSearchDraft}
           onRegex={() => setRegex((value) => !value)}
-          onErrorOnly={() => setErrorOnly((value) => !value)}
+          onErrorOnly={() => setLevels((current) => (isErrorLevelPreset(current) ? [] : ["ERROR", "FATAL"]))}
+          onHideHealth={() => setHideHealth((value) => !value)}
           onSystem={() => setShowSystem((value) => !value)}
           onGrpc={() => setShowGrpc((value) => !value)}
           onPaused={() => setPaused((value) => !value)}
@@ -294,6 +303,12 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[] }) {
           onMeta={() => setShowMeta((value) => !value)}
         />
         <ServiceChips chips={chips} active={split && splitFocus === 1 ? serviceB : serviceA} onPick={split && splitFocus === 1 ? setServiceB : setServiceA} />
+        <LevelChips
+          levels={levels}
+          byLevel={session.facets?.byLevel}
+          onToggle={(level) => setLevels((current) => toggleListedLevel(current, level))}
+          onClear={() => setLevels([])}
+        />
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-0">
         {session.error || exportError ? (
@@ -420,6 +435,7 @@ function Toolbar(props: {
   searchRef: RefObject<HTMLInputElement | null>;
   regex: boolean;
   errorOnly: boolean;
+  hideHealth: boolean;
   showSystem: boolean;
   showGrpc: boolean;
   paused: boolean;
@@ -433,6 +449,7 @@ function Toolbar(props: {
   onSearchDraft: (value: string) => void;
   onRegex: () => void;
   onErrorOnly: () => void;
+  onHideHealth: () => void;
   onSystem: () => void;
   onGrpc: () => void;
   onPaused: () => void;
@@ -462,6 +479,13 @@ function Toolbar(props: {
         </label>
         <Toggle active={p.regex} onClick={p.onRegex}>regex</Toggle>
         <Toggle active={p.errorOnly} onClick={p.onErrorOnly} tone="destructive">ERROR+</Toggle>
+        <Toggle
+          active={p.hideHealth}
+          onClick={p.onHideHealth}
+          title="Hide supervisor health probes and request logs for HTTP health, ready, and live endpoints, plus gRPC grpc.health.v1.Health"
+        >
+          hide health
+        </Toggle>
         <Toggle active={!p.showSystem} onClick={p.onSystem} title="Hide auth, mcp, devctl, and proxy">hide system</Toggle>
         <Toggle active={!p.showGrpc} onClick={p.onGrpc} title="Hide gRPC proxy logs">hide grpc</Toggle>
         <Button type="button" size="xs" variant={p.paused ? "secondary" : "outline"} onClick={p.onPaused}>
@@ -514,6 +538,26 @@ function ServiceChips(props: {
           {chip.name ? <span className="size-1.5 rounded-full" style={{ backgroundColor: serviceColor(chip.name) }} /> : null}
           {chip.name || "all"}
           <span className="text-[10px] text-muted-foreground">{chip.count}</span>
+        </Chip>
+      ))}
+    </div>
+  );
+}
+
+function LevelChips(props: {
+  levels: readonly string[];
+  byLevel: Record<string, number> | undefined;
+  onToggle: (level: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="mr-1 w-12 shrink-0 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">level</span>
+      <Chip active={props.levels.length === 0} onClick={props.onClear}>all</Chip>
+      {SELECTABLE_LOG_LEVELS.map((level) => (
+        <Chip key={level} active={props.levels.includes(level)} onClick={() => props.onToggle(level)}>
+          {level.toLowerCase()}
+          {props.byLevel ? <span className="text-[10px] text-muted-foreground">{facetLevelCount(props.byLevel, level)}</span> : null}
         </Chip>
       ))}
     </div>

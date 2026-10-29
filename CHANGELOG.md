@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The TUI and web Logs views can hide health-check lines: supervisor probes, plus request logs for HTTP health, ready, and live endpoints and gRPC `grpc.health.v1.Health` from the service or the proxy. Level chips choose which severities to show (for example info and warn, or warn and error). MCP `get_logs` and `get_log_stats` take the same `levels` and `hide_health` arguments; `recent_errors` accepts `hide_health`. See [Logs](docs/logs.md) and [MCP](docs/mcp.md).
 - `devctl web rotate` mints a new web console control token. `--print-url` prints the new access link when the console is running. See [Web console](docs/web.md).
 - `hooks.pre_start` and `hooks.post_start` accept `environment` in the same shape as a service environment. Those values are resolved when the hook runs and laid over the service's resolved environment for that command. Hook keys win, and `defaults` fill keys that are still empty. The service process keeps its own environment. A string or argv list is still just the command. See [Services](docs/services.md#hooks-and-one-off-tasks).
 - Logs can hide or show gRPC proxy lines without dropping HTTP proxy logs or service stdout. TUI: `b` or `/grpc`, and the **grpc** chip on the log filter bar. Web console: **hide grpc** (also `b`). CLI: `devctl logs --hide-grpc` (and `logs export`). MCP: `hide_grpc` on `get_logs`, `get_log_stats`, and `recent_errors`. Pages, follow, export, and facet counts follow the choice. See [Logs](docs/logs.md).

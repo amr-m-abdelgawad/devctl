@@ -73,9 +73,10 @@ function foldStreamKey(key: PipelineStreamKey): string {
 }
 
 function withoutFilterDimension(filter: LogFilter, dimension: "services" | "level" | "source"): LogFilter {
-  const copy = { ...filter };
-  copy[dimension] = undefined;
-  return copy;
+  if (dimension === "level") {
+    return { ...filter, level: undefined, levels: undefined };
+  }
+  return { ...filter, [dimension]: undefined };
 }
 
 export type LogManagerOptions = {

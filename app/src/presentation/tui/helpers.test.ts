@@ -136,6 +136,8 @@ describe("TUI helpers", () => {
     expect(filterLogs(events, { until: "2026-01-01T00:00:00.000Z" })).toEqual([]);
     expect(filterLogs(events, { systemLogs: false }).map((ev) => ev.service)).toEqual(["api"]);
     expect(filterLogs(events, { systemLogs: true }).map((ev) => ev.service)).toEqual(["auth", "api"]);
+    expect(filterLogs(events, { levels: ["INFO"] }).map((ev) => ev.service)).toEqual(["auth"]);
+    expect(filterLogs(events, { levels: ["ERROR", "FATAL"] }).map((ev) => ev.service)).toEqual(["api"]);
     const grpc = logEv({ timestamp: "t", service: "proxy", source: "proxy", level: "INFO", message: "grpc /pkg.Service/Poll route=t grpc-status=0", pid: 0, seq: 3 });
     const http = logEv({ timestamp: "t", service: "proxy", source: "proxy", level: "INFO", message: "GET /health route=api status=200", pid: 0, seq: 4 });
     expect(filterLogs([grpc, http, events[1]!], { grpcLogs: false }).map((ev) => ev.body)).toEqual(["GET /health route=api status=200", "boom"]);
