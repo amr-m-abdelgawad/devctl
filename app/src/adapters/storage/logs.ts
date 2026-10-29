@@ -12,7 +12,7 @@ import { LogBatcher } from "../../domain/logs/batch.ts";
 import { FacetWindow, filtersDimensionsOnly } from "../../domain/logs/facet-window.ts";
 import { ProxyHopWindow } from "../../domain/logs/hop-window.ts";
 import { IngestPipeline, sessionSpoolPrefix, type PipelineChunk, type PipelineLimits, type PipelineLine, type PipelineStreamKey } from "./ingest/pipeline.ts";
-import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine } from "./spool-replay.ts";
+import { leftoverSpoolDirs, replayLeftoverSpools, sessionHistorySink, type ReplayLine, type ReplaySink, type SessionHistoryLimits } from "./spool-replay.ts";
 import { readSelfStamp } from "../process/liveness.ts";
 import { openLogExport } from "./log-export.ts";
 import { safeServiceFile, SESSION_FORMAT_FILE, SESSION_FORMAT_JSONL, SESSION_PREFIX } from "./session-files.ts";
@@ -207,7 +207,7 @@ export class LogManager {
       this.pruneTimer = setInterval(() => this.prune(0), PRUNE_INTERVAL_MS);
       this.pruneTimer.unref?.();
     }
-    this.replay = leftovers.length === 0 ? Promise.resolve() : this.replayLeftovers(leftovers);
+    this.replay = leftovers.length === 0 ? Promise.resolve() : this.replayLeftovers(leftovers, { maxSessionBytes: options.maxSessionBytes, pendingLimitBytes: options.pendingLimitBytes });
     this.adoptSpooled();
   }
 
@@ -231,22 +231,24 @@ export class LogManager {
 
   // Output a crashed daemon had read but not parsed goes into that daemon's own
   // session history (or, without persistence, into this one's live window).
-  private async replayLeftovers(dirs: string[]): Promise<void> {
+  private async replayLeftovers(dirs: string[], limits: SessionHistoryLimits): Promise<void> {
     // Let the owner install parsers and service settings first.
     await new Promise((resolve) => setImmediate(resolve));
-    const sink = this.persist
+    const history = this.persist
       ? sessionHistorySink(
           (session) => join(this.logRoot, `${SESSION_PREFIX}${session}`),
-          (service) => `${safeServiceFile(service)}.jsonl`,
+          (service) => safeServiceFile(service),
           (line, seq) => this.replayRecord(line, seq),
+          limits,
         )
-      : (_header: unknown, lines: ReplayLine[]): void => {
-          for (const line of lines) {
-            // Its next segment is still to come: only event time may close its fold.
-            this.replaying.add(foldStreamKey(line));
-            this.appendLine(line);
-          }
-        };
+      : undefined;
+    const sink: ReplaySink = history?.sink ?? ((_header, lines) => {
+      for (const line of lines) {
+        // Its next segment is still to come: only event time may close its fold.
+        this.replaying.add(foldStreamKey(line));
+        this.appendLine(line);
+      }
+    });
     try {
       await replayLeftoverSpools(dirs, sink, () => this.closing, (bytes) => {
         this.leftoverSpoolBytes = bytes;
@@ -255,6 +257,7 @@ export class LogManager {
     } catch {
       // Whatever was not replayed stays on disk for the next daemon.
     } finally {
+      await history?.close().catch(() => undefined);
       this.replaying.clear();
       this.scheduleIdleFlush();
     }

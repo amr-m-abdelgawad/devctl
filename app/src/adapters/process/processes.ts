@@ -6,7 +6,7 @@ import { MAX_LOG_LINE_CHARS } from "../../domain/logs/logs.ts";
 import { commandMatches, inspectProcessUnix, killProcessTreeUnix, sampleResourceUsageUnix, type ProcessIdentity, type ResourceSample } from "./unix.ts";
 import { inspectProcessWindows, killProcessTreeWindows, sampleResourceUsageWindows } from "./windows.ts";
 import { processAlive } from "../storage/storage.ts";
-import { groupHasLiveMembers } from "./liveness.ts";
+import { groupHasLiveMembers, readStamp, sameStamp, type ProcessStamp } from "./liveness.ts";
 import { pumpChunks, pumpLines, type ChunkHandler, type LineHandler, type StreamName } from "./output-pump.ts";
 import { LineSplitter } from "../storage/ingest/line-splitter.ts";
 import { FifoStdio, type ServiceFifos, type StdioHandlerFor } from "./fifo-stdio.ts";
@@ -68,6 +68,8 @@ export type Handle = {
   done: Promise<{ code: number; err?: Error }>;
   proc?: Subprocess;
   container?: ContainerControl;
+  /** Persisted with the record, so a later daemon knows this process even after an exec changed its command. */
+  stamp?: ProcessStamp;
 };
 
 export class ProcessManager implements ProcessRuntime {
@@ -127,6 +129,7 @@ export class ProcessManager implements ProcessRuntime {
       args: [...spec.args],
       proc,
       done: Promise.resolve({ code: 0 }),
+      stamp: launchStamp(proc.pid ?? 0),
     };
     rememberManagedPid(handle.pid);
     if (usingFifo && fifos) {
@@ -263,6 +266,7 @@ export class ProcessManager implements ProcessRuntime {
       workDir: spec.workDir,
       args: [...spec.args],
       done: Promise.resolve({ code: 0 }),
+      stamp: launchStamp(spec.pid),
     };
     rememberManagedPid(spec.pid);
     handle.done = pollAdopted(spec.pid).then((code) => {
@@ -383,7 +387,22 @@ export function provenSameProcess(expected: { args: string[]; workDir: string; s
   return cwdCompared || startCompared;
 }
 
-export function sameAdoptedProcess(expected: { args: string[]; workDir: string; startTime?: Date }, observed: ProcessIdentity): boolean {
+// Only where it is a few cheap /proc reads: elsewhere it spawns ps or PowerShell.
+function launchStamp(pid: number): ProcessStamp | undefined {
+  if (process.platform !== "linux" || pid <= 0) {
+    return undefined;
+  }
+  const stamp = readStamp(pid);
+  return stamp.startTicks === undefined ? undefined : stamp;
+}
+
+export function sameAdoptedProcess(expected: { args: string[]; workDir: string; startTime?: Date; stamp?: ProcessStamp }, observed: ProcessIdentity): boolean {
+  // A stamp names the process itself. Its command and cwd can have changed
+  // since: `sh -c "<cmd>"` execs into <cmd> without the shell's quoting, and
+  // with `$PORT` expanded, so the stored command no longer matches.
+  if (expected.stamp?.startTicks !== undefined && observed.stamp?.startTicks !== undefined) {
+    return sameStamp(expected.stamp, observed.stamp);
+  }
   if (expected.workDir !== "" && observed.cwd !== "" && normalizePath(expected.workDir) !== normalizePath(observed.cwd)) {
     return false;
   }

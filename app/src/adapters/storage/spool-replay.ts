@@ -1,6 +1,7 @@
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { LogRecord } from "../../domain/logs/logs.ts";
+import { SessionLogWriter } from "./log-persist.ts";
 import { LineSplitter } from "./ingest/line-splitter.ts";
 import { OrderedSpool, type SpoolHeader } from "./ingest/spool.ts";
 
@@ -15,8 +16,8 @@ export type ReplayLine = {
   line: string;
 };
 
-/** Receives one spool segment's lines in read order. The segment is deleted once this returns. */
-export type ReplaySink = (header: SpoolHeader, lines: ReplayLine[]) => void;
+/** Receives one spool segment's lines in read order. The segment is deleted once this settles. */
+export type ReplaySink = (header: SpoolHeader, lines: ReplayLine[]) => void | Promise<void>;
 
 /**
  * Stream directories an earlier daemon's pipeline left in the spool root.
@@ -70,7 +71,7 @@ export async function replayLeftoverSpools(
         }
       }
       if (header !== undefined && lines.length > 0) {
-        sink(header, lines);
+        await sink(header, lines);
       }
       await spool.drop();
       remaining = Math.max(0, remaining - segment.bytes);
@@ -82,45 +83,69 @@ export async function replayLeftoverSpools(
     }
     const rest = splitter.finish();
     if (header !== undefined && rest.length > 0) {
-      sink(header, rest.map((line) => ({ service: header!.service, stream: header!.stream, pid: header!.pid, readAtMs: lastReadAtMs, line })));
+      await sink(header, rest.map((line) => ({ service: header!.service, stream: header!.stream, pid: header!.pid, readAtMs: lastReadAtMs, line })));
     }
     await spool.destroy();
   }
   onRemaining(0);
 }
 
+export type SessionHistorySink = {
+  sink: ReplaySink;
+  /** Settles once every replayed line is written and each session's files are closed. */
+  close(): Promise<void>;
+};
+
+export type SessionHistoryLimits = {
+  /** Each dead session's cap, as its own daemon had it. */
+  maxSessionBytes?: number;
+  pendingLimitBytes?: number;
+};
+
 /**
  * A sink that appends replayed lines to the history of the session that
  * produced them, continuing that session's own seq numbers, and marks the
- * session closed.
+ * session closed. Lines go through the session writer, so the session keeps
+ * its byte cap (its oldest parts go first), new parts, and their indexes.
+ * A spool holds raw output, and each line grows several times over as a
+ * stored record, so a replay written without the cap outgrows it many times.
  */
 export function sessionHistorySink(
   sessionDir: (session: string) => string,
-  fileFor: (service: string) => string,
+  keyFor: (service: string) => string,
   build: (line: ReplayLine, seq: number) => LogRecord,
-): ReplaySink {
-  const nextSeq = new Map<string, number>();
-  return (header, lines) => {
-    const dir = sessionDir(header.session);
-    const first = !nextSeq.has(dir);
-    let seq = nextSeq.get(dir) ?? lastSessionSeq(dir) + 1;
-    const byFile = new Map<string, string[]>();
-    for (const line of lines) {
-      const record = build(line, seq);
-      seq += 1;
-      const file = fileFor(record.service);
-      const rows = byFile.get(file) ?? [];
-      rows.push(`${JSON.stringify(record)}\n`);
-      byFile.set(file, rows);
+  limits: SessionHistoryLimits = {},
+): SessionHistorySink {
+  const sessions = new Map<string, { writer: SessionLogWriter; nextSeq: number }>();
+  const open = (dir: string): { writer: SessionLogWriter; nextSeq: number } => {
+    const existing = sessions.get(dir);
+    if (existing !== undefined) {
+      return existing;
     }
-    nextSeq.set(dir, seq);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    if (first) {
-      markSessionClosed(dir);
-    }
-    for (const [file, rows] of byFile) {
-      appendFileSync(join(dir, file), rows.join(""), { mode: 0o600 });
-    }
+    markSessionClosed(dir);
+    const nextSeq = lastSessionSeq(dir) + 1;
+    const created = { writer: new SessionLogWriter(dir, limits.pendingLimitBytes, { maxSessionBytes: limits.maxSessionBytes }), nextSeq };
+    sessions.set(dir, created);
+    return created;
+  };
+  return {
+    sink: async (header, lines) => {
+      const session = open(sessionDir(header.session));
+      for (const line of lines) {
+        const seq = session.nextSeq;
+        session.nextSeq += 1;
+        const record = build(line, seq);
+        session.writer.write(keyFor(record.service), `${JSON.stringify(record)}\n`, seq);
+      }
+      if (session.writer.backpressured()) {
+        await session.writer.flush();
+      }
+    },
+    close: async () => {
+      await Promise.all([...sessions.values()].map((session) => session.writer.close()));
+      sessions.clear();
+    },
   };
 }
 

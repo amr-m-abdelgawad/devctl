@@ -478,20 +478,21 @@ describe("the writer's index", () => {
     }
   });
 
-  test("lines a crash replay appended to a dead session's first part are served", async () => {
-    // Parts of 1 MiB: api.jsonl, api~1.jsonl, ... The replay sink knows only
-    // `<service>.jsonl`, so its lines land after part 0's, with the highest seqs.
+  test("lines a crash replay appended to a dead session are served after its own", async () => {
+    // Parts of 1 MiB: api.jsonl, api~1.jsonl, ... The replay goes to a new part, with the highest seqs.
     const mgr = await filled(3_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: 8 * 1024 * 1024 }, ["api"], "dead");
     await mgr.close();
     const root = join(mgr.sessionDir(), "..");
     expect(readdirSync(mgr.sessionDir()).filter((name) => name.endsWith(".jsonl")).length).toBeGreaterThan(3);
-    const sink = sessionHistorySink(
+    const history = sessionHistorySink(
       (session) => join(root, `session-${session}`),
-      (service) => `${service}.jsonl`,
+      (service) => service,
       (line, seq) => logRecord({ seq, service: line.service, message: line.line }),
+      { maxSessionBytes: 8 * 1024 * 1024 },
     );
     const replayed = ["replayed one", "replayed two"].map((line) => ({ service: "api", stream: "stdout", pid: 1, readAtMs: 1, line }));
-    sink({ session: "dead", service: "api", stream: "stdout", pid: 1 }, replayed);
+    await history.sink({ session: "dead", service: "api", stream: "stdout", pid: 1 }, replayed);
+    await history.close();
     const newest = (): string[] =>
       new SessionHistory(root, 64 * 1024 * 1024, 10_000).page("session-dead", {}, { limit: 3 }).events.map((event) => `${event.seq}:${logMessage(event).slice(0, 12)}`);
     expect(newest()).toEqual(["3000:line 3000 pp", "3001:replayed one", "3002:replayed two"]);
@@ -500,6 +501,28 @@ describe("the writer's index", () => {
     // The same session as an older devctl would have left it.
     dropIndexes(mgr.sessionDir());
     expect(newest()).toEqual(["3000:line 3000 pp", "3001:replayed one", "3002:replayed two"]);
+  });
+  test("a crash replay keeps the dead session within its byte cap, newest lines kept", async () => {
+    const cap = 2 * 1024 * 1024;
+    const mgr = await filled(2_000, { maxMemoryBytes: 64 * 1024, maxSessionBytes: cap }, ["api"], "full");
+    await mgr.close();
+    const root = join(mgr.sessionDir(), "..");
+    const history = sessionHistorySink(
+      (session) => join(root, `session-${session}`),
+      (service) => service,
+      (line, seq) => logRecord({ seq, service: line.service, message: line.line }),
+      { maxSessionBytes: cap },
+    );
+    // Several times the cap, as a full spool becomes once each line is a stored record.
+    for (let batch = 0; batch < 40; batch += 1) {
+      const lines = range(1, 500).map((n) => ({ service: "api", stream: "stdout", pid: 1, readAtMs: 1, line: `replayed ${batch}-${n} ${PAD}` }));
+      await history.sink({ session: "full", service: "api", stream: "stdout", pid: 1 }, lines);
+    }
+    await history.close();
+    const bytes = readdirSync(mgr.sessionDir()).reduce((sum, name) => sum + statSync(join(mgr.sessionDir(), name)).size, 0);
+    expect(bytes).toBeLessThanOrEqual(cap + 64 * 1024);
+    const newest = new SessionHistory(root, 64 * 1024 * 1024, 10_000).page("session-full", {}, { limit: 1 }).events;
+    expect(newest.map((event) => logMessage(event).slice(0, 15))).toEqual(["replayed 39-500"]);
   });
 });
 
