@@ -73,6 +73,22 @@ per-service configuration. That includes exporters that send protobuf whatever
 `opentelemetry-exporter-otlp-proto-http`. OTLP over gRPC (port 4317) and
 `/v1/metrics` are not served.
 
+### Exporting to devctl
+
+OpenTelemetry JS 3.0 (`@opentelemetry/sdk-trace` 3) constructs its span
+processor with an options object. Passing the exporter itself exports no spans
+and raises no error, which looks like devctl stopped receiving traces:
+
+```ts
+import { SimpleSpanProcessor } from "@opentelemetry/sdk-trace";
+
+new SimpleSpanProcessor({ exporter });
+```
+
+`NodeTracerProvider.register()` is gone in that release. Install a context
+manager (the async-hooks one on Node) so a log emitted inside a span keeps the
+span's trace id. The SDK needs Node 22.15 or later.
+
 ## Traces and correlation
 
 devctl's own signals are telemetry too. The proxy emits one **span per request**

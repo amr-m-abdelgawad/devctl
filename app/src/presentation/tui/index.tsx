@@ -6,6 +6,7 @@ import { humanMessage, isKind, KindConfiguration, KindConfigurationMissing } fro
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
 import { installTerminalRestoreOnExit, restoreTerminalModes } from "../../shared/terminal-restore.ts";
+import { installAnimationFrames } from "./animation-frame.ts";
 
 const RENDERER_CLOSE_WAIT_MS = 1_000;
 
@@ -47,6 +48,7 @@ export async function renderApp(
     enableMouseMovement: tui.mouse,
     useKittyKeyboard: {},
   });
+  installAnimationFrames(renderer);
   const root = createRoot(renderer);
   let terminalBackground: string | null = null;
   try {
