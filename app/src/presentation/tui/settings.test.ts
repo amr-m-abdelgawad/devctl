@@ -36,6 +36,7 @@ function sampleState(partial: Partial<SettingsState> = {}): SettingsState {
     logTimestamps: true,
     logMetadata: true,
     webAppearance: "dark",
+    regenerateSessionTokens: false,
     webEnabled: false,
     webPort: 18900,
     inspectMaxBytes: 1_048_576,
@@ -77,6 +78,9 @@ describe("settings", () => {
     expect(sample.find((item) => item.id === "scroll")?.value).toBe("3");
     expect(sample.find((item) => item.id === "timestamps")?.kind).toBe("toggle");
     expect(sample.find((item) => item.id === "web")?.kind).toBe("toggle");
+    expect(sample.find((item) => item.id === "session_tokens")?.kind).toBe("toggle");
+    expect(sample.find((item) => item.id === "session_tokens")?.value).toBe("off");
+    expect(settingsItems(sampleState({ regenerateSessionTokens: true })).find((item) => item.id === "session_tokens")?.value).toBe("on");
     expect(sample.find((item) => item.id === "web_port")?.value).toBe("18900");
     expect(sample.find((item) => item.id === "web_port")?.hint).toContain("preview");
     expect(sample.find((item) => item.id === "inspect_cap")?.value).toBe("1 MiB");

@@ -96,4 +96,53 @@ describe("devctl web", () => {
     }
     expect(cap.output()).toBe("http://127.0.0.1:18900/#token=abc\n");
   });
+
+  test("rotate without a daemon rewrites the saved token and does not print it", async () => {
+    let rotated = "";
+    const runtime = {
+      openController: async () =>
+        ({
+          client: undefined,
+          cfg: { repoRoot: "/repo" },
+          close: async () => {},
+        }) as unknown as Controller,
+      rotateWebToken: (repoRoot: string) => {
+        rotated = repoRoot;
+        return "secret-token";
+      },
+    } as unknown as ClientRuntime;
+    const root = new Command();
+    root.option("-c, --config <path>");
+    addWeb(root, runtime);
+    const cap = captureStdout();
+    try {
+      await root.parseAsync(["node", "devctl", "web", "rotate"], { from: "node" });
+    } finally {
+      cap.restore();
+    }
+    expect(rotated).toBe("/repo");
+    expect(cap.output()).toContain("web control token rotated");
+    expect(cap.output()).not.toContain("secret-token");
+  });
+
+  test("rotate --print-url prints the new access link when the console is running", async () => {
+    const runtime = {
+      openController: async () =>
+        ({
+          client: {},
+          webRotate: async () => ({ url: "http://127.0.0.1:18900/#token=fresh" }),
+          close: async () => {},
+        }) as unknown as Controller,
+    } as unknown as ClientRuntime;
+    const root = new Command();
+    root.option("-c, --config <path>");
+    addWeb(root, runtime);
+    const cap = captureStdout();
+    try {
+      await root.parseAsync(["node", "devctl", "web", "rotate", "--print-url"], { from: "node" });
+    } finally {
+      cap.restore();
+    }
+    expect(cap.output()).toBe("http://127.0.0.1:18900/#token=fresh\n");
+  });
 });

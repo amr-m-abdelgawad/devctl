@@ -1,8 +1,10 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { defaultConfig, type DevctlConfig } from "../../domain/config/types.ts";
 import type { McpHost, WebListener } from "../../ports/web-host.ts";
+import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
+import { webTokenPath } from "../storage/storage.ts";
 import { WebCoordinator, type WebCoordinatorDeps } from "./web-coordinator.ts";
 
 function tmpHome(): string {
@@ -104,6 +106,32 @@ describe("web coordinator", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(stops).toBe(1);
     expect(running).toBe(false);
+  });
+
+  test("rotate mints a new control token and a stale token stays until regeneration is on", async () => {
+    const home = tmpHome();
+    const cfg = defaultConfig();
+    cfg.web.enabled = true;
+    cfg.web.listen.port = 18900;
+    const deps = {
+      repoRoot: () => home,
+      cfg: () => cfg,
+      createListener: (opts: { host?: string; port: number }) => fakeListener(opts),
+      hostApi: () => ({}) as McpHost,
+      log: () => undefined,
+    };
+    const web = new WebCoordinator(deps);
+    const first = await web.startExplicit();
+    const rotated = await web.rotate();
+    expect(rotated).not.toBe(first);
+    expect(rotated).toContain("#token=");
+    const staleSec = (Date.now() - (MCP_TOKEN_TTL_MS + 5_000)) / 1000;
+    utimesSync(webTokenPath(home), staleSec, staleSec);
+    const kept = await new WebCoordinator(deps).startExplicit();
+    expect(kept).toBe(rotated);
+    writeFileSync(join(home, "tui.json"), `${JSON.stringify({ regenerate_session_tokens: true })}\n`);
+    const reminted = await new WebCoordinator(deps).startExplicit();
+    expect(reminted).not.toBe(rotated);
   });
 
   test("stop then start reuses the persisted control token", async () => {

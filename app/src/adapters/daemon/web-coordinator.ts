@@ -2,7 +2,8 @@ import { LOCALHOST, type DevctlConfig } from "../../domain/config/types.ts";
 import { formatHostPort } from "../../domain/net/hosts.ts";
 import type { McpHost, WebListener, WebListenerFactory } from "../../ports/web-host.ts";
 import { humanMessage } from "../../shared/errors.ts";
-import { readOrCreateWebToken } from "../storage/storage.ts";
+import { sessionTokensRegenerate } from "../config/tui-preferences.ts";
+import { readOrCreateWebToken, rotateWebToken } from "../storage/storage.ts";
 
 export type WebCoordinatorDeps = {
   repoRoot: () => string;
@@ -19,7 +20,25 @@ export class WebCoordinator {
 
   constructor(deps: WebCoordinatorDeps) {
     this.deps = deps;
-    this.token = readOrCreateWebToken(deps.repoRoot());
+    this.token = this.readToken();
+  }
+
+  private readToken(): string {
+    const root = this.deps.repoRoot();
+    return readOrCreateWebToken(root, { regenerate: sessionTokensRegenerate(root) });
+  }
+
+  async rotate(): Promise<string> {
+    const running = this.listener?.isRunning() === true;
+    if (running) {
+      await this.stop();
+    }
+    this.token = rotateWebToken(this.deps.repoRoot());
+    this.deps.log("devctl", "INFO", "web control token rotated");
+    if (running) {
+      await this.bind();
+    }
+    return this.controlUrl();
   }
 
   get instance(): WebListener | undefined {
@@ -101,7 +120,7 @@ export class WebCoordinator {
       return;
     }
     const listen = this.deps.cfg().web.listen;
-    this.token = readOrCreateWebToken(this.deps.repoRoot());
+    this.token = this.readToken();
     this.listener = this.deps.createListener({
       host: listen.host || LOCALHOST,
       port: listen.port,

@@ -206,7 +206,7 @@ function SettingsDetail(props: { palette: Palette; item?: SettingsItem; scale: U
 }
 
 function valueColor(palette: Palette, item: SettingsItem, active: boolean): string {
-  if (item.id === "mouse" || item.id === "timestamps" || item.id === "metadata" || item.id === "web") {
+  if (item.id === "mouse" || item.id === "timestamps" || item.id === "metadata" || item.id === "web" || item.id === "session_tokens") {
     return item.value === "on" ? palette.success : palette.text;
   }
   if (item.kind === "page") {

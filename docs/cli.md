@@ -32,7 +32,7 @@ devctl setup [--force]
 devctl auth status|login|logout|refresh [--json]
 devctl proxy status|start|stop
 devctl mcp [--on|--off] [--port N] [--rotate] [--write claude|cursor|kilo] [--json]
-devctl web status|start|stop
+devctl web status|start|stop|rotate [--print-url]
 devctl config validate|show|diff [--json] [--overlay <name>]
 devctl attach
 devctl completion zsh|bash|fish
@@ -108,7 +108,7 @@ devctl completion fish > ~/.config/fish/completions/devctl.fish
 
 ## Web
 
-`devctl web status|start|stop` controls the opt-in loopback console. `web start` prints the console origin only; the control token travels in the URL fragment (`#token=`), and `web start --print-url` prints the full access link when you need it. After the first authorized visit, the browser keeps the token (7-day TTL, same as MCP). `devctl status` prints a `WEB` line without the token. Off until `web.enabled: true` or you run `web start`. See [Web console](web.md).
+`devctl web status|start|stop|rotate` controls the opt-in loopback console. `web start` prints the console origin only; the control token travels in the URL fragment (`#token=`), and `web start --print-url` prints the full access link when you need it. After the first authorized visit, the browser keeps the token. The saved token stays until `web rotate`, unless `regenerate_session_tokens` is on (then it remints after 7 days, same as MCP). `devctl status` prints a `WEB` line without the token. Off until `web.enabled: true` or you run `web start`. See [Web console](web.md).
 
 ## Exit codes
 

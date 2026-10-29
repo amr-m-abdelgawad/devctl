@@ -50,9 +50,9 @@ There is no separate Go tree.
 
 ## TUI preferences
 
-Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `web_appearance`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`, `dismissed_notifications`.
+Configuration is **`tui.json` or `tui.jsonc`**: `theme`, `keybinds`, `leader_timeout`, `font_size`, `mouse`, `scroll_speed`, `log_timestamps`, `log_metadata`, `web_appearance`, `mcp_enabled`, `mcp_port`, `mcp_disabled_tools`, `mcp_enabled_tools`, `regenerate_session_tokens`, `dismissed_notifications`.
 
-`mcp_disabled_tools` is a deny-list of MCP tool names that are on by default. `mcp_enabled_tools` opts in tools that are off by default (`exec_service`). See [MCP](mcp.md). `/notify dismiss` appends this version to `dismissed_notifications` so the update banner does not return.
+`mcp_disabled_tools` is a deny-list of MCP tool names that are on by default. `mcp_enabled_tools` opts in tools that are off by default (`exec_service`). See [MCP](mcp.md). `regenerate_session_tokens` (default false) remints the saved MCP and web bearer tokens after 7 days. `/notify dismiss` appends this version to `dismissed_notifications` so the update banner does not return.
 
 Search order (later sources win). `DEVCTL_TUI_CONFIG` / `OPENCODE_TUI_CONFIG` is exclusive and session-only for writes:
 
@@ -64,7 +64,7 @@ flowchart TB
   user --> repo["~/.devctl/state/repoID/tui.json  this checkout"]
 ```
 
-Settings default to **this repository**. Theme, mouse, leader, scroll, log columns, and web appearance follow the Save to toggle. MCP listen / port / tool lists always write the repo overlay. `dismissed_notifications` stay user-global. `DEVCTL_TUI_CONFIG` still wins as the only file when set.
+Settings default to **this repository**. Theme, mouse, leader, scroll, log columns, web appearance, and token regeneration follow the Save to toggle. MCP listen / port / tool lists always write the repo overlay. `dismissed_notifications` stay user-global. `DEVCTL_TUI_CONFIG` still wins as the only file when set.
 
 `keybinds` merge with the built-in defaults, so you only override what you change. Defaults use `cmd` on macOS and `ctrl` on Linux/Windows (`command+c` / `ctrl+c` in the TUI).
 
@@ -79,7 +79,8 @@ Settings default to **this repository**. Theme, mouse, leader, scroll, log colum
   "mouse": true,
   "mcp_enabled": false,
   "mcp_disabled_tools": [],
-  "mcp_enabled_tools": []
+  "mcp_enabled_tools": [],
+  "regenerate_session_tokens": false
 }
 ```
 

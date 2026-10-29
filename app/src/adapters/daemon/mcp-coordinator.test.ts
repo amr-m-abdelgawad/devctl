@@ -1,8 +1,10 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { McpHost, McpListener } from "../../ports/mcp-host.ts";
+import { MCP_TOKEN_TTL_MS } from "../../shared/mcp-token.ts";
+import { mcpTokenPath } from "../storage/storage.ts";
 import { McpCoordinator } from "./mcp-coordinator.ts";
 
 function tmp(): string {
@@ -78,6 +80,29 @@ describe("mcp coordinator tool defaults", () => {
       const mcp = coordinator(dir);
       await mcp.bootFromPreferences();
       expect(mcp.disabledTools).toEqual(["get_logs"]);
+    } finally {
+      if (prevHome === undefined) {
+        delete process.env.DEVCTL_HOME;
+      } else {
+        process.env.DEVCTL_HOME = prevHome;
+      }
+    }
+  });
+});
+
+describe("mcp coordinator token lifetime", () => {
+  test("keeps a saved token unless regeneration is enabled", () => {
+    const prevHome = process.env.DEVCTL_HOME;
+    const dir = tmp();
+    process.env.DEVCTL_HOME = dir;
+    try {
+      const first = coordinator(dir).token;
+      const path = mcpTokenPath(dir);
+      const staleSec = (Date.now() - (MCP_TOKEN_TTL_MS + 5_000)) / 1000;
+      utimesSync(path, staleSec, staleSec);
+      expect(coordinator(dir).token).toBe(first);
+      writeFileSync(join(dir, "tui.json"), `${JSON.stringify({ regenerate_session_tokens: true })}\n`);
+      expect(coordinator(dir).token).not.toBe(first);
     } finally {
       if (prevHome === undefined) {
         delete process.env.DEVCTL_HOME;

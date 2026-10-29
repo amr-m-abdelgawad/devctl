@@ -18,6 +18,14 @@ import {
 import { MCP_TOKEN_TTL_DAYS, formatMcpTokenAge } from "../../shared/mcp-token.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
+function mcpTokenAgeLine(ageMs: number, regenerate: boolean): string {
+  const age = formatMcpTokenAge(ageMs);
+  if (regenerate) {
+    return `token age ${age} (TTL ${MCP_TOKEN_TTL_DAYS}d; rotate with devctl mcp --rotate)\n`;
+  }
+  return `token age ${age} (kept until devctl mcp --rotate)\n`;
+}
+
 export function addProxy(root: Command, runtime: ClientRuntime): void {
   const proxy = root.command("proxy");
   proxy
@@ -119,7 +127,8 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
                 url,
                 port,
                 token_age_ms: ageMs,
-                token_ttl_days: MCP_TOKEN_TTL_DAYS,
+                regenerate_token: tui.regenerate_session_tokens === true,
+                token_ttl_days: tui.regenerate_session_tokens === true ? MCP_TOKEN_TTL_DAYS : null,
                 snippets: {
                   claude: JSON.parse(claudeSnippet(url, token)),
                   cursor: JSON.parse(cursorSnippet(url, token)),
@@ -135,7 +144,7 @@ export function addMcp(root: Command, runtime: ClientRuntime): void {
         }
         writeOut(`MCP  ${snap?.mcp?.running ? "RUNNING" : "STOPPED"}  ${url}\n`);
         if (ageMs !== undefined) {
-          writeOut(`token age ${formatMcpTokenAge(ageMs)} (TTL ${MCP_TOKEN_TTL_DAYS}d; rotate with devctl mcp --rotate)\n`);
+          writeOut(mcpTokenAgeLine(ageMs, tui.regenerate_session_tokens === true));
         }
         writeOut(`\n`);
         if (snap?.setup_mode === true) {

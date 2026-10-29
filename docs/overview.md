@@ -58,7 +58,7 @@ Coding agents cannot keep a TUI child alive, so MCP is a **localhost Streamable 
 
 ## Web
 
-An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. `devctl web start` prints a URL with a session token (reused across listener restarts for 7 days); `devctl status` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
+An opt-in loopback console on the same supervisor (services, traces, logs, LLM inspector, graph). Off by default. `devctl web start` prints a URL with a session token that is reused across listener restarts until `devctl web rotate` (7-day remint only when `regenerate_session_tokens` is on); `devctl status` shows the listen address without it. See [Telemetry](telemetry.md#web-ui).
 
 ## Configuration vs preferences
 

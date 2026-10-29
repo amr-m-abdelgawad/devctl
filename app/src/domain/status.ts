@@ -90,6 +90,8 @@ export type McpSnapshot = {
   port?: number;
   token?: string;
   token_age_ms?: number;
+  // True when saved MCP/web bearers remint after the session TTL.
+  regenerate_token?: boolean;
   // Names of tools currently turned off (effective deny-list, including
   // default-disabled tools such as exec_service until they are opted in).
   disabled_tools?: string[];

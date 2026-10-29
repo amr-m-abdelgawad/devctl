@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `devctl web rotate` mints a new web console control token. `--print-url` prints the new access link when the console is running. See [Web console](docs/web.md).
 - `hooks.pre_start` and `hooks.post_start` accept `environment` in the same shape as a service environment. Those values are resolved when the hook runs and laid over the service's resolved environment for that command. Hook keys win, and `defaults` fill keys that are still empty. The service process keeps its own environment. A string or argv list is still just the command. See [Services](docs/services.md#hooks-and-one-off-tasks).
 - Logs can hide or show gRPC proxy lines without dropping HTTP proxy logs or service stdout. TUI: `b` or `/grpc`, and the **grpc** chip on the log filter bar. Web console: **hide grpc** (also `b`). CLI: `devctl logs --hide-grpc` (and `logs export`). MCP: `hide_grpc` on `get_logs`, `get_log_stats`, and `recent_errors`. Pages, follow, export, and facet counts follow the choice. See [Logs](docs/logs.md).
 - Log ingest yields between reads, coalesces output, and spills to a capped on-disk spool so a fast service cannot freeze or OOM the daemon. Lines are not dropped and stay in order: only when memory and the spool are both full does devctl stop reading, and the service waits in its write. The live window stays the last `logs.max_memory_events` records. Session files, the not-yet-parsed spool, and the logs directory are capped (`logs.persistence.max_session_bytes`, `logs.spool.max_bytes`, `logs.persistence.max_total_bytes`). A session over its cap rolls each service's file to numbered parts and deletes the oldest, so it keeps its newest lines. Output a crashed daemon had read but not parsed is parsed into that daemon's session by the next one.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Saved MCP and web bearer tokens are kept until you rotate them. They are no longer reminted after 7 days unless `regenerate_session_tokens` is true in `tui.json` (TUI Settings → Regenerate tokens, the web console Settings page, or `set_preferences`). The preference is off by default and applies the next time that listener reads the token. See [MCP](docs/mcp.md) and [Web console](docs/web.md).
 - devctl runs on Bun 1.4.4. The npm package depends on Bun 1.4.4 and release binaries are built with it, and source development needs Bun 1.4.4 or later. On Windows, Bun 1.4.2 crashed or hung in about one test run in eight on CI runners, inside JavaScriptCore's compiler and garbage collector threads; in 60 runs on 1.4.4 it did neither.
 - On Windows, checking whether a process is alive no longer runs `tasklist` through `cmd.exe`. That call never returned an answer and held the daemon for 35 to 55 ms each time; the answers are the same, and identifying a process goes straight to PowerShell, as it already did after the failed call.
 - `logs.persistence.max_session_logs` counts sessions for the current repository. One checkout no longer deletes another checkout's sessions in a shared logs directory.
