@@ -6,6 +6,7 @@ import { humanMessage, isKind, KindConfiguration, KindConfigurationMissing } fro
 import { App } from "./App.tsx";
 import { holdStderrForTui, silenceGcpMetadataWarnings } from "../../shared/warnings.ts";
 import { installTerminalRestoreOnExit, restoreTerminalModes } from "../../shared/terminal-restore.ts";
+import { keepPerformanceTimelineEmpty } from "./helpers/performance-timeline.ts";
 import { installAnimationFrames } from "./animation-frame.ts";
 
 const RENDERER_CLOSE_WAIT_MS = 1_000;
@@ -50,6 +51,7 @@ export async function renderApp(
   });
   installAnimationFrames(renderer);
   const root = createRoot(renderer);
+  const stopTimelineClear = keepPerformanceTimelineEmpty();
   let terminalBackground: string | null = null;
   try {
     terminalBackground = (await renderer.getPalette({ timeout: 120, size: 16 })).defaultBackground;
@@ -60,6 +62,7 @@ export async function renderApp(
     const leaveTty = async (): Promise<void> => {
       try {
         root.unmount();
+        stopTimelineClear();
         restoreStderr();
         renderer.destroy();
         // destroy() restores the terminal and writes its last output

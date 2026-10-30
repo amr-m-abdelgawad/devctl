@@ -105,6 +105,16 @@ export function foldLogLines(lines: readonly string[], width: number, expanded: 
   return { visible: [clipText(wrapped[0] ?? "", room)], mark, folded: true, hidden };
 }
 
+/**
+ * A row's React key. It names the record, not its place in the list: with
+ * the index in it, every new line shifted every key and the whole visible
+ * list was rebuilt on each update, about 11,500 OpenTUI nodes a second
+ * while services logged. A record without a seq falls back to its place.
+ */
+export function logRowKey(event: { seq: number; timestamp: string; service: string }, index: number): string {
+  return event.seq > 0 ? `seq-${event.seq}` : `${event.timestamp}-${event.service}-${index}`;
+}
+
 export function logRowExpanded(mode: LogWrapMode, selected: boolean): boolean {
   return mode === "all" || (mode === "focus" && selected);
 }

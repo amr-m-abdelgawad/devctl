@@ -7,6 +7,7 @@ import {
   GENERATED_PACKAGE_FILES,
   assertPackageFileAllowlist,
   baseReleaseVersion,
+  bundleDefines,
   bundleExternalPackages,
   createPublishedPackageJson,
   fallbackVersionFromSource,
@@ -22,6 +23,29 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+describe("React's production build", () => {
+  // The development build adds a performance.measure() entry per render and
+  // never removes it: a TUI left open while services logged reached 44 GB.
+  test("the npm bundle and the compiled binaries define NODE_ENV=production", () => {
+    expect(bundleDefines("1.2.3")["process.env.NODE_ENV"]).toBe(JSON.stringify("production"));
+    const compile = readFileSync(join(import.meta.dir, "..", "..", ".github", "scripts", "compile-binaries.sh"), "utf8");
+    expect(compile).toContain('--define "process.env.NODE_ENV=\\"production\\""');
+  });
+
+  test("bundled with those defines, React has no development code", async () => {
+    const dir = join(tmpdir(), `devctl-react-prod-${process.pid}`);
+    temporaryDirectories.push(dir);
+    mkdirSync(dir, { recursive: true });
+    const entry = join(dir, "entry.ts");
+    writeFileSync(entry, `import { createElement } from ${JSON.stringify(Bun.resolveSync("react", import.meta.dir))};\nconsole.log(typeof createElement);\n`);
+    const built = await Bun.build({ entrypoints: [entry], target: "bun", define: bundleDefines("1.2.3"), outdir: join(dir, "out") });
+    expect(built.success).toBe(true);
+    const code = await built.outputs[0]!.text();
+    expect(code).not.toContain("react.development");
+    expect(code).toContain("react.production");
+  });
 });
 
 describe("npm package versioning", () => {

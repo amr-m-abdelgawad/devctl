@@ -12,6 +12,7 @@ import {
   logFollowMaxScroll,
   logMessageSpans,
   logRowExpanded,
+  logRowKey,
   logServiceColumnWidth,
   nextLogFollowAction,
   type LogWrapMode,
@@ -177,7 +178,7 @@ export function LogList(props: {
           {slice.map((ev, i) => (
             <LogRow
               id={`log-row-${i}`}
-              key={`${ev.timestamp}-${ev.service}-${i}`}
+              key={logRowKey(ev, i)}
               palette={palette}
               event={ev}
               serviceWidth={serviceWidth}

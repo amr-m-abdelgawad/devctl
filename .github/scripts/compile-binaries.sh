@@ -21,7 +21,9 @@ WORKERS=(src/adapters/storage/log-worker.ts src/adapters/daemon/event-loop-watch
 compile() {
   local target="$1"
   local out="$2"
-  local args=(build --compile --target="$target" --entry-naming "[name].[ext]" --define "process.env.DEVCTL_VERSION=\"${VERSION}\"")
+  # NODE_ENV=production: React's development build records a performance
+  # entry for every render and never removes it (see npm-package.ts).
+  local args=(build --compile --target="$target" --entry-naming "[name].[ext]" --define "process.env.DEVCTL_VERSION=\"${VERSION}\"" --define "process.env.NODE_ENV=\"production\"")
   case "$target" in
     bun-linux-*) args+=(--define "process.env.OPENTUI_LIBC=\"glibc\"") ;;
   esac
