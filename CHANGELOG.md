@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-31
+
 ### Added
 
 - The TUI and web Logs views can hide health-check lines: supervisor probes, plus request logs for HTTP health, ready, and live endpoints and gRPC `grpc.health.v1.Health` from the service or the proxy. Level chips choose which severities to show (for example info and warn, or warn and error). MCP `get_logs` and `get_log_stats` take the same `levels` and `hide_health` arguments; `recent_errors` accepts `hide_health`. See [Logs](docs/logs.md) and [MCP](docs/mcp.md).
@@ -23,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The web console overview shows recent proxy requests, error logs, and LLM calls side by side, and a service with an HTTP port can be opened in a new tab from the fleet. Log search highlights each match. See [Web console](docs/web.md).
 - The TUI runs on OpenTUI 0.7, whose rendering moved into native code. Two things look different: a log line too long for its column now wraps at a space where one fits instead of at the column edge, and inside an SSH or mosh session OpenTUI now reads `TERM` and `COLORTERM`, so a truecolor terminal that reaches the server as `TERM=xterm-256color` without `COLORTERM` (iTerm2 or WezTerm through the stock macOS `ssh`) gets 256-color approximations. Setting `COLORTERM=truecolor` on the server, or forwarding it with `SendEnv`/`AcceptEnv COLORTERM`, keeps exact colors; Kitty is still detected as truecolor. Signing in to Google from the TUI now hands the terminal to `gcloud` only once the TUI has let go of it, and quitting waits up to a second for the terminal to be restored before devctl exits.
 - Dependencies are updated to their latest releases, among them TypeScript 7, dotenv 18 (its `parse` gives the same values), google-auth-library 11.3 and React 19.3.1. If traces disappear after an app moves to OpenTelemetry JS 3.0 and nothing is logged, `SimpleSpanProcessor` now takes `{ exporter }`. See [Troubleshooting](docs/troubleshooting.md).
 - Saved MCP and web bearer tokens are kept until you rotate them. They are no longer reminted after 7 days unless `regenerate_session_tokens` is true in `tui.json` (TUI Settings → Regenerate tokens, the web console Settings page, or `set_preferences`). The preference is off by default and applies the next time that listener reads the token. See [MCP](docs/mcp.md) and [Web console](docs/web.md).
@@ -802,7 +805,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...HEAD
+[0.26.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.23.0...v0.24.0
 [0.23.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.22.0...v0.23.0
