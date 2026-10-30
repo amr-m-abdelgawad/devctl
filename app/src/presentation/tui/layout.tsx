@@ -173,7 +173,9 @@ export function MetaBar(props: { palette: Palette; items: MetaChip[]; hints?: Ke
   const row = (
     <box height={1} flexDirection="row" overflow="hidden" backgroundColor={palette.element}>
       {items.map((item, index) => (
-        <Chip key={`${item.text}-${index}`} palette={palette} label={item.text} tone={item.tone} onMouseDown={item.onMouseDown} />
+        // By position: a chip whose text changes (a count, a status) is
+        // updated in place instead of rebuilt.
+        <Chip key={index} palette={palette} label={item.text} tone={item.tone} onMouseDown={item.onMouseDown} />
       ))}
       {hints && hints.length > 0 ? (
         <>

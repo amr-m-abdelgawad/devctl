@@ -29,6 +29,20 @@ export const PUBLISHED_APP_DEPENDENCIES = ["@opentui/core"] as const;
 // pinning their native platform packages exact.
 export const PUBLISHED_RUNTIME_EXTERNALS = ["node-fetch"] as const;
 
+/**
+ * Replaced in the bundled code. NODE_ENV=production selects React's
+ * production build: the development build adds a `performance.measure()`
+ * entry for every component render it times and never removes them, so a
+ * TUI left open while services log grew by gigabytes an hour. The
+ * compiled binaries get the same define (.github/scripts/compile-binaries.sh).
+ */
+export function bundleDefines(releaseVersion: string): Record<string, string> {
+  return {
+    "process.env.DEVCTL_VERSION": JSON.stringify(releaseVersion),
+    "process.env.NODE_ENV": JSON.stringify("production"),
+  };
+}
+
 const NODE_BUILTINS = new Set(builtinModules);
 
 type PackageJson = {
@@ -228,9 +242,7 @@ export async function buildNpmPackage(repoRoot: string, requestedVersion: string
     // name, so subpath exports like `@opentui/core/yoga` stay external too and
     // their native/worker assets are never pulled into the bundle.
     external: [...PUBLISHED_APP_DEPENDENCIES],
-    define: {
-      "process.env.DEVCTL_VERSION": JSON.stringify(releaseVersion),
-    },
+    define: bundleDefines(releaseVersion),
     outdir: join(outputRoot, "dist"),
     naming: "devctl.js",
   });
@@ -246,9 +258,7 @@ export async function buildNpmPackage(repoRoot: string, requestedVersion: string
     target: "bun",
     minify: true,
     external: [...PUBLISHED_APP_DEPENDENCIES],
-    define: {
-      "process.env.DEVCTL_VERSION": JSON.stringify(releaseVersion),
-    },
+    define: bundleDefines(releaseVersion),
     outdir: join(outputRoot, "dist"),
     naming: "[name].js",
   });

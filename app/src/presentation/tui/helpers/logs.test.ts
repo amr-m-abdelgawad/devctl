@@ -1,11 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { logRecord } from "../../../domain/logs/record.ts";
-import { prependOlderPage, trimLogBytes, tuiLogBytes, tuiLogCap } from "./logs.ts";
+import { logRowKey, prependOlderPage, trimLogBytes, tuiLogBytes, tuiLogCap } from "./logs.ts";
 
 const MIB = 1024 * 1024;
 
 const rows = (from: number, to: number, body = "") =>
   Array.from({ length: to - from + 1 }, (_, i) => logRecord({ seq: from + i, service: "api", message: body || `m${from + i}`, timestamp: "2026-01-01T00:00:00.000Z" }));
+
+describe("log row keys", () => {
+  test("a new line leaves every shown row its key, so React keeps those rows", () => {
+    const record = (seq: number) => ({ seq, timestamp: "2026-10-30T00:00:00Z", service: "api" });
+    const shown = [record(10), record(11), record(12)];
+    const before = shown.map((event, index) => logRowKey(event, index));
+    // The window slides by one: the oldest row leaves, a new one arrives.
+    const next = [...shown.slice(1), record(13)];
+    const after = next.map((event, index) => logRowKey(event, index));
+    expect(after.slice(0, 2)).toEqual(before.slice(1));
+    expect(new Set(after).size).toBe(after.length);
+  });
+
+  test("a record without a seq is keyed by its place", () => {
+    expect(logRowKey({ seq: 0, timestamp: "t", service: "api" }, 4)).toBe("t-api-4");
+  });
+});
 
 describe("TUI log buffer budget", () => {
   test("the default budget holds the whole default window of typical lines", () => {
