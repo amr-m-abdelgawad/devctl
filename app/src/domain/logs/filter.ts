@@ -8,7 +8,10 @@ import type { LogFilter, LogRecord } from "./types.ts";
 
 export type LogMatcher = (ev: LogRecord) => boolean;
 
+const SYSTEM_SOURCES = new Set(["auth", "mcp", "devctl", "proxy"]);
+
 export function matchesLogDimensions(filter: LogFilter, ev: LogRecord): boolean {
+  if (filter.hideSystem && (SYSTEM_SOURCES.has(ev.source) || SYSTEM_SOURCES.has(ev.service))) return false;
   if (filter.services && filter.services.length > 0 && !filter.services.includes(ev.service)) {
     return false;
   }

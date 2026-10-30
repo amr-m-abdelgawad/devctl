@@ -3,7 +3,9 @@ import { fetchPreferences, postControl } from "../api.ts";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
-import { cn } from "../lib/utils.ts";
+import { ChoiceGroup } from "../components/filters.tsx";
+import { ThemePicker } from "../components/theme-picker.tsx";
+import { applyWebTheme, themeDefaultAppearance, themeLabel } from "../theme.ts";
 import type { ControlArgs, PreferenceLayer, PreferenceSnapshot, StatusSummary } from "../types.ts";
 
 const INSPECT_CAP_1_MIB = 1_048_576;
@@ -13,10 +15,6 @@ const INSPECT_CAP_OPTIONS = [
   { id: String(8 * INSPECT_CAP_1_MIB), label: "8 MiB" },
   { id: String(16 * INSPECT_CAP_1_MIB), label: "16 MiB" },
 ];
-
-function applyAppearance(value: "dark" | "light"): void {
-  document.documentElement.dataset.appearance = value;
-}
 
 function layerLabel(layer: PreferenceLayer | undefined): string | undefined {
   if (layer === "repo") {
@@ -34,21 +32,16 @@ function layerLabel(layer: PreferenceLayer | undefined): string | undefined {
   return undefined;
 }
 
-function PrefRow(props: {
-  label: string;
-  hint?: string;
-  layer?: PreferenceLayer;
-  children: ReactNode;
-}) {
+function PrefRow(props: { label: string; hint?: string; layer?: PreferenceLayer; children: ReactNode }) {
   const badge = layerLabel(props.layer);
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/50 py-2.5 last:border-b-0 last:pb-0 first:pt-0">
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm text-foreground">{props.label}</span>
           {badge ? <Badge variant="muted">{badge}</Badge> : null}
         </div>
-        {props.hint ? <p className="mt-0.5 text-[11px] text-muted-foreground">{props.hint}</p> : null}
+        {props.hint ? <p className="mt-0.5 break-words text-[11px] text-muted-foreground">{props.hint}</p> : null}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">{props.children}</div>
     </div>
@@ -63,25 +56,13 @@ function Segmented<T extends string>(props: {
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="inline-flex rounded-md border border-border/70 bg-muted/40 p-0.5" role="group" aria-label={props.ariaLabel}>
-      {props.options.map((option) => {
-        const active = option.id === props.value;
-        return (
-          <button
-            key={option.id}
-            type="button"
-            disabled={props.disabled}
-            className={cn(
-              "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-              active ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => props.onChange(option.id)}
-          >
-            {option.label}
-          </button>
-        );
-      })}
-    </div>
+    <ChoiceGroup
+      label={props.ariaLabel}
+      value={props.value}
+      disabled={props.disabled}
+      options={props.options.map((option) => ({ value: option.id, label: option.label }))}
+      onChange={(value) => props.onChange(value as T)}
+    />
   );
 }
 
@@ -89,7 +70,7 @@ export function SettingsPage(props: {
   status?: StatusSummary;
   busy: boolean;
   onBusy: (label: string) => void;
-  onNotice: (message: string) => void;
+  onNotice: (message: string, error?: boolean) => void;
 }) {
   const { status, busy, onBusy, onNotice } = props;
   const [prefs, setPrefs] = useState<PreferenceSnapshot | undefined>(undefined);
@@ -100,7 +81,7 @@ export function SettingsPage(props: {
   const load = useCallback(async (scope: "user" | "repo") => {
     const next = await fetchPreferences(scope);
     setPrefs(next);
-    applyAppearance(next.values.web_appearance);
+    applyWebTheme(next.values.theme, next.values.web_appearance);
     setPortDraft(String(next.local.web_port || ""));
   }, []);
 
@@ -116,24 +97,27 @@ export function SettingsPage(props: {
     };
   }, [load]);
 
-  const save = useCallback(async (args: ControlArgs, label: string) => {
-    if (busy) {
-      return;
-    }
-    onBusy(label);
-    onNotice("");
-    try {
-      const next = await postControl("set_preferences", args) as PreferenceSnapshot;
-      setPrefs(next);
-      applyAppearance(next.values.web_appearance);
-      setPortDraft(String(next.local.web_port || ""));
-      onNotice(args.reset ? "Preferences reset" : "Preferences saved");
-    } catch (err: unknown) {
-      onNotice(err instanceof Error ? err.message : "save failed");
-    } finally {
-      onBusy("");
-    }
-  }, [busy, onBusy, onNotice]);
+  const save = useCallback(
+    async (args: ControlArgs, label: string) => {
+      if (busy) {
+        return;
+      }
+      onBusy(label);
+      onNotice("");
+      try {
+        const next = (await postControl("set_preferences", args)) as PreferenceSnapshot;
+        setPrefs(next);
+        applyWebTheme(next.values.theme, next.values.web_appearance);
+        setPortDraft(String(next.local.web_port || ""));
+        onNotice(args.reset ? "Preferences reset" : "Preferences saved");
+      } catch (err: unknown) {
+        onNotice(err instanceof Error ? err.message : "Save failed", true);
+      } finally {
+        onBusy("");
+      }
+    },
+    [busy, onBusy, onNotice],
+  );
 
   if (loadError) {
     return <p className="text-sm text-destructive">{loadError}</p>;
@@ -148,13 +132,12 @@ export function SettingsPage(props: {
   const disable = busy || locked;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="settings-layout">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight text-foreground">Settings</h1>
+          <h2 className="text-sm font-semibold">Shared workspace preferences</h2>
           <p className="mt-1 max-w-xl text-[12px] text-muted-foreground">
-            This repository overlay wins over your user file. MCP listen stays per checkout. The web console switch writes gitignored
-            {" "}
+            This repository overlay wins over your user file. MCP listen stays per checkout. The web console switch writes gitignored{" "}
             <span className="font-mono">.devctl/config.local.yaml</span>.
           </p>
         </div>
@@ -164,7 +147,7 @@ export function SettingsPage(props: {
         </div>
       </div>
 
-      <Card>
+      <Card className="settings-scope">
         <CardHeader>
           <CardTitle>Scope</CardTitle>
         </CardHeader>
@@ -186,12 +169,12 @@ export function SettingsPage(props: {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="settings-appearance">
         <CardHeader>
           <CardTitle>Appearance</CardTitle>
         </CardHeader>
-        <CardContent>
-          <PrefRow label="Web console" hint="TUI theme still lives in the TUI." layer={prefs.layers.web_appearance}>
+        <CardContent className="flex flex-col gap-4">
+          <PrefRow label="Mode" hint="Use the selected palette in light or dark mode." layer={prefs.layers.web_appearance}>
             <Segmented
               ariaLabel="Web console appearance"
               value={prefs.values.web_appearance}
@@ -203,6 +186,18 @@ export function SettingsPage(props: {
               onChange={(web_appearance) => void save({ scope, web_appearance }, "Saving appearance…")}
             />
           </PrefRow>
+          <PrefRow
+            label="Color theme"
+            hint="Shared with the TUI. Choosing a theme uses its original light or dark appearance; Mode can override it."
+            layer={prefs.layers.theme}
+          >
+            <Badge variant="outline">{themeLabel(prefs.values.theme)}</Badge>
+          </PrefRow>
+          <ThemePicker
+            value={prefs.values.theme}
+            disabled={disable}
+            onChange={(theme) => void save({ scope, theme, web_appearance: themeDefaultAppearance(theme) }, "Saving theme…")}
+          />
         </CardContent>
       </Card>
 
@@ -260,7 +255,11 @@ export function SettingsPage(props: {
           <CardTitle>Listeners</CardTitle>
         </CardHeader>
         <CardContent>
-          <PrefRow label="Regenerate tokens" hint="Off keeps the saved MCP and web bearer tokens until you rotate them. On remints each one after 7 days, the next time that listener reads it." layer={prefs.layers.regenerate_session_tokens}>
+          <PrefRow
+            label="Regenerate tokens"
+            hint="Off keeps the saved MCP and web bearer tokens until you rotate them. On remints each one after 7 days, the next time that listener reads it."
+            layer={prefs.layers.regenerate_session_tokens}
+          >
             <Segmented
               ariaLabel="Regenerate session tokens"
               value={prefs.values.regenerate_session_tokens ? "on" : "off"}
@@ -269,17 +268,28 @@ export function SettingsPage(props: {
                 { id: "on", label: "On" },
                 { id: "off", label: "Off" },
               ]}
-              onChange={(value) => void save({ scope, regenerate_session_tokens: value === "on" }, value === "on" ? "Token regeneration on…" : "Token regeneration off…")}
+              onChange={(value) =>
+                void save(
+                  { scope, regenerate_session_tokens: value === "on" },
+                  value === "on" ? "Token regeneration on…" : "Token regeneration off…",
+                )
+              }
             />
           </PrefRow>
           <PrefRow label="Web console" hint={`Writes ${prefs.paths.local}. Loopback host is unchanged.`}>
             {confirmOff ? (
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[11px] text-warning">This tab will disconnect.</span>
-                <Button type="button" size="xs" variant="destructive" disabled={busy} onClick={() => {
-                  setConfirmOff(false);
-                  void save({ scope, local: { web_enabled: false } }, "Turning web console off…");
-                }}>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => {
+                    setConfirmOff(false);
+                    void save({ scope, local: { web_enabled: false } }, "Turning web console off…");
+                  }}
+                >
                   Turn off
                 </Button>
                 <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={() => setConfirmOff(false)}>
@@ -305,7 +315,10 @@ export function SettingsPage(props: {
               />
             )}
           </PrefRow>
-          <PrefRow label="Inspect body cap" hint="Default capture size for traffic and LLM bodies. A route or source that sets max_bytes still wins. Writes proxy.inspect_max_bytes and llm.capture_max_bytes, then reloads. New hops use the new cap.">
+          <PrefRow
+            label="Inspect body cap"
+            hint="Default capture size for traffic and LLM bodies. A route or source that sets max_bytes still wins. Writes proxy.inspect_max_bytes and llm.capture_max_bytes, then reloads. New hops use the new cap."
+          >
             <Segmented
               ariaLabel="Inspect body cap"
               value={String(prefs.local.inspect_max_bytes > 0 ? prefs.local.inspect_max_bytes : INSPECT_CAP_1_MIB)}
@@ -335,7 +348,9 @@ export function SettingsPage(props: {
                 aria-label="Web console port"
                 onChange={(event) => setPortDraft(event.target.value)}
               />
-              <Button type="submit" size="xs" variant="outline" disabled={busy}>Save</Button>
+              <Button type="submit" size="xs" variant="outline" disabled={busy}>
+                Save
+              </Button>
             </form>
           </PrefRow>
         </CardContent>
@@ -347,10 +362,14 @@ export function SettingsPage(props: {
         </CardHeader>
         <CardContent>
           <PrefRow label="User file" hint="Defaults for every checkout.">
-            <span className="max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={prefs.paths.user}>{prefs.paths.user}</span>
+            <span className="max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={prefs.paths.user}>
+              {prefs.paths.user}
+            </span>
           </PrefRow>
           <PrefRow label="Repo file" hint="Per-checkout overlay, including MCP listen.">
-            <span className="max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={prefs.paths.repo}>{prefs.paths.repo}</span>
+            <span className="max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={prefs.paths.repo}>
+              {prefs.paths.repo}
+            </span>
           </PrefRow>
           <PrefRow label="Reset" hint="Restores advertised defaults in the current save scope. MCP listen is left as-is.">
             <Button

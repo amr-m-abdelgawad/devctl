@@ -22,6 +22,7 @@ export function asLogFilter(rec: Record<string, unknown>): LogFilter {
     attribute: asAttributePredicate(rec.attribute),
     dedupeRequestId: rec.dedupeRequestId === true || rec.dedupe_request_id === true,
     hideGrpc: rec.hideGrpc === true || rec.hide_grpc === true || rec.hideGrpc === "true" || rec.hide_grpc === "true",
+    hideSystem: rec.hideSystem === true || rec.hide_system === true || rec.hideSystem === "true" || rec.hide_system === "true",
   };
 }
 

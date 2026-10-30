@@ -33,6 +33,9 @@ import { recordInstancePorts, releaseSlot, startWithSlot } from "../adapters/sto
 import { listenerPorts } from "../domain/net/port-slots.ts";
 import { createDoctorHost, createDoctorRunner } from "../adapters/doctor/doctor.ts";
 import { McpHttpServer } from "../presentation/mcp/server.ts";
+import { webConfigFiles } from "../adapters/config/web-config-files.ts";
+import { GoogleWebAuth } from "../adapters/google/web-auth.ts";
+import type { WebAuthFactory, WebConfigFiles } from "../ports/web-host.ts";
 import { WebHttpServer } from "../presentation/web/server.ts";
 import { githubUpdate } from "../adapters/update/update.ts";
 import { isKnownToolName } from "../presentation/mcp/tools.ts";
@@ -49,6 +52,8 @@ export type DaemonDeps = {
   detectGoogle?: (project: string, repoRoot?: string) => Promise<GoogleStatus>;
   createMcpListener?: McpListenerFactory;
   createWebListener?: WebListenerFactory;
+  createWebAuth?: WebAuthFactory;
+  webConfigFiles?: WebConfigFiles;
   heldLock?: { release: () => void };
 };
 
@@ -64,7 +69,12 @@ export const defaultMcpListener: McpListenerFactory = (opts): McpListener =>
   new McpHttpServer({ host: "127.0.0.1", ...opts });
 
 export const defaultWebListener: WebListenerFactory = (opts): WebListener =>
-  new WebHttpServer({ host: "127.0.0.1", checkUpdate: () => githubUpdate().check(), ...opts });
+  new WebHttpServer({ host: "127.0.0.1", checkUpdate: () => githubUpdate().check(), applyUpdate: async () => {
+    const installer = githubUpdate();
+    const update = await installer.check();
+    if (!update.newer || !update.command?.length) throw new Error(update.hint || "No supported update is available");
+    return installer.apply(update.command);
+  }, ...opts });
 
 export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Promise<DaemonRuntime> {
   const clock = deps.clock ?? systemClock;
@@ -132,6 +142,8 @@ export async function createDaemon(cfg: DevctlConfig, deps: DaemonDeps = {}): Pr
     sessionID,
     createMcpListener: deps.createMcpListener ?? defaultMcpListener,
     createWebListener: deps.createWebListener ?? defaultWebListener,
+    createWebAuth: deps.createWebAuth ?? ((changed) => new GoogleWebAuth(changed)),
+    webConfigFiles: deps.webConfigFiles ?? webConfigFiles,
     isKnownTool: isKnownToolName,
     createCommands: (host) => commandsForHost(host, createDoctorRunner(createDoctorHost({ tokens })), orchestrator),
   });

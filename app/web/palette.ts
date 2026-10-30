@@ -1,18 +1,9 @@
 // Stable per-service color palette, shared by the trace waterfall, the
 // dependency graph, and log service tags so the whole UI reads as one system.
 // Red is deliberately absent — it is reserved for errors.
-const SERVICE_COLORS = [
-  "#77ddba", // teal
-  "#8ec8d8", // cyan
-  "#e8c586", // gold
-  "#b6a6f0", // violet
-  "#8fd694", // green
-  "#e0a9c4", // pink
-  "#9fb8e8", // periwinkle
-  "#e6b088", // amber
-];
+const SERVICE_COLORS = Array.from({ length: 8 }, (_, index) => `var(--service-${index})`);
 
-export const ERROR_COLOR = "#f4868d";
+export const ERROR_COLOR = "var(--danger)";
 
 export function serviceColor(name: string): string {
   let hash = 0;

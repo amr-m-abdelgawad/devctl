@@ -1,12 +1,13 @@
 import { request as httpRequest } from "node:http";
 import { validateConfigText } from "../../adapters/config/index.ts";
 import { describe, expect, test } from "bun:test";
-import { defaultConfig, emptyProfile } from "../../domain/config/types.ts";
+import { defaultConfig, emptyProfile, emptyService } from "../../domain/config/types.ts";
 import { KindGeneral } from "../../shared/errors.ts";
 import { emptyRuntime } from "../../domain/service/services.ts";
 import { type StatusSnapshot, type TraceResponse } from "../../domain/status.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
 import { logRecord } from "../../domain/logs/logs.ts";
+import { REDACTED_VALUE } from "../../shared/redaction.ts";
 import { WebHttpServer } from "./server.ts";
 
 type ControlCall = { tool: string; args: unknown };
@@ -16,6 +17,7 @@ const TEST_WEB_TOKEN = "test-web-control-token-aaaaaaaaaaaa";
 function host(): McpHost & { calls: ControlCall[] } {
   const cfg = defaultConfig();
   cfg.project.name = "demo";
+  cfg.services.api = emptyService();
   cfg.profiles = { local: emptyProfile({ services: ["api"] }) };
   const snap: StatusSnapshot = {
     session_id: "s",
@@ -248,6 +250,46 @@ async function postControl(port: number, payload: unknown, extra: Record<string,
 }
 
 describe("web http server", () => {
+  test("service detail and configuration provenance use the shared redaction boundary", async () => {
+    const api = host();
+    const service = emptyService();
+    service.command = { args: ["bun", "run", "dev"], shell: false };
+    service.environment.vars = { API_TOKEN: "secret-value", NAME: "billing" };
+    api.config().services.api = service;
+    api.config().provenance["services.api.environment.vars.API_TOKEN"] = [{ source: "/r/.devctl/config.yaml", layer: "main" }];
+    const server = new WebHttpServer({ host: "127.0.0.1", port: 0, token: TEST_WEB_TOKEN, hostApi: api });
+    await server.start();
+    const base = `http://127.0.0.1:${server.listenPort()}`;
+    try {
+      const response = await authGet(base, "/api/services/api");
+      expect(response.status).toBe(200);
+      const detail = await response.json() as { command: string[]; environment: Record<string, string> };
+      expect(detail.command).toEqual(["bun", "run", "dev"]);
+      expect(detail.environment).toEqual({ API_TOKEN: REDACTED_VALUE, NAME: "billing" });
+      const sources = await authGet(base, "/api/config/sources");
+      expect(sources.status).toBe(200);
+      const body = await sources.text();
+      expect(body).toContain("main");
+      expect(body).not.toContain("secret-value");
+      const missing = await authGet(base, "/api/services/missing");
+      expect(missing.status).toBe(400);
+      expect(await missing.json()).toEqual({ error: "unknown service missing" });
+    } finally { await server.stop(); }
+  });
+
+  test("a history export reads the selected session and applies its filters", async () => {
+    const server = await listen();
+    try {
+      const response = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs/export?session=session-abc&service=api");
+      expect(response.status).toBe(200);
+      const events = (await response.text()).trim().split("\n").map((line) => JSON.parse(line));
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({ service: "api", message: "hello", seq: 1 });
+      const empty = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs/export?session=session-abc&service=worker");
+      expect(await empty.text()).toBe("");
+    } finally { await server.stop(); }
+  });
+
   test("refuses non-loopback bind", async () => {
     const server = new WebHttpServer({ host: "0.0.0.0", port: 18999, token: TEST_WEB_TOKEN, hostApi: host() });
     await expect(server.start()).rejects.toMatchObject({ kind: KindGeneral });
@@ -352,7 +394,7 @@ describe("web http server", () => {
     const port = server.listenPort();
     const base = `http://127.0.0.1:${port}`;
     try {
-      for (const path of ["/api/status", "/api/logs", "/api/logs/stats", "/api/logs/export", "/api/logs/sessions", "/api/doctor", "/api/llm", "/api/config", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
+      for (const path of ["/api/status", "/api/logs", "/api/logs/stats", "/api/logs/export", "/api/logs/sessions", "/api/doctor", "/api/llm", "/api/config", "/api/config/sources", "/api/services/api", "/api/preferences", "/api/llm/chatcmpl-1", "/api/traffic", "/api/traffic/req-1"]) {
         const missing = await fetch(`${base}${path}`);
         expect(missing.status).toBe(401);
         const wrong = await fetch(`${base}${path}`, { headers: { Authorization: "Bearer nope" } });
@@ -676,7 +718,7 @@ describe("web http server", () => {
     };
     const server = await listen(api);
     try {
-      const res = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs?limit=25&direction=backward&regex=true&search=err&cursor=8");
+      const res = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs?limit=25&direction=backward&regex=true&search=err&cursor=8&hide_system=true&request_id=req&trace_id=trace&attribute_key=http.method&attribute_value=POST&dedupe_request_id=true");
       expect(res.status).toBe(200);
       expect((await res.json() as { prev_cursor: string }).prev_cursor).toBe("p");
       expect(seen?.limit).toBe(25);
@@ -684,6 +726,7 @@ describe("web http server", () => {
       expect(seen?.regex).toBe(true);
       expect(seen?.search).toBe("err");
       expect(seen?.cursor).toBe("8");
+      expect(seen).toMatchObject({ hideSystem: true, requestId: "req", traceId: "trace", attribute: { key: "http.method", value: "POST" }, dedupeRequestId: true });
       const defaults = await authGet(`http://127.0.0.1:${server.listenPort()}`, "/api/logs");
       expect(defaults.status).toBe(200);
       expect(seen?.limit).toBe(200);

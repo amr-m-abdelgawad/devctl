@@ -1,11 +1,13 @@
-import { ArrowClockwiseIcon, ArrowsClockwiseIcon, PlayIcon, StopIcon } from "../icons.ts";
-import { cn } from "../lib/utils.ts";
+import { ArrowsClockwiseIcon, PlayIcon, StopIcon } from "../icons.ts";
 import { envNeedsRestart, isLiveState, type RunControl } from "../control.ts";
-import type { ProfileRow, ServiceRow, TaskRow } from "../types.ts";
+import type { ServiceRow } from "../types.ts";
 import { Badge } from "./ui/badge.tsx";
+import { IconButton } from "./ui/icon-button.tsx";
 import { Button } from "./ui/button.tsx";
+import { FilterSelect } from "./filters.tsx";
 
 export function ActionButtons(props: {
+  name?: string;
   live: boolean;
   busy: boolean;
   onStart: () => void;
@@ -14,19 +16,31 @@ export function ActionButtons(props: {
 }) {
   const { live, busy, onStart, onStop, onRestart } = props;
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      <Button type="button" size="xs" variant="outline" disabled={busy || live} onClick={onStart}>
-        <PlayIcon />
-        Start
+    <div className="flex items-center">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={busy}
+        className="rounded-r-none"
+        aria-label={`${live ? "Stop" : "Start"} ${props.name || "service"}`}
+        onClick={live ? onStop : onStart}
+      >
+        {live ? <StopIcon data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
+        {live ? "Stop" : "Start"}
       </Button>
-      <Button type="button" size="xs" variant="outline" disabled={busy || !live} onClick={onStop}>
-        <StopIcon />
-        Stop
-      </Button>
-      <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onRestart}>
+      <IconButton
+        type="button"
+        size="icon"
+        variant="outline"
+        disabled={busy}
+        side="top"
+        label={`Restart ${props.name || "service"}`}
+        className="action-restart -ml-px size-8 rounded-l-none"
+        onClick={onRestart}
+      >
         <ArrowsClockwiseIcon />
-        Restart
-      </Button>
+      </IconButton>
     </div>
   );
 }
@@ -49,23 +63,18 @@ export function EnvSelect(props: {
   const pending = envNeedsRestart({ ...row, env: selected });
   return (
     <div className="flex flex-wrap items-center gap-1">
-      <select
-        className="h-7 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
+      <FilterSelect
         value={selected}
         disabled={busy}
-        aria-label={`Environment for ${row.name}`}
-        onChange={(event) => {
-          const name = event.target.value;
+        label={`Environment for ${row.name}`}
+        options={names.map((name) => ({ value: name, label: name }))}
+        onChange={(name) => {
           if (name === "" || name === row.env) {
             return;
           }
           onControl("set_service_environment", { service: row.name, name }, `Switching ${row.name} to ${name}…`);
         }}
-      >
-        {names.map((name) => (
-          <option key={name} value={name}>{name}</option>
-        ))}
-      </select>
+      />
       {pending ? (
         <>
           <Badge variant="warning">pending</Badge>
@@ -90,101 +99,18 @@ export function EnvSelect(props: {
   );
 }
 
-export function FleetBar(props: {
-  profiles: ProfileRow[];
-  profile: string;
-  tasks: TaskRow[];
-  busy: boolean;
-  selectedCount: number;
-  liveCount: number;
-  onProfile: (name: string) => void;
-  onStartProfile: () => void;
-  onStartSelected: () => void;
-  onStopSelected: () => void;
-  onRestartSelected: () => void;
-  onStopAll: () => void;
-  onReload: () => void;
-  onRunTask: (name: string) => void;
-}) {
-  const {
-    profiles,
-    profile,
-    tasks,
-    busy,
-    selectedCount,
-    liveCount,
-    onProfile,
-    onStartProfile,
-    onStartSelected,
-    onStopSelected,
-    onRestartSelected,
-    onStopAll,
-    onReload,
-    onRunTask,
-  } = props;
-  const hasSelection = selectedCount > 0;
+export function ControlNotice(props: { busy: string; notice: string; error?: boolean; onDismiss?: () => void }) {
+  if (!props.busy && !props.notice) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        Profile
-        <select
-          className="h-7 rounded-md border border-input bg-transparent px-2 text-xs text-foreground"
-          value={profile}
-          disabled={busy || profiles.length === 0}
-          onChange={(event) => onProfile(event.target.value)}
-        >
-          {profiles.length === 0 ? <option value="">(none)</option> : null}
-          {profiles.map((row) => (
-            <option key={row.name} value={row.name}>{row.name}</option>
-          ))}
-        </select>
-      </label>
-      <Button type="button" size="xs" disabled={busy || !profile} onClick={onStartProfile}>
-        <PlayIcon />
-        Start profile
-      </Button>
-      {hasSelection ? (
-        <>
-          <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onStartSelected}>Start {selectedCount}</Button>
-          <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onStopSelected}>Stop {selectedCount}</Button>
-          <Button type="button" size="xs" variant="outline" disabled={busy} onClick={onRestartSelected}>
-            <ArrowsClockwiseIcon />
-            Restart {selectedCount}
-          </Button>
-        </>
-      ) : (
-        <Button type="button" size="xs" variant="outline" disabled={busy || liveCount === 0} onClick={onStopAll}>
-          <StopIcon />
-          Stop all
+    <div className="flex items-center gap-3">
+      <p className={props.error ? "text-xs text-destructive" : "text-xs text-foreground"} role={props.error ? "alert" : undefined}>
+        {props.busy || props.notice}
+      </p>
+      {!props.busy && props.onDismiss ? (
+        <Button size="sm" variant="ghost" aria-label="Dismiss notification" onClick={props.onDismiss}>
+          Dismiss
         </Button>
-      )}
-      <Button type="button" size="xs" variant="ghost" disabled={busy} onClick={onReload}>
-        <ArrowClockwiseIcon />
-        Reload
-      </Button>
-      {tasks.map((task) => (
-        <Button key={task.name} type="button" size="xs" variant="ghost" disabled={busy} onClick={() => onRunTask(task.name)}>
-          Run {task.name}
-        </Button>
-      ))}
+      ) : null}
     </div>
-  );
-}
-
-export function ControlNotice(props: { busy: string; notice: string }) {
-  const { busy, notice } = props;
-  if (!busy && !notice) {
-    return null;
-  }
-  return (
-    <p
-      className={cn(
-        "max-w-[420px] truncate text-[11px]",
-        busy ? "text-primary" : notice.toLowerCase().includes("fail") || notice.toLowerCase().includes("error") ? "text-destructive" : "text-muted-foreground",
-      )}
-      title={busy || notice}
-    >
-      {busy ? busy : notice}
-    </p>
   );
 }

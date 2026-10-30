@@ -10,9 +10,15 @@ import { withErrorCode } from "../../domain/net/error-code.ts";
 import { headerValue } from "../../shared/headers.ts";
 import { LOCALHOST } from "../../domain/config/types.ts";
 import type { McpHost } from "../../ports/mcp-host.ts";
+import type { WebHost } from "../../ports/web-host.ts";
+import { callWebOperator, webMcpTools } from "./operator.ts";
+import type { UpdateApplyResult } from "../../ports/update.ts";
 import {
+  detectorFor,
   callMcpTool,
   getConfigSummary,
+  getConfigSources,
+  getService,
   getLogs,
   getLogStats,
   getLogSession,
@@ -51,8 +57,9 @@ export type WebListenOptions = {
   host: string;
   port: number;
   token: string;
-  hostApi: McpHost;
+  hostApi: WebHost;
   checkUpdate?: () => Promise<UpdateCheck>;
+  applyUpdate?: () => Promise<UpdateApplyResult>;
   onEvent?: (level: "INFO" | "WARN" | "ERROR", message: string) => void;
 };
 
@@ -156,7 +163,7 @@ export class WebHttpServer {
       writeHtml(res, pageHtml());
       return;
     }
-    if (path === "/api/control") {
+    if (path === "/api/control" || path === "/api/operator") {
       writeMethodNotAllowed(res, ALLOW_POST);
       return;
     }
@@ -183,12 +190,37 @@ export class WebHttpServer {
       writeJson(res, 200, listServices(host.status(), host.config()));
       return;
     }
+    if (path.startsWith("/api/services/")) {
+      writeJson(res, 200, getService(host, decodeURIComponent(path.slice("/api/services/".length))));
+      return;
+    }
     if (path === "/api/requests") {
       writeJson(res, 200, await getRequests(host));
       return;
     }
     if (path === "/api/config") {
       writeJson(res, 200, getConfigSummary(host.config()));
+      return;
+    }
+    if (path === "/api/config/sources") {
+      writeJson(res, 200, getConfigSources(host.config()));
+      return;
+    }
+    if (path === "/api/config/document") {
+      if (!host.operator) throw new HttpError(400, "Config editing is unavailable");
+      writeJson(res, 200, host.operator.readConfig());
+      return;
+    }
+    if (path === "/api/auth/login") {
+      writeJson(res, 200, host.operator?.auth?.status() ?? null);
+      return;
+    }
+    if (path === "/api/mcp/tools") {
+      writeJson(res, 200, webMcpTools(host));
+      return;
+    }
+    if (path === "/api/supervisor/logs") {
+      writeJson(res, 200, { text: detectorFor(host.config()).redactText(host.operator?.bootstrapLogs() ?? "") });
       return;
     }
     if (path === "/api/preferences") {
@@ -265,14 +297,26 @@ export class WebHttpServer {
   }
 
   private async routePost(path: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (path !== "/api/control") {
+    if (path !== "/api/control" && path !== "/api/operator") {
       writeMethodNotAllowed(res, path === "/" || path.startsWith("/api/") ? ALLOW_GET : ALLOW_GET_POST);
       return;
     }
     assertControlAuthorized(req, this.opts.token);
+    assertLoopbackPeer(req);
     assertSameOriginControl(req);
     assertJsonContentType(req.headers["content-type"]);
-    const body = await readJsonBody(req);
+    const body = await readJsonBody(req, path === "/api/operator" ? 1_048_576 : MAX_JSON_BODY_BYTES);
+    if (path === "/api/operator") {
+      const action = typeof body.action === "string" ? body.action : "";
+      const args = objectArgs(body.args);
+      if (action === "update_apply") {
+        if (args.confirm !== true || !this.opts.applyUpdate) throw new HttpError(400, "Update installation requires confirmation and a supported install method");
+        const result = await this.opts.applyUpdate();
+        const detector = detectorFor(this.opts.hostApi.config());
+        writeJson(res, 200, { ...result, stdout: detector.redactText(result.stdout), stderr: detector.redactText(result.stderr) });
+      } else writeJson(res, 200, await callWebOperator(this.opts.hostApi, action, args));
+      return;
+    }
     const tool = typeof body.tool === "string" ? body.tool : "";
     if (!isWebControlTool(tool)) {
       throw new HttpError(400, "unknown or non-mutating tool");
@@ -368,7 +412,7 @@ function objectArgs(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+function readJsonBody(req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
@@ -385,7 +429,7 @@ function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
         return;
       }
       size += chunk.length;
-      if (size > MAX_JSON_BODY_BYTES) {
+      if (size > maxBytes) {
         fail(new HttpError(413, "payload too large"));
         return;
       }
@@ -423,6 +467,7 @@ function writeMethodNotAllowed(res: ServerResponse, allow: string): void {
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
   res.writeHead(status, {
+    "Cache-Control": "no-store",
     "Content-Type": JSON_CONTENT,
     "Content-Length": Buffer.byteLength(text),
     ...NOSNIFF,

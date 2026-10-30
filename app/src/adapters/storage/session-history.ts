@@ -82,11 +82,12 @@ export function matchCacheKey(filter: LogFilter): string | undefined {
   const { level, source, search, regex, since, until, traceId, requestId, attribute } = filter;
   const hideGrpc = filter.hideGrpc === true;
   const hideHealth = filter.hideHealth === true;
+  const hideSystem = filter.hideSystem === true;
   const levels = filter.levels ?? [];
-  const selective = [level, source, search, since, until, traceId, requestId].some((value) => value !== undefined && value !== "") || attribute !== undefined || hideGrpc || hideHealth || levels.length > 0;
+  const selective = [level, source, search, since, until, traceId, requestId].some((value) => value !== undefined && value !== "") || attribute !== undefined || hideGrpc || hideHealth || hideSystem || levels.length > 0;
   if (!selective) {
     return undefined;
   }
   const services = [...(filter.services ?? [])].sort();
-  return JSON.stringify([services, level ?? "", source ?? "", search ?? "", regex === true, since ?? "", until ?? "", traceId ?? "", requestId ?? "", attribute ?? null, hideGrpc, hideHealth, levels]);
+  return JSON.stringify([services, level ?? "", source ?? "", search ?? "", regex === true, since ?? "", until ?? "", traceId ?? "", requestId ?? "", attribute ?? null, hideGrpc, hideHealth, hideSystem, levels]);
 }

@@ -144,7 +144,7 @@ export function LlmInspector(props: {
           </label>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto pr-1">
+      <div className="inspector-payload flex-1 overflow-auto pr-1">
         {effective === "conversation" ? (
           <Transcript turns={shownTurns} total={turns.length} needle={needle} />
         ) : (

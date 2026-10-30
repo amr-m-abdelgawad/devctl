@@ -98,11 +98,17 @@ Default-off: `exec_service` (opt in via TUI `mcp_enabled_tools`). Deny-list: `mc
 
 ## Web UI — `presentation/web/` + `app/web/`
 
-`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, `getLogStats`, control POSTs including `set_service_environment`). Same bearer and loopback rules. The token is disk-backed (`web-token`, kept until `web_rotate`, 7-day TTL only when `regenerate_session_tokens` is on) and the SPA persists it in `localStorage` after the first `#token=` visit. Author UI in `app/web/` (pages: overview, logs, traces, graph, llm, traffic, doctor, identity, settings). Rebuild assets after UI changes.
+`WebHttpServer` serves the bundled SPA (`assets.generated.ts`) and JSON by **reusing MCP tool functions** (`listServices`, `getLogs`, `getLogStats`, control POSTs including `set_service_environment`). Same bearer and loopback rules. The token is disk-backed (`web-token`, kept until `web_rotate`, 7-day TTL only when `regenerate_session_tokens` is on) and the SPA persists it in `localStorage` after the first `#token=` visit. Author UI in `app/web/` (pages: overview, profiles/tasks, config, proxy/MCP, system, logs, traces, graph, llm, traffic, doctor, identity, settings). Rebuild assets after UI changes.
 
 Log HTTP: `GET /api/logs` (`limit`, `direction`, `regex`, `cursor` / `prev_cursor` in the response), `GET /api/logs/stats`, `GET /api/logs/sessions`, `GET /api/logs/sessions/:id`, `GET /api/logs/export` (NDJSON + `Content-Disposition`). `GET /api/doctor` is `host.doctor()` (`run_doctor` is not `mutates: true`, so it cannot go through `POST /api/control`).
 
-`web.control.ts` / `api.ts` talk to those HTTP routes. This is not a second orchestrator. Presentation must not import adapters.
+`web/control.ts` / `api.ts` talk to those HTTP routes. `POST /api/operator` handles human operations separately from coding-agent tools: config validation/save/import/starter drafts, Google auth, service environment/exec, MCP setup/permissions/rotation, plan previews, Doctor port cleanup, and supervisor shutdown. It uses injected `WebHost.operator` capabilities and shared application commands without expanding MCP permissions. Both mutation routes enforce bearer authorization, loopback peers/origins, and JSON. Operator drafts have a 1 MiB request cap; regular controls keep 64 KiB.
+
+The config adapter reads the active path only, checks revisions before atomic replacement, preserves permissions and symlinks, and rejects external edits. The supervisor validates before writing and uses its shared reload command. Google auth wraps gcloud's no-browser login with bounded URL capture, cancellation, and a ten-minute timeout. Codes and gcloud output never enter status/log payloads. Explicit editor and MCP connection reads can contain credentials and use `Cache-Control: no-store`; automatic summaries remain redacted.
+
+The TUI and browser share the pure palette catalog in `domain/ui/themes.ts`. Terminal OS detection stays in the TUI wrapper. The browser maps palettes to semantic CSS variables, preserves readable contrast in both appearances, and rebuilds canvas charts when the applied theme changes. Theme names use the existing shared preference; `web_appearance` remains browser-only.
+
+This is not a second orchestrator. Presentation must not import adapters.
 
 ## Shared presentation constraints
 

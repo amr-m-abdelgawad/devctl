@@ -30,6 +30,8 @@ import { RpcServer } from "../rpc/server.ts";
 import type { LifecycleSession } from "../../ports/lifecycle-session.ts";
 import type { DaemonCommandHost, DaemonCommands, ServiceOrchestratorPort } from "../../ports/daemon.ts";
 import type { McpHost, McpListenerFactory } from "../../ports/mcp-host.ts";
+import { profileId } from "../../domain/ids.ts";
+import type { WebHost, WebAuthentication, WebAuthFactory, WebConfigFiles, ConfigSaveResult } from "../../ports/web-host.ts";
 import type { WebListenerFactory } from "../../ports/web-host.ts";
 import { configSnapshotDiff } from "../../domain/config/snapshot.ts";
 import { canTransition } from "../../domain/service/lifecycle.ts";
@@ -69,7 +71,7 @@ import { type ProcessManager, provenSameProcess, type ProcessIdentity } from "..
 import { callerServiceForPeer } from "../process/peer-caller.ts";
 import { getPreferenceSnapshot, loadTuiConfig, resetTuiPreferences, saveTuiPreferences } from "../config/tui-preferences.ts";
 import { hasLocalConfigPatch, patchRepoLocalConfig } from "../config/local-overlay.ts";
-import { isPreferenceScope, type PreferenceScope, type PreferenceWrite, type TuiPreferencePatch } from "../../domain/ui/preferences.ts";
+import { effectiveMcpDisabledTools, mcpToolPreferenceLists, isPreferenceScope, type PreferenceScope, type PreferenceWrite, type TuiPreferencePatch } from "../../domain/ui/preferences.ts";
 import { Detector } from "../secrets/detector.ts";
 import {
   HealthUnknown,
@@ -91,7 +93,7 @@ import { nextMemoryGuard, storeBudgetFor, type MemoryPressure } from "../../doma
 import { readHostLimits } from "../system/host-limits.ts";
 import { summarizeLlmCall } from "../../domain/llm/llm.ts";
 import { summarizeTrafficCall } from "../../domain/traffic/traffic.ts";
-import { logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
+import { bootstrapLogPath, logsDir, persistedConfigOverlay, randomSecret, readOrCreateRpcToken, readPersistedState, repoID, socketPath, writePersistedState } from "../storage/storage.ts";
 import { SpanManager } from "../storage/spans.ts";
 import { TelemetryCoordinator } from "./telemetry-coordinator.ts";
 import { RecipeRuntime } from "../http/runtime.ts";
@@ -124,6 +126,9 @@ export class Supervisor {
   private readonly telemetry: TelemetryCoordinator;
   private readonly mcp: McpCoordinator;
   private readonly web: WebCoordinator;
+  private readonly webAuth?: WebAuthentication;
+  private readonly webConfigFiles?: WebConfigFiles;
+  private savingConfig = false;
   private readonly resources: ResourceSampler;
   /** The ring budget the memory guard last set; undefined while the store keeps its configured budget. */
   private ringBudget?: number;
@@ -189,6 +194,8 @@ export class Supervisor {
       sessionID: string;
       createMcpListener: McpListenerFactory;
       createWebListener: WebListenerFactory;
+      createWebAuth?: WebAuthFactory;
+      webConfigFiles?: WebConfigFiles;
       isKnownTool: (name: string) => boolean;
       createCommands: (host: DaemonCommandHost) => DaemonCommands;
     },
@@ -200,6 +207,7 @@ export class Supervisor {
     this.internalTok = randomSecret();
     this.clock = deps.clock;
     this.fs = deps.fs;
+    this.webConfigFiles = deps.webConfigFiles;
     this.bus = deps.bus;
     this.detectGoogleFn = deps.detectGoogle;
     this.inspectProcessFn = deps.inspectProcess;
@@ -295,7 +303,7 @@ export class Supervisor {
       repoRoot: () => this.cfg.repoRoot,
       cfg: () => this.cfg,
       createListener: deps.createWebListener,
-      hostApi: () => this.asMcpHost(),
+      hostApi: () => this.asWebHost(),
       log: (service, level, message) => this.log(service, level, message),
     });
     this.resources = new ResourceSampler({
@@ -328,6 +336,10 @@ export class Supervisor {
     }
     this.orchestrator.bind(this.lifecycleSession());
     this.commands = deps.createCommands(this);
+    this.webAuth = deps.createWebAuth?.(async () => {
+      this.tokens.invalidate();
+      await this.commands.refreshIdentity.execute();
+    });
     this.serviceWatchers = new ServiceWatchers({
       repoRoot: () => this.cfg.repoRoot,
       log: (service, level, message) => this.log(service, level, message),
@@ -805,7 +817,7 @@ export class Supervisor {
     }
   }
 
-  async runTask(name: string, clientEnv: Record<string, string>): Promise<{ task: string; code: number; stdout: string; stderr: string }> {
+  async runTask(name: string, clientEnv: Record<string, string>, allowFailure = false): Promise<{ task: string; code: number; stdout: string; stderr: string }> {
     const task = this.cfg.tasks[name];
     if (!task) throw newError(KindGeneral, `unknown task ${name}`);
     const implicit = implicitServiceDependencies(this.cfg, task.environment).map((dep) => dependencyName(dep));
@@ -818,11 +830,11 @@ export class Supervisor {
     }
     const serviceCfg: ServiceConfig = { ...emptyService(), command: task.command, shell: task.shell, working_dir: task.working_dir, dependencies: task.dependencies, environment: task.environment };
     const { env, workDir } = await this.env.resolveTaskEnvironment(name, serviceCfg, clientEnv);
-    const result = await this.runTransient(`task:${name}`, task.command, task.shell, workDir, env);
+    const result = await this.runTransient(`task:${name}`, task.command, task.shell, workDir, env, allowFailure);
     return { task: name, ...result };
   }
 
-  async execService(service: string, command: string[], clientEnv?: Record<string, string>, printEnv = false): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }> {
+  async execService(service: string, command: string[], clientEnv?: Record<string, string>, printEnv = false, allowFailure = false): Promise<{ service: string; code: number; stdout: string; stderr: string; environment?: Record<string, string> }> {
     const svc = this.cfg.services[service];
     if (!svc) throw newError(KindServiceNotFound, `unknown service ${service}`);
     const profile = this.env.serviceProfile.get(service) ?? this.env.profile;
@@ -833,11 +845,11 @@ export class Supervisor {
     const { env, workDir } = await this.env.resolveServiceExecution(service, svc, profile, profileEnv, clientEnv, !svc.container);
     if (printEnv) return { service, code: 0, stdout: "", stderr: "", environment: env };
     if (command.length === 0) throw newError(KindGeneral, "exec command is required");
-    const result = await this.runTransient(`${service}:exec`, { args: command, shell: false }, false, workDir, env);
+    const result = await this.runTransient(`${service}:exec`, { args: command, shell: false }, false, workDir, env, allowFailure);
     return { service, ...result };
   }
 
-  private async runTransient(name: string, command: Command, shell: boolean, workDir: string, env: Record<string, string>): Promise<{ code: number; stdout: string; stderr: string }> {
+  private async runTransient(name: string, command: Command, shell: boolean, workDir: string, env: Record<string, string>, allowFailure = false): Promise<{ code: number; stdout: string; stderr: string }> {
     if (commandEmpty(command)) return { code: 0, stdout: "", stderr: "" };
     this.log(name, "INFO", `running ${command.args.join(" ")}`);
     const result = await this.procs.runOnce({
@@ -846,7 +858,7 @@ export class Supervisor {
       onLine: (stream, line) => this.logs.append({ timestamp: this.clock.isoNow(), service: name, source: stream, stream, level: "", message: line, pid: 0 }),
       paused: () => this.logs.ingestPaused?.() === true,
     });
-    if (result.code !== 0) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
+    if (result.code !== 0 && !allowFailure) throw newError(KindProcessStart, `${name} exited with code ${result.code}`);
     return result;
   }
 
@@ -952,8 +964,8 @@ export class Supervisor {
       exec: (service, command, printEnv) => this.execService(service, command, undefined, printEnv),
       setServiceEnvironment: (service, name) => this.commands.setServiceEnvironment.execute(service, name),
       runTask: (name) => this.runTask(name, {}),
-      startProxy: () => this.startProxy(),
-      stopProxy: () => this.stopProxy(),
+      startProxy: () => { this.proxy.setSuppressed(false); return this.commands.startProxy.execute(); },
+      stopProxy: () => { this.proxy.setSuppressed(true); return this.commands.stopProxy.execute(); },
       getTrace: (traceId) => this.queryTrace(traceId),
       traceRequest: (requestId) => this.queryTraceByRequest(requestId),
       llmCallsPage: (req) => this.queryLlmCallsPage(req),
@@ -963,6 +975,50 @@ export class Supervisor {
       getPreferences: (scope) => this.preferenceSnapshot(scope),
       setPreferences: (patch) => this.setPreferences(patch),
     };
+  }
+
+  private asWebHost(): WebHost {
+    return { ...this.asMcpHost(), exec: (service, command, printEnv) => this.execService(service, command, undefined, printEnv, true), runTask: (name) => this.runTask(name, {}, true), operator: {
+      readConfig: () => {
+        if (!this.webConfigFiles) throw new Error("Config editing is unavailable");
+        return this.webConfigFiles.read(this.cfg.configPath);
+      },
+      saveConfig: (text, revision) => this.saveWebConfig(text, revision),
+      auth: this.webAuth,
+      refreshAuth: async () => { await this.commands.refreshIdentity.execute(); return this.snapshot().identity; },
+      invalidateAuth: async () => { this.tokens.invalidate(); await this.identity.syncCredentialEntries(); },
+      freePort: (holder) => freePort(holder),
+      mcpConnection: () => ({ url: `http://127.0.0.1:${this.mcp.instance?.listenPort() ?? 0}/mcp`, token: this.mcp.token }),
+      rotateMcp: () => this.mcp.rotate(),
+      setMcpTools: async (disabled) => {
+        await this.setPreferences({ scope: "repo", ...mcpToolPreferenceLists(disabled) });
+        return [...this.mcp.disabledTools];
+      },
+      bootstrapLogs: () => {
+        const path = bootstrapLogPath(this.cfg.repoRoot);
+        return this.fs.exists(path) ? this.fs.readText(path).slice(-262_144) : "";
+      },
+      planStart: (req) => {
+        const resolved = this.commands.resolveStart.execute(this.cfg, { services: req.services, profile: req.profile ? profileId(req.profile) : undefined, activeProfile: profileId(this.profile) });
+        return this.commands.getStartupPlan.execute(this.cfg, resolved.services, resolved.profile);
+      },
+      planStop: (names) => this.commands.getShutdownPlan.execute(this.cfg, names.length ? names : [...this.runtimes.values()].filter((row) => this.orchestrator.serviceIsActive(row.name)).map((row) => row.name)),
+      shutdown: (stopServices) => { setTimeout(() => { void this.shutdown(stopServices).catch((err) => this.log("devctl", "ERROR", humanMessage(err))); }, 50); },
+    } };
+  }
+
+  private async saveWebConfig(text: string, revision: string): Promise<ConfigSaveResult> {
+    if (!this.webConfigFiles) throw new Error("Config editing is unavailable");
+    if (this.savingConfig) throw new Error("A configuration save is already in progress");
+    const issues = validateConfigText(this.cfg.repoRoot, this.cfg.configPath, text);
+    if (issues.length) return { saved: false, issues };
+    this.savingConfig = true;
+    try {
+      const document = this.webConfigFiles.replace(this.cfg.configPath, text, revision);
+      if (!document) return { saved: false, conflict: true, issues: ["Configuration changed on disk. Reload the file before saving again."] };
+      try { return { saved: true, document, issues: [], reload: await this.commands.reloadConfig.execute() }; }
+      catch (err) { return { saved: true, document, issues: [], reload_error: humanMessage(err) }; }
+    } finally { this.savingConfig = false; }
   }
 
   private preferenceSnapshot(scope?: PreferenceScope) {
@@ -984,6 +1040,18 @@ export class Supervisor {
       const partial = tuiPatchFromWrite(patch);
       if (Object.values(partial).some((value) => value !== undefined)) {
         saveTuiPreferences(partial, opts);
+      }
+    }
+    if (patch.mcp_disabled_tools !== undefined || patch.mcp_enabled_tools !== undefined || patch.reset) {
+      const prefs = loadTuiConfig(this.cfg.repoRoot);
+      this.mcp.setDisabledTools(effectiveMcpDisabledTools(prefs.mcp_disabled_tools, prefs.mcp_enabled_tools));
+    }
+    if (patch.mcp_enabled !== undefined || patch.mcp_port !== undefined || patch.reset) {
+      const prefs = loadTuiConfig(this.cfg.repoRoot);
+      if (!prefs.mcp_enabled) await this.mcp.stop();
+      else {
+        if (patch.mcp_port !== undefined || patch.reset) await this.mcp.stop();
+        await this.mcp.start(prefs.mcp_port);
       }
     }
     if (patch.local && hasLocalConfigPatch(patch.local)) {
@@ -1026,6 +1094,7 @@ export class Supervisor {
     } else {
       await this.procs.handoff();
     }
+    this.webAuth?.dispose();
     this.orchestrator.health.dispose();
     this.recipes.stop();
     await this.stopProxy();
@@ -1246,6 +1315,7 @@ export class Supervisor {
       attribute: req.attribute,
       dedupeRequestId: req.dedupeRequestId,
       hideGrpc: req.hideGrpc,
+      hideSystem: req.hideSystem,
     };
   }
 

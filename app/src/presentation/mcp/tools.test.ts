@@ -261,6 +261,7 @@ describe("mcp tools", () => {
       ports: Record<string, number>;
       pid: number;
       last_error: string;
+      restarts: number;
       start_period_remaining_ms?: number;
       start_period_total_ms?: number;
     }>;
@@ -272,6 +273,7 @@ describe("mcp tools", () => {
         ports: { http: 9000 },
         pid: 42,
         last_error: "",
+        restarts: 0,
         start_period_remaining_ms: 7_500,
         start_period_total_ms: 10_000,
       },
@@ -330,9 +332,11 @@ describe("mcp tools", () => {
   test("get_status omits session token", async () => {
     const status = (await callMcpTool(stubHost(), "get_status", {})) as {
       profile: string;
+      identity: { project_source: string };
       mcp: { token?: string; running: boolean };
     };
     expect(status.profile).toBe("local");
+    expect(status.identity.project_source).toBe("configuration");
     expect(status.mcp.running).toBe(true);
     expect(status.mcp.token).toBeUndefined();
     expect((status.mcp as { token_age_ms?: number }).token_age_ms).toBeUndefined();
@@ -536,6 +540,20 @@ describe("mcp tools", () => {
     expect(lines.join("\n")).not.toContain("super-secret");
     expect(JSON.parse(lines[0] as string).seq).toBe(1);
     expect(JSON.parse(lines[1] as string).seq).toBe(2);
+  });
+
+  test("historical exports use the paging host without reading the entire session", async () => {
+    const api = stubHost();
+    const requests: Array<{ id: string; direction?: string }> = [];
+    api.loadLogSession = async () => { throw new Error("must use paged session reads"); };
+    api.logSessionPage = async (id, req) => {
+      requests.push({ id, direction: req.direction });
+      return { events: [logRecord({ timestamp: "t1", service: "api", source: "stdout", level: "INFO", message: "archived", pid: 1, seq: 1 })], nextCursor: "1", prevCursor: "1", hasNext: false, hasPrev: false, sessionChanged: false };
+    };
+    const lines: string[] = [];
+    for await (const line of iterateLogsExport(api, { session: "saved-session", service: "api" })) lines.push(line);
+    expect(JSON.parse(lines[0]!).message).toBe("archived");
+    expect(requests).toEqual([{ id: "saved-session", direction: "backward" }]);
   });
 
   test("iterateLogsExport keeps going past pages a read budget cut short and left empty", async () => {

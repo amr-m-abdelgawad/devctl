@@ -1,3 +1,4 @@
+import { Empty as EmptyState, EmptyDescription } from "./ui/empty.tsx";
 import type { ReactNode } from "react";
 import { hrefFor } from "../hash.ts";
 import { cn } from "../lib/utils.ts";
@@ -16,7 +17,7 @@ const TONE_TEXT: Record<Tone, string> = {
 export function Kpi(props: { label: string; value: ReactNode; unit?: string; sub?: ReactNode; tone?: Tone; icon?: ReactNode }) {
   const { label, value, unit, sub, tone = "muted", icon } = props;
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-sm">
+    <div className="metric-tile min-w-0 rounded-xl border bg-card px-4 py-4">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
         {icon ? <span className="text-muted-foreground/70">{icon}</span> : null}
@@ -32,7 +33,11 @@ export function Kpi(props: { label: string; value: ReactNode; unit?: string; sub
 
 /** Empty-state text inside a panel. */
 export function Empty({ children }: { children: ReactNode }) {
-  return <div className="flex items-center justify-center px-2 py-8 text-center text-sm text-muted-foreground">{children}</div>;
+  return (
+    <EmptyState className="px-4 py-10">
+      <EmptyDescription>{children}</EmptyDescription>
+    </EmptyState>
+  );
 }
 
 /** A truncated, monospace trace id that links to its trace, full id on hover. */
@@ -47,7 +52,9 @@ export function TraceLink({ id }: { id: string }) {
           {id.slice(0, 10)}
         </a>
       </TooltipTrigger>
-      <TooltipContent><span className="font-mono">{id}</span></TooltipContent>
+      <TooltipContent>
+        <span className="font-mono">{id}</span>
+      </TooltipContent>
     </Tooltip>
   );
 }

@@ -115,5 +115,5 @@ function rowMatchesLevel(row: Combination, filter: Pick<LogFilter, "level" | "le
 
 /** True when a filter narrows only by service, level and source, the dimensions `FacetWindow` counts. `hideHealth` and `hideGrpc` need each record's body. */
 export function filtersDimensionsOnly(filter: LogFilter): boolean {
-  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideHealth !== true && filter.hideGrpc !== true;
+  return !filter.search && !filter.since && !filter.until && !filter.traceId && !filter.requestId && filter.attribute === undefined && filter.hideHealth !== true && filter.hideGrpc !== true && filter.hideSystem !== true;
 }

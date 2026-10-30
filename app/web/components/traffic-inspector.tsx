@@ -97,7 +97,7 @@ export function TrafficInspector(props: {
           </label>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto pr-1">
+      <div className="inspector-payload flex-1 overflow-auto pr-1">
         {request === "" && response === "" ? (
           <Empty>{loading ? "Loading payload…" : "No request/response body."}</Empty>
         ) : (

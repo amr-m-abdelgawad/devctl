@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { ChoiceGroup, SearchableFilter } from "./components/filters.tsx";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "./lib/utils.ts";
 import { serviceColor } from "./palette.ts";
 import { Empty } from "./components/primitives.tsx";
@@ -111,8 +112,17 @@ function svgId(value: string): string {
 }
 
 function withAlpha(hex: string, alpha: number): string {
+  if (hex.startsWith("var(")) return `color-mix(in srgb, ${hex} ${alpha * 100}%, transparent)`;
   const raw = hex.replace("#", "");
-  const n = parseInt(raw.length === 3 ? raw.split("").map((c) => c + c).join("") : raw, 16);
+  const n = parseInt(
+    raw.length === 3
+      ? raw
+          .split("")
+          .map((c) => c + c)
+          .join("")
+      : raw,
+    16,
+  );
   if (Number.isNaN(n)) {
     return hex;
   }
@@ -191,6 +201,8 @@ export function DependencyGraph(props: {
 }) {
   const { config, services, busy = false, onControl, onRestartServices } = props;
   const [hover, setHover] = useState<string | null>(null);
+  const [zoom, setZoom] = useState("1");
+  const viewport = useRef<HTMLDivElement>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const runtime = useMemo(() => new Map(services.map((row) => [row.name, row])), [services]);
   const cols = useMemo(() => layers(config), [config]);
@@ -208,6 +220,17 @@ export function DependencyGraph(props: {
     return list;
   }, [config, positions]);
 
+  const point = selected ? positions.get(selected) : undefined;
+  useEffect(() => {
+    if (point && viewport.current) {
+      const box = viewport.current;
+      box.scrollTo({
+        left: (point.x + NODE_W / 2) * Number(zoom) - box.clientWidth / 2,
+        top: (point.y + NODE_H / 2) * Number(zoom) - box.clientHeight / 2,
+      });
+    }
+  }, [selected, point?.x, point?.y, zoom]);
+
   if (config.length === 0) {
     return <Empty>No services in config.</Empty>;
   }
@@ -224,140 +247,196 @@ export function DependencyGraph(props: {
         <p className="text-[11px] text-muted-foreground">Depends-on flows left to right. Hover a node to isolate its neighborhood.</p>
         <TopologyLegend />
       </div>
-      <div className="topology-canvas overflow-x-auto rounded-lg border border-border/60 bg-muted/40">
-        <div className="relative mx-auto" style={{ width: canvasW, height: canvasH }}>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width={canvasW}
-            height={canvasH}
-            className="absolute inset-0"
-            role="img"
-            aria-label="service dependency graph"
-          >
-            <defs>
-              <marker id="topo-arrow" viewBox="0 0 10 10" refX={9} refY={5} markerWidth={7} markerHeight={7} orient="auto-start-reverse">
-                <path d="M 0 1.4 L 10 5 L 0 8.6 Z" fill="var(--muted-foreground)" />
-              </marker>
-              <marker id="topo-arrow-live" viewBox="0 0 10 10" refX={9} refY={5} markerWidth={7} markerHeight={7} orient="auto-start-reverse">
-                <path d="M 0 1.4 L 10 5 L 0 8.6 Z" fill="var(--primary)" />
-              </marker>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <SearchableFilter
+          label="Find service in graph"
+          value={selected || ""}
+          onChange={(value) => setSelected(value || null)}
+          options={[{ value: "", label: "All services" }, ...config.map((row) => ({ value: row.name, label: row.name }))]}
+        />
+        <div className="max-w-full overflow-x-auto">
+          <ChoiceGroup
+            label="Graph zoom"
+            value={zoom}
+            onChange={setZoom}
+            options={[
+              { value: "0.5", label: "50%" },
+              { value: "0.75", label: "75%" },
+              { value: "1", label: "100%" },
+              { value: "1.25", label: "125%" },
+            ]}
+          />
+        </div>
+      </div>
+      <div ref={viewport} className="topology-canvas max-h-[520px] overflow-auto rounded-lg border border-border/60 bg-muted/40">
+        <div className="relative mx-auto" style={{ width: canvasW * Number(zoom), height: canvasH * Number(zoom) }}>
+          <div className="relative origin-top-left" style={{ width: canvasW, height: canvasH, transform: `scale(${zoom})` }}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width={canvasW}
+              height={canvasH}
+              className="absolute inset-0"
+              role="img"
+              aria-label="service dependency graph"
+            >
+              <defs>
+                <marker id="topo-arrow" viewBox="0 0 10 10" refX={9} refY={5} markerWidth={7} markerHeight={7} orient="auto-start-reverse">
+                  <path d="M 0 1.4 L 10 5 L 0 8.6 Z" fill="var(--muted-foreground)" />
+                </marker>
+                <marker
+                  id="topo-arrow-live"
+                  viewBox="0 0 10 10"
+                  refX={9}
+                  refY={5}
+                  markerWidth={7}
+                  markerHeight={7}
+                  orient="auto-start-reverse"
+                >
+                  <path d="M 0 1.4 L 10 5 L 0 8.6 Z" fill="var(--primary)" />
+                </marker>
+                {edges.map((edge) => {
+                  const a = positions.get(edge.from);
+                  const b = positions.get(edge.to);
+                  if (!a || !b) {
+                    return null;
+                  }
+                  const id = `topo-grad-${svgId(edge.from)}-${svgId(edge.to)}`;
+                  return (
+                    <linearGradient
+                      key={id}
+                      id={id}
+                      gradientUnits="userSpaceOnUse"
+                      x1={a.x + NODE_W}
+                      y1={a.y + NODE_H / 2}
+                      x2={b.x - ARROW_INSET}
+                      y2={b.y + NODE_H / 2}
+                    >
+                      <stop offset="0%" stopColor={serviceColor(edge.from)} stopOpacity={0.95} />
+                      <stop offset="100%" stopColor={serviceColor(edge.to)} stopOpacity={0.45} />
+                    </linearGradient>
+                  );
+                })}
+              </defs>
+              {cols.map((col, ci) => {
+                const first = positions.get(col[0] ?? "");
+                if (!first) {
+                  return null;
+                }
+                return (
+                  <g key={`lane-${ci}`}>
+                    <rect
+                      x={first.x - LANE_PAD}
+                      y={PAD_Y - 26}
+                      width={NODE_W + LANE_PAD * 2}
+                      height={canvasH - PAD_Y + 10}
+                      rx={18}
+                      fill="var(--card)"
+                      fillOpacity={0.28}
+                      stroke="var(--border)"
+                      strokeOpacity={0.45}
+                    />
+                    <text x={first.x} y={PAD_Y - 10} fill="var(--muted-foreground)" fontSize={10} letterSpacing={1.4}>
+                      {rankLabel(ci, cols.length).toUpperCase()}
+                    </text>
+                  </g>
+                );
+              })}
               {edges.map((edge) => {
                 const a = positions.get(edge.from);
                 const b = positions.get(edge.to);
                 if (!a || !b) {
                   return null;
                 }
-                const id = `topo-grad-${svgId(edge.from)}-${svgId(edge.to)}`;
+                const incident = focus !== null && (edge.from === focus || edge.to === focus);
+                const dimmed = focus !== null && !incident;
+                const fromRt = runtime.get(edge.from);
+                const toRt = runtime.get(edge.to);
+                const live =
+                  toneOf(healthValue(fromRt?.state ?? "", fromRt?.health ?? "")) === "success" &&
+                  toneOf(healthValue(toRt?.state ?? "", toRt?.health ?? "")) === "success";
+                const grad = `url(#topo-grad-${svgId(edge.from)}-${svgId(edge.to)})`;
+                const d = edgePath(a, b);
                 return (
-                  <linearGradient key={id} id={id} gradientUnits="userSpaceOnUse" x1={a.x + NODE_W} y1={a.y + NODE_H / 2} x2={b.x - ARROW_INSET} y2={b.y + NODE_H / 2}>
-                    <stop offset="0%" stopColor={serviceColor(edge.from)} stopOpacity={0.95} />
-                    <stop offset="100%" stopColor={serviceColor(edge.to)} stopOpacity={0.45} />
-                  </linearGradient>
+                  <g key={`${edge.from}-${edge.to}`} className={cn("transition-opacity duration-150", dimmed && "opacity-15")}>
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={grad}
+                      strokeWidth={incident ? 2.6 : 1.7}
+                      markerEnd={incident || live ? "url(#topo-arrow-live)" : "url(#topo-arrow)"}
+                      opacity={0.9}
+                    />
+                    {live ? (
+                      <path
+                        d={d}
+                        fill="none"
+                        stroke="var(--primary)"
+                        strokeWidth={1.1}
+                        className="topology-flow"
+                        opacity={incident ? 0.9 : 0.45}
+                      />
+                    ) : null}
+                  </g>
                 );
               })}
-            </defs>
-            {cols.map((col, ci) => {
-              const first = positions.get(col[0] ?? "");
-              if (!first) {
-                return null;
-              }
-              return (
-                <g key={`lane-${ci}`}>
-                  <rect
-                    x={first.x - LANE_PAD}
-                    y={PAD_Y - 26}
-                    width={NODE_W + LANE_PAD * 2}
-                    height={canvasH - PAD_Y + 10}
-                    rx={18}
-                    fill="var(--card)"
-                    fillOpacity={0.28}
-                    stroke="var(--border)"
-                    strokeOpacity={0.45}
-                  />
-                  <text x={first.x} y={PAD_Y - 10} fill="var(--muted-foreground)" fontSize={10} letterSpacing={1.4}>
-                    {rankLabel(ci, cols.length).toUpperCase()}
-                  </text>
-                </g>
-              );
-            })}
-            {edges.map((edge) => {
-              const a = positions.get(edge.from);
-              const b = positions.get(edge.to);
-              if (!a || !b) {
-                return null;
-              }
-              const incident = focus !== null && (edge.from === focus || edge.to === focus);
-              const dimmed = focus !== null && !incident;
-              const fromRt = runtime.get(edge.from);
-              const toRt = runtime.get(edge.to);
-              const live = toneOf(healthValue(fromRt?.state ?? "", fromRt?.health ?? "")) === "success"
-                && toneOf(healthValue(toRt?.state ?? "", toRt?.health ?? "")) === "success";
-              const grad = `url(#topo-grad-${svgId(edge.from)}-${svgId(edge.to)})`;
-              const d = edgePath(a, b);
-              return (
-                <g key={`${edge.from}-${edge.to}`} className={cn("transition-opacity duration-150", dimmed && "opacity-15")}>
-                  <path d={d} fill="none" stroke={grad} strokeWidth={incident ? 2.6 : 1.7} markerEnd={incident || live ? "url(#topo-arrow-live)" : "url(#topo-arrow)"} opacity={0.9} />
-                  {live ? <path d={d} fill="none" stroke="var(--primary)" strokeWidth={1.1} className="topology-flow" opacity={incident ? 0.9 : 0.45} /> : null}
-                </g>
-              );
-            })}
-          </svg>
+            </svg>
 
-          {config.map((svc) => {
-            const pos = positions.get(svc.name);
-            if (!pos) {
-              return null;
-            }
-            const rt = runtime.get(svc.name);
-            const health = healthValue(rt?.state ?? "", rt?.health ?? "");
-            const accent = serviceColor(svc.name);
-            const dimmed = related !== null && !related.has(svc.name);
-            const active = selected === svc.name || hover === svc.name;
-            const failed = toneOf(health) === "destructive";
-            const starting = toneOf(health) === "warning";
-            return (
-              <button
-                key={svc.name}
-                type="button"
-                aria-pressed={selected === svc.name}
-                onMouseEnter={() => setHover(svc.name)}
-                onMouseLeave={() => setHover(null)}
-                onFocus={() => setHover(svc.name)}
-                onBlur={() => setHover(null)}
-                onClick={() => setSelected((cur) => (cur === svc.name ? null : svc.name))}
-                className={cn(
-                  "absolute flex overflow-hidden rounded-lg border bg-card text-left shadow-sm outline-none transition-[opacity,box-shadow,transform] duration-150",
-                  "hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-ring",
-                  dimmed && "opacity-30",
-                )}
-                style={{
-                  left: pos.x,
-                  top: pos.y,
-                  width: NODE_W,
-                  height: NODE_H,
-                  borderColor: failed ? toneColor(health) : active ? accent : undefined,
-                  boxShadow: active
-                    ? `0 0 0 1px ${accent}, 0 10px 28px ${withAlpha(accent, 0.22)}`
-                    : failed
-                      ? `0 0 0 1px ${toneColor(health)}, 0 8px 20px ${withAlpha(toneColor(health), 0.18)}`
-                      : undefined,
-                }}
-              >
-                <span className="w-1 shrink-0 self-stretch" style={{ backgroundColor: accent }} />
-                <span className="flex min-w-0 flex-1 flex-col gap-1 px-2.5 py-2">
-                  <span className="flex items-center justify-between gap-2">
-                    <span className="truncate text-[13px] font-semibold tracking-tight">{svc.name}</span>
-                    <StatusDot value={health} pulse={starting} />
+            {config.map((svc) => {
+              const pos = positions.get(svc.name);
+              if (!pos) {
+                return null;
+              }
+              const rt = runtime.get(svc.name);
+              const health = healthValue(rt?.state ?? "", rt?.health ?? "");
+              const accent = serviceColor(svc.name);
+              const dimmed = related !== null && !related.has(svc.name);
+              const active = selected === svc.name || hover === svc.name;
+              const failed = toneOf(health) === "destructive";
+              const starting = toneOf(health) === "warning";
+              return (
+                <button
+                  key={svc.name}
+                  type="button"
+                  aria-pressed={selected === svc.name}
+                  onMouseEnter={() => setHover(svc.name)}
+                  onMouseLeave={() => setHover(null)}
+                  onFocus={() => setHover(svc.name)}
+                  onBlur={() => setHover(null)}
+                  onClick={() => setSelected((cur) => (cur === svc.name ? null : svc.name))}
+                  className={cn(
+                    "absolute flex overflow-hidden rounded-lg border bg-card text-left shadow-sm outline-none transition-[opacity,box-shadow,transform] duration-150",
+                    "hover:-translate-y-px focus-visible:ring-2 focus-visible:ring-ring",
+                    dimmed && "opacity-30",
+                  )}
+                  style={{
+                    left: pos.x,
+                    top: pos.y,
+                    width: NODE_W,
+                    height: NODE_H,
+                    borderColor: failed ? toneColor(health) : active ? accent : undefined,
+                    boxShadow: active
+                      ? `0 0 0 1px ${accent}, 0 10px 28px ${withAlpha(accent, 0.22)}`
+                      : failed
+                        ? `0 0 0 1px ${toneColor(health)}, 0 8px 20px ${withAlpha(toneColor(health), 0.18)}`
+                        : undefined,
+                  }}
+                >
+                  <span className="w-1 shrink-0 self-stretch" style={{ backgroundColor: accent }} />
+                  <span className="flex min-w-0 flex-1 flex-col gap-1 px-2.5 py-2">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="truncate text-[13px] font-semibold tracking-tight">{svc.name}</span>
+                      <StatusDot value={health} pulse={starting} />
+                    </span>
+                    <span className="truncate text-[11px] text-muted-foreground">{blurb(svc)}</span>
+                    <span className="mt-auto flex items-center justify-between gap-2 font-mono text-[10px] text-muted-foreground">
+                      <span className="truncate uppercase tracking-wide">{rt?.state || "configured"}</span>
+                      <span className="truncate">{portLabel(rt, svc)}</span>
+                    </span>
                   </span>
-                  <span className="truncate text-[11px] text-muted-foreground">{blurb(svc)}</span>
-                  <span className="mt-auto flex items-center justify-between gap-2 font-mono text-[10px] text-muted-foreground">
-                    <span className="truncate uppercase tracking-wide">{rt?.state || "configured"}</span>
-                    <span className="truncate">{portLabel(rt, svc)}</span>
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
       {selectedSvc ? (
@@ -378,10 +457,22 @@ export function DependencyGraph(props: {
 function TopologyLegend() {
   return (
     <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-      <span className="flex items-center gap-1.5"><StatusDot value="healthy" />healthy</span>
-      <span className="flex items-center gap-1.5"><StatusDot value="starting" />starting</span>
-      <span className="flex items-center gap-1.5"><StatusDot value="failed" />failed</span>
-      <span className="flex items-center gap-1.5"><StatusDot value="stopped" />stopped</span>
+      <span className="flex items-center gap-1.5">
+        <StatusDot value="healthy" />
+        healthy
+      </span>
+      <span className="flex items-center gap-1.5">
+        <StatusDot value="starting" />
+        starting
+      </span>
+      <span className="flex items-center gap-1.5">
+        <StatusDot value="failed" />
+        failed
+      </span>
+      <span className="flex items-center gap-1.5">
+        <StatusDot value="stopped" />
+        stopped
+      </span>
     </div>
   );
 }
@@ -411,9 +502,7 @@ function TopologyInspector(props: {
         <span className="size-2 rounded-full" style={{ backgroundColor: serviceColor(svc.name) }} />
         <span className="text-sm font-semibold">{svc.name}</span>
         <StatusBadge value={row?.state || "configured"} />
-        {row?.health && row.health.toLowerCase() !== (row.state || "").toLowerCase() ? (
-          <StatusBadge value={row.health} />
-        ) : null}
+        {row?.health && row.health.toLowerCase() !== (row.state || "").toLowerCase() ? <StatusBadge value={row.health} /> : null}
         {portLabel(row, svc) ? <span className="font-mono text-[11px] text-muted-foreground">{portLabel(row, svc)}</span> : null}
         {row && onControl ? <EnvSelect row={row} busy={busy} onControl={onControl} onRestart={() => restart()} /> : null}
         {onControl ? (
@@ -433,9 +522,7 @@ function TopologyInspector(props: {
         <DepList label="depends on" items={upstream} pick="from" fallback="none" onSelect={onSelect} />
         <DepList label="dependents" items={downstream} pick="to" fallback="none" onSelect={onSelect} />
       </div>
-      {row?.last_error ? (
-        <p className="font-mono text-[11px] text-destructive">{row.last_error}</p>
-      ) : null}
+      {row?.last_error ? <p className="font-mono text-[11px] text-destructive">{row.last_error}</p> : null}
     </div>
   );
 }

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { MagnifyingGlassIcon } from "../icons.ts";
+import { useEffect, useState } from "react";
+import { InspectorFilters, type FeedControls } from "../components/filters.tsx";
+import { Button } from "../components/ui/button.tsx";
 import { clockMs, durationMs } from "../format.ts";
 import { hrefFor, activeInspectId, setInspectHash } from "../hash.ts";
 import { llmSourceValue } from "../llm.ts";
@@ -15,6 +16,10 @@ const CALLER_NONE = "-";
 const SEARCH_DEBOUNCE_MS = 300;
 
 export function LlmPage(props: {
+  filters: Record<string, string>;
+  onFilters: (value: Record<string, string>) => void;
+  feed: FeedControls;
+  models: string[];
   payload?: LlmCallsPayload;
   detail?: LlmCallRow;
   llmId?: string;
@@ -27,12 +32,8 @@ export function LlmPage(props: {
 }) {
   const { payload, detail, llmId, error, caller, callers, search, onCaller, onSearch } = props;
   const [draft, setDraft] = useState(search);
-  const [status, setStatus] = useState("");
   const [bodyMode, setBodyMode] = useLlmBodyMode();
-  const calls = useMemo(() => {
-    const rows = payload?.calls ?? [];
-    return status === "" ? rows : rows.filter((call) => call.status === status);
-  }, [payload, status]);
+  const calls = payload?.calls ?? [];
   const errors = payload?.errors ?? [];
   const selectedId = activeInspectId(llmId, calls[0]?.id);
   const inspectorCall = detail?.id === selectedId ? detail : undefined;
@@ -64,7 +65,7 @@ export function LlmPage(props: {
       if (event.metaKey || event.ctrlKey || event.altKey) {
         return;
       }
-      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select")) {
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true], [role=dialog]")) {
         return;
       }
       const delta = keyDelta(event.key);
@@ -72,7 +73,10 @@ export function LlmPage(props: {
         return;
       }
       event.preventDefault();
-      const index = Math.max(0, calls.findIndex((call) => call.id === selectedId));
+      const index = Math.max(
+        0,
+        calls.findIndex((call) => call.id === selectedId),
+      );
       const next = calls[Math.min(calls.length - 1, Math.max(0, index + delta))];
       if (next) {
         setInspectHash("llm", next.id);
@@ -83,50 +87,72 @@ export function LlmPage(props: {
   }, [calls, selectedId]);
 
   return (
-    <div className="grid min-h-[36rem] flex-1 grid-cols-1 gap-4 lg:h-[calc(100dvh-7.5rem)] lg:min-h-0 lg:grid-cols-[minmax(20rem,34%)_minmax(0,1fr)]">
-      <Card className="flex min-h-0 min-w-0 flex-col overflow-hidden">
-        <CardHeader className="flex-col items-start gap-2">
-          <div className="flex w-full flex-wrap items-center gap-2">
-            <CardTitle>LLM calls</CardTitle>
-            {calls.length > 0 ? <Badge variant="muted">{calls.length}{payload?.has_more ? "+" : ""}</Badge> : null}
-            <CallerFilter caller={caller} callers={callers} onCaller={onCaller} />
-          </div>
-          <p className="text-[11px] text-muted-foreground">LiteLLM spend logs and proxy-capture sources. j/k moves the list.</p>
-          <div className="flex w-full flex-wrap items-center gap-2">
-            <label className="relative min-w-[10rem] flex-1">
-              <MagnifyingGlassIcon className="pointer-events-none absolute left-2 top-1.5 size-3.5 text-muted-foreground" />
-              <input
-                type="search"
-                value={draft}
-                onChange={(event) => setDraft(event.currentTarget.value)}
-                placeholder="Search prompts, models, callers"
-                className="h-7 w-full rounded-md border border-border bg-background py-1 pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-            </label>
-            <StatusFilter value={status} onChange={setStatus} />
-          </div>
-        </CardHeader>
-        <CardContent className="min-h-0 flex-1 overflow-auto pt-0">
-          {error ? <div className="mb-2 text-sm text-destructive">{error}</div> : null}
-          {errors.map((item) => (
-            <p key={item.source} className="mb-2 rounded-md bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
-              {item.source}: {item.message}
-            </p>
-          ))}
-          <LlmList calls={calls} caller={caller} search={search} selectedId={selectedId} />
-        </CardContent>
-      </Card>
-      <Card className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <CardHeader>
-          <CardTitle>{inspectorCall?.model || "Call"}</CardTitle>
-          {inspectorCall ? (
-            <span className="truncate font-mono text-[11px] text-muted-foreground" title={inspectorCall.id}>{inspectorCall.id}</span>
-          ) : null}
-        </CardHeader>
-        <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
-          <LlmInspector call={inspectorCall} loading={loadingDetail} bodyMode={bodyMode} onBodyMode={setBodyMode} />
-        </CardContent>
-      </Card>
+    <div className="inspector-workspace">
+      <InspectorFilters
+        search={draft}
+        onSearch={setDraft}
+        placeholder="Search prompts, models, callers"
+        caller={caller}
+        callers={callers}
+        onCaller={onCaller}
+        filters={props.filters}
+        onFilters={props.onFilters}
+        fields={[{ key: "model", label: "All models", values: props.models }]}
+        feed={props.feed}
+      />
+      <div className="inspector-panes">
+        <Card className="inspector-list-card flex min-h-0 min-w-0 flex-col overflow-hidden">
+          <CardHeader>
+            <CardTitle>Recent calls</CardTitle>
+            <Badge variant="muted">
+              {calls.length}
+              {payload?.has_more ? "+" : ""}
+            </Badge>
+          </CardHeader>
+          <CardContent className="min-h-0 flex-1 overflow-auto pt-0">
+            {error ? <div className="mb-2 text-sm text-destructive">{error}</div> : null}
+            {errors.map((item) => (
+              <p key={item.source} className="mb-2 rounded-md bg-warning/10 px-2.5 py-1.5 text-xs text-warning">
+                {item.source}: {item.message}
+              </p>
+            ))}
+            {!payload && !error ? (
+              <Empty>Loading calls…</Empty>
+            ) : (
+              <LlmList calls={calls} caller={caller} search={search} selectedId={selectedId} />
+            )}
+            {payload?.has_more ? (
+              <Button size="sm" variant="outline" className="mt-3 w-full" disabled={props.feed.loadingMore} onClick={props.feed.loadMore}>
+                {props.feed.loadingMore ? "Loading…" : "Load older calls"}
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+        <Card className="inspector-detail-card flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <CardHeader>
+            <CardTitle>{inspectorCall?.model || "Call"}</CardTitle>
+            {inspectorCall ? (
+              <span className="truncate font-mono text-[11px] text-muted-foreground" title={inspectorCall.id}>
+                {inspectorCall.id}
+              </span>
+            ) : null}
+          </CardHeader>
+          <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden pt-0">
+            {payload && selectedId && !calls.some((call) => call.id === selectedId) ? (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+                <span>Pinned call is outside the current results.</span>
+                {calls[0] ? (
+                  <Button size="sm" variant="link" onClick={() => setInspectHash("llm", calls[0]!.id)}>
+                    Inspect first result
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
+            <LlmInspector call={inspectorCall} loading={loadingDetail} bodyMode={bodyMode} onBodyMode={setBodyMode} />
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -146,14 +172,14 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
     return <Empty>No LLM calls yet. Enable llm.sources (type: litellm or proxy) in .devctl/config.yaml.</Empty>;
   }
   return (
-    <Table>
+    <Table className="table-fixed sm:table-auto">
       <TableHeader>
         <TableRow>
-          <TableHead>Time</TableHead>
-          <TableHead>Status</TableHead>
+          <TableHead className="hidden sm:table-cell">Time</TableHead>
+          <TableHead className="w-16 sm:w-auto">Status</TableHead>
           <TableHead className="hidden sm:table-cell">Caller</TableHead>
           <TableHead>Model</TableHead>
-          <TableHead className="text-right">Latency</TableHead>
+          <TableHead className="w-16 text-right sm:w-auto">Latency</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -163,8 +189,15 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
             <TableRow
               key={call.id}
               aria-selected={selected}
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  setInspectHash("llm", call.id);
+                }
+              }}
               className={cn(
-                "cursor-pointer",
+                "cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
                 selected ? "bg-primary/10 hover:bg-primary/15" : undefined,
                 call.status === "error" && !selected ? "bg-destructive/[0.06]" : undefined,
               )}
@@ -172,7 +205,9 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
                 setInspectHash("llm", call.id);
               }}
             >
-              <TableCell className="whitespace-nowrap font-mono text-[11px] text-muted-foreground">{clockMs(call.timestamp)}</TableCell>
+              <TableCell className="hidden whitespace-nowrap font-mono text-[11px] text-muted-foreground sm:table-cell">
+                {clockMs(call.timestamp)}
+              </TableCell>
               <TableCell>
                 <Badge variant={call.status === "error" ? "destructive" : "muted"}>{call.status}</Badge>
               </TableCell>
@@ -180,60 +215,21 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
                 {call.caller || "—"}
               </TableCell>
               <TableCell className="max-w-[10rem]">
-                <a href={hrefFor("llm", call.id)} className="truncate font-medium text-foreground hover:underline" title={call.model}>{call.model}</a>
-                <div className="truncate text-[10px] text-muted-foreground" title={llmSourceValue(call)}>{llmSourceValue(call)}</div>
+                <a href={hrefFor("llm", call.id)} className="block truncate font-medium text-foreground hover:underline" title={call.model}>
+                  {call.model}
+                </a>
+                <div className="truncate text-[10px] text-muted-foreground" title={llmSourceValue(call)}>
+                  {llmSourceValue(call)}
+                </div>
               </TableCell>
-              <TableCell className="text-right font-mono text-[11px]">{call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}</TableCell>
+              <TableCell className="text-right font-mono text-[11px]">
+                {call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}
+              </TableCell>
             </TableRow>
           );
         })}
       </TableBody>
     </Table>
-  );
-}
-
-function CallerFilter(props: { caller: string; callers: string[]; onCaller: (value: string) => void }) {
-  const { caller, callers, onCaller } = props;
-  return (
-    <label className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
-      caller
-      <select
-        value={caller}
-        onChange={(event) => onCaller(event.currentTarget.value)}
-        className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-      >
-        <option value="">All callers</option>
-        {callers.map((name) => (
-          <option key={name} value={name}>{name}</option>
-        ))}
-        <option value={CALLER_NONE}>No caller</option>
-      </select>
-    </label>
-  );
-}
-
-function StatusFilter(props: { value: string; onChange: (value: string) => void }) {
-  const options = [
-    { id: "", label: "all" },
-    { id: "ok", label: "ok" },
-    { id: "error", label: "error" },
-  ];
-  return (
-    <div className="inline-flex rounded-md border border-border/70 bg-muted/40 p-0.5">
-      {options.map((option) => (
-        <button
-          key={option.id || "all"}
-          type="button"
-          onClick={() => props.onChange(option.id)}
-          className={cn(
-            "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
-            props.value === option.id ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
   );
 }
 

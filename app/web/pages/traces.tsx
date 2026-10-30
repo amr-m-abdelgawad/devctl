@@ -1,3 +1,7 @@
+import { Button } from "../components/ui/button.tsx";
+import { useState } from "react";
+import { SearchInput, FilterSelect } from "../components/filters.tsx";
+import { requestIsFailure } from "../rates.ts";
 import { ArrowLeftIcon } from "../icons.ts";
 import { durationNs, NANOS_PER_MS, spanDurationNs, traceEnvelopeNs } from "../format.ts";
 import { hrefFor } from "../hash.ts";
@@ -47,7 +51,11 @@ function TraceSummary(props: { trace: TracePayload; proxy?: RequestRow }) {
 function Metric(props: { label: string; value: string; mono?: boolean; tone?: "destructive" }) {
   return (
     <div className="flex items-baseline gap-1.5">
-      <span className={`text-sm font-semibold tabular-nums ${props.tone === "destructive" ? "text-destructive" : "text-foreground"} ${props.mono ? "font-mono" : ""}`}>{props.value}</span>
+      <span
+        className={`text-sm font-semibold tabular-nums ${props.tone === "destructive" ? "text-destructive" : "text-foreground"} ${props.mono ? "font-mono" : ""}`}
+      >
+        {props.value}
+      </span>
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{props.label}</span>
     </div>
   );
@@ -71,8 +79,14 @@ function SpanDetail(props: { span?: SpanRow }) {
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <Badge variant="muted">{svc}</Badge>
-          {span.kind ? <Badge variant="outline" className="text-[10px]">{span.kind}</Badge> : null}
-          <Badge variant="outline" className="font-mono text-[10px]">{durationNs(dur)}</Badge>
+          {span.kind ? (
+            <Badge variant="outline" className="text-[10px]">
+              {span.kind}
+            </Badge>
+          ) : null}
+          <Badge variant="outline" className="font-mono text-[10px]">
+            {durationNs(dur)}
+          </Badge>
           {isError ? <Badge variant="destructive">error</Badge> : null}
         </div>
       </div>
@@ -81,7 +95,9 @@ function SpanDetail(props: { span?: SpanRow }) {
       ) : null}
       {attrs.length > 0 ? (
         <JsonViewer title="Attributes" input={span.attributes} resetKey={span.spanId} />
-      ) : <p className="text-xs text-muted-foreground">No attributes.</p>}
+      ) : (
+        <p className="text-xs text-muted-foreground">No attributes.</p>
+      )}
     </div>
   );
 }
@@ -98,7 +114,18 @@ export function TracesPage(props: {
   traceMsById?: Record<string, number>;
 }) {
   const { requests, requestTotal, trace, traceId, error, selectedSpan, onSelectSpan, onJumpRequest, traceMsById } = props;
+  const [lookup, setLookup] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [routeFilter, setRouteFilter] = useState("");
   const recent = requests?.requests.length ?? 0;
+  const filteredRequests = (requests?.requests ?? []).filter(
+    (row) =>
+      (!routeFilter || row.route === routeFilter) &&
+      (statusFilter !== "error" || requestIsFailure(row)) &&
+      (statusFilter !== "slow" || row.duration_ms >= 500) &&
+      `${row.path} ${row.method} ${row.route} ${row.trace_id || ""} ${row.request_id}`.toLowerCase().includes(search.toLowerCase()),
+  );
   const total = requestTotal ?? requests?.total ?? 0;
 
   if (!traceId) {
@@ -107,13 +134,65 @@ export function TracesPage(props: {
         <CardHeader className="flex-col items-start gap-1.5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <CardTitle>Recent traces</CardTitle>
-            {recent > 0 ? <Badge variant="muted">{total > recent ? `${recent} of ${total.toLocaleString("en-US")}` : `${recent} recent`}</Badge> : null}
+            {recent > 0 ? (
+              <Badge variant="muted">{total > recent ? `${recent} of ${total.toLocaleString("en-US")}` : `${recent} recent`}</Badge>
+            ) : null}
           </div>
-          <span className="text-[11px] text-muted-foreground">duration is the full pipeline; proxy hop is the HTTP call through the reverse proxy</span>
+          <span className="text-[11px] text-muted-foreground">
+            duration is the full pipeline; proxy hop is the HTTP call through the reverse proxy
+          </span>
         </CardHeader>
         <CardContent className="pt-0">
+          <div className="mb-4 flex flex-wrap gap-2">
+            <SearchInput
+              label="Open a trace by ID"
+              value={lookup}
+              onChange={(event) => setLookup(event.currentTarget.value)}
+              className="flex-1"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && lookup.trim()) window.location.hash = hrefFor("traces", lookup.trim());
+              }}
+            />
+            <Button
+              variant="outline"
+              disabled={!lookup.trim()}
+              onClick={() => {
+                window.location.hash = hrefFor("traces", lookup.trim());
+              }}
+            >
+              Open trace
+            </Button>
+          </div>
+          <div className="mb-4 flex flex-wrap gap-2">
+            <SearchInput
+              label="Search paths, routes, trace IDs…"
+              value={search}
+              onChange={(event) => setSearch(event.currentTarget.value)}
+              className="flex-1"
+            />
+            <FilterSelect
+              label="Request status"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { value: "", label: "All requests" },
+                { value: "error", label: "Failed requests" },
+                { value: "slow", label: "Slow proxy hops (≥500ms)" },
+              ]}
+            />
+            <FilterSelect
+              label="Request route"
+              value={routeFilter}
+              onChange={setRouteFilter}
+              options={[
+                { value: "", label: "All routes" },
+                ...[...new Set(requests?.requests.map((row) => row.route))].map((value) => ({ value, label: value })),
+              ]}
+            />
+          </div>
           {error ? <div className="mb-2 text-sm text-destructive">{error}</div> : null}
-          <RequestTable requests={requests?.requests ?? []} onJumpRequest={onJumpRequest} traceMsById={traceMsById} />
+          <p className="mb-2 text-xs text-muted-foreground">{filteredRequests.length} matching requests in the recent buffer</p>
+          <RequestTable requests={filteredRequests} onJumpRequest={onJumpRequest} traceMsById={traceMsById} />
         </CardContent>
       </Card>
     );
@@ -129,10 +208,15 @@ export function TracesPage(props: {
       <Card>
         <CardHeader className="flex-col items-start gap-2 sm:flex-row sm:items-center">
           <div className="flex min-w-0 items-center gap-3">
-            <a href={hrefFor("traces")} className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground">
+            <a
+              href={hrefFor("traces")}
+              className="inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
               <ArrowLeftIcon size={14} className="size-3.5" /> traces
             </a>
-            <span className="truncate font-mono text-xs text-muted-foreground" title={traceId}>{traceId}</span>
+            <span className="truncate font-mono text-xs text-muted-foreground" title={traceId}>
+              {traceId}
+            </span>
           </div>
           {shown ? <TraceSummary trace={shown} proxy={proxy} /> : null}
         </CardHeader>
@@ -144,15 +228,21 @@ export function TracesPage(props: {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1.9fr]">
         <Card>
-          <CardHeader><CardTitle>Span detail</CardTitle></CardHeader>
-          <CardContent className="pt-0"><SpanDetail span={span} /></CardContent>
+          <CardHeader>
+            <CardTitle>Span detail</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            <SpanDetail span={span} />
+          </CardContent>
         </Card>
         <Card>
           <CardHeader>
             <CardTitle>Correlated logs</CardTitle>
             {selectedSpan ? <Badge variant="muted">selected span</Badge> : shown ? <Badge variant="muted">whole trace</Badge> : null}
           </CardHeader>
-          <CardContent className="pt-0"><LogTable events={spanLogs} showTrace={false} /></CardContent>
+          <CardContent className="pt-0">
+            <LogTable events={spanLogs} showTrace={false} />
+          </CardContent>
         </Card>
       </div>
     </div>

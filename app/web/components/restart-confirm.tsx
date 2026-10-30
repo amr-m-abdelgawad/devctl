@@ -1,3 +1,4 @@
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "./ui/dialog.tsx";
 import { Button } from "./ui/button.tsx";
 
 export function RestartConfirmBanner(props: {
@@ -11,16 +12,32 @@ export function RestartConfirmBanner(props: {
   const named = props.names.join(", ") || "selected services";
   const extra = props.dependents.join(", ");
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-[12px]">
-      <span>
-        <span className="font-medium">Restart dependents?</span>{" "}
-        {named} has dependents ({extra}). Named-only restarts just those services. Cascade also restarts dependents.
-      </span>
-      <div className="flex gap-1">
-        <Button type="button" size="xs" variant="outline" disabled={props.busy} onClick={props.onNamed}>Named only</Button>
-        <Button type="button" size="xs" disabled={props.busy} onClick={props.onCascade}>Cascade</Button>
-        <Button type="button" size="xs" variant="ghost" onClick={props.onCancel}>Cancel</Button>
-      </div>
-    </div>
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onCancel();
+      }}
+    >
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Restart dependents too?</DialogTitle>
+          <DialogDescription>Choose how to restart {named}.</DialogDescription>
+        </DialogHeader>
+        <p className="max-h-40 overflow-auto break-words text-sm text-muted-foreground">
+          Also depends on this selection: <span className="text-foreground">{extra}</span>
+        </p>
+        <DialogFooter>
+          <Button variant="ghost" onClick={props.onCancel}>
+            Cancel
+          </Button>
+          <Button variant="outline" disabled={props.busy} onClick={props.onNamed}>
+            Selected only
+          </Button>
+          <Button disabled={props.busy} onClick={props.onCascade}>
+            Include dependents
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

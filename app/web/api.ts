@@ -9,6 +9,8 @@ import {
 } from "./logs.ts";
 import type {
   ConfigSummary,
+  ConfigSources,
+  ServiceDetail,
   ControlArgs,
   ControlTool,
   DoctorReport,
@@ -28,6 +30,8 @@ import type {
   UpdateCheckPayload,
 } from "./types.ts";
 import { controlAuthHeaders, forgetControlToken } from "./session.ts";
+import type { ConfigDocument, WebLoginState } from "../src/ports/web-host.ts";
+import type { McpToolRow } from "./types.ts";
 
 const HTTP_UNAUTHORIZED = 401;
 
@@ -42,7 +46,7 @@ function rejectUnlessOk(res: Response, fallback: string, bodyError?: string): vo
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers: controlAuthHeaders() });
-  const body = res.ok ? undefined : await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+  const body = res.ok ? undefined : ((await res.json().catch(() => ({ error: res.statusText }))) as { error?: string });
   rejectUnlessOk(res, path, body?.error);
   return res.json() as Promise<T>;
 }
@@ -53,6 +57,38 @@ export function fetchStatus(): Promise<StatusSummary> {
 
 export function fetchServices(): Promise<ServiceRow[]> {
   return getJson("/api/services");
+}
+
+export function fetchService(name: string): Promise<ServiceDetail> {
+  return getJson(`/api/services/${encodeURIComponent(name)}`);
+}
+
+export function fetchConfigSources(): Promise<ConfigSources> {
+  return getJson("/api/config/sources");
+}
+
+export function fetchConfigDocument(): Promise<ConfigDocument> {
+  return getJson("/api/config/document");
+}
+export function fetchLogin(): Promise<WebLoginState | null> {
+  return getJson("/api/auth/login");
+}
+export function fetchMcpTools(): Promise<McpToolRow[]> {
+  return getJson("/api/mcp/tools");
+}
+export function fetchBootstrapLogs(): Promise<{ text: string }> {
+  return getJson("/api/supervisor/logs");
+}
+
+export async function postOperator<T>(action: string, args: Record<string, unknown> = {}): Promise<T> {
+  const res = await fetch("/api/operator", {
+    method: "POST",
+    headers: { "content-type": "application/json", ...controlAuthHeaders() },
+    body: JSON.stringify({ action, args }),
+  });
+  const body = (await res.json().catch(() => ({ error: "Unable to read the supervisor response" }))) as { error?: string };
+  rejectUnlessOk(res, "/api/operator", body.error);
+  return body as T;
 }
 
 export function fetchRequests(): Promise<RequestsPayload> {
@@ -97,7 +133,7 @@ export async function downloadLogsExport(params: LogsQuery = {}): Promise<void> 
   const path = `/api/logs/export${queryString(encodeLogsQuery(params))}`;
   const res = await fetch(path, { headers: controlAuthHeaders() });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error?: string };
     rejectUnlessOk(res, path, body?.error);
     return;
   }
@@ -173,9 +209,7 @@ export async function postControl(tool: ControlTool, args: ControlArgs = {}): Pr
       throw new Error(text || `${res.status} /api/control`);
     }
   }
-  const message = body && typeof body === "object" && "error" in body && typeof body.error === "string"
-    ? body.error
-    : undefined;
+  const message = body && typeof body === "object" && "error" in body && typeof body.error === "string" ? body.error : undefined;
   rejectUnlessOk(res, "/api/control", message);
   return body;
 }

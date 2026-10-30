@@ -1,4 +1,5 @@
 import type { DevctlConfig } from "../domain/config/types.ts";
+import type { ProfileId } from "../domain/ids.ts";
 import type { Plan } from "../domain/service/services.ts";
 import type { ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
 import type { Report } from "../domain/doctor/types.ts";
@@ -14,6 +15,9 @@ export type DaemonCommandHost = Pick<ServiceOrchestratorPort, "start" | "stop" |
 };
 
 export type DaemonCommands = {
+  getStartupPlan: { execute(cfg: DevctlConfig, services: string[], profile: string): Plan };
+  getShutdownPlan: { execute(cfg: DevctlConfig, services: string[]): Plan };
+  resolveStart: { execute(cfg: DevctlConfig, req: { services?: string[]; profile?: ProfileId; activeProfile?: ProfileId }): { services: string[]; profile: ProfileId; env: Record<string, string> } };
   startService: { execute(req: StartRequest): Promise<Plan> };
   stopService: { execute(names: string[]): Promise<void> };
   restartService: { execute(names: string[], opts?: { cascade?: boolean; clientEnv?: Record<string, string> }): Promise<void> };
