@@ -23,9 +23,10 @@ const realTimers: TimelineTimers = {
  * `performance.measure()` entry for every component render it times, and
  * nothing removes them: the entries live in native memory the JS heap does
  * not count, and a TUI left open with services logging grew by gigabytes an
- * hour. devctl never reads the timeline. Releases build React for
- * production, which records none; this covers a run from source, and any
- * library that marks or measures.
+ * hour. devctl never reads the timeline. Every run uses React's production
+ * build unless NODE_ENV says otherwise (shared/react-build.ts), and that
+ * records none; this bounds a development run, which stays slow with many
+ * logs held, and any library that marks or measures.
  */
 export function keepPerformanceTimelineEmpty(timeline: Timeline = performance, timers: TimelineTimers = realTimers): () => void {
   const clear = (): void => {

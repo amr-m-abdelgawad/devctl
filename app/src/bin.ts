@@ -9,10 +9,14 @@ if (drainAll >= 0) {
 }
 // First, so the Google libraries see these defaults when they load.
 await import("./adapters/google/gcp-env.ts");
+// Around everything that loads React, and undone before anything starts a process.
+const { loadProductionReact } = await import("./shared/react-build.ts");
+const restoreEnv = loadProductionReact();
 const { silenceGcpMetadataWarnings } = await import("./shared/warnings.ts");
 const { createClient } = await import("./bootstrap/client.ts");
 const { runDaemon } = await import("./bootstrap/daemon.ts");
 const { execute } = await import("./presentation/cli/cli.ts");
+restoreEnv();
 
 silenceGcpMetadataWarnings();
 await execute(createClient(), runDaemon);

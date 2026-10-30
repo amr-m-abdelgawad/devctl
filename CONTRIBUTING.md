@@ -6,7 +6,7 @@ How the codebase is laid out, how the client and supervisor talk, and how to cha
 
 ## Day-to-day
 
-Runtime is [Bun](https://bun.sh) 1.4.4 or later. The loop is in [Building from source](docs/typescript.md):
+Runtime is [Bun](https://bun.sh) 1.4.4 or later. Every run uses React's production build; set `NODE_ENV=development` for its warnings, and keep such a TUI session short, because it gets slow as logs pile up. The loop is in [Building from source](docs/typescript.md):
 
 ```bash
 export PATH="$HOME/.bun/bin:$PATH"
