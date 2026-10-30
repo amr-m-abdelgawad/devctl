@@ -118,3 +118,36 @@ test("an empty filtered stream exposes its message without an invalid active des
   expect(html).toContain("No matching log records.");
   expect(html).not.toContain("aria-activedescendant");
 });
+
+test("a search marks the matching text inside the log row", () => {
+  const html = renderToStaticMarkup(
+    <LogList
+      events={[
+        {
+          seq: 1,
+          timestamp: "2026-10-29T14:30:00.000Z",
+          service: "billing-api",
+          source: "stdout",
+          severityText: "INFO",
+          level: "INFO",
+          message: "cache miss for inv-2200",
+        },
+      ]}
+      selectedId=""
+      onSelect={() => {}}
+      onInspect={() => {}}
+      wrapMode="clip"
+      showTimestamps
+      showMeta
+      follow={false}
+      onPin={() => {}}
+      onJumpLatest={() => {}}
+      newer={0}
+      onReachTop={() => {}}
+      search="inv-2200"
+    />,
+  );
+  expect(html).toContain('class="log-search-hit"');
+  expect(html).toContain("inv-2200");
+  expect(html).toContain("cache miss for ");
+});

@@ -1,11 +1,11 @@
 import { PlanButton } from "./plan-button.tsx";
 import { useMemo, useState } from "react";
 import { envNeedsRestart, isLiveState, type RunControl } from "../control.ts";
-import { fleetRows, needsAttention, toggleVisibleSelection, type FleetState } from "../fleet.ts";
+import { fleetRows, httpPortUrl, needsAttention, toggleVisibleSelection, type FleetState } from "../fleet.ts";
 import { hrefFor } from "../hash.ts";
 import { useCascadeRestart } from "../hooks/use-cascade-restart.tsx";
 import { useStopServices } from "../hooks/use-stop-services.tsx";
-import { ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, PlayIcon, StopIcon, XIcon } from "../icons.ts";
+import { ArrowUpRightIcon, ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, PlayIcon, StopIcon, XIcon } from "../icons.ts";
 import { cn } from "../lib/utils.ts";
 import { serviceColor } from "../palette.ts";
 import type { ConfigService, ProfileRow, ServiceRow } from "../types.ts";
@@ -16,7 +16,23 @@ import { StatusBadge } from "./status.tsx";
 import { Badge } from "./ui/badge.tsx";
 import { Button } from "./ui/button.tsx";
 import { IconButton } from "./ui/icon-button.tsx";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card.tsx";
+
+function OpenHttpPort(props: { service: string; url: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon" className="size-6 shrink-0 text-muted-foreground" asChild>
+          <a href={props.url} target="_blank" rel="noreferrer noopener" aria-label={`Open ${props.service} HTTP port in a new tab`}>
+            <ArrowUpRightIcon />
+          </a>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Open {props.url}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 export function ServiceFleet(props: {
   services: ServiceRow[];
@@ -194,7 +210,9 @@ export function ServiceFleet(props: {
                 Actions
               </span>
             </div>
-            {visible.map((row) => (
+            {visible.map((row) => {
+              const httpUrl = httpPortUrl(row.ports);
+              return (
               <div
                 key={row.name}
                 role="row"
@@ -227,9 +245,13 @@ export function ServiceFleet(props: {
                     {row.last_error || definitions.get(row.name)?.description || (row.pid ? `PID ${row.pid}` : "Ready to start")}
                   </p>
                   <span className="fleet-mobile-ports font-mono text-[10px] text-muted-foreground">
-                    {Object.entries(row.ports)
-                      .map(([name, port]) => `${name}:${port}`)
-                      .join(" · ")}
+                    {Object.entries(row.ports).map(([name, port], index) => (
+                      <span key={name} className="inline-flex items-center gap-1">
+                        {index > 0 ? <span aria-hidden="true">·</span> : null}
+                        {name}:{port}
+                        {name.toLowerCase() === "http" && httpUrl ? <OpenHttpPort service={row.name} url={httpUrl} /> : null}
+                      </span>
+                    ))}
                   </span>
                 </div>
                 <div role="cell" className="fleet-status flex flex-col items-start gap-1">
@@ -247,17 +269,23 @@ export function ServiceFleet(props: {
                 </div>
                 <div
                   role="cell"
-                  className="fleet-ports min-w-0 truncate font-mono text-[11px] text-muted-foreground"
+                  className="fleet-ports min-w-0 font-mono text-[11px] text-muted-foreground"
                   title={Object.entries(row.ports)
                     .map(([name, port]) => `${name}:${port}`)
                     .join(", ")}
                 >
-                  {Object.entries(row.ports).map(([name, port]) => (
-                    <div key={name}>
-                      {name}
-                      <span className="text-foreground"> :{port}</span>
-                    </div>
-                  ))}
+                  {Object.entries(row.ports).map(([name, port]) => {
+                    const url = name.toLowerCase() === "http" ? httpUrl : undefined;
+                    return (
+                      <div key={name} className="flex items-center gap-1">
+                        <span className="truncate">
+                          {name}
+                          <span className="text-foreground"> :{port}</span>
+                        </span>
+                        {url ? <OpenHttpPort service={row.name} url={url} /> : null}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div role="cell" className="fleet-actions">
                   <ActionButtons
@@ -270,7 +298,8 @@ export function ServiceFleet(props: {
                   />
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
         <div className="fleet-pagination">

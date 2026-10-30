@@ -30,6 +30,7 @@ import {
   isSystemLog,
   toggleListedLevel,
   logIdentity,
+  logSearchFinder,
   logWrapLabel,
   logsQueryKey,
   nextLogSelectionIndex,
@@ -185,6 +186,23 @@ describe("log filters and wrap", () => {
     expect(nextLogWrapMode("focus")).toBe("all");
     expect(nextLogWrapMode("all")).toBe("clip");
     expect(logWrapLabel("focus")).toBe("wrap selected");
+  });
+
+  test("search spans mark each literal and regex hit", () => {
+    expect(logSearchFinder("inv", false)("cache miss for inv-2200")).toEqual([{ start: 15, end: 18 }]);
+    expect(logSearchFinder("INV", false)("inv-2200 and inv-3")).toEqual([
+      { start: 0, end: 3 },
+      { start: 13, end: 16 },
+    ]);
+    expect(logSearchFinder("inv-\\d+", true)("job inv-12 and inv-3")).toEqual([
+      { start: 4, end: 10 },
+      { start: 15, end: 20 },
+    ]);
+    expect(logSearchFinder("(", true)("a(b")).toEqual([{ start: 1, end: 2 }]);
+    expect(logSearchFinder("   ", false)("hello")).toEqual([]);
+    const starred = logSearchFinder("a*", true)("ba");
+    expect(starred.every((span) => span.end > span.start)).toBe(true);
+    expect(starred).toContainEqual({ start: 1, end: 2 });
   });
 
   test("logIdentity prefers seq", () => {

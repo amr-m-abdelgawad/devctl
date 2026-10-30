@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { downloadLogsExport, fetchLogSessions, fetchPreferences } from "../api.ts";
 import { JsonViewer } from "../components/json-viewer.tsx";
-import { LogList } from "../components/log-list.tsx";
+import { LogList, LogSearchText } from "../components/log-list.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { IconButton } from "../components/ui/icon-button.tsx";
@@ -50,6 +50,7 @@ import {
   laterLogSince,
   liveLogsQuery,
   logIdentity,
+  logSearchFinder,
   logWrapLabel,
   nextLogWrapMode,
   nextPinSeq,
@@ -380,6 +381,20 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
           onFullscreen={() => setFullscreen((value) => !value)}
           advanced={advancedDraft}
           advancedActive={Object.values(advanced).some(Boolean) || dedupe}
+          filtersActive={
+            hideHealth ||
+            !showSystem ||
+            !showGrpc ||
+            sinceTime !== "" ||
+            untilTime !== "" ||
+            Object.values(advanced).some(Boolean) ||
+            dedupe ||
+            levels.length > 0 ||
+            serviceA !== "" ||
+            serviceB !== "" ||
+            regex ||
+            search !== ""
+          }
           onAdvanced={setAdvancedDraft}
           dedupe={dedupe}
           onDedupe={() => setDedupe((value) => !value)}
@@ -442,16 +457,18 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
           onSession={setSessionId}
           onTimestamps={() => setShowTimestamps((value) => !value)}
           onMeta={() => setShowMeta((value) => !value)}
+          scopeFilters={
+            <>
+              <SearchableFilter
+                label={split ? `Service in pane ${splitFocus === 1 ? "B" : "A"}` : "Service"}
+                value={split && splitFocus === 1 ? serviceB : serviceA}
+                options={chips.map((chip) => ({ value: chip.name, label: chip.name || "All services", count: chip.count }))}
+                onChange={split && splitFocus === 1 ? setServiceB : setServiceA}
+              />
+              {levelControls}
+            </>
+          }
         />
-        <div className="flex w-full flex-wrap items-center gap-3">
-          <SearchableFilter
-            label={split ? `Service in pane ${splitFocus === 1 ? "B" : "A"}` : "Service"}
-            value={split && splitFocus === 1 ? serviceB : serviceA}
-            options={chips.map((chip) => ({ value: chip.name, label: chip.name || "All services", count: chip.count }))}
-            onChange={split && splitFocus === 1 ? setServiceB : setServiceA}
-          />
-          {levelControls}
-        </div>
       </CardHeader>
       <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-0">
         {session.error || exportError ? <p className="text-xs text-destructive">{session.error || exportError}</p> : null}
@@ -516,6 +533,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
                 wrapMode={wrapMode}
                 showTimestamps={showTimestamps}
                 showMeta={showMeta}
+                search={search}
+                regex={regex}
                 loadingOlder={session.loadingOlder}
                 onFocus={() => setSplitFocus(0)}
                 onSelect={selectA}
@@ -535,6 +554,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
                 wrapMode={wrapMode}
                 showTimestamps={showTimestamps}
                 showMeta={showMeta}
+                search={search}
+                regex={regex}
                 loadingOlder={session.loadingOlder}
                 onFocus={() => setSplitFocus(1)}
                 onSelect={selectB}
@@ -555,6 +576,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
                   wrapMode={wrapMode}
                   showTimestamps={showTimestamps}
                   showMeta={showMeta}
+                  search={search}
+                  regex={regex}
                   follow={followA}
                   followTick={tickA}
                   onPin={pinA}
@@ -575,7 +598,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
                   <XIcon />
                 </IconButton>
               </div>
-              <LogInspector event={selectedEvent} />
+              <LogInspector event={selectedEvent} search={search} regex={regex} />
             </aside>
           ) : null}
         </div>
@@ -587,7 +610,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
                 {selectedEvent ? `${selectedEvent.service} · ${clockMs(selectedEvent.timestamp)}` : "Selected log record"}
               </DialogDescription>
             </DialogHeader>
-            {selectedEvent ? <LogInspector event={selectedEvent} /> : null}
+            {selectedEvent ? <LogInspector event={selectedEvent} search={search} regex={regex} /> : null}
           </DialogContent>
         </Dialog>
       </CardContent>
@@ -595,9 +618,10 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   );
 }
 
-function LogInspector(props: { event: LogRow }) {
-  const { event } = props;
+function LogInspector(props: { event: LogRow; search: string; regex: boolean }) {
+  const { event, search, regex } = props;
   const [view, setView] = useState("message");
+  const findSearch = useMemo(() => logSearchFinder(search, regex), [search, regex]);
   const resetKey = typeof event.seq === "number" ? `seq:${event.seq}` : event.timestamp;
   return (
     <div className="log-record-detail">
@@ -618,7 +642,9 @@ function LogInspector(props: { event: LogRow }) {
             <dl className="log-record-facts">
               <div>
                 <dt>Service</dt>
-                <dd>{event.service}</dd>
+                <dd>
+                  <LogSearchText text={event.service} find={findSearch} />
+                </dd>
               </div>
               <div>
                 <dt>Level</dt>
@@ -632,7 +658,9 @@ function LogInspector(props: { event: LogRow }) {
               </div>
               <div>
                 <dt>Source</dt>
-                <dd>{event.source}</dd>
+                <dd>
+                  <LogSearchText text={event.source} find={findSearch} />
+                </dd>
               </div>
               {event.traceId ? (
                 <div>
@@ -642,7 +670,9 @@ function LogInspector(props: { event: LogRow }) {
               ) : null}
             </dl>
             <h4 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Message</h4>
-            <pre className="log-readable-message">{event.message}</pre>
+            <pre className="log-readable-message">
+              <LogSearchText text={event.message} find={findSearch} />
+            </pre>
           </>
         )}
       </div>
@@ -661,6 +691,8 @@ function LogPane(props: {
   wrapMode: LogWrapMode;
   showTimestamps: boolean;
   showMeta: boolean;
+  search: string;
+  regex: boolean;
   loadingOlder: boolean;
   onFocus: () => void;
   onSelect: (id: string) => void;
@@ -692,6 +724,7 @@ function Toolbar(props: {
   onFullscreen: () => void;
   advanced: Record<string, string>;
   advancedActive: boolean;
+  filtersActive: boolean;
   onAdvanced: (value: Record<string, string>) => void;
   dedupe: boolean;
   onDedupe: () => void;
@@ -716,6 +749,7 @@ function Toolbar(props: {
   showTimestamps: boolean;
   showMeta: boolean;
   liveLabel: string;
+  scopeFilters: ReactNode;
   onSearchDraft: (value: string) => void;
   onRegex: () => void;
   onErrorOnly: () => void;
@@ -772,7 +806,8 @@ function Toolbar(props: {
           Export
         </Button>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex w-full flex-wrap items-center gap-2">
+        {p.scopeFilters}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button ref={optionsRef} size="sm" variant="outline">
@@ -821,7 +856,11 @@ function Toolbar(props: {
               </DropdownMenuCheckboxItem>
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger className="hidden sm:flex">
-                  Line wrapping<DropdownMenuShortcut>w</DropdownMenuShortcut>
+                  Line wrapping
+                  <span className="ml-auto flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground">{logWrapLabel(p.wrapMode)}</span>
+                    <DropdownMenuShortcut className="ml-0">w</DropdownMenuShortcut>
+                  </span>
                 </DropdownMenuSubTrigger>
                 <DropdownMenuPortal>
                   <DropdownMenuSubContent>
@@ -882,8 +921,13 @@ function Toolbar(props: {
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-        {p.hideHealth || !p.showSystem || !p.showGrpc || p.sinceTime || p.untilTime || p.advancedActive ? (
-          <Badge variant="info">Filters active</Badge>
+        {p.filtersActive ? (
+          <div className="ml-auto flex items-center gap-2">
+            <Badge variant="info">Filters active</Badge>
+            <Button size="sm" variant="ghost" onClick={p.onReset}>
+              Clear filters
+            </Button>
+          </div>
         ) : null}
       </div>
       <Dialog open={filtersOpen} onOpenChange={setFiltersOpen}>

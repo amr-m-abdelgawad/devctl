@@ -1,4 +1,4 @@
-import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type UIEvent } from "react";
+import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { clockMs } from "../format.ts";
 import { cn } from "../lib/utils.ts";
 import {
@@ -13,6 +13,8 @@ import {
   LOG_OVERSCAN,
   logIdentity,
   logRowExpanded,
+  logSearchFinder,
+  type LogSearchSpan,
   nextLogFollowAction,
   nextLogSelectionIndex,
   rowOffsets,
@@ -45,6 +47,8 @@ export type LogListProps = {
   loadingOlder?: boolean;
   empty?: string;
   onActivate?: () => void;
+  search?: string;
+  regex?: boolean;
 };
 
 export function LogList(props: LogListProps) {
@@ -65,7 +69,10 @@ export function LogList(props: LogListProps) {
     loadingOlder = false,
     empty = "No log records.",
     onActivate,
+    search = "",
+    regex = false,
   } = props;
+  const findSearch = useMemo(() => logSearchFinder(search, regex), [search, regex]);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const armedRef = useRef(false);
   const topLockRef = useRef(false);
@@ -279,6 +286,7 @@ export function LogList(props: LogListProps) {
                 selected={id === selectedId}
                 showTimestamps={showTimestamps}
                 showMeta={showMeta}
+                findSearch={findSearch}
                 onSelect={(id) => {
                   scrollerRef.current?.focus({ preventScroll: true });
                   onSelect(id);
@@ -311,11 +319,12 @@ function LogEventRow(props: {
   selected: boolean;
   showTimestamps: boolean;
   showMeta: boolean;
+  findSearch: (text: string) => LogSearchSpan[];
   onSelect: (id: string) => void;
   onInspect: (id: string) => void;
   onMeasure: (id: string, height: number) => void;
 }) {
-  const { row, id, domId, top, expanded, compact, selected, showTimestamps, showMeta, onSelect, onInspect, onMeasure } = props;
+  const { row, id, domId, top, expanded, compact, selected, showTimestamps, showMeta, findSearch, onSelect, onInspect, onMeasure } = props;
   const level = row.level || row.severityText || "info";
   const error = isErrorLog(row);
   const ref = useRef<HTMLDivElement>(null);
@@ -354,12 +363,14 @@ function LogEventRow(props: {
         ) : null}
         <span className="log-event-service" title={row.service}>
           <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: serviceColor(row.service) }} />
-          <span className="truncate">{row.service}</span>
+          <span className="truncate">
+            <LogSearchText text={row.service} find={findSearch} />
+          </span>
         </span>
         <StatusBadge value={level} className="shrink-0" />
         {showMeta ? (
           <span className="log-event-source" title={row.source}>
-            {row.source}
+            <LogSearchText text={row.source} find={findSearch} />
           </span>
         ) : null}
         {row.traceId ? (
@@ -369,7 +380,7 @@ function LogEventRow(props: {
         ) : null}
       </div>
       <span className="log-event-message" title={row.message}>
-        {row.message}
+        <LogSearchText text={row.message} find={findSearch} />
       </span>
       <button
         type="button"
@@ -386,4 +397,28 @@ function LogEventRow(props: {
       </button>
     </div>
   );
+}
+
+export function LogSearchText(props: { text: string; find: (text: string) => LogSearchSpan[] }): ReactNode {
+  const spans = props.find(props.text);
+  if (spans.length === 0) {
+    return props.text;
+  }
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  for (const [index, span] of spans.entries()) {
+    if (span.start > cursor) {
+      parts.push(props.text.slice(cursor, span.start));
+    }
+    parts.push(
+      <mark key={index} className="log-search-hit">
+        {props.text.slice(span.start, span.end)}
+      </mark>,
+    );
+    cursor = span.end;
+  }
+  if (cursor < props.text.length) {
+    parts.push(props.text.slice(cursor));
+  }
+  return parts;
 }

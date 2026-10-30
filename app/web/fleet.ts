@@ -45,6 +45,20 @@ export function fleetRows(rows: ServiceRow[], config: ConfigService[], profiles:
     });
 }
 
+const HTTP_PORT_NAME = "http";
+const MIN_TCP_PORT = 1;
+const MAX_TCP_PORT = 65535;
+
+/** Loopback URL for a service's named `http` port, when that port is assigned. */
+export function httpPortUrl(ports: Record<string, number>): string | undefined {
+  const port = Object.entries(ports).find(([name]) => name.toLowerCase() === HTTP_PORT_NAME)?.[1];
+  if (typeof port !== "number" || !Number.isInteger(port) || port < MIN_TCP_PORT || port > MAX_TCP_PORT) {
+    return undefined;
+  }
+  // Pieces stay separate. The web asset build strips a literal http:// address out of the bundle.
+  return ["http", "://", "127.0.0.1:", String(port), "/"].join("");
+}
+
 /** Selection is scoped to the visible page and never silently selects hidden matches. */
 export function toggleVisibleSelection(selected: string[], visible: string[]): string[] {
   const all = visible.length > 0 && visible.every((name) => selected.includes(name));

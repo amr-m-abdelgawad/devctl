@@ -355,6 +355,52 @@ function compileLogSearch(source: string): RegExp | undefined {
   }
 }
 
+export type LogSearchSpan = { readonly start: number; readonly end: number };
+
+const MAX_SEARCH_SPANS = 64;
+const NO_SEARCH_SPANS = (): LogSearchSpan[] => [];
+
+/** Ranges to mark for the current search. An invalid pattern is matched as plain text, same as filtering. */
+export function logSearchFinder(search: string, regex: boolean): (text: string) => LogSearchSpan[] {
+  const needle = search.trim();
+  if (needle === "") {
+    return NO_SEARCH_SPANS;
+  }
+  if (regex) {
+    const compiled = compileLogSearch(needle);
+    if (compiled) {
+      return (text) => spansForRegex(text, compiled);
+    }
+  }
+  return (text) => spansForLiteral(text, needle);
+}
+
+function spansForLiteral(text: string, needle: string): LogSearchSpan[] {
+  const lower = text.toLowerCase();
+  const target = needle.toLowerCase();
+  const spans: LogSearchSpan[] = [];
+  let index = lower.indexOf(target);
+  while (index !== -1 && spans.length < MAX_SEARCH_SPANS) {
+    spans.push({ start: index, end: index + target.length });
+    index = lower.indexOf(target, index + Math.max(target.length, 1));
+  }
+  return spans;
+}
+
+function spansForRegex(text: string, pattern: RegExp): LogSearchSpan[] {
+  const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
+  const compiled = new RegExp(pattern.source, flags);
+  const spans: LogSearchSpan[] = [];
+  for (const match of text.matchAll(compiled)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (end > start && spans.length < MAX_SEARCH_SPANS) {
+      spans.push({ start, end });
+    }
+  }
+  return spans;
+}
+
 export function facetServiceChips(
   facets: LogFacets | undefined,
   names: string[],

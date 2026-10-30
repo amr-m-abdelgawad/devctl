@@ -317,14 +317,41 @@ summary:focus-visible {
 .workspace-label {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   min-width: 0;
-  margin: 0 16px 16px;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  margin: 0 12px 12px;
+  padding: 7px 11px;
+  min-height: 36px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--foreground);
   font-size: 12px;
   font-weight: 600;
+}
+.workspace-mark {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  margin-inline: 5px;
+  border-radius: 2px;
+  background: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 28%, transparent);
+}
+.workspace-label > span:last-child {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.workspace-kicker {
+  color: var(--muted-foreground);
+  font: 8px var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+.workspace-label .truncate {
+  line-height: 14px;
 }
 .console-nav {
   flex: 1;
@@ -407,14 +434,33 @@ summary:focus-visible {
   display: none;
 }
 .sidebar-search {
+  width: calc(100% - 24px);
   height: 36px;
-  padding-inline: 11px;
+  margin: 0 12px;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 0 8px 0 11px;
+  border-color: var(--border);
+  border-radius: 7px;
+  color: var(--muted-foreground);
   font-size: 12px;
   font-weight: 500;
 }
 .sidebar-search svg {
   width: 17px;
   height: 17px;
+  opacity: 0.8;
+}
+.sidebar-search kbd {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--foreground) 6%, transparent);
+  color: var(--muted-foreground);
+  font: 10px/14px var(--font-mono);
+  letter-spacing: 0.3px;
 }
 .console-collapsed .sidebar-search {
   margin: 0 auto;
@@ -669,7 +715,7 @@ summary:focus-visible {
 }
 .fleet-row {
   display: grid;
-  grid-template-columns: 28px minmax(140px, 1fr) 115px 150px 100px 118px;
+  grid-template-columns: 28px minmax(140px, 1fr) 115px 150px 128px 118px;
   gap: 12px;
   align-items: center;
 }
@@ -1019,7 +1065,10 @@ summary:focus-visible {
     display: none;
   }
   .fleet-mobile-ports {
-    display: block;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
   }
 }
 @media (max-width: 1199px) {
@@ -1604,6 +1653,12 @@ summary:focus-visible {
   color: var(--foreground);
   font-size: 12px;
   line-height: 18px;
+}
+.log-search-hit {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--warning) 45%, transparent);
+  color: inherit;
+  padding: 0 1px;
 }
 .log-event-inspect {
   display: flex;

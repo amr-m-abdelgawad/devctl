@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { fleetRows, serviceIsHealthy, toggleVisibleSelection } from "./fleet.ts";
+import { fleetRows, httpPortUrl, serviceIsHealthy, toggleVisibleSelection } from "./fleet.ts";
 import type { FleetState } from "./fleet.ts";
 import type { ConfigService, ServiceRow } from "./types.ts";
 
@@ -30,6 +30,14 @@ describe("service fleet", () => {
 
   test("does not report an unhealthy running service or stale stopped health as healthy", () => {
     expect(rows.map(serviceIsHealthy)).toEqual([true, false, false, false]);
+  });
+
+  test("http port url is the loopback address of the named http port", () => {
+    expect(httpPortUrl({ http: 18003 })).toBe("http://127.0.0.1:18003/");
+    expect(httpPortUrl({ HTTP: 80, db: 5432 })).toBe("http://127.0.0.1:80/");
+    expect(httpPortUrl({ db: 5432 })).toBeUndefined();
+    expect(httpPortUrl({ http: 0 })).toBeUndefined();
+    expect(httpPortUrl({})).toBeUndefined();
   });
 
   test("selecting a page preserves hidden selections and unselecting removes only that page", () => {

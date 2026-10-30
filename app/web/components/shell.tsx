@@ -227,10 +227,11 @@ export function ConsoleShell(props: {
             {collapsed ? <CaretRightIcon /> : <CaretLeftIcon />}
           </IconButton>
         </div>
-        <div className="workspace-label">
-          <span className="size-2 shrink-0 rounded-sm bg-primary" />
-          <span className="truncate" title={props.status?.repo_root}>
-            {props.project || "Local workspace"}
+        <div className="workspace-label" title={props.status?.repo_root || props.project}>
+          <span className="workspace-mark" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="workspace-kicker">Workspace</span>
+            <span className="truncate">{props.project || "Local workspace"}</span>
           </span>
         </div>
         {collapsed ? (
@@ -238,18 +239,18 @@ export function ConsoleShell(props: {
             <TooltipTrigger asChild>
               <Button
                 variant="outline"
-                className="sidebar-search mx-4 justify-between"
+                className="sidebar-search"
                 aria-label="Quick find"
                 onClick={() => {
                   setSearch("");
                   setSearchOpen(true);
                 }}
               >
-                <span className="flex items-center gap-2">
+                <span className="flex items-center gap-2.5">
                   <MagnifyingGlassIcon data-icon="inline-start" />
                   Quick find
                 </span>
-                <kbd className="text-[10px]">⌘ K</kbd>
+                <kbd>⌘ K</kbd>
               </Button>
             </TooltipTrigger>
             <TooltipContent side="right">Quick find</TooltipContent>
@@ -257,18 +258,18 @@ export function ConsoleShell(props: {
         ) : (
           <Button
             variant="outline"
-            className="sidebar-search mx-4 justify-between"
+            className="sidebar-search"
             aria-label="Quick find"
             onClick={() => {
               setSearch("");
               setSearchOpen(true);
             }}
           >
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2.5">
               <MagnifyingGlassIcon data-icon="inline-start" />
               Quick find
             </span>
-            <kbd className="text-[10px]">⌘ K</kbd>
+            <kbd>⌘ K</kbd>
           </Button>
         )}
         {nav}
