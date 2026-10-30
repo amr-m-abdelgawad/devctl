@@ -151,17 +151,19 @@ export function ConsoleShell(props: {
         <div key={group} className="nav-group">
           <p className="nav-label">{group}</p>
           {PAGES.filter((item) => item.group === group).map((item) => {
+            const serviceCount = item.name === "services" ? props.services.length : undefined;
+            const serviceLabel = serviceCount === undefined ? undefined : `${serviceCount} ${serviceCount === 1 ? "service" : "services"}`;
             const link = (
               <a
                 href={hrefFor(item.name)}
-                aria-label={item.label}
+                aria-label={serviceLabel ? `${item.label}, ${serviceLabel}` : item.label}
                 aria-current={props.route === item.name ? "page" : undefined}
                 className={cn("nav-link", props.route === item.name && "nav-link-active")}
                 onClick={() => setMenu(false)}
               >
                 <item.icon aria-hidden="true" />
                 <span className="nav-link-label">{item.label}</span>
-                {item.name === "services" ? <span className="nav-count">{props.services.length}</span> : null}
+                {serviceLabel ? <span className="nav-count">{serviceLabel}</span> : null}
               </a>
             );
             // Mount tooltips only while the rail is collapsed. Hovering the expanded
@@ -171,7 +173,7 @@ export function ConsoleShell(props: {
               <Tooltip key={item.name}>
                 <TooltipTrigger asChild>{link}</TooltipTrigger>
                 <TooltipContent side="right" align="center" sideOffset={8} avoidCollisions={false}>
-                  {item.label}
+                  {serviceLabel ? `${item.label} · ${serviceLabel}` : item.label}
                 </TooltipContent>
               </Tooltip>
             );
@@ -229,10 +231,7 @@ export function ConsoleShell(props: {
         </div>
         <div className="workspace-label" title={props.status?.repo_root || props.project}>
           <span className="workspace-mark" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="workspace-kicker">Workspace</span>
-            <span className="truncate">{props.project || "Local workspace"}</span>
-          </span>
+          <span className="truncate">{props.project || "Local workspace"}</span>
         </div>
         {collapsed ? (
           <Tooltip>
@@ -349,7 +348,6 @@ export function ConsoleShell(props: {
         <main id="main-content" className="console-main" aria-busy={props.busy} tabIndex={-1}>
           <div className="page-heading">
             <div className="page-heading-main">
-              <p className="page-eyebrow">{page.group}</p>
               <span className="page-title-icon" aria-hidden="true">
                 <page.icon />
               </span>

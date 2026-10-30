@@ -5,7 +5,7 @@ import { fleetRows, httpPortUrl, needsAttention, toggleVisibleSelection, type Fl
 import { hrefFor } from "../hash.ts";
 import { useCascadeRestart } from "../hooks/use-cascade-restart.tsx";
 import { useStopServices } from "../hooks/use-stop-services.tsx";
-import { ArrowUpRightIcon, ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, PlayIcon, StopIcon, XIcon } from "../icons.ts";
+import { ArrowUpRightIcon, ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, PlayIcon, StackIcon, StopIcon, XIcon } from "../icons.ts";
 import { cn } from "../lib/utils.ts";
 import { serviceColor } from "../palette.ts";
 import type { ConfigService, ProfileRow, ServiceRow } from "../types.ts";
@@ -23,7 +23,7 @@ function OpenHttpPort(props: { service: string; url: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-6 shrink-0 text-muted-foreground" asChild>
+        <Button variant="outline" size="icon" className="action-open size-8 shrink-0" asChild>
           <a href={props.url} target="_blank" rel="noreferrer noopener" aria-label={`Open ${props.service} HTTP port in a new tab`}>
             <ArrowUpRightIcon />
           </a>
@@ -78,6 +78,7 @@ export function ServiceFleet(props: {
     <Card className="fleet-card">
       <CardHeader>
         <div className="flex items-center gap-2.5">
+          <StackIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
           <CardTitle>Service fleet</CardTitle>
           <Badge variant="muted">{services.length}</Badge>
         </div>
@@ -245,13 +246,9 @@ export function ServiceFleet(props: {
                     {row.last_error || definitions.get(row.name)?.description || (row.pid ? `PID ${row.pid}` : "Ready to start")}
                   </p>
                   <span className="fleet-mobile-ports font-mono text-[10px] text-muted-foreground">
-                    {Object.entries(row.ports).map(([name, port], index) => (
-                      <span key={name} className="inline-flex items-center gap-1">
-                        {index > 0 ? <span aria-hidden="true">·</span> : null}
-                        {name}:{port}
-                        {name.toLowerCase() === "http" && httpUrl ? <OpenHttpPort service={row.name} url={httpUrl} /> : null}
-                      </span>
-                    ))}
+                    {Object.entries(row.ports)
+                      .map(([name, port]) => `${name}:${port}`)
+                      .join(" · ")}
                   </span>
                 </div>
                 <div role="cell" className="fleet-status flex flex-col items-start gap-1">
@@ -274,20 +271,15 @@ export function ServiceFleet(props: {
                     .map(([name, port]) => `${name}:${port}`)
                     .join(", ")}
                 >
-                  {Object.entries(row.ports).map(([name, port]) => {
-                    const url = name.toLowerCase() === "http" ? httpUrl : undefined;
-                    return (
-                      <div key={name} className="flex items-center gap-1">
-                        <span className="truncate">
-                          {name}
-                          <span className="text-foreground"> :{port}</span>
-                        </span>
-                        {url ? <OpenHttpPort service={row.name} url={url} /> : null}
-                      </div>
-                    );
-                  })}
+                  {Object.entries(row.ports).map(([name, port]) => (
+                    <div key={name} className="truncate">
+                      {name}
+                      <span className="text-foreground"> :{port}</span>
+                    </div>
+                  ))}
                 </div>
                 <div role="cell" className="fleet-actions">
+                  {httpUrl ? <OpenHttpPort service={row.name} url={httpUrl} /> : null}
                   <ActionButtons
                     live={isLiveState(row.state)}
                     busy={busy}

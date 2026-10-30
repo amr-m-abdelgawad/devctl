@@ -255,7 +255,7 @@ summary:focus-visible {
   border-radius: 4px;
 }
 .console-layout {
-  --sidebar-width: 224px;
+  --sidebar-width: 232px;
   min-height: 100dvh;
 }
 .console-collapsed {
@@ -274,7 +274,7 @@ summary:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: 4px;
-  padding: 23px 12px 20px;
+  padding: 23px 16px 20px;
 }
 .console-brand {
   display: flex;
@@ -319,9 +319,9 @@ summary:focus-visible {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  margin: 0 12px 12px;
-  padding: 7px 11px;
-  min-height: 36px;
+  height: 36px;
+  margin: 0 16px 12px;
+  padding: 0 11px;
   border-radius: 7px;
   background: color-mix(in srgb, var(--primary) 12%, transparent);
   color: var(--foreground);
@@ -337,27 +337,14 @@ summary:focus-visible {
   background: var(--primary);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 28%, transparent);
 }
-.workspace-label > span:last-child {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-.workspace-kicker {
-  color: var(--muted-foreground);
-  font: 8px var(--font-mono);
-  font-weight: 500;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-}
 .workspace-label .truncate {
-  line-height: 14px;
+  line-height: 16px;
 }
 .console-nav {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 12px;
+  padding: 16px 16px;
 }
 .nav-group + .nav-group {
   margin-top: 19px;
@@ -401,16 +388,18 @@ summary:focus-visible {
 }
 .nav-count {
   margin-left: auto;
-  padding: 0 6px;
+  flex-shrink: 0;
+  padding: 1px 6px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--primary) 10%, transparent);
   font: 10px var(--font-mono);
+  letter-spacing: 0.2px;
 }
 .sidebar-footer {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 15px 22px;
+  padding: 15px 26px;
   border-top: 1px solid var(--border);
   font-size: 10px;
   color: var(--muted-foreground);
@@ -434,9 +423,9 @@ summary:focus-visible {
   display: none;
 }
 .sidebar-search {
-  width: calc(100% - 24px);
+  width: calc(100% - 32px);
   height: 36px;
-  margin: 0 12px;
+  margin: 0 16px;
   justify-content: flex-start;
   gap: 10px;
   padding: 0 8px 0 11px;
@@ -518,54 +507,49 @@ summary:focus-visible {
 .page-heading {
   display: flex;
   min-width: 0;
-  align-items: center;
+  align-items: start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 20px;
 }
 .page-heading-main {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr);
   column-gap: 12px;
-  row-gap: 6px;
+  row-gap: 2px;
+  align-items: center;
   min-width: 0;
 }
-.page-eyebrow {
-  grid-column: 2;
-  font: 9px var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 1.8px;
-  color: var(--primary);
-}
 .page-heading h1 {
-  font-size: 27px;
-  line-height: 1.2;
-  letter-spacing: -0.8px;
+  margin: 0;
+  font-size: 22px;
+  line-height: 32px;
+  letter-spacing: -0.4px;
   font-weight: 600;
 }
 .page-title {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 1;
   min-width: 0;
 }
 .page-title-icon {
   grid-column: 1;
-  grid-row: 2 / 4;
-  align-self: start;
+  grid-row: 1;
+  align-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: 8px;
   color: var(--primary);
   background: var(--muted);
 }
 .page-title-icon svg {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
 }
 @media (max-width: 639px) {
   .page-heading-main {
@@ -583,11 +567,12 @@ summary:focus-visible {
 }
 .page-description {
   grid-column: 2;
-  grid-row: 3;
+  grid-row: 2;
   max-width: 70ch;
+  margin: 0;
   color: var(--muted-foreground);
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 16px;
 }
 .page-context {
   display: flex;
@@ -614,7 +599,7 @@ summary:focus-visible {
   position: fixed;
   z-index: 60;
   top: 8px;
-  left: 240px;
+  left: 248px;
   transform: translateY(-200%);
   border-radius: 6px;
   background: var(--primary);
@@ -649,19 +634,6 @@ summary:focus-visible {
   color: var(--warning);
   overflow-wrap: anywhere;
   font-size: 12px;
-}
-.metric-tile {
-  position: relative;
-  overflow: hidden;
-}
-.metric-tile::after {
-  content: "";
-  position: absolute;
-  bottom: 0;
-  left: 16px;
-  right: 16px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--border), transparent);
 }
 .workspace-actionbar {
   display: flex;
@@ -715,7 +687,7 @@ summary:focus-visible {
 }
 .fleet-row {
   display: grid;
-  grid-template-columns: 28px minmax(140px, 1fr) 115px 150px 128px 118px;
+  grid-template-columns: 28px minmax(140px, 1fr) 115px 150px 128px 156px;
   gap: 12px;
   align-items: center;
 }
@@ -769,6 +741,12 @@ summary:focus-visible {
 }
 .service-name:hover {
   color: var(--primary);
+}
+.fleet-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .fleet-actions > div {
   flex-wrap: nowrap;
@@ -1058,7 +1036,7 @@ summary:focus-visible {
 }
 @media (max-width: 1399px) {
   .fleet-row {
-    grid-template-columns: 25px minmax(140px, 1fr) 110px 130px 118px;
+    grid-template-columns: 25px minmax(140px, 1fr) 110px 120px 156px;
     gap: 10px;
   }
   .fleet-ports {
@@ -1076,7 +1054,7 @@ summary:focus-visible {
     padding: 24px;
   }
   .fleet-row {
-    grid-template-columns: 25px minmax(120px, 1fr) 110px 118px;
+    grid-template-columns: 25px minmax(120px, 1fr) 110px 156px;
   }
   .fleet-env {
     display: none;
@@ -1100,7 +1078,7 @@ summary:focus-visible {
     left: 20px;
   }
   .fleet-row {
-    grid-template-columns: 25px minmax(140px, 1fr) 110px 140px 118px;
+    grid-template-columns: 25px minmax(140px, 1fr) 110px 130px 156px;
   }
   .fleet-env {
     display: block;
@@ -1108,7 +1086,7 @@ summary:focus-visible {
 }
 @media (max-width: 767px) {
   .fleet-row {
-    grid-template-columns: 25px minmax(100px, 1fr) 100px 118px;
+    grid-template-columns: 25px minmax(100px, 1fr) 96px 148px;
   }
   .fleet-env {
     display: none;
@@ -1131,7 +1109,7 @@ summary:focus-visible {
     margin-bottom: 20px;
   }
   .page-heading h1 {
-    font-size: 25px;
+    font-size: 20px;
   }
   .page-description {
     font-size: 12px;
@@ -1204,7 +1182,8 @@ summary:focus-visible {
   .fleet-actions button {
     min-height: 36px;
   }
-  .fleet-actions .action-restart {
+  .fleet-actions .action-restart,
+  .fleet-actions .action-open {
     width: 36px;
     height: 36px;
   }

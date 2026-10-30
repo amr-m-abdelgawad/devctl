@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchBootstrapLogs, fetchUpdate } from "../api.ts";
 import { relative } from "../format.ts";
+import { CpuIcon, GaugeIcon, MemoryIcon, ScrollIcon, StackIcon, TimerIcon } from "../icons.ts";
 import { hrefFor } from "../hash.ts";
 import { useOperatorAction } from "../operator.ts";
 import type { ServiceRow, StatusSummary, TaskResult, UpdateCheckPayload } from "../types.ts";
@@ -63,19 +64,27 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             <Kpi
               label="Host CPU"
+              icon={<CpuIcon className="size-4" />}
               value={lastCpu === undefined ? "—" : (lastCpu * 100).toFixed(1)}
               unit="%"
               sub={`${system?.cpuCount ?? "—"} logical CPUs`}
             />
             <Kpi
               label="Host memory"
+              icon={<MemoryIcon className="size-4" />}
               value={lastMem === undefined ? "—" : (lastMem * 100).toFixed(1)}
               unit="%"
               sub={system ? `${(system.memAvailableKB / 1_048_576).toFixed(1)} GiB available` : undefined}
             />
-            <Kpi label="Supervisor RSS" value={bytes(status?.daemon?.rssBytes)} sub={`Heap ${bytes(status?.daemon?.heapBytes)}`} />
+            <Kpi
+              label="Supervisor RSS"
+              icon={<GaugeIcon className="size-4" />}
+              value={bytes(status?.daemon?.rssBytes)}
+              sub={`Heap ${bytes(status?.daemon?.heapBytes)}`}
+            />
             <Kpi
               label="Event loop lag"
+              icon={<TimerIcon className="size-4" />}
               value={status?.daemon?.eventLoopLagMs?.toFixed(0) ?? "—"}
               unit="ms"
               sub={system ? `Host uptime ${Math.floor(system.hostUptimeSec / 3600)}h` : undefined}
@@ -83,7 +92,10 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
           </div>
           <Card>
             <CardHeader>
-              <CardTitle>Service resources</CardTitle>
+              <div className="flex min-w-0 items-center gap-2">
+                <StackIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                <CardTitle>Service resources</CardTitle>
+              </div>
               <SearchInput
                 label="Search service resources"
                 value={search}
@@ -129,7 +141,10 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
           {status?.daemon?.logs ? (
             <Card>
               <CardHeader>
-                <CardTitle>Log pipeline</CardTitle>
+                <div className="flex min-w-0 items-center gap-2">
+                  <ScrollIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+                  <CardTitle>Log pipeline</CardTitle>
+                </div>
               </CardHeader>
               <CardContent>
                 <dl className="service-facts">

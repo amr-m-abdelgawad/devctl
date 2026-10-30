@@ -127,6 +127,7 @@ export function App() {
   const [config, setConfig] = useState<ConfigSummary | undefined>(undefined);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [errors, setErrors] = useState<LogRow[]>([]);
+  const [llmRecent, setLlmRecent] = useState<LlmCallRow[]>([]);
   const [llmDetail, setLlmDetail] = useState<LlmCallRow | undefined>(undefined);
   const [llmError, setLlmError] = useState("");
   // Active caller filter ("" = all, "-" = no caller) and the option list. The
@@ -261,6 +262,10 @@ export function App() {
     setConfig(nextConfig);
     setErrors(nextErrors.events);
     setProfiles(nextProfiles);
+    const nextLlm = await fetchLlmCalls().catch(() => undefined);
+    if (nextLlm && gen === pollGenRef.current) {
+      setLlmRecent(nextLlm.calls ?? []);
+    }
     setPollError("");
     const nowMs = Date.now();
     const rows = nextRequests.requests ?? [];
@@ -594,6 +599,7 @@ export function App() {
                 services={services}
                 requests={requests}
                 errors={errors}
+                llmCalls={llmRecent}
                 profiles={profiles}
                 tasks={config?.tasks ?? []}
                 configServices={config?.services ?? []}

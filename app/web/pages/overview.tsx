@@ -1,7 +1,18 @@
-import { CaretRightIcon, GaugeIcon, LightningIcon, PlayIcon, StackIcon, StopIcon, TimerIcon, WarningIcon } from "../icons.ts";
+import {
+  ArrowsLeftRightIcon,
+  CaretRightIcon,
+  GaugeIcon,
+  LightningIcon,
+  PlayIcon,
+  RobotIcon,
+  StackIcon,
+  StopIcon,
+  TimerIcon,
+  WarningIcon,
+} from "../icons.ts";
 import { useState } from "react";
 import { isLiveState, type RunControl } from "../control.ts";
-import { relative } from "../format.ts";
+import { durationMs, relative } from "../format.ts";
 import { useStopServices } from "../hooks/use-stop-services.tsx";
 import { ServiceFleet } from "../components/service-fleet.tsx";
 import { FilterSelect } from "../components/filters.tsx";
@@ -11,7 +22,7 @@ import { Empty, Kpi } from "../components/primitives.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
-import type { ConfigService, LogRow, ProfileRow, RequestsPayload, ServiceRow, TaskRow } from "../types.ts";
+import type { ConfigService, LlmCallRow, LogRow, ProfileRow, RequestsPayload, ServiceRow, TaskRow } from "../types.ts";
 
 export type OverviewSummary = {
   healthy: number;
@@ -25,11 +36,16 @@ export type OverviewSummary = {
   reqPerSec: number;
 };
 
+function countLabel(count: number, singular: string): string {
+  return `${count} ${count === 1 ? singular : `${singular}s`}`;
+}
+
 export function OverviewPage(props: {
   summary: OverviewSummary;
   services: ServiceRow[];
   requests?: RequestsPayload;
   errors: LogRow[];
+  llmCalls: LlmCallRow[];
   profiles: ProfileRow[];
   tasks: TaskRow[];
   configServices: ConfigService[];
@@ -38,7 +54,7 @@ export function OverviewPage(props: {
   traceMsById?: Record<string, number>;
   onControl: RunControl;
 }) {
-  const { summary, services, requests, errors, profiles, configServices, profile, busy, traceMsById, onControl } = props;
+  const { summary, services, requests, errors, llmCalls, profiles, configServices, profile, busy, traceMsById, onControl } = props;
   const [profileName, setProfileName] = useState(profile);
   const chosenProfile = profiles.some((row) => row.name === profileName)
     ? profileName
@@ -46,6 +62,9 @@ export function OverviewPage(props: {
       ? profile
       : profiles[0]?.name || "";
   const liveNames = services.filter((row) => isLiveState(row.state)).map((row) => row.name);
+  const recentErrors = errors.slice(-8).reverse();
+  const recentRequests = [...(requests?.requests ?? [])].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 12);
+  const recentLlm = [...llmCalls].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 8);
   const { requestStop, confirmation } = useStopServices(configServices, onControl, busy);
   const healthTone =
     summary.total === 0 ? "muted" : summary.healthy === summary.total ? "success" : summary.healthy === 0 ? "muted" : "warning";
@@ -134,56 +153,96 @@ export function OverviewPage(props: {
       {confirmation}
       <ServiceFleet services={services} config={configServices} profiles={profiles} busy={busy} onControl={onControl} />
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3 lg:items-stretch">
         <Card className="lg:col-span-2">
           <CardHeader className="flex-nowrap">
             <div className="flex min-w-0 items-center gap-2">
+              <ArrowsLeftRightIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
               <CardTitle className="truncate">Recent proxy requests</CardTitle>
-              {requests?.requests.length ? <Badge variant="muted">{requests.requests.length} recent</Badge> : null}
+              {recentRequests.length > 0 ? <Badge variant="muted">{countLabel(recentRequests.length, "request")}</Badge> : null}
             </div>
             <a href={hrefFor("traces")} className="shrink-0 text-xs font-medium text-primary hover:underline">
               View all →
             </a>
           </CardHeader>
           <CardContent className="pt-0">
-            <RequestTable
-              requests={[...(requests?.requests ?? [])].sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 12)}
-              traceMsById={traceMsById}
-            />
+            <RequestTable requests={recentRequests} traceMsById={traceMsById} />
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Recent errors</CardTitle>
-            {summary.logErrors > 0 ? <Badge variant="destructive">{summary.logErrors.toLocaleString("en-US")}</Badge> : null}
+        <div className="flex flex-col gap-4 lg:h-full">
+        <Card className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+          <CardHeader className="shrink-0 flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2">
+              <WarningIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <CardTitle className="truncate">Recent errors</CardTitle>
+              {recentErrors.length > 0 ? <Badge variant="destructive">{countLabel(recentErrors.length, "error")}</Badge> : null}
+            </div>
+            <a href={hrefFor("logs")} className="shrink-0 text-xs font-medium text-primary hover:underline">
+              View logs →
+            </a>
           </CardHeader>
-          <CardContent className="pt-0">
-            {errors.length === 0 ? (
-              <Empty>No error-level logs.</Empty>
+          <CardContent className="flex min-h-0 flex-1 flex-col pt-0 pb-3">
+            {recentErrors.length === 0 ? (
+              <div className="flex flex-1 items-center">
+                <Empty>{summary.logErrors > 0 ? "No errors in the recent log window." : "Nothing is failing right now."}</Empty>
+              </div>
             ) : (
-              <div className="flex flex-col divide-y divide-border/50 [&>*:last-child]:border-b-0">
-                {errors
-                  .slice(-14)
-                  .reverse()
-                  .map((row, index) => (
-                    <div key={`${row.seq ?? index}`} className="flex items-start gap-2.5 py-2 first:pt-0">
-                      <span className="mt-1 size-1.5 shrink-0 rounded-full bg-destructive" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-medium text-foreground/90" title={row.service}>
-                            {row.service}
-                          </span>
-                          <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{relative(row.timestamp)}</span>
-                        </div>
-                        <p className="mt-0.5 line-clamp-2 font-mono text-[11px] leading-snug text-muted-foreground">{row.message}</p>
-                      </div>
-                    </div>
-                  ))}
+              <div className="flex min-h-0 flex-1 flex-col divide-y divide-border/50 [&>*:last-child]:border-b-0">
+                {recentErrors.map((row, index) => (
+                  <a
+                    key={`${row.seq ?? index}`}
+                    href={`${hrefFor("logs")}?service=${encodeURIComponent(row.service)}`}
+                    className="flex min-h-0 min-w-0 flex-1 items-center gap-2 hover:text-primary"
+                    title={row.message}
+                  >
+                    <span className="w-24 shrink-0 truncate text-xs font-medium">{row.service}</span>
+                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{row.message}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{relative(row.timestamp)}</span>
+                  </a>
+                ))}
               </div>
             )}
           </CardContent>
         </Card>
+
+        <Card className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+          <CardHeader className="shrink-0 flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2">
+              <RobotIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
+              <CardTitle className="truncate">Recent LLM calls</CardTitle>
+              {recentLlm.length > 0 ? <Badge variant="muted">{countLabel(recentLlm.length, "call")}</Badge> : null}
+            </div>
+            <a href={hrefFor("llm")} className="shrink-0 text-xs font-medium text-primary hover:underline">
+              View all →
+            </a>
+          </CardHeader>
+          <CardContent className="flex min-h-0 flex-1 flex-col pt-0 pb-3">
+            {recentLlm.length === 0 ? (
+              <div className="flex flex-1 items-center">
+                <Empty>No LLM calls yet.</Empty>
+              </div>
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col divide-y divide-border/50 [&>*:last-child]:border-b-0">
+                {recentLlm.map((call) => (
+                  <a
+                    key={call.id}
+                    href={hrefFor("llm", call.id)}
+                    className="flex min-h-0 min-w-0 flex-1 items-center gap-2 hover:text-primary"
+                    title={call.model || call.id}
+                  >
+                    <span className="min-w-0 flex-1 truncate text-xs font-medium">{call.model || call.operation || "call"}</span>
+                    <span className="max-w-24 shrink-0 truncate text-[10px] text-muted-foreground">{call.caller || "—"}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
+                      {call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        </div>
       </div>
     </div>
   );
