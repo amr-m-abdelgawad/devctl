@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchBootstrapLogs, fetchUpdate } from "../api.ts";
-import { relative } from "../format.ts";
+import { uptimeLabel } from "../format.ts";
 import { CpuIcon, GaugeIcon, MemoryIcon, ScrollIcon, StackIcon, TimerIcon } from "../icons.ts";
 import { hrefFor } from "../hash.ts";
 import { useOperatorAction } from "../operator.ts";
@@ -87,7 +87,7 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
               icon={<TimerIcon className="size-4" />}
               value={status?.daemon?.eventLoopLagMs?.toFixed(0) ?? "—"}
               unit="ms"
-              sub={system ? `Host uptime ${Math.floor(system.hostUptimeSec / 3600)}h` : undefined}
+              sub={system ? `Host uptime ${uptimeLabel(system.hostUptimeSec * 1000)}` : undefined}
             />
           </div>
           <Card>
@@ -131,7 +131,7 @@ export function SystemPage(props: { status?: StatusSummary; services: ServiceRow
                       </TableCell>
                       <TableCell className="font-mono text-xs">{row.memoryKB === undefined ? "—" : bytes(row.memoryKB * 1024)}</TableCell>
                       <TableCell>{row.restarts ?? 0}</TableCell>
-                      <TableCell>{row.startTime ? relative(row.startTime) : "—"}</TableCell>
+                      <TableCell>{row.startTime ? uptimeLabel(Date.now() - Date.parse(row.startTime)) : "—"}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

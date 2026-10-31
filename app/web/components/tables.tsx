@@ -49,7 +49,7 @@ export function RequestTable(props: { requests: RequestRow[]; onJumpRequest?: (i
           return (
             <TableRow key={row.request_id} className={row.status >= 500 ? "bg-destructive/[0.06]" : undefined}>
               <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">{clockMs(row.timestamp)}</TableCell>
-              <TableCell><Badge variant="outline" className="font-mono text-[10px]">{row.method}</Badge></TableCell>
+              <TableCell><Badge variant="outline" className="font-mono text-[11px]">{row.method}</Badge></TableCell>
               <TableCell className="max-w-[280px] truncate font-mono text-xs" title={row.path}>
                 {row.captured ? (
                   <a href={hrefFor("traffic", row.request_id)} className="hover:underline">{row.path}</a>
@@ -60,12 +60,12 @@ export function RequestTable(props: { requests: RequestRow[]; onJumpRequest?: (i
                 {traceMs !== undefined ? (
                   <div className="flex flex-col items-end gap-0.5">
                     <span className="font-mono tabular-nums text-foreground">{durationMs(traceMs)}</span>
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{durationMs(row.duration_ms)} proxy</span>
+                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{durationMs(row.duration_ms)} proxy</span>
                   </div>
                 ) : (
                   <div className="flex flex-col items-end gap-0.5">
                     <span className="font-mono tabular-nums text-muted-foreground">{durationMs(row.duration_ms)}</span>
-                    <span className="text-[10px] uppercase tracking-wide text-muted-foreground">proxy hop</span>
+                    <span className="text-[11px] uppercase tracking-wide text-muted-foreground">proxy hop</span>
                   </div>
                 )}
               </TableCell>

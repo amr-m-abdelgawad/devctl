@@ -2,7 +2,7 @@ import type { DevctlConfig } from "../domain/config/types.ts";
 import type { ProfileId } from "../domain/ids.ts";
 import type { Plan } from "../domain/service/services.ts";
 import type { ReloadResult, StartRequest, StatusSnapshot } from "../domain/status.ts";
-import type { Report } from "../domain/doctor/types.ts";
+import type { DoctorProgress, DoctorRuntimeContext, Report } from "../domain/doctor/types.ts";
 import type { ServiceOrchestratorPort } from "./orchestrator.ts";
 
 export type DaemonCommandHost = Pick<ServiceOrchestratorPort, "start" | "stop" | "restart"> & {
@@ -26,6 +26,6 @@ export type DaemonCommands = {
   reloadConfig: { execute(): Promise<ReloadResult> };
   refreshIdentity: { execute(): Promise<void> };
   getServiceStatus: { execute(): StatusSnapshot };
-  runDoctor: { execute(cfg: DevctlConfig): Promise<Report> };
+  runDoctor: { execute(cfg: DevctlConfig, onProgress?: (progress: DoctorProgress) => void, runtime?: DoctorRuntimeContext): Promise<Report> };
   setServiceEnvironment: { execute(service: string, name: string): { service: string; env: string } };
 };

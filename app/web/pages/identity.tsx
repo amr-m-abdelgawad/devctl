@@ -90,19 +90,19 @@ export function IdentityPage(props: { status?: StatusSummary }) {
               </CardHeader>
               <CardContent className="flex flex-col gap-2 pt-0">
                 {accounts.length === 0 ? (
-                  <p className="text-[12px] text-muted-foreground">None configured — identities come from config, never hard-coded.</p>
+                  <p className="text-[13px] text-muted-foreground">None configured — identities come from config, never hard-coded.</p>
                 ) : (
                   accounts.map((row) => (
                     <div
                       key={row.email}
                       className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/50 px-2.5 py-1.5"
                     >
-                      <span className="break-all font-mono text-[12px]">{row.email}</span>
+                      <span className="break-all font-mono text-[13px]">{row.email}</span>
                       <StatusBadge value={row.status} />
                     </div>
                   ))
                 )}
-                <p className="text-[12px] text-muted-foreground">Impersonation: {impersonation}</p>
+                <p className="text-[13px] text-muted-foreground">Impersonation: {impersonation}</p>
               </CardContent>
             </Card>
           </div>
@@ -115,8 +115,8 @@ export function IdentityPage(props: { status?: StatusSummary }) {
 function Field(props: { label: string; value: string }) {
   return (
     <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border/40 py-1.5 last:border-b-0">
-      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{props.label}</span>
-      <span className="break-all font-mono text-[12px]">{props.value}</span>
+      <span className="text-[12px] uppercase tracking-wide text-muted-foreground">{props.label}</span>
+      <span className="break-all font-mono text-[13px]">{props.value}</span>
     </div>
   );
 }

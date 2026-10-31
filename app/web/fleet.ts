@@ -56,7 +56,7 @@ export function httpPortUrl(ports: Record<string, number>): string | undefined {
     return undefined;
   }
   // Pieces stay separate. The web asset build strips a literal http:// address out of the bundle.
-  return ["http", "://", "127.0.0.1:", String(port), "/"].join("");
+  return ["http", "://", "localhost:", String(port), "/"].join("");
 }
 
 /** Selection is scoped to the visible page and never silently selects hidden matches. */

@@ -105,9 +105,38 @@ test("port cleanup and shutdown validate the reviewed target and never infer a d
   await expect(callWebOperator(api, "doctor_free_port", { port: -1, pid: 42, command: "node", confirm: true })).rejects.toThrow();
   expect(calls).toHaveLength(0);
   await callWebOperator(api, "doctor_free_port", { port: 3000, pid: 42, command: "node", confirm: true });
+  await expect(callWebOperator(api, "doctor_free_ports", { holders: [{ port: 3000, pid: 42, command: "node" }] })).rejects.toThrow("confirm");
+  await expect(callWebOperator(api, "doctor_free_ports", { holders: [], confirm: true })).rejects.toThrow("at least one");
+  await expect(callWebOperator(api, "doctor_free_ports", { holders: [{ port: 0, pid: 42, command: "node" }], confirm: true })).rejects.toThrow(
+    "valid port",
+  );
   await expect(callWebOperator(api, "session_shutdown", { confirm: true })).rejects.toThrow("Choose");
   await callWebOperator(api, "session_shutdown", { stop_services: false, confirm: true });
   expect(calls).toEqual([{ port: 3000, pid: 42, command: "node" }, { shutdown: false }]);
+});
+
+test("freeing several ports confirms once and still reports a holder that changed", async () => {
+  const { api } = fixture();
+  api.operator!.freePort = async (holder) => {
+    if (holder.pid === 2) throw new Error("port 18004 changed");
+    return holder.port === 18005 ? "already-free" : "stopped";
+  };
+  expect(
+    await callWebOperator(api, "doctor_free_ports", {
+      confirm: true,
+      holders: [
+        { port: 18003, pid: 1, command: "bun" },
+        { port: 18004, pid: 2, command: "node" },
+        { port: 18005, pid: 3, command: "python" },
+      ],
+    }),
+  ).toEqual({
+    results: [
+      { port: 18003, pid: 1, command: "bun", result: "stopped" },
+      { port: 18004, pid: 2, command: "node", error: "port 18004 changed" },
+      { port: 18005, pid: 3, command: "python", result: "already-free" },
+    ],
+  });
 });
 
 test("starter and Compose import produce reviewable drafts without saving or accepting invalid ports", async () => {

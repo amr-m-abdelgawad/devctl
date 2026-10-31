@@ -202,7 +202,7 @@ function TrafficList(props: { calls: TrafficCallRow[]; caller: string; search: s
                 setInspectHash("traffic", call.id);
               }}
             >
-              <TableCell className="hidden whitespace-nowrap font-mono text-[11px] text-muted-foreground sm:table-cell">
+              <TableCell className="hidden whitespace-nowrap font-mono text-[12px] text-muted-foreground sm:table-cell">
                 <a href={hrefFor("traffic", call.id)} className="hover:underline" onClick={(event) => event.stopPropagation()}>
                   {clockMs(call.timestamp)}
                 </a>
@@ -215,7 +215,7 @@ function TrafficList(props: { calls: TrafficCallRow[]; caller: string; search: s
                 <a href={hrefFor("traffic", call.id)} className="block truncate hover:text-primary">
                   {call.method} {call.path}
                 </a>
-                <span className="block truncate text-[10px] text-muted-foreground">
+                <span className="block truncate text-[11px] text-muted-foreground">
                   {call.route}
                   {call.caller ? ` · ${call.caller}` : ""}
                 </span>

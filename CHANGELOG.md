@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The TUI Doctor screen and the web console can free every error port that names a holder, and each of those ports on its own. On the TUI, the row's **free** control and `enter` ask to stop that process; `f` (or **FREE ALL**) asks once when two or more ports can be freed. The web console shows **Free port** on each row and **Free all N ports** beside Refresh. Each holder is looked up again before a signal, and one failure does not skip the rest. A port held by this TUI is not offered. See [Doctor](docs/doctor.md).
+- The web console configuration editor is a YAML editor with line numbers, folding, tab indentation, and syntax color, for the draft, the side-by-side compare, and Compose import.
+
+### Changed
+
+- The web console ships Manrope and JetBrains Mono, so text and code look the same on Windows and macOS. Coding ligatures stay off. The active profile is labeled in the page header. The sidebar says it is connected and shows the supervisor's uptime in hours and minutes (`Connected · 19h 4m`). Service and host uptime use the same form. Opening a service's HTTP port uses `localhost`.
+- The overview lists recent proxy requests across the page, then recent errors and recent LLM calls as tables. An error opens Logs pinned on that record (`#/logs?service=…&seq=…`). Proxy routes are two-line rows. MCP connection snippets use the Claude, Cursor, Kilo Code, and Codex marks. Configuration services and configuration sources are tables; a source row expands to the full value and path. Doctor's first run shows placeholders, and a refresh keeps the current report on screen. See [Web console](docs/web.md).
+- The dashboard log tail hides timestamps and metadata with `t` and `m`, the same keys and the same saved `tui.json` values as the Logs screen. See [Logs](docs/logs.md).
+
+### Fixed
+
+- A configured port held by the process of the service that owns it is healthy, including when that service's recorded ports do not list the port but the live pid is the holder. The web console and MCP doctor now pass the running services into that check, as the TUI already did. A leftover process is still an error.
+- A folded log line, such as a Python traceback, no longer paints over the next row in the web console. The collapsed row shows the first line; wrap and the inspector still show the rest.
+
 ## [0.26.0] - 2026-10-31
 
 ### Added

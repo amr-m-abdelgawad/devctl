@@ -151,3 +151,38 @@ test("a search marks the matching text inside the log row", () => {
   expect(html).toContain("inv-2200");
   expect(html).toContain("cache miss for ");
 });
+
+test("a collapsed row shows only the first line of a folded traceback", () => {
+  const message = 'Traceback (most recent call last):\n  File "a.py", line 1';
+  const row: LogRow = {
+    seq: 1,
+    timestamp: "2026-10-29T14:30:00.000Z",
+    service: "workflows-agent",
+    source: "stderr",
+    severityText: "ERROR",
+    level: "ERROR",
+    message,
+  };
+  const render = (wrapMode: "clip" | "focus", selectedId: string) =>
+    renderToStaticMarkup(
+      <LogList
+        events={[row]}
+        selectedId={selectedId}
+        onSelect={() => {}}
+        onInspect={() => {}}
+        wrapMode={wrapMode}
+        showTimestamps={false}
+        showMeta={false}
+        follow={false}
+        onPin={() => {}}
+        onJumpLatest={() => {}}
+        newer={0}
+        onReachTop={() => {}}
+      />,
+    );
+  const clipped = render("clip", "");
+  expect(clipped).toMatch(/log-event-message"[^>]*>Traceback \(most recent call last\):</);
+  expect(clipped).not.toMatch(/log-event-message"[^>]*>[^<]*File/);
+  const wrapped = render("focus", logIdentity(row));
+  expect(wrapped).toContain("File &quot;a.py&quot;, line 1");
+});

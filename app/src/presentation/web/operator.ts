@@ -1,6 +1,8 @@
 import type { WebHost } from "../../ports/web-host.ts";
 import { importComposeYaml } from "../../application/compose-import.ts";
+import { freePortHolders } from "../../application/free-ports.ts";
 import { defaultStarterAnswers, starterConfigYaml } from "../../application/setup-starter.ts";
+import type { PortHolder } from "../../domain/net/ports.ts";
 import { mcpSnippets } from "../mcp/snippets.ts";
 import { detectorFor, callMcpTool, MCP_TOOLS } from "../mcp/tools.ts";
 
@@ -15,6 +17,38 @@ function names(args: Record<string, unknown>, key: string): string[] {
 }
 function confirm(args: Record<string, unknown>): void {
   if (args.confirm !== true) throw new Error("Review and confirm this action first");
+}
+
+const MIN_PORT = 1;
+const MAX_PORT = 65535;
+
+function parseHolder(args: Record<string, unknown>): PortHolder {
+  const port = args.port;
+  const pid = args.pid;
+  if (
+    !Number.isInteger(port) ||
+    typeof port !== "number" ||
+    port < MIN_PORT ||
+    port > MAX_PORT ||
+    !Number.isInteger(pid) ||
+    typeof pid !== "number" ||
+    pid <= 0
+  ) {
+    throw new Error("A valid port and process ID are required");
+  }
+  return { port, pid, command: text(args, "command") };
+}
+
+function isArgs(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseHolders(value: unknown): PortHolder[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error("Choose at least one port");
+  return value.map((item) => {
+    if (!isArgs(item)) throw new Error("A valid port and process ID are required");
+    return parseHolder(item);
+  });
 }
 
 export function webMcpTools(host: WebHost) {
@@ -102,19 +136,13 @@ export async function callWebOperator(host: WebHost, action: string, args: Recor
       return { ok: true };
     case "doctor_free_port": {
       confirm(args);
-      const port = args.port,
-        pid = args.pid;
-      if (
-        !Number.isInteger(port) ||
-        typeof port !== "number" ||
-        port < 1 ||
-        port > 65535 ||
-        !Number.isInteger(pid) ||
-        typeof pid !== "number" ||
-        pid <= 0
-      )
-        throw new Error("A valid port and process ID are required");
-      return { result: await operator.freePort({ port, pid, command: text(args, "command") }) };
+      const holder = parseHolder(args);
+      return { result: await operator.freePort(holder) };
+    }
+    case "doctor_free_ports": {
+      confirm(args);
+      const holders = parseHolders(args.holders);
+      return { results: await freePortHolders(holders, (holder) => operator.freePort(holder)) };
     }
     case "plan_start":
       return operator.planStart({

@@ -14,6 +14,7 @@ import { writeClipboard } from "./clipboard.ts";
 import { lookupCommand } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
+import { freeAllPrompt } from "./helpers/doctor-ports.ts";
 import { tuiLogCap } from "./helpers/logs.ts";
 import { namedPickerItems, paletteOptions, selectedSlashCommand, slashSubmitArgs } from "./helpers/command-catalog.ts";
 import { screenListCount } from "./helpers/navigation.ts";
@@ -800,6 +801,8 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
               setErrorOnly(true);
             }}
             wrapMode={logWrap}
+            showTimestamps={logShowTimestamps}
+            showMeta={logShowMeta}
             view={logSlice}
             follow={!logPinned}
             onLeaveLatest={pinLogView}
@@ -986,6 +989,22 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             onReload={() => {
               setDoctorTick((tick) => tick + 1);
               setStatus("Re-running doctor");
+            }}
+            onFreePort={(holder) => {
+              setPortTarget(holder);
+              setConfirmDetail({ port: holder.port, pid: holder.pid, process: holder.command });
+              setConfirmKind("free-port");
+              setOverlay("confirm");
+            }}
+            onFreeAll={() => {
+              const prompt = freeAllPrompt(doctor?.checks ?? []);
+              if (prompt.kind === "status") {
+                setStatus(prompt.status);
+                return;
+              }
+              setConfirmDetail(prompt.detail);
+              setConfirmKind("free-ports");
+              setOverlay("confirm");
             }}
           />
         ) : null}

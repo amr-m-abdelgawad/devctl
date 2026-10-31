@@ -959,7 +959,12 @@ export class Supervisor {
         for (const email of configuredServiceAccounts(this.cfg)) {
           await this.identity.probeServiceAccount(email);
         }
-        return this.commands.runDoctor.execute(this.cfg);
+        const snap = this.commands.getServiceStatus.execute();
+        const services: Record<string, { pid: number; ports: Record<string, number>; state?: string }> = {};
+        for (const [name, rt] of Object.entries(snap.services)) {
+          services[name] = { pid: rt.pid, ports: rt.ports, state: rt.state };
+        }
+        return this.commands.runDoctor.execute(this.cfg, undefined, { services, proxyRunning: snap.proxy.running });
       },
       exec: (service, command, printEnv) => this.execService(service, command, undefined, printEnv),
       setServiceEnvironment: (service, name) => this.commands.setServiceEnvironment.execute(service, name),

@@ -1,10 +1,10 @@
 import { McpControls } from "../components/mcp-controls.tsx";
 import { JsonViewer } from "../components/json-viewer.tsx";
 import { ChoiceGroup } from "../components/filters.tsx";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { RunControl } from "../control.ts";
 import { hrefFor } from "../hash.ts";
-import { PlayIcon, StopIcon } from "../icons.ts";
+import { CaretRightIcon, PlayIcon, StopIcon } from "../icons.ts";
 import { SearchInput } from "../components/filters.tsx";
 import { Empty } from "../components/primitives.tsx";
 import { Badge } from "../components/ui/badge.tsx";
@@ -84,38 +84,50 @@ export function ProxyPage(props: { status?: StatusSummary; config?: ConfigSummar
                 className="w-full sm:w-80"
               />
             </CardHeader>
-            <CardContent>
+            <CardContent className="pt-0">
               {routes.length === 0 ? (
                 <Empty>{search ? "No routes match your search." : "No proxy routes configured."}</Empty>
               ) : (
                 <div className="proxy-routes">
-                  {routes.map((route) => (
-                    <div key={route.name}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-medium">{route.name}</h3>
-                        <Badge variant="outline">{route.auth || "No auth"}</Badge>
-                        <Badge variant="muted">{route.transport === "grpc" ? "gRPC" : "HTTP"}</Badge>
-                      </div>
-                      <div className="route-mapping">
-                        <code>{routeMatchLabel(route.match)}</code>
-                        <span className="text-muted-foreground">→</span>
-                        <code>{route.upstream}</code>
-                      </div>
-                      {route.audience ? <p className="break-all text-xs text-muted-foreground">Audience: {route.audience}</p> : null}
-                      {route.listen ? (
-                        <p className="break-all font-mono text-xs text-muted-foreground">
-                          Listen: {route.listen.host}:{route.listen.port}
-                        </p>
-                      ) : null}
-                      <Button size="sm" variant="ghost" onClick={() => setSelected(selected === route.name ? "" : route.name)}>
-                        {selected === route.name ? "Hide details" : "Route details"}
-                      </Button>
-                      {selected === route.name ? <JsonViewer title={route.name} input={route} resetKey={route.name} /> : null}
-                      <a href={hrefFor("traffic")} className="text-xs text-primary hover:underline">
-                        Inspect traffic →
-                      </a>
-                    </div>
-                  ))}
+                  {routes.map((route) => {
+                    const open = selected === route.name;
+                    const match = routeMatchLabel(route.match);
+                    return (
+                      <Fragment key={route.name}>
+                        <div className="proxy-route">
+                          <div className="proxy-route-id">
+                            <span className="truncate font-medium">{route.name}</span>
+                            <Badge variant="muted">{route.transport === "grpc" ? "gRPC" : "HTTP"}</Badge>
+                            <Badge variant="outline">{authLabel(route.auth)}</Badge>
+                          </div>
+                          <div className="proxy-route-actions">
+                            <Button size="xs" variant="ghost" onClick={() => setSelected(open ? "" : route.name)}>
+                              {open ? "Hide" : "Details"}
+                            </Button>
+                            <Button size="xs" variant="ghost" asChild>
+                              <a href={hrefFor("traffic")}>Traffic</a>
+                            </Button>
+                          </div>
+                          <div className="proxy-route-flow">
+                            <code title={match}>{match}</code>
+                            <CaretRightIcon className="size-3 shrink-0 text-primary" aria-hidden="true" />
+                            <code title={route.upstream}>{route.upstream}</code>
+                          </div>
+                        </div>
+                        {open ? (
+                          <div className="proxy-route-detail">
+                            {route.audience ? <p className="break-all text-xs text-muted-foreground">Audience: {route.audience}</p> : null}
+                            {route.listen ? (
+                              <p className="break-all font-mono text-xs text-muted-foreground">
+                                Listen: {route.listen.host}:{route.listen.port}
+                              </p>
+                            ) : null}
+                            <JsonViewer title={route.name} input={route} resetKey={route.name} />
+                          </div>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -128,4 +140,11 @@ export function ProxyPage(props: { status?: StatusSummary; config?: ConfigSummar
 
 function routeMatchLabel(match: NonNullable<ConfigSummary["proxy"]>["routes"][number]["match"]): string {
   return typeof match === "string" ? match || "/" : `${match.host || "*"}${match.path || "/"}`;
+}
+
+function authLabel(auth: string): string {
+  if (!auth || auth.toLowerCase() === "none") {
+    return "None";
+  }
+  return auth;
 }

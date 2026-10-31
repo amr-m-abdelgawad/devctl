@@ -56,7 +56,7 @@ function Metric(props: { label: string; value: string; mono?: boolean; tone?: "d
       >
         {props.value}
       </span>
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{props.label}</span>
+      <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{props.label}</span>
     </div>
   );
 }
@@ -80,18 +80,18 @@ function SpanDetail(props: { span?: SpanRow }) {
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <Badge variant="muted">{svc}</Badge>
           {span.kind ? (
-            <Badge variant="outline" className="text-[10px]">
+            <Badge variant="outline" className="text-[11px]">
               {span.kind}
             </Badge>
           ) : null}
-          <Badge variant="outline" className="font-mono text-[10px]">
+          <Badge variant="outline" className="font-mono text-[11px]">
             {durationNs(dur)}
           </Badge>
           {isError ? <Badge variant="destructive">error</Badge> : null}
         </div>
       </div>
       {isError && span.status?.message ? (
-        <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">{span.status.message}</p>
+        <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[12px] text-destructive">{span.status.message}</p>
       ) : null}
       {attrs.length > 0 ? (
         <JsonViewer title="Attributes" input={span.attributes} resetKey={span.spanId} />
@@ -138,7 +138,7 @@ export function TracesPage(props: {
               <Badge variant="muted">{total > recent ? `${recent} of ${total.toLocaleString("en-US")}` : `${recent} recent`}</Badge>
             ) : null}
           </div>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             duration is the full pipeline; proxy hop is the HTTP call through the reverse proxy
           </span>
         </CardHeader>

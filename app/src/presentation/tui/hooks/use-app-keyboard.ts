@@ -1,11 +1,13 @@
 import { useKeyboard } from "@opentui/react";
 import { useCallback } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
+import { describePortFrees, freePortHolders } from "../../../application/free-ports.ts";
 import type { DevctlConfig } from "../../../domain/config/types.ts";
 import { humanMessage } from "../../../shared/errors.ts";
 import { type StatusSnapshot } from "../../../domain/status.ts";
 import { lookupCommand } from "../commands.ts";
 import { nextScreen, prevScreen } from "../helpers/command-catalog.ts";
+import { freeAllPrompt } from "../helpers/doctor-ports.ts";
 import { navItemForDigit } from "../helpers/navigation.ts";
 import { canStartAll } from "../helpers/services.ts";
 import { buildTopology } from "../helpers/topology.ts";
@@ -144,6 +146,28 @@ export function useAppKeyboard({
           setStatus(humanMessage(err));
         })
         .finally(() => diagnostics.refreshPort(holder.port));
+      return;
+    }
+    if (confirmKind === "free-ports") {
+      const holders = (confirmDetail?.ports ?? []).flatMap((row) =>
+        row.port > 0 && row.pid > 0 ? [{ port: row.port, pid: row.pid, command: row.process }] : [],
+      );
+      closeOverlay();
+      if (holders.length === 0) {
+        return;
+      }
+      void freePortHolders(holders, freePort)
+        .then((results) => {
+          setStatus(describePortFrees(results));
+        })
+        .catch((err: unknown) => {
+          setStatus(humanMessage(err));
+        })
+        .finally(() => {
+          for (const holder of holders) {
+            void diagnostics.refreshPort(holder.port);
+          }
+        });
       return;
     }
     closeOverlay();
@@ -396,6 +420,17 @@ export function useAppKeyboard({
     const jump = navItemForDigit(name);
     if (jump) {
       setScreen(jump);
+      return;
+    }
+    if (screen === "doctor" && name === "f" && !hasPrimaryMod(key) && !key.alt && !key.option) {
+      const prompt = freeAllPrompt(doctor?.checks ?? []);
+      if (prompt.kind === "status") {
+        setStatus(prompt.status);
+      } else {
+        setConfirmDetail(prompt.detail);
+        setConfirmKind("free-ports");
+        setOverlay("confirm");
+      }
       return;
     }
     handleScreenKey(screenCtx, key);

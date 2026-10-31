@@ -326,6 +326,21 @@ describe("TUI helpers", () => {
     expect(confirmCopy("reload", "api, worker").body).toContain("api, worker");
     expect(confirmCopy("start-profile", "backend").body).toContain("backend");
     expect(confirmCopy("free-port", "", { port: 18000, pid: 99, process: "node" }).title).toBe("Free port 18000");
+    const many = confirmCopy("free-ports", "", {
+      ports: [
+        { port: 18001, pid: 1, process: "bun" },
+        { port: 18002, pid: 2, process: "node" },
+        { port: 18003, pid: 3, process: "python" },
+        { port: 18004, pid: 4, process: "go" },
+        { port: 18005, pid: 5, process: "ruby" },
+        { port: 18006, pid: 6, process: "java" },
+        { port: 18007, pid: 7, process: "rust" },
+      ],
+    });
+    expect(many.title).toBe("Free 7 ports");
+    expect(many.body).toContain("18001 (bun pid 1)");
+    expect(many.body).toContain("and 1 more");
+    expect(many.body).not.toContain("18007");
     expect(confirmCopy("reset-prefs", "").title).toBe("Reset preferences");
     expect(confirmCopy("reset-prefs", "").body).toContain("defaults");
     expect(confirmCopy("restart-cascade", "", { services: ["api"] }).title).toBe("Restart dependents?");
@@ -460,6 +475,8 @@ describe("TUI helpers", () => {
   test("dashboard footer includes jump to latest logs", () => {
     const keys = footerHints("dashboard", "none").map((h) => h.key);
     expect(keys).toContain("g");
+    expect(keys).toContain("t");
+    expect(keys).toContain("m");
     expect(keys).toContain("z");
     expect(keys).toContain("space");
     expect(keys).toContain(displayKeybind(defaultCopyKeybind()));

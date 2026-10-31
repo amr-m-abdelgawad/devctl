@@ -40,7 +40,13 @@ export type Overlay =
 
 export type LifecycleKind = "start" | "stop" | "restart";
 
-export type ConfirmKind = "quit" | "start-profile" | "free-port" | "reload" | "reset-prefs" | "restart-cascade" | "env-restart";
+export type ConfirmKind = "quit" | "start-profile" | "free-port" | "free-ports" | "reload" | "reset-prefs" | "restart-cascade" | "env-restart";
+
+export type ConfirmPort = {
+  port: number;
+  pid: number;
+  process: string;
+};
 
 export type ConfirmDetail = {
   port?: number;
@@ -48,6 +54,7 @@ export type ConfirmDetail = {
   process?: string;
   services?: string[];
   env?: string;
+  ports?: ConfirmPort[];
 };
 
 export type FooterHint = {

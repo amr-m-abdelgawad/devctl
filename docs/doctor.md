@@ -14,9 +14,9 @@ devctl doctor --json
 
 Exit code **2** when any check is not ok (same code as configuration errors).
 
-The TUI **Doctor** screen (`/doctor` or `d`) re-runs on every visit (`r` also refreshes). `j`/`k` move. `enter` on a busy port asks to SIGTERM that process (then SIGKILL if it still holds the port). Before each signal, devctl looks up the port again: if a different process holds it now (the row is stale and the pid may have been reused), nothing is stopped and the status line names the new holder. If nothing holds the port any more, it reports the port as already free. Either way, doctor then rechecks that port only — it does not run the rest of the checks again. Ports owned by a running container service are treated as healthy; `enter` never offers to kill the Docker or Podman daemon.
+The TUI **Doctor** screen (`/doctor` or `d`) re-runs on every visit (`r` also refreshes). `j`/`k` move. Each error port that names a holder has a **free** control; `enter` on that row asks the same question. `f` (or **FREE ALL**) asks once to stop every such holder. Before each signal, devctl looks up the port again: if a different process holds it now (the row is stale and the pid may have been reused), nothing is stopped and the status line names the new holder. If nothing holds the port any more, it reports the port as already free. A failure on one port does not skip the others. Doctor then rechecks each freed port only — it does not run the rest of the checks again. Ports owned by a running container service are treated as healthy; these controls never offer to kill the Docker or Podman daemon.
 
-The [web console](web.md) **Doctor** page (`#/doctor`) runs the same checks on visit and on Refresh. It lists severity, message, and hint, including the busy-port holder. **Stop stays TUI/CLI-only** — the web page does not kill processes.
+The [web console](web.md) **Doctor** page (`#/doctor`) runs the same checks on visit and on Refresh. Each error port has **Free port**. When two or more can be freed, **Free all N ports** uses one confirmation and the same per-port recheck.
 
 ![The TUI Doctor screen — a pass/warn/error progress bar and grouped checks with hints, re-run with `r`](assets/manual/tui-doctor.png)
 

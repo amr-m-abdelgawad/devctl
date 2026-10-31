@@ -382,6 +382,7 @@ export type Route = {
   name: RouteName;
   serviceId?: string;
   logService?: string;
+  logSeq?: number;
   traceId?: string;
   llmId?: string;
   trafficId?: string;

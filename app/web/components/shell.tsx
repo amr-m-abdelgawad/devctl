@@ -1,5 +1,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { DevctlLogo } from "../brand.tsx";
+import { uptimeLabel } from "../format.ts";
+import { sessionStartedAt } from "../../src/domain/session/session.ts";
 import { hrefFor } from "../hash.ts";
 import {
   ArrowsLeftRightIcon,
@@ -23,6 +25,7 @@ import {
   ScrollIcon,
   SquaresFourIcon,
   StackIcon,
+  StackSimpleIcon,
   type Icon,
 } from "../icons.ts";
 import { cn } from "../lib/utils.ts";
@@ -114,6 +117,20 @@ const PAGES: Array<{ name: RouteName; label: string; description: string; icon: 
   },
   { name: "settings", label: "Settings", description: "Make this workspace work for you.", icon: GearIcon, group: "Manage" },
 ];
+
+function supervisorFooter(error: string, status?: StatusSummary): string {
+  if (error) {
+    return "Connection interrupted";
+  }
+  if (!status) {
+    return "Connecting…";
+  }
+  const started = sessionStartedAt(status.session_id);
+  if (!started) {
+    return "Connected";
+  }
+  return `Connected · ${uptimeLabel(Date.now() - started.getTime())}`;
+}
 
 export function ConsoleShell(props: {
   route: RouteName;
@@ -272,12 +289,9 @@ export function ConsoleShell(props: {
           </Button>
         )}
         {nav}
-        <div
-          className="sidebar-footer"
-          title={props.error ? "Connection interrupted" : props.status ? "Connected to supervisor" : "Connecting…"}
-        >
+        <div className="sidebar-footer" title={supervisorFooter(props.error, props.status)}>
           <span className={cn("size-1.5 rounded-full", props.error ? "bg-warning" : props.status ? "bg-success" : "bg-muted-foreground")} />
-          <span>{props.error ? "Connection interrupted" : props.status ? "Connected to supervisor" : "Connecting…"}</span>
+          <span>{supervisorFooter(props.error, props.status)}</span>
         </div>
       </aside>
       <div className="console-workspace">
@@ -316,7 +330,7 @@ export function ConsoleShell(props: {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-          <span className="hidden items-center gap-2 text-[11px] text-muted-foreground sm:flex">
+          <span className="hidden items-center gap-2 text-[12px] text-muted-foreground sm:flex">
             <span
               className={cn("size-1.5 rounded-full", props.error ? "bg-warning" : props.status ? "bg-success" : "bg-muted-foreground")}
             />
@@ -355,8 +369,15 @@ export function ConsoleShell(props: {
               <p className="page-description">{page.description}</p>
             </div>
             <div className="page-context">
-              <span className="status-signal" />
-              {props.status?.profile || "No active profile"}
+              <StackSimpleIcon aria-hidden="true" />
+              {props.status?.profile ? (
+                <span className="page-context-copy">
+                  <span className="page-context-label">Active profile</span>
+                  <span className="page-context-value">{props.status.profile}</span>
+                </span>
+              ) : (
+                <span className="page-context-value">No active profile</span>
+              )}
             </div>
           </div>
           {props.children}

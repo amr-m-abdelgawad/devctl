@@ -32,12 +32,12 @@ export function UpdateNotice(props: {
       <div className="mx-auto flex w-full max-w-[1600px] flex-wrap items-center gap-x-4 gap-y-2">
         <ArrowCircleUpIcon className="size-4 shrink-0 text-warning" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-medium tracking-tight text-foreground">
+          <p className="text-[14px] font-medium tracking-tight text-foreground">
             devctl {check.latest} is available
           </p>
-          <p className="text-[12px] text-muted-foreground">
+          <p className="text-[13px] text-muted-foreground">
             You&apos;re on {check.current}. After installing, restart with{" "}
-            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">devctl down</code>
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[12px]">devctl down</code>
             {" "}and start again.
           </p>
         </div>

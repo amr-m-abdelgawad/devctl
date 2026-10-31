@@ -56,6 +56,8 @@ export function Dashboard(props: {
   leftover?: PersistedState;
   search?: string;
   regex?: boolean;
+  showTimestamps?: boolean;
+  showMeta?: boolean;
 }) {
   const {
     palette,
@@ -98,6 +100,8 @@ export function Dashboard(props: {
     leftover,
     search = "",
     regex = false,
+    showTimestamps = true,
+    showMeta = true,
   } = props;
   const scale = useDensity();
   if (!cfg || names.length === 0) {
@@ -230,6 +234,8 @@ export function Dashboard(props: {
             viewStart={viewStart}
             search={search}
             regex={regex}
+            showTimestamps={showTimestamps}
+            showMeta={showMeta}
           />
         )}
         {!follow ? <JumpLatestPrompt palette={palette} width={logWidth} newer={newer} bottom={0} onJump={onJumpLatest} /> : null}

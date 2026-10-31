@@ -19,14 +19,14 @@ export function Kpi(props: { label: string; value: ReactNode; unit?: string; sub
   return (
     <div className="metric-tile min-w-0 rounded-xl border bg-card px-4 py-4">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
         {icon ? <span className="text-muted-foreground/70">{icon}</span> : null}
       </div>
       <div className="mt-2 flex items-baseline gap-1">
-        <span className={cn("text-[26px] font-semibold leading-none tabular-nums", TONE_TEXT[tone])}>{value}</span>
+        <span className={cn("text-[27px] font-semibold leading-none tabular-nums", TONE_TEXT[tone])}>{value}</span>
         {unit ? <span className="text-xs text-muted-foreground">{unit}</span> : null}
       </div>
-      {sub ? <div className="mt-1.5 text-[11px] text-muted-foreground">{sub}</div> : null}
+      {sub ? <div className="mt-1.5 text-[12px] text-muted-foreground">{sub}</div> : null}
     </div>
   );
 }

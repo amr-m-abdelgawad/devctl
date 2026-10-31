@@ -1,6 +1,8 @@
 import spinners from "cli-spinners";
 import { useEffect,useState } from "react";
+import { busyPortHolders, FREE_ALL_PORT_MINIMUM } from "../../../domain/doctor/report.ts";
 import { type Check,type DoctorProgress,type Report } from "../../../domain/doctor/types.ts";
+import type { PortHolder } from "../../../domain/net/ports.ts";
 import { EmptyState,ErrorState } from "../chrome.tsx";
 import { renderBar } from "../helpers/format.ts";
 import { ScreenFrame,scrollboxStyle,useScrollSelectedIntoView } from "../layout.tsx";
@@ -20,8 +22,10 @@ export function DoctorScreen(props: {
   selected: number;
   onPick: (index: number) => void;
   onReload: () => void;
+  onFreePort: (holder: PortHolder) => void;
+  onFreeAll: () => void;
 }) {
-  const { palette, report, loading, progress, error, selected, onPick, onReload } = props;
+  const { palette, report, loading, progress, error, selected, onPick, onReload, onFreePort, onFreeAll } = props;
   const scrollRef = useScrollSelectedIntoView(selected, ROW_PREFIX);
   if (loading) {
     return <DoctorLoading palette={palette} progress={progress} />;
@@ -35,6 +39,7 @@ export function DoctorScreen(props: {
   const okCount = report.checks.filter((c) => c.severity === "ok").length;
   const warnCount = report.checks.filter((c) => c.severity === "warn").length;
   const errorCount = report.checks.filter((c) => c.severity === "error").length;
+  const busyPorts = busyPortHolders(report.checks);
   const total = report.checks.length;
   const bar = renderBar(total > 0 ? okCount / total : 0);
   const barColor = errorCount > 0 ? palette.error : warnCount > 0 ? palette.warning : palette.success;
@@ -69,11 +74,28 @@ export function DoctorScreen(props: {
           {warnCount === 0 && errorCount === 0 ? <span fg={palette.muted}>{"  ·  all clear"}</span> : null}
         </text>
       </box>
+      {busyPorts.length >= FREE_ALL_PORT_MINIMUM ? <box height={1} flexShrink={0} /> : null}
+      {busyPorts.length >= FREE_ALL_PORT_MINIMUM ? (
+        <box height={1} flexShrink={0} overflow="hidden" onMouseDown={onFreeAll}>
+          <text wrapMode="none">
+            <span fg={palette.inverse} bg={palette.error}>{"  f  "}</span>
+            <span fg={palette.error}>{`  FREE ALL ${busyPorts.length} BUSY PORTS`}</span>
+          </text>
+        </box>
+      ) : null}
       <box height={1} flexShrink={0} />
       <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
         <box flexDirection="column" overflow="hidden" gap={1}>
           {report.checks.map((c, i) => (
-            <DoctorRow key={`${c.name}-${i}`} palette={palette} check={c} index={i} active={i === selected} onPick={onPick} />
+            <DoctorRow
+              key={`${c.name}-${i}`}
+              palette={palette}
+              check={c}
+              index={i}
+              active={i === selected}
+              onPick={onPick}
+              onFree={onFreePort}
+            />
           ))}
         </box>
       </scrollbox>
@@ -124,8 +146,16 @@ function DoctorLoading({ palette, progress }: { palette: Palette; progress: Doct
   );
 }
 
-function DoctorRow(props: { palette: Palette; check: Check; index: number; active: boolean; onPick: (index: number) => void }) {
-  const { palette, check: c, index, active, onPick } = props;
+function DoctorRow(props: {
+  palette: Palette;
+  check: Check;
+  index: number;
+  active: boolean;
+  onPick: (index: number) => void;
+  onFree: (holder: PortHolder) => void;
+}) {
+  const { palette, check: c, index, active, onPick, onFree } = props;
+  const holder = c.severity === "error" && c.action?.kind === "free-port" ? c.action.holder : undefined;
   const state = c.severity === "error" ? "ERROR" : c.severity === "warn" ? "WARN" : "OK";
   const isIssue = c.severity !== "ok";
   if (!isIssue) {
@@ -174,10 +204,13 @@ function DoctorRow(props: { palette: Palette; check: Check; index: number; activ
           {`→ ${c.hint}`}
         </text>
       ) : null}
-      {active && c.action?.kind === "free-port" ? (
-        <text fg={palette.primary} wrapMode="none">
-          {`enter  stop ${c.action.holder.command} (pid ${c.action.holder.pid})`}
-        </text>
+      {holder ? (
+        <box flexShrink={0} onMouseDown={() => onFree(holder)}>
+          <text wrapMode="none">
+            <span fg={palette.inverse} bg={palette.error}>{" free "}</span>
+            <span fg={palette.muted}>{`  stop ${holder.command} (pid ${holder.pid})${active ? "   ·  enter" : ""}`}</span>
+          </text>
+        </box>
       ) : null}
     </box>
   );

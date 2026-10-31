@@ -244,7 +244,7 @@ export function DependencyGraph(props: {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] text-muted-foreground">Depends-on flows left to right. Hover a node to isolate its neighborhood.</p>
+        <p className="text-[12px] text-muted-foreground">Depends-on flows left to right. Hover a node to isolate its neighborhood.</p>
         <TopologyLegend />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -424,11 +424,11 @@ export function DependencyGraph(props: {
                   <span className="w-1 shrink-0 self-stretch" style={{ backgroundColor: accent }} />
                   <span className="flex min-w-0 flex-1 flex-col gap-1 px-2.5 py-2">
                     <span className="flex items-center justify-between gap-2">
-                      <span className="truncate text-[13px] font-semibold tracking-tight">{svc.name}</span>
+                      <span className="truncate text-[14px] font-semibold tracking-tight">{svc.name}</span>
                       <StatusDot value={health} pulse={starting} />
                     </span>
-                    <span className="truncate text-[11px] text-muted-foreground">{blurb(svc)}</span>
-                    <span className="mt-auto flex items-center justify-between gap-2 font-mono text-[10px] text-muted-foreground">
+                    <span className="truncate text-[12px] text-muted-foreground">{blurb(svc)}</span>
+                    <span className="mt-auto flex items-center justify-between gap-2 font-mono text-[11px] text-muted-foreground">
                       <span className="truncate uppercase tracking-wide">{rt?.state || "configured"}</span>
                       <span className="truncate">{portLabel(rt, svc)}</span>
                     </span>
@@ -456,7 +456,7 @@ export function DependencyGraph(props: {
 
 function TopologyLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-3 text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
       <span className="flex items-center gap-1.5">
         <StatusDot value="healthy" />
         healthy
@@ -503,7 +503,7 @@ function TopologyInspector(props: {
         <span className="text-sm font-semibold">{svc.name}</span>
         <StatusBadge value={row?.state || "configured"} />
         {row?.health && row.health.toLowerCase() !== (row.state || "").toLowerCase() ? <StatusBadge value={row.health} /> : null}
-        {portLabel(row, svc) ? <span className="font-mono text-[11px] text-muted-foreground">{portLabel(row, svc)}</span> : null}
+        {portLabel(row, svc) ? <span className="font-mono text-[12px] text-muted-foreground">{portLabel(row, svc)}</span> : null}
         {row && onControl ? <EnvSelect row={row} busy={busy} onControl={onControl} onRestart={() => restart()} /> : null}
         {onControl ? (
           <div className="ml-auto">
@@ -517,12 +517,12 @@ function TopologyInspector(props: {
           </div>
         ) : null}
       </div>
-      {svc.description ? <p className="text-[12px] text-muted-foreground">{svc.description}</p> : null}
+      {svc.description ? <p className="text-[13px] text-muted-foreground">{svc.description}</p> : null}
       <div className="flex flex-wrap gap-x-6 gap-y-2">
         <DepList label="depends on" items={upstream} pick="from" fallback="none" onSelect={onSelect} />
         <DepList label="dependents" items={downstream} pick="to" fallback="none" onSelect={onSelect} />
       </div>
-      {row?.last_error ? <p className="font-mono text-[11px] text-destructive">{row.last_error}</p> : null}
+      {row?.last_error ? <p className="font-mono text-[12px] text-destructive">{row.last_error}</p> : null}
     </div>
   );
 }
@@ -537,9 +537,9 @@ function DepList(props: {
   const { label, items, pick, fallback, onSelect } = props;
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</span>
       {items.length === 0 ? (
-        <span className="text-[11px] text-muted-foreground">{fallback}</span>
+        <span className="text-[12px] text-muted-foreground">{fallback}</span>
       ) : (
         <div className="flex flex-wrap gap-1">
           {items.map((edge) => {
@@ -549,7 +549,7 @@ function DepList(props: {
                 <Badge variant="muted" className="gap-1.5">
                   <span className="size-1.5 rounded-full" style={{ backgroundColor: serviceColor(name) }} />
                   {name}
-                  {edge.condition ? <span className="text-[10px] opacity-70">{edge.condition}</span> : null}
+                  {edge.condition ? <span className="text-[11px] opacity-70">{edge.condition}</span> : null}
                 </Badge>
               </button>
             );

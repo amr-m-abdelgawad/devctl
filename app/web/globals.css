@@ -2,14 +2,31 @@
 
 /* ------------------------------------------------------------------ *
    devctl telemetry console — committed dark, terminal-flavored theme.
-   Tokens follow the shadcn/ui contract. Fonts are system stacks only:
-   the SPA is inlined into one self-contained blob (assets.test.ts bans
-   external URLs), so no web fonts — a good native sans + mono read
-   sharp and keep the bundle light.
+   Tokens follow the shadcn/ui contract. Manrope and JetBrains Mono are
+   embedded so Mac and Windows share one sans and one mono. Avenir Next,
+   SF Mono, and Consolas cannot be shipped to the other platform.
+   assets.test.ts bans network URLs, so the build inlines the woff2 files.
  * ------------------------------------------------------------------ */
+@font-face {
+  font-family: Manrope;
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("./fonts/manrope-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url("./fonts/jetbrains-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
 :root {
   --radius: 0.7rem;
-  --font-sans: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  --font-sans: Manrope, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 
   /* three surface elevations: app ground → panel → raised/hover */
   --background: #101413;
@@ -90,8 +107,12 @@
   --color-info: var(--info);
   --color-danger: var(--danger);
 
-  --font-sans: "Avenir Next", Avenir, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "JetBrains Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-sans: Manrope, sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.125rem;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.375rem;
 }
 
 @layer base {
@@ -109,9 +130,11 @@
     background-attachment: fixed;
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1.5;
+    font-optical-sizing: auto;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
   }
   ::selection {
@@ -139,6 +162,20 @@
 }
 
 /* Topology edges: a slow dash along healthy depends-on links. */
+@keyframes doctor-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.doctor-skeleton {
+  animation: doctor-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .doctor-skeleton {
+    animation: none;
+  }
+}
+
 @keyframes topology-dash {
   to {
     stroke-dashoffset: -28;
@@ -282,7 +319,7 @@ summary:focus-visible {
   flex: 1;
   min-width: 0;
   gap: 10px;
-  font-size: 23px;
+  font-size: 24px;
   font-weight: 650;
   letter-spacing: -1px;
 }
@@ -309,7 +346,7 @@ summary:focus-visible {
 .brand-caption {
   display: block;
   margin-top: 4px;
-  font: 8px var(--font-mono);
+  font: 9px var(--font-mono);
   letter-spacing: 0.65px;
   white-space: nowrap;
   color: var(--muted-foreground);
@@ -325,7 +362,7 @@ summary:focus-visible {
   border-radius: 7px;
   background: color-mix(in srgb, var(--primary) 12%, transparent);
   color: var(--foreground);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
 }
 .workspace-mark {
@@ -353,7 +390,7 @@ summary:focus-visible {
   margin: 0;
   padding: 0 12px 7px;
   color: var(--muted-foreground);
-  font: 9px var(--font-mono);
+  font: 10px var(--font-mono);
   letter-spacing: 1.7px;
   text-transform: uppercase;
 }
@@ -366,7 +403,7 @@ summary:focus-visible {
   padding: 8px 11px;
   border-radius: 7px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
   transition:
     background 120ms,
@@ -392,7 +429,7 @@ summary:focus-visible {
   padding: 1px 6px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--primary) 10%, transparent);
-  font: 10px var(--font-mono);
+  font: 11px var(--font-mono);
   letter-spacing: 0.2px;
 }
 .sidebar-footer {
@@ -401,7 +438,7 @@ summary:focus-visible {
   gap: 8px;
   padding: 15px 26px;
   border-top: 1px solid var(--border);
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted-foreground);
 }
 .console-workspace {
@@ -432,7 +469,7 @@ summary:focus-visible {
   border-color: var(--border);
   border-radius: 7px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 500;
 }
 .sidebar-search svg {
@@ -448,7 +485,7 @@ summary:focus-visible {
   border-radius: 4px;
   background: color-mix(in srgb, var(--foreground) 6%, transparent);
   color: var(--muted-foreground);
-  font: 10px/14px var(--font-mono);
+  font: 11px/15px var(--font-mono);
   letter-spacing: 0.3px;
 }
 .console-collapsed .sidebar-search {
@@ -522,8 +559,8 @@ summary:focus-visible {
 }
 .page-heading h1 {
   margin: 0;
-  font-size: 22px;
-  line-height: 32px;
+  font-size: 25px;
+  line-height: 34px;
   letter-spacing: -0.4px;
   font-weight: 600;
 }
@@ -571,8 +608,8 @@ summary:focus-visible {
   max-width: 70ch;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 16px;
+  font-size: 14px;
+  line-height: 18px;
 }
 .page-context {
   display: flex;
@@ -582,18 +619,33 @@ summary:focus-visible {
   max-width: 35%;
   overflow-wrap: anywhere;
   border: 1px solid var(--border);
-  padding: 7px 10px;
+  padding: 6px 10px;
   border-radius: 6px;
   color: var(--muted-foreground);
-  font: 10px var(--font-mono);
+  font: 11px var(--font-mono);
 }
-.status-signal {
+.page-context svg {
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
-  height: 6px;
-  width: 6px;
-  border-radius: 50%;
-  background: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--primary);
+}
+.page-context-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+}
+.page-context-label {
+  line-height: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.page-context-value {
+  color: var(--foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 16px;
 }
 .skip-link {
   position: fixed;
@@ -633,7 +685,7 @@ summary:focus-visible {
   background: color-mix(in srgb, var(--warning) 10%, var(--background));
   color: var(--warning);
   overflow-wrap: anywhere;
-  font-size: 12px;
+  font-size: 13px;
 }
 .workspace-actionbar {
   display: flex;
@@ -694,7 +746,7 @@ summary:focus-visible {
 .fleet-column-headings {
   padding: 7px 8px;
   color: var(--muted-foreground);
-  font: 9px var(--font-mono);
+  font: 10px var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.8px;
   background: var(--muted);
@@ -736,7 +788,7 @@ summary:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 3px 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 .service-name:hover {
@@ -774,7 +826,7 @@ summary:focus-visible {
 }
 .profile-members summary {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: 13px;
 }
 .task-output {
   max-height: 420px;
@@ -786,34 +838,57 @@ summary:focus-visible {
 .task-output pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px/1.7 var(--font-mono);
+  font: 13px/1.7 var(--font-mono);
 }
-.config-sources > div,
-.proxy-routes > div {
+.proxy-routes {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 18px 0;
+}
+.proxy-route {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
-.config-sources > div:first-child,
-.proxy-routes > div:first-child {
-  padding-top: 0;
-}
-.config-sources > div:last-child,
-.proxy-routes > div:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-.route-mapping {
+.proxy-route-id {
   display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
+  min-width: 0;
   align-items: center;
-  font-size: 12px;
+  gap: 8px;
 }
-.route-mapping code {
-  overflow-wrap: anywhere;
+.proxy-route-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 2px;
+}
+.proxy-route-flow {
+  display: flex;
+  grid-column: 1 / -1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  font: 12px var(--font-mono);
+  color: var(--muted-foreground);
+}
+.proxy-route-flow code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--foreground);
+}
+.proxy-route-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.proxy-routes > :last-child {
+  border-bottom: none;
 }
 .service-detail-dialog {
   display: flex;
@@ -839,7 +914,7 @@ summary:focus-visible {
   display: grid;
   grid-template-columns: 130px minmax(0, 1fr);
   gap: 12px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .service-facts dt {
   color: var(--muted-foreground);
@@ -894,7 +969,7 @@ summary:focus-visible {
   overflow-wrap: anywhere;
 }
 .quick-results small {
-  font: 10px var(--font-mono);
+  font: 11px var(--font-mono);
   color: var(--muted-foreground);
 }
 .quick-results svg {
@@ -981,7 +1056,7 @@ summary:focus-visible {
   width: 100%;
   padding-top: 6px;
   color: var(--muted-foreground);
-  font: 9px var(--font-mono);
+  font: 10px var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -991,7 +1066,7 @@ summary:focus-visible {
   flex: 1 1 180px;
   flex-direction: column;
   gap: 5px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
 }
 .log-date input {
@@ -1014,7 +1089,7 @@ summary:focus-visible {
   min-height: 38px;
   border-radius: 6px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
 }
 .picker-results button:hover,
 .picker-results button[aria-pressed="true"] {
@@ -1036,7 +1111,7 @@ summary:focus-visible {
 }
 @media (max-width: 1399px) {
   .fleet-row {
-    grid-template-columns: 25px minmax(140px, 1fr) 110px 120px 156px;
+    grid-template-columns: 25px minmax(140px, 1fr) 110px 148px 156px;
     gap: 10px;
   }
   .fleet-ports {
@@ -1109,10 +1184,10 @@ summary:focus-visible {
     margin-bottom: 20px;
   }
   .page-heading h1 {
-    font-size: 20px;
+    font-size: 23px;
   }
   .page-description {
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.6;
   }
   .workspace-actionbar {
@@ -1149,7 +1224,7 @@ summary:focus-visible {
   }
   .fleet-column-headings::after {
     content: "Select page";
-    font-size: 10px;
+    font-size: 11px;
   }
   .fleet-service {
     grid-template-columns: 28px minmax(0, 1fr) auto;
@@ -1191,7 +1266,7 @@ summary:focus-visible {
     justify-content: center;
   }
   .fleet-pagination select {
-    font-size: 11px;
+    font-size: 12px;
   }
   .selection-bar {
     padding: 8px;
@@ -1276,27 +1351,32 @@ summary:focus-visible {
 }
 
 .code-editor {
+  overflow: hidden;
   width: 100%;
   min-width: 0;
-  min-height: 380px;
-  resize: vertical;
   border: 1px solid var(--input);
   border-radius: 8px;
-  padding: 16px;
   background: var(--background);
-  color: var(--foreground);
-  font: 12px/1.7 var(--font-mono);
-  tab-size: 2;
-  white-space: pre;
-  overflow: auto;
-  outline: none;
 }
-.code-editor:focus-visible {
+.code-editor:focus-within {
   border-color: var(--ring);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent);
 }
-.code-editor[aria-invalid="true"] {
+.code-editor-invalid {
   border-color: var(--destructive);
+}
+.code-editor .cm-editor {
+  background: transparent;
+}
+.code-editor .cm-scroller {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.code-editor .cm-gutters {
+  background: var(--muted);
+  color: var(--muted-foreground);
+  border-right: 1px solid var(--border);
 }
 .config-compare {
   display: grid;
@@ -1308,7 +1388,7 @@ summary:focus-visible {
 }
 .config-compare h3 {
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted-foreground);
 }
 .config-compare pre {
@@ -1317,7 +1397,7 @@ summary:focus-visible {
   background: var(--background);
   padding: 14px;
   border-radius: 8px;
-  font: 11px/1.6 var(--font-mono);
+  font: 12px/1.6 var(--font-mono);
 }
 .credential-events {
   display: flex;
@@ -1336,20 +1416,63 @@ summary:focus-visible {
 .credential-events > div:last-child {
   border: none;
 }
+.mcp-clients {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+@media (min-width: 720px) {
+  .mcp-clients {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.mcp-client {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.mcp-client[aria-pressed="true"] {
+  border-color: var(--client);
+  background: color-mix(in srgb, var(--client) 14%, transparent);
+}
+.mcp-client-mark {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  color: var(--client, var(--foreground));
+}
+.mcp-client-claude { --client: #e08a6a; }
+.mcp-client-cursor { --client: #b8d4ff; }
+.mcp-client-kilo { --client: #f0c94a; }
+.mcp-client-codex { --client: #4ade80; }
+.mcp-client-path {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 11px var(--font-mono);
+  color: var(--muted-foreground);
+}
 .connection-snippet {
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-.connection-snippet summary {
-  font-size: 12px;
-}
 .connection-snippet pre {
   max-height: 300px;
   overflow: auto;
   padding: 14px 0;
-  font: 11px/1.6 var(--font-mono);
+  font: 12px/1.6 var(--font-mono);
 }
 .mcp-tools {
   max-height: 600px;
@@ -1393,9 +1516,8 @@ summary:focus-visible {
   .mcp-tools > label > div {
     flex-basis: calc(100% - 40px);
   }
-  .code-editor {
-    font-size: 12px;
-    padding: 12px;
+  .code-editor .cm-scroller {
+    font-size: 13px;
   }
 }
 .log-zen {
@@ -1418,7 +1540,7 @@ summary:focus-visible {
 }
 .log-selection-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground);
 }
 .log-selection-bar {
@@ -1438,7 +1560,7 @@ summary:focus-visible {
   min-width: 0;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .log-selection-actions {
   display: flex;
@@ -1494,7 +1616,7 @@ summary:focus-visible {
 }
 .log-details-heading h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .log-record-detail {
@@ -1527,7 +1649,7 @@ summary:focus-visible {
   grid-template-columns: 54px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
-  font-size: 11px;
+  font-size: 12px;
 }
 .log-record-facts dt {
   color: var(--muted-foreground);
@@ -1544,7 +1666,7 @@ summary:focus-visible {
   background: var(--background);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font: 12px/1.8 var(--font-mono);
+  font: 13px/1.8 var(--font-mono);
   user-select: text;
 }
 .log-details-dialog {
@@ -1578,6 +1700,7 @@ summary:focus-visible {
   padding: 0 8px;
   height: 28px;
   border-left: 2px solid transparent;
+  overflow: hidden;
   outline: none;
 }
 .log-event:hover {
@@ -1602,7 +1725,7 @@ summary:focus-visible {
 }
 .log-event-time {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 11px;
   color: var(--muted-foreground);
 }
 .log-event-service {
@@ -1612,7 +1735,7 @@ summary:focus-visible {
   width: 104px;
   flex-shrink: 0;
   min-width: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .log-event-source {
   width: 48px;
@@ -1620,17 +1743,17 @@ summary:focus-visible {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 9px;
+  font-size: 10px;
   text-transform: uppercase;
   color: var(--muted-foreground);
 }
 .log-event-message {
   min-width: 0;
-  white-space: pre;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--foreground);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 18px;
 }
 .log-search-hit {
@@ -1797,7 +1920,7 @@ summary:focus-visible {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
 }
 .theme-option-heading > span:first-child {
@@ -1813,7 +1936,7 @@ summary:focus-visible {
   min-height: 2.7em;
   white-space: normal;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.4;
   font-weight: 400;
 }
@@ -1855,7 +1978,7 @@ summary:focus-visible {
   display: flex;
   justify-content: space-between;
   color: var(--preview-text);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 500;
   line-height: 12px;
 }
@@ -1892,4 +2015,30 @@ summary:focus-visible {
 }
 .log-filter-dialog .log-options {
   padding: 0;
+}
+
+/* JetBrains Mono turns !=, =>, and -> into ligatures. Logs, paths, and
+   JSON should stay literal, and the `font` shorthand resets this. */
+:is(
+  .font-mono,
+  code,
+  kbd,
+  pre,
+  samp,
+  .brand-caption,
+  .nav-label,
+  .nav-count,
+  .sidebar-search kbd,
+  .fleet-column-headings,
+  .task-output pre,
+  .quick-results small,
+  .log-option-label,
+  .code-editor,
+  .config-compare pre,
+  .connection-snippet pre,
+  .log-readable-message,
+  .theme-preview
+) {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
 }

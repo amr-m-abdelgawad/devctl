@@ -55,7 +55,7 @@ With only service, level and source filters, the counts cover the whole log wind
 - `e` / `/filter` — ERROR and FATAL. Level chips and `/levels` choose any other combination.
 - `p` / `/pause` — freeze the live stream.
 - `z` / `/fullscreen` — hide header and nav so the stream fills a small editor terminal. `z` or `esc` exits.
-- `t` / `m` — timestamp and metadata columns (persist in `tui.json`).
+- `t` / `m` — timestamp and metadata columns (persist in `tui.json`). The dashboard tail uses the same keys and the same saved columns.
 - `w` / `/wrap` — wrap every line (default) → clip with ellipsis → unwrap only the selected row.
 - `g` — jump to latest. Leaving the tail pins the view (`pinned · +N new`).
 - `←`/`→` or click a chip — cycle service filters. Digits `1`–`5` jump nav tabs, not log sources.

@@ -641,7 +641,12 @@ export function App() {
               />
             ) : null}
             {route.name === "logs" ? (
-              <LogsPage logTotal={logTotal} serviceNames={services.map((row) => row.name)} initialService={route.logService} />
+              <LogsPage
+                logTotal={logTotal}
+                serviceNames={services.map((row) => row.name)}
+                initialService={route.logService}
+                initialSeq={route.logSeq}
+              />
             ) : null}
             {route.name === "doctor" ? <DoctorPage /> : null}
             {route.name === "system" ? <SystemPage status={status} services={services} /> : null}

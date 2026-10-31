@@ -131,7 +131,7 @@ export function ServiceFleet(props: {
               Clear filters
             </Button>
           ) : (
-            <span className="text-[11px] text-muted-foreground">Select services for bulk actions</span>
+            <span className="text-[12px] text-muted-foreground">Select services for bulk actions</span>
           )}
         </div>
         {selectedNames.length ? (
@@ -240,12 +240,12 @@ export function ServiceFleet(props: {
                     <CaretRightIcon className="size-3 shrink-0 text-muted-foreground" />
                   </a>
                   <p
-                    className="truncate text-[11px] text-muted-foreground"
+                    className="truncate text-[12px] text-muted-foreground"
                     title={row.last_error || definitions.get(row.name)?.description}
                   >
                     {row.last_error || definitions.get(row.name)?.description || (row.pid ? `PID ${row.pid}` : "Ready to start")}
                   </p>
-                  <span className="fleet-mobile-ports font-mono text-[10px] text-muted-foreground">
+                  <span className="fleet-mobile-ports font-mono text-[11px] text-muted-foreground">
                     {Object.entries(row.ports)
                       .map(([name, port]) => `${name}:${port}`)
                       .join(" · ")}
@@ -254,11 +254,11 @@ export function ServiceFleet(props: {
                 <div role="cell" className="fleet-status flex flex-col items-start gap-1">
                   <StatusBadge value={row.state} />
                   {needsAttention(row) && row.health.toUpperCase() === "UNHEALTHY" ? (
-                    <span className="text-[10px] text-warning">Health check failed</span>
+                    <span className="text-[11px] text-warning">Health check failed</span>
                   ) : row.start_period_remaining_ms !== undefined ? (
-                    <span className="text-[10px] text-muted-foreground">{Math.ceil(row.start_period_remaining_ms / 1000)}s warming up</span>
+                    <span className="text-[11px] text-muted-foreground">{Math.ceil(row.start_period_remaining_ms / 1000)}s warming up</span>
                   ) : envNeedsRestart(row) ? (
-                    <span className="text-[10px] text-warning">Restart pending</span>
+                    <span className="text-[11px] text-warning">Restart pending</span>
                   ) : null}
                 </div>
                 <div role="cell" className="fleet-env">
@@ -266,7 +266,7 @@ export function ServiceFleet(props: {
                 </div>
                 <div
                   role="cell"
-                  className="fleet-ports min-w-0 font-mono text-[11px] text-muted-foreground"
+                  className="fleet-ports min-w-0 font-mono text-[12px] text-muted-foreground"
                   title={Object.entries(row.ports)
                     .map(([name, port]) => `${name}:${port}`)
                     .join(", ")}

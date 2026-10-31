@@ -148,6 +148,21 @@ describe("doctor", () => {
     });
   });
 
+  test("treats a busy port as healthy when the holder is the running service", async () => {
+    const cfg = localCfg();
+    const host = offlineHost();
+    host.portAvailable = async () => false;
+    host.portHolder = async () => ({ port: 19991, pid: 22356, command: "bun" });
+    const report = await runDoctor(cfg, host, undefined, {
+      services: { api: { pid: 22356, ports: {} } },
+    });
+    expect(report.checks.find((check) => check.name === "Port 19991")).toEqual({
+      name: "Port 19991",
+      severity: "ok",
+      message: "in use by running service api",
+    });
+  });
+
   test("keeps an occupied port as an error when its service is stopped", async () => {
     const cfg = localCfg();
     const host = offlineHost();

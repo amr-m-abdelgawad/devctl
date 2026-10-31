@@ -11,6 +11,7 @@ import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { adcQuotaProject, adcUserAccount, detectGoogle, hasCommand, hasLocalAdcMaterial, type AdcUserAccount, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { isImageUserRoot } from "../../domain/service/container-limits.ts";
+import type { PortHolder } from "../../domain/net/ports.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
 import { lockPath, resolveUserPath } from "../storage/storage.ts";
@@ -59,6 +60,7 @@ export type DoctorHost = {
   mintToken?: (identity: string, audience: string, oauth?: OAuthClientRef) => Promise<void>;
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
   containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
+  portHolder?: (port: number) => Promise<PortHolder | undefined>;
   mintRateWarning?: () => TokenMintHotspot | undefined;
   inspectImageUser?: (runtime: string, image: string) => Promise<string | undefined>;
 };
@@ -386,13 +388,20 @@ export async function runDoctor(
         seenPorts[p.value] = name;
         const owner = runtime?.services?.[name];
         const containerIsRunning = Boolean(svc.container && owner && ["STARTING", "RUNNING", "HEALTHY", "UNHEALTHY"].includes(owner.state ?? ""));
-        const ownedByRunningService = Boolean(owner && (owner.pid > 0 || containerIsRunning) && Object.values(owner.ports).includes(p.value));
-        if (ownedByRunningService) {
+        const serviceIsLive = Boolean(owner && (owner.pid > 0 || containerIsRunning));
+        const ownsConfiguredPort = Boolean(owner && Object.values(owner.ports).includes(p.value));
+        if (serviceIsLive && ownsConfiguredPort) {
           add({ name: label, severity: "ok", message: `in use by running service ${name}` });
         } else if (await host.portAvailable(p.value)) {
           add({ name: label, severity: "ok", message: "available" });
         } else {
-          add(await busyPortCheck(label, p.value, `services.${name}.ports`));
+          const check = await busyPortCheck(label, p.value, `services.${name}.ports`, host.portHolder ?? findPortHolder);
+          const holderPid = check.action?.kind === "free-port" ? check.action.holder.pid : undefined;
+          if (serviceIsLive && owner && holderPid === owner.pid) {
+            add({ name: label, severity: "ok", message: `in use by running service ${name}` });
+          } else {
+            add(check);
+          }
         }
       }
     }
@@ -638,8 +647,13 @@ function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function busyPortCheck(label: string, port: number, configField: string): Promise<Check> {
-  const holder = await findPortHolder(port);
+async function busyPortCheck(
+  label: string,
+  port: number,
+  configField: string,
+  lookup: (port: number) => Promise<PortHolder | undefined> = findPortHolder,
+): Promise<Check> {
+  const holder = await lookup(port);
   if (!holder) {
     return {
       name: label,
@@ -660,7 +674,7 @@ async function busyPortCheck(label: string, port: number, configField: string): 
     name: label,
     severity: "error",
     message: `in use by ${holder.command} (pid ${holder.pid})`,
-    hint: "enter  stop that process after a confirmation",
+    hint: "confirm to stop that process and free the port",
     action: { kind: "free-port", holder },
   };
 }

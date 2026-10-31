@@ -75,7 +75,7 @@ export function JsonViewer(props: {
   if (coerced.pretty === "") {
     return (
       <div className={cn("min-w-0", className)}>
-        {title ? <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3> : null}
+        {title ? <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3> : null}
         <p className="text-xs text-muted-foreground">empty</p>
       </div>
     );
@@ -126,7 +126,7 @@ function Toolbar(props: {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-2">
-        {title ? <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3> : null}
+        {title ? <h3 className="text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3> : null}
         <Badge variant="outline">{kind === "json" ? "json" : "text"}</Badge>
       </div>
       <div className="flex flex-wrap items-center gap-1">
@@ -156,7 +156,7 @@ function ModeTab(props: { label: string; icon: ReactNode; active: boolean; onCli
       type="button"
       onClick={props.onClick}
       className={cn(
-        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
+        "inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium transition-colors",
         props.active ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground",
       )}
     >
@@ -172,7 +172,7 @@ function PathBar(props: { row?: JsonTreeNode; fallback: readonly JsonPathSegment
   const value = row ? copyValue(row) : "";
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-2 py-1">
-      <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-[11px] text-primary/90" title={path}>{path}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere] font-mono text-[12px] text-primary/90" title={path}>{path}</span>
       {row ? <Badge variant="muted">{row.type}{row.expandable ? ` ${row.childCount}` : ""}</Badge> : null}
       <div className="ml-auto flex items-center gap-1">
         <CopyTextButton text={path} label="Path" />
@@ -231,7 +231,7 @@ function TreePane(props: {
       tabIndex={0}
       aria-activedescendant={activeId}
       onKeyDown={onKey}
-      className="json-tree min-w-0 max-h-[min(40rem,70vh)] overflow-auto rounded-md bg-muted/40 px-1.5 py-1.5 font-mono text-[12px] leading-6 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      className="json-tree min-w-0 max-h-[min(40rem,70vh)] overflow-auto rounded-md bg-muted/40 px-1.5 py-1.5 font-mono text-[13px] leading-6 outline-none focus-visible:ring-1 focus-visible:ring-ring"
     >
       {rows.map((row) => (
         <TreeRow
@@ -346,7 +346,7 @@ function PrettyPane(props: { pretty: string; wrap: boolean; needle: string }) {
   return (
     <pre
       className={cn(
-        "json-pretty max-h-[min(40rem,70vh)] overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-[12px] leading-6 text-foreground/90",
+        "json-pretty max-h-[min(40rem,70vh)] overflow-auto rounded-md bg-muted/40 p-2.5 font-mono text-[13px] leading-6 text-foreground/90",
         wrap ? "whitespace-pre-wrap break-all" : "overflow-x-auto whitespace-pre",
       )}
     >
