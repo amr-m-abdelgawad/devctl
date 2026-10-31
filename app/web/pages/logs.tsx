@@ -485,7 +485,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
           <div className="log-selection-bar" role="region" aria-label="Selected log">
             <div className="log-selection-summary">
               <StatusBadge value={selectedEvent.level || selectedEvent.severityText || "info"} />
-              <span className="truncate font-medium">{selectedEvent.service}</span>
+              <span className="font-medium">{selectedEvent.service}</span>
               <time className="font-mono text-[12px] text-muted-foreground">{clockMs(selectedEvent.timestamp)}</time>
               <span className="text-[12px] text-muted-foreground">Selected · view pinned</span>
             </div>

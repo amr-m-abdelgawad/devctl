@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The TUI runs on OpenTUI 0.8.1. Copy uses the host pasteboard locally and the terminal clipboard over SSH, so a remote session does not write the server clipboard. Mouse input is clicks and drags. Quitting waits until the terminal is restored. The native library is larger because OpenTUI links a video decoder; the TUI does not play video.
+- Log rows show the service name in full when the pane has room for it and for a message column. `padClip` keeps a trailing gap, so the column is one cell wider than the name. A pane that cannot fit both shortens the name and keeps the message. On the web each record stays on one line: the service column is as wide as the longest name, so the level and the message line up, and the message ellipsizes.
+- Closing the terminal (`SIGHUP`) or a TUI crash detaches and leaves services running. `SIGTERM` still follows `shutdown.stop_services_on_exit`.
+
+### Fixed
+
+- Scrolling up in a following log tail leaves follow on the first wheel notch, including a move of only a row or two. A buffer that grows or shrinks still snaps back to the tail.
+
 ## [0.27.0] - 2026-10-31
 
 ### Added

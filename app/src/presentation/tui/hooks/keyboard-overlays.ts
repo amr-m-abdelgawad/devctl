@@ -17,8 +17,11 @@ function openCommandOverlay(ctx: OverlayKeyCtx): void {
   ctx.setOverlay("slash");
 }
 
-/** Returns true when an overlay consumed the key (including swallowing leftover keys). */
-export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
+export type OverlayKeyFate = "handled" | "pass" | "none";
+
+/** `handled` stops the key from reaching a focused widget. `pass` skips screen
+ * shortcuts but lets the focused input or textarea receive the key. */
+export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): OverlayKeyFate {
   const {
     overlay, tui, height, closeOverlay, confirmKind, onQuit, confirmAction, planBusy,
     logDetailsScrollRef, traceScrollRef, traceDetailScrollRef, scrollTextScrollRef, routeDetailsScrollRef, planScrollRef, helpScrollRef,
@@ -28,80 +31,80 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
   } = ctx;
   const name = (key.name ?? "").toLowerCase();
   if (overlay === "none") {
-    return false;
+    return "none";
   }
   if (overlay === "setup-wizard") {
     if (name === "escape") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (name === "return") {
       advanceWizard?.();
-      return true;
+      return "handled";
     }
-    return overlayConsumesTyping(overlay);
+    return "pass";
   }
   if (overlay === "confirm") {
     if (name === "escape") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (confirmKind === "quit" && name === "d") {
       onQuit(true);
-      return true;
+      return "handled";
     }
     if (confirmKind === "quit" && name === "k") {
       ctx.onDown(true);
-      return true;
+      return "handled";
     }
     if (confirmKind === "restart-cascade" && name === "c") {
       confirmAction("cascade");
-      return true;
+      return "handled";
     }
     if (confirmKind === "env-restart" && name === "r") {
       confirmAction("restart");
-      return true;
+      return "handled";
     }
     if (name === "return") {
       confirmAction();
     }
-    return true;
+    return "handled";
   }
   if (overlay === "span-details") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape") {
       ctx.setOverlay("trace");
-      return true;
+      return "handled";
     }
     if (name === "down" || name === "j") {
       scrollBoxBy(traceDetailScrollRef.current, tui.scroll_speed);
-      return true;
+      return "handled";
     }
     if (name === "up" || name === "k") {
       scrollBoxBy(traceDetailScrollRef.current, -tui.scroll_speed);
-      return true;
+      return "handled";
     }
     if (isPageDownKey(key)) {
       scrollBoxBy(traceDetailScrollRef.current, pageScrollAmount(height));
-      return true;
+      return "handled";
     }
     if (isPageUpKey(key)) {
       scrollBoxBy(traceDetailScrollRef.current, -pageScrollAmount(height));
-      return true;
+      return "handled";
     }
-    return true;
+    return "handled";
   }
   if (overlay === "log-details" || overlay === "llm-details" || overlay === "traffic-details" || overlay === "scroll-text" || overlay === "trace") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (overlay === "log-details" && name === "return") {
       // Follow the whole request when the log line carries a request id: this
@@ -110,150 +113,150 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
       const id = ctx.logDetail ? requestIdOf(ctx.logDetail).trim() : "";
       if (id !== "") {
         ctx.openRequest(id);
-        return true;
+        return "handled";
       }
       const traceId = ctx.logDetail?.traceId?.trim() ?? "";
       if (traceId !== "") {
         ctx.openTrace(traceId);
       }
-      return true;
+      return "handled";
     }
     if (overlay === "llm-details" && name === "return") {
       const traceId = ctx.llmDetail?.traceId?.trim() ?? "";
       if (traceId !== "") {
         ctx.openTrace(traceId);
       }
-      return true;
+      return "handled";
     }
     if (overlay === "llm-details" && name === "r") {
       ctx.toggleLlmBodyMode();
-      return true;
+      return "handled";
     }
     if (overlay === "traffic-details" && name === "return") {
       const traceId = ctx.trafficDetail?.traceId?.trim() ?? "";
       if (traceId !== "") {
         ctx.openTrace(traceId);
       }
-      return true;
+      return "handled";
     }
     if (overlay === "traffic-details" && name === "r") {
       ctx.toggleTrafficBodyMode();
-      return true;
+      return "handled";
     }
     if (overlay === "trace" && name === "return") {
       ctx.openSpanLogs();
-      return true;
+      return "handled";
     }
     if (overlay === "trace" && (name === "down" || name === "j")) {
       ctx.setTraceSpanIndex((index) => Math.min(Math.max(0, ctx.traceSpanCount - 1), index + 1));
-      return true;
+      return "handled";
     }
     if (overlay === "trace" && (name === "up" || name === "k")) {
       ctx.setTraceSpanIndex((index) => Math.max(0, index - 1));
-      return true;
+      return "handled";
     }
     const box = overlay === "log-details" || overlay === "llm-details" || overlay === "traffic-details" ? logDetailsScrollRef.current : overlay === "trace" ? traceScrollRef.current : scrollTextScrollRef.current;
     if (overlay !== "trace" && (name === "down" || name === "j")) {
       scrollBoxBy(box, tui.scroll_speed);
-      return true;
+      return "handled";
     }
     if (overlay !== "trace" && (name === "up" || name === "k")) {
       scrollBoxBy(box, -tui.scroll_speed);
-      return true;
+      return "handled";
     }
     if (isPageDownKey(key)) {
       if (overlay === "trace") {
         ctx.setTraceSpanIndex((index) => Math.min(Math.max(0, ctx.traceSpanCount - 1), index + TRACE_SPAN_PAGE));
-        return true;
+        return "handled";
       }
       scrollBoxBy(box, pageScrollAmount(height));
-      return true;
+      return "handled";
     }
     if (isPageUpKey(key)) {
       if (overlay === "trace") {
         ctx.setTraceSpanIndex((index) => Math.max(0, index - TRACE_SPAN_PAGE));
-        return true;
+        return "handled";
       }
       scrollBoxBy(box, -pageScrollAmount(height));
-      return true;
+      return "handled";
     }
-    return true;
+    return "handled";
   }
   if (overlay === "route-details") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape" || name === "return") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (name === "down" || name === "j") {
       scrollBoxBy(routeDetailsScrollRef.current, tui.scroll_speed);
-      return true;
+      return "handled";
     }
     if (name === "up" || name === "k") {
       scrollBoxBy(routeDetailsScrollRef.current, -tui.scroll_speed);
-      return true;
+      return "handled";
     }
-    return true;
+    return "handled";
   }
   if (overlay === "plan") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape" || (name === "return" && !planBusy)) {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (name === "down" || name === "j") {
       scrollBoxBy(planScrollRef.current, tui.scroll_speed);
-      return true;
+      return "handled";
     }
     if (name === "up" || name === "k") {
       scrollBoxBy(planScrollRef.current, -tui.scroll_speed);
-      return true;
+      return "handled";
     }
-    return true;
+    return "handled";
   }
   if (overlay === "help") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (name === "down" || name === "j") {
       scrollBoxBy(helpScrollRef.current, 1);
-      return true;
+      return "handled";
     }
     if (name === "up" || name === "k") {
       scrollBoxBy(helpScrollRef.current, -1);
-      return true;
+      return "handled";
     }
     if (name === "pagedown" || isPageDownKey(key)) {
       scrollBoxBy(helpScrollRef.current, HELP_SCROLL_PAGE);
-      return true;
+      return "handled";
     }
     if (name === "pageup" || isPageUpKey(key)) {
       scrollBoxBy(helpScrollRef.current, -HELP_SCROLL_PAGE);
-      return true;
+      return "handled";
     }
-    return true;
+    return "handled";
   }
   if (overlay === "themes") {
     if (isCommandChord(key, tui)) {
       revertThemePreview();
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape") {
       revertThemePreview();
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (name === "down" || name === "j") {
       setPaletteIndex((i) => {
@@ -264,7 +267,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
         }
         return next;
       });
-      return true;
+      return "handled";
     }
     if (name === "up" || name === "k") {
       setPaletteIndex((i) => {
@@ -275,7 +278,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
         }
         return next;
       });
-      return true;
+      return "handled";
     }
     if (name === "return") {
       const theme = THEME_NAMES[paletteIndex % THEME_NAMES.length];
@@ -283,24 +286,24 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
         applyTheme(theme);
       }
     }
-    return true;
+    return "handled";
   }
   if (overlay === "env") {
     if (isCommandChord(key, tui)) {
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (name === "escape") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (name === "down" || name === "j") {
       setEnvIndex((i) => Math.min(i + 1, Math.max(0, envOptions.length - 1)));
-      return true;
+      return "handled";
     }
     if (name === "up" || name === "k") {
       setEnvIndex((i) => Math.max(0, i - 1));
-      return true;
+      return "handled";
     }
     if (name === "return") {
       const option = envOptions[envIndex];
@@ -308,7 +311,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
         applyEnv(option.name);
       }
     }
-    return true;
+    return "handled";
   }
   if (overlay === "leader") {
     if (isCommandChord(key, tui)) {
@@ -316,7 +319,7 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
         clearTimeout(leaderTimer.current);
       }
       openCommandOverlay(ctx);
-      return true;
+      return "handled";
     }
     if (leaderTimer.current) {
       clearTimeout(leaderTimer.current);
@@ -327,49 +330,49 @@ export function handleOverlayKey(ctx: OverlayKeyCtx, key: KeyLike): boolean {
     if (spec) {
       void runCommand(spec, []);
     }
-    return true;
+    return "handled";
   }
   if (overlay === "config-edit") {
     if (name === "escape") {
       setConfigEditError("");
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (hasPrimaryMod(key) && name === "s") {
       saveConfigBuffer();
-      return true;
+      return "handled";
     }
-    return true;
+    return "pass";
   }
   if (overlayConsumesTyping(overlay)) {
     if (name === "escape") {
       closeOverlay();
-      return true;
+      return "handled";
     }
     if (overlay === "slash" && name === "down") {
       setSlashIndex((i) => Math.min(Math.max(filtered.length - 1, 0), i + 1));
-      return true;
+      return "handled";
     }
     if (overlay === "slash" && name === "up") {
       setSlashIndex((i) => Math.max(0, i - 1));
-      return true;
+      return "handled";
     }
     if (overlay === "slash" && name === "tab") {
       if (key.shift) {
         setSlashIndex((i) => Math.max(0, i - 1));
-        return true;
+        return "handled";
       }
       const pick = selectedSlashCommand(filtered, slashIndex);
       if (pick) {
         setQuery(slashCompleteQuery(pick));
       }
-      return true;
+      return "handled";
     }
     if (overlay === "slash" && name === "return") {
       submitSlash();
-      return true;
+      return "handled";
     }
-    return true;
+    return "pass";
   }
-  return true;
+  return "handled";
 }

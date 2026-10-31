@@ -130,7 +130,9 @@ export function useCallListScroll<T extends { id: string }>(
       return;
     }
     const childId = selectedId ? `${idPrefix}-${selectedId}` : `${idPrefix}-${index}`;
-    box.scrollChildIntoView(childId);
+    box.afterLayout(() => {
+      box.scrollChildIntoView(childId);
+    });
   }, [idPrefix, pin, selectedId]);
 
   return { scrollRef, visibleCalls, visibleStart };

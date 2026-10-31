@@ -157,8 +157,7 @@ export function TopologyScreen(props: {
       />
       <box flexGrow={1} flexDirection={stacked ? "column" : "row"} overflow="hidden">
         <box flexGrow={1} flexBasis={0} minWidth={0} overflow="hidden" flexDirection="column">
-          <scrollbox focused={false} stickyScroll={false} scrollX style={scrollboxStyle(palette)}>
-            <box flexDirection="row" overflow="hidden" gap={2}>
+          <scrollbox focused={false} stickyScroll={false} scrollX style={scrollboxStyle(palette, { flexDirection: "row", gap: 2 })}>
               {model.columns.map((wave, waveIndex) => (
                 <box
                   key={`wave-${waveIndex}`}
@@ -191,7 +190,6 @@ export function TopologyScreen(props: {
                   })}
                 </box>
               ))}
-            </box>
           </scrollbox>
         </box>
         <box

@@ -20,7 +20,7 @@ import {
   serviceRestartText,
   type ServiceEnvEntry,
 } from "../helpers/services.ts";
-import { KeyHints,MetaBar,type ChipTone } from "../layout.tsx";
+import { KeyHints, MetaBar, scrollboxStyle, type ChipTone } from "../layout.tsx";
 import { serviceColor,type Palette } from "../themes.ts";
 
 const ERROR_PREVIEW = 72;
@@ -280,14 +280,7 @@ function EnvPane(props: {
             focused={focused}
             stickyScroll={false}
             scrollX={false}
-            style={{
-              rootOptions: { flexGrow: 1, height: "100%", overflow: "hidden", backgroundColor: palette.panel },
-              viewportOptions: { backgroundColor: palette.panel },
-              contentOptions: { backgroundColor: palette.panel },
-              scrollbarOptions: {
-                trackOptions: { foregroundColor: palette.primary, backgroundColor: palette.element },
-              },
-            }}
+            style={scrollboxStyle(palette)}
           >
             <EnvTable palette={palette} entries={entries} width={width} onSelect={onSelect} />
           </scrollbox>
@@ -306,7 +299,7 @@ function EnvTable(props: {
   const { palette, entries, width, onSelect } = props;
   const cols = envTableWidths(entries.map((entry) => entry.key), Math.max(8, width - 4));
   return (
-    <box flexDirection="column" overflow="hidden">
+    <>
       <EnvRow
         keyWidth={cols.key}
         valueWidth={cols.value}
@@ -332,7 +325,7 @@ function EnvTable(props: {
           />
         );
       })}
-    </box>
+    </>
   );
 }
 

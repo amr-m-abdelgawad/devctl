@@ -2,6 +2,7 @@ import { type ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef } from "react";
 import { formatBodySummary, type LogRecord } from "../../../../domain/logs/logs.ts";
 import { padClip } from "../../helpers/format.ts";
+import { scrollboxStyle } from "../../layout.tsx";
 import {
   displayLogLevel,
   isLogFollowBottom,
@@ -9,17 +10,15 @@ import {
   LOG_LEVEL_COL,
   LOG_META_COL,
   LOG_TIME_COL,
-  logFollowMaxScroll,
   logMessageSpans,
   logRowExpanded,
   logRowKey,
   logServiceColumnWidth,
-  nextLogFollowAction,
+  followScrollDecision,
   type LogWrapMode,
 } from "../../helpers/logs.ts";
 import { logSpanColor, serviceColor, stateColor, type Palette } from "../../themes.ts";
 
-const FOLLOW_POLL_MS = 200;
 const TRACE_MARK = "◎";
 
 export function LogList(props: {
@@ -66,22 +65,66 @@ export function LogList(props: {
   }, [onLeaveLatest]);
   const slice = limit === undefined ? logs : logs.slice(-limit);
   const serviceNames = [...new Set(logs.map((ev) => ev.service))];
-  const serviceWidth = logServiceColumnWidth(width, serviceNames);
+  const serviceWidth = logServiceColumnWidth(width, serviceNames, { showTimestamps, showMeta });
   const tail = slice[slice.length - 1];
   const tailKey = tail === undefined ? "empty" : String(tail.seq);
+  const followRef = useRef(follow);
+  followRef.current = follow;
+  const followWatch = useRef({ armed: false, left: false, lastHeight: 0, lastScrollTop: 0 });
+  const onBarChange = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    followWatch.current = { armed: false, left: false, lastHeight: 0, lastScrollTop: 0 };
+  }, [follow, followTick]);
 
   useEffect(() => {
     const box = scrollRef.current;
-    if (!box) {
+    if (!box || !follow) {
       return;
     }
-    box.stickyScroll = follow;
-    if (follow) {
-      box.stickyStart = "bottom";
-      const maxY = logFollowMaxScroll(box.scrollHeight, box.viewport.height);
-      box.scrollTo({ x: box.scrollLeft, y: maxY });
-    }
+    box.stickyScroll = true;
+    box.stickyStart = "bottom";
+    box.scrollTo(Infinity);
   }, [follow, followTick, tailKey]);
+
+  onBarChange.current = () => {
+    const box = scrollRef.current;
+    const state = followWatch.current;
+    if (!box || !followRef.current || !onLeaveLatestRef.current || state.left) {
+      return;
+    }
+    const viewH = box.viewport.height;
+    if (viewH <= 0) {
+      return;
+    }
+    const height = box.scrollHeight;
+    const scrollTop = box.scrollTop;
+    const scrolledUp = scrollTop < state.lastScrollTop;
+    const decision = followScrollDecision({
+      follow: true,
+      armed: state.armed,
+      atBottom: isLogFollowBottom(scrollTop, viewH, height),
+      scrolledUp,
+      contentGrew: height > state.lastHeight,
+      contentShrunk: height < state.lastHeight,
+    });
+    state.armed = decision.armed;
+    state.lastHeight = height;
+    state.lastScrollTop = scrollTop;
+    if (decision.action === "pin") {
+      state.left = true;
+      box.stickyScroll = false;
+      onLeaveLatestRef.current?.();
+      return;
+    }
+    if (decision.action === "snap") {
+      box.stickyScroll = true;
+      box.stickyStart = "bottom";
+      box.scrollTo(Infinity);
+      state.lastScrollTop = box.scrollTop;
+      state.lastHeight = box.scrollHeight;
+    }
+  };
 
   useEffect(() => {
     const alignment = `${viewStart}:${selected}:${wrapMode}`;
@@ -96,62 +139,11 @@ export function LogList(props: {
     if (!box || selected < 0) {
       return;
     }
-    const id = `log-row-${selected}`;
-    const frame = requestAnimationFrame(() => {
-      box.stickyScroll = false;
-      box.scrollChildIntoView(id);
-    });
-    return () => cancelAnimationFrame(frame);
+    box.stickyScroll = false;
+    box.scrollChildIntoView(`log-row-${selected}`);
   }, [follow, selected, slice.length, viewStart, wrapMode]);
 
-  useEffect(() => {
-    if (!follow || !onLeaveLatest) {
-      return;
-    }
-    let armed = false;
-    let left = false;
-    let lastHeight = 0;
-    let lastScrollTop = 0;
-    const id = setInterval(() => {
-      const box = scrollRef.current;
-      if (!box || left) {
-        return;
-      }
-      const viewH = box.viewport.height;
-      if (viewH <= 0) {
-        return;
-      }
-      const height = box.scrollHeight;
-      const scrollTop = box.scrollTop;
-      const next = nextLogFollowAction({
-        follow: true,
-        armed,
-        atBottom: isLogFollowBottom(scrollTop, viewH, height),
-        scrolledUp: scrollTop < lastScrollTop,
-        contentGrew: height > lastHeight,
-        contentShrunk: height < lastHeight,
-      });
-      armed = next.armed;
-      lastHeight = height;
-      lastScrollTop = scrollTop;
-      if (next.action === "snap") {
-        const maxY = logFollowMaxScroll(height, viewH);
-        box.stickyScroll = true;
-        box.stickyStart = "bottom";
-        box.scrollTo({ x: box.scrollLeft, y: maxY });
-        lastScrollTop = box.scrollTop;
-        return;
-      }
-      if (next.action === "pin") {
-        left = true;
-        box.stickyScroll = false;
-        onLeaveLatestRef.current?.();
-      }
-    }, FOLLOW_POLL_MS);
-    return () => {
-      clearInterval(id);
-    };
-  }, [follow, followTick, onLeaveLatest]);
+  const listStyle = scrollboxStyle(palette);
 
   return (
     <box flexGrow={1} height="100%" flexDirection="column" overflow="hidden">
@@ -163,35 +155,28 @@ export function LogList(props: {
         stickyStart="bottom"
         scrollX={false}
         style={{
-          rootOptions: { flexGrow: 1, height: "100%", overflow: "hidden", backgroundColor: palette.panel },
-          viewportOptions: { backgroundColor: palette.panel },
-          contentOptions: { backgroundColor: palette.panel },
-          scrollbarOptions: {
-            trackOptions: {
-              foregroundColor: palette.primary,
-              backgroundColor: palette.element,
-            },
+          ...listStyle,
+          verticalScrollbarOptions: {
+            onChange: () => onBarChange.current(),
           },
         }}
       >
-        <box flexDirection="column" overflow="hidden">
-          {slice.map((ev, i) => (
-            <LogRow
-              id={`log-row-${i}`}
-              key={logRowKey(ev, i)}
-              palette={palette}
-              event={ev}
-              serviceWidth={serviceWidth}
-              expanded={logRowExpanded(wrapMode, i === selected)}
-              active={i === selected}
-              showTimestamps={showTimestamps}
-              showMeta={showMeta}
-              onPick={onPick ? () => onPick(i) : undefined}
-              search={search}
-              regex={regex}
-            />
-          ))}
-        </box>
+        {slice.map((ev, i) => (
+          <LogRow
+            id={`log-row-${i}`}
+            key={logRowKey(ev, i)}
+            palette={palette}
+            event={ev}
+            serviceWidth={serviceWidth}
+            expanded={logRowExpanded(wrapMode, i === selected)}
+            active={i === selected}
+            showTimestamps={showTimestamps}
+            showMeta={showMeta}
+            onPick={onPick ? () => onPick(i) : undefined}
+            search={search}
+            regex={regex}
+          />
+        ))}
       </scrollbox>
     </box>
   );
@@ -243,6 +228,8 @@ function LogRow(props: {
   const summary = formatBodySummary(event);
   const level = event.severityText;
   const meta = event.source ? (event.traceId ? `${TRACE_MARK}${event.source}` : event.source) : "";
+  const service = event.service;
+  const serviceWraps = service.length > serviceWidth;
   return (
     <box
       id={id}
@@ -250,7 +237,7 @@ function LogRow(props: {
       flexDirection="row"
       alignItems="flex-start"
       overflow="hidden"
-      height={expanded ? "auto" : 1}
+      height={expanded || serviceWraps ? "auto" : 1}
       backgroundColor={active ? palette.highlight : undefined}
       onMouseDown={onPick}
     >
@@ -260,9 +247,10 @@ function LogRow(props: {
         showTimestamps={showTimestamps}
         showMeta={showMeta}
         time={event.timestamp.slice(11, 19)}
-        service={event.service}
+        service={service}
         level={level}
         meta={meta}
+        wrapService={serviceWraps}
       />
       <box flexGrow={1} flexShrink={1} minWidth={0} overflow="hidden">
         <LogMessage palette={palette} level={level} text={summary} wrap={expanded} search={search} regex={regex} />
@@ -281,15 +269,16 @@ function LogChrome(props: {
   level: string;
   meta: string;
   header?: boolean;
+  wrapService?: boolean;
 }) {
-  const { palette, serviceWidth, showTimestamps, showMeta, time, service, level, meta, header = false } = props;
+  const { palette, serviceWidth, showTimestamps, showMeta, time, service, level, meta, header = false, wrapService = false } = props;
   const fg = header ? palette.muted : undefined;
   return (
     <box flexShrink={0} flexDirection="row" overflow="hidden">
       {showTimestamps ? (
         <LogField width={LOG_TIME_COL} fg={fg ?? palette.muted} text={time} />
       ) : null}
-      <LogField width={serviceWidth} fg={fg ?? serviceColor(service, palette)} text={service} />
+      <LogField width={serviceWidth} fg={fg ?? serviceColor(service, palette)} text={service} wrap={wrapService} />
       <box width={LOG_COL_GAP} flexShrink={0} overflow="hidden">
         <text> </text>
       </box>
@@ -302,12 +291,12 @@ function LogChrome(props: {
   );
 }
 
-function LogField(props: { width: number; fg: string; text: string }) {
-  const { width, fg, text } = props;
+function LogField(props: { width: number; fg: string; text: string; wrap?: boolean }) {
+  const { width, fg, text, wrap = false } = props;
   return (
     <box width={width} flexShrink={0} overflow="hidden">
-      <text fg={fg} wrapMode="none">
-        {padClip(text, width)}
+      <text fg={fg} wrapMode={wrap ? "char" : "none"}>
+        {wrap ? text : padClip(text, width)}
       </text>
     </box>
   );

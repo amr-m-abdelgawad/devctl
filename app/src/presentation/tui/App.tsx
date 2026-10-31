@@ -10,7 +10,7 @@ import { serviceHasNamedEnvironments } from "../../domain/service/environments.t
 import { humanMessage } from "../../shared/errors.ts";
 import { type StatusSnapshot } from "../../domain/status.ts";
 import { Header, NavStrip, NoticeBar, StatusBar } from "./chrome.tsx";
-import { writeClipboard } from "./clipboard.ts";
+import { writeClipboardText, type TuiClipboard } from "./clipboard.ts";
 import { lookupCommand } from "./commands.ts";
 import { DensityContext } from "./density.tsx";
 import { confirmCopy } from "./helpers/chrome.ts";
@@ -85,9 +85,10 @@ type AppProps = {
   bootErrorConfig?: boolean;
   terminalBackground?: string | null;
   workspace: TuiWorkspace;
+  clipboard: TuiClipboard;
 };
 
-export function App({ controller: initialController, tui, onQuit, onDown, onAttached, bootError: initialBootError, bootErrorMissing = false, bootErrorConfig = false, terminalBackground, workspace }: AppProps) {
+export function App({ controller: initialController, tui, onQuit, onDown, onAttached, bootError: initialBootError, bootErrorMissing = false, bootErrorConfig = false, terminalBackground, workspace, clipboard }: AppProps) {
   const {
     saveTuiPreferences,
     resolveTuiOverridePath,
@@ -348,6 +349,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
     snap,
     refresh,
     setStatus,
+    clipboard,
   });
   const {
     mcpPortDraft,
@@ -525,13 +527,13 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       return;
     }
     try {
-      await writeClipboard(text);
+      await writeClipboardText(clipboard, text);
       const lines = text.split("\n").length;
       setStatus(lines === 1 ? "Copied selection" : `Copied ${lines} selected lines`);
     } catch (err) {
       setStatus(humanMessage(err));
     }
-  }, [renderer]);
+  }, [clipboard, renderer]);
 
   const {
     runCommand,

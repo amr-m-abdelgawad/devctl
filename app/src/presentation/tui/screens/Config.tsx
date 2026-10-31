@@ -62,9 +62,8 @@ export function ConfigScreen(props: {
           focused={false}
           stickyScroll={false}
           scrollX={false}
-          style={scrollboxStyle(palette)}
+          style={scrollboxStyle(palette, { gap: ROW_GAP })}
         >
-          <box flexDirection="column" overflow="hidden" gap={ROW_GAP}>
             <ColumnPair
               wide={wide}
               left={
@@ -117,7 +116,6 @@ export function ConfigScreen(props: {
             <Section palette={palette} title="extras">
               <FactList palette={palette} facts={configExtraFacts(cfg)} width={inner} />
             </Section>
-          </box>
         </scrollbox>
       </box>
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">

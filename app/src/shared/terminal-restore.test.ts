@@ -72,15 +72,16 @@ describe("terminal restore", () => {
 });
 
 describe("terminal restore guards", () => {
-  test("registers exit, signal, and uncaught-error guards", () => {
+  test("registers exit and crash guards, not termination or uncaught errors", () => {
     const { proc, listeners } = fakeProcess();
     installTerminalRestoreOnExit(proc, () => {});
     expect(listeners.has("exit")).toBe(true);
-    expect(listeners.has("SIGTERM")).toBe(true);
-    expect(listeners.has("SIGHUP")).toBe(true);
     expect(listeners.has("SIGSEGV")).toBe(true);
-    expect(listeners.has("uncaughtException")).toBe(true);
-    expect(listeners.has("unhandledRejection")).toBe(true);
+    expect(listeners.has("SIGTERM")).toBe(false);
+    expect(listeners.has("SIGHUP")).toBe(false);
+    expect(listeners.has("SIGINT")).toBe(false);
+    expect(listeners.has("uncaughtException")).toBe(false);
+    expect(listeners.has("unhandledRejection")).toBe(false);
   });
 
   test("restores the terminal on a normal exit", () => {
@@ -93,38 +94,15 @@ describe("terminal restore guards", () => {
     expect(restored).toBe(1);
   });
 
-  test("restores then re-raises a termination signal for the correct exit status", () => {
+  test("restores then re-raises a crash signal", () => {
     const { proc, emit, killed } = fakeProcess();
     let restored = 0;
     installTerminalRestoreOnExit(proc, () => {
       restored += 1;
     });
-    emit("SIGTERM");
+    emit("SIGSEGV");
     expect(restored).toBe(1);
-    expect(killed).toEqual([{ pid: 4242, signal: "SIGTERM" }]);
-  });
-
-  test("restores, reports, and exits on an uncaught exception", () => {
-    const { proc, emit, stderrChunks, exits } = fakeProcess();
-    let restored = 0;
-    installTerminalRestoreOnExit(proc, () => {
-      restored += 1;
-    });
-    emit("uncaughtException", new Error("renderer died"));
-    expect(restored).toBe(1);
-    expect(exits).toEqual([1]);
-    expect(stderrChunks.join("")).toContain("renderer died");
-  });
-
-  test("restores and exits on an unhandled rejection", () => {
-    const { proc, emit, exits } = fakeProcess();
-    let restored = 0;
-    installTerminalRestoreOnExit(proc, () => {
-      restored += 1;
-    });
-    emit("unhandledRejection", "boom");
-    expect(restored).toBe(1);
-    expect(exits).toEqual([1]);
+    expect(killed).toEqual([{ pid: 4242, signal: "SIGSEGV" }]);
   });
 
   test("only installs once", () => {

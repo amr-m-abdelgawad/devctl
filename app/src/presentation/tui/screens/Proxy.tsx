@@ -248,7 +248,6 @@ export function ProxyScreen(props: {
         <box flexGrow={1} flexDirection="column" overflow="hidden">
           <CallHeader palette={palette} width={listInner} />
           <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-            <box flexDirection="column" overflow="hidden">
               {visibleCalls.map((item, index) => (
                 <CallRow
                   key={item.id}
@@ -261,7 +260,6 @@ export function ProxyScreen(props: {
                 />
               ))}
               {page.hasNext ? <text fg={palette.muted}>{"… older hops omitted"}</text> : null}
-            </box>
           </scrollbox>
         </box>
       )}
@@ -341,8 +339,7 @@ export function ProxyScreen(props: {
                   click a route for full details
                 </text>
               ) : null}
-              <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-                <box flexDirection="column" overflow="hidden" gap={1}>
+              <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette, { gap: 1 })}>
                   {routes.map((r) => {
                     const match = matchByName.get(r.name);
                     const matchText = match && (match.host || match.path) ? `${match.host || "*"}${match.path ? match.path : ""}` : undefined;
@@ -377,7 +374,6 @@ export function ProxyScreen(props: {
                       />
                     );
                   })}
-                </box>
               </scrollbox>
             </>
           )}

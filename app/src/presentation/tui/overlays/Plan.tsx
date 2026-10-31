@@ -201,8 +201,7 @@ export function PlanOverlay(props: {
         ) : null}
       </box>
 
-      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-        <box flexDirection="column" overflow="hidden" gap={1}>
+      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette, { gap: 1 })}>
           {waves.map(({ wave, waveIdx }) => {
             const status = waveStatus(wave, snap, kind);
             const presentation = wavePresentation(status, palette);
@@ -275,7 +274,6 @@ export function PlanOverlay(props: {
               </box>
             );
           })}
-        </box>
       </scrollbox>
 
       <box

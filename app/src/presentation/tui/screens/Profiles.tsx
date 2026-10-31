@@ -32,8 +32,7 @@ export function ProfilesScreen(props: {
         </text>
       </box>
       <box height={1} flexShrink={0} />
-      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-        <box flexDirection="column" overflow="hidden" gap={scale.gap || 1}>
+      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette, { gap: scale.gap || 1 })}>
           {keys.map((name, i) => {
             const isCurrent = name === profile;
             const isSelected = i === selected;
@@ -88,7 +87,6 @@ export function ProfilesScreen(props: {
               </box>
             );
           })}
-        </box>
       </scrollbox>
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">
         <KeyHints palette={palette} hints={[{ key: "space", label: "set current" }, { key: "enter", label: "set and start" }]} />

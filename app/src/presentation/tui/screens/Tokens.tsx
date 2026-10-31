@@ -89,11 +89,9 @@ export function TokensScreen(props: {
             <text fg={palette.muted} wrapMode="none">AUDIENCE / ERROR</text>
           </box>
           <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-            <box flexDirection="column" overflow="hidden">
               {events.map((event) => (
                 <EventRow key={`${event.seq}`} palette={palette} event={event} width={width} />
               ))}
-            </box>
           </scrollbox>
         </box>
       )}

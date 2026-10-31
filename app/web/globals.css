@@ -1719,6 +1719,7 @@ summary:focus-visible {
 .log-event-meta {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   min-width: 0;
   gap: 8px;
   line-height: 18px;
@@ -1732,10 +1733,12 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 104px;
-  flex-shrink: 0;
+  flex: 0 0 auto;
+  width: calc(var(--log-service-ch, 10) * 1ch + 16px);
   min-width: 0;
+  overflow: hidden;
   font-size: 12px;
+  white-space: nowrap;
 }
 .log-event-source {
   width: 48px;
@@ -1797,8 +1800,9 @@ summary:focus-visible {
   grid-row: 1;
 }
 .log-event-compact .log-event-service {
-  flex: 1;
+  flex: 1 1 auto;
   width: auto;
+  min-width: 0;
 }
 .log-event-compact :is(.log-event-source, .log-event-trace) {
   display: none;

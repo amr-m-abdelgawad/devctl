@@ -1,77 +1,48 @@
+import {
+  createClipboard,
+  createHostClipboard,
+  createRendererClipboardAdapter,
+  type ClipboardService,
+  type ClipboardWriteResult,
+  type CliRenderer,
+} from "@opentui/core";
 import { hintError, KindGeneral } from "../../shared/errors.ts";
 
-export function clipboardCommands(): string[][] {
-  if (process.platform === "darwin") {
-    return [["pbcopy"]];
-  }
-  if (process.platform === "win32") {
-    return [["clip"]];
-  }
-  return [
-    ["wl-copy"],
-    ["xclip", "-selection", "clipboard"],
-    ["xsel", "--clipboard", "--input"],
-  ];
-}
+export type TuiClipboard = Pick<ClipboardService, "writeText" | "dispose">;
 
-export function availableClipboardCommands(): string[][] {
-  return clipboardCommands().filter((cmd) => {
-    const bin = cmd[0];
-    return typeof bin === "string" && Bun.which(bin) !== null;
+export function openTuiClipboard(renderer: CliRenderer): TuiClipboard {
+  return createClipboard({
+    host: createHostClipboard(),
+    terminal: createRendererClipboardAdapter(renderer),
   });
 }
 
-export function osc52Sequence(text: string): string {
-  return `\x1b]52;c;${Buffer.from(text, "utf8").toString("base64")}\x07`;
+export function clipboardWriteSucceeded(result: ClipboardWriteResult): boolean {
+  return result.host.status === "written" || result.terminal.status === "attempted";
 }
 
-export function clipboardUnavailableHint(): string {
-  if (process.platform === "linux") {
-    return "install wl-clipboard (Wayland) or xclip (X11)";
+export function clipboardFailureDetail(result: ClipboardWriteResult): string {
+  if (result.host.status === "failed") {
+    return result.host.error.message;
   }
-  return "no clipboard helper found";
+  if (result.terminal.status === "local-failure") {
+    return "terminal clipboard write failed";
+  }
+  if (result.host.status === "timed-out" || result.host.status === "cancelled") {
+    return result.host.status;
+  }
+  return "clipboard unavailable";
 }
 
-export async function writeClipboard(text: string): Promise<void> {
-  const attempts = availableClipboardCommands();
-  let last: Error | undefined;
-  for (const cmd of attempts) {
-    try {
-      await pipeTo(cmd, text);
-      return;
-    } catch (err) {
-      last = err instanceof Error ? err : new Error(String(err));
-    }
-  }
-  if (process.platform !== "win32") {
-    try {
-      await writeOsc52(text);
-      return;
-    } catch (err) {
-      last = err instanceof Error ? err : new Error(String(err));
-    }
-  }
-  throw hintError(KindGeneral, "clipboard unavailable", last ? `${clipboardUnavailableHint()} (${last.message})` : clipboardUnavailableHint());
-}
-
-async function writeOsc52(text: string): Promise<void> {
-  const seq = osc52Sequence(text);
+export async function writeClipboardText(clipboard: Pick<ClipboardService, "writeText">, text: string): Promise<void> {
+  let result: ClipboardWriteResult;
   try {
-    await Bun.write("/dev/tty", seq);
-  } catch {
-    const ok = process.stderr.write(seq);
-    if (!ok) {
-      throw new Error("terminal clipboard write failed");
-    }
+    result = await clipboard.writeText(text, { destination: "best-available" });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw hintError(KindGeneral, "clipboard unavailable", message);
   }
-}
-
-async function pipeTo(cmd: string[], text: string): Promise<void> {
-  const proc = Bun.spawn(cmd, { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
-  proc.stdin.write(text);
-  await proc.stdin.end();
-  const code = await proc.exited;
-  if (code !== 0) {
-    throw new Error(`${cmd[0]} exited ${code}`);
+  if (!clipboardWriteSucceeded(result)) {
+    throw hintError(KindGeneral, "clipboard unavailable", clipboardFailureDetail(result));
   }
 }

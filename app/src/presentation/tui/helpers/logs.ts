@@ -1,7 +1,6 @@
 import { compileLogSearch, displaySeverityText, formatBodySummary, isErrorSeverity, isGrpcLog, isHealthCheckLog, LevelUnknown, matchesSelectedLevels, prettyPrintStructured, recordSearchText, requestIdOf, stripAnsi, type LogFacets, type LogRecord } from "../../../domain/logs/logs.ts";
 import { coerceJsonInput } from "../../../shared/json-view.ts";
 import { clipText } from "./format.ts";
-import { SERVICE_NAME_MAX } from "./services.ts";
 
 export { stripAnsi };
 
@@ -14,6 +13,8 @@ export const LOG_LEVEL_COL = 8;
 export const LOG_SERVICE_MIN = 10;
 
 export const LOG_MSG_MIN = 16;
+
+const LOG_MSG_SQUEEZE = 8;
 
 export const LOG_COL_GAP = 1;
 
@@ -362,12 +363,52 @@ export function logMessageWidth(opts: {
   return Math.max(LOG_MSG_MIN, opts.width - logChromeWidth(opts));
 }
 
-export function logServiceColumnWidth(paneWidth: number, names: string[]): number {
+export function logServiceColumnWidth(
+  paneWidth: number,
+  names: string[],
+  chrome: { showTimestamps?: boolean; showMeta?: boolean } = {},
+): number {
+  const showTimestamps = chrome.showTimestamps !== false;
+  const showMeta = chrome.showMeta !== false;
   const longest = names.reduce((max, name) => Math.max(max, name.length), 0);
-  const reserved = LOG_TIME_COL + LOG_LEVEL_COL + LOG_MSG_MIN + LOG_COL_GAP * LOG_GAPS;
-  const available = Math.max(LOG_SERVICE_MIN, paneWidth - reserved);
-  const wanted = Math.max(LOG_SERVICE_MIN, longest);
-  return Math.min(SERVICE_NAME_MAX, available, wanted);
+  // padClip keeps one trailing cell, so the column is one wider than the name.
+  const wanted = Math.max(LOG_SERVICE_MIN, longest + 1);
+  if (paneWidth <= 0) {
+    return wanted;
+  }
+  const other = logChromeWidth({ serviceWidth: 0, showTimestamps, showMeta });
+  const room = paneWidth - other - LOG_MSG_MIN;
+  if (room >= wanted) {
+    return wanted;
+  }
+  if (room >= 1) {
+    return room;
+  }
+  // The pane cannot hold a full message column. Keep a few message cells.
+  const squeezed = paneWidth - other - LOG_MSG_SQUEEZE;
+  return Math.max(1, Math.min(wanted, squeezed));
+}
+
+// A real upward scroll leaves follow even when it is still inside the bottom
+// slack. Native sticky pauses on that step, and snapping back made the wheel
+// unable to leave the tail. A size change still snaps, so a shrinking buffer
+// does not look like the user scrolled.
+export function followScrollDecision(input: {
+  readonly follow: boolean;
+  readonly armed: boolean;
+  readonly atBottom: boolean;
+  readonly scrolledUp: boolean;
+  readonly contentGrew: boolean;
+  readonly contentShrunk: boolean;
+}): { action: LogFollowAction; armed: boolean } {
+  const next = nextLogFollowAction(input);
+  if (next.action === "wait" && input.scrolledUp && input.atBottom) {
+    if (input.contentGrew || input.contentShrunk) {
+      return { action: "snap", armed: true };
+    }
+    return { action: "pin", armed: true };
+  }
+  return next;
 }
 
 const SYSTEM_LOG_SOURCES = new Set(["auth", "devctl", "proxy"]);
