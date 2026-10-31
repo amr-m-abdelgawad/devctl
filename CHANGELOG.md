@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-31
+
 ### Added
 
 - The TUI Doctor screen and the web console can free every error port that names a holder, and each of those ports on its own. On the TUI, the row's **free** control and `enter` ask to stop that process; `f` (or **FREE ALL**) asks once when two or more ports can be freed. The web console shows **Free port** on each row and **Free all N ports** beside Refresh. Each holder is looked up again before a signal, and one failure does not skip the rest. A port held by this TUI is not offered. See [Doctor](docs/doctor.md).
@@ -821,7 +823,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...HEAD
+[0.27.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.24.0...v0.25.0
 [0.24.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.23.0...v0.24.0
