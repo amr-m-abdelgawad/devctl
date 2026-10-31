@@ -64,7 +64,7 @@ import { SearchInput, SearchableFilter } from "../components/filters.tsx";
 import { Input } from "../components/ui/input.tsx";
 import type { LogRow } from "../types.ts";
 
-export function LogsPage(props: { logTotal?: number; serviceNames: string[]; initialService?: string }) {
+export function LogsPage(props: { logTotal?: number; serviceNames: string[]; initialService?: string; initialSeq?: number }) {
   const { logTotal, serviceNames } = props;
   const searchRef = useRef<HTMLInputElement>(null);
   const [searchDraft, setSearchDraft] = useState("");
@@ -87,16 +87,25 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
   useEffect(() => {
     setServiceA(props.initialService || "");
   }, [props.initialService]);
+  useEffect(() => {
+    if (typeof props.initialSeq !== "number") {
+      return;
+    }
+    setSelectedA(`seq:${props.initialSeq}`);
+    setFollowA(false);
+    setPinSeqA(props.initialSeq);
+  }, [props.initialSeq]);
+  const pinnedOnArrival = typeof props.initialSeq === "number";
   const [sinceTime, setSinceTime] = useState("");
   const [untilTime, setUntilTime] = useState("");
   const [serviceB, setServiceB] = useState("");
-  const [followA, setFollowA] = useState(true);
+  const [followA, setFollowA] = useState(!pinnedOnArrival);
   const [followB, setFollowB] = useState(true);
   const [tickA, setTickA] = useState(0);
   const [tickB, setTickB] = useState(0);
-  const [selectedA, setSelectedA] = useState("");
+  const [selectedA, setSelectedA] = useState(pinnedOnArrival ? `seq:${props.initialSeq}` : "");
   const [selectedB, setSelectedB] = useState("");
-  const [pinSeqA, setPinSeqA] = useState<number | undefined>(undefined);
+  const [pinSeqA, setPinSeqA] = useState<number | undefined>(pinnedOnArrival ? props.initialSeq : undefined);
   const [pinSeqB, setPinSeqB] = useState<number | undefined>(undefined);
   const [sessionId, setSessionId] = useState("");
   const [sessions, setSessions] = useState<string[]>([]);
@@ -372,7 +381,7 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             {total > loaded ? `${loaded.toLocaleString("en-US")} of ${total.toLocaleString("en-US")}` : loaded.toLocaleString("en-US")}
           </Badge>
           {session.truncated ? <Badge variant="outline">older history</Badge> : null}
-          <span className="ml-auto hidden text-[11px] text-muted-foreground xl:inline">
+          <span className="ml-auto hidden text-[12px] text-muted-foreground xl:inline">
             Click to select · ↑/↓ move · Enter inspect · f search · p pause · g latest
           </span>
         </div>
@@ -477,8 +486,8 @@ export function LogsPage(props: { logTotal?: number; serviceNames: string[]; ini
             <div className="log-selection-summary">
               <StatusBadge value={selectedEvent.level || selectedEvent.severityText || "info"} />
               <span className="truncate font-medium">{selectedEvent.service}</span>
-              <time className="font-mono text-[11px] text-muted-foreground">{clockMs(selectedEvent.timestamp)}</time>
-              <span className="text-[11px] text-muted-foreground">Selected · view pinned</span>
+              <time className="font-mono text-[12px] text-muted-foreground">{clockMs(selectedEvent.timestamp)}</time>
+              <span className="text-[12px] text-muted-foreground">Selected · view pinned</span>
             </div>
             <div className="log-selection-actions">
               <IconButton size="xs" variant="ghost" label="Previous log" disabled={selectedIndex <= 0} onClick={() => navigateSelection(-1)}>
@@ -669,7 +678,7 @@ function LogInspector(props: { event: LogRow; search: string; regex: boolean }) 
                 </div>
               ) : null}
             </dl>
-            <h4 className="mb-2 mt-5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Message</h4>
+            <h4 className="mb-2 mt-5 text-[12px] font-semibold uppercase tracking-wide text-muted-foreground">Message</h4>
             <pre className="log-readable-message">
               <LogSearchText text={event.message} find={findSearch} />
             </pre>
@@ -708,7 +717,7 @@ function LogPane(props: {
     >
       <button
         type="button"
-        className="flex items-center justify-between px-2 py-1 text-left text-[10px] uppercase tracking-wide text-muted-foreground"
+        className="flex items-center justify-between px-2 py-1 text-left text-[11px] uppercase tracking-wide text-muted-foreground"
         onClick={onFocus}
       >
         <span>{title}</span>

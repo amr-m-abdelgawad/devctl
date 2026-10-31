@@ -62,7 +62,7 @@ export function Waterfall(props: { spans: SpanRow[]; selected?: string; onSelect
     <div className="flex flex-col gap-2.5">
       <div className="flex flex-wrap gap-x-3 gap-y-1.5">
         {services.map((name) => (
-          <span key={name} className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span key={name} className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground">
             <span className="size-2.5 rounded-sm" style={{ backgroundColor: serviceColor(name) }} />
             {name}
           </span>
@@ -76,7 +76,7 @@ export function Waterfall(props: { spans: SpanRow[]; selected?: string; onSelect
           {GRID.map((g, i) => (
             <span
               key={g}
-              className={`absolute font-mono text-[10px] text-muted-foreground ${i === 0 ? "" : i === GRID.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`}
+              className={`absolute font-mono text-[11px] text-muted-foreground ${i === 0 ? "" : i === GRID.length - 1 ? "-translate-x-full" : "-translate-x-1/2"}`}
               style={{ left: `${g * 100}%` }}
             >
               {g === 0 ? "0" : durationNs(range * g)}
@@ -106,7 +106,7 @@ export function Waterfall(props: { spans: SpanRow[]; selected?: string; onSelect
                 <span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
                 <span className="truncate text-xs" title={span.name}>{span.name}</span>
               </div>
-              <div className={`${DUR_COL} pr-2 text-right font-mono text-[10px] tabular-nums text-muted-foreground`}>
+              <div className={`${DUR_COL} pr-2 text-right font-mono text-[11px] tabular-nums text-muted-foreground`}>
                 {durationNs(dur)}
               </div>
               <div className="relative h-5 flex-1 overflow-hidden">

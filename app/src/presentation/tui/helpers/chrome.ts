@@ -5,6 +5,8 @@ import { runningLabel } from "./logs.ts";
 import { tabChipWidth } from "./navigation.ts";
 import { updateChipLabel } from "./notifications.ts";
 
+const FREE_PORTS_LIST_LIMIT = 6;
+
 export const NARROW_WIDTH = 100;
 
 export const HEADER_STACK_WIDTH = 90;
@@ -185,6 +187,18 @@ export function confirmCopy(kind: ConfirmKind, profile: string, detail?: Confirm
     return {
       title: `Free port ${port}`,
       body: `Stop ${proc} (pid ${pid}) so port ${port} can be used? This sends SIGTERM, then SIGKILL if it stays up.`,
+    };
+  }
+  if (kind === "free-ports") {
+    const rows = detail?.ports ?? [];
+    const listed = rows
+      .slice(0, FREE_PORTS_LIST_LIMIT)
+      .map((row) => `${row.port} (${row.process || "process"} pid ${row.pid})`)
+      .join(", ");
+    const extra = rows.length > FREE_PORTS_LIST_LIMIT ? `, and ${rows.length - FREE_PORTS_LIST_LIMIT} more` : "";
+    return {
+      title: `Free ${rows.length} ports`,
+      body: `Stop the processes holding ${listed}${extra}? Each port is checked again before a signal is sent.`,
     };
   }
   return {

@@ -11,6 +11,7 @@ import {
   logFollowMaxScroll,
   LOG_FOLLOW_SLACK_PX,
   LOG_OVERSCAN,
+  clipLogMessage,
   logIdentity,
   logRowExpanded,
   logSearchFinder,
@@ -232,7 +233,7 @@ export function LogList(props: LogListProps) {
         }
         aria-keyshortcuts="ArrowUp ArrowDown Home End Enter"
         tabIndex={0}
-        className="log-scroller absolute inset-0 overflow-auto font-mono text-[12px]"
+        className="log-scroller absolute inset-0 overflow-auto font-mono text-[13px]"
         onScroll={onScroll}
         onMouseDown={onActivate}
         onFocus={onActivate}
@@ -267,7 +268,7 @@ export function LogList(props: LogListProps) {
           if (row) onSelect(logIdentity(row, index));
         }}
       >
-        {loadingOlder ? <p className="px-2 py-1 text-[11px] text-muted-foreground">Loading older events…</p> : null}
+        {loadingOlder ? <p className="px-2 py-1 text-[12px] text-muted-foreground">Loading older events…</p> : null}
         <div className="relative w-full" style={{ height: totalHeight }}>
           {slice.map((row, offset) => {
             const index = range.start + offset;
@@ -327,6 +328,7 @@ function LogEventRow(props: {
   const { row, id, domId, top, expanded, compact, selected, showTimestamps, showMeta, findSearch, onSelect, onInspect, onMeasure } = props;
   const level = row.level || row.severityText || "info";
   const error = isErrorLog(row);
+  const shown = expanded ? row.message : clipLogMessage(row.message);
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
     if (expanded && ref.current) {
@@ -380,7 +382,7 @@ function LogEventRow(props: {
         ) : null}
       </div>
       <span className="log-event-message" title={row.message}>
-        <LogSearchText text={row.message} find={findSearch} />
+        <LogSearchText text={shown} find={findSearch} />
       </span>
       <button
         type="button"

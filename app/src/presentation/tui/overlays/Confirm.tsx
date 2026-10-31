@@ -22,7 +22,7 @@ export function ConfirmOverlay(props: {
       termW={termW}
       termH={termH}
       preferW={52}
-      preferH={8}
+      preferH={kind === "free-ports" ? 12 : 8}
       borderColor={palette.warning}
       gap={1}
     >

@@ -67,7 +67,7 @@ export function TrafficInspector(props: {
         <Kv label="request" value={call.request_id || call.id} />
         {traceId !== "" ? (
           <div className="flex items-baseline gap-2">
-            <dt className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">trace</dt>
+            <dt className="w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">trace</dt>
             <dd><TraceLink id={traceId} /></dd>
           </div>
         ) : null}
@@ -129,7 +129,7 @@ function ModeTab(props: { label: string; active: boolean; onClick: () => void })
 function Kv(props: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
-      <dt className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">{props.label}</dt>
+      <dt className="w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{props.label}</dt>
       <dd className="min-w-0 break-all font-mono text-foreground/90">{props.value}</dd>
     </div>
   );

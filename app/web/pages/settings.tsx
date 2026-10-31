@@ -41,7 +41,7 @@ function PrefRow(props: { label: string; hint?: string; layer?: PreferenceLayer;
           <span className="text-sm text-foreground">{props.label}</span>
           {badge ? <Badge variant="muted">{badge}</Badge> : null}
         </div>
-        {props.hint ? <p className="mt-0.5 break-words text-[11px] text-muted-foreground">{props.hint}</p> : null}
+        {props.hint ? <p className="mt-0.5 break-words text-[12px] text-muted-foreground">{props.hint}</p> : null}
       </div>
       <div className="flex flex-wrap items-center justify-end gap-2">{props.children}</div>
     </div>
@@ -136,7 +136,7 @@ export function SettingsPage(props: {
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Shared workspace preferences</h2>
-          <p className="mt-1 max-w-xl text-[12px] text-muted-foreground">
+          <p className="mt-1 max-w-xl text-[13px] text-muted-foreground">
             This repository overlay wins over your user file. MCP listen stays per checkout. The web console switch writes gitignored{" "}
             <span className="font-mono">.devctl/config.local.yaml</span>.
           </p>
@@ -279,7 +279,7 @@ export function SettingsPage(props: {
           <PrefRow label="Web console" hint={`Writes ${prefs.paths.local}. Loopback host is unchanged.`}>
             {confirmOff ? (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[11px] text-warning">This tab will disconnect.</span>
+                <span className="text-[12px] text-warning">This tab will disconnect.</span>
                 <Button
                   type="button"
                   size="xs"
@@ -362,12 +362,12 @@ export function SettingsPage(props: {
         </CardHeader>
         <CardContent>
           <PrefRow label="User file" hint="Defaults for every checkout.">
-            <span className="max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={prefs.paths.user}>
+            <span className="max-w-[420px] truncate font-mono text-[12px] text-muted-foreground" title={prefs.paths.user}>
               {prefs.paths.user}
             </span>
           </PrefRow>
           <PrefRow label="Repo file" hint="Per-checkout overlay, including MCP listen.">
-            <span className="max-w-[420px] truncate font-mono text-[11px] text-muted-foreground" title={prefs.paths.repo}>
+            <span className="max-w-[420px] truncate font-mono text-[12px] text-muted-foreground" title={prefs.paths.repo}>
               {prefs.paths.repo}
             </span>
           </PrefRow>

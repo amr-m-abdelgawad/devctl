@@ -9,6 +9,7 @@ import { Input } from "./ui/input.tsx";
 import { ConfirmAction } from "./confirm-action.tsx";
 import { ChoiceGroup } from "./filters.tsx";
 import { Badge } from "./ui/badge.tsx";
+import { YamlEditor } from "./yaml-editor.tsx";
 
 export function ConfigEditor(props: { active: boolean; onControl: RunControl }) {
   const [document, setDocument] = useState<ConfigDocument>();
@@ -138,16 +139,10 @@ export function ConfigEditor(props: { active: boolean; onControl: RunControl }) 
             >
               Create starter draft
             </Button>
-            <label className="flex flex-col gap-2 text-xs">
+            <div className="flex flex-col gap-2 text-xs">
               Paste Docker Compose YAML
-              <textarea
-                className="code-editor"
-                value={compose}
-                onChange={(event) => setCompose(event.currentTarget.value)}
-                placeholder="services:…"
-                spellCheck={false}
-              />
-            </label>
+              <YamlEditor label="Docker Compose YAML" value={compose} onChange={setCompose} placeholder="services:…" height="280px" />
+            </div>
             <Button
               variant="outline"
               disabled={!document || Boolean(pending) || !compose.trim()}
@@ -171,28 +166,27 @@ export function ConfigEditor(props: { active: boolean; onControl: RunControl }) 
           <div className="config-compare">
             <section>
               <h3>On disk</h3>
-              <pre>{document?.text || "Empty file"}</pre>
+              <YamlEditor label="Configuration on disk" value={document?.text || ""} readOnly height="360px" />
             </section>
             <section>
               <h3>Your draft</h3>
-              <pre>{draft || "Empty draft"}</pre>
+              <YamlEditor label="Configuration draft" value={draft} readOnly height="360px" />
             </section>
           </div>
         ) : (
-          <label className="flex flex-col gap-2 text-xs">
+          <div className="flex flex-col gap-2 text-xs">
             Configuration YAML
-            <textarea
-              className="code-editor"
+            <YamlEditor
+              label="Configuration YAML"
               value={draft}
-              disabled={!document}
-              onChange={(event) => {
-                setDraft(event.currentTarget.value);
+              readOnly={!document}
+              invalid={issues.length > 0}
+              onChange={(value) => {
+                setDraft(value);
                 setResult(undefined);
               }}
-              spellCheck={false}
-              aria-invalid={issues.length > 0}
             />
-          </label>
+          </div>
         )}
         {importNotes.length ? (
           <details>
@@ -259,7 +253,7 @@ export function ConfigEditor(props: { active: boolean; onControl: RunControl }) 
             disabled={Boolean(pending)}
             onConfirm={load}
           />
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[12px] text-muted-foreground">
             {validated !== draft ? "Validate to enable saving." : "Draft is ready to save."}
           </span>
         </div>

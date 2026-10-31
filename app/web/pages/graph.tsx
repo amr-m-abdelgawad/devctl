@@ -94,8 +94,8 @@ export function GraphPage(props: {
 
       <div className="flex flex-col gap-2">
         <div className="flex flex-col gap-1 px-0.5">
-          <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Live signals</h2>
-          <p className="text-[12px] text-muted-foreground">
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Live signals</h2>
+          <p className="text-[13px] text-muted-foreground">
             How the stack is behaving right now: proxy traffic, log volume, and load on this machine. Hover a plot for a timestamp.
           </p>
         </div>

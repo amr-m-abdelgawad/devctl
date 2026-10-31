@@ -1,0 +1,13 @@
+Manrope
+Copyright 2018 The Manrope Project Authors (https://github.com/sharanda/manrope)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The license is available with a FAQ at https://openfontlicense.org
+The Manrope source and full license text are at https://github.com/sharanda/manrope
+
+JetBrains Mono
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+The license is available with a FAQ at https://openfontlicense.org
+The JetBrains Mono source and full license text are at https://github.com/JetBrains/JetBrainsMono

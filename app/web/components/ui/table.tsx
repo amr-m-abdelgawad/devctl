@@ -22,7 +22,7 @@ export function TableRow({ className, ...props }: ComponentProps<"tr">) {
 }
 
 export function TableHead({ className, ...props }: ComponentProps<"th">) {
-  return <th className={cn("h-8 px-2 text-left align-middle text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground", className)} {...props} />;
+  return <th className={cn("h-8 px-2 text-left align-middle text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground", className)} {...props} />;
 }
 
 export function TableCell({ className, ...props }: ComponentProps<"td">) {

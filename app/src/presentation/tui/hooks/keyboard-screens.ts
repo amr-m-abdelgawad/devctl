@@ -103,11 +103,11 @@ export function handleScreenKey(ctx: ScreenKeyCtx, key: KeyLike): void {
     toggleTrafficBodyMode();
     return;
   }
-  if (screen === "logs" && name === "t") {
+  if ((screen === "logs" || screen === "dashboard") && name === "t") {
     applyLogTimestamps(!logShowTimestamps);
     return;
   }
-  if (screen === "logs" && name === "m") {
+  if ((screen === "logs" || screen === "dashboard") && name === "m") {
     applyLogMetadata(!logShowMeta);
     return;
   }

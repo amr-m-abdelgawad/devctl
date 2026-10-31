@@ -120,7 +120,7 @@ export function ServiceDetail(props: {
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3">
                 <div>
                   <p className="text-xs font-medium">Environment overlay</p>
-                  <p className="text-[11px] text-muted-foreground">Restart the service to apply a pending change.</p>
+                  <p className="text-[12px] text-muted-foreground">Restart the service to apply a pending change.</p>
                 </div>
                 <EnvSelect row={row} busy={busy} onControl={onControl} onRestart={(target) => requestRestart([target])} />
               </div>

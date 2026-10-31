@@ -65,7 +65,7 @@ export function CredentialActivity() {
                     <Badge variant={event.kind === "failed" ? "destructive" : event.kind === "changed" ? "info" : "success"}>
                       {event.kind}
                     </Badge>
-                    <time className="font-mono text-[11px] text-muted-foreground">{clockMs(event.timestamp)}</time>
+                    <time className="font-mono text-[12px] text-muted-foreground">{clockMs(event.timestamp)}</time>
                   </div>
                   <p className="break-all font-mono text-xs">{event.identity || "Default identity"}</p>
                   <p className="break-all text-xs text-muted-foreground">{event.error || event.audience || "Identity changed"}</p>

@@ -29,6 +29,7 @@ import {
   isHealthCheckRow,
   isSystemLog,
   toggleListedLevel,
+  clipLogMessage,
   logIdentity,
   logSearchFinder,
   logWrapLabel,
@@ -179,6 +180,13 @@ describe("log filters and wrap", () => {
     expect(filterLogRows(rows, { levels: ["WARN", "ERROR"] }).map((row) => row.seq)).toEqual([3]);
     expect(toggleListedLevel(["WARN"], "error")).toEqual(["WARN", "ERROR"]);
     expect(facetLevelCount({ INFO: 2, WARNING: 1 }, "WARN")).toBe(1);
+  });
+
+  test("a folded traceback clips to its first line", () => {
+    expect(clipLogMessage("ready")).toBe("ready");
+    expect(clipLogMessage("Traceback (most recent call last):\n  File \"a.py\", line 1")).toBe("Traceback (most recent call last):");
+    expect(clipLogMessage("a\r\nb")).toBe("a");
+    expect(clipLogMessage("a\rb")).toBe("a");
   });
 
   test("wrap cycles clip → wrap selected → wrap all", () => {

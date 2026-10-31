@@ -10,7 +10,17 @@ export function parseHash(hash: string): Route {
     return { name: "services", serviceId: decodeHashId(parts[1]) };
   }
   if (head === "logs") {
-    return { name: "logs", logService: new URLSearchParams(query).get("service") || undefined };
+    const params = new URLSearchParams(query);
+    const service = params.get("service") || undefined;
+    const seq = logSeqParam(params.get("seq"));
+    const route: Route = { name: "logs" };
+    if (service) {
+      route.logService = service;
+    }
+    if (seq !== undefined) {
+      route.logSeq = seq;
+    }
+    return route;
   }
   if (head === "traces") {
     return { name: "traces", traceId: decodeHashId(parts[1]) };
@@ -36,6 +46,19 @@ export function parseHash(hash: string): Route {
   return { name: "services" };
 }
 
+/** Logs for one service, optionally pinned on a record. */
+export function logsHref(service?: string, seq?: number): string {
+  const params = new URLSearchParams();
+  if (service) {
+    params.set("service", service);
+  }
+  if (typeof seq === "number" && Number.isInteger(seq) && seq >= 0) {
+    params.set("seq", String(seq));
+  }
+  const query = params.toString();
+  return query === "" ? "#/logs" : `#/logs?${query}`;
+}
+
 export function hrefFor(name: RouteName, id?: string): string {
   if ((name === "traces" || name === "llm" || name === "traffic" || name === "services") && id) {
     return `#/${name}/${encodeURIComponent(id)}`;
@@ -52,6 +75,14 @@ export function setInspectHash(name: Extract<RouteName, "llm" | "traffic" | "tra
   if (window.location.hash !== next) {
     window.location.hash = next;
   }
+}
+
+function logSeqParam(raw: string | null): number | undefined {
+  if (raw === null || !/^\d+$/.test(raw)) {
+    return undefined;
+  }
+  const seq = Number(raw);
+  return Number.isSafeInteger(seq) ? seq : undefined;
 }
 
 function decodeHashId(raw: string | undefined): string | undefined {

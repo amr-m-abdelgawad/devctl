@@ -49,7 +49,7 @@ export function StatusBadge({ value, className }: { value: string; className?: s
   const tone = toneOf(value);
   const variant = (tone === "muted" ? "muted" : tone) as BadgeProps["variant"];
   return (
-    <Badge variant={variant} className={cn("gap-1.5 pl-1.5 font-mono text-[10px] uppercase tracking-wide", className)}>
+    <Badge variant={variant} className={cn("gap-1.5 pl-1.5 font-mono text-[11px] uppercase tracking-wide", className)}>
       <span className="size-1.5 rounded-full" style={{ backgroundColor: toneColor(value) }} />
       {value}
     </Badge>

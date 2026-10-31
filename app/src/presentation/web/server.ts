@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { join } from "node:path";
 import { formatHostPort, hostnameFromHostHeader, isLoopbackBindHost, isLoopbackHostname, isLoopbackPeer } from "../../domain/net/hosts.ts";
@@ -518,16 +518,30 @@ function writeHtml(res: ServerResponse, html: string): void {
 
 // Prefer the on-disk blob when running from source so `bun run build:web`
 // is enough to refresh the UI. Compiled binaries have no sibling .ts file.
+// The blob is about a megabyte, so it is parsed once per mtime.
+const htmlCache: { mtimeMs: number; html: string } = { mtimeMs: -1, html: "" };
+
 function pageHtml(): string {
-  let source = "";
+  const path = join(import.meta.dir, "assets.generated.ts");
+  let mtimeMs = 0;
   try {
-    source = readFileSync(join(import.meta.dir, "assets.generated.ts"), "utf8");
+    mtimeMs = statSync(path).mtimeMs;
   } catch (err) {
     if (isEnoent(err)) {
       return WEB_INDEX_HTML;
     }
     throw err;
   }
+  if (htmlCache.mtimeMs === mtimeMs) {
+    return htmlCache.html;
+  }
+  const html = parsePageHtml(readFileSync(path, "utf8"));
+  htmlCache.mtimeMs = mtimeMs;
+  htmlCache.html = html;
+  return html;
+}
+
+function parsePageHtml(source: string): string {
   const match = HTML_BLOB.exec(source);
   if (!match?.[1]) {
     return WEB_INDEX_HTML;

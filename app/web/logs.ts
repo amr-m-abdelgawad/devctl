@@ -92,6 +92,12 @@ export function logRowExpanded(mode: LogWrapMode, selected: boolean): boolean {
   return mode === "all" || (mode === "focus" && selected);
 }
 
+/** First line of a folded record. A clip row is one slot tall, so the rest stays in wrap mode and the inspector. */
+export function clipLogMessage(message: string): string {
+  const breakAt = message.search(/\r\n|\n|\r/);
+  return breakAt === -1 ? message : message.slice(0, breakAt);
+}
+
 export function nextLogSelectionIndex(length: number, current: number, delta: number): number {
   if (length === 0) return -1;
   if (current < 0) return delta < 0 ? length - 1 : 0;

@@ -29,6 +29,31 @@ export function relative(ts: string): string {
   return `${Math.floor(secs / 86400)}d`;
 }
 
+const MS_PER_MINUTE = 60_000;
+const MS_PER_HOUR = 60 * MS_PER_MINUTE;
+const MS_PER_DAY = 24 * MS_PER_HOUR;
+
+/** Elapsed time with the next smaller unit, so 19 hours is "19h 4m" rather than "19h". */
+export function uptimeLabel(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) {
+    return "—";
+  }
+  const days = Math.floor(ms / MS_PER_DAY);
+  const hours = Math.floor((ms % MS_PER_DAY) / MS_PER_HOUR);
+  const minutes = Math.floor((ms % MS_PER_HOUR) / MS_PER_MINUTE);
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m`;
+  }
+  const seconds = Math.floor(ms / 1000);
+  return seconds < 2 ? "now" : `${seconds}s`;
+}
+
 /** Inclusive span window; swapped if the exporter sent end before start. */
 export function spanBounds(span: { startUnixNano: number; endUnixNano: number }): { start: number; end: number } {
   const start = span.startUnixNano;

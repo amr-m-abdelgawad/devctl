@@ -57,7 +57,7 @@ export function EnvSelect(props: {
     names.unshift(row.env);
   }
   if (names.length === 0) {
-    return <span className="text-[11px] text-muted-foreground">—</span>;
+    return <span className="text-[12px] text-muted-foreground">—</span>;
   }
   const selected = (row.env && names.includes(row.env) ? row.env : names[0]) ?? "";
   const pending = envNeedsRestart({ ...row, env: selected });

@@ -84,10 +84,10 @@ export function LlmInspector(props: {
         {call.vendor ? <Badge variant="outline">{call.vendor}</Badge> : null}
       </div>
       {call.error ? (
-        <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[11px] text-destructive">{call.error}</p>
+        <p className="rounded-md bg-destructive/10 px-2.5 py-1.5 font-mono text-[12px] text-destructive">{call.error}</p>
       ) : null}
       {loading && call.request === undefined && call.response === undefined ? (
-        <p className="text-[11px] text-muted-foreground">Loading payload…</p>
+        <p className="text-[12px] text-muted-foreground">Loading payload…</p>
       ) : null}
       {total > 0 ? <TokenBar prompt={prompt} completion={completion} total={total} /> : null}
       <dl className="flex flex-col gap-1 text-xs">
@@ -98,7 +98,7 @@ export function LlmInspector(props: {
         <Kv label="request" value={call.request_id || call.id} />
         {traceId !== "" ? (
           <div className="flex items-baseline gap-2">
-            <dt className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">trace</dt>
+            <dt className="w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">trace</dt>
             <dd><TraceLink id={traceId} /></dd>
           </div>
         ) : null}
@@ -187,15 +187,15 @@ function Transcript(props: { turns: LlmTurn[]; total: number; needle: string }) 
   return (
     <div className="flex flex-col gap-2.5">
       {turns.length < total ? (
-        <p className="text-[11px] text-muted-foreground">{turns.length} of {total} turns</p>
+        <p className="text-[12px] text-muted-foreground">{turns.length} of {total} turns</p>
       ) : null}
       {turns.map((turn, index) => (
         <article key={`${turn.role}-${index}`} className={cn("rounded-lg border border-border/60 px-3 py-2", roleSurface(turn.role))}>
           <div className="mb-1 flex items-center justify-between gap-2">
-            <span className={cn("text-[10px] font-semibold uppercase tracking-[0.12em]", roleColor(turn.role))}>{turn.role}</span>
+            <span className={cn("text-[11px] font-semibold uppercase tracking-[0.12em]", roleColor(turn.role))}>{turn.role}</span>
             <CopyTextButton text={turn.content} />
           </div>
-          <p className="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-foreground">{highlight(turn.content, needle)}</p>
+          <p className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-foreground">{highlight(turn.content, needle)}</p>
         </article>
       ))}
     </div>
@@ -220,7 +220,7 @@ function TokenBar(props: { prompt: number; completion: number; total: number }) 
   const promptPct = Math.max(0, Math.min(100, (prompt / total) * 100));
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap gap-x-3 font-mono text-[10px] text-muted-foreground">
+      <div className="flex flex-wrap gap-x-3 font-mono text-[11px] text-muted-foreground">
         <span>prompt {prompt.toLocaleString("en-US")}</span>
         <span>completion {completion.toLocaleString("en-US")}</span>
         <span>total {total.toLocaleString("en-US")}</span>
@@ -236,7 +236,7 @@ function TokenBar(props: { prompt: number; completion: number; total: number }) 
 function Kv(props: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2">
-      <dt className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">{props.label}</dt>
+      <dt className="w-16 shrink-0 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">{props.label}</dt>
       <dd className="min-w-0 break-all font-mono text-foreground/90">{props.value}</dd>
     </div>
   );

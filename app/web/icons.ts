@@ -28,6 +28,7 @@ export { RobotIcon } from "@phosphor-icons/react/dist/csr/Robot";
 export { ScrollIcon } from "@phosphor-icons/react/dist/csr/Scroll";
 export { SquaresFourIcon } from "@phosphor-icons/react/dist/csr/SquaresFour";
 export { StackIcon } from "@phosphor-icons/react/dist/csr/Stack";
+export { StackSimpleIcon } from "@phosphor-icons/react/dist/csr/StackSimple";
 export { StopIcon } from "@phosphor-icons/react/dist/csr/Stop";
 export { TimerIcon } from "@phosphor-icons/react/dist/csr/Timer";
 export { TreeStructureIcon } from "@phosphor-icons/react/dist/csr/TreeStructure";

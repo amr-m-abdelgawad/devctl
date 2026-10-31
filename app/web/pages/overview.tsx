@@ -16,12 +16,13 @@ import { durationMs, relative } from "../format.ts";
 import { useStopServices } from "../hooks/use-stop-services.tsx";
 import { ServiceFleet } from "../components/service-fleet.tsx";
 import { FilterSelect } from "../components/filters.tsx";
-import { hrefFor } from "../hash.ts";
+import { hrefFor, logsHref } from "../hash.ts";
 import { RequestTable } from "../components/tables.tsx";
 import { Empty, Kpi } from "../components/primitives.tsx";
 import { Badge } from "../components/ui/badge.tsx";
 import { Button } from "../components/ui/button.tsx";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card.tsx";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table.tsx";
 import type { ConfigService, LlmCallRow, LogRow, ProfileRow, RequestsPayload, ServiceRow, TaskRow } from "../types.ts";
 
 export type OverviewSummary = {
@@ -153,8 +154,8 @@ export function OverviewPage(props: {
       {confirmation}
       <ServiceFleet services={services} config={configServices} profiles={profiles} busy={busy} onControl={onControl} />
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3 lg:items-stretch">
-        <Card className="lg:col-span-2">
+      <div className="flex flex-col gap-4">
+        <Card>
           <CardHeader className="flex-nowrap">
             <div className="flex min-w-0 items-center gap-2">
               <ArrowsLeftRightIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
@@ -170,9 +171,9 @@ export function OverviewPage(props: {
           </CardContent>
         </Card>
 
-        <div className="flex flex-col gap-4 lg:h-full">
-        <Card className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
-          <CardHeader className="shrink-0 flex-nowrap">
+        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="flex-nowrap">
             <div className="flex min-w-0 items-center gap-2">
               <WarningIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
               <CardTitle className="truncate">Recent errors</CardTitle>
@@ -182,32 +183,41 @@ export function OverviewPage(props: {
               View logs →
             </a>
           </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col pt-0 pb-3">
+          <CardContent className="pt-0">
             {recentErrors.length === 0 ? (
-              <div className="flex flex-1 items-center">
-                <Empty>{summary.logErrors > 0 ? "No errors in the recent log window." : "Nothing is failing right now."}</Empty>
-              </div>
+              <Empty>{summary.logErrors > 0 ? "No errors in the recent log window." : "Nothing is failing right now."}</Empty>
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col divide-y divide-border/50 [&>*:last-child]:border-b-0">
-                {recentErrors.map((row, index) => (
-                  <a
-                    key={`${row.seq ?? index}`}
-                    href={`${hrefFor("logs")}?service=${encodeURIComponent(row.service)}`}
-                    className="flex min-h-0 min-w-0 flex-1 items-center gap-2 hover:text-primary"
-                    title={row.message}
-                  >
-                    <span className="w-24 shrink-0 truncate text-xs font-medium">{row.service}</span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted-foreground">{row.message}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{relative(row.timestamp)}</span>
-                  </a>
-                ))}
-              </div>
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[28%]">Service</TableHead>
+                    <TableHead>Message</TableHead>
+                    <TableHead className="w-16 text-right">When</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentErrors.map((row, index) => {
+                    const href = logsHref(row.service, row.seq);
+                    return (
+                      <TableRow key={`${row.seq ?? index}`}>
+                        <TableCell className="max-w-28 truncate text-xs font-medium">
+                          <a href={href} className="hover:text-primary" title={row.service}>{row.service}</a>
+                        </TableCell>
+                        <TableCell className="max-w-[12rem] truncate font-mono text-[12px] text-muted-foreground" title={row.message}>
+                          <a href={href} className="hover:text-primary">{row.message}</a>
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">{relative(row.timestamp)}</TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>
 
-        <Card className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
-          <CardHeader className="shrink-0 flex-nowrap">
+        <Card>
+          <CardHeader className="flex-nowrap">
             <div className="flex min-w-0 items-center gap-2">
               <RobotIcon className="size-4 shrink-0 text-primary" aria-hidden="true" />
               <CardTitle className="truncate">Recent LLM calls</CardTitle>
@@ -217,28 +227,38 @@ export function OverviewPage(props: {
               View all →
             </a>
           </CardHeader>
-          <CardContent className="flex min-h-0 flex-1 flex-col pt-0 pb-3">
+          <CardContent className="pt-0">
             {recentLlm.length === 0 ? (
-              <div className="flex flex-1 items-center">
-                <Empty>No LLM calls yet.</Empty>
-              </div>
+              <Empty>No LLM calls yet.</Empty>
             ) : (
-              <div className="flex min-h-0 flex-1 flex-col divide-y divide-border/50 [&>*:last-child]:border-b-0">
-                {recentLlm.map((call) => (
-                  <a
-                    key={call.id}
-                    href={hrefFor("llm", call.id)}
-                    className="flex min-h-0 min-w-0 flex-1 items-center gap-2 hover:text-primary"
-                    title={call.model || call.id}
-                  >
-                    <span className="min-w-0 flex-1 truncate text-xs font-medium">{call.model || call.operation || "call"}</span>
-                    <span className="max-w-24 shrink-0 truncate text-[10px] text-muted-foreground">{call.caller || "—"}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
-                      {call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}
-                    </span>
-                  </a>
-                ))}
-              </div>
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[34%]">Model</TableHead>
+                    <TableHead>Caller</TableHead>
+                    <TableHead className="w-24 text-right">Duration</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {recentLlm.map((call) => {
+                    const href = hrefFor("llm", call.id);
+                    const model = call.model || call.operation || "call";
+                    return (
+                      <TableRow key={call.id}>
+                        <TableCell className="max-w-28 truncate text-xs font-medium" title={model}>
+                          <a href={href} className="hover:text-primary">{model}</a>
+                        </TableCell>
+                        <TableCell className="max-w-24 truncate text-[11px] text-muted-foreground" title={call.caller || undefined}>
+                          {call.caller || "—"}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap text-right font-mono text-[11px] text-muted-foreground">
+                          {call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )}
           </CardContent>
         </Card>

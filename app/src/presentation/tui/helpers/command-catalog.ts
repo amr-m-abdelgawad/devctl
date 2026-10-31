@@ -252,6 +252,8 @@ function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode =
         { key: "e", label: "env" },
         { key: "←→", label: "log filter" },
         { key: "g", label: "latest" },
+        { key: "t", label: "time" },
+        { key: "m", label: "meta" },
         { key: "z", label: "full logs" },
         { key: "i", label: "internal logs" },
         { key: "b", label: "grpc logs" },
@@ -324,7 +326,13 @@ function screenHints(screen: Screen, copyKey: string, logSearch: LogSearchMode =
     case "setup":
       return [{ key: "j/k", label: "steps" }, { key: "enter", label: "continue" }, { key: "esc", label: "back" }, { key: "esc×2", label: "quit" }, ...common];
     case "doctor":
-      return [{ key: "r", label: "run doctor again" }, { key: "j/k", label: "move" }, { key: "enter", label: "fix port" }, ...common];
+      return [
+        { key: "r", label: "run doctor again" },
+        { key: "f", label: "free all ports" },
+        { key: "j/k", label: "move" },
+        { key: "enter", label: "free port" },
+        ...common,
+      ];
     case "auth":
       return [
         { key: "r", label: "probe identities" },

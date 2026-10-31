@@ -132,7 +132,7 @@ export function LlmPage(props: {
           <CardHeader>
             <CardTitle>{inspectorCall?.model || "Call"}</CardTitle>
             {inspectorCall ? (
-              <span className="truncate font-mono text-[11px] text-muted-foreground" title={inspectorCall.id}>
+              <span className="truncate font-mono text-[12px] text-muted-foreground" title={inspectorCall.id}>
                 {inspectorCall.id}
               </span>
             ) : null}
@@ -205,7 +205,7 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
                 setInspectHash("llm", call.id);
               }}
             >
-              <TableCell className="hidden whitespace-nowrap font-mono text-[11px] text-muted-foreground sm:table-cell">
+              <TableCell className="hidden whitespace-nowrap font-mono text-[12px] text-muted-foreground sm:table-cell">
                 {clockMs(call.timestamp)}
               </TableCell>
               <TableCell>
@@ -218,11 +218,11 @@ function LlmList(props: { calls: LlmCallRow[]; caller: string; search: string; s
                 <a href={hrefFor("llm", call.id)} className="block truncate font-medium text-foreground hover:underline" title={call.model}>
                   {call.model}
                 </a>
-                <div className="truncate text-[10px] text-muted-foreground" title={llmSourceValue(call)}>
+                <div className="truncate text-[11px] text-muted-foreground" title={llmSourceValue(call)}>
                   {llmSourceValue(call)}
                 </div>
               </TableCell>
-              <TableCell className="text-right font-mono text-[11px]">
+              <TableCell className="text-right font-mono text-[12px]">
                 {call.duration_ms === undefined ? "—" : durationMs(call.duration_ms)}
               </TableCell>
             </TableRow>

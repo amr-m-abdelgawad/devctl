@@ -158,7 +158,7 @@ export function UPlotChart(props: {
       <CardHeader className="flex-col items-stretch gap-2">
         <div className="flex min-w-0 flex-col gap-1">
           <CardTitle>{title}</CardTitle>
-          {description ? <p className="text-[12px] leading-snug text-muted-foreground">{description}</p> : null}
+          {description ? <p className="text-[13px] leading-snug text-muted-foreground">{description}</p> : null}
         </div>
         {stats && stats.length > 0 ? (
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
@@ -166,7 +166,7 @@ export function UPlotChart(props: {
               <span key={stat.label} className="flex items-baseline gap-1.5">
                 <span className="size-2 shrink-0 translate-y-px rounded-sm" style={{ backgroundColor: stat.color }} />
                 <span className={cn("font-mono text-sm font-semibold tabular-nums", STAT_TONE[stat.tone ?? "default"])}>{stat.value}</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{stat.label}</span>
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{stat.label}</span>
               </span>
             ))}
           </div>
@@ -181,7 +181,7 @@ export function UPlotChart(props: {
             </div>
           ) : null}
         </div>
-        <p className={cn("mt-2 min-h-[2.5rem] text-[12px] leading-snug", hover ? "font-mono text-foreground/90" : "text-muted-foreground")}>
+        <p className={cn("mt-2 min-h-[2.5rem] text-[13px] leading-snug", hover ? "font-mono text-foreground/90" : "text-muted-foreground")}>
           {hover ?? insight}
         </p>
       </CardContent>

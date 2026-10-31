@@ -102,7 +102,7 @@ The Traffic view (`#/traffic` and `#/traffic/:id`) is a list plus live inspector
 
 ## Doctor and identity
 
-**Doctor** (`#/doctor`) is in the management navigation. Search checks or choose Issues only to focus on failures and warnings. It runs the same checks as `devctl doctor` on visit and on Refresh, with severity, message, and hint. Busy-port checks offer **Free port** after reviewing the exact process ID, command, and port. The shared Doctor command rechecks the holder before stopping it, then refreshes the report. See [Doctor](doctor.md).
+**Doctor** (`#/doctor`) is in the management navigation. Search checks or choose Issues only to focus on failures and warnings. It runs the same checks as `devctl doctor` on visit and on Refresh, with severity, message, and hint. Each error port that names a holder offers **Free port** after you review the process ID, command, and port. When two or more of those ports are listed, **Free all N ports** stops each one after a single confirmation. One failure does not skip the rest. The supervisor rechecks the holder before every signal, then refreshes the report. See [Doctor](doctor.md).
 
 **Identity** (`#/identity`) shows user, project and its source, ADC, IAP, and service-account probe status. **Sign in with Google** starts gcloud on the devctl machine without launching its browser. Open the provided Google link, complete sign-in, and paste the authorization code into the console. gcloud owns OAuth and credential persistence. Only one sign-in runs at a time; you can cancel it, and unfinished sessions expire after ten minutes. The code is never included in status or logs.
 

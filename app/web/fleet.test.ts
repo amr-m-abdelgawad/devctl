@@ -33,8 +33,8 @@ describe("service fleet", () => {
   });
 
   test("http port url is the loopback address of the named http port", () => {
-    expect(httpPortUrl({ http: 18003 })).toBe("http://127.0.0.1:18003/");
-    expect(httpPortUrl({ HTTP: 80, db: 5432 })).toBe("http://127.0.0.1:80/");
+    expect(httpPortUrl({ http: 18003 })).toBe("http://localhost:18003/");
+    expect(httpPortUrl({ HTTP: 80, db: 5432 })).toBe("http://localhost:80/");
     expect(httpPortUrl({ db: 5432 })).toBeUndefined();
     expect(httpPortUrl({ http: 0 })).toBeUndefined();
     expect(httpPortUrl({})).toBeUndefined();
