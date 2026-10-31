@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-11-01
+
 ### Changed
 
 - The TUI runs on OpenTUI 0.8.1. Copy uses the host pasteboard locally and the terminal clipboard over SSH, so a remote session does not write the server clipboard. Mouse input is clicks and drags. Quitting waits until the terminal is restored. The native library is larger because OpenTUI links a video decoder; the TUI does not play video.
@@ -833,7 +835,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...HEAD
+[0.28.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...v0.27.0
 [0.26.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.25.0...v0.26.0
 [0.25.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.24.0...v0.25.0
