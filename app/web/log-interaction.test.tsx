@@ -10,7 +10,7 @@ test("a large log stream renders a bounded window with an accessible selected re
   const events: LogRow[] = Array.from({ length: 1_000 }, (_, index) => ({
     seq: index + 1,
     timestamp: "2026-10-29T14:30:00.000Z",
-    service: "billing-api",
+    service: "payment-gateway-worker",
     source: "stdout",
     severityText: "INFO",
     level: "INFO",
@@ -40,7 +40,8 @@ test("a large log stream renders a bounded window with an accessible selected re
   const active = /aria-activedescendant="([^"]+)"/.exec(html)?.[1];
   expect(active).toBeDefined();
   expect(html).toContain(`id="${active}" role="option" aria-selected="true"`);
-  expect(html).toContain("Inspect log from billing-api at");
+  expect(html).toContain("Inspect log from payment-gateway-worker at");
+  expect(html).toContain('title="payment-gateway-worker"');
 });
 
 test("navigation keeps accessible page names independent of visible labels and exposes its collapse control", () => {

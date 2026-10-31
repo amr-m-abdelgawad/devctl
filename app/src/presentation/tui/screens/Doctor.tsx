@@ -1,5 +1,6 @@
 import spinners from "cli-spinners";
-import { useEffect,useState } from "react";
+import { useAnimationTick } from "@opentui/react";
+import { useCallback, useState } from "react";
 import { busyPortHolders, FREE_ALL_PORT_MINIMUM } from "../../../domain/doctor/report.ts";
 import { type Check,type DoctorProgress,type Report } from "../../../domain/doctor/types.ts";
 import type { PortHolder } from "../../../domain/net/ports.ts";
@@ -12,6 +13,7 @@ const ROW_PREFIX = "doctor-row";
 // The fixed-width frames keep the centered loading heading stable in every
 // terminal, without depending on emoji font support.
 const DOCTOR_SPINNER = spinners.bouncingBall;
+const DOCTOR_SPINNER_FPS = 1000 / DOCTOR_SPINNER.interval;
 
 export function DoctorScreen(props: {
   palette: Palette;
@@ -84,8 +86,7 @@ export function DoctorScreen(props: {
         </box>
       ) : null}
       <box height={1} flexShrink={0} />
-      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-        <box flexDirection="column" overflow="hidden" gap={1}>
+      <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette, { gap: 1 })}>
           {report.checks.map((c, i) => (
             <DoctorRow
               key={`${c.name}-${i}`}
@@ -97,7 +98,6 @@ export function DoctorScreen(props: {
               onFree={onFreePort}
             />
           ))}
-        </box>
       </scrollbox>
     </ScreenFrame>
   );
@@ -105,10 +105,10 @@ export function DoctorScreen(props: {
 
 function DoctorLoading({ palette, progress }: { palette: Palette; progress: DoctorProgress }) {
   const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    const timer = setInterval(() => setFrame((value) => (value + 1) % DOCTOR_SPINNER.frames.length), DOCTOR_SPINNER.interval);
-    return () => clearInterval(timer);
+  const advance = useCallback(() => {
+    setFrame((value) => (value + 1) % DOCTOR_SPINNER.frames.length);
   }, []);
+  useAnimationTick(DOCTOR_SPINNER_FPS, advance);
   return (
     <box flexGrow={1} alignItems="center" justifyContent="center" overflow="hidden">
       <box

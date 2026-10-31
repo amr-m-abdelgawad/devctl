@@ -200,7 +200,7 @@ export function OverviewPage(props: {
                     const href = logsHref(row.service, row.seq);
                     return (
                       <TableRow key={`${row.seq ?? index}`}>
-                        <TableCell className="max-w-28 truncate text-xs font-medium">
+                        <TableCell className="whitespace-normal break-words text-xs font-medium">
                           <a href={href} className="hover:text-primary" title={row.service}>{row.service}</a>
                         </TableCell>
                         <TableCell className="max-w-[12rem] truncate font-mono text-[12px] text-muted-foreground" title={row.message}>

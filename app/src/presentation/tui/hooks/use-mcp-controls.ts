@@ -7,7 +7,7 @@ import { type StatusSnapshot } from "../../../domain/status.ts";
 import { clampMcpPort, commitMcpPortDraft, derivedMcpPort, isDerivedMcpPort } from "../../mcp/port.ts";
 import { mcpSnippets, mcpUrl, type McpSnippet } from "../../mcp/snippets.ts";
 import { toolEnabled, type McpToolDef } from "../../mcp/tools.ts";
-import { writeClipboard } from "../clipboard.ts";
+import { writeClipboardText, type TuiClipboard } from "../clipboard.ts";
 import { mcpSnippetIndexAtRow } from "../screens/Mcp.tsx";
 import { type PreferenceScope, type TuiConfig, type TuiPreferencePatch, mcpToolPreferenceLists } from "../tui-config.ts";
 
@@ -19,6 +19,7 @@ type Options = {
   snap: StatusSnapshot | undefined;
   refresh: () => Promise<StatusSnapshot | undefined>;
   setStatus: Dispatch<SetStateAction<string>>;
+  clipboard: TuiClipboard;
 };
 
 export function useMcpControls({
@@ -29,6 +30,7 @@ export function useMcpControls({
   snap,
   refresh,
   setStatus,
+  clipboard,
 }: Options) {
 
   const [mcpPortDraft, setMcpPortDraft] = useState("");
@@ -113,7 +115,7 @@ export function useMcpControls({
 
   const copyMcpSnippet = useCallback(
     (snippet: McpSnippet) => {
-      void writeClipboard(snippet.text)
+      void writeClipboardText(clipboard, snippet.text)
         .then(() => {
           setStatus(`Copied ${snippet.title} snippet`);
         })
@@ -121,7 +123,7 @@ export function useMcpControls({
           setStatus(humanMessage(err));
         });
     },
-    [],
+    [clipboard, setStatus],
   );
 
   const copyFocusedMcpSnippet = useCallback(

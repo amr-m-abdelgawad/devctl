@@ -167,7 +167,6 @@ export function LlmScreen(props: {
         <box flexGrow={1} flexDirection="column" overflow="hidden">
           <CallHeader palette={palette} width={listInner} />
           <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-            <box flexDirection="column" overflow="hidden">
               {visibleCalls.map((item, index) => (
                 <CallRow
                   key={item.id}
@@ -180,7 +179,6 @@ export function LlmScreen(props: {
                 />
               ))}
               {page.hasNext ? <text fg={palette.muted}>{"… older calls omitted"}</text> : null}
-            </box>
           </scrollbox>
         </box>
       )}

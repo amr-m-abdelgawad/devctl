@@ -80,10 +80,7 @@ export function TraceOverlay(props: {
     if (!box || rows.length === 0) {
       return;
     }
-    const frame = requestAnimationFrame(() => {
-      box.scrollChildIntoView(`trace-span-${selected}`);
-    });
-    return () => cancelAnimationFrame(frame);
+    box.scrollChildIntoView(`trace-span-${selected}`);
   }, [rows.length, scrollRef, selected]);
   if (!trace || !facts) {
     return null;
@@ -113,7 +110,6 @@ export function TraceOverlay(props: {
       <box flexGrow={1} height={layout.listHeight} flexDirection="column" overflow="hidden">
         <TraceTableHead palette={palette} cols={cols} durationMs={facts.durationMs} />
         <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-          <box flexDirection="column" overflow="hidden">
             {rows.length === 0 ? (
               <text fg={palette.muted}>{"no spans in this trace yet"}</text>
             ) : (
@@ -130,7 +126,6 @@ export function TraceOverlay(props: {
                 />
               ))
             )}
-          </box>
         </scrollbox>
       </box>
     </OverlayShell>
@@ -330,7 +325,6 @@ const TRACE_LOG_MARK_COL = 2;
 const TRACE_LOG_TIME_COL = 9;
 const TRACE_LOG_LEVEL_COL = 8;
 const TRACE_LOG_SERVICE_MIN = 8;
-const TRACE_LOG_SERVICE_MAX = 14;
 
 function TraceLogs(props: { palette: Palette; records: LogRecord[]; spanId?: string }) {
   const { palette, records, spanId } = props;
@@ -363,7 +357,7 @@ function TraceLogs(props: { palette: Palette; records: LogRecord[]; spanId?: str
 }
 
 function traceLogServiceWidth(records: LogRecord[]): number {
-  return Math.min(TRACE_LOG_SERVICE_MAX, Math.max(TRACE_LOG_SERVICE_MIN, records.reduce((max, record) => Math.max(max, record.service.length), 0)));
+  return Math.max(TRACE_LOG_SERVICE_MIN, records.reduce((max, record) => Math.max(max, record.service.length), 0));
 }
 
 function TraceField(props: { palette: Palette; label: string; value: string; tone?: "text" | "error" }) {

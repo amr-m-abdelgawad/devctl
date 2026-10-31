@@ -71,7 +71,6 @@ function SettingsList(props: {
   const sections = groupedSettings(items);
   return (
     <scrollbox ref={scrollRef} focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-      <box flexDirection="column" overflow="hidden">
         {sections.map((section, sectionIndex) => {
           const start = offset;
           offset += section.items.length;
@@ -115,7 +114,6 @@ function SettingsList(props: {
             </box>
           );
         })}
-      </box>
     </scrollbox>
   );
 }

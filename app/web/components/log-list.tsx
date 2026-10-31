@@ -1,4 +1,4 @@
-import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type UIEvent } from "react";
 import { clockMs } from "../format.ts";
 import { cn } from "../lib/utils.ts";
 import {
@@ -74,6 +74,15 @@ export function LogList(props: LogListProps) {
     regex = false,
   } = props;
   const findSearch = useMemo(() => logSearchFinder(search, regex), [search, regex]);
+  const serviceCh = useMemo(() => {
+    let longest = 0;
+    for (const event of events) {
+      if (event.service.length > longest) {
+        longest = event.service.length;
+      }
+    }
+    return Math.max(longest, 1);
+  }, [events]);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const armedRef = useRef(false);
   const topLockRef = useRef(false);
@@ -163,8 +172,15 @@ export function LogList(props: LogListProps) {
     setScrollTop(el.scrollTop);
   }, [events, offsets]);
 
+  const alignedSelection = useRef("");
   useLayoutEffect(() => {
-    if (follow || selectedId === "") {
+    if (selectedId === "") {
+      alignedSelection.current = "";
+      return;
+    }
+    // Live updates rewrite the list. Only a new selection should move the
+    // viewport; scrolling away from the current row must stay where the user left it.
+    if (follow || alignedSelection.current === selectedId) {
       return;
     }
     const index = events.findIndex((row, rowIndex) => logIdentity(row, rowIndex) === selectedId);
@@ -172,6 +188,7 @@ export function LogList(props: LogListProps) {
     if (index < 0 || !el) {
       return;
     }
+    alignedSelection.current = selectedId;
     const top = offsets[index] ?? 0;
     const bottom = offsets[index + 1] ?? top + baseHeight;
     if (top < el.scrollTop || bottom - top >= el.clientHeight) {
@@ -234,6 +251,7 @@ export function LogList(props: LogListProps) {
         aria-keyshortcuts="ArrowUp ArrowDown Home End Enter"
         tabIndex={0}
         className="log-scroller absolute inset-0 overflow-auto font-mono text-[13px]"
+        style={{ "--log-service-ch": serviceCh } as CSSProperties}
         onScroll={onScroll}
         onMouseDown={onActivate}
         onFocus={onActivate}
@@ -365,9 +383,7 @@ function LogEventRow(props: {
         ) : null}
         <span className="log-event-service" title={row.service}>
           <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: serviceColor(row.service) }} />
-          <span className="truncate">
-            <LogSearchText text={row.service} find={findSearch} />
-          </span>
+          <LogSearchText text={row.service} find={findSearch} />
         </span>
         <StatusBadge value={level} className="shrink-0" />
         {showMeta ? (

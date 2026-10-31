@@ -1,4 +1,5 @@
 import { useKeyboard } from "@opentui/react";
+import type { KeyEvent } from "@opentui/core";
 import { useCallback } from "react";
 import { type Controller } from "../../../application/client-runtime.ts";
 import { describePortFrees, freePortHolders } from "../../../application/free-ports.ts";
@@ -21,7 +22,6 @@ import {
   isSearchChord,
   logSearchAction,
   shouldConfirmInterrupt,
-  type KeyLike,
 } from "../keymap.ts";
 import { mcpToolAtRow } from "../screens/Mcp.tsx";
 import { cycleFontSize, selectedSettingsItem } from "../settings.ts";
@@ -271,34 +271,35 @@ export function useAppKeyboard({
     }
   }, [activateSetting, applyMcpPortDraft, beginStart, cfg, copyFocusedMcpSnippet, doctor, listCursor, llmCalls, trafficCalls, logSlice, logSliceB, names, openDetail, profile, runCommand, screen, setConfirmDetail, setConfirmKind, setLlmDetail, setTrafficDetail, setLogDetail, setOverlay, setPortTarget, setProfile, settingRows, snap, splitFocus, splitLogs, toggleMcp, toggleMcpTool]);
 
-  useKeyboard((key: KeyLike) => {
+  useKeyboard((key: KeyEvent) => {
+    const fate = ((): "handled" | "pass" => {
     const name = (key.name ?? "").toLowerCase();
     if (isCopyChord(key, tui)) {
       void copySelection();
-      return;
+      return "handled";
     }
     if (hasPrimaryMod(key) && (name === "=" || name === "+" || name === "plus")) {
       applyFont(cycleFontSize(fontSize, 1));
-      return;
+      return "handled";
     }
     if (hasPrimaryMod(key) && (name === "-" || name === "_" || name === "minus")) {
       applyFont(cycleFontSize(fontSize, -1));
-      return;
+      return "handled";
     }
     if (hasPrimaryMod(key) && name === "0") {
       applyFont(DEFAULT_FONT_SIZE);
-      return;
+      return "handled";
     }
     if (screen === "logs" && !logSearchFocused && (key.sequence === "\\" || name === "\\")) {
       toggleSplitLogs();
       setStatus(splitLogs ? "Single log pane" : "Split log panes");
-      return;
+      return "handled";
     }
     if (screen === "logs" && !logSearchFocused && (key.sequence === "|" || name === "|")) {
       cycleSplitFocus();
-      return;
+      return "handled";
     }
-    if (handleOverlayKey({
+    const overlayFate = handleOverlayKey({
       ...ui, tui, confirmAction, planBusy, leaderTimer,
       logDetailsScrollRef: refs.logDetailsScrollRef,
       traceScrollRef: refs.traceScrollRef,
@@ -308,8 +309,9 @@ export function useAppKeyboard({
       planScrollRef: refs.planScrollRef,
       helpScrollRef: refs.helpScrollRef,
       revertThemePreview, setThemeName,
-    }, key)) {
-      return;
+    }, key);
+    if (overlayFate !== "none") {
+      return overlayFate;
     }
     const searchingProxy = screen === "proxy";
     const searchAct = logSearchAction({
@@ -327,7 +329,7 @@ export function useAppKeyboard({
         setLogSearchFocused(true);
         setStatus("esc live stream · enter keep filter");
       }
-      return;
+      return "handled";
     }
     if (searchAct === "keep-filter") {
       if (searchingProxy) {
@@ -339,7 +341,7 @@ export function useAppKeyboard({
         const needle = logSearch.trim();
         setStatus(needle === "" ? "Search closed" : `Matches for ${needle} · esc live stream`);
       }
-      return;
+      return "handled";
     }
     if (searchAct === "close-live") {
       if (searchingProxy) {
@@ -352,60 +354,60 @@ export function useAppKeyboard({
         jumpToLatestLogs();
         setStatus("Live logs");
       }
-      return;
+      return "handled";
     }
     if (logSearchFocused || (screen === "proxy" && trafficSearch.focused)) {
-      return;
+      return "pass";
     }
     if (isLeaderChord(key, tui)) {
       setOverlay("leader");
       leaderTimer.current = setTimeout(() => setOverlay("none"), leaderMs);
-      return;
+      return "handled";
     }
     if (isPaletteChord(key, tui) || isCommandChord(key, tui)) {
       setQuery("");
       setSlashIndex(0);
       setSlashPicker("commands");
       setOverlay("slash");
-      return;
+      return "handled";
     }
     if (isHelpChord(key, tui)) {
       setOverlay("help");
-      return;
+      return "handled";
     }
     if (name === "escape" || isQuitKey(key)) {
       if (name === "escape") {
         if (logsFullscreen) {
           setLogsFullscreen(false);
-          return;
+          return "handled";
         }
         if (screen === "detail") {
           setScreen("services");
-          return;
+          return "handled";
         }
         if (screen === "setup" && controller) {
           setScreen("dashboard");
-          return;
+          return "handled";
         }
       }
       const now = Date.now();
       if (shouldConfirmInterrupt(now, interruptArmedAt.current)) {
         interruptArmedAt.current = 0;
         requestQuit();
-        return;
+        return "handled";
       }
       interruptArmedAt.current = now;
       setStatus(name === "q" ? "q again to quit" : "Esc again to quit");
-      return;
+      return "handled";
     }
     if (name === "z" && (screen === "logs" || screen === "dashboard") && !key.ctrl && !key.meta) {
       setScreen("logs");
       setLogsFullscreen((current) => (screen === "logs" ? !current : true));
-      return;
+      return "handled";
     }
     if (name === "tab") {
       setScreen(key.shift ? prevScreen(screen) : nextScreen(screen));
-      return;
+      return "handled";
     }
     const screenCtx = {
       ...ui, tui, controller, cfg, snap, ...logView, ...lifecycleActions, ...mcp, ...preferences,
@@ -415,14 +417,14 @@ export function useAppKeyboard({
       configScrollRef: refs.configScrollRef, detailScrollRef: refs.detailScrollRef, handleEnter,
     };
     if (handleScreenDigitKey(screenCtx, key)) {
-      return;
+      return "handled";
     }
     const jump = navItemForDigit(name);
     if (jump) {
       setScreen(jump);
-      return;
+      return "handled";
     }
-    if (screen === "doctor" && name === "f" && !hasPrimaryMod(key) && !key.alt && !key.option) {
+    if (screen === "doctor" && name === "f" && !hasPrimaryMod(key) && !key.option) {
       const prompt = freeAllPrompt(doctor?.checks ?? []);
       if (prompt.kind === "status") {
         setStatus(prompt.status);
@@ -431,8 +433,12 @@ export function useAppKeyboard({
         setConfirmKind("free-ports");
         setOverlay("confirm");
       }
-      return;
+      return "handled";
     }
-    handleScreenKey(screenCtx, key);
+    return handleScreenKey(screenCtx, key) ? "handled" : "pass";
+    })();
+    if (fate === "handled") {
+      key.stopPropagation();
+    }
   });
 }

@@ -91,7 +91,6 @@ export function McpScreen(props: {
       />
       <box flexGrow={1} overflow="hidden">
         <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(palette)}>
-          <box flexDirection="column" overflow="hidden">
             <SectionTitle palette={palette} text="Server" />
             <ControlRow
               palette={palette}
@@ -182,7 +181,6 @@ export function McpScreen(props: {
               selected={Boolean(selectedSnippet)}
               brand={preview ? agentColor(preview.kind, palette) : palette.muted}
             />
-          </box>
         </scrollbox>
       </box>
       <Toolbar palette={palette} backgroundColor={palette.element} edge="top">

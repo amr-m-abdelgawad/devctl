@@ -4463,7 +4463,7 @@ Keyboard-first. Chords use **command** on macOS and **ctrl** on Linux and Window
 | \`f\` | **Logs and proxy.** Focus search. On logs, \`esc\` closes search and returns to the live stream; \`enter\` keeps the filter (\`esc\` again clears it). On the proxy screen the query is a traffic substring (\`!Poll\` excludes; \`!!\` matches a literal \`!\`). \`esc\` clears it. Remap with \`keybinds.search\` |
 | \`z\` | Expand logs to fill the terminal. \`z\` or \`esc\` exits |
 | \`w\` | Cycle log wrap: wrap every line (default), clip with ellipsis, or unwrap only the selected row |
-| \`command+c\` / \`ctrl+c\` | Copy the highlighted selection (drag with the mouse). Remap with \`keybinds.copy\` |
+| \`command+c\` / \`ctrl+c\` | Copy the highlighted selection (drag with the mouse). Over SSH this writes the terminal clipboard, so the copy lands on the client rather than the server pasteboard. Remap with \`keybinds.copy\` |
 | \`command+=\` / \`ctrl+=\` (and \`-\` / \`0\`) | Display size (padding/row height, not the terminal font) |
 | \`esc\` \`esc\` | Twice to quit when no overlay or back target is open. The OS copy chord does not quit |
 | Mouse | Click nav, click a service, scroll logs (toggle in Settings) |

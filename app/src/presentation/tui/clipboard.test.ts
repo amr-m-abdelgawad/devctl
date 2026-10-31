@@ -1,58 +1,83 @@
 import { describe, expect, test } from "bun:test";
-import { availableClipboardCommands, clipboardCommands, clipboardUnavailableHint, osc52Sequence, writeClipboard } from "./clipboard.ts";
+import type { ClipboardWriteOptions, ClipboardWriteResult } from "@opentui/core";
+import { clipboardFailureDetail, clipboardWriteSucceeded, writeClipboardText } from "./clipboard.ts";
+
+function written(): ClipboardWriteResult {
+  return {
+    host: { status: "written" },
+    terminal: { status: "not-attempted", capability: "unknown" },
+  };
+}
+
+function remote(): ClipboardWriteResult {
+  return {
+    host: { status: "not-attempted" },
+    terminal: { status: "attempted", capability: "unknown" },
+  };
+}
+
+function failed(): ClipboardWriteResult {
+  return {
+    host: { status: "failed", error: new Error("no pasteboard") },
+    terminal: { status: "local-failure", capability: "unsupported" },
+  };
+}
 
 describe("clipboard", () => {
-  test("picks a platform clipboard command", () => {
-    const first = clipboardCommands()[0] ?? [];
-    expect(first.length).toBeGreaterThan(0);
-    if (process.platform === "darwin") {
-      expect(first[0]).toBe("pbcopy");
-    }
-    if (process.platform === "win32") {
-      expect(first[0]).toBe("clip");
-    }
+  test("treats a host write or a terminal OSC 52 attempt as success", () => {
+    expect(clipboardWriteSucceeded(written())).toBe(true);
+    expect(clipboardWriteSucceeded(remote())).toBe(true);
+    expect(clipboardWriteSucceeded(failed())).toBe(false);
   });
 
-  test("linux candidates are optional packages plus a terminal fallback", () => {
-    if (process.platform === "darwin" || process.platform === "win32") {
-      return;
-    }
-    const bins = clipboardCommands().map((cmd) => cmd[0]);
-    expect(bins).toEqual(["wl-copy", "xclip", "xsel"]);
-    expect(clipboardUnavailableHint()).toContain("wl-clipboard");
-    expect(clipboardUnavailableHint()).toContain("xclip");
+  test("describes a failed host write", () => {
+    expect(clipboardFailureDetail(failed())).toBe("no pasteboard");
   });
 
-  test("available helpers are a subset of the platform list", () => {
-    const available = availableClipboardCommands();
-    const allowed = new Set(clipboardCommands().map((cmd) => cmd.join(" ")));
-    for (const cmd of available) {
-      expect(allowed.has(cmd.join(" "))).toBe(true);
-    }
+  test("writes with best-available", async () => {
+    let destination: ClipboardWriteOptions["destination"] | undefined;
+    await writeClipboardText(
+      {
+        writeText: async (_text, options) => {
+          destination = options.destination;
+          return written();
+        },
+      },
+      "hello",
+    );
+    expect(destination).toBe("best-available");
   });
 
-  test("writeClipboard throws a hinted error when every helper fails", async () => {
-    const original = Bun.which;
-    Bun.which = () => null;
-    const originalWrite = Bun.write;
-    Bun.write = (async () => {
-      throw new Error("no tty");
-    }) as typeof Bun.write;
-    const originalStderr = process.stderr.write;
-    process.stderr.write = (() => false) as typeof process.stderr.write;
-    try {
-      await expect(writeClipboard("hi")).rejects.toThrow(/clipboard unavailable/);
-    } finally {
-      Bun.which = original;
-      Bun.write = originalWrite;
-      process.stderr.write = originalStderr;
-    }
+  test("accepts a terminal-only result from a remote session", async () => {
+    await writeClipboardText(
+      {
+        writeText: async () => remote(),
+      },
+      "hello",
+    );
   });
 
-  test("osc52 payload is base64 for the terminal", () => {
-    const seq = osc52Sequence("hello");
-    expect(seq.startsWith("\x1b]52;c;")).toBe(true);
-    expect(seq.endsWith("\x07")).toBe(true);
-    expect(seq).toContain(Buffer.from("hello", "utf8").toString("base64"));
+  test("throws a hinted error when every destination fails", async () => {
+    await expect(
+      writeClipboardText(
+        {
+          writeText: async () => failed(),
+        },
+        "hello",
+      ),
+    ).rejects.toThrow(/clipboard unavailable/);
+  });
+
+  test("wraps a rejected write", async () => {
+    await expect(
+      writeClipboardText(
+        {
+          writeText: async () => {
+            throw new Error("closed");
+          },
+        },
+        "hello",
+      ),
+    ).rejects.toThrow(/clipboard unavailable/);
   });
 });

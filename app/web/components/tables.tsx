@@ -132,7 +132,7 @@ export function LogTable(props: { events: LogRow[]; showTrace?: boolean; selecte
               <TableCell>
                 <span className="flex items-center gap-1.5">
                   <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: serviceColor(row.service) }} />
-                  <span className="max-w-[120px] truncate" title={row.service}>{row.service}</span>
+                  <span title={row.service}>{row.service}</span>
                 </span>
               </TableCell>
               <TableCell><StatusBadge value={level} /></TableCell>

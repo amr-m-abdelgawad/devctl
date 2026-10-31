@@ -220,7 +220,18 @@ test("App composes the extracted hooks in setup mode", async () => {
   client.detectGoogle = async () => ({ gcloudInstalled: false, adcAvailable: false, userEmail: "", projectID: "", projectSource: "" });
   let setup!: Awaited<ReturnType<typeof testRender>>;
   await act(async () => {
-    setup = await testRender(createElement(App, { workspace: createTuiWorkspace(client), tui: defaultTuiConfig(), onQuit: () => {} }), { width: 100, height: 35 });
+    setup = await testRender(createElement(App, {
+      workspace: createTuiWorkspace(client),
+      tui: defaultTuiConfig(),
+      onQuit: () => {},
+      clipboard: {
+        writeText: async () => ({
+          host: { status: "written" as const },
+          terminal: { status: "not-attempted" as const, capability: "unknown" as const },
+        }),
+        dispose: async () => {},
+      },
+    }), { width: 100, height: 35 });
   });
   try {
     await setup.renderOnce();

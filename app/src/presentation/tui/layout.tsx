@@ -237,16 +237,20 @@ export function OverlayShell(props: {
   );
 }
 
-export function scrollboxStyle(palette: Palette): {
-  rootOptions: { flexGrow: number; height: `${number}%`; overflow: "hidden"; backgroundColor: string };
+export function scrollboxStyle(palette: Palette, content?: { gap?: number; flexDirection?: "column" | "row" }): {
+  rootOptions: { flexGrow: number; flexBasis: number; minHeight: number; height: `${number}%`; overflow: "hidden"; backgroundColor: string };
   viewportOptions: { backgroundColor: string };
-  contentOptions: { backgroundColor: string };
+  contentOptions: { backgroundColor: string; flexDirection: "column" | "row"; gap?: number };
   scrollbarOptions: { trackOptions: { foregroundColor: string; backgroundColor: string } };
 } {
   return {
-    rootOptions: { flexGrow: 1, height: "100%", overflow: "hidden", backgroundColor: palette.panel },
+    rootOptions: { flexGrow: 1, flexBasis: 0, minHeight: 0, height: "100%", overflow: "hidden", backgroundColor: palette.panel },
     viewportOptions: { backgroundColor: palette.panel },
-    contentOptions: { backgroundColor: palette.panel },
+    contentOptions: {
+      backgroundColor: palette.panel,
+      flexDirection: content?.flexDirection ?? "column",
+      ...(content?.gap === undefined ? {} : { gap: content.gap }),
+    },
     scrollbarOptions: {
       trackOptions: { foregroundColor: palette.primary, backgroundColor: palette.element },
     },
@@ -271,10 +275,7 @@ export function useScrollSelectedIntoView(selected: number, idPrefix: string, pi
     if (!box || index < 0) {
       return;
     }
-    const frame = requestAnimationFrame(() => {
-      box.scrollChildIntoView(`${idPrefix}-${index}`);
-    });
-    return () => cancelAnimationFrame(frame);
+    box.scrollChildIntoView(`${idPrefix}-${index}`);
   }, [idPrefix, trigger]);
   return scrollRef;
 }
@@ -290,9 +291,7 @@ export function ScreenFrame(props: {
   const tight = isTightScale(scale);
   const body = props.scroll ? (
     <scrollbox focused={false} stickyScroll={false} scrollX={false} style={scrollboxStyle(props.palette)}>
-      <box flexDirection="column" overflow="hidden">
-        {props.children}
-      </box>
+      {props.children}
     </scrollbox>
   ) : (
     props.children
