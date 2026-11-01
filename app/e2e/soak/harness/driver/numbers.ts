@@ -27,8 +27,6 @@ export type NumberCheck = {
 
 /** `rows` in storage order (one session's seq order, sessions oldest first). */
 export function checkNumbers(rows: readonly StoredRow[], name: string, count: number): NumberCheck {
-  const pattern = new RegExp(`^${name} seq=(\\d+) t=(\\d+) `);
-  const donePattern = new RegExp(`^${name} done count=(\\d+)`);
   const numbers: number[] = [];
   const lags: number[] = [];
   let minChars = Number.POSITIVE_INFINITY;
@@ -37,14 +35,14 @@ export function checkNumbers(rows: readonly StoredRow[], name: string, count: nu
   let other = 0;
   for (const row of rows) {
     const body = typeof row.body === "string" ? row.body : "";
-    const match = pattern.exec(body);
-    if (match !== null) {
-      numbers.push(Number(match[1]));
-      lags.push(Date.parse(row.timestamp ?? "") - Number(match[2]));
+    const line = readFloodLine(body, name);
+    if (line === "done") {
+      done = true;
+    } else if (line !== undefined) {
+      numbers.push(line.seq);
+      lags.push(Date.parse(row.timestamp ?? "") - line.writtenAt);
       minChars = Math.min(minChars, body.length);
       maxChars = Math.max(maxChars, body.length);
-    } else if (donePattern.test(body)) {
-      done = true;
     } else {
       other += 1;
     }
@@ -89,4 +87,54 @@ export function checkNumbers(rows: readonly StoredRow[], name: string, count: nu
     lagMs: summarizeLatencies(lags),
     bodyChars: { min: numbers.length > 0 ? minChars : 0, max: maxChars },
   };
+}
+
+const SEQ_HEAD = " seq=";
+const TIME_HEAD = " t=";
+const DONE_HEAD = " done count=";
+
+/** A numbered flood line, the flood's done line, or neither. The name is matched literally. */
+function readFloodLine(body: string, name: string): { seq: number; writtenAt: number } | "done" | undefined {
+  if (!body.startsWith(name)) {
+    return undefined;
+  }
+  const rest = body.slice(name.length);
+  const numbered = readNumberedLine(rest);
+  if (numbered !== undefined) {
+    return numbered;
+  }
+  return readDoneLine(rest);
+}
+
+function readNumberedLine(rest: string): { seq: number; writtenAt: number } | undefined {
+  if (!rest.startsWith(SEQ_HEAD)) {
+    return undefined;
+  }
+  const seq = leadingDigits(rest.slice(SEQ_HEAD.length));
+  if (seq === undefined || !seq.rest.startsWith(TIME_HEAD)) {
+    return undefined;
+  }
+  const writtenAt = leadingDigits(seq.rest.slice(TIME_HEAD.length));
+  if (writtenAt === undefined || !writtenAt.rest.startsWith(" ")) {
+    return undefined;
+  }
+  return { seq: seq.value, writtenAt: writtenAt.value };
+}
+
+function readDoneLine(rest: string): "done" | undefined {
+  if (!rest.startsWith(DONE_HEAD)) {
+    return undefined;
+  }
+  return leadingDigits(rest.slice(DONE_HEAD.length)) === undefined ? undefined : "done";
+}
+
+function leadingDigits(text: string): { value: number; rest: string } | undefined {
+  let index = 0;
+  while (index < text.length && text.charAt(index) >= "0" && text.charAt(index) <= "9") {
+    index += 1;
+  }
+  if (index === 0) {
+    return undefined;
+  }
+  return { value: Number(text.slice(0, index)), rest: text.slice(index) };
 }

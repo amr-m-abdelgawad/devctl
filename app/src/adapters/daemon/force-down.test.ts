@@ -76,15 +76,20 @@ function sleeper(...extra: string[]): Subprocess {
   return child;
 }
 
-// Like a detached daemon, it is not our child: init reaps it once it is
-// killed, instead of it lingering as our zombie.
+// The launcher exits after a detached spawn, so init reaps the stand-in
+// instead of this test lingering on a zombie.
+const ORPHAN_LAUNCHER = `const { spawn } = require("node:child_process"); const script = process.argv[1]; const extra = process.argv.slice(2); const child = spawn(process.execPath, ["-e", script, ...extra], { detached: true, stdio: "ignore", env: process.env }); child.unref(); process.stdout.write(String(child.pid ?? ""));`;
+
 function orphan(...extra: string[]): number {
   const up = upFile();
-  const started = spawnSync("/bin/sh", ["-c", `bun="$0"; script="$1"; shift; "$bun" -e "$script" "$@" >/dev/null 2>&1 & echo $!`, process.execPath, UP_SCRIPT, ...extra], {
+  const started = spawnSync(process.execPath, ["-e", ORPHAN_LAUNCHER, UP_SCRIPT, ...extra], {
     encoding: "utf8",
     env: { ...process.env, DEVCTL_TEST_UP: up },
   });
   const pid = Number(started.stdout.trim());
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error("the stand-in process did not start");
+  }
   orphans.push(pid);
   awaitUp(up);
   return pid;
