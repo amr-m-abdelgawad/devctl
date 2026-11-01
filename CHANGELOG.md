@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Doctor in a checkout that hasn't started no longer reports the first stack's ports as its own, and no longer offers to stop that stack's processes ([#158](https://github.com/amr-m-abdelgawad/devctl/issues/158)). A stack that holds no port slot reads the slot it would get at start, so `devctl doctor` and `devctl config` show the ports it will use. A port that belongs to another running stack shows as an error that names the stack, with no **free** control, and freeing one is refused even from a Doctor row that is out of date. When that stack's supervisor is gone, Doctor says so and each port can be freed after its own confirmation; **Free all** skips those ports.
 - A plain-text log line keeps the level it states. `WARN … error=…`, `INFO handled error page`, and `DEBUG … critical section` were stored at the highest level named anywhere in the line, so warnings filled `recent_errors`, the ERROR+ filter, and `logs.errors`. A leading level, or a `level=`, `lvl=`, `severity=`, or `loglevel=` field on a logfmt line, now wins. Lines that state no level still classify by keyword. See [Logs](docs/logs.md).
 
 ## [0.28.1] - 2026-11-01

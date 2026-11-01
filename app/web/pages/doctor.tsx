@@ -216,7 +216,9 @@ function DoctorCheckCard(props: { check: DoctorCheck; onRefresh: () => void }) {
             label={`Free port ${holder.port}`}
             title={`Stop process ${holder.pid} on port ${holder.port}?`}
             description={
-              <span>{holder.command || "Process"} will receive a stop signal. The port holder is rechecked before any signal is sent.</span>
+              <span>
+                {holder.command || "Process"} will receive a stop signal.{holder.stack ? ` It was left by the devctl stack in ${holder.stack}.` : ""} The port holder is rechecked before any signal is sent.
+              </span>
             }
             disabled={Boolean(pending)}
             destructive

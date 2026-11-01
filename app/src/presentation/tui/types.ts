@@ -53,6 +53,7 @@ export type ConfirmDetail = {
   port?: number;
   pid?: number;
   process?: string;
+  stack?: string;
   services?: string[];
   env?: string;
   ports?: ConfirmPort[];

@@ -963,7 +963,7 @@ Doctor probes IAP / service-account identity when any route or service declares 
 
 Failures include an actionable hint. Error classes: authentication, authorization, missing API, missing IAM role, wrong project, wrong service account, IAP, expired credential, network.
 
-Ports held by **your own** running services — host processes or published container ports — show as “in use”. That is expected after \`start\`. Use the free-port action only for leftovers that are not this supervisor’s children.
+Ports held by **your own** running services — host processes or published container ports — show as “in use”. That is expected after \`start\`. Use the free-port action only for leftovers that are not this supervisor’s children. A port that belongs to another running [parallel stack](parallel-stacks.md) has no free control: Doctor names the stack, and a stale request to free it is refused. That covers what the stack recorded: its listeners, its services' ports and pids, and its supervisor. Once that stack's supervisor is gone, its leftovers can be freed here one at a time, and **Free all** skips them. A \`down --keep-services\` looks the same, so read the confirmation before you stop a service that stack kept on purpose.
 
 Typical loop:
 
@@ -2847,7 +2847,7 @@ Services follow their shifted ports without changes to the configuration:
 
 A service that ignores its injected port and binds a hardcoded one will still collide. Read the port from \`SERVICE_PORT\` (or \`<NAME>_PORT\`) instead.
 
-\`devctl status\` shows \`INSTANCE: slot 1 (ports +100)\` when the stack isn't in slot 0 (\`INSTANCE: ci-7, slot 2 (ports +200)\` for a named instance), and \`devctl doctor\` checks the shifted ports. Callback URLs registered with outside providers (OAuth redirects, webhooks) usually name fixed ports, so run the checkout they point at in slot 0.
+\`devctl status\` shows \`INSTANCE: slot 1 (ports +100)\` when the stack isn't in slot 0 (\`INSTANCE: ci-7, slot 2 (ports +200)\` for a named instance), and \`devctl doctor\` checks the shifted ports. A stack that holds no slot yet reads the slot it would take if it started now, so Doctor checks the ports it will really use. Doctor never offers to free a port a running stack owns: it names that stack, and you stop it from there. If that stack's supervisor is gone (it crashed, or its checkout was deleted), Doctor says so and lets you free each port with its own confirmation, because nothing else can stop those processes. Callback URLs registered with outside providers (OAuth redirects, webhooks) usually name fixed ports, so run the checkout they point at in slot 0.
 
 ## Keeping and freeing a slot
 

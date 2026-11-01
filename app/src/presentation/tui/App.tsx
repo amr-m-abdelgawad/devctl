@@ -707,7 +707,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
       setSelected,
       setChecked,
       setConfigEditError,
-      freePort,
+      freePort: (holder) => freePort(holder, cfg?.repoRoot ?? ""),
       openEnvPicker,
       envOptions,
       envIndex,
@@ -1018,7 +1018,7 @@ export function App({ controller: initialController, tui, onQuit, onDown, onAtta
             }}
             onFreePort={(holder) => {
               setPortTarget(holder);
-              setConfirmDetail({ port: holder.port, pid: holder.pid, process: holder.command });
+              setConfirmDetail({ port: holder.port, pid: holder.pid, process: holder.command, stack: holder.stack });
               setConfirmKind("free-port");
               setOverlay("confirm");
             }}

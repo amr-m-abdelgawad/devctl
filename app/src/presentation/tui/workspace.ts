@@ -6,7 +6,7 @@ import { shutdownPlanExact as exactShutdownPlan, type Plan } from "../../domain/
 
 export type TuiWorkspace = Omit<ClientRuntime, "runDoctor"> & {
   runDoctor(cfg: DevctlConfig, onProgress?: (progress: DoctorProgress) => void, runtime?: DoctorRuntimeContext): Promise<Report>;
-  recheckPort(port: number): Promise<Check>;
+  recheckPort(port: number, repoRoot: string): Promise<Check>;
   startupPlan(cfg: DevctlConfig, selected: string[], profile: string): Plan;
   shutdownPlan(cfg: DevctlConfig, selected: string[]): Plan;
   shutdownPlanExact(cfg: DevctlConfig, selected: string[]): Plan;
@@ -17,7 +17,7 @@ export function createTuiWorkspace(client: ClientRuntime): TuiWorkspace {
   return {
     ...client,
     runDoctor: (cfg, onProgress, runtime) => client.runDoctor.execute(cfg, onProgress, runtime),
-    recheckPort: (port) => client.runDoctor.recheckPort(port),
+    recheckPort: (port, repoRoot) => client.runDoctor.recheckPort(port, repoRoot),
     startupPlan: (cfg, selected, profile) => client.getStartupPlan.execute(cfg, selected, profile),
     shutdownPlan: (cfg, selected) => client.getShutdownPlan.execute(cfg, selected),
     shutdownPlanExact: (cfg, selected) => exactShutdownPlan(cfg, selected),

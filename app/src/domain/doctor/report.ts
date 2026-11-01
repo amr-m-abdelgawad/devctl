@@ -9,12 +9,13 @@ export function portCheckName(port: number): string {
 }
 
 // Error rows that name a holder. Healthy "in use by running service" rows have no action.
+// Another stack's leftovers are confirmed one at a time, so they stay out of "free all".
 export function busyPortHolders(checks: readonly Check[]): PortHolder[] {
   const seen = new Set<number>();
   const holders: PortHolder[] = [];
   for (const check of checks) {
     const holder = check.severity === "error" && check.action?.kind === "free-port" ? check.action.holder : undefined;
-    if (holder && !seen.has(holder.port)) {
+    if (holder && holder.stack === undefined && !seen.has(holder.port)) {
       seen.add(holder.port);
       holders.push(holder);
     }

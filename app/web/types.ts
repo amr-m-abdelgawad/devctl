@@ -262,6 +262,7 @@ export type DoctorPortHolder = {
   port: number;
   pid: number;
   command: string;
+  stack?: string;
 };
 
 export type DoctorCheck = {

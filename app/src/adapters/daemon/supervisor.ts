@@ -87,6 +87,7 @@ import {
   type ServiceHealth,
   type ServiceState,
 } from "../../domain/service/services.ts";
+import { otherStackOwning } from "../storage/instances.ts";
 import { isSessionName, listSessions, loadSessionTail } from "../storage/session-files.ts";
 import { autoRingBytes, LOGS_REPLY_MAX_BYTES, spanStoreBytes, TRACE_LOOKUP_PAGES } from "../../domain/logs/budgets.ts";
 import { nextMemoryGuard, storeBudgetFor, type MemoryPressure } from "../../domain/daemon/memory-guard.ts";
@@ -992,7 +993,7 @@ export class Supervisor {
       auth: this.webAuth,
       refreshAuth: async () => { await this.commands.refreshIdentity.execute(); return this.snapshot().identity; },
       invalidateAuth: async () => { this.tokens.invalidate(); await this.identity.syncCredentialEntries(); },
-      freePort: (holder) => freePort(holder),
+      freePort: (holder) => freePort(holder, { otherStack: (held) => otherStackOwning(this.cfg.repoRoot, held) }),
       mcpConnection: () => ({ url: `http://127.0.0.1:${this.mcp.instance?.listenPort() ?? 0}/mcp`, token: this.mcp.token }),
       rotateMcp: () => this.mcp.rotate(),
       setMcpTools: async (disabled) => {

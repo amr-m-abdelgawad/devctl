@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { MAX_PORT_SLOTS } from "../../domain/net/port-slots.ts";
+import { repoID } from "../../shared/repo-id.ts";
 import { loadPath } from "../config/index.ts";
-import { claimSlot, currentSlot, instancesPath, readInstances, recordInstancePorts, releaseSlot, startWithSlot } from "./instances.ts";
+import { claimSlot, currentSlot, instancesPath, otherStackOwning, readInstances, recordInstancePorts, releaseSlot, startWithSlot } from "./instances.ts";
 
 let previousHome: string | undefined;
 let previousInstance: string | undefined;
@@ -48,7 +49,23 @@ describe("instance slot registry", () => {
       [1, resolve("/src/app-review")],
     ]);
     expect(currentSlot("/src/app-review")).toBe(1);
-    expect(currentSlot("/src/unknown")).toBe(0);
+    expect(currentSlot("/src/unknown")).toBe(2);
+  });
+
+  test("a stack that holds no slot reads the slot a start would claim, and claims nothing", () => {
+    expect(currentSlot("/a")).toBe(0);
+    claimSlot("/a");
+    expect(currentSlot("/b")).toBe(1);
+    expect(asInstance("ci-7", () => currentSlot("/a"))).toBe(1);
+    expect(readInstances().map((entry) => entry.repoRoot)).toEqual([resolve("/a")]);
+    expect(claimSlot("/b").slot).toBe(1);
+  });
+
+  test("a stack that can't get a slot reads slot 0", () => {
+    for (let slot = 0; slot < MAX_PORT_SLOTS; slot += 1) {
+      claimSlot(`/stack-${slot}`);
+    }
+    expect(currentSlot("/late")).toBe(0);
   });
 
   test("a named instance of a checkout holds a slot of its own", () => {
@@ -109,6 +126,79 @@ describe("instance slot registry", () => {
     expect(readInstances()[0]?.ports).toEqual({ proxy: 18080, web: 18900 });
   });
 
+  describe("otherStackOwning", () => {
+    const holder = { port: 18001, pid: 4242, command: "postgres" };
+
+    function writeStackFile(repoRoot: string, name: string, body: unknown): void {
+      const dir = join(process.env.DEVCTL_HOME ?? "", "state", repoID(repoRoot, ""));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, name), JSON.stringify(body));
+    }
+
+    function writeState(repoRoot: string, processes: { pid: number; ports: Record<string, number> }[]): void {
+      writeStackFile(repoRoot, "state.json", {
+        session_id: "s",
+        repo_root: repoRoot,
+        profile: "",
+        processes: processes.map((proc) => ({ name: "db", command: [], cwd: repoRoot, startTime: "", ...proc })),
+      });
+    }
+
+    test("finds a stack by its recorded listener ports", () => {
+      claimSlot("/a");
+      recordInstancePorts("/a", { proxy: 18001 });
+      expect(otherStackOwning("/b", holder)?.stack.repoRoot).toBe(resolve("/a"));
+    });
+
+    test("finds a stack by a service's pid", () => {
+      claimSlot("/a");
+      writeState("/a", [{ pid: 4242, ports: {} }]);
+      expect(otherStackOwning("/b", holder)?.stack.repoRoot).toBe(resolve("/a"));
+    });
+
+    test("finds a stack by a service's port, when a child or a container proxy holds it", () => {
+      claimSlot("/a");
+      writeState("/a", [{ pid: 7, ports: { db: 18001 } }]);
+      expect(otherStackOwning("/b", holder)?.stack.repoRoot).toBe(resolve("/a"));
+    });
+
+    test("finds a stack by its supervisor's pid, for a listener no list names", () => {
+      claimSlot("/a");
+      writeStackFile("/a", "devctl.lock", { pid: 4242, socket: "/a.sock" });
+      expect(otherStackOwning("/b", holder)?.stack.repoRoot).toBe(resolve("/a"));
+    });
+
+    test("finds a named instance of the same checkout", () => {
+      asInstance("ci-7", () => {
+        claimSlot("/a");
+        recordInstancePorts("/a", { proxy: 18001 });
+      });
+      expect(otherStackOwning("/a", holder)?.stack.instance).toBe("ci-7");
+    });
+
+    test("a stack is running only while its supervisor's lock is live", () => {
+      claimSlot("/a");
+      recordInstancePorts("/a", { proxy: 18001 });
+      expect(otherStackOwning("/b", holder)?.running).toBe(false);
+      writeStackFile("/a", "devctl.lock", { pid: process.pid, socket: "/a.sock" });
+      expect(otherStackOwning("/b", holder)?.running).toBe(true);
+      writeStackFile("/a", "devctl.lock", { pid: 2 ** 22 + 1, socket: "/a.sock" });
+      expect(otherStackOwning("/b", holder)?.running).toBe(false);
+    });
+
+    test("a stack does not own itself out of its own leftovers", () => {
+      claimSlot("/a");
+      recordInstancePorts("/a", { proxy: 18001 });
+      expect(otherStackOwning("/a", holder)).toBeUndefined();
+    });
+
+    test("a process no stack recorded has no owner", () => {
+      claimSlot("/a");
+      writeState("/a", [{ pid: 7, ports: { db: 5432 } }]);
+      expect(otherStackOwning("/b", holder)).toBeUndefined();
+    });
+  });
+
   test("a stale lock left by a crashed writer is taken over", () => {
     mkdirSync(process.env.DEVCTL_HOME ?? "", { recursive: true });
     const lock = `${instancesPath()}.lock`;
@@ -152,6 +242,10 @@ web:
     expect(cfg.web.listen.port).toBe(19000);
     // An explicit slot overrides the registry.
     expect(loadPath(repo, configPath, { slot: 0 }).services.api?.ports[0]?.value).toBe(18000);
+    // Unstarted, it reads the ports it would get, not slot 0's.
+    releaseSlot(repo);
+    expect(loadPath(repo, configPath).services.api?.ports[0]?.value).toBe(18100);
+    expect(readInstances().map((entry) => entry.repoRoot)).toEqual([resolve("/someone-else")]);
   });
 
   test("a port pushed past 65535 by the offset fails validation", () => {

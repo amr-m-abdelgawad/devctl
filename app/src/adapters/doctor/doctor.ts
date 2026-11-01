@@ -11,9 +11,11 @@ import type { RouteAuthConfig } from "../../domain/config/types.ts";
 import { adcQuotaProject, adcUserAccount, detectGoogle, hasCommand, hasLocalAdcMaterial, type AdcUserAccount, type GoogleStatus } from "../google/google.ts";
 import { configuredServiceAccounts, fromRoute, KindServiceAccount, needsCloudFeatures } from "../../domain/identity/identity.ts";
 import { isImageUserRoot } from "../../domain/service/container-limits.ts";
+import { stackName, type PortOwner } from "../../domain/net/port-slots.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
 import { available, findPortHolder } from "../net/ports.ts";
 import { openCredentialStore } from "../storage/credentials.ts";
+import { otherStackOwning } from "../storage/instances.ts";
 import { lockPath, resolveUserPath } from "../storage/storage.ts";
 import { lockIsLive, readLockFile } from "../storage/lock.ts";
 import { readHeartbeat, readWedge } from "../daemon/heartbeat.ts";
@@ -61,6 +63,7 @@ export type DoctorHost = {
   probeServiceUsage?: (project: string, service: string) => Promise<boolean>;
   containerRuntimeAvailable?: (runtime: string) => Promise<boolean>;
   portHolder?: (port: number) => Promise<PortHolder | undefined>;
+  otherStack?: (repoRoot: string, holder: PortHolder) => PortOwner | undefined;
   mintRateWarning?: () => TokenMintHotspot | undefined;
   inspectImageUser?: (runtime: string, image: string) => Promise<string | undefined>;
 };
@@ -128,7 +131,7 @@ const defaultHost: DoctorHost = createDoctorHost();
 export function createDoctorRunner(host: DoctorHost = createDoctorHost()): DoctorRunner {
   return {
     run: (cfg, onProgress, runtime) => runDoctor(cfg, host, onProgress, runtime),
-    recheckPort: (port) => recheckPort(port, host),
+    recheckPort: (port, repoRoot) => recheckPort(port, repoRoot, host),
   };
 }
 
@@ -140,12 +143,12 @@ function watchdogDegraded(repoRoot: string): boolean {
   return beat?.degraded === true && lock !== undefined && lock.pid === beat.pid && lockIsLive(lock);
 }
 
-export async function recheckPort(port: number, host: DoctorHost = defaultHost): Promise<Check> {
+export async function recheckPort(port: number, repoRoot: string, host: DoctorHost = defaultHost): Promise<Check> {
   const label = `Port ${port}`;
   if (await host.portAvailable(port)) {
     return { name: label, severity: "ok", message: "available" };
   }
-  return busyPortCheck(label, port, "the configured port");
+  return busyPortCheck(label, port, "the configured port", repoRoot, host);
 }
 
 export async function runDoctor(
@@ -395,7 +398,7 @@ export async function runDoctor(
         } else if (await host.portAvailable(p.value)) {
           add({ name: label, severity: "ok", message: "available" });
         } else {
-          const check = await busyPortCheck(label, p.value, `services.${name}.ports`, host.portHolder ?? findPortHolder);
+          const check = await busyPortCheck(label, p.value, `services.${name}.ports`, cfg.repoRoot, host);
           const holderPid = check.action?.kind === "free-port" ? check.action.holder.pid : undefined;
           if (serviceIsLive && owner && holderPid === owner.pid) {
             add({ name: label, severity: "ok", message: `in use by running service ${name}` });
@@ -414,7 +417,7 @@ export async function runDoctor(
     } else if (await host.portAvailable(cfg.proxy.listen.port)) {
       add({ name: label, severity: "ok", message: "proxy listen port available" });
     } else {
-      add(await busyPortCheck(label, cfg.proxy.listen.port, "proxy.listen.port"));
+      add(await busyPortCheck(label, cfg.proxy.listen.port, "proxy.listen.port", cfg.repoRoot, host));
     }
   }
   active = "Diagnostics complete";
@@ -651,9 +654,10 @@ async function busyPortCheck(
   label: string,
   port: number,
   configField: string,
-  lookup: (port: number) => Promise<PortHolder | undefined> = findPortHolder,
+  repoRoot: string,
+  host: DoctorHost,
 ): Promise<Check> {
-  const holder = await lookup(port);
+  const holder = await (host.portHolder ?? findPortHolder)(port);
   if (!holder) {
     return {
       name: label,
@@ -668,6 +672,27 @@ async function busyPortCheck(
       severity: "error",
       message: `in use by this TUI (${holder.command} pid ${holder.pid})`,
       hint: "stop the proxy from the proxy screen (x), then rerun doctor",
+    };
+  }
+  const owner = (host.otherStack ?? otherStackOwning)(repoRoot, holder);
+  if (owner?.running) {
+    // No free action: a running stack stops its own processes.
+    return {
+      name: label,
+      severity: "error",
+      message: `in use by the running devctl stack in ${stackName(owner.stack)} (${holder.command} pid ${holder.pid})`,
+      hint: `run \`devctl down\` in that checkout, \`devctl instances prune\` if the checkout is gone, or change ${configField}`,
+    };
+  }
+  if (owner) {
+    // Nothing else can stop this now, so it stays freeable, one port at a time.
+    const stack = stackName(owner.stack);
+    return {
+      name: label,
+      severity: "error",
+      message: `held by ${holder.command} (pid ${holder.pid}), left by the devctl stack in ${stack}, whose supervisor isn't running`,
+      hint: "confirm to stop that process and free the port; that stack may have left it running on purpose",
+      action: { kind: "free-port", holder: { ...holder, stack } },
     };
   }
   return {

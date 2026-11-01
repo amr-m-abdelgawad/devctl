@@ -18,6 +18,14 @@ export type InstanceSlot = {
   ports?: Record<string, number>;
 };
 
+/** The other stack a port belongs to, and whether its supervisor is alive. */
+export type PortOwner = { stack: InstanceSlot; running: boolean };
+
+/** A stack as its checkout names it, for messages. */
+export function stackName(entry: Pick<InstanceSlot, "repoRoot" | "instance">): string {
+  return entry.instance ? `${entry.repoRoot} (instance ${entry.instance})` : entry.repoRoot;
+}
+
 export function slotOffset(slot: number): number {
   return slot > 0 ? slot * PORT_SLOT_STRIDE : 0;
 }

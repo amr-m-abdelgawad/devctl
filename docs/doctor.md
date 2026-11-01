@@ -40,7 +40,7 @@ Doctor probes IAP / service-account identity when any route or service declares 
 
 Failures include an actionable hint. Error classes: authentication, authorization, missing API, missing IAM role, wrong project, wrong service account, IAP, expired credential, network.
 
-Ports held by **your own** running services — host processes or published container ports — show as “in use”. That is expected after `start`. Use the free-port action only for leftovers that are not this supervisor’s children.
+Ports held by **your own** running services — host processes or published container ports — show as “in use”. That is expected after `start`. Use the free-port action only for leftovers that are not this supervisor’s children. A port that belongs to another running [parallel stack](parallel-stacks.md) has no free control: Doctor names the stack, and a stale request to free it is refused. That covers what the stack recorded: its listeners, its services' ports and pids, and its supervisor. Once that stack's supervisor is gone, its leftovers can be freed here one at a time, and **Free all** skips them. A `down --keep-services` looks the same, so read the confirmation before you stop a service that stack kept on purpose.
 
 Typical loop:
 

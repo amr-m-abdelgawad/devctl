@@ -131,6 +131,21 @@ node    12345 amr   23u  IPv4 0x0      0t0  TCP 127.0.0.1:18000 (LISTEN)
       };
     }
 
+    const stack = { slot: 0, repoRoot: "/src/app", claimedAt: "" };
+
+    test("a port a running devctl stack owns is left alone", async () => {
+      const h = harness([holder]);
+      const owner = { stack, running: true };
+      await expect(freePort(holder, { ...h.deps, otherStack: () => owner })).rejects.toThrow("belongs to the running devctl stack in /src/app");
+      expect(h.signals).toEqual([]);
+    });
+
+    test("a port a dead devctl stack left behind can be freed", async () => {
+      const h = harness([holder, undefined]);
+      expect(await freePort(holder, { ...h.deps, otherStack: () => ({ stack, running: false }) })).toBe("stopped");
+      expect(h.signals).toEqual([[4242, "SIGTERM"]]);
+    });
+
     test("a port now held by another pid is left alone", async () => {
       const h = harness([{ port: 18090, pid: 5151, command: "python3" }]);
       await expect(freePort(holder, h.deps)).rejects.toThrow("port 18090 is now held by python3 (pid 5151), not pid 4242; not stopping it");

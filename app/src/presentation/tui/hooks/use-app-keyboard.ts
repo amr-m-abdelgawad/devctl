@@ -214,7 +214,7 @@ export function useAppKeyboard({
       if (check?.action?.kind === "free-port") {
         const holder = check.action.holder;
         setPortTarget(holder);
-        setConfirmDetail({ port: holder.port, pid: holder.pid, process: holder.command });
+        setConfirmDetail({ port: holder.port, pid: holder.pid, process: holder.command, stack: holder.stack });
         setConfirmKind("free-port");
         setOverlay("confirm");
       }

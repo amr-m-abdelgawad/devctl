@@ -681,6 +681,7 @@ function normalizeCheck(value: unknown): DoctorCheck | undefined {
           port: holderRaw.port,
           pid: holderRaw.pid,
           command: asString(holderRaw.command),
+          ...(typeof holderRaw.stack === "string" ? { stack: holderRaw.stack } : {}),
         }
       : undefined;
   return {
