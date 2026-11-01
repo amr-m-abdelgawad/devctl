@@ -847,7 +847,7 @@ function Toolbar(props: {
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="start"
-            className="w-64"
+            className="w-max min-w-72 max-w-[calc(100vw-1rem)]"
             onCloseAutoFocus={(event) => {
               if (filtersOpen) event.preventDefault();
             }}
@@ -885,9 +885,9 @@ function Toolbar(props: {
                 Split panes
               </DropdownMenuCheckboxItem>
               <DropdownMenuSub>
-                <DropdownMenuSubTrigger className="hidden sm:flex">
+                <DropdownMenuSubTrigger className="hidden whitespace-nowrap sm:flex [&>svg]:ml-0">
                   Line wrapping
-                  <span className="ml-auto flex items-center gap-2">
+                  <span className="ml-auto flex shrink-0 items-center gap-2">
                     <span className="text-xs text-muted-foreground">{logWrapLabel(p.wrapMode)}</span>
                     <DropdownMenuShortcut className="ml-0">w</DropdownMenuShortcut>
                   </span>
