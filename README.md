@@ -62,6 +62,8 @@ What sets it apart:
 
 ## See it run
 
+<video src="https://github.com/user-attachments/assets/78b0ae57-278f-470a-b1b7-8dcf033e4406" controls muted width="900"></video>
+
 The video above is one session: the TUI (dashboard, filtered logs, proxy, LLM) and the web console on the same supervisor.
 
 <p>
