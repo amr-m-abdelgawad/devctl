@@ -275,6 +275,21 @@ describe("log payload adapters", () => {
     expect(exportFilename(null)).toBe("devctl-logs.jsonl");
   });
 
+  test("normalizeDoctorReport keeps the stack that left a port holder behind", () => {
+    const report = normalizeDoctorReport({
+      checks: [
+        {
+          name: "Port 8080",
+          severity: "error",
+          message: "held",
+          action: { kind: "free-port", holder: { port: 8080, pid: 12, command: "node", stack: "/src/app" } },
+        },
+      ],
+      issues: 1,
+    });
+    expect(report.checks[0]?.action?.holder.stack).toBe("/src/app");
+  });
+
   test("normalizeDoctorReport keeps port holders without implying a kill action", () => {
     const report = normalizeDoctorReport({
       issues: 1,

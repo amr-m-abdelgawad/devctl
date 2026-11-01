@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { defaultConfig, emptyContainer, emptyHttpRecipe, emptyRouteAuth, emptyService } from "../../domain/config/types.ts";
+import { busyPortHolders } from "../../domain/doctor/report.ts";
 import { containerInitCheck, createDoctorRunner, iapCredentialsFileHint, recheckPort, runDoctor, type DoctorHost } from "./doctor.ts";
 import { classifyGoogle } from "../google/google.ts";
 import { wedgePath, writeHeartbeatAtomic } from "../daemon/heartbeat.ts";
@@ -71,7 +72,7 @@ describe("doctor", () => {
       seen.push(port);
       return port === 18080;
     };
-    expect(await recheckPort(18080, host)).toEqual({ name: "Port 18080", severity: "ok", message: "available" });
+    expect(await recheckPort(18080, "", host)).toEqual({ name: "Port 18080", severity: "ok", message: "available" });
     expect(seen).toEqual([18080]);
   });
 
@@ -146,6 +147,60 @@ describe("doctor", () => {
       severity: "ok",
       message: "in use by running service api",
     });
+  });
+
+  test("recheckPort offers no free action for another stack's port", async () => {
+    const host = offlineHost();
+    host.portAvailable = async () => false;
+    host.portHolder = async () => ({ port: 18080, pid: 4242, command: "bun" });
+    host.otherStack = () => ({ stack: { slot: 0, repoRoot: "/src/app", claimedAt: "" }, running: true });
+    const check = await recheckPort(18080, "/src/review", host);
+    expect(check.severity).toBe("error");
+    expect(check.action).toBeUndefined();
+  });
+
+  test("names the stack that holds a port and offers no free action", async () => {
+    const cfg = localCfg();
+    cfg.repoRoot = "/src/review";
+    const seen: string[] = [];
+    const host = offlineHost();
+    host.portAvailable = async () => false;
+    host.portHolder = async () => ({ port: 19991, pid: 22356, command: "postgres" });
+    host.otherStack = (repoRoot) => {
+      seen.push(repoRoot);
+      return { stack: { slot: 0, repoRoot: "/src/app", instance: "ci-7", claimedAt: "" }, running: true };
+    };
+    const report = await runDoctor(cfg, host);
+    expect(report.checks.find((check) => check.name === "Port 19991")).toEqual({
+      name: "Port 19991",
+      severity: "error",
+      message: "in use by the running devctl stack in /src/app (instance ci-7) (postgres pid 22356)",
+      hint: "run `devctl down` in that checkout, `devctl instances prune` if the checkout is gone, or change services.api.ports",
+    });
+    expect(busyPortHolders(report.checks)).toEqual([]);
+    expect(seen).toContain("/src/review");
+  });
+
+  test("a stack whose supervisor is gone can have its leftover freed, alone", async () => {
+    const host = offlineHost();
+    host.portAvailable = async () => false;
+    host.portHolder = async () => ({ port: 19991, pid: 22356, command: "postgres" });
+    host.otherStack = () => ({ stack: { slot: 0, repoRoot: "/src/app", claimedAt: "" }, running: false });
+    const report = await runDoctor(localCfg(), host);
+    const check = report.checks.find((item) => item.name === "Port 19991");
+    expect(check?.severity).toBe("error");
+    expect(check?.message).toContain("left by the devctl stack in /src/app");
+    expect(check?.action?.holder).toEqual({ port: 19991, pid: 22356, command: "postgres", stack: "/src/app" });
+    expect(busyPortHolders(report.checks)).toEqual([]);
+  });
+
+  test("still offers to free a port no other stack owns", async () => {
+    const host = offlineHost();
+    host.portAvailable = async () => false;
+    host.portHolder = async () => ({ port: 19991, pid: 22356, command: "python3" });
+    host.otherStack = () => undefined;
+    const report = await runDoctor(localCfg(), host);
+    expect(report.checks.find((check) => check.name === "Port 19991")?.action?.kind).toBe("free-port");
   });
 
   test("treats a busy port as healthy when the holder is the running service", async () => {

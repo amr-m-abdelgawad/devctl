@@ -11,7 +11,7 @@ import { resolveExportPath, writeLogExport, openInFileManager } from "../adapter
 import { listSessions, loadSessionEvents, loadSessionTail } from "../adapters/storage/session-files.ts";
 import { SessionHistory } from "../adapters/storage/session-history.ts";
 import { HISTORY_SCAN_BYTES, HISTORY_SCAN_MS } from "../domain/logs/budgets.ts";
-import { readInstances, releaseSlot } from "../adapters/storage/instances.ts";
+import { otherStackOwning, readInstances, releaseSlot } from "../adapters/storage/instances.ts";
 import { freePort } from "../adapters/net/ports.ts";
 import { createStarterConfig, runSetup } from "../presentation/cli/setup.ts";
 import type { DoctorRunner } from "../ports/doctor-runner.ts";
@@ -44,7 +44,8 @@ export function createClient(deps?: { doctorRunner?: DoctorRunner; doctorHost?: 
     releaseInstance: releaseSlot,
     processAlive,
     forceStopDaemon,
-    readPersistedState, readWedge, rotateMcpToken, rotateWebToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager, freePort,
+    readPersistedState, readWedge, rotateMcpToken, rotateWebToken, mcpTokenAgeMs, bootstrapLogPath, exportsDir, resolveExportPath, writeLogExport, openInFileManager,
+    freePort: (holder, repoRoot) => freePort(holder, { otherStack: (held) => otherStackOwning(repoRoot, held) }),
     createStarterConfig,
     runSetup: (startDir, explicitConfig, force) => runSetup(client, startDir, explicitConfig, force),
     readTextFile: (path) => readFileSync(path, "utf8"),

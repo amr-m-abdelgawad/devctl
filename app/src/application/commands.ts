@@ -75,8 +75,8 @@ export class RunDoctor {
   execute(cfg: DevctlConfig, onProgress?: (progress: DoctorProgress) => void, runtime?: DoctorRuntimeContext): Promise<Report> {
     return this.runner.run(cfg, onProgress, runtime);
   }
-  recheckPort(port: number): Promise<Check> {
-    return this.runner.recheckPort(port);
+  recheckPort(port: number, repoRoot: string): Promise<Check> {
+    return this.runner.recheckPort(port, repoRoot);
   }
 }
 

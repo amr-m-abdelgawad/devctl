@@ -123,9 +123,9 @@ export function useDiagnostics({
   }, [screen, cfg, doctorTick, snap?.session_id, configReloadError]);
 
   const refreshPort = useCallback(async (port: number) => {
-    const next = await recheckPort(port);
+    const next = await recheckPort(port, cfg?.repoRoot ?? "");
     setDoctor((current) => (current ? replacePortCheck(current, port, next) : current));
-  }, [recheckPort]);
+  }, [cfg?.repoRoot, recheckPort]);
 
   return { google, setGoogle, doctor, doctorLoading, doctorError, doctorProgress, setDoctorTick, refreshAuth, refreshPort };
 }

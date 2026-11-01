@@ -184,9 +184,10 @@ export function confirmCopy(kind: ConfirmKind, profile: string, detail?: Confirm
     const port = detail?.port ?? 0;
     const proc = detail?.process || "process";
     const pid = detail?.pid ?? 0;
+    const owner = detail?.stack ? ` It was left by the devctl stack in ${detail.stack}.` : "";
     return {
       title: `Free port ${port}`,
-      body: `Stop ${proc} (pid ${pid}) so port ${port} can be used? This sends SIGTERM, then SIGKILL if it stays up.`,
+      body: `Stop ${proc} (pid ${pid}) so port ${port} can be used?${owner} This sends SIGTERM, then SIGKILL if it stays up.`,
     };
   }
   if (kind === "free-ports") {

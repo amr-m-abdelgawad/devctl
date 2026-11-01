@@ -1,3 +1,4 @@
+import { stackName, type PortOwner } from "../../domain/net/port-slots.ts";
 import type { PortHolder } from "../../domain/net/ports.ts";
 export type { PortHolder } from "../../domain/net/ports.ts";
 import { spawn } from "bun";
@@ -301,6 +302,8 @@ export type FreePortDeps = {
   lookup?: (port: number) => Promise<PortHolder | undefined>;
   kill?: (pid: number, signal: NodeJS.Signals) => void;
   waitMs?: number;
+  // The other devctl stack this holder belongs to, if any.
+  otherStack?: (holder: PortHolder) => PortOwner | undefined;
 };
 
 // Stops the process holding `holder.port`, but only while it is still
@@ -323,6 +326,14 @@ export async function freePort(holder: PortHolder, deps: FreePortDeps = {}): Pro
       KindProcessStart,
       `port ${holder.port} is now held by ${current.command} (pid ${current.pid}), not pid ${holder.pid}; not stopping it`,
       "refresh Doctor and check the new holder before freeing the port",
+    );
+  }
+  const owner = deps.otherStack?.(current);
+  if (owner?.running) {
+    throw hintError(
+      KindProcessStart,
+      `port ${holder.port} belongs to the running devctl stack in ${stackName(owner.stack)}; not stopping pid ${holder.pid}`,
+      "run `devctl down` in that checkout, or `devctl instances prune` if the checkout is gone",
     );
   }
   try {

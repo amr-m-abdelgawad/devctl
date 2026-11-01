@@ -4,5 +4,5 @@ import type { Check, DoctorProgress, DoctorRuntimeContext, Report } from "../dom
 /** Runs environment diagnostics without exposing infrastructure to commands. */
 export type DoctorRunner = {
   run(cfg: DevctlConfig, onProgress?: (progress: DoctorProgress) => void, runtime?: DoctorRuntimeContext): Promise<Report>;
-  recheckPort(port: number): Promise<Check>;
+  recheckPort(port: number, repoRoot: string): Promise<Check>;
 };

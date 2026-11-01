@@ -1,9 +1,11 @@
 import { closeSync, existsSync, openSync, readFileSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { MAX_PORT_SLOTS, pickSlot, type InstanceSlot } from "../../domain/net/port-slots.ts";
+import { MAX_PORT_SLOTS, pickSlot, type InstanceSlot, type PortOwner } from "../../domain/net/port-slots.ts";
+import type { PortHolder } from "../../domain/net/ports.ts";
 import { hintError, KindGeneral } from "../../shared/errors.ts";
 import { repoID } from "../../shared/repo-id.ts";
-import { currentInstance, ensureDir, homeDir, writeFileSecure } from "./storage.ts";
+import { lockIsLive, readLockFile } from "./lock.ts";
+import { currentInstance, ensureDir, homeDir, readPersistedStateFile, writeFileSecure } from "./storage.ts";
 
 // The slot registry for parallel stacks (#117): which stack holds which port
 // slot, shared by every checkout under one DEVCTL_HOME. A stack is a checkout,
@@ -25,10 +27,46 @@ export function readInstances(): InstanceSlot[] {
   return readRegistry().instances.slice().sort((a, b) => a.slot - b.slot);
 }
 
-/** This checkout's slot, or 0 when it holds none. Never claims. */
+/**
+ * This stack's slot or, when it holds none, the slot a start would claim now:
+ * a stack that hasn't started must not read the ports of the stack in slot 0
+ * as its own. 0 when every slot is taken. Never claims.
+ */
 export function currentSlot(repoRoot: string): number {
   const id = ownID(repoRoot);
-  return readRegistry().instances.find((entry) => entryID(entry) === id)?.slot ?? 0;
+  const { instances } = readRegistry();
+  const own = instances.find((entry) => entryID(entry) === id);
+  return own?.slot ?? pickSlot(instances, resolve(repoRoot), currentInstance()) ?? 0;
+}
+
+/**
+ * The other stack a port's holder belongs to, if any, going by what that stack
+ * recorded. `running` is false once its supervisor is gone: then nobody is left
+ * to stop what it left behind, and the holder may be freed from here.
+ */
+export function otherStackOwning(repoRoot: string, holder: PortHolder): PortOwner | undefined {
+  const id = ownID(repoRoot);
+  for (const entry of readRegistry().instances) {
+    if (entryID(entry) === id) {
+      continue;
+    }
+    const dir = join(homeDir(), "state", entryID(entry));
+    const lock = readLockFile(join(dir, "devctl.lock"));
+    if (lock?.pid === holder.pid || stackRecorded(entry, dir, holder)) {
+      return { stack: entry, running: lock !== undefined && lockIsLive(lock) };
+    }
+  }
+  return undefined;
+}
+
+function stackRecorded(entry: InstanceSlot, dir: string, holder: PortHolder): boolean {
+  if (Object.values(entry.ports ?? {}).includes(holder.port)) {
+    return true;
+  }
+  // The port as well as the pid: a worker or a container's port proxy holds a
+  // service's port under a pid devctl never recorded.
+  const processes = readPersistedStateFile(join(dir, "state.json"))?.processes ?? [];
+  return processes.some((proc) => proc.pid === holder.pid || Object.values(proc.ports).includes(holder.port));
 }
 
 function ownID(repoRoot: string): string {
