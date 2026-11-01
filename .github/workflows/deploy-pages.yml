@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "app/src/domain/ui/themes.ts"
+      - "app/web/theme.ts"
       - ".github/workflows/deploy-pages.yml"
       - "CHANGELOG.md"
   # Allow manual runs from the Actions tab.

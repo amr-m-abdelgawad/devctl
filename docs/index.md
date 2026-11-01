@@ -8,6 +8,7 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { withBase } from 'vitepress'
 import webOverview from './assets/manual/web-overview.png'
 import TerminalHero from './.vitepress/theme/TerminalHero.vue'
+import SiteThemePicker from './.vitepress/theme/SiteThemePicker.vue'
 import changelogSource from '../CHANGELOG.md?raw'
 import { changelogTeaser, formatReleaseDate, parseChangelog } from './.vitepress/theme/changelog'
 import { ArrowDownLeft, ArrowUpRight, CaretRight, Check, Circle, Copy, Sparkle, SquaresFour, TerminalWindow } from './.vitepress/theme/phosphor'
@@ -154,6 +155,7 @@ async function copyInstall() {
       <div class="preview-caption"><span>ONE TERMINAL. THE WHOLE PICTURE.</span><span aria-hidden="true"><ArrowDownLeft :size="20" weight="regular" /></span></div>
       <TerminalHero />
     </div>
+  <SiteThemePicker showcase />
   </section>
 
   <div class="landing-signal"><span>Less switching. <b>More context.</b></span><span>TUI <i>/</i> CLI <i>/</i> MCP</span><span>One shared session <span aria-hidden="true"><ArrowUpRight :size="14" weight="regular" /></span></span></div>

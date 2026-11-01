@@ -241,16 +241,16 @@ const screen = computed(() => screens[selected.value])
 .demo-intro button { min-height: 44px; cursor: pointer; letter-spacing: 0; }
 .demo-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--vp-c-brand-1); margin-right: 6px; }
 .tui button { font: inherit; cursor: pointer; }
-.tui button:focus-visible, .demo-intro button:focus-visible { outline: 2px solid #6bd39a; outline-offset: 3px; }
+.tui button:focus-visible, .demo-intro button:focus-visible { outline: 2px solid var(--success); outline-offset: 3px; }
 .tui-tab { min-height: 44px; border-bottom: 2px solid transparent; }
-.tui-tab.on { border-bottom-color: #6bd39a; }
-.tk-svc-row:hover { background: #24382f; }
+.tui-tab.on { border-bottom-color: var(--success); }
+.tk-svc-row:hover { background: var(--accent); }
 .tk-filters button { min-height: 44px; }
 .demo-search { width: 100%; display: flex; align-items: center; gap: 12px; color: var(--tk-dim); margin-top: 8px; }
-.demo-search input { min-width: 0; flex: 1; padding: 8px 10px; border: 1px solid var(--tk-line); border-radius: 4px; color: var(--tk-txt); background: #101b17; font: inherit; }
-.demo-search input:focus-visible { outline: 2px solid #6bd39a; }
-.demo-start { min-height: 44px; display: block; margin-top: 8px; padding: 7px 10px; color: #6bd39a; border: 1px solid var(--tk-line); border-radius: 4px; }
-.demo-start:hover { background: #24382f; }
+.demo-search input { min-width: 0; flex: 1; padding: 8px 10px; border: 1px solid var(--tk-line); border-radius: 4px; color: var(--tk-txt); background: var(--background); font: inherit; }
+.demo-search input:focus-visible { outline: 2px solid var(--success); }
+.demo-start { min-height: 44px; display: block; margin-top: 8px; padding: 7px 10px; color: var(--success); border: 1px solid var(--tk-line); border-radius: 4px; }
+.demo-start:hover { background: var(--accent); }
 .demo-feedback { min-height: 40px; padding-top: 12px; font: 11px/1.6 var(--vp-font-family-mono); color: var(--vp-c-brand-1); }
 .tk-full .tk-loglist { max-height: 300px; overflow-y: auto; }
 
@@ -262,27 +262,27 @@ const screen = computed(() => screens[selected.value])
 .walkthrough-controls button:focus-visible { outline: 2px solid var(--vp-c-brand-1); outline-offset: 4px; }
 
 /* Terminal window — a fixed dark palette so it reads as a terminal in both site themes */
-.tui { --tk-bg: #15201d; --tk-line: #385648; --tk-dim: #86988f; --tk-txt: #d3e1da; overflow: hidden; border: 1px solid #4f7d68; border-radius: 8px; background: var(--tk-bg); color: var(--tk-txt); font: 12px/1.55 var(--vp-font-family-mono); }
+.tui { --tk-bg: var(--background); --tk-line: var(--border); --tk-dim: var(--muted-foreground); --tk-txt: var(--foreground); overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--tk-bg); color: var(--tk-txt); font: 12px/1.55 var(--vp-font-family-mono); }
 .tk-dim { color: var(--tk-dim); }
-.ok { color: #6bd39a; }
+.ok { color: var(--success); }
 .off { color: var(--tk-dim); }
 .tui-gap { flex: 1; }
 
 .tui-top, .tui-tabs, .tui-foot { display: flex; align-items: center; gap: 14px; padding: 7px 12px; }
 .tui-top { border-bottom: 1px solid var(--tk-line); }
-.tui-brand { color: #f0f6f2; font-weight: 600; }
+.tui-brand { color: var(--foreground); font-weight: 600; }
 .tui-tabs { gap: 18px; padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--tk-line); color: var(--tk-dim); }
-.tui-tab.on { color: #f0f6f2; }
+.tui-tab.on { color: var(--foreground); }
 .tui-foot { border-top: 1px solid var(--tk-line); }
 .tui-foot > span:first-child { color: var(--tk-txt); }
 .tui-foot-hints { letter-spacing: .01em; }
 
 .pill { border-radius: 3px; padding: 1px 7px; font-weight: 600; white-space: nowrap; }
-.pill-green { background: #6bd39a; color: #10201a; }
-.pill-pink { background: #eb9aab; color: #3a121c; }
-.pill-soft { background: #1f8f66; color: #eafff4; font-weight: 500; }
-.pill-ghost { background: #22322c; color: #b6c8bf; font-weight: 500; }
-.pill-ghost.err { color: #eb9aab; }
+.pill-green { background: var(--primary); color: var(--primary-foreground); }
+.pill-pink { background: var(--accent); color: var(--accent-foreground); }
+.pill-soft { background: var(--elevated); color: var(--foreground); font-weight: 500; }
+.pill-ghost { background: var(--elevated); color: var(--muted-foreground); font-weight: 500; }
+.pill-ghost.err { color: var(--theme-accent); }
 .chip { border: 1px solid var(--tk-line); border-radius: 3px; padding: 1px 7px; color: var(--tk-txt); }
 
 .tui-body { padding: 16px 12px 12px; }
@@ -297,11 +297,11 @@ const screen = computed(() => screens[selected.value])
 .tk-svc-cols { display: grid; grid-template-columns: 58px 1fr 72px; color: var(--tk-dim); padding: 0 2px 4px; }
 .tk-svc-row { display: grid; width: 100%; text-align: left; min-height: 44px; cursor: pointer; grid-template-columns: 10px 24px 12px 1fr 65px; align-items: center; gap: 0 4px; padding: 1px 2px; border-radius: 3px; }
 .tk-svc-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-svc-row.sel { background: #24382f; }
-.tk-caret { color: #6bd39a; }
+.tk-svc-row.sel { background: var(--accent); }
+.tk-caret { color: var(--success); }
 .tk-box-glyph { color: var(--tk-dim); }
-.tk-glyph.ok { color: #6bd39a; }
-.tk-name.up, .tk-state.up { color: #6bd39a; }
+.tk-glyph.ok { color: var(--success); }
+.tk-name.up, .tk-state.up { color: var(--success); }
 .tk-name.down { color: var(--tk-txt); }
 .tk-state.down { color: var(--tk-dim); }
 
@@ -311,20 +311,20 @@ const screen = computed(() => screens[selected.value])
 .tk-loglist { display: flex; flex-direction: column; }
 .tk-logline { display: grid; grid-template-columns: 62px 104px 44px 50px minmax(0, 1fr); gap: 0 8px; line-height: 1.5; }
 .tk-logline > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-time { color: #6f857c; }
+.tk-time { color: var(--muted-foreground); }
 .tk-src { color: var(--tk-dim); }
 .tk-lvl { color: var(--tk-dim); }
-.lvl-warn { color: #e5c46b; }
-.tk-msg { color: #c2d2ca; }
-.tk-msg.warn { color: #e5c46b; }
+.lvl-warn { color: var(--warning); }
+.tk-msg { color: var(--foreground); }
+.tk-msg.warn { color: var(--warning); }
 
 /* stable per-service colours, shared by log tags and profile chips */
-.s-telemetry { color: #57c8b6; }
-.s-identity { color: #a9d3c6; }
-.s-invoices-api { color: #d6ac78; }
-.s-invoices-worker { color: #eb9aab; }
-.s-billing-console { color: #e6a9b4; }
-.s-postgres { color: #b7c6be; }
+.s-telemetry { color: var(--service-0); }
+.s-identity { color: var(--service-1); }
+.s-invoices-api { color: var(--service-2); }
+.s-invoices-worker { color: var(--theme-accent); }
+.s-billing-console { color: var(--service-4); }
+.s-postgres { color: var(--service-5); }
 
 /* Logs full screen */
 .tk-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
@@ -334,9 +334,9 @@ const screen = computed(() => screens[selected.value])
 .tk-profiles { padding-top: 18px; }
 .tk-prof-head { color: var(--tk-dim); margin-bottom: 16px; }
 .tk-prof-card { position: relative; border: 1px solid var(--tk-line); border-radius: 5px; padding: 12px 12px 11px; margin-top: 16px; }
-.tk-prof-card.current { border-color: #5cb98c; background: #1a2a24; }
+.tk-prof-card.current { border-color: var(--primary); background: var(--card); }
 .tk-prof-card .tk-legend { color: var(--tk-dim); }
-.tk-prof-card.current .tk-legend { color: #8fdcb6; }
+.tk-prof-card.current .tk-legend { color: var(--primary); }
 .tk-prof-status { color: var(--tk-dim); }
 .tk-prof-services { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 8px; }
 .tk-prof-services > span { display: inline-flex; align-items: baseline; gap: 7px; }
@@ -362,7 +362,7 @@ const screen = computed(() => screens[selected.value])
 @media (prefers-reduced-motion: no-preference) {
   .tui-body { animation: tui-in .25s ease-out; }
   .tk-svc-row { transition: background .18s ease, box-shadow .18s ease; }
-  .tk-svc-row:hover { box-shadow: inset 2px 0 #6bd39a; }
+  .tk-svc-row:hover { box-shadow: inset 2px 0 var(--success); }
   .tk-glyph, .tk-name, .tk-state { transition: color .25s ease; }
   .demo-start, .tk-filters button { transition: background .18s ease, transform .15s ease; }
   .demo-start:active, .tk-filters button:active { transform: scale(.97); }

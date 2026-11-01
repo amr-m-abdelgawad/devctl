@@ -1,3 +1,5 @@
+.site-logo { flex-shrink: 0; margin-right: 8px; }
+
 :root {
   --vp-c-brand-1: #087568;
   --vp-c-brand-2: #096256;
@@ -32,8 +34,8 @@
 .VPHome .landing h1 span { color: var(--vp-c-brand-1); }
 .VPHome .landing .hero-description { max-width: 540px; margin: 26px auto; color: var(--vp-c-text-2); font-size: 18px; line-height: 1.7; }
 .VPHome .landing .hero-actions { display: flex; align-items: center; justify-content: center; gap: 28px; margin-top: 30px; }
-.VPHome .landing .primary-link { display: inline-flex; align-items: center; justify-content: space-between; gap: 32px; background: var(--vp-c-brand-3); color: #fff; border-radius: 6px; padding: 13px 20px; font-size: 14px; font-weight: 600; transition: background .2s, transform .2s; }
-.VPHome .landing .primary-link:hover { background: #075c50; transform: translateY(-2px); }
+.VPHome .landing .primary-link { display: inline-flex; align-items: center; justify-content: space-between; gap: 32px; background: var(--vp-c-brand-3); color: var(--primary-foreground); border-radius: 6px; padding: 13px 20px; font-size: 14px; font-weight: 600; transition: background .2s, transform .2s; }
+.VPHome .landing .primary-link:hover { background: var(--vp-c-brand-2); transform: translateY(-2px); }
 .VPHome .landing .text-link { display: inline-flex; align-items: center; gap: 14px; font-size: 14px; font-weight: 600; }
 .VPHome .landing .text-link:hover { color: var(--vp-c-brand-1); }
 .VPHome .landing .hero-footnote { color: var(--vp-c-text-2); font-size: 12px; margin-top: 18px; }
@@ -121,7 +123,7 @@
 @media (prefers-reduced-motion: reduce) { .VPHome .landing *, .VPHome .landing *::before, .VPHome .landing *::after { transition: none !important; animation: none !important; } }
 
 .VPHome .vp-doc.container { max-width: none; padding: 0; }
-.VPHome .landing .primary-link { color: #fff; }
+.VPHome .landing .primary-link { color: var(--primary-foreground); }
 
 .VPHome .landing h2 { border: 0; padding: 0; }
 
@@ -142,16 +144,15 @@
 /* A faithful HTML replica of the real devctl profiles screen (see
    docs/public/screenshots/profiles.png): a bordered profile card with a
    name legend on the top border, a "current profile · N services" head, and
-   the services as ✓ rows. Fixed terminal palette so it reads as a terminal in
-   both site themes, like the screenshots. */
+   the services as ✓ rows. Uses the active site palette to preview the TUI theme. */
 .VPHome .landing .workflow-tui { min-height: 132px; margin: 22px 0 10px; }
-.VPHome .landing .wt-box { position: relative; padding: 16px 16px 14px; border: 1px solid #4f7d68; border-radius: 6px; background: #15201d; font: 12px/1.7 var(--vp-font-family-mono); }
-.VPHome .landing .wt-title { position: absolute; top: -0.72em; left: 14px; padding: 0 7px; background: #15201d; color: #8fdcb6; }
-.VPHome .landing .wt-head { color: #9fb3aa; }
-.VPHome .landing .wt-dot { color: #8fdcb6; }
-.VPHome .landing .wt-services { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 8px; color: #d8e6df; }
+.VPHome .landing .wt-box { position: relative; padding: 16px 16px 14px; border: 1px solid var(--border); border-radius: 6px; background: var(--background); font: 12px/1.7 var(--vp-font-family-mono); }
+.VPHome .landing .wt-title { position: absolute; top: -0.72em; left: 14px; padding: 0 7px; background: var(--background); color: var(--primary); }
+.VPHome .landing .wt-head { color: var(--muted-foreground); }
+.VPHome .landing .wt-dot { color: var(--primary); }
+.VPHome .landing .wt-services { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 8px; color: var(--foreground); }
 .VPHome .landing .wt-services > span { display: inline-flex; align-items: baseline; gap: 7px; }
-.VPHome .landing .wt-check { color: #6bd39a; }
+.VPHome .landing .wt-check { color: var(--success); }
 .VPHome .landing .wt-hint { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--vp-c-divider); color: var(--vp-c-text-2); font: 10px/1.6 var(--vp-font-family-mono); letter-spacing: .02em; }
 .VPHome .landing .workflow-note { font-size: 11px; color: var(--vp-c-text-2); margin: 0; }
 .VPHome .landing .demo-band { display: flex; align-items: center; justify-content: space-between; gap: 40px; padding: 42px; border-block: 1px solid var(--vp-c-divider); background: var(--landing-paper); }
@@ -228,7 +229,7 @@
   .VPHome .landing .hero-preview::before {
     inset: -1px;
     padding: 1px;
-    background: radial-gradient(320px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #a4efcf, #48a88b80 45%, transparent 75%);
+    background: radial-gradient(320px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), var(--theme-accent), color-mix(in srgb, var(--primary) 50%, transparent) 45%, transparent 75%);
     -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     -webkit-mask-composite: xor;
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
@@ -238,12 +239,12 @@
   .VPHome .landing .hero-preview::after {
     inset: 0;
     z-index: -1;
-    background: radial-gradient(420px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), #62cba514, transparent 75%);
+    background: radial-gradient(420px circle at var(--pointer-x, 50%) var(--pointer-y, 50%), color-mix(in srgb, var(--primary) 8%, transparent), transparent 75%);
   }
   .VPHome .landing .hero-preview[data-pointer]::before,
   .VPHome .landing .hero-preview[data-pointer]::after { opacity: 1; }
   .VPHome .landing .hero-preview[data-pointer] {
-    box-shadow: 0 2px 4px #00000005, 0 24px 64px -28px #00000038, 0 0 40px -18px #62cba526;
+    box-shadow: 0 2px 4px #00000005, 0 24px 64px -28px #00000038, 0 0 40px -18px color-mix(in srgb, var(--primary) 15%, transparent);
   }
 }
 @keyframes landing-arrive {
@@ -421,10 +422,10 @@
   overflow: hidden;
   pointer-events: none;
   mask-image: linear-gradient(to bottom, #000 0%, #000 62%, transparent 100%);
-  --atmosphere-line: #278d7612;
+  --atmosphere-line: color-mix(in srgb, var(--primary) 7%, transparent);
 }
 .dark .hero-atmosphere {
-  --atmosphere-line: #80d8bf0d;
+  --atmosphere-line: color-mix(in srgb, var(--primary) 5%, transparent);
 }
 .atmosphere-grid {
   position: absolute;
@@ -504,10 +505,10 @@
 .VPHome .landing .details-section { padding-top: 100px; margin-top: 100px; border-top: 1px solid var(--vp-c-divider); }
 .web-showcase-copy { max-width: 340px; }
 .web-showcase-copy p { color: var(--vp-c-text-2); font-size: 15px; line-height: 1.75; margin: 0 0 20px; }
-.web-product { margin: 0; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; background: #101914; }
+.web-product { margin: 0; border: 1px solid var(--vp-c-divider); border-radius: 12px; overflow: hidden; background: var(--card); }
 .web-product a { display: block; }
 .web-product img { display: block; width: 100%; height: auto; }
-.web-product figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 18px 24px; border-top: 1px solid #2b3c32; color: #a2b8ac; font: 10px/1.6 var(--vp-font-family-mono); }
+.web-product figcaption { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 18px 24px; border-top: 1px solid var(--border); color: var(--muted-foreground); font: 10px/1.6 var(--vp-font-family-mono); }
 .web-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 22px; }
 .web-notes p { color: var(--vp-c-text-2); font-size: 14px; line-height: 1.7; }
 .web-notes strong { display: block; color: var(--vp-c-text-1); font-weight: 500; }

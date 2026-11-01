@@ -1,6 +1,7 @@
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+import { siteThemeCss, siteThemeInit } from './theme/site-themes'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const phosphorIcons = resolve(here, '../node_modules/@phosphor-icons/vue/dist/icons')
@@ -31,6 +32,8 @@ const siteConfig = withMermaid({
   ignoreDeadLinks: true,
 
   head: [
+    ['style', {}, siteThemeCss()],
+    ['script', {}, siteThemeInit],
     ['link', { rel: 'icon', href: '/devctl/favicon.svg', type: 'image/svg+xml' }],
     ['meta', { name: 'theme-color', content: '#087568' }],
     ['meta', { property: 'og:type', content: 'website' }],
@@ -56,7 +59,6 @@ const siteConfig = withMermaid({
 
   themeConfig: {
     // https://vitepress.dev/reference/default-theme-config
-    logo: '/logo.svg',
     siteTitle: 'devctl',
 
     nav: [
