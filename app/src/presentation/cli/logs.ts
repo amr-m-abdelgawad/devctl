@@ -1,7 +1,8 @@
 import { Command } from "commander";
 import { setTimeout as delay } from "node:timers/promises";
 import type { ClientRuntime } from "../../application/client-runtime.ts";
-import { decodeLogCursor, encodeLogCursor, formatBodySummary, MAX_LOG_PAGE_SIZE, RequestIdDeduper, type LogEvent, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { decodeLogCursor, encodeLogCursor, formatBodySummary, MAX_LOG_PAGE_SIZE, RequestIdDeduper, serviceNameList, type LogEvent, type LogPage, type LogPageRequest } from "../../domain/logs/logs.ts";
+import { collectRepeatable } from "./lifecycle.ts";
 import { configFlag, writeOut } from "./shared.ts";
 
 function formatLogLineForCli(ev: LogEvent): string {
@@ -105,11 +106,12 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
     .option("--attribute <key=value>", "filter by a single attribute")
     .option("--dedupe-request-id", "collapse nearby events that share a request id")
     .option("--hide-grpc", "hide gRPC proxy logs")
+    .option("--exclude <services>", "hide these services (comma-separated, repeatable)", collectRepeatable, [])
     .option("--output <path>", "export path")
     .option("--json", "JSONL LogRecord output")
     .option("-f, --follow", "keep printing new matching events until interrupted")
     .option("--all", "print the full matching history instead of the latest page")
-    .action(async (services: string[], opts: { level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean; trace?: string; requestId?: string; attribute?: string; dedupeRequestId?: boolean; hideGrpc?: boolean }) => {
+    .action(async (services: string[], opts: { exclude?: string[]; level?: string; search?: string; regex?: boolean; source?: string; since?: string; until?: string; output?: string; json?: boolean; follow?: boolean; all?: boolean; trace?: string; requestId?: string; attribute?: string; dedupeRequestId?: boolean; hideGrpc?: boolean }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         if (opts.trace) {
@@ -129,6 +131,7 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
         const attribute = parseAttribute(opts.attribute);
         const filter = {
           services,
+          excludeServices: serviceNameList(opts.exclude),
           level: opts.level,
           search: opts.search,
           regex: opts.regex,
@@ -208,12 +211,14 @@ export function addLogs(root: Command, runtime: ClientRuntime): void {
     .option("--regex", "treat search as regular expression")
     .option("--source <source>", "filter by source")
     .option("--hide-grpc", "hide gRPC proxy logs")
-    .action(async (services: string[], opts: { output: string; level?: string; search?: string; regex?: boolean; source?: string; hideGrpc?: boolean }) => {
+    .option("--exclude <services>", "hide these services (comma-separated, repeatable)", collectRepeatable, [])
+    .action(async (services: string[], opts: { output: string; level?: string; search?: string; regex?: boolean; source?: string; hideGrpc?: boolean; exclude?: string[] }) => {
       const ctrl = await runtime.openController("", configFlag(root), true);
       try {
         const exportPath = runtime.resolveExportPath(opts.output);
         await ctrl.logs({
           services,
+          excludeServices: serviceNameList(opts.exclude),
           level: opts.level,
           search: opts.search,
           regex: opts.regex,

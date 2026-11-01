@@ -10,6 +10,7 @@ import {
   matchLog,
   MAX_LOG_PAGE_SIZE,
   normalizeLogLevels,
+  serviceNameList,
   redactLogRecord,
   redactSpan,
   type LogFilter,
@@ -27,6 +28,12 @@ import { getDoc, searchDocs } from "./docs-search.ts";
 import { GUIDE_SECTIONS, type GuideSection } from "./guide.generated.ts";
 
 export const MCP_LOG_CAP = 200;
+
+const EXCLUDE_SERVICES = {
+  type: "array",
+  items: { type: "string" },
+  description: "Services to leave out, such as [\"api\", \"web\"]. A comma-separated string also works.",
+} as const;
 
 const LOG_LEVEL_AND_HEALTH = {
   level: { type: "string", description: "Minimum level (ERROR includes FATAL). Ignored when levels is set" },
@@ -135,6 +142,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: {
         service: { type: "string" },
+        exclude_services: EXCLUDE_SERVICES,
         ...LOG_LEVEL_AND_HEALTH,
         search: { type: "string" },
         regex: { type: "boolean", description: "Treat search as a regular expression" },
@@ -165,6 +173,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: {
         service: { type: "string" },
+        exclude_services: EXCLUDE_SERVICES,
         ...LOG_LEVEL_AND_HEALTH,
         search: { type: "string" },
         regex: { type: "boolean", description: "Treat search as a regular expression" },
@@ -301,6 +310,7 @@ export const MCP_TOOLS: readonly McpToolDef[] = [
       type: "object",
       properties: {
         service: { type: "string" },
+        exclude_services: EXCLUDE_SERVICES,
         hide_health: LOG_LEVEL_AND_HEALTH.hide_health,
         search: { type: "string" },
         regex: { type: "boolean" },
@@ -838,7 +848,7 @@ function logFilterFromArgs(args: Record<string, unknown>): LogFilter {
   const attributeValue = argString(args, "attribute_value");
   return {
     services: service === "" ? [] : [service],
-    excludeServices: argString(args, "exclude_services").split(",").filter((name) => name !== ""),
+    excludeServices: serviceNameList(args.exclude_services),
     level: argString(args, "level"),
     levels: normalizeLogLevels(args.levels),
     hideHealth: argFlag(args.hide_health) || argFlag(args.hideHealth),

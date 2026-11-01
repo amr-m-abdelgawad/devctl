@@ -8,6 +8,16 @@ import type { LogFilter, LogRecord } from "./types.ts";
 
 export type LogMatcher = (ev: LogRecord) => boolean;
 
+/** Service names from a list, a comma-separated string, or a list of those, as the CLI, MCP, and query strings send them. */
+export function serviceNameList(value: unknown): string[] {
+  const parts = Array.isArray(value) ? value : [value];
+  return parts
+    .filter((part): part is string => typeof part === "string")
+    .flatMap((part) => part.split(","))
+    .map((name) => name.trim())
+    .filter((name) => name !== "");
+}
+
 const SYSTEM_SOURCES = new Set(["auth", "mcp", "devctl", "proxy"]);
 
 export function matchesLogDimensions(filter: LogFilter, ev: LogRecord): boolean {

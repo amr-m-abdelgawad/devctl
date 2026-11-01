@@ -49,6 +49,17 @@ describe("devctl logs --dedupe-request-id", () => {
   });
 });
 
+describe("devctl logs --exclude", () => {
+  test("takes commas and repeats, and hides nothing by default", async () => {
+    expect((await parseLogs(["--exclude", "api,web", "--exclude", "worker"]))?.excludeServices).toEqual(["api", "web", "worker"]);
+    expect((await parseLogs([]))?.excludeServices).toEqual([]);
+  });
+
+  test("reaches the export subcommand", async () => {
+    expect((await parseLogs(["export", "--output", "out.jsonl", "--exclude", "api"]))?.excludeServices).toEqual(["api"]);
+  });
+});
+
 describe("devctl logs --all", () => {
   // A daemon that serves three records a page, as a byte-capped page would.
   function pagedDaemon(count: number): { fetch: (request: LogPageRequest) => Promise<LogPage>; requests: LogPageRequest[] } {

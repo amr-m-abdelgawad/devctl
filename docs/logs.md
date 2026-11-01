@@ -112,13 +112,14 @@ History loads a persisted session (same store as TUI `/history`). Export downloa
 - `levels`: `["info", "warn"]`, `["warn", "error"]`, and the other combinations of `trace`, `debug`, `info`, `warn`, `error`, and `fatal`. A comma-separated string works too. Omit it to show every level. `level` stays a minimum and is ignored when `levels` is set.
 - `hide_health`: `true` hides supervisor health probes and the REST and gRPC health-endpoint request lines, from the service and from the proxy.
 - `hide_grpc`: `true` omits gRPC proxy logs and records marked `rpc.system=grpc`. Omit it to show them.
+- `exclude_services`: `["api", "web"]` leaves those services out. A comma-separated string also works. `get_log_stats` still lists them in `byService`.
 
-`recent_errors` stays error and fatal, and accepts `hide_health` and `hide_grpc`.
+`recent_errors` stays error and fatal, and accepts `hide_health`, `hide_grpc`, and `exclude_services`.
 
 ## CLI
 
 ```bash
-devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--json]
+devctl logs [svc…] [--level] [--search] [--regex] [--source] [--since] [--until] [--trace] [--request-id] [--attribute key=value] [--dedupe-request-id] [--hide-grpc] [--exclude a,b] [--json]
 devctl logs                        # latest page (same as MCP get_logs); pass --all for the full match set
 devctl logs -f                     # keep printing new matching events until interrupted
 devctl logs --output FILE          # same filters, write a file (full history, not just one page)
@@ -127,6 +128,7 @@ devctl logs --trace <id>           # spans plus correlated logs for that trace
 devctl logs --request-id <id>      # filter by X-Devctl-Request-ID
 devctl logs --dedupe-request-id    # collapse nearby events that share a request id
 devctl logs --hide-grpc            # omit gRPC proxy logs; omit the flag to show them
+devctl logs --exclude api,web      # hide these services; repeat the flag or use commas
 devctl daemon logs [-f]            # the supervisor's own bootstrap stderr, not service logs
 ```
 
