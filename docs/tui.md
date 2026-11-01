@@ -102,6 +102,8 @@ Everything else is a slash command (or a letter jump): `/auth`, `/credentials`, 
 - **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, **Regenerate tokens** (`regenerate_session_tokens`, off by default; on remints saved MCP and web bearers after 7 days), web console on/off and port, inspect body cap (writes `.devctl/config.local.yaml`), about, scoped reset. `←`/`→` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first and leaves MCP listen and token regeneration as they are. Default writes `~/.devctl/state/<repoID>/tui.json`; switch Save to for `~/.devctl/tui.json`. MCP listen always stays per checkout. `DEVCTL_TUI_CONFIG` keeps changes session-only; layer badges then show `override` or `default`, not an ignored overlay.
 - **MCP** — Listen `[ ON ]` / `[ OFF ]`, port stepper `‹ N ›`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked `read` or `write`; `space` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
+![The LLM screen — recent calls with caller, model, and latency, and the selected conversation beside them](assets/manual/tui-llm.png)
+
 `/reveal` toggles secret env values for this session only. The header shows `secrets shown`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.
 
 ## Slash commands

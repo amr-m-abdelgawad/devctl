@@ -26,7 +26,7 @@ Start services, follow logs, trace requests, and inject cloud auth — from a ke
   <a href="examples/demo-platform/README.md">Demo</a>
 </p>
 
-<video src="https://github.com/user-attachments/assets/eadb7ee1-43e8-4ba0-b0ee-1011448f36a8" controls muted width="900"></video>
+<video src="docs/assets/showcase/devctl-console.mp4" controls muted width="900"></video>
 
 </div>
 
@@ -62,9 +62,14 @@ What sets it apart:
 
 ## See it run
 
-The TUI in action — dashboard, live filtered logs, distributed traces, and the proxy:
+The video above is one session: the TUI (dashboard, filtered logs, proxy, LLM) and the web console on the same supervisor.
 
-<video src="https://github.com/user-attachments/assets/7e924fe4-7fe4-49d3-924c-de76916c3a13" controls muted width="900"></video>
+<p>
+  <img src="docs/assets/manual/tui-dashboard.png" width="900" alt="devctl TUI dashboard — healthy services beside a live structured log stream">
+</p>
+<p>
+  <img src="docs/assets/manual/web-overview.png" width="900" alt="devctl web console overview — service fleet, profiles, and request totals">
+</p>
 
 ---
 

@@ -14,7 +14,7 @@ devctl proxy stop
 
 The TUI **proxy** tab (`p`) shows status, routes, and a live inspector of hops captured on `inspect.enabled` routes. `n` starts, `x` stops. `r` toggles pretty JSON vs raw. SA email is shown when a route uses one.
 
-![The TUI proxy tab — routes with their auth (none/user, service account, IAP) on the left and a live request feed (method, status, duration, proxy hop, identity, route, path) on the right](assets/manual/tui-proxy.png)
+![The TUI proxy tab — routes and their auth, a live hop list, and the captured request or response body for the selected hop](assets/manual/tui-proxy.png)
 
 Each request gets `X-Devctl-Request-ID` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include `Authorization` headers. Bodies are streamed unless a route opts into [inspect](#inspect-bodies) or a [request-body transform](#rewrite-the-request-body).
 
@@ -370,6 +370,8 @@ The proxy keeps the last 100 requests in memory — method, path, matched route 
 Paths in this log are redacted, since a query string can carry secrets. Response headers are forwarded to the client unchanged. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart. This ring is **metadata-only**; request and response bodies are not stored here.
 
 ## Inspect bodies
+
+![The web traffic inspector — one originating service, the hop list, and the captured JSON body](assets/manual/web-traffic.png)
 
 devctl is a reverse proxy, not a transparent interceptor. Request and response bodies exist only on hops that already traverse a listener we own: HTTP `proxy.listen` routes and `transport: grpc` dedicated ports. A service calling `http://127.0.0.1:<peer-port>` directly never hits the proxy. There is no iptables/pf redirect or HTTPS MITM.
 

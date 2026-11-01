@@ -18,6 +18,8 @@ The TUI **Doctor** screen (`/doctor` or `d`) re-runs on every visit (`r` also re
 
 The [web console](web.md) **Doctor** page (`#/doctor`) runs the same checks on visit and on Refresh. Each error port has **Free port**. When two or more can be freed, **Free all N ports** uses one confirmation and the same per-port recheck.
 
+![Doctor in the web console — pass, warn, and error counts, with the failing checks and their hints](assets/manual/web-doctor.png)
+
 ![The TUI Doctor screen — a pass/warn/error progress bar and grouped checks with hints, re-run with `r`](assets/manual/tui-doctor.png)
 
 ## What it checks
