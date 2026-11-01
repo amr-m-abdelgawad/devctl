@@ -1,10 +1,10 @@
 import { PlanButton } from "../components/plan-button.tsx";
+import { ServiceDetail } from "../components/service-detail.tsx";
 import { useState } from "react";
 import { postControl } from "../api.ts";
 import { serviceIsHealthy } from "../fleet.ts";
-import { hrefFor } from "../hash.ts";
-import { PlayIcon, StackIcon, TerminalWindowIcon } from "../icons.ts";
-import type { ProfileRow, ServiceRow, TaskResult, TaskRow } from "../types.ts";
+import { CaretRightIcon, PlayIcon, StackIcon, TerminalWindowIcon } from "../icons.ts";
+import type { ConfigService, ProfileRow, ServiceRow, TaskResult, TaskRow } from "../types.ts";
 import { ChoiceGroup, SearchInput } from "../components/filters.tsx";
 import { Empty } from "../components/primitives.tsx";
 import { Badge } from "../components/ui/badge.tsx";
@@ -16,6 +16,7 @@ export function WorkspacePage(props: {
   profiles: ProfileRow[];
   tasks: TaskRow[];
   services: ServiceRow[];
+  configServices: ConfigService[];
   profile: string;
   busy: boolean;
   onControl: RunControl;
@@ -26,6 +27,7 @@ export function WorkspacePage(props: {
   const [tab, setTab] = useState("profiles");
   const [result, setResult] = useState<TaskResult>();
   const [running, setRunning] = useState("");
+  const [serviceName, setServiceName] = useState("");
   const profiles = props.profiles.filter((row) => `${row.name} ${row.services.join(" ")}`.toLowerCase().includes(search.toLowerCase()));
   const tasks = props.tasks.filter((row) => `${row.name} ${row.dependencies.join(" ")}`.toLowerCase().includes(search.toLowerCase()));
   const runTask = async (name: string): Promise<void> => {
@@ -93,13 +95,21 @@ export function WorkspacePage(props: {
                       style={{ width: `${row.services.length ? (healthy / row.services.length) * 100 : 0}%` }}
                     />
                   </div>
-                  <details className="profile-members">
-                    <summary>View {row.services.length} services</summary>
+                  <details className="profile-members group">
+                    <summary>
+                      <CaretRightIcon className="size-3 shrink-0 transition-transform group-open:rotate-90" aria-hidden="true" />
+                      View {row.services.length} services
+                    </summary>
                     <div className="flex max-h-48 flex-wrap gap-1.5 overflow-auto pt-3">
                       {row.services.map((name) => (
-                        <a key={name} className="rounded-md bg-muted px-2 py-1 text-xs hover:text-primary" href={hrefFor("services", name)}>
+                        <button
+                          key={name}
+                          type="button"
+                          className="rounded-md bg-muted px-2 py-1 text-xs hover:text-primary"
+                          onClick={() => setServiceName(name)}
+                        >
                           {name}
-                        </a>
+                        </button>
                       ))}
                     </div>
                   </details>
@@ -146,6 +156,18 @@ export function WorkspacePage(props: {
             {search ? "No matches. Try another search." : tab === "profiles" ? "No profiles configured." : "No named tasks configured."}
           </Empty>
         </Card>
+      ) : null}
+      {serviceName ? (
+        <ServiceDetail
+          key={serviceName}
+          name={serviceName}
+          row={props.services.find((row) => row.name === serviceName)}
+          config={props.configServices}
+          busy={props.busy}
+          onControl={props.onControl}
+          onClose={() => setServiceName("")}
+          onOpenService={setServiceName}
+        />
       ) : null}
       {tab === "tasks" && (result || running) ? (
         <Card>

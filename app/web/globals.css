@@ -765,11 +765,15 @@ summary:focus-visible {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 18px;
+  gap: 14px 18px;
   padding: 17px 20px;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 12px;
+}
+.workspace-actionbar > :first-child {
+  flex: 1 1 18rem;
+  min-width: min(100%, 18rem);
 }
 .fleet-toolbar {
   display: flex;
@@ -899,8 +903,15 @@ summary:focus-visible {
   align-items: start;
 }
 .profile-members summary {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--muted-foreground);
   font-size: 13px;
+  list-style: none;
+}
+.profile-members summary::-webkit-details-marker {
+  display: none;
 }
 .task-output {
   max-height: 420px;

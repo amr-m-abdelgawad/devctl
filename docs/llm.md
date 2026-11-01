@@ -165,6 +165,10 @@ TUI list shows caller next to status; detail has `caller` then `via` (proxy) or 
 
 ## Surfaces
 
+![The web LLM inspector — list, conversation, and the attributes captured off the proxy](assets/manual/web-llm.png)
+
+![The TUI LLM screen — the same calls, with the conversation inspector open on the selected row](assets/manual/tui-llm.png)
+
 Query stays on the store (RPC `llm_calls_page` / `get_llm_call`). Secrets are redacted again on MCP/web output.
 
 | Surface | Entry |

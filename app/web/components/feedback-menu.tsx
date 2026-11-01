@@ -1,4 +1,4 @@
-import { ArrowUpRightIcon, BugIcon, CaretDownIcon, GithubLogoIcon, LightbulbIcon } from "../icons.ts";
+import { ArrowUpRightIcon, BugIcon, CaretDownIcon, GithubLogoIcon, LightbulbIcon, StarIcon } from "../icons.ts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,7 +9,11 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.tsx";
 
+// The asset build keeps only github.com/amr-m-abdelgawad/devctl/ links, so the slash is required.
+const REPO_URL = "https://github.com/amr-m-abdelgawad/devctl/";
+
 const FEEDBACK_LINKS = [
+  { label: "Star the repo", href: REPO_URL, icon: StarIcon },
   { label: "Report a bug", href: "https://github.com/amr-m-abdelgawad/devctl/issues/new?template=bug.md", icon: BugIcon },
   { label: "Share an idea", href: "https://github.com/amr-m-abdelgawad/devctl/discussions/new?category=ideas", icon: LightbulbIcon },
 ];

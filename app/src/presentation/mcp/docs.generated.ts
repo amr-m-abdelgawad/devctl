@@ -941,6 +941,8 @@ The TUI **Doctor** screen (\`/doctor\` or \`d\`) re-runs on every visit (\`r\` a
 
 The [web console](web.md) **Doctor** page (\`#/doctor\`) runs the same checks on visit and on Refresh. Each error port has **Free port**. When two or more can be freed, **Free all N ports** uses one confirmation and the same per-port recheck.
 
+![Doctor in the web console — pass, warn, and error counts, with the failing checks and their hints](assets/manual/web-doctor.png)
+
 ![The TUI Doctor screen — a pass/warn/error progress bar and grouped checks with hints, re-run with \`r\`](assets/manual/tui-doctor.png)
 
 ## What it checks
@@ -1829,7 +1831,7 @@ async function copyInstall() {
 
   <section class="web-showcase landing-section" aria-labelledby="web-title">
     <div class="section-heading"><div><p class="eyebrow">A DIFFERENT PERSPECTIVE</p><h2 id="web-title">Same session.<br>Room to see more.</h2></div><div class="web-showcase-copy"><p>Follow services, requests, and traces in an optional local console. The same supervisor, with a wider view.</p><a class="text-link" :href="withBase('/web')">Explore the web console <ArrowUpRight :size="14" /></a></div></div>
-    <figure class="web-product"><a :href="withBase('/web')"><img :src="webOverview" width="2880" height="1800" loading="lazy" decoding="async" alt="devctl web console showing service health, profile controls, proxy requests, and recent errors" /></a><figcaption><span>THE LOCAL CONSOLE</span><span>Opt-in · Loopback only · One shared session</span></figcaption></figure>
+    <figure class="web-product"><a :href="withBase('/web')"><img :src="webOverview" width="3360" height="2360" loading="lazy" decoding="async" alt="devctl web console showing service health, profile controls, proxy requests, and recent errors" /></a><figcaption><span>THE LOCAL CONSOLE</span><span>Opt-in · Loopback only · One shared session</span></figcaption></figure>
     <div class="web-notes"><p><strong>Your session, expanded.</strong> Services, traces, and logs together.</p><p><strong>Local by default.</strong> Start it when you need it with <code>devctl web start</code>; the token rides in the URL fragment.</p></div>
   </section>
 
@@ -2151,6 +2153,10 @@ Each stored call has an optional \`caller\` — the **service that issued the re
 TUI list shows caller next to status; detail has \`caller\` then \`via\` (proxy) or \`source\` (LiteLLM). Filter by caller everywhere: CLI \`devctl llm --caller worker\`, the TUI \`/caller worker\` command (LLM screen filters calls; proxy screen filters traffic hops), the web console caller dropdown, and MCP \`get_llm_calls\`'s \`caller\`. Pass \`-\` (CLI also accepts \`none\`) to show only calls with **no** known caller.
 
 ## Surfaces
+
+![The web LLM inspector — list, conversation, and the attributes captured off the proxy](assets/manual/web-llm.png)
+
+![The TUI LLM screen — the same calls, with the conversation inspector open on the selected row](assets/manual/tui-llm.png)
 
 Query stays on the store (RPC \`llm_calls_page\` / \`get_llm_call\`). Secrets are redacted again on MCP/web output.
 
@@ -3152,7 +3158,7 @@ devctl proxy stop
 
 The TUI **proxy** tab (\`p\`) shows status, routes, and a live inspector of hops captured on \`inspect.enabled\` routes. \`n\` starts, \`x\` stops. \`r\` toggles pretty JSON vs raw. SA email is shown when a route uses one.
 
-![The TUI proxy tab — routes with their auth (none/user, service account, IAP) on the left and a live request feed (method, status, duration, proxy hop, identity, route, path) on the right](assets/manual/tui-proxy.png)
+![The TUI proxy tab — routes and their auth, a live hop list, and the captured request or response body for the selected hop](assets/manual/tui-proxy.png)
 
 Each request gets \`X-Devctl-Request-ID\` — propagated from the caller if it sent one, generated otherwise — and it's echoed back on the response so a caller can find its own request in the log below. Proxy logs never include \`Authorization\` headers. Bodies are streamed unless a route opts into [inspect](#inspect-bodies) or a [request-body transform](#rewrite-the-request-body).
 
@@ -3508,6 +3514,8 @@ The proxy keeps the last 100 requests in memory — method, path, matched route 
 Paths in this log are redacted, since a query string can carry secrets. Response headers are forwarded to the client unchanged. Nothing here is persisted — it's an in-memory ring buffer, reset on daemon restart. This ring is **metadata-only**; request and response bodies are not stored here.
 
 ## Inspect bodies
+
+![The web traffic inspector — one originating service, the hop list, and the captured JSON body](assets/manual/web-traffic.png)
 
 devctl is a reverse proxy, not a transparent interceptor. Request and response bodies exist only on hops that already traverse a listener we own: HTTP \`proxy.listen\` routes and \`transport: grpc\` dedicated ports. A service calling \`http://127.0.0.1:<peer-port>\` directly never hits the proxy. There is no iptables/pf redirect or HTTPS MITM.
 
@@ -4516,6 +4524,8 @@ Everything else is a slash command (or a letter jump): \`/auth\`, \`/credentials
 - **Settings** — grouped prefs: **save scope** (this repository overlay vs all checkouts), theme, display size, web console appearance, mouse, leader, scroll speed, log timestamps/metadata, **MCP** page, **Regenerate tokens** (\`regenerate_session_tokens\`, off by default; on remints saved MCP and web bearers after 7 days), web console on/off and port, inspect body cap (writes \`.devctl/config.local.yaml\`), about, scoped reset. \`←\`/\`→\` writes the highlighted cycle or toggles, except **web port** which previews until Enter. Reset asks first and leaves MCP listen and token regeneration as they are. Default writes \`~/.devctl/state/<repoID>/tui.json\`; switch Save to for \`~/.devctl/tui.json\`. MCP listen always stays per checkout. \`DEVCTL_TUI_CONFIG\` keeps changes session-only; layer badges then show \`override\` or \`default\`, not an ignored overlay.
 - **MCP** — Listen \`[ ON ]\` / \`[ OFF ]\`, port stepper \`‹ N ›\`, per-agent **Copy JSON** / **Copy TOML**, and a **Tools** list grouped by purpose (inspect, logs, diagnostics, control, setup) with each tool marked \`read\` or \`write\`; \`space\` enables or disables the highlighted one, all on by default. Off by default. See [MCP](mcp.md)
 
+![The LLM screen — recent calls with caller, model, and latency, and the selected conversation beside them](assets/manual/tui-llm.png)
+
 \`/reveal\` toggles secret env values for this session only. The header shows \`secrets shown\`. It does not restore log lines, LLM request/response bodies, or traffic inspector payloads; those are redacted when stored.
 
 ## Slash commands
@@ -4811,6 +4821,8 @@ web:
 
 Run \`devctl config validate\` after a hand edit, then \`devctl reload\` if the supervisor is already running. A settings save already reloads. The port must differ from the proxy, token endpoint, OTLP receiver, and gRPC route ports. The listener accepts loopback addresses only. See [Security](security.md) for the access model.
 
+![Settings — save scope, appearance, the loopback web listener, and the inspect body cap](assets/manual/web-settings.png)
+
 ## Choose a color theme
 
 Open **Settings → Appearance** for the same 28 named palettes as the TUI, including Dracula, Tokyo Night, Catppuccin, Nord, Gruvbox, Solarized, and the high-contrast themes. Search by name or description, or filter the preview grid by light/dark appearance. Choosing a palette saves the shared theme preference using the selected repository/user scope and starts with that palette's native appearance.
@@ -4823,9 +4835,9 @@ The overview combines service status, recent proxy requests, and errors. Start a
 
 Open a service name to inspect its command, working directory, dependencies, ports, last error, and configured environment values with secrets redacted. The detail view links directly to that service's logs. **Resolve environment** shows the values a new command will receive, including devctl templates. Values are redacted by default; **Reveal secrets** requires review and keeps them only in the open inspector. **Run command** executes an argument list in the service's environment and working directory, with captured stdout, stderr, and exit code. Shell operators are ordinary arguments; invoke a shell explicitly when needed.
 
-**Preview plan** shows dependency waves and blockers before starting or stopping services, selections, or profiles. **Profiles & tasks** separates working sets from one-off tasks. Profile cards show member services and health; task runs show stdout, stderr, and the exit code. **Proxy & connections** shows listener status and searchable routes, including host/path matches, protocol, dedicated gRPC listeners, and route details. Its **MCP & agent tools** tab starts or stops MCP, shows client setup snippets on request, rotates the bearer token, and edits tool permissions by category or search. Reviewed permission changes persist to this repository. **Configuration** shows service definitions, a JSON summary, and searchable winning sources and overridden layers.
+**Preview plan** shows dependency waves and blockers before starting or stopping services, selections, or profiles. **Profiles & tasks** separates working sets from one-off tasks. Profile cards show member services and health behind a caret. Opening a member, or a dependency from its dialog, stays on that page. Task runs show stdout, stderr, and the exit code. **Proxy & connections** shows listener status and searchable routes, including host/path matches, protocol, dedicated gRPC listeners, and route details. Its **MCP & agent tools** tab starts or stops MCP, shows client setup snippets on request, rotates the bearer token, and edits tool permissions by category or search. Reviewed permission changes persist to this repository. **Configuration** shows service definitions, a JSON summary, and searchable winning sources and overridden layers.
 
-The navigation groups workspace, observation, and management pages. Every page title shows its navigation icon; the top-bar page menu also switches between sections. Filtering controls use shadcn dropdown menus with keyboard navigation. Use the arrow beside the logo to collapse the sidebar into an icon rail or expand it again. The browser remembers this choice; hovering an icon shows its page name. On smaller screens navigation moves into a menu. **Quick find** (\`Cmd+K\` / \`Ctrl+K\`) searches pages and service names from any section.
+The sidebar **Feedback** menu reports a bug, shares an idea, or stars the repository on GitHub. The navigation groups workspace, observation, and management pages. Every page title shows its navigation icon; the top-bar page menu also switches between sections. Filtering controls use shadcn dropdown menus with keyboard navigation. Use the arrow beside the logo to collapse the sidebar into an icon rail or expand it again. The browser remembers this choice; hovering an icon shows its page name. On smaller screens navigation moves into a menu. **Quick find** (\`Cmd+K\` / \`Ctrl+K\`) searches pages and service names from any section.
 
 When a service defines [named environment overlays](environment.md#per-service-named-overlays), use its Env selector in Overview or Graph. The selection becomes pending until you restart the service; the console offers a Restart action to apply it.
 
@@ -4868,13 +4880,19 @@ Open Logs to follow the supervisor ring. The page keeps up to \`logs.max_memory_
 
 Search is substring or regex (\`f\` focuses the box). A searchable service picker replaces an unbounded strip of service chips. The **Exclude** menu next to it hides one or more services from the list, the counts, and the export; excluding the service a pane is filtered to returns that pane to all services. **Filters & view options** opens a dropdown for noise filters and display controls, with submenus for wrapping and session history. **All filters & session history** opens time bounds, source, request/trace IDs, and attribute filters in a dialog. These controls float over the page, leaving the taller log list available behind them. Date/time inputs use the browser's local timezone. **ERROR+** (\`e\`), the Levels menu (choose multiple severities), **hide health**, the system-source toggle (\`auth\` / \`mcp\` / \`devctl\` / \`proxy\`), and **hide grpc** (\`b\`) match the TUI. Hide health drops supervisor probes and request logs for HTTP health/ready/live endpoints and gRPC \`grpc.health.v1.Health\`, from the service and from the proxy. Hide grpc drops gRPC proxy logs from the page, the facet counts, and export; HTTP proxy logs stay. Advanced filters select source, request ID, trace ID, or an exact attribute key/value; **Deduplicate requests** groups repeated request IDs. These filters and the system-source toggle apply on the supervisor, so paging, counts, and exports use the same filter. **Full screen** (\`z\`, Escape to leave) hides surrounding chrome. Wrap cycles clip → wrap selected → wrap all (\`w\`). Split (\`\\\`) opens a second pane on the same buffer with its own service filter and follow/pin. History loads a persisted session; **Export** downloads NDJSON using the selected session and query filters. Keys on Logs: \`j\`/\`k\` move, \`f\` search, \`p\` pause, \`g\` latest (\`pinned · +N new\` when you leave the tail), \`e\` ERROR+, \`b\` gRPC logs, \`\\\` split, \`w\` wrap. Select a row to pin the view and expand its message; the selected row has a clear highlight. Arrow keys or j/k move through records, and Enter or the row’s inspect arrow opens details. Wide screens show a closable side panel; smaller screens open details separately, preserving the log list’s height and scroll position. Details start with the readable message and metadata, with JSON available in a separate tab. In the JSON tree, click a long field or **Show more** to read its full value with line breaks and wrapping; **Show less** folds it back. Enter expands or folds the selected value, and the Value button copies the full text. Use the selection bar to move, copy the message, inspect, or clear selection. Latest returns to live follow and clears selection. Narrow log rows stack metadata above the message so service names never crowd it out. Service stdout and stderr work without enabling OTLP. See [Logs](logs.md) for retention and export.
 
+![LLM calls — filter by caller, status, and model, and read the selected conversation or its JSON](assets/manual/web-llm.png)
+
 The LLM view is a list plus live inspector. Caller, status, and model filters query the supervisor, with a searchable caller picker. Pause holds the list; **Load older calls** pauses live refresh while browsing history, and **Back to live** returns to the newest page. A pinned call stays open across filter changes, with a notice when it is outside the current results. Select a call to read the conversation, or switch to JSON for a collapsible tree (path breadcrumb, expand/collapse, copy path or value) and a syntax-colored pretty view. Find highlights matching keys and values. The selected call stays open when newer calls arrive. Search matches prompts and metadata stored on the supervisor. Enable and configure [LLM inspector](llm.md) separately: either pull LiteLLM spend logs or capture traffic on a devctl proxy route. An empty LLM view does not mean the web console is broken; it needs a configured source receiving traffic.
 
 ## Inspect proxied HTTP and gRPC bodies
 
+![Traffic — captured proxy hops, with the selected request and response body](assets/manual/web-traffic.png)
+
 The Traffic view (\`#/traffic\` and \`#/traffic/:id\`) is a list plus live inspector for hops captured on \`inspect.enabled\` proxy routes. The searchable caller picker keeps one originating service (or hops with no caller) so a noisy neighbor does not bury the service you are debugging. Route, method, protocol, and status filters query the supervisor. Pause and **Load older requests** let you browse history; **Back to live** returns to the newest page. Click a row to inspect JSON as a navigable tree or syntax-colored pretty text (copy path/value, find, wrap), or switch to raw. Logs and span attributes use the same viewer. The selected hop stays open when newer hops arrive. \`j\`/\`k\` moves the list. Overview request paths link here when a captured body exists. Direct sockets that never hit the proxy are not shown. See [Proxy inspect](proxy.md#inspect-bodies).
 
 ## Doctor and identity
+
+![Doctor in the web console — the same checks as the CLI, with a reviewed action to free a port](assets/manual/web-doctor.png)
 
 **Doctor** (\`#/doctor\`) is in the management navigation. Search checks or choose Issues only to focus on failures and warnings. It runs the same checks as \`devctl doctor\` on visit and on Refresh, with severity, message, and hint. Each error port that names a holder offers **Free port** after you review the process ID, command, and port. When two or more of those ports are listed, **Free all N ports** stops each one after a single confirmation. One failure does not skip the rest. The supervisor rechecks the holder before every signal, then refreshes the report. See [Doctor](doctor.md).
 

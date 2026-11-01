@@ -1,3 +1,6 @@
+# Storyboard only. The README video is docs/assets/showcase/devctl-console.mp4,
+# a screen recording of the TUI and the web console. Do not republish a VHS
+# render of this tape: its line spacing does not match the TUI's compact rows.
 Output "/tmp/devctl-show-frames/"
 
 Set Shell "bash"

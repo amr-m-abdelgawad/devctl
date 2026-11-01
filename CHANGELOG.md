@@ -9,13 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The web console **Feedback** menu includes **Star the repo**, which opens the GitHub repository. See [Web console](docs/web.md).
 - `services.<name>.logs.severity_regex` reads the level from a log format devctl does not recognise. The first capture group holds a level name or a one-letter level. See [Logs](docs/logs.md).
 - The TUI and the web console can hide one or more services from logs. In the TUI, use the **exclude** chip, `x` on the logs screen, or `/exclude`. In the web console, use the **Exclude** menu next to the service filter. Counts, search, history, and exports follow the exclusion. See [TUI](docs/tui.md) and [Web console](docs/web.md).
 - `devctl logs` and `devctl logs export` take `--exclude a,b`. The MCP tools `get_logs`, `get_log_stats`, and `recent_errors` take `exclude_services`. See [Logs](docs/logs.md).
 
+### Changed
+
+- On **Profiles & tasks**, **View N services** uses a caret, and choosing a member opens that service's dialog on the page. A dependency in the dialog opens that service in the same dialog. See [Web console](docs/web.md).
+
 ### Fixed
 
 - Doctor in a checkout that hasn't started no longer reports the first stack's ports as its own, and no longer offers to stop that stack's processes ([#158](https://github.com/amr-m-abdelgawad/devctl/issues/158)). A stack that holds no port slot reads the slot it would get at start, so `devctl doctor` and `devctl config` show the ports it will use. A port that belongs to another running stack shows as an error that names the stack, with no **free** control, and freeing one is refused even from a Doctor row that is out of date. When that stack's supervisor is gone, Doctor says so and each port can be freed after its own confirmation; **Free all** skips those ports.
+- On Overview, the workspace controls keep their description readable. The profile menu and the start, stop, and **Profiles & tasks** actions move to the next line when the row is too narrow, instead of covering the text. See [Web console](docs/web.md).
 - A plain-text log line keeps the level it states. `WARN … error=…`, `INFO handled error page`, and `DEBUG … critical section` were stored at the highest level named anywhere in the line, so warnings filled `recent_errors`, the ERROR+ filter, and `logs.errors`. A leading level, or a `level=`, `lvl=`, `severity=`, or `loglevel=` field on a logfmt line, now wins. Lines that state no level still classify by keyword. See [Logs](docs/logs.md).
 
 ## [0.28.1] - 2026-11-01
