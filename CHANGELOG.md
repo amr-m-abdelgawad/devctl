@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.2] - 2026-11-02
+
 ### Added
 
 - The web console **Feedback** menu includes **Star the repo**, which opens the GitHub repository. See [Web console](docs/web.md).
@@ -16,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- On **Profiles & tasks**, **View N services** uses a caret, and choosing a member opens that service's dialog on the page. A dependency in the dialog opens that service in the same dialog. See [Web console](docs/web.md).
+- On **Profiles & tasks**, **View N services** uses a caret, and choosing a member opens that service's dialog on the page. A dependency in the dialog opens that service in the same dialog. **System & supervisor** does the same for a service in the resource table and for a dependency in that dialog. See [Web console](docs/web.md).
 
 ### Fixed
 
@@ -864,7 +866,8 @@ See [Plugins](docs/plugins.md), [HTTP recipes](docs/http.md), the [web console](
 - TypeScript / Bun application: supervisor, TUI, CLI, and localhost MCP on one session.
 - Demo platform (`examples/demo-platform`) that runs without Google Cloud.
 
-[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.1...HEAD
+[Unreleased]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.2...HEAD
+[0.28.2]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.1...v0.28.2
 [0.28.1]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.28.0...v0.28.1
 [0.28.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.27.0...v0.28.0
 [0.27.0]: https://github.com/amr-m-abdelgawad/devctl/compare/v0.26.0...v0.27.0
